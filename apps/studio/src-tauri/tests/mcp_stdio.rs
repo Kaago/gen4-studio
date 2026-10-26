@@ -6,7 +6,10 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use g4_kernel::test_support::{synthetic_project, vanilla_copy};
-use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorCode, ReadResourceRequestParams};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ErrorCode, GetPromptRequestParams,
+    ReadResourceRequestParams,
+};
 use rmcp::service::{RoleClient, RunningService, ServiceError};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use rmcp::{ServiceExt, model::ResourceContents};
@@ -138,6 +141,7 @@ async fn initialize_and_list_read_tools() {
     assert_eq!(server.version, env!("CARGO_PKG_VERSION"));
     assert!(info.capabilities.tools.is_some());
     assert!(info.capabilities.resources.is_some());
+    assert!(info.capabilities.prompts.is_some());
     let instructions = info.instructions.as_deref().expect("instructions");
     assert!(instructions.contains("g4.v1"), "{instructions}");
     assert!(instructions.contains("read-only"), "{instructions}");
@@ -186,7 +190,9 @@ async fn get_header_answers_structured() {
     // The same answer the toolbox (over get_header_impl) gives in a session of its own.
     let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
     let toolbox = Toolbox::open(policy, Access::default()).unwrap();
-    let direct = toolbox.call("get_header", json!({ "id": 0 })).unwrap();
+    let direct = toolbox
+        .call("get_header", json!({ "id": 0 }), "probe")
+        .unwrap();
     // A text block carries the same JSON.
     let text = answer.content[0]
         .as_text()
@@ -254,11 +260,26 @@ async fn resources_list_and_read() {
     let client = connect(fixture.dir.path(), &[]).await;
     let resources = client.list_all_resources().await.unwrap();
     let uris: Vec<&str> = resources.iter().map(|r| r.uri.as_str()).collect();
-    assert_eq!(uris, ["g4://project", "g4://checks"]);
+    assert_eq!(
+        uris,
+        [
+            "g4://project",
+            "g4://checks",
+            "g4://glossary",
+            "g4://docs/mcp"
+        ]
+    );
     assert_eq!(resources[0].mime_type.as_deref(), Some("application/json"));
     let templates = client.list_all_resource_templates().await.unwrap();
     let templates: Vec<&str> = templates.iter().map(|t| t.uri_template.as_str()).collect();
-    assert_eq!(templates, ["g4://text/{archive}", "g4://script/{file}"]);
+    assert_eq!(
+        templates,
+        [
+            "g4://text/{archive}",
+            "g4://script/{file}",
+            "g4://docs/formats/{name}"
+        ]
+    );
 
     let read = client
         .read_resource(ReadResourceRequestParams::new("g4://project"))
@@ -268,6 +289,21 @@ async fn resources_list_and_read() {
     assert!(text.contains("\"toolset\":\"g4.v1\""), "{text}");
     assert_eq!(mime, Some("application/json"));
 
+    let read = client
+        .read_resource(ReadResourceRequestParams::new("g4://glossary"))
+        .await
+        .unwrap();
+    let (text, mime) = text_of(&read.contents[0]);
+    assert!(text.contains("Gebiet") && text.contains("Raster"), "{text}");
+    assert_eq!(mime, Some("text/markdown"));
+    let read = client
+        .read_resource(ReadResourceRequestParams::new("g4://docs/formats/matrix"))
+        .await
+        .unwrap();
+    let (text, mime) = text_of(&read.contents[0]);
+    assert!(text.starts_with('#'), "{text}");
+    assert_eq!(mime, Some("text/markdown"));
+
     let error = match client
         .read_resource(ReadResourceRequestParams::new("g4://nothing"))
         .await
@@ -276,6 +312,52 @@ async fn resources_list_and_read() {
         other => panic!("expected a protocol error, got {other:?}"),
     };
     assert!(error.message.contains("g4://nothing"), "{error:?}");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn prompts_list_and_get() {
+    let fixture = synthetic_project();
+    // Prompts are offered with the tools, also read-only.
+    let client = connect(fixture.dir.path(), &["--read-only"]).await;
+    let prompts = client.list_all_prompts().await.unwrap();
+    let names: Vec<&str> = prompts.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["new_route", "npc_with_item", "place_trainer"]);
+    let new_route = &prompts[0];
+    assert_eq!(new_route.title.as_deref(), Some("Neue Route anlegen"));
+    let arguments = new_route.arguments.as_ref().unwrap();
+    assert_eq!(arguments[0].name, "name");
+    assert_eq!(arguments[0].required, Some(true));
+    let npc = prompts[1].arguments.as_ref().unwrap();
+    assert_eq!(
+        npc.iter()
+            .map(|a| (a.name.as_str(), a.required))
+            .collect::<Vec<_>>(),
+        [("header", Some(true)), ("item", Some(false))]
+    );
+
+    let mut request = GetPromptRequestParams::new("new_route");
+    request.arguments = json!({ "name": "Route 301" }).as_object().cloned();
+    let prompt = client.get_prompt(request).await.unwrap();
+    assert_eq!(prompt.messages.len(), 1);
+    let text = serde_json::to_string(&prompt.messages[0]).unwrap();
+    assert!(
+        text.contains("Route 301") && text.contains("create_area"),
+        "{text}"
+    );
+
+    // Missing argument and unknown prompt: invalid params.
+    for request in [
+        GetPromptRequestParams::new("new_route"),
+        GetPromptRequestParams::new("nope"),
+    ] {
+        match client.get_prompt(request).await {
+            Err(ServiceError::McpError(error)) => {
+                assert_eq!(error.code, ErrorCode::INVALID_PARAMS, "{error:?}");
+            }
+            other => panic!("expected invalid params, got {other:?}"),
+        }
+    }
     client.cancel().await.unwrap();
 }
 
@@ -379,11 +461,18 @@ fn run_bad(args: &[&str]) -> (Option<i32>, String) {
 
 #[test]
 fn bad_project_exits_before_serving() {
-    let (code, stderr) = run_bad(&[]);
-    assert_eq!(code, Some(2), "{stderr}");
-    assert!(stderr.contains("--project fehlt"), "{stderr}");
-
+    // Without --project `studio mcp` looks for the running app; none runs here.
     let missing = tempfile::tempdir().unwrap();
+    let (code, stderr) = run_bad(&["--app-data", missing.path().to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "Gen4 Studio läuft nicht oder „Lokale Agenten zulassen“ ist aus; kopflos mit \
+             --project <Ordner>"
+        ),
+        "{stderr}"
+    );
+
     let gone = missing.path().join("gone");
     let (code, stderr) = run_bad(&["--project", gone.to_str().unwrap()]);
     assert_eq!(code, Some(2), "{stderr}");
@@ -601,14 +690,14 @@ async fn edit_undo_redo_over_stdio() {
     assert_eq!(data_get(&client, "move", 1).await, before);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": [], "redo": ["Stärke 65"] })
+        json!({ "undo": [], "redo": ["Stärke 65"], "undo_agents": [], "redo_agents": ["rmcp"] })
     );
 
     result(call_tool(&client, "redo", json!({})).await);
     assert_eq!(data_get(&client, "move", 1).await, after);
     assert_eq!(
         history(&client).await,
-        json!({ "undo": ["Stärke 65"], "redo": [] })
+        json!({ "undo": ["Stärke 65"], "redo": [], "undo_agents": ["rmcp"], "redo_agents": [] })
     );
     client.cancel().await.unwrap();
 }
@@ -635,7 +724,10 @@ async fn irreversible_needs_the_flag() {
     assert_eq!(error["code"], "needs_confirmation");
     let status = result(call_tool(&client, "header_patch_status", json!({})).await);
     assert_eq!(status["applied"], false);
-    assert_eq!(history(&client).await, json!({ "undo": [], "redo": [] }));
+    assert_eq!(
+        history(&client).await,
+        json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+    );
     client.cancel().await.unwrap();
 
     let client = connect(fixture.dir.path(), &["--allow-irreversible"]).await;
@@ -754,7 +846,10 @@ async fn batch_checks_every_call_before_running() {
     assert_eq!(error["details"]["tool"], "create_trainer");
     // Call 0 never ran.
     assert_eq!(data_get(&client, "move", 1).await, moves);
-    assert_eq!(history(&client).await, json!({ "undo": [], "redo": [] }));
+    assert_eq!(
+        history(&client).await,
+        json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
+    );
     client.cancel().await.unwrap();
 }
 
@@ -1004,7 +1099,9 @@ fn closing_stdin_waits_for_a_running_write() {
         expert: true,
     };
     let toolbox = Toolbox::open(policy, access).unwrap();
-    toolbox.call("g4_call", export("build/plain.per")).unwrap();
+    toolbox
+        .call("g4_call", export("build/plain.per"), "probe")
+        .unwrap();
     let plain = std::fs::read(fixture.dir.path().join("build/plain.per")).unwrap();
     assert!(!plain.is_empty());
     assert_eq!(std::fs::read(&slow).unwrap(), plain);
@@ -1034,7 +1131,7 @@ fn vanilla_closing_stdin_waits_for_a_running_build() {
     };
     let toolbox = Toolbox::open(policy, write).unwrap();
     toolbox
-        .call("build_rom", json!({ "out": "build/plain.nds" }))
+        .call("build_rom", json!({ "out": "build/plain.nds" }), "probe")
         .unwrap();
     let plain = std::fs::read(project.join("build/plain.nds")).unwrap();
     assert_eq!(std::fs::read(&slow).unwrap(), plain);

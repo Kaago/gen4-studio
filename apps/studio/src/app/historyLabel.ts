@@ -61,7 +61,9 @@ export function historyLabel(label: string, depth: Depth): string {
   return label !== "" && !DEVELOPER_STRING.test(label) ? label : "Änderung";
 }
 
+/** Translates both lists in the depth's words; the agents of the steps (`undo_agents`, `redo_agents`) stay aligned with them. */
 export const germanHistory = (history: HistoryDto, depth: Depth): HistoryDto => ({
+  ...history,
   undo: history.undo.map((label) => historyLabel(label, depth)),
   redo: history.redo.map((label) => historyLabel(label, depth)),
 });

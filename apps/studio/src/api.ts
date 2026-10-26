@@ -509,6 +509,9 @@ export const redo = () => invoke<AssetId[]>("redo");
 export interface HistoryDto {
   undo: string[];
   redo: string[];
+  /** Who made each step, aligned with `undo` and `redo`: the agent's client name („Claude Code“), `null` for the user's own steps. */
+  undo_agents?: (string | null)[];
+  redo_agents?: (string | null)[];
 }
 export const history = () => invoke<HistoryDto>("history");
 export const dirty = () => invoke<AssetId[]>("dirty");
@@ -840,6 +843,7 @@ export const worldMetaGet = () => invoke<{ meta: WorldMeta; broken: string | nul
 /** Writes the world file at once. Rejects while the file is broken ("g4-world.json ist beschädigt: … Repariere oder lösche die Datei."). */
 export const worldMetaSet = (meta: WorldMeta) => invoke<void>("world_meta_set", { meta });
 
+export * from "./api.agents";
 export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";

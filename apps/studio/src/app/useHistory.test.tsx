@@ -7,7 +7,7 @@ import { history } from "../api";
 import type { HistoryDto } from "../api";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus } from "../bus/editBus";
-import { HISTORY_DEBOUNCE_MS, useHistory } from "./useHistory";
+import { HISTORY_DEBOUNCE_MS, HistoryFeed, useHistory } from "./useHistory";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), history: vi.fn() }));
 
@@ -103,5 +103,19 @@ describe("useHistory", () => {
     await wait(HISTORY_DEBOUNCE_MS * 2);
     expect(history).not.toHaveBeenCalled();
     expect(shown).toEqual({ undo: [], redo: [] });
+  });
+
+  it("a_step_of_another_agent_with_the_same_labels_is_a_new_history", () => {
+    const feed = new HistoryFeed();
+    const listener = vi.fn();
+    feed.subscribe(listener);
+    feed.set({ undo: ["Malen"], redo: [], undo_agents: [null], redo_agents: [] });
+    const first = feed.get();
+    feed.set({ undo: ["Malen"], redo: [], undo_agents: [null], redo_agents: [] });
+    expect(feed.get()).toBe(first);
+    feed.set({ undo: ["Malen"], redo: [], undo_agents: ["Claude Code"], redo_agents: [] });
+    expect(feed.get()).not.toBe(first);
+    expect(feed.get().undo_agents).toEqual(["Claude Code"]);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });

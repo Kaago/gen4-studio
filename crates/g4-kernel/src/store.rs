@@ -1,6 +1,7 @@
 //! In-memory asset store: lazy loading, changesets with undo/redo, dirty tracking by
 //! byte comparison, and a save that refuses to overwrite files changed on disk.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -409,11 +410,58 @@ pub struct Part {
     after: Vec<u8>,
 }
 
+/// Who made an edit: the user in the app, or an agent (the display name of its MCP client).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Origin {
+    User,
+    Agent { client: String },
+}
+
+thread_local! {
+    /// The origin the steps recorded on this thread get; see [`with_origin`].
+    static CURRENT_ORIGIN: RefCell<Origin> = const { RefCell::new(Origin::User) };
+}
+
+/// Restores the previous origin when dropped, so a panic inside [`with_origin`] resets it too.
+struct OriginGuard(Option<Origin>);
+
+impl Drop for OriginGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            CURRENT_ORIGIN.with(|c| *c.borrow_mut() = previous);
+        }
+    }
+}
+
+/// Runs `f` with `origin` as the current origin of this thread: every step recorded inside
+/// is made by it. The previous origin comes back afterwards, also when `f` panics.
+pub fn with_origin<T>(origin: Origin, f: impl FnOnce() -> T) -> T {
+    let previous = CURRENT_ORIGIN.with(|c| std::mem::replace(&mut *c.borrow_mut(), origin));
+    let _guard = OriginGuard(Some(previous));
+    f()
+}
+
+/// The origin steps recorded on this thread get right now ([`Origin::User`] outside
+/// [`with_origin`]).
+pub fn current_origin() -> Origin {
+    CURRENT_ORIGIN.with(|c| c.borrow().clone())
+}
+
+/// One entry of the undo or redo history: the label of a step and who made it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub label: String,
+    pub origin: Origin,
+}
+
 /// One undoable step: every asset it changed, each at most once, in the order they were
 /// edited. Never empty, except a barrier whose parts were forgotten.
 struct Changeset {
     parts: Vec<Part>,
     label: String,
+    /// Who made the step; kept when it moves between the undo and redo stacks.
+    origin: Origin,
     /// Set for a step undo must not cross (see [`Store::barrier_transaction`]): the reason
     /// undo is refused with.
     barrier: Option<String>,
@@ -1089,6 +1137,7 @@ impl Store {
         self.undo.push(Changeset {
             parts,
             label: label.to_owned(),
+            origin: current_origin(),
             barrier: barrier.map(str::to_owned),
         });
         self.redo.clear();
@@ -2217,15 +2266,18 @@ impl Store {
     /// bytes before the first of its parts to the bytes after the last. A part that ends
     /// where it began falls away. The step is a barrier when any merged step was one, with
     /// the reason of the first; without parts and without a barrier nothing is recorded. A
-    /// `mark` at or past the end of the stack does nothing. The redo stack is untouched
-    /// (the first recorded step of the batch has already cleared it).
+    /// `mark` at or past the end of the stack does nothing. The merged step keeps the origin of
+    /// the first merged step. The redo stack is untouched (the first recorded step of the batch
+    /// has already cleared it).
     pub fn squash_since(&mut self, mark: usize, label: &str) {
         if mark >= self.undo.len() {
             return;
         }
         let mut barrier = None;
         let mut parts: Vec<Part> = Vec::new();
+        let mut origin = None;
         for step in self.undo.split_off(mark) {
+            origin.get_or_insert(step.origin);
             if barrier.is_none() {
                 barrier = step.barrier;
             }
@@ -2243,6 +2295,8 @@ impl Store {
         self.undo.push(Changeset {
             parts,
             label: label.to_owned(),
+            // `mark < len`, so at least one step was merged.
+            origin: origin.unwrap_or_else(current_origin),
             barrier,
         });
     }
@@ -2293,6 +2347,17 @@ impl Store {
     pub fn history(&self) -> (Vec<String>, Vec<String>) {
         let undo = self.undo.iter().map(|c| c.label.clone()).collect();
         let redo = self.redo.iter().rev().map(|c| c.label.clone()).collect();
+        (undo, redo)
+    }
+
+    /// Like [`Store::history`], with the origin of each step beside its label (same order).
+    pub fn history_entries(&self) -> (Vec<HistoryEntry>, Vec<HistoryEntry>) {
+        let entry = |c: &Changeset| HistoryEntry {
+            label: c.label.clone(),
+            origin: c.origin.clone(),
+        };
+        let undo = self.undo.iter().map(entry).collect();
+        let redo = self.redo.iter().rev().map(entry).collect();
         (undo, redo)
     }
 
@@ -2855,6 +2920,97 @@ mod tests {
             st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
                 .unwrap();
             assert_eq!(st.history(), (owned(&["A", "B", "D"]), vec![]));
+        }
+
+        fn claude_code() -> Origin {
+            Origin::Agent {
+                client: "Claude Code".to_owned(),
+            }
+        }
+
+        #[test]
+        fn edits_record_the_current_origin() {
+            let (_s, mut st) = store();
+            let edit = |st: &mut Store, label: &str, text: &str| {
+                st.edit_text_archive(433, label, |d| d.messages[1].text = text.into())
+                    .unwrap();
+            };
+            edit(&mut st, "A", "Eins");
+            with_origin(claude_code(), || {
+                assert_eq!(current_origin(), claude_code());
+                edit(&mut st, "B", "Zwei");
+            });
+            assert_eq!(current_origin(), Origin::User);
+            edit(&mut st, "C", "Drei");
+            let (undo, redo) = st.history_entries();
+            let origins: Vec<_> = undo.iter().map(|e| e.origin.clone()).collect();
+            assert_eq!(origins, [Origin::User, claude_code(), Origin::User]);
+            assert_eq!(undo[1].label, "B");
+            assert!(redo.is_empty());
+        }
+
+        #[test]
+        fn origin_resets_after_panic() {
+            let result = std::panic::catch_unwind(|| {
+                with_origin(claude_code(), || panic!("boom"));
+            });
+            assert!(result.is_err());
+            assert_eq!(current_origin(), Origin::User);
+        }
+
+        #[test]
+        fn with_origin_restores_the_previous_origin_when_nested() {
+            with_origin(claude_code(), || {
+                with_origin(Origin::User, || assert_eq!(current_origin(), Origin::User));
+                assert_eq!(current_origin(), claude_code());
+            });
+            assert_eq!(current_origin(), Origin::User);
+        }
+
+        #[test]
+        fn squash_keeps_the_first_origin() {
+            let (_s, mut st) = store();
+            let mark = st.undo_depth();
+            with_origin(claude_code(), || {
+                st.edit_text_archive(433, "A", |d| d.messages[1].text = "Eins".into())
+                    .unwrap();
+                st.edit_text_archive(433, "B", |d| d.messages[1].text = "Zwei".into())
+                    .unwrap();
+            });
+            // The squash runs outside the agent's scope: the merged step keeps the first
+            // merged step's origin, not the current one.
+            st.squash_since(mark, "batch");
+            let (undo, _) = st.history_entries();
+            assert_eq!(undo.len(), 1);
+            assert_eq!(undo[0].origin, claude_code());
+
+            let mark = st.undo_depth();
+            st.edit_text_archive(433, "C", |d| d.messages[1].text = "Drei".into())
+                .unwrap();
+            with_origin(claude_code(), || {
+                st.edit_text_archive(433, "D", |d| d.messages[1].text = "Vier".into())
+                    .unwrap();
+            });
+            st.squash_since(mark, "batch2");
+            let (undo, _) = st.history_entries();
+            assert_eq!(undo[1].origin, Origin::User);
+        }
+
+        #[test]
+        fn undo_redo_keep_origin() {
+            let (_s, mut st) = store();
+            with_origin(claude_code(), || {
+                st.edit_text_archive(433, "A", |d| d.messages[1].text = "Eins".into())
+                    .unwrap();
+            });
+            st.undo().unwrap();
+            let (undo, redo) = st.history_entries();
+            assert!(undo.is_empty());
+            assert_eq!(redo[0].origin, claude_code());
+            st.redo().unwrap();
+            let (undo, redo) = st.history_entries();
+            assert!(redo.is_empty());
+            assert_eq!(undo[0].origin, claude_code());
         }
 
         #[test]

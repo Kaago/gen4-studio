@@ -1,0 +1,122 @@
+.column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-dichte-panel-innen);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+/*
+ * Darstellung, Emulator and Tastenkürzel fill the first row (four columns of at least 280 px never fit the area), so Agenten starts
+ * the second. From two columns on (2 × 280 px and the gap) it spans two: the segments of the grant stay on one row and the
+ * setup line on one or two.
+ */
+@container settings (min-width: 576px) {
+  .column {
+    grid-column: span 2;
+  }
+}
+
+.heading {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-m-betont);
+}
+
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-6);
+}
+
+.label {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.hint {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* Where agents reach the app: a dot (filled when ready) and the address, never the colour alone. */
+.server {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* Why the server did not start: the design system's error notice, as wide as the column. */
+.serverError {
+  align-self: stretch;
+}
+
+.dot {
+  width: var(--g4-raum-8);
+  height: var(--g4-raum-8);
+  flex: none;
+  border: var(--g4-strich-standard) solid var(--g4-linie-stark);
+  border-radius: 50%;
+}
+
+.ready {
+  border-color: var(--g4-status-erfolg);
+  background: var(--g4-status-erfolg);
+}
+
+/* The line to paste into a terminal: whole, in the code face, breaking anywhere rather than scrolling. */
+.setup {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.grants {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grant {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  font: var(--g4-font-text-s);
+}
+
+.path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g4-text-primaer);
+  font-family: var(--g4-schrift-familie-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.level {
+  flex: none;
+  color: var(--g4-text-sekundaer);
+}

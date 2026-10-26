@@ -29,6 +29,7 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { toolStatus } from "./app/toolStatus";
+import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
@@ -46,7 +47,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
+import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -59,6 +60,8 @@ import { ToolHints } from "./app/ToolHints";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { AgentQuestion } from "./app/AgentQuestion";
+import { useAgents } from "./app/useAgents";
 import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
 import { useInspectorReveal } from "./app/useInspectorReveal";
@@ -320,6 +323,32 @@ function AppBody() {
     scene.noteHistoryMoved();
     await reloadChanged(report.changed, true);
   });
+  // An agent changed assets: read again on the same path as „Welt leeren“ (new areas appear in the world explorer). One change after
+  // the other, so two quick ones do not interleave their reloads; without a project there is nothing to read.
+  const agentReloads = useRef<Promise<void>>(Promise.resolve());
+  const reloadAfterAgent = useStableCallback(async (assets: AssetId[]) => {
+    if (session.info === null) return;
+    await session.onCountsChanged();
+    scene.noteHistoryMoved();
+    await reloadChanged(assets, true);
+  });
+  const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
+    agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
+  });
+  // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
+  // stale file, in the same queue.
+  const onAgentGap = useStableCallback(() => {
+    agentReloads.current = agentReloads.current
+      .then(async () => {
+        if (session.info === null) return;
+        await session.onCountsChanged();
+        scene.noteHistoryMoved();
+        await session.staleRefresh.current();
+      })
+      .catch(session.fail);
+  });
+  // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
+  const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
@@ -787,6 +816,7 @@ function AppBody() {
         onTheme={shell.setTheme}
         onDensity={shell.setDensity}
         onPickEmulator={() => void session.onPickEmulator()}
+        agents={{ projectOpen: session.info !== null, bridge: !inTauri(), status: agents.status, onError: session.fail }}
       />
     ) : (
       <EmptyState what="Dieser Bereich ist noch nicht da." why="Er kommt in einer der nächsten Phasen." />
@@ -883,6 +913,7 @@ function AppBody() {
                   density={shell.density}
                   onToggleDensity={shell.toggleDensity}
                   build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+                  agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
                 />
               }
             />
@@ -911,6 +942,7 @@ function AppBody() {
         onRegionApplied={onRegionApplied}
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
       {importMap !== null && (
         <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
       )}

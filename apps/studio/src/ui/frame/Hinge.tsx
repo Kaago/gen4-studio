@@ -67,10 +67,16 @@ const COUNTERS = [
 export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, maximized = false, onMaximize, wizard }: HingeProps) {
   const undoSteps = history.undo.length;
   const recent = history.undo.slice(-MENU_STEPS).reverse();
+  // Who made each of them, aligned with `recent` (ignored unless aligned with `undo`): an agent's step shows its symbol and the client.
+  const agents = history.undo_agents?.length === undoSteps ? history.undo_agents.slice(-MENU_STEPS).reverse() : [];
   const historyItems: MenuEntry[] =
     recent.length === 0
       ? [{ label: "Noch nichts zurückzunehmen", disabled: true, onSelect: () => {} }]
-      : recent.map((label, i) => ({ label: label === "" ? "Änderung" : label, onSelect: () => onUndoTo(i + 1) }));
+      : recent.map((label, i) => {
+          const step = { label: label === "" ? "Änderung" : label, onSelect: () => onUndoTo(i + 1) };
+          const agent = agents[i] ?? null;
+          return agent === null ? step : { ...step, icon: "agent" as const, detail: agent };
+        });
   const counts = countsText(problems);
   const kind: LightKind = problems.errors > 0 ? "error" : problems.warnings > 0 ? "warning" : problems.infos > 0 ? "info" : unchecked ? "unchecked" : "sound";
   const running = checking !== undefined && checking !== null;

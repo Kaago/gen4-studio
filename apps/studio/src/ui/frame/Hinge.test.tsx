@@ -204,6 +204,16 @@ describe("Hinge", () => {
     expect(props.onUndoTo).toHaveBeenCalledExactlyOnceWith(3);
   });
 
+  it("agent_step_shows_client", () => {
+    show(base({ history: { undo: ["Malen", "Event hinzugefügt"], redo: [], undo_agents: [null, "Claude Code"], redo_agents: [] } }));
+    const [agentStep, ownStep] = openMenu(button(/Verlauf/)!);
+    // The newest step comes first: the agent's, with its symbol and the client as quiet detail.
+    expect(agentStep?.textContent).toBe("Event hinzugefügtClaude Code");
+    expect(agentStep?.querySelector("svg")).not.toBeNull();
+    expect(ownStep?.textContent).toBe("Malen");
+    expect(ownStep?.querySelector("svg")).toBeNull();
+  });
+
   it("calls_a_step_without_a_label_Aenderung", () => {
     show(base({ history: { undo: ["Tür verschoben", ""], redo: [] } }));
     expect(openMenu(button(/Verlauf/)!).map((i) => i.textContent)).toEqual(["Änderung", "Tür verschoben"]);

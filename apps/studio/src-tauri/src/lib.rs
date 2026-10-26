@@ -9,6 +9,8 @@ mod lsp;
 pub mod mcp;
 mod menu;
 mod state;
+/// The state behind the commands (for the dev bridge and the tests of the MCP server).
+pub use state::AppState;
 
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
@@ -27,12 +29,19 @@ use commands::{
     set_trainer_texts, split_encounter_file, tile_behaviors, undo, unignore_finding,
     update_building, update_event, validate_text, world_meta_get, world_meta_set,
 };
+use commands::{
+    agent_answer, agent_disconnect, agent_poll, agent_remove_grant, agent_set_enabled,
+    agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
+};
 use commands::{apply_empty_region, plan_empty_region};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
-use state::{AppState, QuitAction, quit_action};
+use state::{QuitAction, quit_action};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager, RunEvent};
+
+use mcp::http::AppServer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,6 +49,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .menu(menu::app_menu)
+        .setup(|app| {
+            setup_agents(app.handle());
+            Ok(())
+        })
         .on_menu_event(|app, event| {
             if event.id().as_ref() == menu::QUIT_ID {
                 request_quit(app);
@@ -143,6 +156,16 @@ pub fn run() {
             create_project,
             plan_empty_region,
             apply_empty_region,
+            agent_status,
+            agent_poll,
+            agent_settings,
+            agent_set_enabled,
+            agent_set_expert,
+            agent_set_grant,
+            agent_remove_grant,
+            agent_answer,
+            agent_disconnect,
+            agent_set_read_only,
             world_meta_get,
             world_meta_set
         ])
@@ -157,10 +180,42 @@ pub fn run() {
                 }
                 // The exit goes ahead (also the one after `force_quit`): end rotom-lsp. `Exit`
                 // covers an exit that skipped the request.
-                RunEvent::ExitRequested { .. } | RunEvent::Exit => lsp::stop_on_exit(app),
+                RunEvent::ExitRequested { .. } => lsp::stop_on_exit(app),
+                RunEvent::Exit => {
+                    lsp::stop_on_exit(app);
+                    // The MCP server stops and its discovery file goes; the switch stays on.
+                    if let Some(server) = app.try_state::<Arc<AppServer>>() {
+                        server.shutdown();
+                    }
+                }
                 _ => {}
             }
         });
+}
+
+/// The agent hub of the app: settings in the app data folder (`G4_APP_DATA_DIR` first),
+/// events to the webview as `agent-event`, "Lokale Agenten zulassen" backed by the MCP
+/// server on `127.0.0.1` (started right away when the switch was left on).
+fn setup_agents(app: &tauri::AppHandle) {
+    let dir = mcp::discovery::env_dir().or_else(|| app.path().app_data_dir().ok());
+    let state = app.state::<AppState>();
+    let hub = &state.agents;
+    hub.configure(dir.clone());
+    let emitter = app.clone();
+    hub.set_notifier(Arc::new(move |event| {
+        // A failed emit only means the webview misses one update; `agent_poll` catches up.
+        let _ = emitter.emit("agent-event", event);
+    }));
+    let source: Arc<dyn mcp::host::StateSource> = Arc::new(app.clone());
+    let rt = tauri::async_runtime::handle().inner().clone();
+    let server = Arc::new(AppServer::new(source, dir, rt));
+    hub.set_server_control(server.control());
+    app.manage(server);
+    if hub.settings().enabled
+        && let Err(e) = hub.set_enabled(true)
+    {
+        eprintln!("MCP-Server nicht gestartet: {e}");
+    }
 }
 
 /// Our Quit menu item (Cmd+Q): asks first when edits are unsaved, otherwise quits. Quitting
