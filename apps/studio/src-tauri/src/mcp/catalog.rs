@@ -99,6 +99,29 @@ fn answers_array() -> Value {
     answer(json!({ "type": "array" }))
 }
 
+/// The answer of the project preview tools (`PreviewDto`).
+fn answers_preview() -> Value {
+    answer(json!({
+        "type": "object",
+        "properties": {
+            "source": {
+                "type": ["string", "null"],
+                "enum": ["eigen", "standard", null],
+                "description": "which picture png is, null without one",
+            },
+            "png": {
+                "type": ["string", "null"],
+                "description": "base64 of the PNG, 256×192",
+            },
+            "standardMap": {
+                "type": ["object", "null"],
+                "description": "the start town: header, map and areaDataId",
+            },
+        },
+        "required": ["source", "png", "standardMap"],
+    }))
+}
+
 fn answers_nothing() -> Value {
     answer(json!({ "type": "null" }))
 }
@@ -481,6 +504,17 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("plan_fix"),
     },
+    ToolDef {
+        name: "project_preview_get",
+        title: "Project preview",
+        description: "Read the project's preview picture (256×192 PNG, base64) for the start \
+                      list: source is eigen (the own picture), standard (the start town's map \
+                      the app renders) or null without one. standardMap names the start \
+                      town's header, map and area data, null when the game has none.",
+        input_schema: no_args,
+        output_schema: answers_preview,
+        route: command("project_preview_get"),
+    },
     // Writing.
     ToolDef {
         name: "save",
@@ -837,6 +871,40 @@ static TOOLS: &[ToolDef] = &[
         route: command("apply_header_patch"),
     },
     ToolDef {
+        name: "project_preview_set",
+        title: "Set project preview",
+        description: "Sets or removes the project's preview picture for the start list: png \
+                      or file is cropped to 4:3 and fitted to 256×192, with neither the \
+                      slot's picture is removed, and the answer is as project_preview_get's. \
+                      This cannot be undone; headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: || {
+            object(
+                json!({
+                    "slot": {
+                        "type": "string",
+                        "enum": ["eigen", "standard"],
+                        "default": "eigen",
+                        "description": "eigen (the own picture, shown first) or standard \
+                                        (the start town's map, shown without an own \
+                                        picture); default eigen",
+                    },
+                    "png": text(
+                        "base64 of a PNG or JPEG of any size up to 8192×8192; not together \
+                         with file"
+                    ),
+                    "file": text(
+                        "path of a PNG or JPEG in the project or an allowed folder, relative \
+                         to the project folder; not together with png"
+                    ),
+                }),
+                &[],
+            )
+        },
+        output_schema: answers_preview,
+        route: command("project_preview_set"),
+    },
+    ToolDef {
         name: "build_rom",
         title: "Build ROM",
         description: "Saves the project and builds a playable ROM, by default to \
@@ -1052,6 +1120,7 @@ mod tests {
                 "refs",
                 "run_checks",
                 "plan_fix",
+                "project_preview_get",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1090,6 +1159,7 @@ mod tests {
             "set_trainer_texts",
             "apply_fix",
             "apply_header_patch",
+            "project_preview_set",
             "build_rom",
         ]
         .into_iter()
@@ -1214,7 +1284,12 @@ mod tests {
 
     #[test]
     fn irreversible_tools_name_the_headless_switch() {
-        for name in ["create_trainer", "apply_header_patch", "apply_fix"] {
+        for name in [
+            "create_trainer",
+            "apply_header_patch",
+            "apply_fix",
+            "project_preview_set",
+        ] {
             let description = tool(name).description;
             assert!(
                 description.contains("--allow-irreversible")
@@ -1276,6 +1351,7 @@ mod tests {
             ),
             ("run_checks", json!({ "scope": "cheap" })),
             ("plan_fix", json!({ "finding": finding, "fix": "wrap" })),
+            ("project_preview_get", json!({})),
             (
                 "set_header",
                 json!({ "id": 0, "header": header, "label": "agent" }),
@@ -1337,6 +1413,7 @@ mod tests {
             ),
             ("apply_fix", json!({ "finding": finding, "fix": "wrap" })),
             ("apply_header_patch", json!({})),
+            ("project_preview_set", json!({ "slot": "standard" })),
             ("undo", json!({})),
             ("redo", json!({})),
             ("save", json!({})),

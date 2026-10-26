@@ -150,6 +150,7 @@ Unumkehrbar sind diese Gruppen:
 - **Bauen und Exportieren außerhalb von `build/`:** `build_rom` und `export_map_part` (nur über `g4_call`) mit einem Ziel außerhalb von `build/`, also in einem `--allow-dir`-Ordner (nach `build/` im Projekt zählt es als schreibend);
 - **Emulator:** `run_rom`, zusätzlich nur mit `--emulator`;
 - **Ausgangslage der Prüfungen:** `accept_baseline`;
+- **Vorschaubild** (seit 4.0): `project_preview_set` ersetzt oder entfernt das Bild des Projekts in der Startliste (`.g4/preview.png` bzw. `.g4/cache/preview-standard.png`); es liegt neben dem Verlauf, also ohne Undo;
 - **Welt leeren** (seit 3g.2, nur über `g4_call`): `apply_empty_region` legt die Vorlage „Leere Region mit Startstadt“ an; der Store-Schritt lässt sich zurücknehmen, die neuen Dateien (Rand-Karte, Level-Script, Start-Script) bleiben auf der Platte.
 
 ## Werkzeuge
@@ -176,6 +177,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `refs` | lesend | wo eine Art, Attacke, ein Item, Trainer, eine Trainerklasse oder Begegnungsdatei benutzt wird |
 | `run_checks` | lesend | die Projektprüfungen (kaputte Warps, zu breite Texte, fehlende Scripts …) mit allen Befunden |
 | `plan_fix` | lesend | was ein Fix für einen Befund ändern würde (vorher, nachher), ohne ihn anzuwenden |
+| `project_preview_get` | lesend | das Vorschaubild des Projekts für die Startliste (PNG 256 × 192, Base64): `source` `eigen`, `standard` oder `null`, dazu `standardMap` (Header, Karte und AreaData der Startstadt, `null` ohne Rezept) |
 | `g4_batch` | je nach Aufrufen | mehrere Werkzeug-Aufrufe der Reihe nach als **ein** Undo-Schritt; ein Fehler nimmt alles zurück |
 | `save` | schreibend | schreibt alle ungespeicherten Änderungen in die Projektdateien |
 | `undo`, `redo` | schreibend | nimmt den neuesten Schritt des Verlaufs zurück bzw. stellt ihn wieder her |
@@ -193,6 +195,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `set_trainer_texts` | schreibend | setzt die Kampftexte eines Trainers |
 | `create_trainer` | unumkehrbar | legt einen neuen Trainer einer Klasse mit Namen und Kampf-Script an |
 | `apply_header_patch` | unumkehrbar | spielt den Patch „Dynamische Header“ in den Spielcode ein, den neue Header brauchen |
+| `project_preview_set` | unumkehrbar | setzt das Vorschaubild aus `png` (Base64) oder `file` (PNG oder JPEG im Projekt oder einem `--allow-dir`-Ordner), auf 4 : 3 beschnitten und auf 256 × 192 eingepasst; ohne beides entfernt es das Bild des Slots; `slot` ist `eigen` (Standard) oder `standard`. Ein `path` wird abgelehnt, auch über `g4_call` (`unavailable`): der Server ist an sein Projekt gebunden |
 | `apply_fix` | schreibend; `create_script` unumkehrbar | wendet einen Fix an, wie `plan_fix` ihn beschreibt |
 | `build_rom` | schreibend in `build/`, sonst unumkehrbar | speichert und baut eine spielbare ROM, Standard `build/<Spielcode>.nds` im Projekt |
 | `g4_call` | nur mit `--expert` | führt einen Editor-Befehl beim Namen aus (siehe „Expertenmodus“) |
@@ -218,6 +221,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 - Speichern und Übersetzen: `save`, `save_script`, `save_level_script`;
 - Scriptdateien: `new_script_file`, `add_script`, `adopt_scripts`, `apply_fix` mit `create_script`;
 - Bauen und Exportieren: `build_rom`, `export_map_part`;
+- Vorschaubild: `project_preview_set`;
 - Prüf-Einstellungen in `g4-checks.json`: `accept_baseline`, `ignore_finding`, `unignore_finding`, `set_check_enabled`;
 - `g4_batch` selbst („g4_batch kann sich nicht selbst enthalten“).
 

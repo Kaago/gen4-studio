@@ -23,6 +23,9 @@ pub enum Kind {
 const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
 const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
 
+/// Why an agent may not name a project folder: the server serves one project.
+const BOUND_PROJECT: &str = "Das Projekt ist fest (--project); ohne path aufrufen";
+
 /// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
 const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
 
@@ -154,6 +157,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("create_place", Kind::Write),
     ("rename_place", Kind::Write),
     ("assign_place", Kind::Write),
+    ("project_preview_get", Kind::Read),
+    (
+        "project_preview_set",
+        Kind::Irreversible("Vorschaubild ändern"),
+    ),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -192,11 +200,18 @@ impl From<Kind> for Class {
 /// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
 /// a script; `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic
-/// Headers patch. A name the table does not have is unavailable.
+/// Headers patch. The project preview commands with a `path` (another project folder) are
+/// unavailable, also when it names the bound project. A name the table does not have is
+/// unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
     };
+    if matches!(command, "project_preview_get" | "project_preview_set")
+        && args.get("path").is_some_and(|path| !path.is_null())
+    {
+        return Class::Unavailable(BOUND_PROJECT.to_owned());
+    }
     if kind != Kind::Depends {
         return kind.into();
     }
@@ -319,6 +334,10 @@ mod tests {
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
                 (
+                    "project_preview_set",
+                    Kind::Irreversible("Vorschaubild ändern")
+                ),
+                (
                     "repair_header_patch",
                     Kind::Irreversible("Header-Patch reparieren")
                 ),
@@ -396,6 +415,29 @@ mod tests {
         ] {
             assert_eq!(kind(name), Kind::Write, "{name}");
         }
+    }
+
+    #[test]
+    fn preview_with_a_path_is_unavailable() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let root = fixture.dir.path().to_str().unwrap();
+        for command in ["project_preview_get", "project_preview_set"] {
+            assert_eq!(
+                classify(command, &json!({ "path": root }), &policy),
+                Class::Unavailable(BOUND_PROJECT.to_owned()),
+                "{command}"
+            );
+        }
+        // Without one (or with null, as `api.preview.ts` sends it): the table's kind.
+        assert_eq!(
+            classify("project_preview_get", &json!({ "path": null }), &policy),
+            Class::Read
+        );
+        assert_eq!(
+            classify("project_preview_set", &json!({ "png": "" }), &policy),
+            Class::Irreversible("Vorschaubild ändern".to_owned())
+        );
     }
 
     #[test]

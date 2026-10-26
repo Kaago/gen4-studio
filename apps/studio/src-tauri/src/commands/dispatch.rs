@@ -15,6 +15,7 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 use g4_kernel::checks::{FixId, Subject};
 use g4_kernel::map_import::{Part, Source};
+use g4_kernel::preview::PreviewSlot;
 use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
 use g4_kernel::store::MapHeader;
@@ -157,6 +158,8 @@ pub const COMMANDS: &[&str] = &[
     "create_place",
     "rename_place",
     "assign_place",
+    "project_preview_get",
+    "project_preview_set",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -169,6 +172,21 @@ fn confine_source(policy: &dyn Policy, source: Source) -> Result<Source, CmdErro
                 .collect::<Result<_, _>>()?,
         ),
         map => map,
+    })
+}
+
+/// The project folder `path` of `project_preview_*` names: one `open_project` may open, or,
+/// when nothing is there, a place the policy lets a file be written to (its parent is
+/// allowed). So a start list entry whose folder is gone answers no preview instead of an
+/// error, and a folder outside the policy is refused either way. (`read_path` takes files
+/// only.)
+fn preview_root(policy: &dyn Policy, path: &str) -> Result<std::path::PathBuf, CmdError> {
+    policy.check_project(path).or_else(|refused| {
+        if std::path::Path::new(path).symlink_metadata().is_ok() {
+            Err(refused)
+        } else {
+            policy.write_path(path)
+        }
     })
 }
 
@@ -213,8 +231,8 @@ macro_rules! run {
 }
 
 /// Runs the command `name` against `state`. The paths of `open_project`, `build_rom`,
-/// `run_rom` and the map part commands are checked by `policy` first; `force_quit` is a
-/// no-op and the language server is off.
+/// `run_rom`, the map part and the project preview commands are checked by `policy` first;
+/// `force_quit` is a no-op and the language server is off.
 pub fn dispatch(
     state: &AppState,
     policy: &dyn Policy,
@@ -693,6 +711,27 @@ pub fn dispatch(
             { headers: Vec<u16>, index: u8 },
             |a| assign_place_impl(state, &a.headers, a.index)
         ),
+        "project_preview_get" => {
+            run!(json, "project_preview_get", args, { path: Option<String> }, |a| {
+                let root = a.path.map(|p| preview_root(policy, &p)).transpose()?;
+                project_preview_get_impl(state, root.as_deref())
+            })
+        }
+        "project_preview_set" => run!(
+            json, "project_preview_set", args,
+            { path: Option<String>, slot: Option<PreviewSlot>, png: Option<String>, file: Option<String> },
+            |a| {
+                let root = a.path.map(|p| preview_root(policy, &p)).transpose()?;
+                let file = a.file.map(|f| policy.read_path(&f)).transpose()?;
+                project_preview_set_impl(
+                    state,
+                    root.as_deref(),
+                    a.slot.unwrap_or_default(),
+                    a.png.as_deref(),
+                    file.as_deref(),
+                )
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1008,6 +1047,12 @@ mod tests {
                 json!({ "index": 1, "name": "Zweiblattdorf" }),
             ),
             ("assign_place", json!({ "headers": [0], "index": 2 })),
+            // `api.preview.ts` sends every key, `null` when it is not given.
+            ("project_preview_get", json!({ "path": null })),
+            (
+                "project_preview_set",
+                json!({ "path": null, "slot": null, "png": null, "file": null }),
+            ),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -1866,5 +1911,271 @@ mod tests {
             .filter(|f| f["severity"] == "error")
             .collect();
         assert!(errors.is_empty(), "{errors:#?}");
+    }
+
+    // The project preview (phase 4.0 §3.3).
+
+    /// A 10 × 10 PNG, grey.
+    fn small_png() -> Vec<u8> {
+        g4_kernel::data::icons::png(&[0x80; 10 * 10 * 4], 10, 10).unwrap()
+    }
+
+    fn base64_of(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// Width and height of the PNG `png` (base64) answers, from its IHDR chunk.
+    fn png_size(png: &Value) -> (u32, u32) {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(png.as_str().unwrap())
+            .unwrap();
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(&bytes[12..16], b"IHDR");
+        let be = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+        (be(16), be(20))
+    }
+
+    /// The refusal message of a call that must fail.
+    fn refused_with(state: &AppState, policy: &dyn Policy, name: &str, args: Value) -> String {
+        match dispatch(state, policy, name, args) {
+            Err(DispatchError::Cmd(e)) => e.message,
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_get_on_open_project_has_standard_map_field() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let got = json_of(call(&state, &policy, "project_preview_get", json!({})));
+        assert_eq!((&got["source"], &got["png"]), (&Value::Null, &Value::Null));
+        let fields = got.as_object().unwrap();
+        assert!(fields.contains_key("standardMap"), "{got}");
+        // Whatever the synthetic project's start town gives, it is the kernel's answer.
+        let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+        assert_eq!(
+            got["standardMap"],
+            serde_json::to_value(g4_kernel::preview::standard_map(&project)).unwrap()
+        );
+        // `api.preview.ts` sends `path: null`: the same.
+        assert_eq!(
+            json_of(call(
+                &state,
+                &policy,
+                "project_preview_get",
+                json!({ "path": null })
+            )),
+            got
+        );
+    }
+
+    #[test]
+    fn preview_without_path_needs_an_open_project() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let policy = policy_over(&fixture);
+        let state = AppState::default();
+        for (name, args) in [
+            ("project_preview_get", json!({})),
+            (
+                "project_preview_set",
+                json!({ "png": base64_of(&small_png()) }),
+            ),
+        ] {
+            assert_eq!(
+                refused_with(&state, &policy, name, args),
+                "no project open",
+                "{name}"
+            );
+        }
+        assert!(!fixture.dir.path().join(".g4/preview.png").exists());
+    }
+
+    #[test]
+    fn preview_set_png_then_get_returns_eigen() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let set = json_of(call(
+            &state,
+            &policy,
+            "project_preview_set",
+            json!({ "png": base64_of(&small_png()) }),
+        ));
+        assert_eq!(set["source"], "eigen", "{set}");
+        assert_eq!(png_size(&set["png"]), (256, 192));
+        assert!(set.as_object().unwrap().contains_key("standardMap"));
+        assert!(fixture.dir.path().join(".g4/preview.png").is_file());
+        let got = json_of(call(&state, &policy, "project_preview_get", json!({})));
+        assert_eq!(got, set);
+        // What is on disk is what the answer carries.
+        let on_disk = std::fs::read(fixture.dir.path().join(".g4/preview.png")).unwrap();
+        assert_eq!(got["png"], base64_of(&on_disk));
+    }
+
+    #[test]
+    fn preview_set_remove_falls_back_to_standard() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let png = base64_of(&small_png());
+        let set = |args: Value| json_of(call(&state, &policy, "project_preview_set", args));
+        assert_eq!(
+            set(json!({ "slot": "standard", "png": png }))["source"],
+            "standard"
+        );
+        assert!(
+            fixture
+                .dir
+                .path()
+                .join(".g4/cache/preview-standard.png")
+                .is_file()
+        );
+        assert_eq!(set(json!({ "png": png }))["source"], "eigen");
+        // Neither png nor file: the slot's picture goes, the standard one shows.
+        let removed = set(json!({}));
+        assert_eq!(removed["source"], "standard", "{removed}");
+        assert_eq!(png_size(&removed["png"]), (256, 192));
+        assert!(!fixture.dir.path().join(".g4/preview.png").exists());
+        // Removing again is no error; without the standard one there is none.
+        assert_eq!(set(json!({ "slot": "eigen" }))["source"], "standard");
+        let none = set(json!({ "slot": "standard" }));
+        assert_eq!(
+            (&none["source"], &none["png"]),
+            (&Value::Null, &Value::Null)
+        );
+    }
+
+    #[test]
+    fn preview_set_png_and_file_is_refused() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let file = fixture.dir.path().join("bild.png");
+        std::fs::write(&file, small_png()).unwrap();
+        let message = refused_with(
+            &state,
+            &policy,
+            "project_preview_set",
+            json!({ "png": base64_of(&small_png()), "file": file.to_str().unwrap() }),
+        );
+        assert_eq!(message, "png and file exclude each other");
+        // Text that is no base64 is no picture.
+        let message = refused_with(
+            &state,
+            &policy,
+            "project_preview_set",
+            json!({ "png": "kein Bild!" }),
+        );
+        assert!(message.starts_with("preview.format"), "{message}");
+        assert!(!fixture.dir.path().join(".g4/preview.png").exists());
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn preview_set_file_under_root() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let file = fixture.dir.path().join("bilder/titel.png");
+        std::fs::create_dir(fixture.dir.path().join("bilder")).unwrap();
+        std::fs::write(&file, small_png()).unwrap();
+        let set = json_of(call(
+            &state,
+            &roots,
+            "project_preview_set",
+            json!({ "file": file.to_str().unwrap() }),
+        ));
+        assert_eq!(set["source"], "eigen", "{set}");
+        assert_eq!(png_size(&set["png"]), (256, 192));
+        assert!(fixture.dir.path().join(".g4/preview.png").is_file());
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn preview_set_file_outside_roots_is_refused() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let file = elsewhere.path().join("titel.png");
+        std::fs::write(&file, small_png()).unwrap();
+        let message = refused_with(
+            &state,
+            &roots,
+            "project_preview_set",
+            json!({ "file": file.to_str().unwrap() }),
+        );
+        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(!fixture.dir.path().join(".g4").exists());
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn preview_get_path_outside_roots_is_refused() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = elsewhere.path().join("projekt");
+        std::fs::create_dir_all(other.join(".g4")).unwrap();
+        let png = g4_kernel::preview::fit_preview(&small_png()).unwrap();
+        std::fs::write(other.join(".g4/preview.png"), png).unwrap();
+        // An existing folder and a missing one outside the roots; read and write.
+        for path in [other.clone(), elsewhere.path().join("fehlt")] {
+            let path = path.to_str().unwrap();
+            for (name, args) in [
+                ("project_preview_get", json!({ "path": path })),
+                (
+                    "project_preview_set",
+                    json!({ "path": path, "png": base64_of(&small_png()) }),
+                ),
+                ("project_preview_set", json!({ "path": path })),
+            ] {
+                let message = refused_with(&state, &roots, name, args);
+                assert!(
+                    message.starts_with("Pfad liegt außerhalb"),
+                    "{name}: {message}"
+                );
+            }
+        }
+        assert!(other.join(".g4/preview.png").is_file());
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn preview_get_path_without_g4_is_empty() {
+        let (fixture, state) = open_synthetic();
+        let roots = roots_over(&fixture);
+        let get = |path: &std::path::Path| {
+            json_of(call(
+                &state,
+                &roots,
+                "project_preview_get",
+                json!({ "path": path.to_str().unwrap() }),
+            ))
+        };
+        let empty = json!({ "source": null, "png": null, "standardMap": null });
+        // A folder without .g4/ and a folder that is gone (a stale start list entry).
+        let other = fixture.dir.path().join("anderes");
+        std::fs::create_dir(&other).unwrap();
+        assert_eq!(get(&other), empty);
+        assert_eq!(get(&fixture.dir.path().join("weg")), empty);
+        assert!(!other.join(".g4").exists());
+        // Written by path, read by path: another project than the open one has no standard
+        // map.
+        let set = json_of(call(
+            &state,
+            &roots,
+            "project_preview_set",
+            json!({ "path": other.to_str().unwrap(), "png": base64_of(&small_png()) }),
+        ));
+        assert_eq!(
+            (&set["source"], &set["standardMap"]),
+            (&json!("eigen"), &Value::Null)
+        );
+        assert_eq!(get(&other), set);
+        assert!(!fixture.dir.path().join(".g4").exists());
+        // The open project's own folder, also through a link: as without a path.
+        let own = json_of(call(&state, &roots, "project_preview_get", json!({})));
+        assert_eq!(get(fixture.dir.path()), own);
+        let link = fixture.dir.path().join("anderes/zurück");
+        std::os::unix::fs::symlink(fixture.dir.path(), &link).unwrap();
+        assert_eq!(get(&link), own);
     }
 }
