@@ -440,3 +440,115 @@
 .arrangementCell[data-cell="below"] {
   grid-area: below;
 }
+
+/* Page „Welt“ (phase 3f): the world map's head and room plan, the place picker, the patch line, the shared badge. */
+
+/* A world map panel as the dock shows it: the head on the sheet, the cells on the world's surface. */
+.worldPanel {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-blatt);
+}
+
+.worldSurface {
+  display: flex;
+  padding: var(--g4-raum-16);
+  overflow: auto;
+  background: var(--g4-flaeche-welt);
+}
+
+/* The place's colour before its name, as the world tree marks it; the colour itself is a runtime value. */
+.placeDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* The message and the archive behind the name (Tüfteln). */
+.placeTech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+/* A dialog drawn in place, without the backdrop: the same sheet, edge, corners and shadow as the floating one. */
+.dialogStill {
+  display: flex;
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-20);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+  box-shadow: var(--g4-schatten-schwebend);
+}
+
+.dialogStillTitle {
+  margin: 0;
+  font: var(--g4-font-text-l);
+}
+
+.dialogStillText {
+  margin: 0;
+  font: var(--g4-font-text-s);
+}
+
+.dialogStillActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--g4-raum-8);
+}
+
+.choiceGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.choiceLegend {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+/* The summary of a wizard in Bauen: its sentence above the patch line, „Anlegen“ below. */
+.summaryStill {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-16);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  background: var(--g4-flaeche-blatt);
+}
+
+/* The shared badge takes the focus, so its tooltip opens from the keyboard too. */
+.focusable:focus-visible {
+  border-radius: var(--g4-radius-plakette);
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+  outline-offset: var(--g4-strich-fokus);
+}
+
+/* An inspector at its widest (480 px), so the head keeps the title beside the badge „Geteilt mit 16 Räumen“. */
+.inspectorWide {
+  box-sizing: border-box;
+  width: min(480px, 100%);
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-blatt);
+}
+
+.sharedRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+}
