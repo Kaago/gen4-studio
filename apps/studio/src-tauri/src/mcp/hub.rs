@@ -22,6 +22,9 @@ pub const QUESTION_WAIT: Duration = Duration::from_secs(120);
 /// How many events the hub keeps for [`AgentHub::poll`].
 const EVENTS_KEPT: usize = 64;
 
+/// The answer of a question dialog closed without a button: a no to this call, nothing saved.
+const DISMISS: &str = "dismiss";
+
 /// Notified of every event (Tauri emits it as `agent-event`).
 pub type Notifier = Arc<dyn Fn(&AgentEvent) + Send + Sync>;
 /// Starts (`true`, answers the port) or stops (`false`) the app's MCP server.
@@ -74,13 +77,15 @@ pub struct QuestionDto {
 }
 
 /// What the hub shows. `bridge` is true when no server control is installed: the dev bridge
-/// serves `/mcp` itself, so there is no port of its own.
+/// serves `/mcp` itself, so there is no port of its own. `server_error` is why the server did
+/// not start the last time it was switched on (until it starts or is switched off).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentStatus {
     pub enabled: bool,
     pub expert: bool,
     pub read_only: bool,
     pub port: Option<u16>,
+    pub server_error: Option<String>,
     pub bridge: bool,
     pub connections: Vec<ConnectionDto>,
     pub question: Option<QuestionDto>,
@@ -179,10 +184,11 @@ impl Question {
         }
     }
 
+    /// `dismiss` (the dialog closed without a button) denies this call and saves nothing.
     fn answers(&self) -> &'static [&'static str] {
         match self.asked {
-            Asked::Connect { .. } => &["deny", "read", "write"],
-            Asked::Confirm { .. } => &["allow", "deny"],
+            Asked::Connect { .. } => &["deny", "read", "write", DISMISS],
+            Asked::Confirm { .. } => &["allow", "deny", DISMISS],
         }
     }
 }
@@ -202,11 +208,16 @@ struct Inner {
     control: Option<ServerControl>,
     closer: Option<SessionCloser>,
     port: Option<u16>,
+    /// Why the server did not start (see [`AgentStatus::server_error`]).
+    server_error: Option<String>,
     read_only: bool,
     connections: Vec<Connection>,
     next_connection: u64,
     /// Clients the user disconnected: asked again on their next call.
     disconnected: BTreeSet<String>,
+    /// Set by "Trennen": every client asks on its next call (a new name does not get around
+    /// it) until the user answers a connect question.
+    ask_everyone: bool,
     questions: Vec<Question>,
     next_question: u64,
     seq: u64,
@@ -246,6 +257,19 @@ impl Inner {
         self.push(|seq| AgentEvent::Status { seq })
     }
 
+    /// Answers the open questions `which` picks with `deny` (nothing is saved, so no call
+    /// waiting for them runs afterwards); whether there was one. The caller wakes the waiters.
+    fn deny_open(&mut self, which: impl Fn(&Question) -> bool) -> bool {
+        let mut denied = false;
+        for question in &mut self.questions {
+            if question.answer.is_none() && which(question) {
+                question.answer = Some("deny".to_owned());
+                denied = true;
+            }
+        }
+        denied
+    }
+
     fn save(&self) -> Result<(), String> {
         match &self.dir {
             Some(dir) => self.settings.save(dir),
@@ -259,6 +283,7 @@ impl Inner {
             expert: self.settings.expert,
             read_only: self.read_only,
             port: self.port,
+            server_error: self.server_error.clone(),
             bridge: self.control.is_none(),
             connections: self
                 .connections
@@ -344,13 +369,28 @@ impl AgentHub {
     }
 
     /// "Lokale Agenten zulassen": saves the switch, then starts or stops the server (outside
-    /// the lock) and keeps its port. When the server fails the switch goes back. Toggles are
-    /// serialized end to end.
+    /// the lock) and keeps its port. Switching off denies every open question at once (no
+    /// call waiting for one runs). When the server fails the switch goes back and the error
+    /// stays in the status until the server starts or is switched off. Toggles are serialized
+    /// end to end.
     pub fn set_enabled(&self, on: bool) -> Result<(), String> {
         let _toggle = self.toggle.lock().unwrap_or_else(|e| e.into_inner());
-        let before = self.settings().enabled;
-        self.change_settings(|s| s.enabled = on)?;
-        let control = self.lock().control.clone();
+        let mut inner = self.lock();
+        let before = inner.settings.enabled;
+        inner.settings.enabled = on;
+        if let Err(e) = inner.save() {
+            inner.settings.enabled = before;
+            return Err(e);
+        }
+        // Under the same lock as the switch: a question raised after it sees the switch off.
+        let denied = !on && inner.deny_open(|_| true);
+        let control = inner.control.clone();
+        let emit = inner.status_event();
+        drop(inner);
+        if denied {
+            self.answered.notify_all();
+        }
+        emit.send();
         let Some(control) = control else {
             return Ok(());
         };
@@ -359,6 +399,7 @@ impl AgentHub {
         let result = match started {
             Ok(port) => {
                 inner.port = port;
+                inner.server_error = None;
                 Ok(())
             }
             Err(e) => {
@@ -366,6 +407,7 @@ impl AgentHub {
                 // The switch is back as it was; a failed save leaves the file at `on`,
                 // which the next start corrects by itself.
                 let _ = inner.save();
+                inner.server_error = Some(e.clone());
                 Err(e)
             }
         };
@@ -407,31 +449,34 @@ impl AgentHub {
         id
     }
 
-    /// The session `id` ended (an unknown id changes nothing).
+    /// The session `id` ended (an unknown id changes nothing). When it was its client's last
+    /// one, the client's open questions are denied: nobody waits for their answer any more.
     pub fn disconnect(&self, id: u64) {
         let mut inner = self.lock();
-        let before = inner.connections.len();
-        inner.connections.retain(|c| c.id != id);
-        if inner.connections.len() == before {
+        let Some(index) = inner.connections.iter().position(|c| c.id == id) else {
             return;
-        }
+        };
+        let gone = inner.connections.remove(index);
+        let last = !inner.connections.iter().any(|c| c.client == gone.client);
+        let denied = last && inner.deny_open(|q| q.client == gone.client);
         let emit = inner.status_event();
         drop(inner);
+        if denied {
+            self.answered.notify_all();
+        }
         emit.send();
     }
 
-    /// "Trennen": every connected client counts as disconnected (its next call asks again),
-    /// its open questions are answered `deny` (nothing is saved, so no call waiting for them
-    /// runs afterwards), then every session is closed.
+    /// "Trennen": every connected client counts as disconnected, and until the user answers a
+    /// connect question every client's next call asks (a client cannot get around it under
+    /// another name). Every open question is answered `deny` (nothing is saved, so no call
+    /// waiting for one runs afterwards), then every session is closed.
     pub fn disconnect_all(&self) {
         let mut inner = self.lock();
         let clients: Vec<String> = inner.connections.drain(..).map(|c| c.client).collect();
-        for question in &mut inner.questions {
-            if question.answer.is_none() && clients.contains(&question.client) {
-                question.answer = Some("deny".to_owned());
-            }
-        }
+        inner.deny_open(|_| true);
         inner.disconnected.extend(clients);
+        inner.ask_everyone = true;
         let closer = inner.closer.clone();
         let emit = inner.status_event();
         drop(inner);
@@ -455,10 +500,17 @@ impl AgentHub {
         self.lock().read_only
     }
 
-    /// Whether the user disconnected `client` ("Trennen") and it was not let in again since;
+    /// Whether `client` has to ask before it goes on: the user disconnected it ("Trennen")
+    /// and did not let it in again since, or answered no connect question since "Trennen";
     /// never waits.
     pub fn is_disconnected(&self, client: &str) -> bool {
-        self.lock().disconnected.contains(client)
+        let inner = self.lock();
+        inner.ask_everyone || inner.disconnected.contains(client)
+    }
+
+    /// Whether "Lokale Agenten zulassen" is on.
+    pub fn enabled(&self) -> bool {
+        self.lock().settings.enabled
     }
 
     /// The agents' turn on the user's session (see the field); a poisoned lock is taken over,
@@ -468,8 +520,9 @@ impl AgentHub {
     }
 
     /// How far `client` may go in the project `key` (folder name `project_name`): the saved
-    /// grant, or, without one or for a client the user disconnected, the user's answer to the
-    /// question (at most `wait`; no answer is `None` and saves nothing).
+    /// grant, or, without one or for a client that has to ask (see
+    /// [`AgentHub::is_disconnected`]), the user's answer to the question (at most `wait`; no
+    /// answer is `None` and saves nothing). While the switch is off: `None`, nobody is asked.
     pub fn permission(
         &self,
         client: &str,
@@ -478,7 +531,11 @@ impl AgentHub {
         wait: Duration,
     ) -> GrantLevel {
         let inner = self.lock();
-        if !inner.disconnected.contains(client)
+        if !inner.settings.enabled {
+            return GrantLevel::None;
+        }
+        if !inner.ask_everyone
+            && !inner.disconnected.contains(client)
             && let Some(level) = inner.settings.grant_for(key)
         {
             return level;
@@ -495,7 +552,7 @@ impl AgentHub {
     }
 
     /// Whether the user allows `client` to do the irreversible `what` (at most `wait`; no
-    /// answer is a no). Nothing is saved.
+    /// answer, or the switch off, is a no). Nothing is saved.
     pub fn confirm(&self, client: &str, what: &str, wait: Duration) -> bool {
         let asked = Asked::Confirm {
             what: what.to_owned(),
@@ -505,7 +562,7 @@ impl AgentHub {
 
     /// Raises the question (or joins the same one still open) and waits at most `wait` for
     /// the answer. Every waiter of a question gets the same answer; the question goes once
-    /// the last of them took it or gave up.
+    /// the last of them took it or gave up. While the switch is off nothing is asked.
     fn ask(
         &self,
         mut inner: MutexGuard<'_, Inner>,
@@ -513,6 +570,9 @@ impl AgentHub {
         asked: Asked,
         wait: Duration,
     ) -> Option<String> {
+        if !inner.settings.enabled {
+            return None;
+        }
         let open = inner
             .questions
             .iter_mut()
@@ -569,9 +629,11 @@ impl AgentHub {
     }
 
     /// The user's answer to the question `question`: `deny`, `read` or `write` to a connect
-    /// question (saved as the project's grant; the client counts as connected again, and the
-    /// same question of other clients is answered with it), `allow` or `deny` to a confirm
-    /// question. A failed save still answers the waiting calls.
+    /// question (saved as the project's grant; the client counts as connected again, "Trennen"
+    /// is answered, and the same question of other clients is answered with it), `allow` or
+    /// `deny` to a confirm question. `dismiss` (the dialog closed without a button) denies
+    /// this question's calls only: nothing is saved, nothing else changes. A failed save still
+    /// answers the waiting calls.
     pub fn answer(&self, question: u64, answer: &str) -> Result<(), String> {
         let mut inner = self.lock();
         let Some(open) = inner
@@ -588,13 +650,16 @@ impl AgentHub {
         let client = open.client.clone();
         let asked = open.asked.clone();
         let mut saved = Ok(());
-        if let Asked::Connect { key, .. } = asked {
+        if let Asked::Connect { key, .. } = asked
+            && answer != DISMISS
+        {
             let level = match answer {
                 "write" => GrantLevel::Write,
                 "read" => GrantLevel::Read,
                 _ => GrantLevel::None,
             };
             inner.disconnected.remove(&client);
+            inner.ask_everyone = false;
             // The grant is the project's: other clients asking for it get the same answer,
             // unless the user disconnected them.
             let Inner {
@@ -630,6 +695,18 @@ impl AgentHub {
         if assets.is_empty() {
             return;
         }
+        self.record_write(client, tool, label, assets);
+    }
+
+    /// An agent's writing tool `tool` ran and changed `assets`: an event also when there are
+    /// none (a save changes no value), so the UI reads its unsaved count again.
+    pub fn record_write(
+        &self,
+        client: &str,
+        tool: &str,
+        label: Option<String>,
+        assets: Vec<AssetId>,
+    ) {
         let mut inner = self.lock();
         let emit = inner.push(|seq| AgentEvent::Changed {
             seq,
@@ -698,8 +775,9 @@ mod tests {
     #[test]
     fn question_waits_for_the_answer() {
         let dir = tempfile::tempdir().unwrap();
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         hub.configure(Some(dir.path().to_owned()));
+        hub.set_enabled(true).unwrap();
         let asking = {
             let hub = Arc::clone(&hub);
             std::thread::spawn(move || {
@@ -729,7 +807,7 @@ mod tests {
 
     #[test]
     fn question_times_out_as_none() {
-        let hub = AgentHub::default();
+        let hub = switched_on();
         let started = Instant::now();
         let level = hub.permission("agent-gate", &key(), "platin", Duration::from_millis(50));
         assert_eq!(level, GrantLevel::None);
@@ -740,7 +818,7 @@ mod tests {
 
     #[test]
     fn disconnected_client_is_asked_again() {
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         hub.set_grant(key(), GrantLevel::Write).unwrap();
         let id = hub.connect("Claude Code");
         assert_eq!(hub.status().connections[0].id, id);
@@ -841,7 +919,7 @@ mod tests {
 
     #[test]
     fn waiting_calls_share_one_question() {
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         let asking: Vec<_> = (0..10)
             .map(|_| {
                 let hub = Arc::clone(&hub);
@@ -867,7 +945,7 @@ mod tests {
 
     #[test]
     fn confirm_asks_and_saves_nothing() {
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         let asking = {
             let hub = Arc::clone(&hub);
             std::thread::spawn(move || hub.confirm("Claude Code", "Patch", Duration::from_secs(10)))
@@ -889,7 +967,7 @@ mod tests {
 
     #[test]
     fn deny_is_saved_as_none() {
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         let asking = {
             let hub = Arc::clone(&hub);
             std::thread::spawn(move || {
@@ -978,7 +1056,7 @@ mod tests {
 
     #[test]
     fn disconnect_all_denies_open_questions() {
-        let hub = Arc::new(AgentHub::default());
+        let hub = switched_on();
         hub.connect("Claude Code");
         let confirming = {
             let hub = Arc::clone(&hub);
@@ -1004,6 +1082,227 @@ mod tests {
         assert_eq!(hub.status().question, None);
         // The refusal is not the user's answer: nothing is saved.
         assert_eq!(hub.settings().grant_for(&key()), None);
+    }
+
+    /// A hub with "Lokale Agenten zulassen" on (no server control: the switch only).
+    fn switched_on() -> Arc<AgentHub> {
+        let hub = Arc::new(AgentHub::default());
+        hub.set_enabled(true).unwrap();
+        hub
+    }
+
+    /// Waits (at most 5 s) until the hub holds `n` open questions.
+    fn wait_for_questions(hub: &AgentHub, n: usize) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while hub
+            .lock()
+            .questions
+            .iter()
+            .filter(|q| q.answer.is_none())
+            .count()
+            != n
+        {
+            assert!(Instant::now() < deadline, "not {n} questions raised");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn switching_off_denies_open_questions() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Arc::new(AgentHub::default());
+        hub.configure(Some(dir.path().to_owned()));
+        hub.set_enabled(true).unwrap();
+        let connecting = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || {
+                hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10))
+            })
+        };
+        let confirming = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || hub.confirm("agent-gate", "Patch", Duration::from_secs(10)))
+        };
+        wait_for_questions(&hub, 2);
+        let started = Instant::now();
+        hub.set_enabled(false).unwrap();
+        assert_eq!(connecting.join().unwrap(), GrantLevel::None);
+        assert!(!confirming.join().unwrap());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(hub.status().question, None);
+        // The refusal is not the user's answer: nothing is saved.
+        assert_eq!(hub.settings().grant_for(&key()), None);
+        assert_eq!(AgentSettings::load(dir.path()).grant_for(&key()), None);
+    }
+
+    #[test]
+    fn switched_off_refuses_without_asking() {
+        let hub = AgentHub::default();
+        hub.set_grant(key(), GrantLevel::Write).unwrap();
+        assert!(!hub.settings().enabled);
+        // A saved grant does not count while the switch is off.
+        assert_eq!(
+            hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10)),
+            GrantLevel::None
+        );
+        // Nor is anybody asked.
+        hub.remove_grant(&key().path).unwrap();
+        let seq = hub.poll(0).seq;
+        let started = Instant::now();
+        assert_eq!(
+            hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10)),
+            GrantLevel::None
+        );
+        assert!(!hub.confirm("Claude Code", "Patch", Duration::from_secs(10)));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(hub.poll(0).seq, seq, "no question raised");
+        assert!(hub.settings().grants.is_empty());
+    }
+
+    #[test]
+    fn last_connection_ending_withdraws_its_question() {
+        let hub = switched_on();
+        let first = hub.connect("Claude Code");
+        let second = hub.connect("Claude Code");
+        let other = hub.connect("agent-gate");
+        let asking = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || {
+                hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10))
+            })
+        };
+        let elsewhere = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || hub.confirm("agent-gate", "Patch", Duration::from_secs(10)))
+        };
+        wait_for_questions(&hub, 2);
+        // The client still has a session: its question stays.
+        hub.disconnect(first);
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!asking.is_finished());
+        let started = Instant::now();
+        hub.disconnect(second);
+        assert_eq!(asking.join().unwrap(), GrantLevel::None);
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(hub.settings().grant_for(&key()), None);
+        // Another client's question is not touched.
+        let open = hub.status().question.unwrap();
+        assert_eq!(open.client, "agent-gate");
+        hub.answer(open.id, "allow").unwrap();
+        assert!(elsewhere.join().unwrap());
+        hub.disconnect(other);
+    }
+
+    #[test]
+    fn after_trennen_every_client_asks_until_one_answer() {
+        let hub = switched_on();
+        hub.set_grant(key(), GrantLevel::Write).unwrap();
+        hub.connect("Claude Code");
+        hub.disconnect_all();
+        // A client under a new name does not get around the question.
+        assert!(hub.is_disconnected("Claude Code 2"));
+        let asking = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || {
+                hub.permission("Claude Code 2", &key(), "platin", Duration::from_secs(10))
+            })
+        };
+        let question = pending_question(&hub);
+        assert_eq!(question.client, "Claude Code 2");
+        hub.answer(question.id, "read").unwrap();
+        assert_eq!(asking.join().unwrap(), GrantLevel::Read);
+        // One answer, then the grant counts again for clients not disconnected by name.
+        assert!(!hub.is_disconnected("agent-gate"));
+        assert_eq!(
+            hub.permission("agent-gate", &key(), "platin", Duration::ZERO),
+            GrantLevel::Read
+        );
+        // The client disconnected by name still asks.
+        assert!(hub.is_disconnected("Claude Code"));
+    }
+
+    #[test]
+    fn dismissing_denies_once_and_saves_nothing() {
+        let hub = switched_on();
+        let asking = |hub: &Arc<AgentHub>| {
+            let hub = Arc::clone(hub);
+            std::thread::spawn(move || {
+                hub.permission("Claude Code", &key(), "platin", Duration::from_secs(10))
+            })
+        };
+        let first = asking(&hub);
+        hub.answer(pending_question(&hub).id, "dismiss").unwrap();
+        assert_eq!(first.join().unwrap(), GrantLevel::None);
+        assert_eq!(hub.settings().grant_for(&key()), None);
+        // The next call asks again.
+        let second = asking(&hub);
+        hub.answer(pending_question(&hub).id, "write").unwrap();
+        assert_eq!(second.join().unwrap(), GrantLevel::Write);
+
+        // A dismissed confirmation is a no.
+        let confirming = {
+            let hub = Arc::clone(&hub);
+            std::thread::spawn(move || hub.confirm("Claude Code", "Patch", Duration::from_secs(10)))
+        };
+        hub.answer(pending_question(&hub).id, "dismiss").unwrap();
+        assert!(!confirming.join().unwrap());
+
+        // After "Trennen" a dismissal does not let the client in again.
+        hub.connect("Claude Code");
+        hub.disconnect_all();
+        let third = asking(&hub);
+        hub.answer(pending_question(&hub).id, "dismiss").unwrap();
+        assert_eq!(third.join().unwrap(), GrantLevel::None);
+        assert!(hub.is_disconnected("Claude Code"));
+        assert_eq!(hub.settings().grant_for(&key()), Some(GrantLevel::Write));
+    }
+
+    #[test]
+    fn empty_writes_are_reported_when_asked() {
+        let hub = AgentHub::default();
+        hub.record_change("Claude Code", "get_map", None, Vec::new());
+        assert!(hub.poll(0).events.is_empty());
+        hub.record_write("Claude Code", "save", None, Vec::new());
+        assert_eq!(
+            serde_json::to_value(&hub.poll(0).events).unwrap(),
+            serde_json::json!([{
+                "kind": "changed", "seq": 1, "client": "Claude Code", "tool": "save",
+                "label": null, "assets": [],
+            }])
+        );
+    }
+
+    #[test]
+    fn start_failure_is_kept_until_success_or_off() {
+        let hub = AgentHub::default();
+        let fail = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        {
+            let fail = Arc::clone(&fail);
+            hub.set_server_control(Arc::new(move |on| {
+                if on && fail.load(std::sync::atomic::Ordering::SeqCst) {
+                    Err("Port belegt".to_owned())
+                } else {
+                    Ok(on.then_some(4711))
+                }
+            }));
+        }
+        assert_eq!(hub.status().server_error, None);
+        assert!(hub.set_enabled(true).is_err());
+        assert_eq!(hub.status().server_error.as_deref(), Some("Port belegt"));
+        assert_eq!(
+            serde_json::to_value(hub.status()).unwrap()["server_error"],
+            "Port belegt"
+        );
+        fail.store(false, std::sync::atomic::Ordering::SeqCst);
+        hub.set_enabled(true).unwrap();
+        assert_eq!(hub.status().server_error, None);
+        // Failing at launch (the switch was on), then switched off.
+        fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(hub.set_enabled(true).is_err());
+        assert!(hub.status().enabled);
+        assert_eq!(hub.status().server_error.as_deref(), Some("Port belegt"));
+        hub.set_enabled(false).unwrap();
+        assert_eq!(hub.status().server_error, None);
     }
 
     #[test]

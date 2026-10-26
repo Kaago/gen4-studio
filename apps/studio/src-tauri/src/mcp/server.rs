@@ -148,13 +148,12 @@ impl Server {
 
     fn instructions(&self) -> String {
         if self.toolbox.is_shared() {
-            let project = self.toolbox.project().map_or_else(
-                || "no project is open right now".to_owned(),
-                |p| format!("now {}", p.display()),
-            );
+            // No path: the project is the user's to release, `initialize` comes before any
+            // grant.
             return format!(
-                "Gen4 Studio, tool set {TOOLSET}, over the Pokemon Gen 4 project the user has \
-                 open in the app ({project}). The user decides in the app: the first call \
+                "Gen4 Studio, tool set {TOOLSET}, over the project open in Gen4 Studio (a \
+                 Pokemon Gen 4 project the user opened in the app; tool error no_project \
+                 while none is). The user decides in the app: the first call \
                  asks whether this client may read or also edit the project, an irreversible \
                  step asks again, and \"Nur lesen\" can switch writing off at any time (tool \
                  error read_only). Each change is an undo step the user can take back. Start \
@@ -523,5 +522,51 @@ mod tests {
         let hints = annotations(tool, Access::default());
         assert_eq!(hints.destructive_hint, Some(true), "{}", tool.name);
         assert_eq!(hints.read_only_hint, Some(false), "{}", tool.name);
+    }
+
+    #[test]
+    fn dropping_the_last_connection_withdraws_its_question() {
+        let state = Arc::new(crate::state::AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let server = Server::shared(source);
+        server.connection.as_ref().unwrap().begin("Claude Code");
+        let asking = {
+            let state = Arc::clone(&state);
+            std::thread::spawn(move || state.agents.confirm("Claude Code", "Patch", DRAIN_LIMIT))
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while state.agents.status().question.is_none() {
+            assert!(std::time::Instant::now() < deadline, "no question raised");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // Claude Code quits: its session ends, nobody waits for the answer any more.
+        drop(server);
+        assert!(!asking.join().unwrap());
+        assert_eq!(state.agents.status().question, None);
+    }
+
+    #[test]
+    fn shared_instructions_do_not_name_the_project() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = Arc::new(crate::state::AppState::default());
+        crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let shared = Server::shared(source).instructions();
+        let folder = fixture.dir.path().canonicalize().unwrap();
+        let name = folder.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(!shared.contains(&name), "{shared}");
+        assert!(
+            shared.contains("the project open in Gen4 Studio"),
+            "{shared}"
+        );
+        // Headless names its own project, as before.
+        let headless = Server::new(headless());
+        let project = headless.toolbox.project().unwrap();
+        assert!(
+            headless
+                .instructions()
+                .contains(&format!("project at {}", project.display()))
+        );
     }
 }

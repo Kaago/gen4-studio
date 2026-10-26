@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use g4_kernel::project::Project;
+use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::store::{Origin, with_origin};
 use serde_json::{Map, Value, json};
 
@@ -119,6 +119,8 @@ const NOT_PERMITTED: &str =
 const READ_GRANT: &str = "Nur lesen: Gen4 Studio lässt Agenten dieses Projekt nur lesen";
 /// In the app: the switch "Nur lesen" is on.
 const READ_SWITCH: &str = "Nur lesen: in Gen4 Studio ist „Nur lesen“ eingeschaltet";
+/// In the app: "Lokale Agenten zulassen" is off.
+const SWITCHED_OFF: &str = "Lokale Agenten sind aus (Einstellungen › Agenten)";
 /// In the app: `open_project` is the user's.
 const USER_OPENS: &str = "Nur in der App: Projekte öffnet der Nutzer";
 /// In the app: the project was closed or replaced while a call was on its way.
@@ -534,6 +536,9 @@ impl OpenProject {
         wait: Duration,
     ) -> Result<Call<'a>, ToolError> {
         let hub = &state.agents;
+        if !hub.enabled() {
+            return Err(ToolError::refused("not_permitted", SWITCHED_OFF));
+        }
         let key = ProjectKey::of(self.policy.project()).map_err(ToolError::error)?;
         let name = self
             .policy
@@ -607,7 +612,17 @@ impl<'a> Call<'a> {
         }
         let _turn = self.begin(admitted.changes)?;
         if admitted.changes {
-            self.changing(def.name, None, || self.run(prepared))
+            let written = match &prepared {
+                Prepared::Command { command, args } => (command.clone(), args.clone()),
+                _ => (String::new(), Value::Null),
+            };
+            self.changing(
+                def.name,
+                None,
+                || self.run(prepared),
+                |result| scripts_written(&written.0, &written.1, result),
+                true,
+            )
         } else {
             self.run(prepared)
         }
@@ -629,10 +644,14 @@ impl<'a> Call<'a> {
         Ok(Some(turn))
     }
 
-    /// Whether the user still lets the client write, without asking: not disconnected
-    /// ("Trennen"), the saved grant still `write`, the switch "Nur lesen" off.
+    /// Whether the user still lets the client write, without asking: "Lokale Agenten
+    /// zulassen" on, not disconnected ("Trennen"), the saved grant still `write`, the switch
+    /// "Nur lesen" off.
     fn still_writable(&self, shared: &Shared<'_>) -> Result<(), ToolError> {
         let hub = shared.hub;
+        if !hub.enabled() {
+            return Err(ToolError::refused("not_permitted", SWITCHED_OFF));
+        }
         if hub.is_disconnected(self.client) {
             return Err(ToolError::refused("not_permitted", NOT_PERMITTED));
         }
@@ -651,12 +670,16 @@ impl<'a> Call<'a> {
 
     /// Runs the write `f` with the client as the origin of every step it records. In the app
     /// the assets it changed (also when it failed and was rolled back) are then reported as
-    /// tool `tool`'s with `label`; when the project changed meanwhile, nothing is.
+    /// tool `tool`'s with `label`, with the files `past_store` names that it wrote past the
+    /// store; with `always` also when there are none (the UI then reads its unsaved count
+    /// again). When the project changed meanwhile, nothing is reported.
     fn changing<T>(
         &self,
         tool: &str,
         label: Option<String>,
         f: impl FnOnce() -> Result<T, ToolError>,
+        past_store: impl FnOnce(&Result<T, ToolError>) -> Vec<AssetId>,
+        always: bool,
     ) -> Result<T, ToolError> {
         let before = match &self.shared {
             Some(_) => self.with_session(|s| s.store.change_generation()).ok(),
@@ -667,9 +690,18 @@ impl<'a> Call<'a> {
         };
         let result = with_origin(origin, f);
         if let (Some(shared), Some(generation)) = (&self.shared, before)
-            && let Ok((_, assets)) = self.with_session(|s| s.store.changes_since(generation))
+            && let Ok((_, mut assets)) = self.with_session(|s| s.store.changes_since(generation))
         {
-            shared.hub.record_change(self.client, tool, label, assets);
+            for asset in past_store(&result) {
+                if !assets.contains(&asset) {
+                    assets.push(asset);
+                }
+            }
+            if always {
+                shared.hub.record_write(self.client, tool, label, assets);
+            } else {
+                shared.hub.record_change(self.client, tool, label, assets);
+            }
         }
         result
     }
@@ -863,9 +895,17 @@ impl<'a> Call<'a> {
         if !plan.confirm.is_empty() {
             self.confirm(def.name, &plan.confirm.join(", "))?;
         }
-        let _turn = self.begin(plan.changes > 0)?;
+        let writes = plan.changes > 0;
+        let _turn = self.begin(writes)?;
         let label = plan.label.clone();
-        self.changing(def.name, Some(label), || self.run_batch(plan, run))
+        // The commands that write past the store are not taken in a batch.
+        self.changing(
+            def.name,
+            Some(label),
+            || self.run_batch(plan, run),
+            |_| Vec::new(),
+            writes,
+        )
     }
 
     /// Checks the batch's arguments and every call before the first runs, so a refused one
@@ -1111,6 +1151,37 @@ impl Drop for RollbackGuard<'_, '_> {
             let _ = s.store.rollback_to(mark);
             s.after_write();
         });
+    }
+}
+
+/// The script files `command` with `args` wrote past the store, which `changes_since` does
+/// not see, so an editor that has one open reads it again: the file a save or `add_script`
+/// names, the file `new_script_file` made, the script files a `create_script` fix changed.
+/// Only after it succeeded (a refused save wrote nothing).
+fn scripts_written(command: &str, args: &Value, result: &Result<Value, ToolError>) -> Vec<AssetId> {
+    let Ok(answer) = result else {
+        return Vec::new();
+    };
+    let script = |file: &Value| {
+        let index = u16::try_from(file.as_u64()?).ok()?;
+        Some(AssetId {
+            kind: AssetKind::Script,
+            index,
+        })
+    };
+    match command {
+        "save_script" | "save_level_script" | "add_script" => {
+            args.get("file").and_then(script).into_iter().collect()
+        }
+        "new_script_file" => script(answer).into_iter().collect(),
+        "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => answer
+            .get("changed")
+            .and_then(|changed| serde_json::from_value::<Vec<AssetId>>(changed.clone()).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|asset| asset.kind == AssetKind::Script)
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -2149,10 +2220,12 @@ mod tests {
     /// within milliseconds).
     const WAIT: Duration = Duration::from_secs(5);
 
-    /// The synthetic project opened in a state of the "app", and a toolbox over it.
+    /// The synthetic project opened in a state of the "app" with "Lokale Agenten zulassen"
+    /// on, and a toolbox over it.
     fn shared_app() -> (Synthetic, Arc<AppState>, Toolbox) {
         let fixture = synthetic_project();
         let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
         let toolbox = Toolbox::shared_waiting(source, WAIT);
@@ -2550,6 +2623,7 @@ mod tests {
     #[test]
     fn shared_open_project_is_refused_before_asking() {
         let (fixture, state, toolbox) = shared_app();
+        let since = state.agents.poll(0).seq;
         state.agents.set_expert(true).unwrap();
         let path = fixture.dir.path().to_str().unwrap();
         let open = json!({ "command": "open_project", "args": { "path": path } });
@@ -2562,7 +2636,7 @@ mod tests {
         // No grant was there, and nobody was asked.
         assert_eq!(state.agents.status().question, None);
         assert_eq!(
-            state.agents.poll(0).events.len(),
+            state.agents.poll(since).events.len(),
             1,
             "only the expert switch"
         );
@@ -2689,5 +2763,138 @@ mod tests {
         ));
         assert_eq!(code, "unavailable");
         assert_eq!(message, "Nur in der App: Projekte öffnet der Nutzer");
+    }
+
+    /// The policy of the shared app's project, to run commands as the UI does.
+    fn user_policy(fixture: &Synthetic) -> UserPolicy {
+        UserPolicy::new(fixture.dir.path(), &[], None).unwrap()
+    }
+
+    #[test]
+    fn agent_script_writes_reach_the_ui() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        dispatch(&state, &user_policy(&fixture), "adopt_scripts", json!({})).unwrap();
+        let source = serde_json::to_value(read_script_impl(&state, 0).unwrap()).unwrap();
+        let text = format!("{}\n", source["text"].as_str().unwrap());
+        toolbox
+            .call("save_script", json!({ "file": 0, "text": text }), AGENT)
+            .unwrap();
+        // Written past the store: the script file is named all the same, so an open editor
+        // reads it again.
+        let script = |index: u16| json!({ "kind": "Script", "index": index });
+        let (client, tool, label, assets) = changes(&state).pop().unwrap();
+        assert_eq!(
+            (client.as_str(), tool.as_str(), label),
+            (AGENT, "save_script", None)
+        );
+        assert!(assets.as_array().unwrap().contains(&script(0)), "{assets}");
+        // A save changes no value, but the UI's unsaved count follows it.
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        assert_eq!(
+            changes(&state).pop().unwrap(),
+            (AGENT.to_owned(), "save".to_owned(), None, json!([]))
+        );
+        // Through g4_call (irreversible, so the user allows it): a new file reports the file
+        // it made, a new script its file.
+        state.agents.set_expert(true).unwrap();
+        let user = answer_next(&state, "allow");
+        let file = toolbox
+            .call(
+                "g4_call",
+                json!({ "command": "new_script_file", "args": { "kind": "script" } }),
+                AGENT,
+            )
+            .unwrap();
+        user.join().unwrap();
+        let file = u16::try_from(file.as_u64().unwrap()).unwrap();
+        let (_, tool, _, assets) = changes(&state).pop().unwrap();
+        assert_eq!(tool, "g4_call");
+        assert!(
+            assets.as_array().unwrap().contains(&script(file)),
+            "{assets}"
+        );
+        let user = answer_next(&state, "allow");
+        toolbox
+            .call(
+                "g4_call",
+                json!({ "command": "add_script", "args": { "file": 0 } }),
+                AGENT,
+            )
+            .unwrap();
+        user.join().unwrap();
+        let (_, _, _, assets) = changes(&state).pop().unwrap();
+        assert!(assets.as_array().unwrap().contains(&script(0)), "{assets}");
+        // A read reports nothing.
+        let before = changes(&state).len();
+        toolbox
+            .call("get_header", json!({ "id": 0 }), AGENT)
+            .unwrap();
+        assert_eq!(changes(&state).len(), before);
+    }
+
+    #[test]
+    fn switched_off_refuses_calls_and_queued_writes() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        let toolbox = Arc::new(toolbox);
+        let turn = state.agents.agent_turn();
+        let queued = {
+            let toolbox = Arc::clone(&toolbox);
+            std::thread::spawn(move || toolbox.call("data_edit", power(65), AGENT))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        // The user switches agents off while the write waits for its turn.
+        state.agents.set_enabled(false).unwrap();
+        drop(turn);
+        let (code, message, _) = failed(queued.join().unwrap());
+        assert_eq!(code, "not_permitted");
+        assert_eq!(message, "Lokale Agenten sind aus (Einstellungen › Agenten)");
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        // A new call is refused at once, without a question, despite the saved grant.
+        let (code, message, _) = failed(toolbox.call("get_header", json!({ "id": 0 }), AGENT));
+        assert_eq!(code, "not_permitted");
+        assert_eq!(message, "Lokale Agenten sind aus (Einstellungen › Agenten)");
+        assert_eq!(state.agents.status().question, None);
+        assert!(changes(&state).is_empty());
+    }
+
+    #[test]
+    fn scripts_written_names_the_files_past_the_store() {
+        let script = |index| AssetId {
+            kind: AssetKind::Script,
+            index,
+        };
+        let ok = |value: Value| Ok::<Value, ToolError>(value);
+        assert_eq!(
+            scripts_written("save_level_script", &json!({ "file": 4 }), &ok(json!({}))),
+            [script(4)]
+        );
+        assert_eq!(
+            scripts_written(
+                "new_script_file",
+                &json!({ "kind": "script" }),
+                &ok(json!(9))
+            ),
+            [script(9)]
+        );
+        let fixed = json!({ "changed": [
+            { "kind": "Script", "index": 3 },
+            { "kind": "Event", "index": 1 },
+        ], "remaining": false });
+        assert_eq!(
+            scripts_written(
+                "apply_fix",
+                &json!({ "fix": "create_script" }),
+                &ok(fixed.clone())
+            ),
+            [script(3)]
+        );
+        // Other fixes change the store, which reports them itself.
+        assert!(scripts_written("apply_fix", &json!({ "fix": "wrap" }), &ok(fixed)).is_empty());
+        // A refused save wrote nothing.
+        let refused = Err(ToolError::error("nein"));
+        assert!(scripts_written("save_script", &json!({ "file": 0 }), &refused).is_empty());
+        assert!(scripts_written("data_edit", &json!({}), &ok(json!([]))).is_empty());
     }
 }

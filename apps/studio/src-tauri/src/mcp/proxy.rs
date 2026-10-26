@@ -275,14 +275,20 @@ async fn write_lines<O: AsyncWrite + Unpin>(
 }
 
 /// Whether a request is worth sending again after the proxy found the app anew: nothing
-/// reached the app, the token is old (401), or the app ended the session (404).
-fn renewable(sent: &Result<Answer, Failure>, had_session: bool) -> bool {
+/// reached the app, the token is old (401), the app ended the session (404), or there is no
+/// session (an earlier renewal failed) and the app refused the message for want of one (400
+/// or 404) while the client's handshake is known (`can_renew`) to open one with.
+fn renewable(sent: &Result<Answer, Failure>, had_session: bool, can_renew: bool) -> bool {
     match sent {
         Err(Failure::Unreachable(_)) => true,
         Err(Failure::Broken(_)) => false,
         Ok(answer) => {
-            answer.status == StatusCode::UNAUTHORIZED
-                || (answer.status == StatusCode::NOT_FOUND && had_session)
+            let status = answer.status;
+            status == StatusCode::UNAUTHORIZED
+                || (status == StatusCode::NOT_FOUND && had_session)
+                || (!had_session
+                    && can_renew
+                    && (status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND))
         }
     }
 }
@@ -330,7 +336,8 @@ impl Proxy {
     }
 
     /// Finds the app again and opens a new session with the client's last `initialize` (its
-    /// answer is not passed on, the client has had one) and `notifications/initialized`.
+    /// answer is not passed on, the client has had one) and `notifications/initialized`. The
+    /// old session stays until the new one is open.
     async fn renew(&mut self) -> bool {
         let Some(handshake) = self.handshake.clone() else {
             return false;
@@ -338,10 +345,9 @@ impl Proxy {
         if !self.relocate() {
             return false;
         }
-        self.session = Session::default();
         match self
             .target
-            .send(Method::POST, &self.session, handshake)
+            .send(Method::POST, &Session::default(), handshake)
             .await
         {
             Ok(answer) if answer.status.is_success() => {
@@ -381,11 +387,12 @@ impl Proxy {
             self.handshake = Some(body.clone());
         }
         let mut had_session = self.session.id.is_some();
+        let can_renew = !initialize && self.handshake.is_some();
         let mut sent = self
             .target
             .send(Method::POST, &self.session, body.clone())
             .await;
-        if renewable(&sent, had_session) {
+        if renewable(&sent, had_session, can_renew) {
             let renewed = if initialize {
                 self.relocate()
             } else {
@@ -590,5 +597,91 @@ mod tests {
         newer.version = DISCOVERY_VERSION + 1;
         discovery::write(dir.path(), &newer).unwrap();
         assert!(locate(dir.path()).unwrap_err().contains("Version"));
+    }
+
+    /// An app on `127.0.0.1` that answers every request with 503 (no session to be had), and
+    /// a proxy that holds the session `old` and a handshake, its discovery file in a folder.
+    async fn proxy_at_a_refusing_app() -> (tempfile::TempDir, Proxy) {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut request = vec![0u8; 64 * 1024];
+                    let _ = stream.read(&mut request).await;
+                    let _ = stream
+                        .write_all(
+                            b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\n\
+                              connection: close\r\n\r\n",
+                        )
+                        .await;
+                });
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let found = Discovery::new(port, "c0ffee");
+        discovery::write(dir.path(), &found).unwrap();
+        let proxy = Proxy {
+            dir: dir.path().to_owned(),
+            target: Target::of(&found).unwrap(),
+            session: Session {
+                id: Some("old".to_owned()),
+                protocol: Some("2025-06-18".to_owned()),
+            },
+            handshake: Some(Bytes::from_static(
+                br#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#,
+            )),
+        };
+        (dir, proxy)
+    }
+
+    #[tokio::test]
+    async fn failed_renewal_keeps_the_session() {
+        let (_dir, mut proxy) = proxy_at_a_refusing_app().await;
+        assert!(!proxy.renew().await);
+        // The replayed initialize was refused: the old session stays until a new one opens.
+        assert_eq!(proxy.session.id.as_deref(), Some("old"));
+        assert_eq!(proxy.session.protocol.as_deref(), Some("2025-06-18"));
+    }
+
+    #[test]
+    fn no_session_with_a_known_handshake_is_renewable() {
+        let answer = |status: StatusCode| -> Result<Answer, Failure> {
+            Ok(Answer {
+                status,
+                headers: HeaderMap::new(),
+                body: Bytes::new(),
+            })
+        };
+        // A session the app ended.
+        assert!(renewable(&answer(StatusCode::NOT_FOUND), true, false));
+        // No session (a renewal failed before), but the client's handshake is known: the
+        // app refuses the message for want of one (400), so it never ran.
+        assert!(renewable(&answer(StatusCode::BAD_REQUEST), false, true));
+        assert!(renewable(&answer(StatusCode::NOT_FOUND), false, true));
+        // Without a handshake there is nothing to renew with.
+        assert!(!renewable(&answer(StatusCode::BAD_REQUEST), false, false));
+        assert!(!renewable(&answer(StatusCode::NOT_FOUND), false, false));
+        // With a session a 400 is the message's own fault.
+        assert!(!renewable(&answer(StatusCode::BAD_REQUEST), true, true));
+        // Other refusals are not about the session.
+        assert!(!renewable(&answer(StatusCode::FORBIDDEN), false, true));
+        assert!(!renewable(
+            &answer(StatusCode::SERVICE_UNAVAILABLE),
+            false,
+            true
+        ));
+        assert!(renewable(&answer(StatusCode::UNAUTHORIZED), true, false));
+        assert!(renewable(
+            &Err(Failure::Unreachable(String::new())),
+            true,
+            false
+        ));
+        assert!(!renewable(
+            &Err(Failure::Broken(String::new())),
+            false,
+            true
+        ));
     }
 }

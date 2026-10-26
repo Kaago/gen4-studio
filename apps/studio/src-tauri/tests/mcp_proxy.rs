@@ -41,7 +41,8 @@ struct App {
 }
 
 impl App {
-    /// The synthetic project open in a fresh state, with the grant `write` for it.
+    /// The synthetic project open in a fresh state, with the grant `write` for it and
+    /// „Lokale Agenten zulassen“ on (the switch only: the test starts the server itself).
     fn new() -> App {
         let fixture = synthetic_project();
         let state = Arc::new(AppState::default());
@@ -56,6 +57,7 @@ impl App {
         .unwrap();
         let key = ProjectKey::of(dir).unwrap();
         state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        state.agents.set_enabled(true).unwrap();
         App {
             _fixture: fixture,
             state,
