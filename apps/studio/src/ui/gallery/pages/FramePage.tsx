@@ -558,6 +558,9 @@ export function FramePage() {
             onOpen={noop}
             onOpenRecent={noop}
             onForget={noop}
+            previews={new Map()}
+            onChoosePreview={noop}
+            onRemovePreview={noop}
           />
         </div>
       </section>

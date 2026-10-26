@@ -87,21 +87,6 @@
   justify-content: center;
 }
 
-.screenName {
-  display: flex;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  padding: 0 calc(12px * var(--ds-scale));
-  overflow: hidden;
-  color: var(--g4-szene-ds-textbox-flaeche);
-  font-family: var(--g4-schrift-familie-spiel);
-  font-size: calc(16px * var(--ds-scale));
-  line-height: calc(20px * var(--ds-scale));
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
 /* Inside the button, but shown on the screen frame (8 px inside the preview, which is 8 px inside the card). */
 .latest {
   position: absolute;

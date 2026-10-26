@@ -44,7 +44,7 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, redo, undo } from "./api";
+import { getMatrix, listScriptFiles, projectPreviewSet, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
@@ -83,6 +83,8 @@ import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
 import { ProjectStart } from "./project/ProjectStart";
 import type { StartWizardRequest } from "./project/ProjectStart";
+import { choosePreviewFile, previewErrorText } from "./project/previewMessages";
+import { usePreviews } from "./project/usePreviews";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
@@ -528,6 +530,27 @@ function AppBody() {
     forget(path);
     setMissing((before) => new Set([...before].filter((p) => p !== path)));
   }
+  // The preview pictures of the recent projects, read each time Start (not its wizard) shows; set and removed through each card's menu.
+  const { previews, reload: reloadPreview } = usePreviews(
+    shell.state.recent.map((p) => p.path),
+    missing,
+    area === "start" && !startOpen,
+  );
+  /** Writes (a file) or removes the own preview picture of the project at `path`; says so in a toast, a refused picture with its sentence. */
+  async function setPreview(path: string, file: string | null) {
+    try {
+      await projectPreviewSet(file === null ? { path } : { path, file });
+    } catch (e) {
+      toast.error(previewErrorText(e));
+      return;
+    }
+    reloadPreview(path);
+    toast.info(file === null ? "Vorschaubild entfernt" : "Vorschaubild gesetzt");
+  }
+  async function onChoosePreview(path: string) {
+    const file = await choosePreviewFile();
+    if (file !== null) await setPreview(path, file);
+  }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
   useF6Ring(() => !paletteOpen && !helpOpen);
@@ -785,6 +808,9 @@ function AppBody() {
         onOpen={openProject}
         onOpenRecent={(path) => void onOpenRecent(path)}
         onForget={onForget}
+        previews={previews}
+        onChoosePreview={(path) => void onChoosePreview(path)}
+        onRemovePreview={(path) => void setPreview(path, null)}
         wizard={startWizard}
         onWizard={setStartWizard}
         onOpenCreated={(created) => void onOpenCreated(created)}

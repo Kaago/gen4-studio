@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CreatePhase, Created, RomInfo } from "../../../api";
+import type { CreatePhase, Created, PreviewDto, RomInfo } from "../../../api";
 import { DropHint, ProjectStart } from "../../../project/ProjectStart";
 import type { StartWizardRequest } from "../../../project/ProjectStart";
 import { StartServiceContext } from "../../../project/startService";
@@ -7,6 +7,7 @@ import type { StartService } from "../../../project/startService";
 import { StartPane } from "../../frame/StartPane";
 import { Button } from "../../primitives";
 import styles from "../Gallery.module.css";
+import { drawExamplePreviews } from "./examplePreviews";
 
 const noop = () => {};
 const HOUR = 60 * 60 * 1000;
@@ -24,6 +25,9 @@ const EXAMPLE_ROM: RomInfo = {
   known_base: "Platin DE (Testprojekt)",
   support: { kind: "verified" },
 };
+
+const DAY = 24 * HOUR;
+const NO_PREVIEW: PreviewDto = { source: null, png: null, standardMap: null };
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const PHASES: CreatePhase[] = ["read", "extract", "template", "check"];
@@ -43,7 +47,58 @@ const EXAMPLE: StartService = {
     }
     return { root: dest, game_code: EXAMPLE_ROM.game_code, template, sha1: EXAMPLE_ROM.sha1, phases: PHASES.map((phase) => ({ phase, ms: PHASE_MS })) };
   },
+  projectPreviewGet: async () => NO_PREVIEW,
+  projectPreviewSet: async () => NO_PREVIEW,
 };
+
+/** The project cards in every state: own picture (and Zuletzt), standard picture, placeholder with the name, not found. */
+const CARDS = [
+  { path: "/Projekte/platin-hack", name: "platin-hack", game: "Platin, DE", age: 20 * 60 * 1000 },
+  { path: "/Projekte/johto-neu", name: "johto-neu", game: "HeartGold, DE", age: 3 * HOUR },
+  { path: "/Projekte/erster-versuch", name: "erster-versuch", game: "Platin, EN", age: 2 * DAY },
+  { path: "/Projekte/alte-kopie", name: "alte-kopie", game: "Diamant, DE", age: 9 * DAY },
+];
+/** The cards that have a standard picture (their start town): removing the own picture shows it again. */
+const WITH_STANDARD = new Set(["/Projekte/platin-hack", "/Projekte/johto-neu"]);
+const GONE = new Set(["/Projekte/alte-kopie"]);
+
+/**
+ * The project cards with example pictures the gallery draws itself; the card menu works on them: "Vorschaubild wählen…" puts the own
+ * example picture on the card, "Vorschaubild entfernen" brings back the standard picture or the name.
+ */
+function ProjectCards({ now }: { now: number }) {
+  const [pictures] = useState(drawExamplePreviews);
+  const standard = (path: string): PreviewDto | null =>
+    WITH_STANDARD.has(path) && pictures.standard !== null ? { source: "standard", png: pictures.standard, standardMap: null } : null;
+  const own: PreviewDto | null = pictures.own === null ? null : { source: "eigen", png: pictures.own, standardMap: null };
+  const [previews, setPreviews] = useState<ReadonlyMap<string, PreviewDto>>(() => {
+    const start = new Map<string, PreviewDto>();
+    if (own) start.set("/Projekte/platin-hack", own);
+    const std = standard("/Projekte/johto-neu");
+    if (std) start.set("/Projekte/johto-neu", std);
+    return start;
+  });
+  const put = (path: string, dto: PreviewDto | null) =>
+    setPreviews((before) => {
+      const next = new Map(before);
+      if (dto === null) next.delete(path);
+      else next.set(path, dto);
+      return next;
+    });
+  return (
+    <StartPane
+      recent={CARDS.map(({ age, ...card }) => ({ ...card, openedAt: now - age }))}
+      missing={GONE}
+      previews={previews}
+      onOpen={noop}
+      onOpenRecent={noop}
+      onForget={noop}
+      onChoosePreview={(path) => put(path, own)}
+      onRemovePreview={(path) => put(path, standard(path))}
+      onNewGame={noop}
+    />
+  );
+}
 
 /** "Neues Spiel aus ROM": the start with its main action, the drop frame, and the wizard in the start's own deck with example data. */
 export function ProjectPage() {
@@ -52,13 +107,26 @@ export function ProjectPage() {
   const [wizard, setWizard] = useState<StartWizardRequest | null>(null);
   const [opened, setOpened] = useState<string | null>(null);
   const recent = [{ path: "/Projekte/platin-hack", name: "platin-hack", game: "Platin, DE", openedAt: now - HOUR }];
+  const cardProps = { previews: new Map<string, PreviewDto>(), onChoosePreview: noop, onRemovePreview: noop };
   return (
     <div className={styles.stack}>
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Projektkarte</h2>
+        <p className={styles.note}>
+          Von links: eigenes Bild (und „Zuletzt“), Standardbild (das Kartenbild der Startstadt), ohne Bild der Name auf dem leeren Bildschirm,
+          „nicht gefunden“ grau und ohne Farbe. Das Menü „…“ wählt oder entfernt das Bild; die Beispielbilder zeichnet die Galerie aus den
+          Szenenfarben.
+        </p>
+        <div className={styles.startFrame}>
+          <ProjectCards now={now} />
+        </div>
+      </section>
+
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Start mit Hauptknopf</h2>
         <p className={styles.note}>„Neues Spiel aus ROM…“ ist die primäre Taste, „Projekt öffnen“ sekundär; darunter, was man mitbringen muss.</p>
         <div className={styles.startFrame}>
-          <StartPane recent={recent} missing={new Set()} onOpen={noop} onOpenRecent={noop} onForget={noop} onNewGame={noop} />
+          <StartPane recent={recent} missing={new Set()} {...cardProps} onOpen={noop} onOpenRecent={noop} onForget={noop} onNewGame={noop} />
         </div>
       </section>
 
@@ -66,7 +134,7 @@ export function ProjectPage() {
         <h2 className={styles.blockTitle}>ROM ablegen</h2>
         <p className={styles.note}>Solange eine Datei über den Start gezogen wird, ist die ganze Fläche der Schacht, in den sie fällt.</p>
         <div className={styles.dropFrame}>
-          <StartPane recent={recent} missing={new Set()} onOpen={noop} onOpenRecent={noop} onForget={noop} onNewGame={noop} />
+          <StartPane recent={recent} missing={new Set()} {...cardProps} onOpen={noop} onOpenRecent={noop} onForget={noop} onNewGame={noop} />
           <DropHint />
         </div>
       </section>
@@ -89,6 +157,7 @@ export function ProjectPage() {
               onOpen={noop}
               onOpenRecent={noop}
               onForget={noop}
+              {...cardProps}
               wizard={wizard}
               onWizard={setWizard}
               onOpenCreated={(created) => {
