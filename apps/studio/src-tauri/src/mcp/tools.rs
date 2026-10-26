@@ -1071,6 +1071,7 @@ impl<'a> Call<'a> {
             })
         };
         let value = match resource {
+            // Unreachable in practice: docs return early in `read_resource`.
             ResourceUri::Doc(text) => return Ok((MARKDOWN.to_owned(), text.to_owned())),
             ResourceUri::Project => self.project_info()?,
             ResourceUri::Checks => read("checks_status", json!({}))?,

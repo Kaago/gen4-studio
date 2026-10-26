@@ -118,16 +118,19 @@ describe("subscribeAgentEvents in the browser mode", () => {
 
   it("follows_a_restarted_hub_whose_seq_went_back", async () => {
     // A restarted bridge counts from 1 again: nothing after 40 yet, then the poll goes on from its seq.
-    const answers = [pollAnswer(40, []), pollAnswer(2, [])];
+    const answers = [pollAnswer(40, []), pollAnswer(2, [], 1)];
     invoke.mockImplementation(async () => answers.shift() ?? pollAnswer(3, [changed(3, 6)]));
     const onEvents = vi.fn();
     const stop = subscribeAgentEvents(onEvents);
     await settle();
     await vi.advanceTimersByTimeAsync(AGENT_POLL_MS);
     expect(invoke).toHaveBeenLastCalledWith("agent_poll", { since: 40 });
-    expect(onEvents).toHaveBeenCalledTimes(1);
+    // The restart itself delivers the new hub's status, without events.
+    expect(onEvents).toHaveBeenCalledTimes(2);
+    expect(onEvents).toHaveBeenNthCalledWith(2, [], status(1));
     await vi.advanceTimersByTimeAsync(AGENT_POLL_MS);
     expect(invoke).toHaveBeenLastCalledWith("agent_poll", { since: 2 });
+    expect(onEvents).toHaveBeenCalledTimes(3);
     expect(onEvents).toHaveBeenLastCalledWith([changed(3, 6)], status(0));
     stop();
   });

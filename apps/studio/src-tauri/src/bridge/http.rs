@@ -1025,6 +1025,19 @@ mod tests {
         (fixture, server)
     }
 
+    /// Waits (at most 2 s) until every MCP call has given back its slot.
+    fn wait_for_no_mcp_calls(shared: &Shared) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while shared.mcp_calls.load(Ordering::SeqCst) != 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "mcp_calls stayed at {}",
+                shared.mcp_calls.load(Ordering::SeqCst)
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn mcp_calls_waiting_on_a_question_leave_invoke_free() {
         let (_fixture, server) = open_without_grant();
@@ -1048,7 +1061,8 @@ mod tests {
             let result = &reply.message()["result"];
             assert_ne!(result["isError"], true, "{result}");
         }
-        assert_eq!(server.shared.mcp_calls.load(Ordering::SeqCst), 0);
+        // The call thread answers before it drops its slot: poll, do not read once.
+        wait_for_no_mcp_calls(&server.shared);
         server.stop();
     }
 
@@ -1119,5 +1133,6 @@ mod tests {
         // Denied at once, not after the question's 120 s.
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
         assert!(shared.state.agents.status().question.is_none());
+        wait_for_no_mcp_calls(&shared);
     }
 }

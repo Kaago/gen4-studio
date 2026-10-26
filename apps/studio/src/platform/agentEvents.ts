@@ -69,10 +69,14 @@ function pollTheHub(onEvents: (events: AgentEvent[], status: AgentStatus | null)
       const answer = await agentPoll(since);
       if (disposed) return;
       // The hub's latest seq, even when it went back (a restarted bridge counts from 1 again).
+      const wentBack = answer.seq < since;
       since = answer.seq;
       if (first) {
         first = false;
         // The events kept from before subscribing are past; the status counts.
+        onEvents([], answer.status);
+      } else if (wentBack) {
+        // A restarted bridge: its events are not ours to replay, but its status is.
         onEvents([], answer.status);
       } else if (answer.events.length > 0) {
         onEvents(answer.events, answer.status);

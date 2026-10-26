@@ -109,13 +109,26 @@ pub struct AgentSettingsDto {
     pub open_project: Option<GrantView>,
 }
 
-/// The line that registers this program with Claude Code (in the dev bridge the bridge's
-/// own path).
+/// The line that registers this program with Claude Code (in the dev bridge, which is not the
+/// program that speaks MCP, the `studio` next to it).
 pub fn setup_line() -> String {
     let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
+        .map(|p| mcp_program(&p).display().to_string())
         .unwrap_or_else(|_| "studio".to_owned());
     format!("claude mcp add gen4-studio -- \"{exe}\" mcp")
+}
+
+/// The program that runs `mcp` for the executable `exe`: the sibling `studio` (same directory
+/// and extension) when `exe` is the dev bridge `studio-bridge`, else `exe` itself.
+fn mcp_program(exe: &std::path::Path) -> std::path::PathBuf {
+    if exe.file_stem().is_some_and(|stem| stem == "studio-bridge") {
+        let mut sibling = exe.with_file_name("studio");
+        if let Some(extension) = exe.extension() {
+            sibling.set_extension(extension);
+        }
+        return sibling;
+    }
+    exe.to_path_buf()
 }
 
 /// The name the UI shows for a client: its `title`, else its `name`; `claude-code` is
@@ -1002,5 +1015,28 @@ mod tests {
         assert_eq!(client_display_name(" ", None), "Agent");
         assert!(setup_line().starts_with("claude mcp add gen4-studio -- \""));
         assert!(setup_line().ends_with("\" mcp"));
+    }
+
+    #[test]
+    fn the_dev_bridge_is_set_up_as_the_studio_next_to_it() {
+        use std::path::Path;
+        assert_eq!(
+            mcp_program(Path::new("/x/target/debug/studio-bridge")),
+            Path::new("/x/target/debug/studio")
+        );
+        assert_eq!(
+            mcp_program(Path::new("C:/x/debug/studio-bridge.exe")),
+            Path::new("C:/x/debug/studio.exe")
+        );
+        assert_eq!(
+            mcp_program(Path::new("/x/target/debug/studio")),
+            Path::new("/x/target/debug/studio")
+        );
+        assert_eq!(
+            mcp_program(Path::new(
+                "/Applications/Gen4 Studio.app/Contents/MacOS/studio"
+            )),
+            Path::new("/Applications/Gen4 Studio.app/Contents/MacOS/studio")
+        );
     }
 }
