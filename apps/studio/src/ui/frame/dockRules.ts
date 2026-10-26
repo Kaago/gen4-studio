@@ -100,17 +100,23 @@ function size(group: DockviewGroupPanel, step: ArrangementStep) {
   if (step.height !== undefined) group.api.setSize({ height: step.height });
 }
 
+/** What every panel of a dock is added with: its component by its id, its title, its content kept alive. */
+function panelOptions(area: DeckArea, id: PanelId) {
+  return {
+    id,
+    component: id,
+    title: AREA_PANELS[area].find((p) => p.id === id)?.title ?? id,
+    // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
+    renderer: "always" as const,
+  };
+}
+
 /** Builds the arrangement into an empty dock: dockview adds each panel where its step says. */
 function build(api: DockviewApi, area: DeckArea, steps: ArrangementStep[]) {
-  const titles = new Map<string, string>(AREA_PANELS[area].map((p) => [p.id, p.title]));
   api.clear();
   for (const step of steps) {
     const panel = api.addPanel({
-      id: step.id,
-      component: step.id,
-      title: titles.get(step.id) ?? step.id,
-      // Keep the DOM (and the three.js canvas) alive when a tab is hidden or the panel is moved.
-      renderer: "always",
+      ...panelOptions(area, step.id),
       position: step.position ? { referencePanel: step.position.referencePanel, direction: step.position.direction } : undefined,
       initialWidth: step.width,
       initialHeight: step.height,
@@ -198,10 +204,7 @@ function syncPanels(api: DockviewApi, area: DeckArea, depth: Depth) {
       api.removePanel(panel);
     } else if (!panel && position && reference) {
       api.addPanel({
-        id: spec.id,
-        component: spec.id,
-        title: spec.title,
-        renderer: "always",
+        ...panelOptions(area, spec.id),
         position: { referencePanel: reference, direction: position.direction, index: reference.group.panels.indexOf(reference) + 1 },
         inactive: true,
       });

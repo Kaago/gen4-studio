@@ -56,12 +56,21 @@ describe("nextSelection", () => {
     const pinned = { kind: "matrixCell", matrix: 7, x: 2, y: 3 };
     // Another header: it is selected (its scene loads) and the cell is pinned, not the header.
     expect(nextSelection({ ...state, depth: "bauen" }, cell)).toEqual({ area: "welt", selectedHeader: 415, pinned, panel: null });
-    expect(nextSelection({ ...state, depth: "tuefteln" }, cell)).toEqual({ area: "welt", selectedHeader: 415, pinned, panel: "matrix" });
     // The header shown already: only the cell is pinned.
     expect(nextSelection({ ...state, selectedHeader: 415, depth: "bauen" }, cell)).toEqual({ area: "welt", selectedHeader: 415, pinned, panel: null });
     // No header, or one the project does not have: the selection stays.
     expect(nextSelection({ ...state, depth: "bauen" }, { ...cell, header: null })).toEqual({ area: "welt", selectedHeader: 3, pinned, panel: null });
     expect(nextSelection({ ...state, depth: "bauen" }, { ...cell, header: 999 })).toEqual({ area: "welt", selectedHeader: 3, pinned, panel: null });
+  });
+
+  it("stays_on_the_view_for_show_map_in_tuefteln", () => {
+    const cell = { kind: "matrixCell", matrix: 7, x: 2, y: 3, header: 415, show: "map" } as const;
+    const pinned = { kind: "matrixCell", matrix: 7, x: 2, y: 3 };
+    // The world map's link keeps the Weltkarte in front, also where the Raster exists.
+    expect(nextSelection({ ...state, depth: "tuefteln" }, cell)).toEqual({ area: "welt", selectedHeader: 415, pinned, panel: null });
+    expect(nextSelection({ ...state, depth: "tuefteln" }, { ...cell, header: null })).toEqual({ area: "welt", selectedHeader: 3, pinned, panel: null });
+    // Without `show` a cell still goes to the Raster in Tüfteln.
+    expect(nextSelection({ ...state, depth: "tuefteln" }, { kind: "matrixCell", matrix: 7, x: 2, y: 3 }).panel).toBe("matrix");
   });
 
   it("selects_only_the_header_for_a_cell_with_a_header_and_no_show", () => {

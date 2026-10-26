@@ -138,8 +138,9 @@ function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchiv
       return known(target.id) ? toHeader(target.id) : { selectedHeader: state.selectedHeader, pinned: null, panel: null };
     case "matrixCell": {
       if (target.show !== "map" && known(target.header)) return toHeader(target.header);
-      // Bauen has no Raster: the tabs stay as they are and the inspector shows the cell's map.
-      const panel = state.depth === "bauen" ? null : "matrix";
+      // Bauen has no Raster, and a link to the map (the world map's) stays on the view: the tabs stay as they are and the inspector shows
+      // the cell's map.
+      const panel = target.show === "map" || state.depth === "bauen" ? null : "matrix";
       const header = target.show === "map" ? switchTo(target.header) : null;
       return { selectedHeader: header ?? state.selectedHeader, pinned: { kind: "matrixCell", matrix: target.matrix, x: target.x, y: target.y }, panel };
     }
