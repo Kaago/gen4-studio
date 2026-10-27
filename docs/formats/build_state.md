@@ -110,4 +110,13 @@ für die Archive, deren JSON oder Member sich gegen den Eintrag geändert hat. E
 `Conflict` lässt den Schritt scheitern (`KernelError::TextConflict`), bevor er schreibt. `rom` liefert vier Zeilen: `blz:arm9`, `blz:overlays`, `rom`, `crc`
 (`no-base-mark` ohne Basismarke, `secure-area-changed`, wenn die Secure Area nicht mehr passt).
 
+`pack:<Ordner>` voll packt den ganzen Ordner (`pack_dir`). Inkrementell liest er nur die
+geänderten und neuen Member-Dateien, liest das gepackte NARC, ersetzt die geänderten Member und
+hängt die neuen an, wenn sie lückenlos ab der bisherigen Länge folgen. Ein NARC hat genau ein
+Layout (Member auf 4 Bytes mit `0xFF` aufgefüllt), also ist das Ergebnis byte-gleich zu einem
+vollen Packen. Statt einzusetzen packt er voll, und die Zeile zeigt „voll“: bei einem entfernten
+Member (`removed`, das NARC schrumpft) und wenn die Member nicht zum NARC passen
+(`output-changed`). Geschrieben wird das NARC nur bei geänderten Bytes, der Elternordner wird
+dabei angelegt (ein Klon ohne die ignorierten NARCs).
+
 Der BLZ-Cache liegt daneben unter `.g4/build/blz/` (`arm9-<xxh3>.blz`, `ov<NNN>-<xxh3>.blz`).

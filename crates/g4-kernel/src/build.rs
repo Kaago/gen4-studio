@@ -31,7 +31,7 @@ pub use step::{StepReport, StepStatus};
 pub use steps::NO_STATE_HINT_FILE;
 
 use state::BuildState;
-use steps::{ChatotStep, PackStep, RomStep, RotomStep};
+use steps::{ChatotStep, PackKind, PackStep, RomStep, RotomStep};
 
 /// The build's cache below the project root: the BLZ cache (`blz/`) and the build state.
 /// Everything in it may be deleted; the next build then runs fully.
@@ -137,9 +137,26 @@ fn build_err(e: impl std::fmt::Display) -> KernelError {
 pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
     let members = member_files(dir)?
         .iter()
-        .map(|path| std::fs::read(path).map_err(io_at(path)))
+        .map(|path| read_member(path))
         .collect::<Result<_, _>>()?;
     Ok(Narc { members })
+}
+
+thread_local! {
+    static MEMBER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The bytes of one member file, counted for [`member_reads`].
+fn read_member(path: &Path) -> Result<Vec<u8>, KernelError> {
+    MEMBER_READS.with(|reads| reads.set(reads.get() + 1));
+    std::fs::read(path).map_err(io_at(path))
+}
+
+/// How many member files packing read on this thread (the build graph's tests check that a
+/// spliced `pack:*` step reads only the members that changed).
+#[cfg(feature = "test-support")]
+pub fn member_reads() -> usize {
+    MEMBER_READS.with(|reads| reads.get())
 }
 
 /// The member files of `dir` in order, checked like [`pack_dir`] checks them, unread.
@@ -183,12 +200,49 @@ fn member_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
     Ok(found.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Writes `bytes` to `path` unless it already holds exactly these bytes. The write goes
-/// through a temp file in `tmp_dir` (on the project's filesystem, outside `files/`, which
-/// ds-rom packs into the ROM) and a rename, so an interrupted write cannot truncate the NARC.
+/// The packed NARC `packed` with `members` (index, bytes) put in: an index below the
+/// NARC's length replaces that member, the others are appended, and must follow on without
+/// a gap from the length (in any order in `members`). `None` when they do not, or when
+/// `packed` is not a NARC: the caller packs the folder fully. A NARC is read and written in
+/// its one canonical layout, so the result equals [`pack_dir`] of a folder holding the
+/// NARC's members with these put in. It returns no error yet; the `Result` leaves room for
+/// one.
+pub(crate) fn splice(
+    packed: &[u8],
+    members: &[(u16, Vec<u8>)],
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let Ok(mut narc) = Narc::read(packed) else {
+        return Ok(None);
+    };
+    let mut sorted: Vec<&(u16, Vec<u8>)> = members.iter().collect();
+    sorted.sort_by_key(|(index, _)| *index);
+    for (index, bytes) in sorted {
+        let index = usize::from(*index);
+        match index.cmp(&narc.members.len()) {
+            std::cmp::Ordering::Less => narc.members[index].clone_from(bytes),
+            std::cmp::Ordering::Equal => narc.members.push(bytes.clone()),
+            std::cmp::Ordering::Greater => return Ok(None),
+        }
+    }
+    Ok(Some(narc.write()))
+}
+
+/// Writes `bytes` to `path` unless it already holds exactly these bytes, creating the
+/// parent folder (a clone without the ignored NARCs lacks it). The write goes through a
+/// temp file in `tmp_dir` (on the project's filesystem, outside `files/`, which ds-rom packs
+/// into the ROM) and a rename, so an interrupted write cannot truncate the NARC.
 fn write_if_changed(path: &Path, bytes: &[u8], tmp_dir: &Path) -> Result<(), KernelError> {
     if std::fs::read(path).is_ok_and(|existing| existing == bytes) {
         return Ok(());
+    }
+    replace_file(path, bytes, tmp_dir)
+}
+
+/// The write of [`write_if_changed`] without the comparison, for a caller that holds the
+/// old bytes already.
+fn replace_file(path: &Path, bytes: &[u8], tmp_dir: &Path) -> Result<(), KernelError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
     std::fs::create_dir_all(tmp_dir).map_err(io_at(tmp_dir))?;
     let file_name = path
@@ -317,7 +371,10 @@ fn run_pack_steps(project: &Project) -> Result<(Packed, Vec<StepReport>), Kernel
         .iter()
         .zip(&rows)
         .filter(|(_, row)| row.status != StepStatus::Skipped)
-        .map(|(pack, row): (&PackStep, _)| (pack.kind, row.total as usize))
+        .filter_map(|(pack, row): (&PackStep, _)| match pack.kind {
+            PackKind::Asset(kind) => Some((kind, row.total as usize)),
+            PackKind::Only { .. } => None,
+        })
         .collect();
     Ok((packed, rows))
 }
@@ -356,4 +413,28 @@ pub fn extract_rom(nds: &Path, dest: &Path) -> Result<Project, KernelError> {
         e => build_err(e),
     })?;
     Project::open(dest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splice_replaces_and_appends_members() {
+        let packed = Narc {
+            members: vec![vec![0; 3], vec![1; 5], vec![2; 4]],
+        }
+        .write();
+        let spliced = splice(&packed, &[(3, vec![3; 7]), (1, vec![9; 2])])
+            .unwrap()
+            .expect("spliceable");
+        let expected = Narc {
+            members: vec![vec![0; 3], vec![9; 2], vec![2; 4], vec![3; 7]],
+        };
+        assert_eq!(Narc::read(&spliced).unwrap(), expected);
+        assert_eq!(spliced, expected.write());
+
+        assert_eq!(splice(&packed, &[(5, vec![5])]).unwrap(), None, "a gap");
+        assert_eq!(splice(b"not a narc", &[(0, vec![0])]).unwrap(), None);
+    }
 }

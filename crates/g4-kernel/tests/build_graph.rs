@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use g4_kernel::build::state::BuildState;
 use g4_kernel::build::{
-    BUILD_DIR, StepReport, StepStatus, build, clear_cache, prepare_for_build,
-    run_source_and_pack_steps,
+    BUILD_DIR, StepReport, StepStatus, build, clear_cache, member_reads, pack_dir,
+    prepare_for_build, run_source_and_pack_steps,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
@@ -247,6 +247,109 @@ fn a_source_in_a_subfolder_wakes_rotom() {
     assert_eq!(row(&again.steps, "rotom").status, StepStatus::Incremental);
 }
 
+/// The packed map NARC of `p`.
+fn map_narc(p: &Project) -> std::path::PathBuf {
+    p.root.join(p.archives.packed(AssetKind::Map).unwrap())
+}
+
+/// The packed map NARC equals a fresh pack of `unpacked/maps/`.
+fn assert_map_narc_is_fresh(p: &Project) {
+    let fresh = pack_dir(&p.unpacked_dir(AssetKind::Map)).unwrap().write();
+    assert!(
+        std::fs::read(map_narc(p)).unwrap() == fresh,
+        "NARC == pack_dir"
+    );
+}
+
+/// The synthetic project built once (every step recorded), a moment later.
+fn built_project() -> (common::Synthetic, Project) {
+    let (s, p) = project();
+    run_source_and_pack_steps(&p).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    (s, p)
+}
+
+#[test]
+fn a_changed_member_is_spliced_into_the_narc() {
+    let (_s, p) = built_project();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 0),
+        common::synthetic_map_bytes(0x77),
+    )
+    .unwrap();
+    let reads = member_reads();
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    assert_eq!(member_reads() - reads, 1, "only the changed member is read");
+    let maps = row(&rows, "pack:maps");
+    assert_eq!(
+        (maps.status, maps.reason, maps.done, maps.total),
+        (StepStatus::Incremental, None, 1, 3),
+        "{maps:?}"
+    );
+    assert_map_narc_is_fresh(&p);
+    let ran: Vec<&StepReport> = rows
+        .iter()
+        .filter(|r| r.id != "pack:maps" && r.status != StepStatus::Skipped)
+        .collect();
+    assert!(ran.is_empty(), "{ran:?}");
+}
+
+#[test]
+fn an_added_member_is_appended() {
+    let (_s, p) = built_project();
+    std::fs::write(
+        p.member_path(AssetKind::Map, 3),
+        common::synthetic_map_bytes(0x33),
+    )
+    .unwrap();
+    let reads = member_reads();
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    assert_eq!(member_reads() - reads, 1, "only the added member is read");
+    let maps = row(&rows, "pack:maps");
+    assert_eq!(
+        (maps.status, maps.reason, maps.done, maps.total),
+        (StepStatus::Incremental, None, 1, 4),
+        "{maps:?}"
+    );
+    assert_map_narc_is_fresh(&p);
+}
+
+#[test]
+fn a_removed_last_member_packs_the_kind_fully() {
+    let (_s, p) = built_project();
+    let before = std::fs::read(map_narc(&p)).unwrap();
+    std::fs::remove_file(p.member_path(AssetKind::Map, 2)).unwrap();
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    let maps = row(&rows, "pack:maps");
+    assert_eq!(
+        (maps.status, maps.reason, maps.done, maps.total),
+        (StepStatus::Full, Some("removed"), 2, 2),
+        "{maps:?}"
+    );
+    let after = std::fs::read(map_narc(&p)).unwrap();
+    assert!(after.len() < before.len(), "the NARC shrinks");
+    assert_map_narc_is_fresh(&p);
+    let again = run_source_and_pack_steps(&p).unwrap();
+    assert_eq!(row(&again, "pack:maps").status, StepStatus::Skipped);
+}
+
+#[test]
+fn a_changed_narc_packs_the_kind_fully() {
+    let (_s, p) = built_project();
+    let foreign = g4_formats::narc::Narc {
+        members: vec![vec![1, 2, 3]],
+    };
+    std::fs::write(map_narc(&p), foreign.write()).unwrap();
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    let maps = row(&rows, "pack:maps");
+    assert_eq!(
+        (maps.status, maps.reason, maps.done, maps.total),
+        (StepStatus::Full, Some("output-changed"), 3, 3),
+        "{maps:?}"
+    );
+    assert_map_narc_is_fresh(&p);
+}
+
 fn mtime(path: &Path) -> std::time::SystemTime {
     std::fs::metadata(path).unwrap().modified().unwrap()
 }
@@ -332,5 +435,60 @@ fn a_new_out_path_runs_the_rom_step() {
     assert_eq!(
         state.rom.as_ref().map(|r| r.path.as_str()),
         Some(other.to_str().unwrap())
+    );
+}
+
+/// Gated: a map edited and saved through the store after a build. Build A splices the one
+/// member into the map NARC and skips every other archive; build B without cache to another
+/// path packs everything: A and B are the same bytes.
+#[test]
+fn map_edit_incremental_equals_full() {
+    use std::sync::Arc;
+
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let p = Arc::new(Project::open(&root).unwrap());
+    clear_cache(&p).unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    let first = build(&p, &out_dir.path().join("first.nds")).unwrap();
+    eprintln!("cold {} ms", first.ms);
+
+    let mut store = g4_kernel::store::Store::new(p.clone());
+    store
+        .edit_map(0, "Kollision", |m| {
+            let mut cell = m.cell(0, 0)?;
+            cell.collision ^= 0x80;
+            m.set_cell(0, 0, cell)
+        })
+        .unwrap();
+    store.save().unwrap();
+
+    let a = out_dir.path().join("a.nds");
+    let report = build(&p, &a).unwrap();
+    eprintln!("A {} ms: {:?}", report.ms, report.steps);
+    let maps_id = format!("pack:{}", p.archives.unpacked_name(AssetKind::Map));
+    let maps = row(&report.steps, &maps_id);
+    assert_eq!(
+        (maps.status, maps.reason, maps.done),
+        (StepStatus::Incremental, None, 1),
+        "{maps:?}"
+    );
+    let ran: Vec<&StepReport> = report
+        .steps
+        .iter()
+        .filter(|r| r.id.starts_with("pack:") && r.id != maps_id)
+        .filter(|r| r.status != StepStatus::Skipped)
+        .collect();
+    assert!(ran.is_empty(), "{ran:?}");
+
+    clear_cache(&p).unwrap();
+    let b = out_dir.path().join("b.nds");
+    let full = build(&p, &b).unwrap();
+    eprintln!("B {} ms", full.ms);
+    assert_eq!(row(&full.steps, &maps_id).status, StepStatus::Full);
+    assert!(
+        std::fs::read(&a).unwrap() == std::fs::read(&b).unwrap(),
+        "A == B"
     );
 }

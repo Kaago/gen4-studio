@@ -9,8 +9,8 @@ use std::time::Instant;
 
 use super::blz::{self, BlzCount};
 use super::salt::{Tool, lock, step_salt};
-use super::step::{Dirty, Step, StepReport, StepRun, StepStatus};
-use super::{build_err, pack_dir, write_if_changed};
+use super::step::{Dirty, OUTPUT_CHANGED, REMOVED, Step, StepReport, StepRun, StepStatus};
+use super::{build_err, pack_dir, read_member, replace_file, splice, write_if_changed};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 use crate::scripts::{self, CompileReport, numbered_files};
@@ -223,11 +223,29 @@ pub(crate) fn no_state_hint(count: usize) -> Problem {
     }
 }
 
-/// Packs `unpacked/<name>/` into the archive's NARC (`pack_dir`, written only when its bytes
-/// change). For now it packs the whole folder when anything in it changed; counted are the
-/// changed and added members (all of them when it runs fully).
+/// What a [`PackStep`] packs: the NARC of an archive the project knows, or a pack entry of
+/// `archives.yaml` (`pack_only`), a folder DSPRE unpacks that the app does not edit.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PackKind {
+    Asset(AssetKind),
+    #[expect(
+        dead_code,
+        reason = "Task 5 adds the pack entries of archives.yaml to pack_steps"
+    )]
+    Only {
+        packed: PathBuf,
+        unpacked: String,
+    },
+}
+
+/// Packs `unpacked/<name>/` into its NARC. Fully (no entry, another salt, the NARC missing or
+/// changed since the entry) it packs the folder ([`pack_dir`]). Incrementally it reads only
+/// the changed and added member files and [`splice`]s them into the NARC as it is; a removed
+/// member packs fully (reason [`REMOVED`]), and so does a NARC the members do not fit
+/// ([`OUTPUT_CHANGED`]). The NARC is written only when its bytes change. Counted are the
+/// members put in (all of them when it packs fully) of the members the NARC holds.
 pub(crate) struct PackStep {
-    pub(crate) kind: AssetKind,
+    pub(crate) kind: PackKind,
     name: String,
     unpacked: PathBuf,
     packed: PathBuf,
@@ -243,7 +261,7 @@ pub(crate) fn pack_steps(project: &Project) -> Vec<PackStep> {
             let dir = project.unpacked_dir(kind);
             let packed = project.archives.packed(kind)?;
             dir.is_dir().then(|| PackStep {
-                kind,
+                kind: PackKind::Asset(kind),
                 name: project.archives.unpacked_name(kind).to_owned(),
                 unpacked: relative(project, &dir),
                 packed: packed.to_path_buf(),
@@ -252,10 +270,68 @@ pub(crate) fn pack_steps(project: &Project) -> Vec<PackStep> {
         .collect()
 }
 
+/// The member count of a NARC that [`splice`] wrote: the `u16` after the BTAF block's magic
+/// and size (the block follows the 16-byte header).
+fn narc_member_count(narc: &[u8]) -> u32 {
+    narc.get(0x18..0x1A)
+        .map_or(0, |n| u32::from(u16::from_le_bytes([n[0], n[1]])))
+}
+
+/// The number of a member file `NNNN` (exactly four ASCII digits).
+fn member_number(path: &Path) -> Option<u16> {
+    let name = path.file_name()?.to_str()?;
+    (name.len() == 4 && name.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| name.parse().ok())
+        .flatten()
+}
+
 impl PackStep {
     /// The folder the step packs.
     pub(crate) fn dir(&self, project: &Project) -> PathBuf {
         project.root.join(&self.unpacked)
+    }
+
+    /// The incremental run: the changed and added members spliced into the packed NARC,
+    /// written when its bytes change. `Ok(None)` when they do not fit it (or it cannot be
+    /// read): the caller packs fully.
+    fn splice_dirty(&self, p: &Project, dirty: &Dirty) -> Result<Option<StepRun>, KernelError> {
+        let path = p.root.join(&self.packed);
+        let Ok(packed) = std::fs::read(&path) else {
+            return Ok(None);
+        };
+        let mut members = Vec::new();
+        for file in dirty.changed.iter().chain(&dirty.added) {
+            let Some(number) = member_number(file) else {
+                return Ok(None);
+            };
+            members.push((number, read_member(&p.root.join(file))?));
+        }
+        let Some(bytes) = splice(&packed, &members)? else {
+            return Ok(None);
+        };
+        if bytes != packed {
+            replace_file(&path, &bytes, &p.root.join(".g4").join("tmp"))?;
+        }
+        Ok(Some(StepRun {
+            done: members.len() as u32,
+            total: narc_member_count(&bytes),
+            ..StepRun::default()
+        }))
+    }
+
+    /// The full run: the folder packed, written when its bytes change; `full` is the reason
+    /// when the runner asked for an incremental run.
+    fn pack_fully(&self, p: &Project, full: Option<&'static str>) -> Result<StepRun, KernelError> {
+        let narc = pack_dir(&self.dir(p))?;
+        let tmp_dir = p.root.join(".g4").join("tmp");
+        write_if_changed(&p.root.join(&self.packed), &narc.write(), &tmp_dir)?;
+        let total = narc.members.len() as u32;
+        Ok(StepRun {
+            done: total,
+            total,
+            full,
+            ..StepRun::default()
+        })
     }
 }
 
@@ -277,20 +353,17 @@ impl Step for PackStep {
     }
 
     fn run(&self, p: &Project, dirty: &Dirty) -> Result<StepRun, KernelError> {
-        let narc = pack_dir(&self.dir(p))?;
-        let tmp_dir = p.root.join(".g4").join("tmp");
-        write_if_changed(&p.root.join(&self.packed), &narc.write(), &tmp_dir)?;
-        let total = narc.members.len() as u32;
-        let done = if dirty.full.is_some() {
-            total
-        } else {
-            (dirty.changed.len() + dirty.added.len()).min(total as usize) as u32
-        };
-        Ok(StepRun {
-            done,
-            total,
-            ..StepRun::default()
-        })
+        if dirty.full.is_some() {
+            return self.pack_fully(p, None);
+        }
+        // A removed member shifts the members after it: the NARC is packed anew.
+        if !dirty.removed.is_empty() {
+            return self.pack_fully(p, Some(REMOVED));
+        }
+        match self.splice_dirty(p, dirty)? {
+            Some(run) => Ok(run),
+            None => self.pack_fully(p, Some(OUTPUT_CHANGED)),
+        }
     }
 }
 

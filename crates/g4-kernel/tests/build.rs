@@ -298,6 +298,22 @@ fn build_creates_missing_parent_of_out_rom() {
 }
 
 #[test]
+fn write_if_changed_creates_the_parent_folder() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let narc = s.dir.path().join(MAP_NARC);
+    let folder = narc.parent().unwrap();
+    // A clone without the ignored NARCs: the packed map NARC and its folder are gone.
+    std::fs::remove_dir_all(folder).unwrap();
+    // ds-rom fails on the synthetic project; packing happens before it fails.
+    build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(folder.is_dir());
+    let fresh = pack_dir(&p.unpacked_dir(AssetKind::Map)).unwrap().write();
+    assert!(std::fs::read(&narc).unwrap() == fresh);
+}
+
+#[test]
 fn pack_error_writes_no_archive() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();

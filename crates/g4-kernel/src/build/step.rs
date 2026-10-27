@@ -78,7 +78,9 @@ impl Dirty {
 }
 
 /// What a step did: its counters, or with `rows` (the ROM step only) the report rows that
-/// replace its own, and the inputs it wrote itself (project-relative files or folders).
+/// replace its own, the inputs it wrote itself (project-relative files or folders), and
+/// `full` with the reason when the step ran fully although the runner asked for an
+/// incremental run (a `pack:*` step whose member was removed).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepRun {
     pub done: u32,
@@ -86,6 +88,7 @@ pub struct StepRun {
     pub cached: u32,
     pub rows: Vec<StepReport>,
     pub wrote: Vec<PathBuf>,
+    pub full: Option<&'static str>,
 }
 
 /// One row of the build report. A skipped step has no counters.
@@ -362,14 +365,19 @@ pub(crate) fn run_steps_and(
             Ok((Some((dirty, run)), entry)) => {
                 changes.push((id.clone(), entry));
                 if run.rows.is_empty() {
+                    let reason = dirty.full.or(run.full);
                     reports.push(StepReport {
                         id,
-                        status: dirty.status(),
+                        status: if reason.is_some() {
+                            StepStatus::Full
+                        } else {
+                            StepStatus::Incremental
+                        },
                         ms,
                         done: run.done,
                         total: run.total,
                         cached: run.cached,
-                        reason: dirty.full,
+                        reason,
                     });
                 } else {
                     // The step's own row takes the runner's time (deciding, recording).
