@@ -15,20 +15,21 @@ export function buildingModelKind(area: AreaDataDto): BuildingModelKind {
 
 /**
  * The building model archive of area data `areaDataId` (unsaved edits included, as the scene reads it), read again when `revision`
- * changes; null while it is read, without area data, and when it cannot be read (an unreadable area data has no models to reset either).
+ * changes; null only while it is read. Without area data, and when it cannot be read, the exterior archive, as the backend takes it then.
  */
 export function useBuildingModelKind(areaDataId: number | null, revision: number): BuildingModelKind | null {
-  const [read, setRead] = useState<{ area: number; kind: BuildingModelKind | null } | null>(null);
+  const [read, setRead] = useState<{ area: number; kind: BuildingModelKind } | null>(null);
   useEffect(() => {
     if (areaDataId === null) return;
     let current = true;
     getAreaData(areaDataId).then(
       (area) => current && setRead({ area: areaDataId, kind: buildingModelKind(area) }),
-      () => current && setRead({ area: areaDataId, kind: null }),
+      () => current && setRead({ area: areaDataId, kind: "building_model" }),
     );
     return () => {
       current = false;
     };
   }, [areaDataId, revision]);
+  if (areaDataId === null) return "building_model";
   return read !== null && read.area === areaDataId ? read.kind : null;
 }

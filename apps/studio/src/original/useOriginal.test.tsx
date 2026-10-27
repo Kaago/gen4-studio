@@ -53,7 +53,7 @@ describe("useOriginal", () => {
     expect(originalStatus).toHaveBeenCalledOnce();
     // Another project starts from nothing and reads its own.
     vi.mocked(originalStatus).mockResolvedValue(unavailable);
-    await show({ project: "/b", base: found() });
+    await show({ project: "/b", base: missing() });
     expect(originalStatus).toHaveBeenCalledTimes(2);
     expect(shown.status).toEqual(unavailable);
     // No project: nothing is read, nothing is shown.
@@ -81,6 +81,32 @@ describe("useOriginal", () => {
     // `refresh` reads at once (an agent assigned a base).
     await act(async () => shown.refresh());
     expect(originalStatus).toHaveBeenCalledTimes(4);
+  });
+
+  it("reads_again_when_the_first_base_status_disagrees_with_the_status_read_before", async () => {
+    // Read without a base; Technik then finds one (the ROM appeared since): the status is read again.
+    vi.mocked(originalStatus).mockResolvedValue(unavailable);
+    await show();
+    expect(shown.status).toEqual(unavailable);
+    vi.mocked(originalStatus).mockResolvedValue(ready);
+    await show({ base: found() });
+    expect(originalStatus).toHaveBeenCalledTimes(2);
+    expect(shown.status).toEqual(ready);
+    // Only on the first arrival: the same status again reads nothing.
+    await show({ base: found() });
+    expect(originalStatus).toHaveBeenCalledTimes(2);
+    // The other way: read with the base, which is gone when Technik looks.
+    await show({ project: "/b" });
+    expect(shown.status).toEqual(ready);
+    vi.mocked(originalStatus).mockResolvedValue(unavailable);
+    await show({ project: "/b", base: missing() });
+    expect(originalStatus).toHaveBeenCalledTimes(4);
+    expect(shown.status).toEqual(unavailable);
+    // A first base status that agrees reads nothing.
+    vi.mocked(originalStatus).mockResolvedValue(ready);
+    await show({ project: "/c" });
+    await show({ project: "/c", base: found() });
+    expect(originalStatus).toHaveBeenCalledTimes(5);
   });
 
   it("drops_an_answer_for_the_project_before", async () => {
