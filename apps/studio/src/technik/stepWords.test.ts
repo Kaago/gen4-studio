@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BuildStep } from "../api";
-import { formatSeconds, stepLabel } from "./stepWords";
+import { formatSeconds, patchBuildNote, stepLabel } from "./stepWords";
 
 const step = (id: string, over: Partial<BuildStep> = {}): BuildStep => ({ id, status: "full", ms: 0, done: 0, total: 0, cached: 0, reason: null, ...over });
 
@@ -47,6 +47,23 @@ describe("stepWords", () => {
     // A step this version does not know (a later plugin step) shows no identifier in Bauen.
     expect(stepLabel(step("plugin:x", { status: "incremental" }), "bauen")).toEqual({ name: "Weiterer Schritt", result: "teilweise neu gebaut" });
     expect(stepLabel(step("plugin:x"), "tuefteln").name).toBe("plugin:x");
+  });
+
+  it("words_a_removed_output_of_the_rom_step_as_another_target_or_a_deleted_rom", () => {
+    // The pack steps keep „Datei entfernt“.
+    expect(stepLabel(step("pack:maps", { done: 665, total: 665, reason: "removed" }), "tuefteln").result).toBe("665 Member gepackt (Datei entfernt, voll gebaut)");
+    expect(stepLabel(step("rom", { reason: "removed" }), "bauen")).toEqual({ name: "ROM schreiben", result: "geschrieben (anderes Ziel oder ROM gelöscht, voll gebaut)" });
+    expect(stepLabel(step("rom", { reason: "removed" }), "tuefteln").result).toBe("geschrieben (anderes Ziel oder ROM gelöscht, voll gebaut)");
+    // The other reasons of the rom step keep their words.
+    expect(stepLabel(step("rom", { reason: "output-changed" }), "bauen").result).toBe("geschrieben (Ausgabe geändert, voll gebaut)");
+  });
+
+  it("names_the_patch_build_with_its_rom_relative_to_the_project_when_inside_it", () => {
+    expect(patchBuildNote("/p/build/4-2-abn-patch-IPKD.nds", "/p")).toBe("Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds");
+    expect(patchBuildNote("/p/build/x.nds", "/p/")).toBe("Build von „Patch erstellen“ nach build/x.nds");
+    // A sibling folder that only shares the prefix, and a path elsewhere, stay whole.
+    expect(patchBuildNote("/pp/build/x.nds", "/p")).toBe("Build von „Patch erstellen“ nach /pp/build/x.nds");
+    expect(patchBuildNote("/roms/x.nds", "/p")).toBe("Build von „Patch erstellen“ nach /roms/x.nds");
   });
 
   it("formats_seconds_with_a_comma", () => {

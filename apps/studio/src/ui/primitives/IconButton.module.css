@@ -18,7 +18,7 @@
     color var(--g4-dauer-kurz);
 }
 
-.button:hover:not(:disabled) {
+.button:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--g4-flaeche-deck);
 }
 
@@ -27,7 +27,9 @@
   color: var(--g4-akzent-text);
 }
 
-.button:disabled {
+/* aria-disabled (`busy`): looks like disabled but stays focusable, for a button that is blocked while it has focus. */
+.button:disabled,
+.button[aria-disabled="true"] {
   color: var(--g4-text-deaktiviert);
   cursor: not-allowed;
 }

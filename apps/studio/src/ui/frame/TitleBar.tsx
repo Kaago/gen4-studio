@@ -65,8 +65,8 @@ export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, 
         </button>
       </div>
       <div className={styles.right} data-tauri-drag-region="">
-        <IconButton label="Speichern" icon="save" shortcut="⌘S" disabled={!open || busy} onClick={onSave} />
-        <IconButton label="Bauen" icon="build" disabled={!open || busy} onClick={onBuild} />
+        <IconButton label="Speichern" icon="save" shortcut="⌘S" disabled={!open} busy={busy} onClick={onSave} />
+        <IconButton label="Bauen" icon="build" disabled={!open} busy={busy} onClick={onBuild} />
         <IconButton label="Thema wechseln" icon={theme === "hell" ? "moon" : "sun"} onClick={onToggleTheme} />
         <IconButton label="Hilfe" icon="help" onClick={onHelp} />
       </div>

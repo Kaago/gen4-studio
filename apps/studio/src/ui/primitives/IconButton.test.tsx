@@ -52,6 +52,21 @@ describe("IconButton", () => {
     expect(document.querySelector("[role=tooltip]")).toBeNull();
   });
 
+  it("busy_looks_disabled_but_keeps_focus_and_ignores_clicks", () => {
+    const onClick = vi.fn();
+    act(() => root.render(<IconButton label="Bauen" icon="build" busy onClick={onClick} />));
+    expect(button().disabled).toBe(false);
+    expect(button().getAttribute("aria-disabled")).toBe("true");
+    act(() => button().focus());
+    expect(document.activeElement).toBe(button());
+    act(() => button().click());
+    expect(onClick).not.toHaveBeenCalled();
+    act(() => root.render(<IconButton label="Bauen" icon="build" onClick={onClick} />));
+    expect(button().hasAttribute("aria-disabled")).toBe(false);
+    act(() => button().click());
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it("reports_pressed_state", () => {
     act(() => root.render(<IconButton label="Gelände" icon="paint" pressed onClick={() => {}} />));
     expect(button().getAttribute("aria-pressed")).toBe("true");

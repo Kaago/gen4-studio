@@ -254,10 +254,15 @@ describe("Hinge", () => {
   it("disables_play_without_a_project_and_says_Baut_while_it_runs", () => {
     show(base({ canPlay: false }));
     expect(button(/Hier spielen/)!.disabled).toBe(true);
-    show(base({ playing: true }));
+    const props = base({ playing: true });
+    show(props);
     const playing = button(/Baut/)!;
     expect(playing.textContent).toContain("Baut …");
-    expect(playing.disabled).toBe(true);
+    // Busy blocks with aria-disabled (keeps focus) and a guard in the click.
+    expect(playing.disabled).toBe(false);
+    expect(playing.getAttribute("aria-disabled")).toBe("true");
+    act(() => playing.click());
+    expect(props.onPlay).not.toHaveBeenCalled();
     expect(button(/Hier spielen/)).toBeUndefined();
   });
 

@@ -100,6 +100,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastSteps, setLastSteps] = useState<BuildStep[] | null>(null);
   /** Whether the last build was started with „Neu bauen (ohne Cache)“. */
   const [lastBuildFresh, setLastBuildFresh] = useState(false);
+  /** The ROM of the last build when that was the one of „Patch erstellen“ (its steps are the last steps); null when the last build was a normal one. */
+  const [lastPatchRom, setLastPatchRom] = useState<string | null>(null);
   /** The error texts the builds of this session showed: a successful build closes their toasts (errors stay until closed otherwise). */
   const buildErrors = useRef(new Set<string>());
   /** A build stopped by text archives in conflict: the dialog asks, `resolveConflicts` builds again. */
@@ -239,6 +241,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setLastBuiltAt(null);
       setLastSteps(null);
       setLastBuildFresh(false);
+      setLastPatchRom(null);
       setTextConflicts(null);
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
@@ -319,9 +322,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
    * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
    * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or `create_patch`, which builds before it writes the
    * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache), its ROM becomes the last ROM
-   * only with `ownsRom` (a patch's ROM is not „Hier spielen“'s target: building there would change the ROM its notes name), and the unsaved
-   * edits are read again. A compile failure puts its problems into the store; every failure is thrown on. Answers what `run` answered and how
-   * many store files were saved ahead of the scripts.
+   * only with `ownsRom` (a patch's ROM is not „Hier spielen“'s target: building there would change the ROM its notes name; it is remembered as
+   * `lastPatchRom` so the steps say whose they are), and the unsaved edits are read again. A compile failure puts its problems into the store;
+   * every failure is thrown on. Answers what `run` answered and how many store files were saved ahead of the scripts.
    */
   async function guardedBuild<R>(
     run: () => Promise<R>,
@@ -340,6 +343,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setLastBuiltAt(Date.now());
       setLastSteps(report.steps);
       setLastBuildFresh(fresh);
+      setLastPatchRom(ownsRom ? null : report.rom);
       problems.applyBuildReport(report.problems);
       return { result, storeSaved };
     } catch (e) {
@@ -521,6 +525,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     lastBuiltAt,
     lastSteps,
     lastBuildFresh,
+    lastPatchRom,
     textConflicts,
     emulatorPath,
     counts,

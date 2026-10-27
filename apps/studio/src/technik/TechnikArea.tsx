@@ -21,6 +21,7 @@ import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import { BuildSteps } from "./BuildSteps";
+import { patchBuildNote } from "./stepWords";
 import styles from "./TechnikArea.module.css";
 import type { BaseApi } from "./useBase";
 
@@ -51,6 +52,8 @@ export type TechnikAreaProps = {
   lastSteps: BuildStep[] | null;
   /** The last build was started with „Neu bauen (ohne Cache)“ (its steps say so instead of „erster Build“). */
   lastBuildFresh?: boolean;
+  /** The last steps are those of „Patch erstellen“, which built this ROM (the facts above keep naming the ROM of Bauen); null for a normal build. */
+  lastPatchRom?: string | null;
   /** Builds the ROM (asks where to). */
   onBuild: () => void;
   /** „Neu bauen (ohne Cache)“: drops the build state, then builds every step fully (asks where to). */
@@ -281,7 +284,7 @@ export function PreviewSection({ name, preview, town }: { name: string; preview:
   );
 }
 
-function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, lastBuildFresh = false, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
+function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, lastBuildFresh = false, lastPatchRom = null, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   if (project === null) {
@@ -291,16 +294,21 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
       </Surface>
     );
   }
+  // Busy blocks with `aria-disabled` and this guard, not with `disabled`: the button that started the build keeps keyboard focus (and is
+  // where the dialog of a text conflict returns it to); a button blocked for another reason stays `disabled`.
+  const whenIdle = (action: () => void) => () => {
+    if (!busy) action();
+  };
   return (
     <Surface entry="bauen" title="Prüfen und Bauen" subtitle={countsText(counts)}>
       <div className={styles.actions}>
-        <Button kind="primary" icon="build" disabled={busy} onClick={onBuild}>
+        <Button kind="primary" icon="build" aria-disabled={busy || undefined} onClick={whenIdle(onBuild)}>
           Bauen
         </Button>
-        <Button kind="secondary" icon="build" disabled={busy} onClick={onBuildFresh} title="Löscht den Bauzustand und baut alles neu">
+        <Button kind="secondary" icon="build" aria-disabled={busy || undefined} onClick={whenIdle(onBuildFresh)} title="Löscht den Bauzustand und baut alles neu">
           Neu bauen (ohne Cache)
         </Button>
-        <Button kind="secondary" icon="play" disabled={busy || !canRun || lastRom === null} onClick={onRun} title={canRun && lastRom === null ? "Erst bauen, dann starten" : undefined}>
+        <Button kind="secondary" icon="play" disabled={!canRun || lastRom === null} aria-disabled={busy || undefined} onClick={whenIdle(onRun)} title={canRun && lastRom === null ? "Erst bauen, dann starten" : undefined}>
           Starten
         </Button>
         {busy ? <span className={styles.note}>Baue ROM …</span> : !canRun && <span className={styles.note}>Im Browser-Modus wird nur gebaut</span>}
@@ -320,6 +328,11 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
         )}
       </dl>
       <h2 className={styles.heading}>Schritte</h2>
+      {lastSteps !== null && lastPatchRom !== null && (
+        <p className={styles.text} data-steps-source="">
+          {patchBuildNote(lastPatchRom, project)}
+        </p>
+      )}
       {lastSteps === null ? <p className={styles.text}>Noch kein Build in dieser Sitzung.</p> : <BuildSteps steps={lastSteps} depth={depth} fresh={lastBuildFresh} />}
       <h2 className={styles.heading}>Probleme</h2>
       {checks !== null && <Baseline checks={checks} rows={rows} />}

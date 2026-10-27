@@ -161,7 +161,8 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
             />
             <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
             {onMaximize && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
-            <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay || playing} onClick={onPlay}>
+            {/* Playing blocks with aria-disabled, not `disabled`: the button keeps keyboard focus while it builds (and gets it back from a dialog). */}
+            <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay} aria-disabled={playing || undefined} onClick={() => !playing && onPlay()}>
               {playing ? "Baut …" : "Hier spielen"}
             </Button>
           </div>

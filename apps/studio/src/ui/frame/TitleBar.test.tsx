@@ -92,14 +92,22 @@ describe("TitleBar", () => {
     expect(props.onHelp).toHaveBeenCalledOnce();
   });
 
-  it("disables_save_and_build_without_a_project_and_while_busy", () => {
+  it("disables_save_and_build_without_a_project_and_blocks_them_focusable_while_busy", () => {
     show(base({ projectName: null, game: null }));
     expect(button("Speichern")!.disabled).toBe(true);
     expect(button("Bauen")!.disabled).toBe(true);
     expect(button("Projekt öffnen")!.disabled).toBe(false);
-    show(base({ busy: true }));
-    expect(button("Speichern")!.disabled).toBe(true);
-    expect(button("Bauen")!.disabled).toBe(true);
+    const props = base({ busy: true });
+    show(props);
+    // Busy: aria-disabled keeps the button that started a build focusable (a dialog of the build returns focus to it); a click does nothing.
+    for (const name of ["Speichern", "Bauen"]) {
+      expect(button(name)!.disabled).toBe(false);
+      expect(button(name)!.getAttribute("aria-disabled")).toBe("true");
+    }
+    act(() => button("Speichern")!.click());
+    act(() => button("Bauen")!.click());
+    expect(props.onSave).not.toHaveBeenCalled();
+    expect(props.onBuild).not.toHaveBeenCalled();
     expect(button("Projekt öffnen")!.disabled).toBe(true);
   });
 

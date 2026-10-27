@@ -13,10 +13,15 @@ export type IconButtonProps = {
   /** Present for toggle buttons: sets `aria-pressed`. */
   pressed?: boolean;
   disabled?: boolean;
+  /** Blocked for a moment (a build runs): looks disabled through `aria-disabled` but keeps keyboard focus; a click does nothing. */
+  busy?: boolean;
   onClick: () => void;
 };
 
-export function IconButton({ label, icon, shortcut, pressed, disabled, onClick }: IconButtonProps) {
+export function IconButton({ label, icon, shortcut, pressed, disabled, busy = false, onClick }: IconButtonProps) {
+  const click = () => {
+    if (!busy) onClick();
+  };
   const tip = (
     <>
       {label}
@@ -31,7 +36,7 @@ export function IconButton({ label, icon, shortcut, pressed, disabled, onClick }
   const glyph = <Icon name={icon} weight={pressed ? "fill" : "regular"} />;
   const button =
     pressed === undefined ? (
-      <button type="button" className={styles.button} aria-label={label} disabled={disabled} onClick={onClick}>
+      <button type="button" className={styles.button} aria-label={label} aria-disabled={busy || undefined} disabled={disabled} onClick={click}>
         {glyph}
       </button>
     ) : (
@@ -39,8 +44,9 @@ export function IconButton({ label, icon, shortcut, pressed, disabled, onClick }
         className={styles.button}
         aria-label={label}
         pressed={pressed}
+        aria-disabled={busy || undefined}
         disabled={disabled}
-        onClick={onClick}
+        onClick={click}
         render={<button type="button" />}
       >
         {glyph}

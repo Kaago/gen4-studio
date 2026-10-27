@@ -1116,8 +1116,9 @@ describe("App wiring", () => {
       expect(createPatch).toHaveBeenCalledOnce();
       // While it builds: the title bar's Bauen and Speichern wait, ⌘S and ⌘R start nothing, another patch cannot start.
       const titleButton = (name: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${name}"]`);
-      expect(titleButton("Bauen")?.disabled).toBe(true);
-      expect(titleButton("Speichern")?.disabled).toBe(true);
+      // Blocked with aria-disabled (focusable, a click does nothing), not disabled.
+      expect(titleButton("Bauen")?.getAttribute("aria-disabled")).toBe("true");
+      expect(titleButton("Speichern")?.getAttribute("aria-disabled")).toBe("true");
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true })));
       expect(save).not.toHaveBeenCalled();
@@ -1141,6 +1142,7 @@ describe("App wiring", () => {
         }),
       );
       expect(titleButton("Bauen")?.disabled).toBe(false);
+      expect(titleButton("Bauen")?.hasAttribute("aria-disabled")).toBe(false);
       await act(async () => atlasEntry("Technik")!.click());
       await act(async () => {});
       expect(row("Veröffentlichen").textContent).toContain("Patch erstellt");
@@ -1150,6 +1152,80 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-technik]")?.textContent).toContain("gerade eben");
       expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
       expect(createPatch).toHaveBeenCalledOnce();
+      // The steps are named as the patch build's, with its ROM relative to the project; a normal build afterwards takes the line away.
+      expect(container.querySelector("[data-steps-source]")?.textContent).toBe("Build von „Patch erstellen“ nach build/p-CPUE.nds");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("[data-technik] button")].find((b) => b.textContent === "Bauen")!.click());
+      expect(container.querySelector("[data-steps-source]")).toBeNull();
+    });
+
+    describe("keyboard focus through a text conflict", () => {
+      const conflict = {
+        code: "text_conflict",
+        message: "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt.",
+        asset: null,
+        problems: [{ severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "Textarchiv 0012 …", source: "build" }],
+      };
+      const done = { saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 };
+      const conflictButton = (name: string) => [...document.querySelectorAll<HTMLButtonElement>("[data-text-conflict] button")].find((b) => b.textContent === name)!;
+      const surfaceButton = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("[data-technik] button")].find((b) => b.textContent === name)!;
+      beforeEach(() => {
+        vi.mocked(savePath).mockResolvedValue("/out.nds");
+        vi.mocked(resolveTextConflicts).mockResolvedValue([12]);
+      });
+
+      it("technik_bauen_keeps_focus_through_ubernehmen_und_bauen_and_a_click_on_it_while_busy_does_nothing", async () => {
+        let finish: (report: typeof done) => void = () => {};
+        vi.mocked(buildRom)
+          .mockRejectedValueOnce(conflict)
+          .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+        await act(async () => atlasEntry("Technik")!.click());
+        const bauen = surfaceButton("Bauen");
+        bauen.focus();
+        await act(async () => bauen.click());
+        expect(document.querySelector("[data-text-conflict]")).not.toBeNull();
+        await act(async () => conflictButton("Übernehmen und bauen").click());
+        // The second build runs: the dialog is gone and the keyboard focus is on „Bauen“, which only blocks (aria-disabled).
+        expect(document.querySelector("[data-text-conflict]")).toBeNull();
+        expect(buildRom).toHaveBeenCalledTimes(2);
+        expect(surfaceButton("Bauen").getAttribute("aria-disabled")).toBe("true");
+        expect(document.activeElement).toBe(surfaceButton("Bauen"));
+        await act(async () => surfaceButton("Bauen").click());
+        await act(async () => surfaceButton("Neu bauen (ohne Cache)").click());
+        expect(buildRom).toHaveBeenCalledTimes(2);
+        expect(savePath).toHaveBeenCalledOnce();
+        await act(async () => finish(done));
+        expect(surfaceButton("Bauen").hasAttribute("aria-disabled")).toBe(false);
+        expect(document.activeElement).toBe(surfaceButton("Bauen"));
+      });
+
+      it("technik_bauen_gets_focus_back_after_abbrechen", async () => {
+        vi.mocked(buildRom).mockRejectedValueOnce(conflict);
+        await act(async () => atlasEntry("Technik")!.click());
+        surfaceButton("Bauen").focus();
+        await act(async () => surfaceButton("Bauen").click());
+        await act(async () => conflictButton("Abbrechen").click());
+        expect(document.activeElement).toBe(surfaceButton("Bauen"));
+      });
+
+      it("hier_spielen_keeps_focus_through_ubernehmen_und_bauen", async () => {
+        let finish: (report: typeof done) => void = () => {};
+        vi.mocked(buildRom)
+          .mockRejectedValueOnce(conflict)
+          .mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+        const play = () => [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => /Hier spielen|Baut/.test(b.textContent ?? ""))!;
+        play().focus();
+        await act(async () => play().click());
+        await act(async () => conflictButton("Übernehmen und bauen").click());
+        expect(document.querySelector("[data-text-conflict]")).toBeNull();
+        expect(document.activeElement).toBe(play());
+        expect(play().getAttribute("aria-disabled")).toBe("true");
+        await act(async () => play().click());
+        expect(buildRom).toHaveBeenCalledTimes(2);
+        await act(async () => finish(done));
+        expect(document.activeElement).toBe(play());
+      });
     });
 
     it("an_app_build_holds_patch_erstellen", async () => {
@@ -1598,7 +1674,8 @@ describe("App wiring", () => {
       vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
       await pressHinge(/Hier spielen/);
       const busy = hingeButton(/Baut/)!;
-      expect(busy.disabled).toBe(true);
+      // Blocks with aria-disabled, so the button keeps keyboard focus while it builds.
+      expect(busy.getAttribute("aria-disabled")).toBe("true");
       await act(async () => busy.click());
       expect(buildRom).toHaveBeenCalledOnce();
       await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
@@ -1978,7 +2055,9 @@ describe("App wiring", () => {
       const titleButton = (label: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${label}"]`)!;
       await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
       expect(container.querySelector("[data-wizard]")).not.toBeNull();
-      for (const label of ["Projekt öffnen", "Speichern", "Bauen"]) expect(titleButton(label).disabled).toBe(true);
+      // Opening is disabled; saving and building wait with aria-disabled (focusable, a click does nothing).
+      expect(titleButton("Projekt öffnen").disabled).toBe(true);
+      for (const label of ["Speichern", "Bauen"]) expect(titleButton(label).getAttribute("aria-disabled")).toBe("true");
       vi.mocked(openProject).mockClear();
       vi.mocked(openPath).mockClear();
       await act(async () => titleButton("Projekt öffnen").click());
@@ -1988,6 +2067,7 @@ describe("App wiring", () => {
       expect(barSlot().hidden).toBe(false);
       await click("Abbrechen");
       for (const label of ["Projekt öffnen", "Bauen"]) expect(titleButton(label).disabled).toBe(false);
+      expect(titleButton("Bauen").hasAttribute("aria-disabled")).toBe(false);
     });
 
     it("leaves the inspector alone while a wizard works", async () => {
