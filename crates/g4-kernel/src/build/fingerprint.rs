@@ -4,8 +4,9 @@
 //! difference in the `stat` hashes the file, and an equal hash keeps it the same with its new
 //! `stat` (a `touch`, a checkout, a copy). Without a recorded hash it counts as changed.
 //!
-//! The racy rule (Git's): an entry whose mtime is not at least [`RACY_NS`] before the scan
-//! that recorded it could have been written again within the same timestamp after the scan.
+//! The racy rule (Git's): an entry whose mtime (or ctime, whichever is later) is not at least
+//! [`RACY_NS`] before the scan that recorded it could have been written again within the same
+//! timestamp after the scan.
 //! Such an entry is hashed when it is recorded and compared by content, even when its `stat`
 //! is equal. Two seconds also cover FAT and exFAT timestamps.
 //!
@@ -81,9 +82,12 @@ pub(crate) fn now_ns() -> i128 {
         .map_or(0, |d| d.as_nanos() as i128)
 }
 
-/// Whether `fp`, recorded by a scan at `scanned_at_ns`, is racy.
+/// Whether `fp`, recorded by a scan at `scanned_at_ns`, is racy: the later of its mtime and
+/// its ctime is not at least [`RACY_NS`] before the scan. The ctime counts too, so a file
+/// written just now with an older mtime set back (`text::keep_not_newer`) is racy as well;
+/// under Windows the ctime is 0 and the mtime alone decides.
 pub(crate) fn is_racy(fp: &Fp, scanned_at_ns: i128) -> bool {
-    fp.mtime_ns + RACY_NS > scanned_at_ns
+    fp.mtime_ns.max(fp.ctime_ns) + RACY_NS > scanned_at_ns
 }
 
 fn ns(time: std::io::Result<SystemTime>) -> i128 {
@@ -300,14 +304,15 @@ mod tests {
             .unwrap();
     }
 
-    /// A file with an mtime an hour ago, captured now: not racy, no hash.
+    /// A file with an mtime an hour ago, captured long after its last change (the ctime,
+    /// which setting the mtime does not move back, is now): not racy, no hash.
     fn settled(dir: &Path, bytes: &[u8]) -> (std::path::PathBuf, Fp, i128) {
         let path = dir.join("f");
         std::fs::write(&path, bytes).unwrap();
         set_mtime(&path, SystemTime::now() - Duration::from_secs(3600));
-        let scan = now_ns();
+        let scan = now_ns() + 10 * RACY_NS;
         let fp = capture(&path, scan).unwrap().unwrap();
-        assert_eq!(fp.xxh3, None, "an old mtime is not racy");
+        assert_eq!(fp.xxh3, None, "an old mtime and ctime are not racy");
         (path, fp, scan)
     }
 
@@ -388,6 +393,20 @@ mod tests {
         assert_eq!(seen, Seen::Same);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_file_written_now_with_an_old_mtime_is_racy() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::fs::write(&path, b"abc").unwrap();
+        // Back-dated like `keep_not_newer` does to an encoded member: the ctime is now.
+        set_mtime(&path, SystemTime::now() - Duration::from_secs(3600));
+        let scan = now_ns();
+        let fp = capture(&path, scan).unwrap().unwrap();
+        assert!(is_racy(&fp, scan));
+        assert_eq!(fp.xxh3, Some(xxh3_64(b"abc")), "hashed");
+    }
+
     #[test]
     fn added_and_removed() {
         let dir = tempfile::tempdir().unwrap();
@@ -435,6 +454,20 @@ mod tests {
         };
         let (fp, _) = remembered(&path).expect("remembered");
         assert_eq!(fp.xxh3, Some(xxh3_64(b"abc")));
+        // The ctime is now, so the hash was taken racy. As if it was taken long after the
+        // last change (and with a sentinel to tell a read from memory):
+        let settle = |path: &Path, sentinel: Option<u64>| {
+            if let Some((fp, taken)) = REMEMBERED
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|map| map.get_mut(path))
+            {
+                *taken = now_ns() + 10 * RACY_NS;
+                fp.xxh3 = sentinel.or(fp.xxh3);
+            }
+        };
+        settle(&path, None);
 
         // Rewritten in place, same size, the old mtime restored: the ctime tells.
         std::fs::write(&path, b"xyz").unwrap();
@@ -443,16 +476,7 @@ mod tests {
 
         // Unchanged and not racy: served from memory, the file is not read. A sentinel in
         // the memory shows it.
-        set_mtime(&path, old);
-        assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"xyz"));
-        if let Some((fp, _)) = REMEMBERED
-            .lock()
-            .unwrap()
-            .as_mut()
-            .and_then(|map| map.get_mut(&path))
-        {
-            fp.xxh3 = Some(7);
-        }
+        settle(&path, Some(7));
         assert_eq!(hash_remembered(&path).unwrap(), 7, "from memory");
 
         // A file written just now (racy) is hashed again every time.

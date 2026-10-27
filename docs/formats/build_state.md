@@ -15,7 +15,9 @@ Build meldet das als Hinweis).
 
 **„Neu bauen (ohne Cache)“** (`build::clear_cache`, `g4k build --no-cache`, `build_rom` mit
 `fresh: true`) löscht darum alles unter `.g4/build/` (BLZ-Cache, Schritt-Einträge, `rom`), behält
-aber die `texts`-Einträge und schreibt `state.json` nur mit ihnen neu. Alle Schritte laufen danach
+aber die `texts`-Einträge: Zuerst ersetzt es `state.json` atomar durch einen Zustand nur mit
+ihnen, erst danach löscht es den Rest des Ordners, sodass ein Absturz dazwischen den Textabgleich
+nicht verliert. Alle Schritte laufen danach
 voll (`no-state`), die Seiten der Textarchive folgen weiter den Fingerabdrücken. Fehlt `state.json`
 oder ist sie kaputt, verschwindet nur der Ordner.
 
@@ -81,8 +83,9 @@ Ein Ordner unter den Eingaben steht für seine Dateien (eine Ebene, versteckte a
   übernommen), sonst geändert. Ohne aufgezeichneten Hash gilt die Datei als geändert.
 - `ctime` verrät eine Änderung an Ort und Stelle mit gleicher Größe und zurückgesetzter mtime.
 
-**racy-Regel** (wie Git): Liegt die mtime nicht mindestens 2 s vor `scanned_at_ns`, gilt der
-Eintrag als racy. Er wird schon beim Aufzeichnen mit Hash gespeichert und beim Vergleich über den
+**racy-Regel** (wie Git): Liegt die spätere von mtime und ctime nicht mindestens 2 s vor
+`scanned_at_ns`, gilt der Eintrag als racy (die ctime fängt eine gerade geschriebene Datei mit
+zurückgesetzter mtime, etwa einen kodierten Member; unter Windows ist sie 0). Er wird schon beim Aufzeichnen mit Hash gespeichert und beim Vergleich über den
 Inhalt geprüft, auch wenn der `stat` gleich ist. Die 2 s decken auch FAT und exFAT ab. Ein
 übersprungener Schritt mit racy oder neu gehashten Einträgen bekommt einen erneuerten Eintrag.
 
@@ -141,7 +144,7 @@ Schritt einmal voll laufen.
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
 | `watch:<Ordner>` | `unpacked/<Ordner>/` | – |
-| `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `banner/`, `files/` | die Ziel-ROM |
+| `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `multiboot_signature.yaml`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `arm7_overlays/`, `banner/`, `files/` (`multiboot_signature.yaml` und `arm7_overlays/` schreibt ds-rom nur, wenn die ROM sie hat; keines der drei Spiele hat sie) | die Ziel-ROM |
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
 `scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,
@@ -176,3 +179,6 @@ Verschwindet der Ordner (oder packt ihn ein neuer Pack-Eintrag), entfällt sein 
 nächsten Bauen; ein neu angelegter Ordner bekommt eine neue Grundlinie.
 
 Der BLZ-Cache liegt daneben unter `.g4/build/blz/` (`arm9-<xxh3>.blz`, `ov<NNN>-<xxh3>.blz`).
+Eine Cache-Datei, deren BLZ-Fußzeile nicht zum Modul passt, gilt als Fehltreffer und wird neu
+geschrieben; die komprimierten Daten selbst prüft der Build nicht. Eine trotzdem beschädigte Datei
+behebt „Neu bauen (ohne Cache)“, das den Cache löscht.

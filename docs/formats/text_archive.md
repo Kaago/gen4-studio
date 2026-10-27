@@ -173,7 +173,8 @@ der JSON (die JSON behält ihre Bytes), `Member` schreibt die JSON aus dem Membe
 `msg_NNNNN`). Beides zeichnet auf; der nächste Build läuft durch. Mit `Member` werden in einem
 übernommenen Projekt die Scriptdateien der Header, die das Archiv verwenden, als veraltet markiert
 (`scripts::mark_stale`): Ein Textliteral, das rotom an die verworfene JSON angehängt hatte, hängt
-die nächste Übersetzung wieder an.
+die nächste Übersetzung wieder an. Markiert wird vor dem Schreiben: Scheitert die Markierung,
+bleibt das Archiv im Konflikt, statt als abgeglichen zu gelten.
 
 **Vor rotom** (`scripts::compile`): Eine JSON mit `MemberNewer` wird aus dem Member neu
 geschrieben und aufgezeichnet, denn rotom liest die JSON ohne diese Regel und hängte sonst an

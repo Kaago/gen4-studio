@@ -208,21 +208,19 @@ impl BuildState {
     /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`): they are
     /// not build cache but what decides whether a text's JSON or its member applies (a member
     /// DSPRE changed since the last sync stays `MemberNewer`), and they are checked by
-    /// content. The state is written again with them alone (no step entries, no ROM); without
-    /// any (a missing, broken or empty state) the folder is just gone. Under the same lock
-    /// as [`BuildState::update`], so a sync recorded meanwhile is not lost.
+    /// content. The state with them alone (no step entries, no ROM) replaces `state.json`
+    /// first, atomically, and only then goes everything else in the folder (the BLZ cache,
+    /// stray files): a crash or an error in between leaves the records, never a state
+    /// without them. Without any records (a missing, broken or empty state) the folder is
+    /// just gone. Under the same lock as [`BuildState::update`], so a sync recorded meanwhile
+    /// is not lost.
     pub(crate) fn clear_keeping_texts(root: &Path) -> Result<(), KernelError> {
         let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let texts = BuildState::read(&mut cache, root).texts.clone();
         forget(&mut cache, root);
         let dir = root.join(BUILD_DIR);
-        match std::fs::remove_dir_all(&dir) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(io_at(&dir)(e)),
-        }
         if texts.is_empty() {
-            return Ok(());
+            return remove_all(&dir);
         }
         BuildState::write(
             &mut cache,
@@ -231,7 +229,29 @@ impl BuildState {
                 texts,
                 ..BuildState::empty()
             },
-        )
+        )?;
+        let keep = state_path(root);
+        for entry in std::fs::read_dir(&dir).map_err(io_at(&dir))? {
+            let path = entry.map_err(io_at(&dir))?.path();
+            if path != keep {
+                remove_all(&path)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Removes the file or folder at `path`; one that is already gone is fine.
+fn remove_all(path: &Path) -> Result<(), KernelError> {
+    let removed = match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(e) => Err(e),
+    };
+    match removed {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_at(path)(e)),
     }
 }
 
@@ -307,6 +327,52 @@ mod tests {
 
         std::fs::remove_file(state_path(root)).unwrap();
         assert!(BuildState::load(root).steps.is_empty(), "deleted");
+    }
+
+    #[test]
+    fn clearing_keeps_the_text_records_even_when_it_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let text = TextRecord {
+            json: Some(fp(5)),
+            member: Some(fp(6)),
+            scanned_at_ns: 4,
+        };
+        let fill = || {
+            BuildState::update(root, |s| {
+                s.steps.insert("rom".into(), StepRecord::default());
+                s.texts.insert(12, text.clone());
+            })
+            .unwrap();
+            std::fs::create_dir_all(root.join(BUILD_DIR).join("blz")).unwrap();
+            std::fs::write(root.join(BUILD_DIR).join("blz/arm9-00.blz"), b"x").unwrap();
+            std::fs::write(root.join(BUILD_DIR).join("stray"), b"x").unwrap();
+        };
+
+        // The reduced state cannot be written (`.g4/tmp` is a file): the records stay.
+        fill();
+        std::fs::remove_dir_all(root.join(".g4/tmp")).unwrap();
+        std::fs::write(root.join(".g4/tmp"), b"").unwrap();
+        assert!(BuildState::clear_keeping_texts(root).is_err());
+        assert_eq!(BuildState::load(root).texts[&12], text);
+        std::fs::remove_file(root.join(".g4/tmp")).unwrap();
+
+        // Cleared: only `state.json` with the records is left.
+        BuildState::clear_keeping_texts(root).unwrap();
+        let loaded = BuildState::load(root);
+        assert_eq!(loaded.texts[&12], text);
+        assert!(loaded.steps.is_empty(), "{loaded:?}");
+        let build: Vec<_> = std::fs::read_dir(root.join(BUILD_DIR))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(build, ["state.json"]);
+
+        // Without records the folder is gone.
+        BuildState::update(root, |s| s.texts.clear()).unwrap();
+        BuildState::clear_keeping_texts(root).unwrap();
+        assert!(!root.join(BUILD_DIR).exists());
     }
 
     #[test]

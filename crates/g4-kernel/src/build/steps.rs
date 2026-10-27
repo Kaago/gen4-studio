@@ -508,12 +508,23 @@ impl Step for RomStep {
             "header.yaml",
             "header_logo.png",
             "path_order.txt",
+            // ds-rom's default layout writes it (and `config.yaml` names it) when the ROM has
+            // one; none of the three games does.
+            "multiboot_signature.yaml",
             ".g4/base.json",
         ]
         .into_iter()
         .map(PathBuf::from)
         .collect();
-        for dir in ["arm9", "arm9_overlays", "arm7", "banner", "files"] {
+        // `arm7_overlays/` likewise exists only for a ROM with ARM7 overlays.
+        for dir in [
+            "arm9",
+            "arm9_overlays",
+            "arm7",
+            "arm7_overlays",
+            "banner",
+            "files",
+        ] {
             files_below(p, &p.root.join(dir), &mut inputs)?;
         }
         Ok(inputs)

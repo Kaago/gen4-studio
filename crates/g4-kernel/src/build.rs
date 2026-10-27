@@ -149,7 +149,7 @@ thread_local! {
     static MEMBER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// The bytes of one member file, counted for [`member_reads`] (test support only).
+/// The bytes of one member file, counted for `member_reads` (test support only).
 fn read_member(path: &Path) -> Result<Vec<u8>, KernelError> {
     #[cfg(feature = "test-support")]
     MEMBER_READS.with(|reads| reads.set(reads.get() + 1));
@@ -600,6 +600,15 @@ mod tests {
             members: vec![vec![0; 3], vec![9; 2], vec![2; 4], vec![3; 7]],
         };
         assert_eq!(Narc::read(&spliced).unwrap(), expected);
+        assert_eq!(spliced, expected.write());
+
+        // Two appends given out of order still follow on from the length.
+        let spliced = splice(&packed, &[(4, vec![4; 1]), (3, vec![3; 6])])
+            .unwrap()
+            .expect("spliceable out of order");
+        let expected = Narc {
+            members: vec![vec![0; 3], vec![1; 5], vec![2; 4], vec![3; 6], vec![4; 1]],
+        };
         assert_eq!(spliced, expected.write());
 
         assert_eq!(splice(&packed, &[(5, vec![5])]).unwrap(), None, "a gap");

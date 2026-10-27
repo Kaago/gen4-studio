@@ -301,12 +301,31 @@ fn write_foreign_json(p: &Project, n: u16, texts: &[&str]) -> Vec<u8> {
     bytes
 }
 
-/// What chatot encodes from the JSON at `json` (in a scratch folder).
+/// What chatot itself encodes from the JSON bytes `json` (in a scratch folder), with the
+/// settings `text::encode` uses (rotom's and DSPRE's call), not through the studio's own
+/// reading of the JSON: a field that reading dropped would show as a different member.
 fn chatot_member(json: &[u8]) -> Vec<u8> {
     let dir = tempfile::tempdir().unwrap();
-    let doc = TextArchiveDoc::from_json(json, "en_US").unwrap();
-    let (json_out, member_out) = (dir.path().join("a.json"), dir.path().join("a"));
-    text::write_archive(dir.path(), &json_out, &member_out, &doc).unwrap();
+    let (json_in, member_out) = (dir.path().join("a.json"), dir.path().join("a"));
+    std::fs::write(&json_in, json).unwrap();
+    chatot::encode::encode_texts(
+        chatot::get_default_charmap(),
+        &chatot::TextSource {
+            txt: Some(vec![json_in]),
+            text_dir: None,
+        },
+        &chatot::BinarySource {
+            archive: Some(vec![member_out.clone()]),
+            archive_dir: None,
+        },
+        &chatot::Settings {
+            json: true,
+            lang: "en_US".into(),
+            newer_only: false,
+            msgenc_format: false,
+        },
+    )
+    .unwrap();
     std::fs::read(member_out).unwrap()
 }
 
@@ -584,4 +603,24 @@ fn resolving_with_the_member_recompiles_the_scripts_using_the_archive() {
     assert_eq!(side(&p, 433), TextSide::InSync);
     let compiled = g4_kernel::scripts::compile(&p).unwrap().compiled;
     assert!(compiled.contains(&0), "{compiled:?}");
+}
+
+#[test]
+fn resolving_with_the_member_writes_nothing_when_the_scripts_cannot_be_marked_stale() {
+    let (_s, p) = adopted();
+    conflict_433(&p);
+    // rotom's compile state cannot be read: a folder in its place.
+    let state = p.root.join(".rotom/status/compile-state.json");
+    std::fs::remove_file(&state).unwrap();
+    std::fs::create_dir(&state).unwrap();
+    let json = std::fs::read(json_path(&p, 433)).unwrap();
+
+    assert!(resolve_conflict(&p, 433, TextKeep::Member).is_err());
+    // Nothing is recorded as in sync: a build asks again instead of keeping scripts that
+    // point at a dropped text literal.
+    assert!(
+        std::fs::read(json_path(&p, 433)).unwrap() == json,
+        "JSON untouched"
+    );
+    assert_eq!(side(&p, 433), TextSide::Conflict);
 }

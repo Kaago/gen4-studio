@@ -475,6 +475,10 @@ pub fn resolve_conflict(
         _ => Vec::new(),
     };
     project.ensure_unpacked(AssetKind::TextArchive)?;
+    // Marked before anything is written: should the mark fail, the archive stays a conflict
+    // (a stale mark and a failed write only cost one extra compile), never in sync with
+    // scripts that point at a dropped text literal.
+    crate::scripts::mark_stale(project, &users)?;
     match keep {
         TextKeep::Json => {
             let bytes = std::fs::read(&json).map_err(io_at(&json))?;
@@ -491,8 +495,7 @@ pub fn resolve_conflict(
             write_atomic(&project.root, &json, &doc.to_json())?;
         }
     }
-    record_text_sync(project, &[archive])?;
-    crate::scripts::mark_stale(project, &users)
+    record_text_sync(project, &[archive])
 }
 
 /// Position of byte offset `at` in a message's `text`: 1-based line and 1-based UTF-16

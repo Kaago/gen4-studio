@@ -522,9 +522,7 @@ fn materialize_text_json(
     n: u16,
     known: &mut BTreeMap<u16, u64>,
 ) -> Result<bool, KernelError> {
-    let json = project
-        .expanded_dir(AssetKind::TextArchive)
-        .join(format!("{n:04}.json"));
+    let json = crate::text::json_path(project, n);
     if json.exists() {
         return Ok(false);
     }
@@ -713,9 +711,7 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         let mut encoded = Vec::new();
         // An archive in conflict keeps its member: the build's text step asks first.
         for &n in touched_archives.iter().filter(|n| !conflicts.contains(n)) {
-            let json = project
-                .expanded_dir(AssetKind::TextArchive)
-                .join(format!("{n:04}.json"));
+            let json = crate::text::json_path(project, n);
             let bytes = std::fs::read(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
             let member = project.member_path(AssetKind::TextArchive, n);

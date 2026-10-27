@@ -467,6 +467,10 @@ fn map_edit_incremental_equals_full() {
     let a = out_dir.path().join("a.nds");
     let report = build(&p, &a).unwrap();
     eprintln!("A {} ms: {:?}", report.ms, report.steps);
+    assert!(
+        std::fs::read(out_dir.path().join("first.nds")).unwrap() != std::fs::read(&a).unwrap(),
+        "the edit reached the ROM"
+    );
     let maps_id = format!("pack:{}", p.archives.unpacked_name(AssetKind::Map));
     let maps = row(&report.steps, &maps_id);
     assert_eq!(
@@ -598,7 +602,19 @@ fn built_vanilla(adopt: bool) -> Option<Built> {
     })
 }
 
+/// Asserts that the incremental build `a` differs from `b`'s first build: the edit reached
+/// the ROM (A, B and first all equal would otherwise pass [`assert_equals_full`]).
+fn assert_edit_reached_the_rom(b: &Built, a: &Path) {
+    assert!(
+        std::fs::read(b.path("first.nds")).unwrap() != std::fs::read(a).unwrap(),
+        "the edit reached the ROM"
+    );
+}
+
 /// Builds `b` to `name` without cache: every step runs fully, and the bytes equal `a`'s.
+/// Only `.g4/build/` goes: rotom's own `.rotom/status/compile-state.json` stays, so B's
+/// `rotom` step runs fully but rotom compiles only what its state finds stale. B is a build
+/// without the graph's cache, not a from-scratch compile of every script.
 fn assert_equals_full(b: &Built, a: &Path, name: &str) {
     clear_cache(&b.p).unwrap();
     let full = b.path(name);
@@ -696,6 +712,7 @@ fn text_edit_incremental_equals_full() {
     let ran = ran_besides(&report.steps, &["chatot", &texts_id]);
     assert!(ran.is_empty(), "{ran:?}");
     assert_eq!(row(&report.steps, "rom").status, StepStatus::Full);
+    assert_edit_reached_the_rom(&b, &a);
 
     assert_equals_full(&b, &a, "b.nds");
 }
@@ -728,6 +745,7 @@ fn script_edit_incremental_equals_full() {
     );
     let ran = ran_besides(&report.steps, &["rotom", "chatot", &scripts_id]);
     assert!(ran.is_empty(), "{ran:?}");
+    assert_edit_reached_the_rom(&b, &a);
 
     assert_equals_full(&b, &a, "b.nds");
 }
@@ -751,6 +769,9 @@ fn simulated_dspre_edit_is_detected() {
         .unwrap()
         .set_modified(aged)
         .unwrap();
+    // Setting the mtime moved the ctime to now, and the racy rule reads the later of the two:
+    // past the racy window the entry the first build records is not racy (no hash).
+    std::thread::sleep(Duration::from_millis(2100));
     clear_cache(&p).unwrap();
     let b = Built {
         _copy: copy,
@@ -758,6 +779,14 @@ fn simulated_dspre_edit_is_detected() {
         out: tempfile::tempdir().unwrap(),
     };
     build(&b.p, &b.path("first.nds")).unwrap();
+    let maps_id = format!("pack:{}", b.p.archives.unpacked_name(AssetKind::Map));
+    let key = member
+        .strip_prefix(&b.p.root)
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let recorded = BuildState::load(&b.p.root).steps[&maps_id].inputs[&key];
+    assert_eq!(recorded.xxh3, None, "not racy: {recorded:?}");
 
     let before = std::fs::metadata(&member).unwrap();
     let mut bytes = std::fs::read(&member).unwrap();
@@ -781,7 +810,6 @@ fn simulated_dspre_edit_is_detected() {
     let a = b.path("a.nds");
     let report = build(&b.p, &a).unwrap();
     eprintln!("A {} ms: {:?}", report.ms, report.steps);
-    let maps_id = format!("pack:{}", b.p.archives.unpacked_name(AssetKind::Map));
     let maps = row(&report.steps, &maps_id);
     assert_eq!(
         (maps.status, maps.reason, maps.done),
@@ -790,6 +818,7 @@ fn simulated_dspre_edit_is_detected() {
     );
     let ran = ran_besides(&report.steps, &[&maps_id]);
     assert!(ran.is_empty(), "{ran:?}");
+    assert_edit_reached_the_rom(&b, &a);
 
     assert_equals_full(&b, &a, "b.nds");
 }

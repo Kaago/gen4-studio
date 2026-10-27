@@ -111,6 +111,7 @@ hgss:
     - { packed: "files/a/2/0/3", unpacked: "battleTowerPokemon" }
     - { packed: "files/a/2/0/2", unpacked: "battleTowerTrainers" }
     - { packed: "files/a/0/4/3", unpacked: "buildingConfigFiles" }
+    # eggMoves: the vanilla NARC a/2/2/9, repacks byte-identical (Platinum's comes from DSPRE's own patch).
     - { packed: "files/a/2/2/9", unpacked: "eggMoves" }
     - { packed: "files/a/2/5/2", unpacked: "headbutt" }
     - { packed: "files/a/1/1/4", unpacked: "otherPokemonBattleSprites" }
