@@ -26,7 +26,7 @@ export const projectPreviewGet = (path?: string) => invoke<PreviewDto>("project_
 /**
  * Writes `png` (base64 of a PNG or JPEG of any size) or `file` (path of one) into `slot` (default "eigen"), fitted to
  * 256 × 192; with neither it removes that slot's picture. Answers the preview after the write. Both together are rejected
- * ("png and file exclude each other"); a picture that cannot be used is rejected with a code in the message
+ * („png und file schließen sich aus; nur eins von beiden angeben“); a picture that cannot be used is rejected with a code in the message
  * (`preview.format`, `preview.too_large`, `preview.unreadable`). No undo.
  */
 export const projectPreviewSet = (args: { path?: string; slot?: PreviewSource; png?: string; file?: string }) =>

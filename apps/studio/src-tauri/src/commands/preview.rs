@@ -103,7 +103,9 @@ pub fn project_preview_set_impl(
 ) -> Result<PreviewDto, CmdError> {
     let bytes =
         match (png, file) {
-            (Some(_), Some(_)) => return Err("png and file exclude each other".into()),
+            (Some(_), Some(_)) => {
+                return Err("png und file schließen sich aus; nur eins von beiden angeben".into());
+            }
             (Some(text), None) => {
                 let text = text.trim();
                 if text.len() > MAX_PNG_BASE64 {

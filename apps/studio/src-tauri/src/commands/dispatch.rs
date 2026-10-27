@@ -2126,7 +2126,10 @@ mod tests {
             "project_preview_set",
             json!({ "png": base64_of(&small_png()), "file": file.to_str().unwrap() }),
         );
-        assert_eq!(message, "png and file exclude each other");
+        assert_eq!(
+            message,
+            "png und file schließen sich aus; nur eins von beiden angeben"
+        );
         // Text that is no base64 is no picture.
         let message = refused_with(
             &state,
