@@ -523,6 +523,38 @@ env G4_TEST_PROJECT="$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_conte
 
 Gemessen (Release, 27.10.2026, Median in ms, je zwei Läufe, Last 3 bis 9): Platin DE Karte 244–247, Text 273–290, Script 306–314, keine Änderung 95–96, ohne Cache 1543–1566; HeartGold DE 265–284, 281–289, 287–341, 95–103, 6336–6985; HeartGold US 260–274, 254–266, 290–306, 94–97, 6506–7191. Vor Task 9b waren es Karte 284–349, Text 300–404, Script 454–508 und keine Änderung 149–183 ms. Den Abstand zu den Grenzen schaffen drei Dinge (siehe [build_state.md](formats/build_state.md)): `state.json` wird im Prozess gehalten, solange ihr `stat` gleich bleibt (vorher je Build sieben- bis dreizehnmal gelesen, je rund 10 ms), die gerade geschriebene ROM und die NARCs werden mit dem Hash aus dem Speicher aufgezeichnet, und rotoms Übersetzung nimmt die Hashes unveränderter Quellen aus dem Speicher (vorher rund 150 ms je Build für das Lesen aller Quellen). Den Rest tragen die ROM selbst (ds-rom lädt, baut und schreibt rund 128 MB, etwa 110 bis 130 ms) und die Fingerabdrücke der rund 40 Schritte. Unter Last streuen die Zeiten; das Gate wiederholt einen gescheiterten Lauf einmal und schreibt „ok (2nd run)“ in die Tabelle.
 
+#### Textprojekt (4.3a)
+
+`crates/g4-kernel/src/textproject/` schreibt ein Projekt als Textprojekt (Manifest `g4-project.json`, je Entität eine JSON unter `data/<art>/NNNN.json`, Register `data/ids/`, Blobs `data/raw/`, `data/rotom-quirks.json`) und liest es zurück; Format in [docs/formats/text_project.md](formats/text_project.md). Kopflos:
+
+```sh
+target/release/g4k text export <Kopie>    # braucht Basismarke und Basis-ROM (--base-rom, sonst die Nachbar-.nds, sonst G4_BASE_ROM_DIR); übernimmt nicht übernommene Scripts
+target/release/g4k text check <Kopie>     # schema=…, Probleme, differs=N; schreibt nie
+target/release/g4k text import <Kopie>    # prüft alles, bevor es den ersten Member schreibt
+target/release/g4k text sources <Kopie>   # die Dateien des Textprojekts, eine je Zeile (für git add)
+target/release/g4k text migrate <Kopie>   # ältere Schema-Version mit Schnappschuss unter .g4/backup/
+```
+
+**Basisschicht:** Der Export vergleicht mit der Basis-ROM, extrahiert und mit allen Archiven entpackt unter `<Projekt>/.g4/cache/base-layer/<sha1>/` (rund 150 MB und 18 500 Dateien bei Platin, 182 MB und 20 000 Dateien bei HeartGold), einmal je Basis angelegt (6 bis 8 s bei geringer Last) und jederzeit löschbar; sie liegt nie in Git. Ein Ordner neben `data/` in der Projektwurzel (etwa eine Sicherung `data.prev/`) gilt als nicht abgebildete Änderung und wird ein Blob unter `data/raw/`; Sicherungen gehören außerhalb des Projekts.
+
+Die gated Tests (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Original, gefunden über `suggest_base` und nur gelesen; alles Schreibende auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `textproject_round_trip` (`tests/textproject.rs`) | Export, alle Member mit Entität sowie Text- und Script-Member mit Quelle löschen (Header-Tabelle und interne Namen genullt), Import: jede Datei unter `unpacked/`, `arm9.bin` und `mapname.bin` byte-gleich, der Build hat die SHA-1 der Basis; 0 Blobs, 0 Beifiles |
+| `textproject_export_idempotent` | ein zweiter Export schreibt und löscht nichts, keine Quelle ändert Inhalt oder mtime |
+| `textproject_from_base` | `extract_rom` der Basis-ROM plus die Dateien aus `sources`, Import, Build: SHA-1 gleich der Basis |
+| `vanilla_base_layer_has_no_raw_blobs` (`tests/textproject_vanilla_probe.rs`) | die Basisschicht gleicht dem DSPRE-Ordner außerhalb der abgebildeten Member (keine Blobs) |
+| `vanilla_shared_item_members_are_counted` | wie viele Item-IDs sich einen Member teilen (`same_member_as`) |
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject --test textproject_vanilla_probe \
+  -- textproject_round_trip textproject_export_idempotent textproject_from_base vanilla_ --nocapture --test-threads 1
+```
+
+Auf stderr stehen `textproject-stats <Spielcode> files=… bytes=… json=… side=… raw=… base_layer_ms=… export_ms=… import_ms=… build_ms=…`, `textproject-second-export … ms=…`, `textproject-from-base … extract_ms=… import_ms=… build_ms=… equal`, `base-layer … ms=… diff_ms=… files=… bytes=… not_built=…` und `items … ids=… members=… shared=… unreferenced=…`, dazu je Art `textproject-art …` und je gesperrtem Member `textproject-locked …` (in Vanilla keine). Gemessen am 2026-10-27 (Release, Last 4 bis 14): 347 s (Platin DE), 684 s (HeartGold DE), 554 s (HeartGold US) für die fünf Tests samt Bau; Werte und Zeiten in [docs/phase-4-3a-gate.md](phase-4-3a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit (dort im Debug-Profil). Den Diff zweier exportierter Projekte mit den IDs als Nummern zeigt `python3 -I scripts/agent/textproject_diff.py <Export A> <Export B>` (siehe [docs/agent-gate.md](agent-gate.md), „Phase 4.3a“).
+
 ## Design-System und Tokens
 
 Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.
