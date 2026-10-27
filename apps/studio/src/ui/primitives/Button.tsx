@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import { Kbd } from "./Kbd";
@@ -10,6 +10,8 @@ export type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "classNa
   icon?: IconName;
   /** Shown as a key hint, e.g. "⌘S". */
   shortcut?: string;
+  /** React 19 passes `ref` as a prop: it reaches the <button> through the rest props. */
+  ref?: Ref<HTMLButtonElement>;
 };
 
 export function Button({ kind, size = "m", icon, shortcut, children, type = "button", ...rest }: ButtonProps) {

@@ -995,7 +995,7 @@ describe("App wiring", () => {
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true })));
       expect(save).not.toHaveBeenCalled();
       expect(buildRom).not.toHaveBeenCalled();
-      expect([...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…")?.disabled).toBe(true);
+      expect([...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…")?.getAttribute("aria-disabled")).toBe("true");
 
       // Leaving Technik does not lose the patch: it finishes elsewhere, and its build is the session's last build, but its ROM (named in the
       // notes) does not become the ROM „Hier spielen“ builds to.
@@ -1044,7 +1044,7 @@ describe("App wiring", () => {
       const patchButton = () => [...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…");
       expect(patchButton()?.disabled).toBe(false);
       await click("Bauen");
-      expect(patchButton()?.disabled).toBe(true);
+      expect(patchButton()?.getAttribute("aria-disabled")).toBe("true");
       await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
       expect(patchButton()?.disabled).toBe(false);
     });

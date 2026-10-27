@@ -30,10 +30,15 @@ export type DialogProps = {
   variant?: "dialog" | "palette";
   /** Data attributes for the dialog element itself (the popup with `role="dialog"`), e.g. `{ "data-agent-question": "" }`. */
   data?: Readonly<Record<`data-${string}`, string>>;
+  /**
+   * Where focus goes once the dialog has closed: asked then, not when it opens (the opener may be gone or disabled by that time);
+   * `null` leaves it to Base UI, which returns focus to the element that had it when the dialog opened.
+   */
+  finalFocus?: () => HTMLElement | null;
 };
 
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
-export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus }: DialogProps) {
   const palette = variant === "palette";
   return (
     <BaseDialog.Root
@@ -49,7 +54,7 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
     >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className={styles.backdrop} />
-        <BaseDialog.Popup {...data} className={palette ? `${styles.popup} ${styles.palette}` : styles.popup} aria-modal="true">
+        <BaseDialog.Popup {...data} finalFocus={finalFocus} className={palette ? `${styles.popup} ${styles.palette}` : styles.popup} aria-modal="true">
           <BaseDialog.Title className={palette ? styles.titleHidden : styles.title}>{title}</BaseDialog.Title>
           {description && <BaseDialog.Description className={styles.description}>{description}</BaseDialog.Description>}
           {children && <div className={styles.body}>{children}</div>}
