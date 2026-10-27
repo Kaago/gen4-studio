@@ -2,6 +2,11 @@
 //! `deny_unknown_fields` and named parts instead of `#[serde(flatten)]`. [`EntitySchema`] turns
 //! the members of one entity into the type and back; `schema.snap` next to this module lists
 //! every key path, so a rename cannot slip past the schema version.
+//!
+//! Every import error has the form `<code>: <path>: <sentence>`: `path` is the JSON path
+//! inside the entity's file (`data.power`, `personal.type1`, `learnset.moves[3].move`,
+//! `personal.raw.hex`), [`ROOT`] for the entity's object itself, and for a missing key the
+//! path of the object that lacks it. The caller finds line and column from the path.
 
 use std::path::Path;
 
@@ -11,13 +16,25 @@ use serde::de::DeserializeOwned;
 
 use crate::error::KernelError;
 
-use super::part::{BasePart, HEX_MAX, Member, PartKey, part_in, part_out};
+use super::part::{BasePart, HEX_MAX, Member, PartKey, part_in_at, part_out};
 use super::registry::Symbols;
 use super::symbols::{SymbolKind, fallback_id};
 
 pub(crate) mod data;
 
 pub(crate) use super::record::{RecordJson, SymRef};
+
+/// The path of an entity's own object in an error.
+pub(crate) const ROOT: &str = "$";
+
+/// The path of `key` inside the object at `path`.
+pub(crate) fn join(path: &str, key: &str) -> String {
+    if path == ROOT {
+        key.to_owned()
+    } else {
+        format!("{path}.{key}")
+    }
+}
 
 /// The code of an `id` that does not name the entity's number.
 pub(crate) const ID_MISMATCH_CODE: &str = "textproject.id-mismatch";
@@ -81,7 +98,7 @@ pub(crate) fn check_id(
         return Ok(());
     }
     Err(format!(
-        "{ID_MISMATCH_CODE}: `{id}` ist nicht die ID von Nummer {index} (`{}`); die ID \
+        "{ID_MISMATCH_CODE}: id: `{id}` ist nicht die ID von Nummer {index} (`{}`); die ID \
          umzubenennen geht hier nicht.",
         entity_id(sym, kind, index)
     ))
@@ -110,9 +127,11 @@ pub(crate) fn lock_member<T>(
     })
 }
 
-/// The bytes of member `m`: a locked member's raw part, else `value` of its value.
+/// The bytes of member `m` at JSON `path`: a locked member's raw part, else `value` of its
+/// value.
 pub(crate) fn member_bytes<T>(
     m: &Member<T>,
+    path: &str,
     key: PartKey,
     current: Option<&[u8]>,
     ctx: &ImportCtx<'_>,
@@ -120,7 +139,9 @@ pub(crate) fn member_bytes<T>(
 ) -> Result<Vec<u8>, String> {
     match m {
         Member::Value(v) => value(v),
-        Member::Locked { raw, .. } => part_in(raw, ctx.dir, &key, current, ctx.base),
+        Member::Locked { raw, .. } => {
+            part_in_at(raw, &join(path, "raw"), ctx.dir, &key, current, ctx.base)
+        }
     }
 }
 

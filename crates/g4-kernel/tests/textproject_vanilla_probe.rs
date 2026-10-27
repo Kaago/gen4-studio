@@ -7,7 +7,8 @@ use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::textproject::item_owners;
 
 /// How the item ids of the ARM9 item table map onto the `itemData` members: `shared` ids
-/// write `same_member_as`, `unreferenced` members have no id (and no item file).
+/// write `same_member_as` (their member is carried by another id), `unreferenced` members
+/// have no id (and no item file).
 #[test]
 fn vanilla_shared_item_members_are_counted() {
     let Some((_tmp, copy)) = common::vanilla_copy() else {
@@ -22,8 +23,17 @@ fn vanilla_shared_item_members_are_counted() {
     let members = project.member_count(AssetKind::Item).unwrap();
     let owners = item_owners(&member_of, members);
     let ids = member_of.len();
-    let carriers = owners.iter().filter(|o| o.is_some()).count();
-    let shared = ids - carriers;
+    let shared = member_of
+        .iter()
+        .enumerate()
+        .filter(|&(id, &m)| {
+            owners
+                .get(usize::from(m))
+                .copied()
+                .flatten()
+                .is_some_and(|o| o as usize != id)
+        })
+        .count();
     let unreferenced = owners.iter().filter(|o| o.is_none()).count();
     eprintln!(
         "items {} ids={ids} members={members} shared={shared} unreferenced={unreferenced}",

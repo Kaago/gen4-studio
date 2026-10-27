@@ -18,10 +18,12 @@ use crate::error::KernelError;
 use super::super::canon::{hex, unhex};
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{Member, PartKey};
-use super::super::record::{record_from_json, record_to_json, resolve, sample_record, sym_ref};
+use super::super::record::{
+    record_from_json, record_from_json_at, record_to_json, resolve, sample_record, sym_ref,
+};
 use super::super::symbols::{SymbolKind, fallback_id};
 use super::{
-    EntitySchema, ExportCtx, ImportCtx, RecordJson, SymRef, check_id, entity_id, lock_member,
+    EntitySchema, ExportCtx, ImportCtx, ROOT, RecordJson, SymRef, check_id, entity_id, lock_member,
     member_bytes,
 };
 
@@ -40,12 +42,16 @@ pub struct SpeciesEntity {
 }
 
 /// A learnset: the level-up moves, whether `0xFFFF` ends them, and the bytes after it.
+/// `tail` is left out when it is exactly the zero padding to four bytes that
+/// `Learnset::write` adds for this number of moves (none without terminator); without it
+/// the import pads the same way, so moves can be added by hand.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LearnsetJson {
     pub moves: Vec<LearnMoveJson>,
     pub terminated: bool,
-    pub tail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tail: Option<String>,
 }
 
 /// One level-up move (level 0 to 127, move 0 to 511).
@@ -85,17 +91,28 @@ pub struct EncounterEntity {
     pub data: Member<RecordJson>,
 }
 
-/// `trainerTextTable/0000`: `[trainer, trigger]` per message.
+/// `trainerTextTable/0000`: the table, or `{locked, raw}` when its length is no multiple
+/// of four.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TrainerTextTableEntity(pub Member<TrainerTextTableJson>);
+
+/// The trainer text table: `[trainer, trigger]` per message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TrainerTextTableEntity {
+pub struct TrainerTextTableJson {
     pub entries: Vec<[u16; 2]>,
 }
 
-/// `trainerTextOffset/0000`: one table offset per trainer.
+/// `trainerTextOffset/0000`: the offsets, or `{locked, raw}` when its length is odd.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TrainerTextOffsetsEntity(pub Member<TrainerTextOffsetsJson>);
+
+/// The trainer text offsets: one table offset per trainer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TrainerTextOffsetsEntity {
+pub struct TrainerTextOffsetsJson {
     pub offsets: Vec<u16>,
 }
 
@@ -141,16 +158,23 @@ fn record_member<R: RawRecord>(
     lock_member(key, use_base, bytes, reason, ctx)
 }
 
-/// The bytes of a fixed record member.
+/// The bytes of a fixed record member at JSON `path` of its entity.
 fn record_bytes<R: RawRecord>(
     m: &Member<RecordJson>,
+    path: &str,
     key: PartKey,
     current: Option<&[u8]>,
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<u8>, String> {
-    member_bytes(m, key, current, ctx, |j| {
-        record_from_json::<R>(j, key.part, ctx.symbols).map(|r| r.write())
+    member_bytes(m, path, key, current, ctx, |j| {
+        record_from_json_at::<R>(j, key.part, path, ctx.symbols).map(|r| r.write())
     })
+}
+
+/// The zero padding `Learnset::write` puts after the terminator of `moves` entries.
+fn learnset_padding(moves: usize) -> Vec<u8> {
+    let len = 2 * moves + 2;
+    vec![0; len.next_multiple_of(4) - len]
 }
 
 /// The learnset as written: entries, `0xFFFF` when terminated, then the tail.
@@ -193,10 +217,15 @@ fn learnset_member(
                     move_id: sym_ref(ctx.symbols, SymbolKind::Move, u32::from(e.move_id)),
                 })
                 .collect();
+            let standard = if ls.terminated {
+                learnset_padding(ls.entries.len())
+            } else {
+                Vec::new()
+            };
             return Ok(Member::Value(LearnsetJson {
                 moves,
                 terminated: ls.terminated,
-                tail: hex(&ls.tail),
+                tail: (ls.tail != standard).then(|| hex(&ls.tail)),
             }));
         }
         Ok(_) => format!("learnset {index:04}: does not write back byte for byte"),
@@ -235,7 +264,11 @@ fn learnset_bytes(j: &LearnsetJson, ctx: &ImportCtx<'_>) -> Result<Vec<u8>, Stri
             level: m.level,
         });
     }
-    let tail = unhex(&j.tail).map_err(|e| format!("{SCHEMA_CODE}: learnset.tail: {e}"))?;
+    let tail = match &j.tail {
+        Some(text) => unhex(text).map_err(|e| format!("{SCHEMA_CODE}: learnset.tail: {e}"))?,
+        None if j.terminated => learnset_padding(entries.len()),
+        None => Vec::new(),
+    };
     if !j.terminated && !tail.is_empty() {
         return Err(format!(
             "{SCHEMA_CODE}: learnset.tail: ohne Endezeichen (`terminated: false`) gibt es keinen Rest."
@@ -288,13 +321,13 @@ impl EntitySchema for SpeciesEntity {
         let personal = self
             .personal
             .as_ref()
-            .map(|m| record_bytes::<Personal>(m, key("personal"), current(0), ctx))
+            .map(|m| record_bytes::<Personal>(m, "personal", key("personal"), current(0), ctx))
             .transpose()?;
         let learnset = self
             .learnset
             .as_ref()
             .map(|m| {
-                member_bytes(m, key("learnset"), current(1), ctx, |j| {
+                member_bytes(m, "learnset", key("learnset"), current(1), ctx, |j| {
                     learnset_bytes(j, ctx)
                 })
             })
@@ -302,7 +335,7 @@ impl EntitySchema for SpeciesEntity {
         let evolution = self
             .evolution
             .as_ref()
-            .map(|m| record_bytes::<Evolution>(m, key("evolution"), current(2), ctx))
+            .map(|m| record_bytes::<Evolution>(m, "evolution", key("evolution"), current(2), ctx))
             .transpose()?;
         Ok(vec![personal, learnset, evolution])
     }
@@ -317,7 +350,7 @@ impl EntitySchema for SpeciesEntity {
                     move_id: SymRef::Id(fallback_id(SymbolKind::Move, 1)),
                 }],
                 terminated: true,
-                tail: "0000".into(),
+                tail: Some("0000".into()),
             })),
             evolution: Some(Member::Value(sample_record::<Evolution>("evolution"))),
         }
@@ -351,7 +384,7 @@ impl EntitySchema for MoveEntity {
             index,
             part: "move",
         };
-        let bytes = record_bytes::<Move>(&self.data, key, member(ctx.current, 0), ctx)?;
+        let bytes = record_bytes::<Move>(&self.data, "data", key, member(ctx.current, 0), ctx)?;
         Ok(vec![Some(bytes)])
     }
 
@@ -401,7 +434,7 @@ impl EntitySchema for ItemEntity {
         let bytes = self
             .data
             .as_ref()
-            .map(|m| record_bytes::<Item>(m, item_key(index), member(ctx.current, 0), ctx))
+            .map(|m| record_bytes::<Item>(m, "data", item_key(index), member(ctx.current, 0), ctx))
             .transpose()?;
         Ok(vec![bytes])
     }
@@ -479,7 +512,7 @@ pub(crate) fn import_items(
         errors.push((
             id,
             format!(
-                "{SCHEMA_CODE}: die Item-Tabelle hat {} IDs, es gibt {} Item-Dateien.",
+                "{SCHEMA_CODE}: {ROOT}: die Item-Tabelle hat {} IDs, es gibt {} Item-Dateien.",
                 member_of.len(),
                 items.len()
             ),
@@ -493,25 +526,25 @@ pub(crate) fn import_items(
             check_id(ctx.symbols, SymbolKind::Item, id, &item.id)?;
             match (&item.data, &item.same_member_as) {
                 (Some(_), Some(_)) => Err(format!(
-                    "{SCHEMA_CODE}: `data` und `same_member_as` schließen sich aus."
+                    "{SCHEMA_CODE}: same_member_as: `data` und `same_member_as` schließen sich aus."
                 )),
                 (None, None) if m < members => Err(format!(
-                    "{SCHEMA_CODE}: weder `data` noch `same_member_as` (Member {m:04})."
+                    "{SCHEMA_CODE}: {ROOT}: weder `data` noch `same_member_as` (Member {m:04})."
                 )),
                 (None, None) => Ok(()),
                 (Some(_), None) if m >= members => Err(format!(
-                    "{SCHEMA_CODE}: die ID zeigt auf Member {m:04}, das Archiv hat {members}."
+                    "{SCHEMA_CODE}: data: die ID zeigt auf Member {m:04}, das Archiv hat {members}."
                 )),
                 (Some(data), None) => {
                     if let Some(other) = carrier[m] {
                         return Err(format!(
-                            "{SCHEMA_CODE}: Member {m:04} hat schon Daten von `{}`; hier \
+                            "{SCHEMA_CODE}: data: Member {m:04} hat schon Daten von `{}`; hier \
                              `same_member_as` schreiben.",
                             name(other)
                         ));
                     }
                     let current = ctx.current.get(m).and_then(|c| c.as_deref());
-                    let bytes = record_bytes::<Item>(data, item_key(id), current, ctx)?;
+                    let bytes = record_bytes::<Item>(data, "data", item_key(id), current, ctx)?;
                     carrier[m] = Some(id);
                     out[m] = Some(bytes);
                     Ok(())
@@ -583,8 +616,10 @@ impl EntitySchema for EncounterEntity {
         let key = encounter_key(index);
         let current = member(ctx.current, 0);
         let bytes = match ctx.family {
-            Family::Hgss => record_bytes::<HgssEncounters>(&self.data, key, current, ctx)?,
-            Family::Pt | Family::Dp => record_bytes::<PtEncounters>(&self.data, key, current, ctx)?,
+            Family::Hgss => record_bytes::<HgssEncounters>(&self.data, "data", key, current, ctx)?,
+            Family::Pt | Family::Dp => {
+                record_bytes::<PtEncounters>(&self.data, "data", key, current, ctx)?
+            }
         };
         Ok(vec![Some(bytes)])
     }
@@ -608,31 +643,63 @@ impl EntitySchema for EncounterEntity {
     }
 }
 
+/// The key of a trainer text member: the art is also the member's name.
+fn trainer_text_key(art: &'static str, index: u32) -> PartKey {
+    PartKey {
+        art,
+        index,
+        part: art,
+    }
+}
+
 impl EntitySchema for TrainerTextTableEntity {
     const ART: &'static str = "trainer_text_table";
 
     fn export(
         index: u32,
         members: &[Option<Vec<u8>>],
-        _ctx: &mut ExportCtx<'_>,
+        ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let table = TrainerTextTable::read(required(members, Self::ART, index)?)?;
-        Ok(TrainerTextTableEntity {
-            entries: table.entries.iter().map(|&(a, b)| [a, b]).collect(),
-        })
+        let bytes = required(members, Self::ART, index)?;
+        let reason = match TrainerTextTable::read(bytes) {
+            Ok(table) if table.write() == bytes => {
+                return Ok(TrainerTextTableEntity(Member::Value(
+                    TrainerTextTableJson {
+                        entries: table.entries.iter().map(|&(a, b)| [a, b]).collect(),
+                    },
+                )));
+            }
+            Ok(_) => format!(
+                "{} {index:04}: does not write back byte for byte",
+                Self::ART
+            ),
+            Err(_) => format!(
+                "{} {index:04}: {} bytes, not a multiple of 4",
+                Self::ART,
+                bytes.len()
+            ),
+        };
+        let key = trainer_text_key(Self::ART, index);
+        Ok(TrainerTextTableEntity(lock_member(
+            key, true, bytes, reason, ctx,
+        )?))
     }
 
-    fn import(&self, _index: u32, _ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String> {
-        let table = TrainerTextTable {
-            entries: self.entries.iter().map(|&[a, b]| (a, b)).collect(),
-        };
-        Ok(vec![Some(table.write())])
+    fn import(&self, index: u32, ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String> {
+        let key = trainer_text_key(Self::ART, index);
+        let bytes = member_bytes(&self.0, ROOT, key, member(ctx.current, 0), ctx, |j| {
+            let table = TrainerTextTable {
+                entries: j.entries.iter().map(|&[a, b]| (a, b)).collect(),
+            };
+            Ok(table.write())
+        })?;
+        Ok(vec![Some(bytes)])
     }
 
     fn sample() -> Self {
-        TrainerTextTableEntity {
+        TrainerTextTableEntity(Member::Value(TrainerTextTableJson {
             entries: vec![[0, 0]],
-        }
+        }))
     }
 }
 
@@ -642,23 +709,42 @@ impl EntitySchema for TrainerTextOffsetsEntity {
     fn export(
         index: u32,
         members: &[Option<Vec<u8>>],
-        _ctx: &mut ExportCtx<'_>,
+        ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let offsets = TrainerTextOffsets::read(required(members, Self::ART, index)?)?;
-        Ok(TrainerTextOffsetsEntity {
-            offsets: offsets.offsets,
-        })
+        let bytes = required(members, Self::ART, index)?;
+        let reason = match TrainerTextOffsets::read(bytes) {
+            Ok(offsets) if offsets.write() == bytes => {
+                return Ok(TrainerTextOffsetsEntity(Member::Value(
+                    TrainerTextOffsetsJson {
+                        offsets: offsets.offsets,
+                    },
+                )));
+            }
+            Ok(_) => format!(
+                "{} {index:04}: does not write back byte for byte",
+                Self::ART
+            ),
+            Err(_) => format!("{} {index:04}: {} bytes, odd", Self::ART, bytes.len()),
+        };
+        let key = trainer_text_key(Self::ART, index);
+        Ok(TrainerTextOffsetsEntity(lock_member(
+            key, true, bytes, reason, ctx,
+        )?))
     }
 
-    fn import(&self, _index: u32, _ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String> {
-        let offsets = TrainerTextOffsets {
-            offsets: self.offsets.clone(),
-        };
-        Ok(vec![Some(offsets.write())])
+    fn import(&self, index: u32, ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String> {
+        let key = trainer_text_key(Self::ART, index);
+        let bytes = member_bytes(&self.0, ROOT, key, member(ctx.current, 0), ctx, |j| {
+            let offsets = TrainerTextOffsets {
+                offsets: j.offsets.clone(),
+            };
+            Ok(offsets.write())
+        })?;
+        Ok(vec![Some(bytes)])
     }
 
     fn sample() -> Self {
-        TrainerTextOffsetsEntity { offsets: vec![0] }
+        TrainerTextOffsetsEntity(Member::Value(TrainerTextOffsetsJson { offsets: vec![0] }))
     }
 }
 
@@ -748,7 +834,7 @@ mod tests {
             json!({"level": 1, "move": "MOVE_TACKLE"})
         );
         assert_eq!(v["learnset"]["terminated"], json!(true));
-        assert_eq!(v["learnset"]["tail"], json!("0000"));
+        assert_eq!(v["learnset"].get("tail"), None, "the padding of two moves");
         assert_eq!(v["evolution"]["target0"], json!("SPECIES_IVYSAUR"));
         let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
         assert_eq!(keys, ["id", "personal", "learnset", "evolution"]);
@@ -1004,7 +1090,7 @@ mod tests {
         };
         ls.moves[0].move_id = SymRef::Num(1);
         ls.terminated = false;
-        ls.tail = "00".into();
+        ls.tail = Some("00".into());
         assert!(
             import(Family::Pt, &e, 1)
                 .unwrap_err()
@@ -1027,16 +1113,198 @@ mod tests {
         assert_eq!(err.line(), 2);
     }
 
+    /// The first `<code>: <path>: ` of an error.
+    fn code_and_path(err: &str) -> (&str, &str) {
+        let mut parts = err.splitn(3, ": ");
+        (parts.next().unwrap(), parts.next().unwrap())
+    }
+
+    fn set_key(m: &mut Member<RecordJson>, key: &str, value: serde_json::Value) {
+        let Member::Value(j) = m else { panic!() };
+        match j.0.iter_mut().find(|(k, _)| k == key) {
+            Some(slot) => slot.1 = value,
+            None => j.0.push((key.to_owned(), value)),
+        }
+    }
+
+    #[test]
+    fn import_errors_name_the_json_path() {
+        let (good, _) = export::<MoveEntity>(Family::Pt, 1, &[Some(vec![0; 16])]);
+        let err_of = |e: &MoveEntity| import(Family::Pt, e, 1).unwrap_err();
+
+        let mut e = good.clone();
+        set_key(&mut e.data, "powr", json!(1));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.schema", "data.powr")
+        );
+        let mut e = good.clone();
+        let Member::Value(j) = &mut e.data else {
+            panic!()
+        };
+        j.0.retain(|(k, _)| k != "power");
+        let err = err_of(&e);
+        assert_eq!(code_and_path(&err), ("textproject.schema", "data"), "{err}");
+        assert!(err.contains("`power`"), "{err}");
+        let mut e = good.clone();
+        set_key(&mut e.data, "power", json!(256));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.schema", "data.power")
+        );
+        let mut e = good.clone();
+        set_key(&mut e.data, "move_type", json!("TYPE_FOO"));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.unknown-id", "data.move_type")
+        );
+        let mut e = good.clone();
+        e.id = "MOVE_TACKLE".into();
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.id-mismatch", "id")
+        );
+        let mut e = good;
+        e.data = Member::Locked {
+            locked: "x".into(),
+            raw: Part::File {
+                file: "0001.move.bin".into(),
+            },
+        };
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.side-file", "data.raw.file")
+        );
+
+        let learnset = learnset_bytes_of(&[(1, 5), (2, 7)], true, &[0, 0]);
+        let members = [Some(vec![0; 44]), Some(learnset), Some(vec![0; 44])];
+        let (good, _) = export::<SpeciesEntity>(Family::Pt, 1, &members);
+        let err_of = |e: &SpeciesEntity| import(Family::Pt, e, 1).unwrap_err();
+        let mut e = good.clone();
+        set_key(e.personal.as_mut().unwrap(), "type1", json!("TYPE_FOO"));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.unknown-id", "personal.type1")
+        );
+        let mut e = good.clone();
+        set_key(e.evolution.as_mut().unwrap(), "targt0", json!(1));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.schema", "evolution.targt0")
+        );
+        let mut e = good.clone();
+        let Some(Member::Value(j)) = e.personal.as_mut() else {
+            panic!()
+        };
+        j.0.retain(|(k, _)| k != "hp");
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.schema", "personal")
+        );
+        let mut e = good.clone();
+        set_key(e.personal.as_mut().unwrap(), "hp", json!(-1));
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.schema", "personal.hp")
+        );
+        let mut e = good;
+        let Some(Member::Value(ls)) = e.learnset.as_mut() else {
+            panic!()
+        };
+        ls.moves[1].move_id = SymRef::Id("MOVE_FOO".into());
+        assert_eq!(
+            code_and_path(&err_of(&e)),
+            ("textproject.unknown-id", "learnset.moves[1].move")
+        );
+    }
+
+    #[test]
+    fn trainer_text_that_does_not_decode_is_locked() {
+        let table = vec![1u8, 2, 3, 4, 5];
+        let (e, _) = export::<TrainerTextTableEntity>(Family::Pt, 0, &[Some(table.clone())]);
+        assert_eq!(
+            e.0,
+            Member::Locked {
+                locked: "trainer_text_table 0000: 5 bytes, not a multiple of 4".into(),
+                raw: Part::Hex { hex: hex(&table) },
+            }
+        );
+        assert_eq!(import(Family::Pt, &e, 0).unwrap(), vec![Some(table)]);
+
+        let offsets = vec![9u8, 8, 7];
+        let (e, _) = export::<TrainerTextOffsetsEntity>(Family::Hgss, 0, &[Some(offsets.clone())]);
+        assert_eq!(
+            e.0,
+            Member::Locked {
+                locked: "trainer_text_offsets 0000: 3 bytes, odd".into(),
+                raw: Part::Hex { hex: hex(&offsets) },
+            }
+        );
+        assert_eq!(import(Family::Hgss, &e, 0).unwrap(), vec![Some(offsets)]);
+
+        // The value form is the plain object, as before.
+        let (e, _) = export::<TrainerTextOffsetsEntity>(Family::Pt, 0, &[Some(vec![1, 0])]);
+        assert_eq!(to_canonical(&e), b"{\n  \"offsets\": [\n    1\n  ]\n}\n");
+        let err = serde_json::from_str::<TrainerTextOffsetsEntity>("{\"offset\": []}").unwrap_err();
+        assert!(err.to_string().contains("unknown field `offset`"), "{err}");
+    }
+
+    #[test]
+    fn learnset_tail_is_left_out_when_it_is_the_padding() {
+        let tail_of = |moves: &[(u16, u8)], terminated: bool, tail: &[u8]| {
+            let bytes = learnset_bytes_of(moves, terminated, tail);
+            let (e, _) = export::<SpeciesEntity>(Family::Pt, 1, &[None, Some(bytes.clone())]);
+            assert_eq!(import(Family::Pt, &e, 1).unwrap()[1], Some(bytes));
+            let Some(Member::Value(ls)) = e.learnset else {
+                panic!()
+            };
+            ls.tail
+        };
+        assert_eq!(tail_of(&[(1, 1), (2, 2)], true, &[0, 0]), None);
+        assert_eq!(tail_of(&[(1, 1)], true, &[]), None);
+        assert_eq!(tail_of(&[], true, &[0, 0]), None);
+        assert_eq!(tail_of(&[(1, 1)], false, &[]), None);
+        assert_eq!(tail_of(&[(1, 1)], true, &[0, 0]).as_deref(), Some("0000"));
+        assert_eq!(tail_of(&[(1, 1), (2, 2)], true, &[]).as_deref(), Some(""));
+        assert_eq!(
+            tail_of(&[(1, 1), (2, 2)], true, &[0, 1]).as_deref(),
+            Some("0001")
+        );
+
+        // Without `tail` an added move is padded like `Learnset::write`.
+        let (mut e, _) = export::<SpeciesEntity>(
+            Family::Pt,
+            1,
+            &[None, Some(learnset_bytes_of(&[(1, 1)], true, &[]))],
+        );
+        let Some(Member::Value(ls)) = e.learnset.as_mut() else {
+            panic!()
+        };
+        ls.moves.push(LearnMoveJson {
+            level: 2,
+            move_id: SymRef::Num(2),
+        });
+        assert_eq!(
+            import(Family::Pt, &e, 1).unwrap()[1],
+            Some(vec![1, 2, 2, 4, 0xFF, 0xFF, 0, 0])
+        );
+    }
+
     proptest! {
         #[test]
         fn prop_learnset_round_trip(
             moves in proptest::collection::vec((0u16..512, 0u8..128), 0..25),
             terminated in any::<bool>(),
             tail in proptest::collection::vec(any::<u8>(), 0..6),
+            padded in any::<bool>(),
         ) {
             let moves: Vec<(u16, u8)> =
                 moves.into_iter().filter(|&m| m != (511, 127)).collect();
-            let tail = if terminated { tail } else { Vec::new() };
+            let tail = match (terminated, padded) {
+                (false, _) => Vec::new(),
+                (true, true) => learnset_padding(moves.len()),
+                (true, false) => tail,
+            };
             let bytes = learnset_bytes_of(&moves, terminated, &tail);
             let members = vec![None, Some(bytes)];
             let (e, _) = export::<SpeciesEntity>(Family::Pt, 1, &members);

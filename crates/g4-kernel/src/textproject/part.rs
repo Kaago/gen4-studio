@@ -103,8 +103,9 @@ pub(crate) fn part_out(
 
 /// The bytes of `part`: hex decoded, the side file read from `dir`, or for `base_sha1` the
 /// current member when it has that SHA-1, else the base layer's part `key` when it has. The
-/// error starts with its code: `textproject.side-file`, `textproject.base-missing`,
-/// `textproject.base-mismatch` or `textproject.schema`.
+/// error is `<code>: <key>: <sentence>` with code `textproject.side-file`,
+/// `textproject.base-missing`, `textproject.base-mismatch` or `textproject.schema`;
+/// [`part_in_at`] names the part's JSON path instead of the key.
 pub(crate) fn part_in(
     part: &Part,
     dir: &Path,
@@ -112,12 +113,28 @@ pub(crate) fn part_in(
     current: Option<&[u8]>,
     base: &dyn BasePart,
 ) -> Result<Vec<u8>, String> {
+    part_in_at(part, &key.to_string(), dir, key, current, base)
+}
+
+/// [`part_in`] for a part at JSON `path` of its entity (`personal.raw`, `model`): the error
+/// is `<code>: <path>: <sentence>`.
+pub(crate) fn part_in_at(
+    part: &Part,
+    path: &str,
+    dir: &Path,
+    key: &PartKey,
+    current: Option<&[u8]>,
+    base: &dyn BasePart,
+) -> Result<Vec<u8>, String> {
     match part {
-        Part::Hex { hex } => unhex(hex).map_err(|e| format!("{SCHEMA_CODE}: {key}: {e}")),
+        Part::Hex { hex } => unhex(hex).map_err(|e| format!("{SCHEMA_CODE}: {path}.hex: {e}")),
         Part::File { file } => {
-            check_file_name(file).map_err(|e| format!("{SCHEMA_CODE}: {key}: {e}"))?;
+            check_file_name(file).map_err(|e| format!("{SCHEMA_CODE}: {path}.file: {e}"))?;
             std::fs::read(dir.join(file)).map_err(|e| {
-                format!("{SIDE_FILE_CODE}: {key}: das Beifile `{file}` fehlt oder ist nicht lesbar ({e}).")
+                format!(
+                    "{SIDE_FILE_CODE}: {path}.file: das Beifile `{file}` fehlt oder ist nicht \
+                     lesbar ({e})."
+                )
             })
         }
         Part::Base { base_sha1 } => {
@@ -127,14 +144,14 @@ pub(crate) fn part_in(
             match base.base_bytes(*key) {
                 Ok(Some(bytes)) if sha1_hex(&bytes) == *base_sha1 => Ok(bytes),
                 Ok(Some(_)) => Err(format!(
-                    "{BASE_MISMATCH_CODE}: {key}: die Basisschicht hat andere Bytes als \
-                     base_sha1 {base_sha1}."
+                    "{BASE_MISMATCH_CODE}: {path}.base_sha1: die Basisschicht hat für {key} \
+                     andere Bytes als {base_sha1}."
                 )),
                 Ok(None) => Err(format!(
-                    "{BASE_MISSING_CODE}: {key}: weder der aktuelle Member noch die \
-                     Basisschicht hat die Bytes von base_sha1 {base_sha1}."
+                    "{BASE_MISSING_CODE}: {path}.base_sha1: weder der aktuelle Member noch die \
+                     Basisschicht ({key}) hat die Bytes von {base_sha1}."
                 )),
-                Err(e) => Err(format!("{BASE_MISSING_CODE}: {key}: {e}")),
+                Err(e) => Err(format!("{BASE_MISSING_CODE}: {path}.base_sha1: {key}: {e}")),
             }
         }
     }

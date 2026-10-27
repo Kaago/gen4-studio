@@ -197,10 +197,12 @@ pub fn record_to_json<R: RawRecord>(r: &R, record: &str, sym: &Symbols) -> Recor
     RecordJson(out)
 }
 
-/// The number in `v` for field `name` of `record` (a reference may be an id), at most `max`.
+/// The number in `v` for field `name` of `record` at JSON `path` (a reference may be an id),
+/// at most `max`.
 fn read_number(
     v: &Value,
     record: &str,
+    path: &str,
     name: &str,
     max: u64,
     sym: &Symbols,
@@ -210,10 +212,10 @@ fn read_number(
             sym,
             kind,
             &SymRef::Id(id.clone()),
-            &format!("{record}.{name}"),
+            &format!("{path}.{name}"),
         )?),
         (Value::Number(n), _) => n.as_u64().ok_or_else(|| {
-            format!("{SCHEMA_CODE}: {record}.{name}: {n} liegt nicht in 0..={max}.")
+            format!("{SCHEMA_CODE}: {path}.{name}: {n} liegt nicht in 0..={max}.")
         })?,
         (other, kind) => {
             let what = if kind.is_some() {
@@ -222,29 +224,29 @@ fn read_number(
                 "Zahl"
             };
             return Err(format!(
-                "{SCHEMA_CODE}: {record}.{name}: {what} erwartet, gefunden {other}."
+                "{SCHEMA_CODE}: {path}.{name}: {what} erwartet, gefunden {other}."
             ));
         }
     };
     if n > max {
         return Err(format!(
-            "{SCHEMA_CODE}: {record}.{name}: {n} liegt nicht in 0..={max}."
+            "{SCHEMA_CODE}: {path}.{name}: {n} liegt nicht in 0..={max}."
         ));
     }
     Ok(n as u32)
 }
 
-/// The `len` bytes of hex field `name`.
-fn read_hex(v: &Value, record: &str, name: &str, len: usize) -> Result<Vec<u8>, String> {
+/// The `len` bytes of hex field `name` at JSON `path`.
+fn read_hex(v: &Value, path: &str, name: &str, len: usize) -> Result<Vec<u8>, String> {
     let Value::String(text) = v else {
         return Err(format!(
-            "{SCHEMA_CODE}: {record}.{name}: Hex-Text erwartet, gefunden {v}."
+            "{SCHEMA_CODE}: {path}.{name}: Hex-Text erwartet, gefunden {v}."
         ));
     };
-    let bytes = unhex(text).map_err(|e| format!("{SCHEMA_CODE}: {record}.{name}: {e}"))?;
+    let bytes = unhex(text).map_err(|e| format!("{SCHEMA_CODE}: {path}.{name}: {e}"))?;
     if bytes.len() != len {
         return Err(format!(
-            "{SCHEMA_CODE}: {record}.{name}: {} Byte statt {len}.",
+            "{SCHEMA_CODE}: {path}.{name}: {} Byte statt {len}.",
             bytes.len()
         ));
     }
@@ -252,11 +254,24 @@ fn read_hex(v: &Value, record: &str, name: &str, len: usize) -> Result<Vec<u8>, 
 }
 
 /// The record of `j`: every key of the layout exactly once (`<container>_rest` optional), no
-/// other key, every value in its range, references as id or number. The error names the
-/// field and starts with its code (`textproject.schema` or `textproject.unknown-id`).
+/// other key, every value in its range, references as id or number. The error has the form
+/// `<code>: <path>: <sentence>` (code `textproject.schema` or `textproject.unknown-id`), the
+/// path starting with `record`; [`record_from_json_at`] puts the record at another path.
 pub fn record_from_json<R: RawRecord>(
     j: &RecordJson,
     record: &str,
+    sym: &Symbols,
+) -> Result<R, String> {
+    record_from_json_at(j, record, record, sym)
+}
+
+/// [`record_from_json`] for a record at JSON `path` of its entity (`data`, `personal`): an
+/// error names the key's path (`data.powr`, `personal.type1`), a missing key the record's
+/// path (`data: Schlüssel `power` fehlt.`).
+pub(crate) fn record_from_json_at<R: RawRecord>(
+    j: &RecordJson,
+    record: &str,
+    path: &str,
     sym: &Symbols,
 ) -> Result<R, String> {
     let entries = layout(R::FIELDS);
@@ -273,17 +288,21 @@ pub fn record_from_json<R: RawRecord>(
     let mut given: HashMap<&str, &Value> = HashMap::with_capacity(j.0.len());
     for (k, v) in &j.0 {
         if !known.iter().any(|n| n == k) {
-            return Err(format!("{SCHEMA_CODE}: `{record}` hat kein Feld `{k}`."));
+            return Err(format!(
+                "{SCHEMA_CODE}: {path}.{k}: unbekannter Schlüssel (`{record}` hat dieses Feld nicht)."
+            ));
         }
         if given.insert(k, v).is_some() {
-            return Err(format!("{SCHEMA_CODE}: {record}.{k} steht doppelt."));
+            return Err(format!(
+                "{SCHEMA_CODE}: {path}.{k}: der Schlüssel steht doppelt."
+            ));
         }
     }
     let take = |name: &str| {
         given
             .get(name)
             .copied()
-            .ok_or_else(|| format!("{SCHEMA_CODE}: {record}.{name} fehlt."))
+            .ok_or_else(|| format!("{SCHEMA_CODE}: {path}: Schlüssel `{name}` fehlt."))
     };
 
     let mut raw = vec![0u8; R::LEN];
@@ -295,21 +314,22 @@ pub fn record_from_json<R: RawRecord>(
                 let slot = &mut raw[f.offset..f.offset + f.len];
                 match f.kind {
                     FieldKind::I8 => {
-                        let n = v.as_i64().filter(|n| (-128..=127).contains(n)).ok_or_else(
-                            || {
-                                format!(
-                                    "{SCHEMA_CODE}: {record}.{}: {v} liegt nicht in -128..=127.",
-                                    f.name
-                                )
-                            },
-                        )?;
+                        let n =
+                            v.as_i64()
+                                .filter(|n| (-128..=127).contains(n))
+                                .ok_or_else(|| {
+                                    format!(
+                                        "{SCHEMA_CODE}: {path}.{}: {v} liegt nicht in -128..=127.",
+                                        f.name
+                                    )
+                                })?;
                         slot[0] = n as i8 as u8;
                     }
                     FieldKind::Bytes | FieldKind::Bits { .. } => {
-                        slot.copy_from_slice(&read_hex(v, record, f.name, f.len)?);
+                        slot.copy_from_slice(&read_hex(v, path, f.name, f.len)?);
                     }
                     FieldKind::U8 | FieldKind::U16 | FieldKind::U32 => {
-                        let n = read_number(v, record, f.name, max_of(f.kind, f.len), sym)?;
+                        let n = read_number(v, record, path, f.name, max_of(f.kind, f.len), sym)?;
                         slot.copy_from_slice(&n.to_le_bytes()[..f.len]);
                     }
                 }
@@ -318,15 +338,15 @@ pub fn record_from_json<R: RawRecord>(
                 let key = rest_key(c);
                 if let Some(v) = given.get(key.as_str()) {
                     let rest = match c.kind {
-                        FieldKind::Bytes => read_hex(v, record, &key, c.len)?,
+                        FieldKind::Bytes => read_hex(v, path, &key, c.len)?,
                         _ => {
-                            let n = read_number(v, record, &key, max_of(c.kind, c.len), sym)?;
+                            let n = read_number(v, record, path, &key, max_of(c.kind, c.len), sym)?;
                             n.to_le_bytes()[..c.len].to_vec()
                         }
                     };
                     if rest_bytes(&rest_padded(&rest, c), c, bits) != rest {
                         return Err(format!(
-                            "{SCHEMA_CODE}: {record}.{key}: setzt Bits, die ein Bit-Feld von \
+                            "{SCHEMA_CODE}: {path}.{key}: setzt Bits, die ein Bit-Feld von \
                              `{}` hat.",
                             c.name
                         ));
@@ -335,13 +355,20 @@ pub fn record_from_json<R: RawRecord>(
                 }
                 for b in bits {
                     let mask = mask_of(b);
-                    let n = read_number(take(b.name)?, record, b.name, max_of(b.kind, b.len), sym)?;
+                    let n = read_number(
+                        take(b.name)?,
+                        record,
+                        path,
+                        b.name,
+                        max_of(b.kind, b.len),
+                        sym,
+                    )?;
                     bit_values.push((b.offset, mask, n));
                 }
             }
         }
     }
-    let mut r = R::read(&raw).map_err(|e| format!("{SCHEMA_CODE}: {record}: {e}"))?;
+    let mut r = R::read(&raw).map_err(|e| format!("{SCHEMA_CODE}: {path}: {e}"))?;
     for (offset, mask, n) in bit_values {
         r.set_bits(offset, mask, n);
     }
@@ -549,14 +576,13 @@ mod tests {
         let mut unknown = good.clone();
         unknown.0.push(("powr".into(), json!(1)));
         let err = record_from_json::<Move>(&unknown, "move", &sym).unwrap_err();
-        assert!(err.starts_with("textproject.schema: "), "{err}");
-        assert!(err.contains("`powr`"), "{err}");
+        assert!(err.starts_with("textproject.schema: move.powr: "), "{err}");
 
         let mut missing = good.clone();
         missing.0.retain(|(k, _)| k != "power");
         let err = record_from_json::<Move>(&missing, "move", &sym).unwrap_err();
-        assert!(err.starts_with("textproject.schema: "), "{err}");
-        assert!(err.contains("move.power"), "{err}");
+        assert!(err.starts_with("textproject.schema: move: "), "{err}");
+        assert!(err.contains("`power`"), "{err}");
 
         let mut range = good.clone();
         set(&mut range, "power", json!(256));
