@@ -43,7 +43,7 @@ Diese Maße sind der Ausgangspunkt; der Entwurf in OpenPencil darf sie anpassen,
 
 ### 2.2 Dateien
 
-- `design-system/marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, keine eingebetteten Bilder), `design-system/marke/gen4-studio-marke-1024.png` (1024 × 1024, sRGB, mit Alpha), erzeugt aus dem SVG mit einem kleinen Skript (`design-system/scripts/render_marke.mjs` oder über OpenPencil `export_image`; das Skript, das der Plan wählt, steht in der README).
+- `design-system/marke/gen4-studio-marke.svg` (Quelle, von Hand lesbar, keine eingebetteten Bilder) und `design-system/marke/gen4-studio-marke-1024.png` (1024 × 1024, sRGB, mit Alpha), beide erzeugt aus einer Geometrie von `design-system/scripts/marke.py` (nur Standardbibliothek, deterministisch; Tests in `design-system/scripts/test_marke.py`).
 - `apps/studio/src-tauri/icons/*`: neu aus `pnpm tauri icon ../../design-system/marke/gen4-studio-marke-1024.png` (in `apps/studio`). Die Liste der Dateien bleibt wie heute (`tauri.conf.json` unverändert, außer `tauri icon` legt neue Namen an; dann zieht die Konfiguration nach). Überzählige Windows-Store-Logos, die `tauri icon` mit erzeugt, bleiben eingecheckt wie bisher.
 - `.fig`: Brett „Marke“ auf der Seite „Grundlagen“ (Konstruktion mit Maßlinien, die Marke in 1024, 128, 32, 16 px, auf Hell und auf Dunkel, Schutzraum). Erst rendern, dann speichern, dann `fix_fig_text.mjs --rgb555` (Grenzen in `design-system/openpencil/NACHTRAG-3h.md`).
 
@@ -132,7 +132,7 @@ Menü der Karte (`Weitere Aktionen für <Name>`): „Vorschaubild wählen…“,
 ### 3.6 Design-System
 
 - `design-system/README.md`: Abschnitt „Marke“ (§2), Komponente „Projektkarte“ in der Tabelle der Komponenten (Zustände: Bild eigen, Standardbild, Platzhalter mit Name, Zuletzt, nicht gefunden, Menü), Abschnitt „Nachtrag 4.0“ mit Verweisen.
-- Galerie „Projekt“ (`ui/gallery/pages/ProjectPage.tsx`): die Projektkarte in allen Zuständen mit Beispielbildern, die die Galerie selbst zeichnet (Farbflächen aus den Szenen-Tokens; keine Spielgrafik), und der Abschnitt „Vorschaubild“ von Technik.
+- Galerie „Projektstart“ (die vorhandene Seite) (`ui/gallery/pages/ProjectPage.tsx`): die Projektkarte in allen Zuständen mit Beispielbildern, die die Galerie selbst zeichnet (Farbflächen aus den Szenen-Tokens; keine Spielgrafik), und der Abschnitt „Vorschaubild“ von Technik.
 - `.fig`: Seite „App: Start und Welt“, der Screen „Start“ mit Bildern auf den Karten, und das Brett „Marke“ (§2.2). Neue Tokens braucht es nicht.
 - `scripts/check-styles.sh` und `check-tokens.sh` bleiben grün: nur Bausteine und Tokens, keine Hex-Werte in CSS.
 

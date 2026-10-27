@@ -353,3 +353,48 @@ const DialogX = ({ title, text, actions = [], w = 480 }) => <Frame name="Dialog"
 </Frame>;
 // Ein Screen mit Dialog: das Fenster, darüber die Abdunklung flaeche/ueberlagerung über das ganze Fenster, der Dialog in der Mitte
 const MitDialog = (name, win, dialog) => <Frame name={name} w={1440} h={900} rounded={10} overflow="hidden">{win}<Frame name="Abdunklung" position="absolute" x={0} y={0} w={1440} h={900} flex="row" items="center" justify="center" bg={v('flaeche/ueberlagerung')}>{dialog}</Frame></Frame>;
+// ===== Projektvorschau (Phase 4.0, 27.10.2026) =====
+// Nur Zusätze. Quellen: ui/frame/{StartPane,ProjectPreview}.tsx und .module.css, technik/TechnikArea.tsx, ui/gallery/pages/examplePreviews.ts.
+// Vorlagen: beispiele/start-vorschau.body.js, beispiele/projektkarte.body.js, beispiele/technik-projekt.body.js.
+// Beispielbild 256 × 192 × s aus Szenenfarben (keine Spielgrafik, wie die Beispielbilder der Galerie), Kacheln zu 16 px.
+// art 'eigen' (ein Ort von oben mit Häusern, Weg und Teich) | 'standard' (Kartenbild einer Startstadt, Meer rechts)
+const VorschauBild = (art, s = 1) => {
+  const k = 16 * s, R = (x, y, w, h, c, r) => <Frame position="absolute" x={x * k} y={y * k} w={w * k} h={h * k} rounded={r ? r * s : undefined} bg={v(c)} />;
+  const P = (x, y, c) => <Frame position="absolute" x={x * k + 4 * s} y={y * k + 4 * s} w={8 * s} h={8 * s} rounded={4 * s} bg={v(c)} />;
+  const teile = art === 'eigen'
+    ? [R(0, 0, 16, 12, 'gelaende/hohes-gras'), R(0, 5, 16, 2, 'gelaende/unbekannt'), R(7, 0, 2, 12, 'gelaende/unbekannt'), R(11, 8, 4, 3, 'gelaende/wasser', 6),
+       R(2, 1, 3, 3, 'gelaende/blockiert', 2), R(11, 1, 3, 3, 'gelaende/blockiert', 2), R(2, 8, 3, 3, 'gelaende/blockiert', 2),
+       P(3, 4, 'ereignis/warp'), P(12, 4, 'ereignis/warp'), P(9, 6, 'ereignis/figur'), P(6, 9, 'ereignis/schild')]
+    : [R(0, 0, 16, 12, 'gelaende/unbekannt'), R(0, 0, 2, 12, 'gelaende/hohes-gras'), R(13, 0, 3, 12, 'gelaende/wasser'), R(12, 0, 1, 12, 'gelaende/eis'),
+       R(2, 0, 10, 2, 'gelaende/hohes-gras'), R(3, 3, 3, 3, 'gelaende/vorsprung', 2), R(8, 3, 3, 3, 'gelaende/vorsprung', 2), R(5, 8, 3, 2, 'gelaende/vorsprung', 2),
+       P(4, 6, 'ereignis/warp'), P(9, 6, 'ereignis/warp'), P(6, 10, 'ereignis/warp'), P(10, 9, 'ereignis/figur')];
+  return <Frame name={art === 'eigen' ? 'Vorschaubild (eigen)' : 'Vorschaubild (Standard)'} w={256 * s} h={192 * s} overflow="hidden" bg={v('ds/grund')}>{teile.map((t) => t)}</Frame>;
+};
+// Ohne Bild: der Name in der Spielschrift (16/20 × s) auf dem leeren DS-Bildschirm (ProjectPreview, Platzhalter)
+const VorschauName = (name, s = 1) => <Frame name="Platzhalter mit Name" w={256 * s} h={192 * s} bg={v('ds/grund')} flex="row" items="center" justify="center" px={12 * s}>{T(name, { f: PX, s: 16 * s, lh: 20 * s, c: 'ds/textbox/flaeche', align: 'center' })}</Frame>;
+// Projektkarte (StartPane, ProjectCard): blatt, Rand linie/standard, radius/fenster; oben 8 px eingerückt der DS-Rahmen 4 : 3 (radius/bildschirm),
+// darin der Bildschirm 256 × 192; „Zuletzt“ (Info, Verlauf) oben links und „…“ oben rechts auf dem Rahmen; darunter Name, Spiel, Zeit.
+// bild 'eigen' | 'standard' | null (Platzhalter); fehlt: „nicht gefunden“ (deck, grau, Bildschirm halb deckend, Taste „Aus der Liste nehmen“); menu: Einträge für MenuX
+const ProjKarte = ({ name, game = 'Platin, DE', zeit = 'gerade eben', bild = null, zuletzt, fehlt, w = 309, menu, hover }) => {
+  const fw = w - 16, fh = Math.round(fw * 3 / 4);
+  return <Frame name={'Projektkarte: ' + name} flex="col" w={w} rounded={12} bg={v(fehlt ? 'flaeche/deck' : 'flaeche/blatt')} stroke={v(hover ? 'linie/stark' : 'linie/standard')} strokeWidth={1}>
+    <Frame flex="col" w="fill" pt={8} px={8}>
+      <Frame name="DS-Rahmen" w={fw} h={fh} rounded={8} bg={v('flaeche/bildschirm-rahmen')} flex="row" items="center" justify="center" opacity={fehlt ? 0.5 : undefined}>
+        {bild && !fehlt ? VorschauBild(bild) : VorschauName(name)}
+      </Frame>
+      {zuletzt && <Frame position="absolute" x={16} y={16}>{Badge('Zuletzt', 'info', 'ph:clock-counter-clockwise')}</Frame>}
+      <Frame name="Weitere Aktionen" position="absolute" x={w - 12 - 24} y={12} w={24} h={24} rounded={6} bg={v('flaeche/bildschirm-rahmen')} flex="row" items="center" justify="center"><Icon name="ph:dots-three-bold" size={16} color="#F7F7FF" /></Frame>
+    </Frame>
+    <Frame flex="col" gap={6} pt={8} px={8} pb={12} w="fill">
+      {T(name, { s: 15, w: 600, c: fehlt ? 'text/sekundaer' : 'text/primaer', one: true, width: 'fill' })}
+      <Frame flex="row" items="center" gap={8} w="fill">{Badge(game, 'neutral', 'ph:game-controller')}{fehlt ? T('nicht gefunden', { s: 12, w: 600, c: 'text/sekundaer' }) : T('geöffnet ' + zeit, { s: 12, c: 'text/sekundaer' })}</Frame>
+    </Frame>
+    {fehlt && <Frame flex="row" px={8} pb={12} w="fill">{Btn({ label: 'Aus der Liste nehmen', small: true })}</Frame>}
+    {menu && MenuX({ x: w - 12 - 220, y: 12 + 28, w: 220, items: menu })}
+  </Frame>;
+};
+const MENU_EIGEN = [{ label: 'Vorschaubild wählen…', hi: true }, { label: 'Vorschaubild entfernen' }, '-', { label: 'Aus der Liste nehmen' }];
+const MENU_STANDARD = [{ label: 'Vorschaubild wählen…', hi: true }, '-', { label: 'Aus der Liste nehmen' }];
+const MENU_FEHLT = [{ label: 'Aus der Liste nehmen', hi: true }];
+// Toast unten rechts (ui/frame/toasts): blatt, Rand, Schatten; info mit Symbol Info, fehler mit Symbol Fehler
+const Toast = (text, art = 'info') => <Frame name="Toast" flex="row" items="start" gap={8} px={12} py={10} w={360} rounded={6} bg={v('flaeche/blatt')} stroke={v('linie/standard')} strokeWidth={1} shadow={SCHATTEN}>{I(art === 'fehler' ? 'ph:x-circle-fill' : 'ph:info-fill', 18, art === 'fehler' ? 'f' : 'info')}{T(text, { grow: 1, width: 'fill' })}</Frame>;
