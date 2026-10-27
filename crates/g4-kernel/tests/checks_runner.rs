@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{
-    Check, Finding, Group, IgnoreKey, IgnoreSet, Limits, MapCell, Runner, Severity, Skipped,
-    Snapshot, SnapshotCache, Subject,
+    Check, Finding, FixId, Group, IgnoreKey, IgnoreSet, Limits, MapCell, Runner, Severity, Skipped,
+    Snapshot, SnapshotCache, Subject, apply_fix, plan_fix,
 };
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
@@ -325,9 +325,15 @@ fn the_catalogue_reads_the_store_overlay_and_the_disk() {
         Subject::Header(1),
         "level_script_id"
     ));
-    // Every finding carries its sentence and arguments.
+    // The synthetic project has no base mark: a hint without arguments.
+    assert!(found("build.base-missing", Subject::Project, ""));
+    // Every other finding carries its sentence and arguments.
     for f in &report.findings {
-        assert!(!f.message.is_empty() && !f.args.is_empty(), "{f:?}");
+        assert!(!f.message.is_empty(), "{f:?}");
+        assert!(
+            f.code == "build.base-missing" || !f.args.is_empty(),
+            "{f:?}"
+        );
     }
 }
 
@@ -805,4 +811,129 @@ fn full_run_on_vanilla_under_three_seconds_warm() {
             assert!(took < Duration::from_secs(3), "{took:?}");
         }
     }
+}
+
+/// The findings of `code` in a cheap run on the store's state, with `cache` (handed back).
+fn cheap_findings(
+    project: &Arc<Project>,
+    st: &Store,
+    cache: SnapshotCache,
+    code: &str,
+) -> (Vec<Finding>, SnapshotCache) {
+    let snap = snapshot(project, st, cache);
+    let report = Runner::run(
+        &snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    );
+    let found = report
+        .findings
+        .into_iter()
+        .filter(|f| f.code == code)
+        .collect();
+    (found, snap.into_cache())
+}
+
+fn key_of(f: &Finding) -> IgnoreKey {
+    IgnoreKey {
+        code: f.code.to_owned(),
+        subject: f.subject,
+        key: f.key.clone(),
+        fingerprint: f.fingerprint,
+    }
+}
+
+#[test]
+fn hidden_file_below_files_is_a_finding_with_remove() {
+    let (s, project, mut st) = synthetic();
+    let root = s.dir.path();
+    std::fs::create_dir_all(root.join("files/x")).unwrap();
+    let hidden = root.join("files/x/.DS_Store");
+    std::fs::write(&hidden, b"junk").unwrap();
+
+    let (found, _) = cheap_findings(&project, &st, SnapshotCache::default(), "build.hidden-file");
+    assert_eq!(found.len(), 1, "{found:?}");
+    let f = &found[0];
+    assert_eq!(f.severity, Severity::Error);
+    assert_eq!(f.subject, Subject::Project);
+    assert_eq!(f.key, "files/x/.DS_Store");
+    assert_eq!(f.args, ["files/x/.DS_Store"]);
+    assert_eq!(f.fixes, [FixId::RemoveHidden]);
+
+    // The plan names the file and where it goes; nothing is written yet.
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let plan = plan_fix(&snap, &key_of(f), FixId::RemoveHidden).unwrap();
+    assert!(plan.irreversible);
+    assert!(plan.changes.is_empty());
+    assert_eq!(plan.files.len(), 1);
+    assert_eq!(plan.files[0].path, "files/x/.DS_Store");
+    let to = &plan.files[0].to;
+    let folder = to
+        .strip_prefix(".g4/backup/hidden-")
+        .and_then(|rest| rest.strip_suffix("/files/x/.DS_Store"))
+        .unwrap_or_else(|| panic!("{to}"));
+    // YYYYMMDD-HHMMSS
+    assert_eq!(folder.len(), 15, "{to}");
+    assert!(hidden.exists());
+
+    let result = apply_fix(&mut st, &project, &key_of(f), FixId::RemoveHidden).unwrap();
+    assert!(!result.remaining);
+    assert!(result.changed.is_empty());
+    assert!(!hidden.exists());
+    let backups: Vec<PathBuf> = std::fs::read_dir(root.join(".g4/backup"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1, "{backups:?}");
+    let name = backups[0]
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(name.starts_with("hidden-") && name.len() == 22, "{name}");
+    assert_eq!(
+        std::fs::read(backups[0].join("files/x/.DS_Store")).unwrap(),
+        b"junk"
+    );
+    let (found, _) = cheap_findings(&project, &st, SnapshotCache::default(), "build.hidden-file");
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_changed_unpacked_only_folder_warns_after_a_build() {
+    let (s, project, st) = synthetic();
+    // A folder DSPRE unpacked that neither an archive nor a pack entry packs.
+    let folder = s.dir.path().join("unpacked/fooFolder");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("0000"), b"a").unwrap();
+    std::fs::write(folder.join("0001"), b"b").unwrap();
+    let code = "build.unpacked-not-packed";
+
+    // Without a build state there is nothing to compare with.
+    let (found, cache) = cheap_findings(&project, &st, SnapshotCache::default(), code);
+    assert!(found.is_empty(), "{found:?}");
+
+    // The build records `watch:fooFolder`; nothing changed since.
+    g4_kernel::build::run_source_and_pack_steps(&project).unwrap();
+    let (found, cache) = cheap_findings(&project, &st, cache, code);
+    assert!(found.is_empty(), "{found:?}");
+
+    // One file changed in place (the folder's own time stays): a warning with the count,
+    // also from the cache of the last run.
+    std::fs::write(folder.join("0001"), b"changed").unwrap();
+    let (found, cache) = cheap_findings(&project, &st, cache, code);
+    assert_eq!(found.len(), 1, "{found:?}");
+    let f = &found[0];
+    assert_eq!(f.severity, Severity::Warning);
+    assert_eq!(f.subject, Subject::Project);
+    assert_eq!(f.key, "fooFolder");
+    assert_eq!(f.args, ["fooFolder", "1"]);
+
+    // An added file counts too.
+    std::fs::write(folder.join("0002"), b"c").unwrap();
+    let (found, _) = cheap_findings(&project, &st, cache, code);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].args, ["fooFolder", "2"]);
 }

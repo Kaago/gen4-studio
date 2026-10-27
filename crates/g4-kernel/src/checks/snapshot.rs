@@ -35,6 +35,7 @@ use serde::Serialize;
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
+use super::build::{BuildFacts, CachedUnpacked};
 use super::scripts::{ScriptFacts, ScriptInput, facts_of};
 use crate::disk::Disk;
 use crate::error::KernelError;
@@ -121,6 +122,9 @@ pub struct SnapshotCache {
     /// The text archives' recorded syncs of an earlier run, reused while `state.json` is
     /// unchanged ([`TextSync::is_current`]).
     text_sync: Option<Arc<TextSync>>,
+    /// The build checks' facts of the folders below `unpacked/` of an earlier run, with their
+    /// key (see [`BuildFacts`]).
+    build_facts: Option<CachedUnpacked>,
 }
 
 impl SnapshotCache {
@@ -180,6 +184,7 @@ pub struct Snapshot {
     script_facts: OnceLock<Vec<OnceLock<Arc<ScriptFacts>>>>,
     packed_text_stamp: OnceLock<Option<(u64, u128)>>,
     text_sync: OnceLock<Arc<TextSync>>,
+    build_facts: OnceLock<Arc<BuildFacts>>,
     cache: Mutex<SnapshotCache>,
     unreadable: Mutex<BTreeMap<(usize, Option<u16>), Unreadable>>,
     /// Work the running check left undone ([`Snapshot::note_skip`]), until the runner takes it.
@@ -207,6 +212,7 @@ impl Snapshot {
             script_facts: OnceLock::new(),
             packed_text_stamp: OnceLock::new(),
             text_sync: OnceLock::new(),
+            build_facts: OnceLock::new(),
             cache: Mutex::new(cache),
             unreadable: Mutex::new(BTreeMap::new()),
             skips: Mutex::new(Vec::new()),
@@ -739,6 +745,22 @@ impl Snapshot {
                     ScriptInput::LevelJson(&entry.source),
                 )),
                 SourceKind::Binary => from_member(self),
+            })
+            .clone()
+    }
+
+    // --- build ---
+
+    /// What the build checks read, once per snapshot; the facts of the folders below
+    /// `unpacked/` come from the cache while their key holds (see [`BuildFacts`]).
+    pub(crate) fn build_facts(&self) -> Arc<BuildFacts> {
+        self.build_facts
+            .get_or_init(|| {
+                // Read without holding the cache, which the text and script loads share.
+                let mut cached = lock(&self.cache).build_facts.take();
+                let facts = BuildFacts::read(&self.project, &mut cached);
+                lock(&self.cache).build_facts = cached;
+                Arc::new(facts)
             })
             .clone()
     }

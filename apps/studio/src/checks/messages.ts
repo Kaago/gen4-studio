@@ -217,6 +217,30 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     title: "Rate über 255",
     text: "Die Rate {1} ist größer als 255, das Spiel liest nur {2}. Wähle eine Rate bis 255.",
   },
+  "build.hidden-file": {
+    group: "cheap",
+    severity: "error",
+    title: "Versteckte Datei im ROM-Ordner",
+    text: "Die versteckte Datei {0} liegt unter files/ und käme beim Bauen in die ROM; der Build bricht daran ab. „Entfernen“ verschiebt sie nach .g4/backup.",
+  },
+  "build.member-gap": {
+    group: "cheap",
+    severity: "error",
+    title: "Lücke im Archivordner",
+    text: "Im Ordner unpacked/{0} passt {1} nicht in die Reihe 0000, 0001, …; der Build bricht daran ab. Ergänze die fehlende Datei oder entferne die fremde.",
+  },
+  "build.unpacked-not-packed": {
+    group: "cheap",
+    severity: "warning",
+    title: "Ordner wird nicht gepackt",
+    text: "Im Ordner unpacked/{0} haben sich {1} Dateien geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+  },
+  "build.base-missing": {
+    group: "cheap",
+    severity: "info",
+    title: "Basis-ROM unbekannt",
+    text: "Das Projekt kennt seine Basis-ROM nicht. „Patch erstellen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik zu („Basis-ROM zuordnen…“).",
+  },
   "asset.unreadable": {
     group: "cheap",
     severity: "error",

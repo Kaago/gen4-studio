@@ -465,8 +465,9 @@ pub fn snapshot_folder(project: &Project) -> Result<Option<PathBuf>, KernelError
     snapshot_folder_at(project, &stamp(secs))
 }
 
-/// `secs` since the Unix epoch as `YYYYMMDD-HHMMSS` (UTC).
-fn stamp(secs: u64) -> String {
+/// `secs` since the Unix epoch as `YYYYMMDD-HHMMSS` (UTC); also the backup folder of the fix
+/// `remove_hidden`.
+pub(crate) fn stamp(secs: u64) -> String {
     let digits: String = crate::start::rfc3339_utc(secs)
         .chars()
         .filter(char::is_ascii_digit)

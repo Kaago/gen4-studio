@@ -166,6 +166,48 @@ pub fn member_reads() -> usize {
 
 /// The member files of `dir` in order, checked like [`pack_dir`] checks them, unread.
 fn member_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
+    match scan_members(dir)? {
+        Ok(files) => Ok(files),
+        Err(Misfit::Foreign(name)) => Err(KernelError::Build(format!(
+            "{}: unexpected entry {:?} (members must be named NNNN)",
+            dir.display(),
+            name
+        ))),
+        Err(Misfit::NotFile(number)) => Err(KernelError::Build(format!(
+            "{}: member {number:04} is not a file",
+            dir.display()
+        ))),
+        Err(Misfit::Missing(number)) => Err(KernelError::Build(format!(
+            "{}: member {number:04} is missing",
+            dir.display()
+        ))),
+    }
+}
+
+/// The first entry of a member folder that does not fit the sequence `0000`, `0001`, …
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Misfit {
+    /// A visible name that is not exactly four ASCII digits.
+    Foreign(std::ffi::OsString),
+    /// A member name that is not a file (a folder `0003`, say).
+    NotFile(u32),
+    /// The first number missing from the sequence.
+    Missing(u32),
+}
+
+impl Misfit {
+    /// The entry as the check `build.member-gap` names it: the stray name, or the number.
+    fn name(&self) -> String {
+        match self {
+            Misfit::Foreign(name) => name.to_string_lossy().into_owned(),
+            Misfit::NotFile(number) | Misfit::Missing(number) => format!("{number:04}"),
+        }
+    }
+}
+
+/// The member files of `dir` in order, or the first entry that does not fit (a stray name
+/// before a gap). Hidden entries (names starting with `.`) are left out.
+fn scan_members(dir: &Path) -> Result<Result<Vec<PathBuf>, Misfit>, KernelError> {
     let mut found: Vec<(u32, PathBuf)> = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
         let entry = entry.map_err(io_at(dir))?;
@@ -179,30 +221,46 @@ fn member_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
             .filter(|s| s.len() == 4 && s.bytes().all(|b| b.is_ascii_digit()))
             .and_then(|s| s.parse::<u32>().ok());
         let Some(number) = number else {
-            return Err(KernelError::Build(format!(
-                "{}: unexpected entry {:?} (members must be named NNNN)",
-                dir.display(),
-                name
-            )));
+            return Ok(Err(Misfit::Foreign(name)));
         };
         if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
-            return Err(KernelError::Build(format!(
-                "{}: member {number:04} is not a file",
-                dir.display()
-            )));
+            return Ok(Err(Misfit::NotFile(number)));
         }
         found.push((number, entry.path()));
     }
     found.sort_by_key(|(n, _)| *n);
     for (expected, (number, _)) in found.iter().enumerate() {
         if *number as usize != expected {
-            return Err(KernelError::Build(format!(
-                "{}: member {expected:04} is missing",
-                dir.display()
-            )));
+            return Ok(Err(Misfit::Missing(expected as u32)));
         }
     }
-    Ok(found.into_iter().map(|(_, path)| path).collect())
+    Ok(Ok(found.into_iter().map(|(_, path)| path).collect()))
+}
+
+/// The folders the build packs (one per `pack:*` step) whose members do not fit the sequence
+/// `0000`, `0001`, …, which stops the build: the folder's name below `unpacked/` and the
+/// first entry that does not fit ([`Misfit::name`]), in step order. For the check
+/// `build.member-gap`.
+pub(crate) fn member_gaps(project: &Project) -> Result<Vec<(String, String)>, KernelError> {
+    let mut gaps = Vec::new();
+    for pack in steps::pack_steps(project) {
+        if let Err(misfit) = scan_members(&pack.dir(project))? {
+            gaps.push((pack.name().to_owned(), misfit.name()));
+        }
+    }
+    Ok(gaps)
+}
+
+/// Per folder of [`unpacked_unpacked`] with a baseline (`watch:<name>`): how many of its
+/// files changed, were added or were removed since, when any did; by name. For the check
+/// `build.unpacked-not-packed`. Without a build state the list is empty.
+pub(crate) fn unpacked_changes(project: &Project) -> Result<Vec<(String, usize)>, KernelError> {
+    let watches = steps::watch_steps(project)?;
+    let dyn_steps: Vec<&dyn step::Step> = watches.iter().map(|s| s as &dyn step::Step).collect();
+    Ok(step::watch_changes(project, &dyn_steps)?
+        .into_iter()
+        .filter_map(|(id, count)| Some((id.strip_prefix(step::WATCH_PREFIX)?.to_owned(), count)))
+        .collect())
 }
 
 /// The packed NARC `packed` with `members` (index, bytes) put in: an index below the
@@ -259,31 +317,68 @@ fn replace_file(path: &Path, bytes: &[u8], tmp_dir: &Path) -> Result<(), KernelE
     Ok(())
 }
 
-/// ds-rom packs everything below `files/` into the ROM without a hidden-file filter, so a
-/// stray `.DS_Store` or leftover temp file would end up in the ROM. Nothing is deleted.
-fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(io_at(dir)(e)),
-    };
-    for entry in entries {
-        let entry = entry.map_err(io_at(dir))?;
-        if entry
-            .file_name()
-            .to_str()
-            .is_some_and(|s| s.starts_with('.'))
-        {
-            return Err(KernelError::Build(format!(
-                "hidden entry {} would be packed into the ROM; remove it and build again",
-                entry.path().display()
-            )));
+/// The hidden entries below `files/` (names starting with `.`, files or folders; a hidden
+/// folder is named, not what it holds), project-relative with `/`, sorted. ds-rom packs
+/// everything below `files/` into the ROM without a hidden-file filter, so a stray
+/// `.DS_Store` or leftover temp file would end up in the ROM. No `files/` is an empty list.
+pub(crate) fn hidden_below_files(project: &Project) -> Result<Vec<String>, KernelError> {
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<String>) -> Result<(), KernelError> {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(io_at(dir)(e)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(io_at(dir))?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = format!("{rel}/{name}");
+            if name.starts_with('.') {
+                out.push(path);
+            } else if entry.file_type().map_err(io_at(&entry.path()))?.is_dir() {
+                walk(&entry.path(), &path, out)?;
+            }
         }
-        if entry.file_type().map_err(io_at(&entry.path()))?.is_dir() {
-            reject_hidden_files(&entry.path())?;
-        }
+        Ok(())
     }
-    Ok(())
+    let mut hidden = Vec::new();
+    walk(&project.root.join("files"), "files", &mut hidden)?;
+    hidden.sort();
+    Ok(hidden)
+}
+
+/// The message of a hidden entry below `files/` that stops the build (and of the check's
+/// finding): `build.hidden-file: <path> …`.
+pub(crate) fn hidden_file_message(path: &str) -> String {
+    format!(
+        "{HIDDEN_FILE}: {path} is hidden and below files/, so it would be packed into the ROM; \
+         the build stops at it (fix remove_hidden moves it to .g4/backup)"
+    )
+}
+
+/// The code of the check that names hidden entries below `files/`, also the prefix of the
+/// build's problem for one.
+pub(crate) const HIDDEN_FILE: &str = "build.hidden-file";
+
+/// Hidden entries below `files/` stop the build: one error [`Problem`] per entry (its
+/// project-relative path as the file, no position), so the app lists them in Problems like
+/// a compile error. Nothing is deleted.
+fn reject_hidden_files(project: &Project) -> Result<(), KernelError> {
+    let hidden = hidden_below_files(project)?;
+    if hidden.is_empty() {
+        return Ok(());
+    }
+    Err(KernelError::Compile(
+        hidden
+            .iter()
+            .map(|path| Problem {
+                severity: Severity::Error,
+                file: PathBuf::from(path),
+                line: 0,
+                col: 0,
+                message: hidden_file_message(path),
+            })
+            .collect(),
+    ))
 }
 
 /// Runs [`prepare_for_build`], then [`build_prepared`]: stale scripts are compiled and stale
@@ -292,21 +387,23 @@ fn reject_hidden_files(dir: &Path) -> Result<(), KernelError> {
 /// packed path, then the ROM is built with ds-rom into `out_rom` (unless nothing it reads
 /// changed and it is still there). All member folders are checked before the first archive
 /// is written, so a gap or a stray name leaves the project untouched. Hidden entries below
-/// `files/` are an error (checked first), because ds-rom would pack them into the ROM.
+/// `files/` stop it first ([`KernelError::Compile`], one problem per entry), because ds-rom
+/// would pack them into the ROM.
 pub fn build(project: &Project, out_rom: &Path) -> Result<BuildReport, KernelError> {
     let prepared = prepare_for_build(project, out_rom)?;
     build_prepared(project, out_rom, prepared)
 }
 
-/// The first half of [`build`]: creates the output folder, rejects hidden entries below
-/// `files/` and runs [`prepare`]. It writes sources, members and compile state, so a caller
+/// The first half of [`build`]: stops at hidden entries below `files/` before it writes
+/// anything (`Err(KernelError::Compile)`, a problem `build.hidden-file: …` per entry),
+/// creates the output folder and runs [`prepare`]. It writes sources, members and compile state, so a caller
 /// that shares the project with an editor runs it exclusively; [`build_prepared`] only reads
 /// them.
 pub fn prepare_for_build(project: &Project, out_rom: &Path) -> Result<Prepared, KernelError> {
+    reject_hidden_files(project)?;
     if let Some(parent) = out_rom.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
-    reject_hidden_files(&project.root.join("files"))?;
     prepare(project)
 }
 

@@ -8,7 +8,7 @@ const sentences = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.
 describe("check messages", () => {
   // The Rust test `commands::checks::messages_ts` holds this list against the kernel's catalogue (codes, order, group, severity).
   it("has_a_title_and_a_sentence_with_a_way_out_for_every_code", () => {
-    expect(CHECK_CODES.length).toBe(41);
+    expect(CHECK_CODES.length).toBe(45);
     const args = ["0", "1", "2", "3", "4", "5"];
     for (const code of CHECK_CODES) {
       const m = CHECK_MESSAGES[code]!;
@@ -77,6 +77,29 @@ describe("check messages", () => {
     expect(checkTitle("place.index-out-of-bank", "tuefteln")).toBe("Ort fehlt in der Ortsnamen-Bank");
     expect(findingText(past, "tuefteln")).toBe("Header 0012 zeigt auf Ortsname 140, die Bank hat nur 125 Namen. Wähle im Inspector einen vorhandenen Ort.");
     expect(findingText(past, "bauen")).toBe("Das Gebiet 0012 zeigt auf einen Ort, den es nicht gibt. Wähle im Inspector einen vorhandenen Ort.");
+  });
+
+  it("formats_the_four_build_sentences", () => {
+    const text = (code: string, args: string[] = []) => findingText(finding(code, CHECK_MESSAGES[code]!.severity, { subject: { kind: "project", index: 0 }, args }), "tuefteln");
+    expect(checkTitle("build.hidden-file", "tuefteln")).toBe("Versteckte Datei im ROM-Ordner");
+    expect(text("build.hidden-file", ["files/x/.DS_Store"])).toBe(
+      "Die versteckte Datei files/x/.DS_Store liegt unter files/ und käme beim Bauen in die ROM; der Build bricht daran ab. „Entfernen“ verschiebt sie nach .g4/backup.",
+    );
+    expect(checkTitle("build.member-gap", "tuefteln")).toBe("Lücke im Archivordner");
+    expect(text("build.member-gap", ["maps", "0005"])).toBe(
+      "Im Ordner unpacked/maps passt 0005 nicht in die Reihe 0000, 0001, …; der Build bricht daran ab. Ergänze die fehlende Datei oder entferne die fremde.",
+    );
+    expect(checkTitle("build.unpacked-not-packed", "tuefteln")).toBe("Ordner wird nicht gepackt");
+    expect(text("build.unpacked-not-packed", ["battleObj", "3"])).toBe(
+      "Im Ordner unpacked/battleObj haben sich 3 Dateien geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+    );
+    expect(checkTitle("build.base-missing", "tuefteln")).toBe("Basis-ROM unbekannt");
+    expect(text("build.base-missing")).toBe(
+      "Das Projekt kennt seine Basis-ROM nicht. „Patch erstellen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik zu („Basis-ROM zuordnen…“).",
+    );
+    // Bauen says the same; the four are listed under the project.
+    expect(findingText(finding("build.member-gap", "error", { args: ["maps", "0005"] }), "bauen")).toBe(text("build.member-gap", ["maps", "0005"]));
+    expect(areaOf(finding("build.base-missing", "info", { subject: { kind: "project", index: 0 } }))).toBe("projekt");
   });
 
   it("names_the_asset_that_cannot_be_read", () => {

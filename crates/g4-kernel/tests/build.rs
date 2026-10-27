@@ -267,7 +267,7 @@ fn build_temp_files_stay_out_of_files_dir() {
 }
 
 #[test]
-fn hidden_file_below_files_is_error_before_anything_is_written() {
+fn hidden_file_stops_the_build_as_a_compile_problem() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
     p.ensure_unpacked(AssetKind::Map).unwrap();
@@ -278,14 +278,34 @@ fn hidden_file_below_files_is_error_before_anything_is_written() {
     .unwrap();
     let hidden = s.dir.path().join("files/fielddata/land_data/.DS_Store");
     std::fs::write(&hidden, b"junk").unwrap();
+    std::fs::create_dir_all(s.dir.path().join("files/x/.git")).unwrap();
     let before = std::fs::read(s.dir.path().join(MAP_NARC)).unwrap();
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
-    assert!(
-        matches!(err, KernelError::Build(ref m) if m.contains(".DS_Store") && m.contains("hidden")),
-        "{err}"
+    // One problem per hidden entry, as the check names it, so the app lists it in Problems.
+    let KernelError::Compile(problems) = err else {
+        panic!("{err}");
+    };
+    let files: Vec<String> = problems
+        .iter()
+        .map(|p| p.file.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        files,
+        ["files/fielddata/land_data/.DS_Store", "files/x/.git"],
+        "{problems:?}"
     );
+    for problem in &problems {
+        assert_eq!(problem.severity, Severity::Error);
+        assert!(
+            problem.message.starts_with("build.hidden-file: "),
+            "{}",
+            problem.message
+        );
+    }
     assert!(hidden.exists(), "nothing is deleted");
+    // Nothing was written: no archive, no build state.
     assert_eq!(std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(), before);
+    assert!(!s.dir.path().join(BUILD_DIR).join("state.json").exists());
 }
 
 #[test]

@@ -485,6 +485,43 @@ pub(crate) fn run_watches(
     Ok(reports)
 }
 
+/// How many input files of each watching step changed, were added or were removed since
+/// its baseline (the entry [`run_watches`] keeps), by step id, compared as the runner
+/// compares inputs ([`fingerprint::compare`]). Steps without an entry (or with another salt)
+/// and steps without a change are left out. Writes nothing.
+pub(crate) fn watch_changes(
+    project: &Project,
+    steps: &[&dyn Step],
+) -> Result<Vec<(String, usize)>, KernelError> {
+    let root = &project.root;
+    let state = BuildState::load(root);
+    let now = fingerprint::now_ns();
+    let mut changes = Vec::new();
+    for step in steps {
+        let id = step.id();
+        let salt = step.salt();
+        let Some(entry) = state.steps.get(&id).filter(|e| e.salt == salt) else {
+            continue;
+        };
+        let files = expand(root, &step.inputs(project)?)?;
+        let mut count = files
+            .iter()
+            .filter(|file| !entry.inputs.contains_key(*file))
+            .count();
+        for (file, recorded) in &entry.inputs {
+            let (seen, _) =
+                fingerprint::compare(&root.join(file), Some(recorded), entry.scanned_at_ns, now)?;
+            if seen != Seen::Same {
+                count += 1;
+            }
+        }
+        if count > 0 {
+            changes.push((id, count));
+        }
+    }
+    Ok(changes)
+}
+
 /// A watching step's first entry: its input files fingerprinted with their content hash.
 fn baseline(project: &Project, step: &dyn Step, salt: String) -> Result<StepRecord, KernelError> {
     let root = &project.root;

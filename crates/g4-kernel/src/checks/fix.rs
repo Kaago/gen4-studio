@@ -10,6 +10,7 @@
 //! | `script.message-missing` | `append_message` | empty messages appended up to the missing one, in every readable text archive of the script's headers that lacks it |
 //! | `encounter.min-max` | `swap_min_max` | min and max level of the water slot swapped |
 //! | `event.script-missing` | `create_script` | the empty script `#n` appended to the script file of the event file's first header |
+//! | `build.hidden-file` | `remove_hidden` | the hidden entry moved to `.g4/backup/hidden-<YYYYMMDD-HHMMSS>/<path>` (UTC; `-2`, `-3` … when that folder exists) |
 //!
 //! Both first check the finding again on the current state: its check runs on the finding's
 //! subject alone (the other subjects of that kind are hidden from it, so it reads one file).
@@ -28,10 +29,11 @@ use g4_formats::data::trainer_doc::TrainerDoc;
 use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::Matrix;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
+use super::build::{BuildHiddenFile, hidden_backup, remove_hidden};
 use super::data::EncounterMinMax;
 use super::scripts::{EventScriptMissing, ScriptFacts, ScriptMessageMissing};
 use super::text::{End, TextTooWide, lines};
@@ -59,11 +61,21 @@ pub struct FixChange {
     pub after: String,
 }
 
-/// What a fix would change. `irreversible`: it is written at once and undo cannot take it back
-/// (`create_script`).
+/// A file a fix moves (`remove_hidden`): from `path` to `to`, both project-relative with `/`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixFileChange {
+    pub path: String,
+    pub to: String,
+}
+
+/// What a fix would change: per asset (`changes`) and per file it moves (`files`, empty for
+/// every fix but `remove_hidden`). `irreversible`: it is written at once and undo cannot take
+/// it back (`create_script`, `remove_hidden`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FixPlan {
     pub changes: Vec<FixChange>,
+    #[serde(default)]
+    pub files: Vec<FixFileChange>,
     pub irreversible: bool,
 }
 
@@ -80,19 +92,41 @@ pub struct FixResult {
 /// when `snap` does not have the finding with its fingerprint (any more), [`KernelError::Refused`]
 /// when the finding does not offer `fix` or the message cannot be wrapped.
 pub fn plan_fix(snap: &Snapshot, finding: &IgnoreKey, fix: FixId) -> Result<FixPlan, KernelError> {
-    Ok(FixPlan {
-        changes: edits(snap, finding, fix)?
-            .iter()
-            .map(Edit::change)
-            .collect(),
-        irreversible: fix == FixId::CreateScript,
-    })
+    let mut plan = FixPlan {
+        changes: Vec::new(),
+        files: Vec::new(),
+        irreversible: matches!(fix, FixId::CreateScript | FixId::RemoveHidden),
+    };
+    for edit in edits(snap, finding, fix)? {
+        match edit {
+            Edit::Hidden { path } => {
+                let root = &snap.project().root;
+                let to = hidden_backup(root, &backup_stamp(), &path, false)?;
+                let to = to.strip_prefix(root).unwrap_or(&to);
+                plan.files.push(FixFileChange {
+                    path,
+                    to: to.to_string_lossy().replace('\\', "/"),
+                });
+            }
+            edit => plan.changes.extend(edit.change()),
+        }
+    }
+    Ok(plan)
+}
+
+/// Now as `YYYYMMDD-HHMMSS` (UTC), the stamp of a backup folder.
+fn backup_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    crate::dynamic_headers::stamp(secs)
 }
 
 /// Applies `fix` of `finding` to `store` (of `project`) after checking the finding on the
 /// store's current state as [`plan_fix`] does, then checks its subject again. Every fix but
-/// `create_script` is one changeset "Behoben: <code>" that undo takes back as a whole; on an
-/// error nothing is changed. `create_script` refuses while a text archive has unsaved changes
+/// `create_script` and `remove_hidden` (which moves the file and changes no asset) is one
+/// changeset "Behoben: <code>" that undo takes back as a whole; on an error nothing is
+/// changed. `create_script` refuses while a text archive has unsaved changes
 /// (the compile rewrites text archives, which the store then loads again).
 pub fn apply_fix(
     store: &mut Store,
@@ -103,6 +137,10 @@ pub fn apply_fix(
     let edits = edits(&current(store, project), finding, fix)?;
     let changed = match edits.as_slice() {
         [Edit::Script { file, script }] => create_script(store, project, *file, *script)?,
+        [Edit::Hidden { path }] => {
+            remove_hidden(&project.root, &backup_stamp(), path)?;
+            Vec::new()
+        }
         _ => in_one_step(store, &finding.code, &edits)?,
     };
     // A check that cannot run any more proves nothing: the finding counts as remaining.
@@ -147,6 +185,8 @@ enum Edit {
     },
     /// Script `#script` created in script file `file`.
     Script { file: u16, script: u16 },
+    /// The hidden entry `path` below `files/` (project-relative) moved to the backup.
+    Hidden { path: String },
 }
 
 /// The changes of `fix` for `finding` on `src`, once the finding is current and offers `fix`.
@@ -179,6 +219,8 @@ fn edits(src: &dyn Source, finding: &IgnoreKey, fix: FixId) -> Result<Vec<Edit>,
             script: arg(&current, 2)?,
             file: arg(&current, 3)?,
         }]),
+        // The key is the path the check found below `files/`, not what the caller sent.
+        FixId::RemoveHidden => Ok(vec![Edit::Hidden { path: current.key }]),
     }
 }
 
@@ -187,7 +229,7 @@ type CheckFn = fn(&dyn Source, &Limits, &mut Vec<Finding>) -> Result<(), Skipped
 
 /// The fix `code` offers and its check; `None` for a code without a fix.
 fn fixable(code: &str) -> Option<(FixId, CheckFn)> {
-    let fixable: [(&str, FixId, CheckFn); 4] = [
+    let fixable: [(&str, FixId, CheckFn); 5] = [
         (TextTooWide::CODE, FixId::Wrap, |s, l, o| {
             TextTooWide.check(s, l, o)
         }),
@@ -201,6 +243,9 @@ fn fixable(code: &str) -> Option<(FixId, CheckFn)> {
         }),
         (EventScriptMissing::CODE, FixId::CreateScript, |s, l, o| {
             EventScriptMissing.check(s, l, o)
+        }),
+        (BuildHiddenFile::CODE, FixId::RemoveHidden, |s, l, o| {
+            BuildHiddenFile.check(s, l, o)
         }),
     ];
     fixable
@@ -364,8 +409,9 @@ fn swap_levels(encounters: &mut Encounters, method: Method, slot: usize) {
 }
 
 impl Edit {
-    fn change(&self) -> FixChange {
-        match self {
+    /// The change of the asset the edit changes; `None` for a moved file.
+    fn change(&self) -> Option<FixChange> {
+        Some(match self {
             Edit::Wrap {
                 archive,
                 message,
@@ -424,7 +470,9 @@ impl Edit {
                 before: String::new(),
                 after: scripts::script_stub(*script).trim_end().to_owned(),
             },
-        }
+            // A moved file is no asset: the plan lists it in `files`.
+            Edit::Hidden { .. } => return None,
+        })
     }
 }
 
@@ -484,9 +532,9 @@ fn in_one_step(store: &mut Store, code: &str, edits: &[Edit]) -> Result<Vec<Asse
                     slot,
                     ..
                 } => tx.edit_encounter(*encounter, |e| swap_levels(e, *method, *slot))?,
-                Edit::Script { .. } => {
+                Edit::Script { .. } | Edit::Hidden { .. } => {
                     return Err(KernelError::InvalidProject(
-                        "a created script is no step of the history".into(),
+                        "a created script or a moved file is no step of the history".into(),
                     ));
                 }
             }
@@ -539,6 +587,7 @@ fn name(fix: FixId) -> &'static str {
         FixId::AppendMessage => "append_message",
         FixId::SwapMinMax => "swap_min_max",
         FixId::CreateScript => "create_script",
+        FixId::RemoveHidden => "remove_hidden",
     }
 }
 
@@ -648,6 +697,9 @@ impl Source for Only<'_> {
     }
     fn note_skip(&self, why: String) {
         self.src.note_skip(why);
+    }
+    fn build_facts(&self) -> Arc<super::BuildFacts> {
+        self.src.build_facts()
     }
 }
 
@@ -867,6 +919,7 @@ mod tests {
                     before: "2: Sandgem Town".into(),
                     after: "2: Sandgem Town\n3:\n4:\n5:".into(),
                 }],
+                files: Vec::new(),
                 irreversible: false,
             }
         );
@@ -925,6 +978,7 @@ mod tests {
                     before: String::new(),
                     after: "script script_7 #7:\n\tEnd".into(),
                 }],
+                files: Vec::new(),
                 irreversible: true,
             }
         );

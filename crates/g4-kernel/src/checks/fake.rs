@@ -228,6 +228,9 @@ impl Source for Fake {
     fn location_names(&self) -> Option<Vec<String>> {
         self.places.clone()
     }
+    fn build_facts(&self) -> Arc<super::BuildFacts> {
+        Arc::new(super::BuildFacts::none())
+    }
     fn note_skip(&self, why: String) {
         self.skips.borrow_mut().push(why);
     }

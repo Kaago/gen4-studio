@@ -186,7 +186,7 @@ describe("TechnikArea", () => {
     await click(button("Prüfungen ein- und ausschalten"));
     const list = surface()!.querySelector<HTMLElement>("[role=list][aria-label='Prüfungen ein- und ausschalten']")!;
     const toggle = (code: string) => list.querySelector<HTMLElement>(`[data-check="${code}"] [role=switch]`)!;
-    expect(list.querySelectorAll("[data-check]")).toHaveLength(41);
+    expect(list.querySelectorAll("[data-check]")).toHaveLength(45);
     expect(toggle("encounter.empty-slot").getAttribute("aria-checked")).toBe("true");
     await click(toggle("encounter.empty-slot"));
     expect(checks.setEnabled).toHaveBeenCalledWith("encounter.empty-slot", false);

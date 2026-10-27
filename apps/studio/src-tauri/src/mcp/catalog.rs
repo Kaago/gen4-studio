@@ -171,7 +171,7 @@ fn finding_args() -> Value {
             ),
             "fix": {
                 "type": "string",
-                "enum": ["wrap", "append_message", "swap_min_max", "create_script"],
+                "enum": ["wrap", "append_message", "swap_min_max", "create_script", "remove_hidden"],
                 "description": "the fix, one of the finding's fixes[].id",
             },
         }),

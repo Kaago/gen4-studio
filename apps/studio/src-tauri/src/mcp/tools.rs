@@ -262,12 +262,16 @@ const NOT_IN_BATCH: &[&str] = &[
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
-/// compiles a script file and reloads text archives like `new_script_file`, and
+/// compiles a script file and reloads text archives like `new_script_file`, `apply_fix` with
+/// `remove_hidden`, which moves a file past the store, and
 /// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch.
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
-            && args.get("fix").and_then(Value::as_str) == Some("create_script"))
+            && matches!(
+                args.get("fix").and_then(Value::as_str),
+                Some("create_script" | "remove_hidden")
+            ))
         || (matches!(command, "create_area" | "create_room")
             && args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)))
 }
@@ -1833,10 +1837,12 @@ mod tests {
         let fix = |fix: &str| json!({ "finding": finding, "fix": fix });
         // apply_fix with create_script writes a script file, as the curated tool and through
         // g4_call; the call is refused before anything runs.
+        // So does remove_hidden, which moves a file past the store.
         for call in [
             json!({ "tool": "apply_fix", "arguments": fix("create_script") }),
             json!({ "tool": "g4_call",
                     "arguments": { "command": "apply_fix", "args": fix("create_script") } }),
+            json!({ "tool": "apply_fix", "arguments": fix("remove_hidden") }),
         ] {
             let mut calls = three_edits();
             calls.push(call);

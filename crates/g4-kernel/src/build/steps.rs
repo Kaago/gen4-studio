@@ -300,6 +300,11 @@ fn member_number(path: &Path) -> Option<u16> {
 }
 
 impl PackStep {
+    /// The name of the folder below `unpacked/` the step packs.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
     /// The folder the step packs.
     pub(crate) fn dir(&self, project: &Project) -> PathBuf {
         project.root.join(&self.unpacked)

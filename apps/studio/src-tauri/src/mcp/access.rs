@@ -23,6 +23,9 @@ pub enum Kind {
 const NEW_SCRIPT: Kind = Kind::Irreversible("Script anlegen");
 const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
 
+/// Why the fix `remove_hidden` cannot be undone: it moves the file past the store.
+const REMOVE_HIDDEN: &str = "Versteckte Datei nach .g4/backup verschieben";
+
 /// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
 const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
 
@@ -191,7 +194,7 @@ impl From<Kind> for Class {
 /// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build or
 /// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
-/// a script; `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic
+/// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible); `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic
 /// Headers patch. A name the table does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
@@ -217,6 +220,9 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         }
         "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => {
             NEW_SCRIPT.into()
+        }
+        "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("remove_hidden") => {
+            Kind::Irreversible(REMOVE_HIDDEN).into()
         }
         "create_area" | "create_room"
             if args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)) =>
@@ -529,6 +535,15 @@ mod tests {
                 &policy
             ),
             Class::Irreversible("Script anlegen".to_owned())
+        );
+        // Removing a hidden file moves it past the store.
+        assert_eq!(
+            classify(
+                "apply_fix",
+                &json!({ "finding": finding, "fix": "remove_hidden" }),
+                &policy
+            ),
+            Class::Irreversible("Versteckte Datei nach .g4/backup verschieben".to_owned())
         );
         assert_eq!(
             classify(

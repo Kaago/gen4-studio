@@ -66,6 +66,28 @@ describe("FixDialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("lists_each_file_a_fix_moves_with_where_it_goes", async () => {
+    const hidden = finding("build.hidden-file", "error", {
+      subject: { kind: "project", index: 0 },
+      key: "files/x/.DS_Store",
+      label: "Projekt",
+      args: ["files/x/.DS_Store"],
+      fixes: [{ id: "remove_hidden", label: "Entfernen", irreversible: true }],
+    });
+    vi.mocked(checks.planFix).mockResolvedValue({
+      changes: [],
+      files: [{ path: "files/x/.DS_Store", to: ".g4/backup/hidden-20261027-101500/files/x/.DS_Store" }],
+      irreversible: true,
+    });
+    await show(hidden);
+    expect(checks.planFix).toHaveBeenCalledWith(hidden, "remove_hidden");
+    const files = [...dialog().querySelectorAll("[data-fix-file]")].map((li) => li.textContent);
+    expect(files).toEqual(["files/x/.DS_Store → .g4/backup/hidden-20261027-101500/files/x/.DS_Store"]);
+    expect(dialog().textContent).toContain("Nicht rückgängig");
+    await click(button("Entfernen"));
+    expect(checks.applyFix).toHaveBeenCalledWith(hidden, "remove_hidden");
+  });
+
   it("marks_a_fix_undo_cannot_take_back", async () => {
     vi.mocked(checks.planFix).mockResolvedValue({ changes: [{ asset: { kind: "Script", index: 5 }, label: "Scriptdatei 0005", before: "", after: "script script_7 #7:\n\tEnd" }], irreversible: true });
     await show(missing);
