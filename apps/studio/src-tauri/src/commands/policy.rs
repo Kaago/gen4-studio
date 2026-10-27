@@ -14,7 +14,7 @@ const BUILD_DIR: &str = "build";
 const ROMS_DIR_VAR: &str = "G4_ROMS_DIR";
 
 /// Folder inside `G4_ROMS_DIR` with the copies that may be edited.
-const COPIES_DIR: &str = "_testkopien";
+pub(crate) const COPIES_DIR: &str = "_testkopien";
 
 /// Folder of the shared save games, inside the copies folder.
 const SAVES_DIR: &str = "_saves";
