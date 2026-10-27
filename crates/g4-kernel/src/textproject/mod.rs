@@ -4,13 +4,15 @@
 //!
 //! This module holds the manifest with its schema version ([`manifest`]), the canonical
 //! JSON form every file is written in ([`canon`]) and the migration chain that lifts an
-//! older project to [`SCHEMA_VERSION`] ([`migrate`]).
+//! older project to [`SCHEMA_VERSION`] ([`migrate`]), and the symbolic ids of the data
+//! ([`symbols`]).
 
 use std::path::Path;
 
 pub(crate) mod canon;
 pub mod manifest;
 pub mod migrate;
+pub mod symbols;
 
 /// The manifest at the project root; its presence makes a folder a text project.
 pub const MANIFEST_FILE: &str = "g4-project.json";
