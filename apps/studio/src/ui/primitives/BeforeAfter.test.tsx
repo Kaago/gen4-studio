@@ -62,6 +62,20 @@ describe("BeforeAfter", () => {
     expect(ruleBody(css, ".lines")).toMatch(/overflow:\s*auto/);
   });
 
+  it("wraps_long_lines_on_request_with_a_hanging_indent", () => {
+    act(() => root.render(<BeforeAfter before="a" after="b" />));
+    expect(container.querySelector("[data-wrap]")).toBeNull();
+    act(() => root.render(<BeforeAfter before={"SPIELER: {STRVAR_1, 3, 0, 0} Studio"} after="SPIELER:" wrap />));
+    expect(container.querySelector("[role=group][aria-label='Vorher und Nachher']")?.hasAttribute("data-wrap")).toBe(true);
+    // A long line breaks inside its column (no sideways scrolling); its continuation rows hang in, so it still reads as one line.
+    const css = readCss("./BeforeAfter.module.css", import.meta.url);
+    const line = ruleBody(css, ".wrap .line");
+    expect(line).toMatch(/white-space:\s*pre-wrap;/);
+    expect(line).toMatch(/overflow-wrap:\s*anywhere;/);
+    expect(line).toMatch(/width:\s*auto;/);
+    expect(ruleBody(css, ".wrap .text")).toMatch(/text-indent:\s*calc\(-1 \* var\(--g4-raum-16\)\)/);
+  });
+
   it("keeps_the_signs_in_view_while_a_column_scrolls_sideways", () => {
     const css = readCss("./BeforeAfter.module.css", import.meta.url);
     // The sign column stays at the left edge of its column; the text scrolls under it, so the gutter is opaque, in the line's surface.

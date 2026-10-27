@@ -6,6 +6,11 @@ export type BeforeAfterProps = {
   after: string;
   /** Names the comparison (what changes, "Textarchiv 0433"); default „Vorher und Nachher“. */
   label?: string;
+  /**
+   * Long lines break inside their column instead of scrolling sideways; a wrapped line's continuation rows hang in, so it still reads
+   * as one line. For lines that are long but carry no layout of their own (a message, an event as JSON, a map's model line).
+   */
+  wrap?: boolean;
 };
 
 /** The lines of a text; none for an empty one. */
@@ -65,14 +70,15 @@ function Side({ title, lines, changed, mark }: { title: string; lines: readonly 
 
 /**
  * A text before and after a change in two columns (the preview of a fix). Lines that went are a deletion in „Vorher“, lines that came an
- * insertion in „Nachher“: highlighted in the selection surface and marked with − and +, never by colour alone.
+ * insertion in „Nachher“: highlighted in the selection surface and marked with − and +, never by colour alone. With `wrap` long lines
+ * break inside their column.
  */
-export function BeforeAfter({ before, after, label }: BeforeAfterProps) {
+export function BeforeAfter({ before, after, label, wrap = false }: BeforeAfterProps) {
   const a = useMemo(() => linesOf(before), [before]);
   const b = useMemo(() => linesOf(after), [after]);
   const changed = useMemo(() => changedLines(a, b), [a, b]);
   return (
-    <div role="group" aria-label={label ?? "Vorher und Nachher"} className={styles.frame}>
+    <div role="group" aria-label={label ?? "Vorher und Nachher"} className={wrap ? `${styles.frame} ${styles.wrap}` : styles.frame} data-wrap={wrap ? "" : undefined}>
       <Side title="Vorher" lines={a} changed={changed.before} mark="del" />
       <Side title="Nachher" lines={b} changed={changed.after} mark="ins" />
     </div>

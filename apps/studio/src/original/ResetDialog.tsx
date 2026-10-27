@@ -28,9 +28,10 @@ function fieldLabel(family: HeaderFamily | null, field: string): string {
 }
 
 /**
- * „{label} auf Original zurücksetzen?“: asks the kernel for the plan, shows it before and after per change (a header: one checkbox per
- * differing field, all on), names what else happens (written at once, unsaved changes replaced or lost), and resets on „Zurücksetzen“.
- * A refused plan or reset shows the reason; after a failed reset the dialog stays open and can try again.
+ * „{label} auf Original zurücksetzen?“: asks the kernel for the plan, shows it before and after per change under its label, long lines
+ * wrapped (a header instead: one checkbox per differing field, all on), names what else happens (written at once, unsaved changes
+ * replaced or lost), and resets on „Zurücksetzen“. A refused plan or reset shows the reason; after a failed reset the dialog stays open
+ * and can try again.
  */
 export function ResetDialog({ target, baseLabel, family, scriptDirty = false, dirty = false, onClose, onReset }: ResetDialogProps) {
   const [plan, setPlan] = useState<ResetPlan | null>(null);
@@ -53,6 +54,9 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
   }, [target]);
 
   const label = plan?.label ?? targetLabel(target);
+  // A header shows its differing fields as checkboxes with their German names; its comparison lines (the format's names) would show
+  // them twice.
+  const isHeader = target.kind === "header";
   const header = plan !== null && plan.fields.length > 0;
   const chosen = plan?.fields.filter((f) => !unchecked.has(f.field)).map((f) => f.field) ?? [];
 
@@ -115,13 +119,14 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
             {scriptDirty && <Notice kind="warning">Ungespeicherte Änderungen an dieser Scriptdatei gehen verloren.</Notice>}
             {dirty && <Notice kind="info">Auch ungespeicherte Änderungen werden ersetzt; ⌘Z stellt sie wieder her.</Notice>}
             {plan.writes_files && <Notice kind="info">Wird sofort geschrieben; ⌘Z nimmt es zurück.</Notice>}
-            {plan.changes.map((change, i) => (
-              <div key={`${i}-${change.label}`} className={styles.change}>
-                {/* One change is named by the title; several (a Pokémon's data, learnset, evolution) each by its own. */}
-                {plan.changes.length > 1 && <p className={styles.changeLabel}>{change.label}</p>}
-                <BeforeAfter label={change.label} before={change.before} after={change.after} />
-              </div>
-            ))}
+            {!isHeader &&
+              plan.changes.map((change, i) => (
+                <div key={`${i}-${change.label}`} className={styles.change} data-change="">
+                  {/* Each change named above its comparison („Karte 0003: 1 Zelle der Bewegungsrechte anders“, a Pokémon's three parts). */}
+                  <p className={styles.changeLabel}>{change.label}</p>
+                  <BeforeAfter label={change.label} before={change.before} after={change.after} wrap />
+                </div>
+              ))}
             {header && (
               <ul className={styles.fields}>
                 {plan.fields.map((f) => (

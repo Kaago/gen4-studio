@@ -79,6 +79,19 @@
   text-decoration: none;
 }
 
+/* `wrap`: a long line breaks inside its column (no sideways scrolling); the rows after its first hang in by the indent, so a wrapped line
+   still reads as one. */
+.wrap .line {
+  width: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.wrap .text {
+  padding-left: var(--g4-raum-16);
+  text-indent: calc(-1 * var(--g4-raum-16));
+}
+
 .empty {
   margin: 0;
   padding: var(--g4-raum-8);

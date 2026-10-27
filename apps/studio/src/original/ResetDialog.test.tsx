@@ -88,6 +88,9 @@ describe("ResetDialog", () => {
     const sides = [...(dialog()?.querySelectorAll<HTMLElement>("[role=group][aria-label]") ?? [])].map((g) => g.getAttribute("aria-label"));
     expect(sides.filter((l) => l !== "Vorher" && l !== "Nachher")).toEqual(["Karte 0003", "Eventdatei 0003"]);
     expect(dialog()?.querySelector('[role=group][aria-label="Karte 0003"]')?.textContent).toContain("Gebäude 2");
+    // Long lines (a message, an event as JSON, a map's model line) wrap in the dialog instead of scrolling sideways.
+    const frames = [...(dialog()?.querySelectorAll<HTMLElement>("[data-change] [role=group][data-wrap]") ?? [])];
+    expect(frames.map((f) => f.getAttribute("aria-label"))).toEqual(["Karte 0003", "Eventdatei 0003"]);
     expect(buttons().map((b) => b.textContent)).toEqual(["Abbrechen", "Zurücksetzen"]);
     expect(button("Zurücksetzen")?.dataset.kind).toBe("primary");
     expect(buttons().filter((b) => b.dataset.kind === "primary")).toHaveLength(1);
@@ -109,12 +112,20 @@ describe("ResetDialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("names_every_change_visibly_above_its_comparison", async () => {
+    vi.mocked(planReset).mockResolvedValue(plan({ changes: [{ label: "Karte 0003: 1 Zelle der Bewegungsrechte anders", before: "a", after: "b" }] }));
+    await show();
+    const changes = [...(dialog()?.querySelectorAll<HTMLElement>("[data-change]") ?? [])];
+    expect(changes.map((c) => c.querySelector("p")?.textContent)).toEqual(["Karte 0003: 1 Zelle der Bewegungsrechte anders"]);
+  });
+
   it("header_fields_can_be_unchecked_and_only_checked_ones_are_sent", async () => {
     vi.mocked(planReset).mockResolvedValue(
       plan({
         target: HEADER,
         label: "Header 0012",
-        changes: [],
+        // The kernel's lines with the format's names: the checkboxes show the fields in German, so they are not shown twice.
+        changes: [{ label: "Header 0012", before: "weather_id: 0\nmusic_day_id: 1000", after: "weather_id: 3\nmusic_day_id: 1001" }],
         fields: [
           { field: "weather_id", before: "0", after: "3" },
           { field: "music_day_id", before: "1000", after: "1001" },
@@ -130,6 +141,8 @@ describe("ResetDialog", () => {
     expect(rows.map((r) => r.querySelector("label")?.textContent)).toEqual(["Wetter", "Musik Tag", "unknown_x"]);
     expect(rows.map((r) => r.querySelector("[data-values]")?.textContent)).toEqual(["0 → 3", "1000 → 1001", "1 → 2"]);
     expect(["Wetter", "Musik Tag", "unknown_x"].map((l) => box(l)?.getAttribute("aria-checked"))).toEqual(["true", "true", "true"]);
+    expect(dialog()?.querySelector("[data-change]")).toBeNull();
+    expect(dialog()?.textContent).not.toContain("weather_id: 0");
 
     await act(async () => box("Wetter")!.click());
     await act(async () => box("unknown_x")!.click());
