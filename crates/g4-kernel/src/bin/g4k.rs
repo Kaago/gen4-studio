@@ -1101,22 +1101,17 @@ fn patch_create(
 ) -> Result<(), Failure> {
     use g4_kernel::start::MarkState;
 
+    // The same sentences as the app and MCP; the no-mark one adds how to assign here.
     let mark = match g4_kernel::start::mark_state(root) {
         MarkState::Present(mark) => mark,
         MarkState::Missing => {
-            return Err(Failure::Message(
-                "no base mark: run g4k base assign first".into(),
-            ));
-        }
-        MarkState::Unreadable(why) => {
             return Err(Failure::Message(format!(
-                "base mark .g4/base.json unreadable: {why}"
+                "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
+                g4_kernel::patch::NO_MARK
             )));
         }
-        MarkState::Newer(v) => {
-            return Err(Failure::Message(format!(
-                "base mark .g4/base.json is from a newer Gen4 Studio (version {v})"
-            )));
+        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
+            return Err(Failure::Message(state.refusal().unwrap_or_default()));
         }
     };
     let project = Project::open(root)?;

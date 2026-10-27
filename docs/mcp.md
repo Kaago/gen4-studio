@@ -207,7 +207,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `base_status` | lesend | die Basis-ROM des Projekts (`state`): `unassigned` mit dem Vorschlag (`suggestion`, die `.nds` neben `<Name>_DSPRE_contents`), `found` mit Marke, Name, Pfad und dem Namen des Patches (`patch_name`, `<Projekt>-<Spielcode>`), `missing` oder `unreadable` mit dem Grund (`reason`); sucht die ROM und hasht sie dabei wenn nötig |
 | `check_base` | lesend | prüft eine `.nds` (`nds`) als Basis-ROM, ohne etwas zu schreiben: ein anderes Spiel lehnt ab (`refused`), Titel, Version, ein unbekannter Dump, ARM7 und Banner warnen (`warnings`) |
 | `assign_base` | unumkehrbar | ordnet eine `.nds` (`nds`) als Basis-ROM zu, schreibt `.g4/base.json` und antwortet wie `base_status`; dieselben Ablehnungen wie `check_base`, dazu eine unlesbare oder neuere Marke |
-| `create_patch` | unumkehrbar | speichert, baut nach `build/<Name>.nds` und schreibt den selbstgeprüften xdelta-Patch `build/<Name>.xdelta` gegen die Basis-ROM samt Begleitdatei; ohne gefundene Basis-ROM `base_missing` mit dem Grund, gebaut wird dann nichts |
+| `create_patch` | unumkehrbar | speichert, baut nach `build/<Name>.nds` und schreibt den selbstgeprüften xdelta-Patch `build/<Name>.xdelta` gegen die Basis-ROM samt Begleitdatei; ohne gefundene Basis-ROM `base_missing` mit dem Grund, gebaut wird dann nichts; scheitert die Selbstprüfung, `error` mit „Selbstprüfung fehlgeschlagen: …“ ohne Vorsatz, und ein alter Patch bleibt |
 | `g4_call` | nur mit `--expert` | führt einen Editor-Befehl beim Namen aus (siehe „Expertenmodus“) |
 | `g4_commands` | nur mit `--expert` | listet die Befehle, die `g4_call` ausführen kann, mit ihrer Art |
 

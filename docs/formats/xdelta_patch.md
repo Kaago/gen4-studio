@@ -79,9 +79,10 @@ SHA-1 der gebauten ROM `build/<Name>.nds`.
 2. kodiert den Patch im Speicher (`encode_ms`);
 3. dekodiert ihn wieder auf der Basis-ROM und vergleicht die SHA-1 des Ergebnisses mit der der
    gebauten ROM (`verify_ms`). Ergibt der Patch etwas anderes oder lässt er sich nicht dekodieren,
-   ist das Ergebnis `KernelError::Build` mit „Selbstprüfung fehlgeschlagen: der Patch ergibt auf der
-   Basis-ROM nicht die gebaute ROM; nichts geschrieben.“ (`SELF_CHECK_FAILED`), und es wird nichts
-   geschrieben: ein alter Patch und seine Begleitdatei bleiben Byte für Byte;
+   ist das Ergebnis `KernelError::Refused` mit „Selbstprüfung fehlgeschlagen: der Patch ergibt auf
+   der Basis-ROM nicht die gebaute ROM; nichts geschrieben.“ (`SELF_CHECK_FAILED`, ohne Vorsatz so
+   in App, MCP und `g4k` angezeigt; ebenso „Patch nicht erstellt: …“, wenn das Kodieren scheitert),
+   und es wird nichts geschrieben: ein alter Patch und seine Begleitdatei bleiben Byte für Byte;
 4. schreibt Patch und Begleitdatei je in eine Temp-Datei `.<Datei>.tmp` im Zielordner (mit `fsync`)
    und benennt dann erst den Patch, danach die Begleitdatei um. Scheitert ein Schritt, werden die
    Temp-Dateien entfernt; nur wenn das zweite Umbenennen scheitert, liegt ein neuer Patch neben der

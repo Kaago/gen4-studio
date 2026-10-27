@@ -454,7 +454,7 @@ target/debug/g4k base assign <projekt> <rom.nds>        # schreibt .g4/base.json
 target/debug/g4k patch create <projekt> [--base-rom <rom.nds>] [--out <patch>] [--json]
 ```
 
-`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. `base assign` und `patch create` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
+`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. Ohne Marke endet es mit Exit 1 und „Diesem Projekt ist keine Basis-ROM zugeordnet. Ordne sie mit `g4k base assign <Projekt> <nds>` zu.“; eine unlesbare oder neuere Marke lehnt es mit denselben Sätzen ab wie App und MCP. `base assign` und `patch create` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
 
 Die gated Tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Original, gefunden über `suggest_base` und nur gelesen; was schreibt, arbeitet auf `vanilla_copy()`):
 

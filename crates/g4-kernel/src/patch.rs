@@ -53,8 +53,8 @@ pub struct PatchReport {
 /// The self-check decoded something other than the built ROM; nothing was written.
 pub const SELF_CHECK_FAILED: &str = "Selbstprüfung fehlgeschlagen: der Patch ergibt auf der Basis-ROM nicht die gebaute ROM; nichts geschrieben.";
 
-/// `build_and_create` on a project without a base mark; the same sentence as the app.
-const NO_MARK: &str = "Diesem Projekt ist keine Basis-ROM zugeordnet.";
+/// A project without a base mark: the refusal of `build_and_create`, the app, MCP and `g4k`.
+pub const NO_MARK: &str = "Diesem Projekt ist keine Basis-ROM zugeordnet.";
 
 /// `<Projekt>-<Spielcode>`: the folder name without `_DSPRE_contents`, cleaned to a file name
 /// (see [`clean`]), `Projekt` if nothing is left, and the project's game code.
@@ -154,7 +154,8 @@ pub fn notes(meta: &PatchMeta, base_sha1: &str, target_sha1: &str) -> String {
 
 /// Writes a patch from `base` to the ROM at `built_rom` to `out` and its notes next to it.
 /// The patch is decoded again before anything is written; if that does not give the built
-/// ROM (by SHA-1), the result is `Build(SELF_CHECK_FAILED)` and an old patch stays as it was.
+/// ROM (by SHA-1), the result is `Refused(SELF_CHECK_FAILED)` (shown as it is, without a
+/// prefix) and an old patch stays as it was.
 pub fn create_patch(
     base: &BaseRom,
     built_rom: &Path,
@@ -163,7 +164,7 @@ pub fn create_patch(
 ) -> Result<PatchReport, KernelError> {
     create_patch_with(base, built_rom, out, meta, &|source, patch| {
         g4_xdelta::decode(source, patch)
-            .map_err(|_| KernelError::Build(SELF_CHECK_FAILED.to_owned()))
+            .map_err(|_| KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
     })
 }
 
@@ -184,14 +185,14 @@ pub(crate) fn create_patch_with(
 
     let started = Instant::now();
     let patch = g4_xdelta::encode(base.bytes(), &target, header.as_bytes())
-        .map_err(|e| KernelError::Build(format!("Patch nicht erstellt: {e}")))?;
+        .map_err(|e| KernelError::Refused(format!("Patch nicht erstellt: {e}")))?;
     let encode_ms = elapsed_ms(started);
     drop(target);
 
     let started = Instant::now();
     let decoded = verify(base.bytes(), &patch)?;
     if sha1_hex(&decoded) != target_sha1 {
-        return Err(KernelError::Build(SELF_CHECK_FAILED.to_owned()));
+        return Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()));
     }
     let verify_ms = elapsed_ms(started);
     drop(decoded);
@@ -536,18 +537,20 @@ mod tests {
         };
         let err = create_patch_with(&f.base, &f.built, &out, &test_meta(), &wrong).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Build(m) if m == SELF_CHECK_FAILED),
+            matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
         );
+        assert_eq!(err.to_string(), SELF_CHECK_FAILED);
         // A verify that cannot decode at all fails the same way.
         let broken = |_: &[u8], _: &[u8]| -> Result<Vec<u8>, KernelError> {
-            Err(KernelError::Build(SELF_CHECK_FAILED.to_owned()))
+            Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
         };
         let err = create_patch_with(&f.base, &f.built, &out, &test_meta(), &broken).unwrap_err();
         assert!(
-            matches!(&err, KernelError::Build(m) if m == SELF_CHECK_FAILED),
+            matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
         );
+        assert_eq!(err.to_string(), SELF_CHECK_FAILED);
 
         assert_eq!(std::fs::read(&out).unwrap(), old_patch);
         assert_eq!(std::fs::read(notes_path(&out)).unwrap(), old_notes);

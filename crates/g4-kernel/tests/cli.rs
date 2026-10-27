@@ -774,8 +774,31 @@ fn cli_patch_create_without_a_mark_fails() {
         .env_remove("G4_BASE_ROM_DIR")
         .assert()
         .code(1)
-        .stderr(contains("no base mark: run g4k base assign first"));
+        .stderr(contains(format!(
+            "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
+            g4_kernel::patch::NO_MARK
+        )));
     assert!(!root.join("build").exists());
+}
+
+#[test]
+fn cli_patch_create_refuses_a_broken_or_newer_mark_in_the_app_words() {
+    let (_tmp, root, _nds) = dspre_layout();
+    std::fs::create_dir_all(root.join(".g4")).unwrap();
+    for mark in ["{ broken", r#"{"version": 3}"#] {
+        std::fs::write(root.join(".g4/base.json"), mark).unwrap();
+        let refusal = g4_kernel::start::mark_state(&root)
+            .refusal()
+            .expect("a refusal");
+        g4k()
+            .args(["patch", "create"])
+            .arg(&root)
+            .env_remove("G4_BASE_ROM_DIR")
+            .assert()
+            .code(1)
+            .stderr(contains(refusal));
+        assert!(!root.join("build").exists());
+    }
 }
 
 #[test]

@@ -929,7 +929,9 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "base_status",
         title: "Base ROM status",
-        description: "Reports the base ROM (Basis-ROM) of the project, which the patch needs:                       unassigned with the suggested .nds next to a DSPRE folder, found with its                       path, missing or unreadable with the reason.",
+        description: "Reports the base ROM (Basis-ROM) of the project, which the patch needs: \
+                      unassigned with the suggested .nds next to a DSPRE folder, found with its \
+                      path, missing or unreadable with the reason.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("base_status"),
@@ -937,7 +939,9 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "check_base",
         title: "Check base ROM",
-        description: "Checks a .nds as the base ROM (Basis-ROM) of the project and writes                       nothing: another game is refused, another title or version and an                       unknown dump only warn.",
+        description: "Checks a .nds as the base ROM (Basis-ROM) of the project and writes \
+                      nothing: another game is refused, another title or version and an \
+                      unknown dump only warn.",
         input_schema: base_nds_args,
         output_schema: answers_object,
         route: command("check_base"),
@@ -945,7 +949,10 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "assign_base",
         title: "Assign base ROM",
-        description: "Assigns a .nds as the base ROM (Basis-ROM) of the project, writes                       .g4/base.json and answers the base ROM status; this cannot be undone.                       Headless (studio mcp) it needs --allow-irreversible, without it the call                       answers needs_confirmation.",
+        description: "Assigns a .nds as the base ROM (Basis-ROM) of the project, writes \
+                      .g4/base.json and answers the base ROM status; this cannot be undone. \
+                      Headless (studio mcp) it needs --allow-irreversible, without it the call \
+                      answers needs_confirmation.",
         input_schema: base_nds_args,
         output_schema: answers_object,
         route: command("assign_base"),
@@ -953,7 +960,10 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_patch",
         title: "Create patch",
-        description: "Builds the ROM to build/<name>.nds and writes an xdelta patch against the                       base ROM to build/<name>.xdelta with its notes, checked before it is                       written; this cannot be undone. Headless (studio mcp) it needs                       --allow-irreversible, without it the call answers needs_confirmation.",
+        description: "Builds the ROM to build/<name>.nds and writes an xdelta patch against the \
+                      base ROM to build/<name>.xdelta with its notes, checked before it is \
+                      written; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("create_patch"),
@@ -1052,6 +1062,19 @@ mod tests {
             assert!(
                 description.contains(&format!("({word}")),
                 "{name}: {description}"
+            );
+        }
+    }
+
+    #[test]
+    fn descriptions_have_no_runs_of_spaces() {
+        // A lost `\` line continuation leaves the indentation in the text.
+        for tool in catalog() {
+            assert!(
+                !tool.description.contains("  "),
+                "{}: {:?}",
+                tool.name,
+                tool.description
             );
         }
     }

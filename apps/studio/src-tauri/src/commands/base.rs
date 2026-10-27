@@ -16,8 +16,8 @@ use crate::errors::CmdError;
 use crate::mcp::settings::ProjectKey;
 use crate::state::AppState;
 
-/// Why there is no patch for a project without a base mark; the same sentence as the kernel.
-pub const NO_MARK: &str = "Diesem Projekt ist keine Basis-ROM zugeordnet.";
+/// Why there is no patch for a project without a base mark; the kernel's sentence.
+pub const NO_MARK: &str = g4_kernel::patch::NO_MARK;
 
 /// The base ROM of the open project, as Technik › Veröffentlichen shows it.
 #[derive(Debug, Serialize)]
