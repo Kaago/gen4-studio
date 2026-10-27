@@ -237,7 +237,15 @@ aufgezeichnet.
   Dekompiliert rotom den Member nicht, werden der Member allein geschrieben, beide Quellen und der
   Eintrag entfernt. Ohne `rotom.toml` nur der Member. ⌘Z stellt Quellen, Member und den alten
   Eintrag wieder her; fasst ein Batch mehrere Schritte zusammen, gilt der Eintrag vor dem ersten
-  und nach dem letzten.
+  und nach dem letzten. Der Dateischritt trägt nur den Eintrag der geschriebenen Quelle: wechselt
+  die Art (Script ↔ Level-Script), steht der Eintrag der entfernten Quelle nicht im Schritt. Der
+  Schritt lässt ihn stehen, bis rotoms nächste Kompilierung ihn verwirft (`retain_only` behält nur
+  Einträge vorhandener Quellen); ⌘Z stellt die entfernte Quelle wieder her, ihren Eintrag nicht.
+  Fehlt er dann, kompiliert der nächste Build diese Quelle neu.
+- **Gleich wie die Basis** ist eine Scriptdatei auch, wenn ihre Quelle anders geschrieben ist,
+  der Member aber dem Basis-Member gleicht und der Eintrag der Quelle in `compile-state.json` frisch
+  ist (nicht `Dirty`, `source_hash` = xxh3 der Quelle, `output_hash` = xxh3 des Members): dann
+  plant `plan_reset` `same`, und `reset` schreibt nichts und zeichnet nichts auf.
 
 ### Header Feld für Feld
 

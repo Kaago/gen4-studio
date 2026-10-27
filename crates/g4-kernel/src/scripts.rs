@@ -1275,16 +1275,64 @@ fn current_member(project: &Project, file: u16) -> Result<Option<Vec<u8>>, Kerne
         .nth(usize::from(file)))
 }
 
+/// Whether the compile state entry of `source` (relative to the project root) is fresh for
+/// `text` and `member`: not dirty, its source hash that of `text`, its output hash that of
+/// `member` (rotom's fast path to skip a file, without the dependencies).
+fn entry_is_fresh(
+    project: &Project,
+    source: &Path,
+    text: &[u8],
+    member: &[u8],
+) -> Result<bool, KernelError> {
+    let Some(entry) = state_entry(project, source)? else {
+        return Ok(false);
+    };
+    // rotom v0.7.0: src/compile_state.rs FileState; src/project/compile.rs compile_project
+    // (fast path: status not Dirty, source_hash and output_hash equal)
+    let entry: rotom::compile_state::FileState =
+        serde_json::from_value(entry).map_err(|e| rotom_error("compile state", e))?;
+    Ok(entry.status != rotom::compile_state::FileStatus::Dirty
+        && entry.source_hash == xxh3_64(text)
+        && entry.output_hash == xxh3_64(member))
+}
+
 /// The step [`reset_script`] writes, without writing it: the sources (`NNNN.rotom`,
 /// `NNNN.json`) and the member with their bytes now and after the reset, and the compile state
 /// entry of the source (the one written, else the one removed). Without `rotom.toml` only the
-/// member.
+/// member. A member equal to `base_member` whose source has a fresh compile state entry
+/// ([`entry_is_fresh`]: written otherwise, compiled to the same bytes) is the same as the
+/// base: the step then leaves every file as it is and touches no entry.
 pub(crate) fn script_step(
     project: &Project,
     file: u16,
     base_member: &[u8],
 ) -> Result<crate::store::FileStep, KernelError> {
     use crate::store::{FileChange, FileStep, RotomEntryChange};
+
+    let asset = crate::project::AssetId {
+        kind: AssetKind::Script,
+        index: file,
+    };
+    let member_now = current_member(project, file)?;
+    if is_adopted(project) && member_now.as_deref() == Some(base_member) {
+        for kind in [SourceKind::Script, SourceKind::LevelScript] {
+            let source = source_path(project, file, kind);
+            let Some(text) = read_if_present(&source)? else {
+                continue;
+            };
+            if entry_is_fresh(project, &state_key(project, &source), &text, base_member)? {
+                return Ok(FileStep {
+                    asset,
+                    files: vec![FileChange {
+                        path: member_file(project, file),
+                        before: member_now.clone(),
+                        after: member_now,
+                    }],
+                    rotom_entry: None,
+                });
+            }
+        }
+    }
 
     let mut files = Vec::new();
     let mut rotom_entry = None;
@@ -1340,14 +1388,11 @@ pub(crate) fn script_step(
     }
     files.push(FileChange {
         path: member_file(project, file),
-        before: current_member(project, file)?,
+        before: member_now,
         after: Some(base_member.to_vec()),
     });
     Ok(FileStep {
-        asset: crate::project::AssetId {
-            kind: AssetKind::Script,
-            index: file,
-        },
+        asset,
         files,
         rotom_entry,
     })

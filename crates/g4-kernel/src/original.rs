@@ -1631,6 +1631,38 @@ mod tests {
     }
 
     #[test]
+    fn a_script_written_otherwise_that_compiles_to_the_base_is_the_same() {
+        let mut f = fixture();
+        let project = f.store.project();
+        crate::scripts::adopt(project, &mut |_| {}).unwrap();
+        let source_path =
+            crate::scripts::source_path(project, 0, crate::scripts::SourceKind::Script);
+        // Written otherwise (two blank lines more), compiled: the member stays the base's and
+        // the compile state entry is fresh for this source.
+        let otherwise = format!("{}\n\n", std::fs::read_to_string(&source_path).unwrap());
+        std::fs::write(&source_path, &otherwise).unwrap();
+        crate::scripts::compile(project).unwrap();
+        let base = f.original.member(AssetKind::Script, 0).unwrap().unwrap();
+        assert_eq!(member_file(&f.store, AssetKind::Script, 0), base);
+        let target = ResetTarget::Script { file: 0 };
+
+        let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
+        assert!(plan.same, "{:?}", plan.changes);
+        assert!(plan.changes.is_empty());
+        assert!(
+            !reset(&mut f.store, &f.original, &target, None)
+                .unwrap()
+                .recorded
+        );
+        assert_eq!(std::fs::read_to_string(&source_path).unwrap(), otherwise);
+        assert_eq!(f.store.undo_depth(), 0);
+
+        // Written again and not compiled: the entry is stale, the source counts.
+        std::fs::write(&source_path, format!("{otherwise}\n")).unwrap();
+        assert!(!plan_reset(&mut f.store, &f.original, &target).unwrap().same);
+    }
+
+    #[test]
     fn a_binary_script_plans_its_size() {
         let mut f = fixture();
         // Not adopted: no source, the member alone.
