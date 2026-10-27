@@ -275,11 +275,12 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 /// is, a blob whose path is, the header table when any header file is, the quirks when the
 /// quirks file is. The checks of the JSON numbering (gaps, members without JSON) look at the
 /// files on disk and always run. An entity outside `only` keeps its members as they are on
-/// disk, and an appended entity in `only` must follow the last member on disk (or one
-/// appended in the same plan). A requested binary member is checked like in a full plan: no
-/// file and no base member is an error (`textproject.member-without-json` when the member
-/// exists, else `textproject.schema`), and so is one that would leave a gap after the last
-/// member on disk; the scan for files and members beyond the requested ones is skipped.
+/// disk. An appended member, of an entity or of a binary kind, must follow the last member on
+/// disk or one this plan appends before it (in index order); otherwise it is an error
+/// (`textproject.schema`, "nur als NNNN möglich"). A requested binary member with neither a
+/// file nor a base member is an error too (`textproject.member-without-json` when the member
+/// exists on disk, else `textproject.schema`); the scan for files and members beyond the
+/// requested ones is skipped.
 pub(crate) fn plan_import(
     project: &Project,
     base: &dyn BasePart,
@@ -860,9 +861,10 @@ fn plan_binary(
     };
     let mut stop = false;
     if let Some(indices) = indices {
-        // The requested members alone, judged against the members on disk: one that is
-        // neither a file nor in the base, or that would leave a gap after the last member, is
-        // an error as in a full plan.
+        // The requested members alone (in index order), judged against the members on disk
+        // and those this plan appends: one that is neither a file nor in the base, or that
+        // would leave a gap after them, is an error as in a full plan.
+        let mut next = current.len();
         for i in indices {
             if files.contains(&i) {
                 stats.side_files += 1;
@@ -870,19 +872,18 @@ fn plan_binary(
             match want_of(i, plan, &mut stop) {
                 _ if stop => return Ok(()),
                 Err(()) => {}
-                Ok(Some(_)) if i > current.len() => plan.problems.push(problem(
+                Ok(Some(_)) if i > next => plan.problems.push(problem(
                     &file_of(i),
                     SCHEMA_CODE,
                     format!(
-                        "{ROOT}: {} hat {} Member, ein neues ist nur als {:04} möglich.",
+                        "{ROOT}: {} hat {next} Member, ein neues ist nur als {next:04} möglich.",
                         project.archives.unpacked_name(kind),
-                        current.len(),
-                        current.len()
                     ),
                 )),
                 Ok(Some(want)) => {
                     stats.entities += 1;
                     push(i, want, plan);
+                    next = next.max(i + 1);
                 }
                 Ok(None) if current.get(i).is_some_and(Option::is_some) => {
                     plan.problems.push(problem(
@@ -1322,6 +1323,41 @@ mod tests {
         assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
         assert!(only.problems[0].message.contains("nur als 0001 möglich"));
         std::fs::remove_file(p.root.join("data/map_textures/0003.nsbtx")).unwrap();
+        // Requested together, 0001 and 0002 append one after the other, as in a full plan.
+        write_to(&p, "data/map_textures/0001.nsbtx", b"BTX0 one");
+        write_to(&p, "data/map_textures/0002.nsbtx", b"BTX0 two");
+        let both = Some(
+            &[
+                "data/map_textures/0001.nsbtx",
+                "data/map_textures/0002.nsbtx",
+            ][..],
+        );
+        let (only, _) = plan(&p, both);
+        assert!(only.problems.is_empty(), "{:?}", only.problems);
+        assert_eq!(
+            only.paths(),
+            paths(&["unpacked/mapTextures/0001", "unpacked/mapTextures/0002"])
+        );
+        let (full, _) = plan(&p, None);
+        assert!(!full.has_errors(), "{:?}", full.problems);
+        for rel in [
+            "data/map_textures/0001.nsbtx",
+            "data/map_textures/0002.nsbtx",
+        ] {
+            std::fs::remove_file(p.root.join(rel)).unwrap();
+        }
+        // A member on disk that has neither a file nor a base member.
+        write_to(&p, "unpacked/mapTextures/0001", b"BTX0 new");
+        let (only, _) = plan(&p, Some(&["data/map_textures/0001.nsbtx"]));
+        assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
+        assert!(
+            only.problems[0]
+                .message
+                .starts_with("textproject.member-without-json: "),
+            "{}",
+            only.problems[0].message
+        );
+        std::fs::remove_file(p.root.join("unpacked/mapTextures/0001")).unwrap();
         let (only, _) = plan(&p, Some(&["data/map_textures/0005.nsbtx"]));
         assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
         assert_eq!(
