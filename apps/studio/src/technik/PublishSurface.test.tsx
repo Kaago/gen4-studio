@@ -148,6 +148,31 @@ describe("PublishSurface", () => {
     expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(false);
   });
 
+  it("the_check_dialog_keeps_its_content_while_it_assigns", async () => {
+    let finish: (status: BaseStatus) => void = () => {};
+    vi.mocked(assignBase).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    vi.mocked(checkBase).mockResolvedValue(check({ warnings: [{ kind: "unknown_dump", message: "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei." }] }));
+    await show();
+    await click(button("Zuordnen…", baseCard()!));
+    await click(button("Zuordnen", dialog()!));
+    expect(assignBase).toHaveBeenCalledWith(SIBLING);
+    // The assignment runs: the dialog still says what it assigns, and nothing in it starts a second one.
+    const asked = dialog()!;
+    expect(asked.hasAttribute("data-closed")).toBe(false);
+    expect(dialogTitle()).toBe("Basis-ROM zuordnen?");
+    expect(asked.textContent).toContain(`POKEMON PL · CPUD · SHA-1 ${SHA1.slice(0, 8)}`);
+    expect(asked.textContent).toContain("Bekannte Basis-ROM: Platin DE (Testprojekt)");
+    expect(asked.querySelector("[role=status]")?.textContent).toBe("Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.");
+    expect(asked.textContent).toContain("Schreibt die Basismarke .g4/base.json ins Projekt.");
+    expect(button("Zuordnen", asked)?.disabled).toBe(true);
+    expect(button("Abbrechen", asked)?.disabled).toBe(true);
+
+    await act(async () => finish(found({ path: SIBLING, source: "sibling" })));
+    await act(async () => {});
+    expect(dialog()).toBeNull();
+    expect(baseCard()?.textContent).toContain("Basis-ROM zugeordnet: Platin DE (Testprojekt).");
+  });
+
   it("a_wrong_game_shows_the_reason_and_only_schliessen", async () => {
     const refused = "Falsches Spiel: die ROM ist IPKD, das Projekt CPUD.";
     vi.mocked(checkBase).mockResolvedValue(check({ info: { ...check().info, game_code: "IPKD", known_base: null }, refused }));

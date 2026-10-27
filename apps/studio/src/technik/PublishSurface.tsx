@@ -99,9 +99,10 @@ function Publish({ base, building }: { base: BaseApi; building: boolean }) {
     const nds = await openPath(PICK);
     if (nds !== null) await ask(nds);
   };
+  // The dialog stays open with what it assigns until the assignment is through, then closes.
   const assign = async (nds: string) => {
-    setAsking(null);
     await base.assign(nds);
+    setAsking(null);
     setAssigned(true);
   };
   const search = async () => {
@@ -219,7 +220,7 @@ function Publish({ base, building }: { base: BaseApi; building: boolean }) {
         {patchError !== null && <Notice kind="error">{patchError}</Notice>}
       </section>
 
-      <AssignDialog asking={asking} onClose={() => setAsking(null)} onAssign={(nds) => void assign(nds)} />
+      <AssignDialog asking={asking} assigning={busy === "assign"} onClose={() => setAsking(null)} onAssign={(nds) => void assign(nds)} />
       <Dialog
         open={askingPatch}
         onOpenChange={setAskingPatch}
@@ -234,22 +235,35 @@ function Publish({ base, building }: { base: BaseApi; building: boolean }) {
   );
 }
 
-/** „Basis-ROM zuordnen?“ with what the check found: the warnings, or the refusal (then only „Schließen“). */
-function AssignDialog({ asking, onClose, onAssign }: { asking: Asking | null; onClose: () => void; onAssign: (nds: string) => void }) {
+/**
+ * „Basis-ROM zuordnen?“ with what the check found: the warnings, or the refusal (then only „Schließen“). While `assigning`
+ * it keeps its content, its buttons are disabled and it does not close.
+ */
+function AssignDialog({
+  asking,
+  assigning,
+  onClose,
+  onAssign,
+}: {
+  asking: Asking | null;
+  assigning: boolean;
+  onClose: () => void;
+  onAssign: (nds: string) => void;
+}) {
   const info = asking?.check.info;
   const refused = asking?.check.refused ?? null;
   return (
     <Dialog
       open={asking !== null}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(open) => !open && !assigning && onClose()}
       title="Basis-ROM zuordnen?"
       description={info ? `${info.title} · ${info.game_code} · SHA-1 ${info.sha1.slice(0, 8)}` : undefined}
       actions={
         refused !== null
           ? [{ label: "Schließen", onClick: onClose }]
           : [
-              { label: "Abbrechen", onClick: onClose },
-              { label: "Zuordnen", kind: "primary", onClick: () => asking && onAssign(asking.nds) },
+              { label: "Abbrechen", onClick: onClose, disabled: assigning },
+              { label: "Zuordnen", kind: "primary", onClick: () => asking && onAssign(asking.nds), disabled: assigning },
             ]
       }
     >
