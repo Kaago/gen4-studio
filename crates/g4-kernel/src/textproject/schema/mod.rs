@@ -5,7 +5,8 @@
 //!
 //! Every import error has the form `<code>: <path>: <sentence>`: `path` is the JSON path
 //! inside the entity's file (`data.power`, `personal.type1`, `learnset.moves[3].move`,
-//! `personal.raw.hex`, `data.party[2].species`, `maps[1]`, `warp_events[0].dest_header_id`),
+//! `personal.raw.hex`, `data.party[2].species`, `maps[1]`, `warp_events[0].dest_header_id`,
+//! `permissions[4]`, `buildings[1].dummy`, `model.file`, `location_name`),
 //! [`ROOT`] for the entity's object itself, and for a missing key the path of the object that
 //! lacks it. The caller finds line and column from the path.
 //!
@@ -28,6 +29,8 @@ use super::registry::Symbols;
 use super::symbols::{SymbolKind, fallback_id};
 
 pub(crate) mod data;
+pub(crate) mod header;
+pub(crate) mod map;
 #[cfg(test)]
 mod testkit;
 pub(crate) mod trainer;
@@ -54,6 +57,9 @@ pub(crate) const ID_MISMATCH_CODE: &str = "textproject.id-mismatch";
 pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     /// The folder under `data/`.
     const ART: &'static str;
+    /// Whether a member of the kind can be locked; false only where every member decodes and
+    /// writes back byte for byte (headers), and then [`EntitySchema::locked_samples`] is empty.
+    const LOCKABLE: bool = true;
     /// The entity `index` from its members (`None`: the archive has no such member).
     fn export(
         index: u32,
@@ -72,7 +78,12 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     }
     /// For the snapshot: the samples with every option left out, under the labels of
     /// [`EntitySchema::samples`]; a key the full sample has and one of these lacks (where it
-    /// has the object around it) is optional. Several per label when options nest.
+    /// has the object around it) is optional. Several per label when options nest, at least
+    /// one per label (the snapshot test checks that).
+    ///
+    /// A new option (a key the export can leave out) must be set in the full sample and left
+    /// out here, or the snapshot shows it as required and a later change of its
+    /// optionality slips past the schema version.
     fn minimal_samples() -> Vec<(String, Self)>;
     /// For the snapshot: the samples with every member that can be locked locked, under the
     /// labels of [`EntitySchema::samples`].
@@ -179,14 +190,29 @@ pub(crate) fn raw_part(
     bytes: &[u8],
     ctx: &mut ExportCtx<'_>,
 ) -> Result<Part, KernelError> {
-    let base = if use_base && bytes.len() > HEX_MAX {
+    let ext = format!("{}.bin", key.part);
+    if use_base {
+        return entity_part(key, &ext, bytes, ctx);
+    }
+    let stem = format!("{:04}", key.index);
+    Ok(part_out(bytes, None, &stem, &ext, &mut ctx.side))
+}
+
+/// `bytes` of part `key` as a [`Part`] compared with the base layer's part `key` (asked only
+/// when the bytes are too long for hex); a side file is named `NNNN.<ext>`.
+pub(crate) fn entity_part(
+    key: PartKey,
+    ext: &str,
+    bytes: &[u8],
+    ctx: &mut ExportCtx<'_>,
+) -> Result<Part, KernelError> {
+    let base = if bytes.len() > HEX_MAX {
         ctx.base.base_bytes(key)?
     } else {
         None
     };
     let stem = format!("{:04}", key.index);
-    let ext = format!("{}.bin", key.part);
-    Ok(part_out(bytes, base.as_deref(), &stem, &ext, &mut ctx.side))
+    Ok(part_out(bytes, base.as_deref(), &stem, ext, &mut ctx.side))
 }
 
 /// A locked member for the snapshot's locked samples.
@@ -225,6 +251,8 @@ mod tests {
     use super::super::symbols::table;
     use super::data::{EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity};
     use super::data::{TrainerTextOffsetsEntity, TrainerTextTableEntity};
+    use super::header::{HeaderHgssEntity, HeaderPtEntity};
+    use super::map::MapEntity;
     use super::trainer::TrainerEntity;
     use super::world::{AreaDataEntity, EventEntity, MatrixEntity};
     use super::*;
@@ -343,8 +371,16 @@ mod tests {
     /// the positions its locked samples lock.
     fn lines_of<E: EntitySchema>(out: &mut Vec<String>) {
         let full = json(E::samples());
+        let minimal = json(E::minimal_samples());
+        for (label, _) in &full {
+            assert!(
+                minimal.iter().any(|(l, _)| l == label),
+                "{}: sample `{label}` has no minimal sample, its options would lose their `?`",
+                E::ART
+            );
+        }
         let mut optional = HashSet::new();
-        for (label, min) in json(E::minimal_samples()) {
+        for (label, min) in minimal {
             let (_, f) = full
                 .iter()
                 .find(|(l, _)| *l == label)
@@ -355,7 +391,12 @@ mod tests {
             walk(label, label, v, &optional, false, out);
         }
         let locked = json(E::locked_samples());
-        assert!(!locked.is_empty(), "{}: no locked sample", E::ART);
+        assert_eq!(
+            !locked.is_empty(),
+            E::LOCKABLE,
+            "{}: a kind has locked samples exactly when it is lockable",
+            E::ART
+        );
         for (label, v) in &locked {
             walk(label, label, v, &optional, true, out);
         }
@@ -374,6 +415,9 @@ mod tests {
         lines_of::<MatrixEntity>(&mut lines);
         lines_of::<AreaDataEntity>(&mut lines);
         lines_of::<EventEntity>(&mut lines);
+        lines_of::<MapEntity>(&mut lines);
+        lines_of::<HeaderPtEntity>(&mut lines);
+        lines_of::<HeaderHgssEntity>(&mut lines);
         for raw in [
             Part::Hex { hex: "00".into() },
             Part::Base {
@@ -494,6 +538,24 @@ mod tests {
             "events.warp_events[].dest_header_id →MAP",
             "events.coord_events[].var",
             "events <member>",
+            "trainers.data.flags_rest?",
+            "maps.source",
+            "maps.permissions[]",
+            "maps.buildings[].model_id",
+            "maps.buildings[].dummy?",
+            "maps.buildings_tail?",
+            "maps.model.hex",
+            "maps.bdhc.hex",
+            "maps.bgs?.hex",
+            "maps <member>",
+            "headers[pt].id →MAP",
+            "headers[pt].internal_name",
+            "headers[pt].internal_name_bytes?",
+            "headers[pt].location_name →PLACE",
+            "headers[pt].location_specifier",
+            "headers[hgss].id →MAP",
+            "headers[hgss].kanto_flag",
+            "headers[hgss].location_name →PLACE",
             "<locked>.locked",
             "<locked>.raw.base_sha1",
         ] {
@@ -510,8 +572,13 @@ mod tests {
             text.lines()
                 .any(|l| l == "species.personal?.color_flip_rest?")
         );
-        // Required keys carry no mark.
+        // Required keys carry no mark; headers are never locked.
         assert!(!text.lines().any(|l| l.starts_with("species.id?")));
+        assert!(
+            !text
+                .lines()
+                .any(|l| l.starts_with("headers") && l.contains('<'))
+        );
         assert!(
             !text
                 .lines()

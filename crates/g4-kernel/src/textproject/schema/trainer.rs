@@ -38,14 +38,15 @@ pub enum TrainerData {
 }
 
 /// The fields of a `TrainerDoc`: `has_moves` and `has_items` are the party format (bits 0
-/// and 1 of the flags byte), `flags_rest` the other bits of it; the party size is the length
-/// of `party` (at most six).
+/// and 1 of the flags byte), `flags_rest` the other bits of it, only when any is set (read as
+/// 0 when left out); the party size is the length of `party` (at most six).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrainerJson {
     pub class: SymRef,
     pub has_moves: bool,
     pub has_items: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub flags_rest: u8,
     pub unknown: u8,
     pub items: [SymRef; 4],
@@ -83,6 +84,10 @@ pub struct PartyMonJson {
 }
 
 const LOCKED_TRAINER_KEYS: &[&str] = &["locked", "props"];
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
+}
 
 impl<'de> Deserialize<'de> for TrainerData {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -345,7 +350,7 @@ fn sample_trainer(full: bool) -> TrainerJson {
         class: id(SymbolKind::TrainerClass),
         has_moves: full,
         has_items: full,
-        flags_rest: 0,
+        flags_rest: if full { 0x04 } else { 0 },
         unknown: 0,
         items: std::array::from_fn(|_| id(SymbolKind::Item)),
         ai: 0,
@@ -515,6 +520,26 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("missing field `party`"), "{err}");
+    }
+
+    #[test]
+    fn flags_rest_is_written_only_when_set() {
+        let (p, q) = pair();
+        let members = vec![Some(p.clone()), Some(q.clone())];
+        let (e, _) = export::<TrainerEntity>(Family::Pt, 5, &members);
+        let v = serde_json::to_value(&e).unwrap();
+        assert!(v["data"].get("flags_rest").is_none(), "{v}");
+        assert_eq!(import(Family::Pt, &e, 5).unwrap(), members);
+
+        let mut set = p.clone();
+        set[0] |= 0x80;
+        let members = vec![Some(set), Some(q)];
+        let (e, _) = export::<TrainerEntity>(Family::Pt, 5, &members);
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["data"]["flags_rest"], json!(0x80));
+        let keys: Vec<_> = v["data"].as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys[..4], ["class", "has_moves", "has_items", "flags_rest"]);
+        assert_eq!(import(Family::Pt, &e, 5).unwrap(), members);
     }
 
     #[test]

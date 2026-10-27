@@ -1,11 +1,13 @@
 //! Test helpers shared by the schema modules: an export that reads its entity back through
-//! canonical JSON, an import against an empty base layer, and the code and path of an error.
+//! canonical JSON, an import against an empty base layer (or a given one, with side files and
+//! current members), and the code and path of an error.
 
 use std::path::Path;
 
 use g4_formats::game::Family;
 
 use super::super::canon::to_canonical;
+use super::super::part::BasePart;
 use super::super::part::tests::MemBase;
 use super::super::registry::Symbols;
 use super::{EntitySchema, ExportCtx, ImportCtx};
@@ -23,11 +25,21 @@ pub(crate) fn export_with<E: EntitySchema>(
     members: &[Option<Vec<u8>>],
     sym: &mut Symbols,
 ) -> (E, Vec<(String, Vec<u8>)>) {
-    let base = MemBase::default();
+    export_in(family, index, members, sym, &MemBase::default())
+}
+
+/// [`export_with`] against the base layer `base`.
+pub(crate) fn export_in<E: EntitySchema>(
+    family: Family,
+    index: u32,
+    members: &[Option<Vec<u8>>],
+    sym: &mut Symbols,
+    base: &dyn BasePart,
+) -> (E, Vec<(String, Vec<u8>)>) {
     let mut ctx = ExportCtx {
         family,
         symbols: sym,
-        base: &base,
+        base,
         side: Vec::new(),
     };
     let e = E::export(index, members, &mut ctx).unwrap();
@@ -51,13 +63,34 @@ pub(crate) fn import_with<E: EntitySchema>(
     index: u32,
     sym: &Symbols,
 ) -> Result<Vec<Option<Vec<u8>>>, String> {
-    let base = MemBase::default();
+    import_in(
+        family,
+        e,
+        index,
+        sym,
+        Path::new("/nonexistent"),
+        &MemBase::default(),
+        &[],
+    )
+}
+
+/// The members of `e` with `sym`, side files in `dir`, the base layer `base` and the members
+/// `current` on disk.
+pub(crate) fn import_in<E: EntitySchema>(
+    family: Family,
+    e: &E,
+    index: u32,
+    sym: &Symbols,
+    dir: &Path,
+    base: &dyn BasePart,
+    current: &[Option<Vec<u8>>],
+) -> Result<Vec<Option<Vec<u8>>>, String> {
     let ctx = ImportCtx {
         family,
         symbols: sym,
-        dir: Path::new("/nonexistent"),
-        base: &base,
-        current: &[],
+        dir,
+        base,
+        current,
     };
     e.import(index, &ctx)
 }

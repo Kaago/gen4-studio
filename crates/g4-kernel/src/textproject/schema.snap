@@ -421,7 +421,7 @@ trainers.id →TRAINER
 trainers.data.class →TRAINER_CLASS
 trainers.data.has_moves
 trainers.data.has_items
-trainers.data.flags_rest
+trainers.data.flags_rest?
 trainers.data.unknown
 trainers.data.items[] →ITEM
 trainers.data.ai
@@ -486,6 +486,63 @@ events.coord_events[].y
 events.coord_events[].value
 events.coord_events[].var
 events <member>
+maps.source
+maps.permissions[]
+maps.buildings[].model_id
+maps.buildings[].position[]
+maps.buildings[].rotation[]
+maps.buildings[].scale[]
+maps.buildings[].dummy?
+maps.buildings_tail?
+maps.model.hex
+maps.bdhc.hex
+maps.bgs?.hex
+maps <member>
+headers[pt].id →MAP
+headers[pt].internal_name
+headers[pt].internal_name_bytes?
+headers[pt].area_data_id
+headers[pt].unknown1
+headers[pt].matrix_id
+headers[pt].script_file_id
+headers[pt].level_script_id
+headers[pt].text_archive_id
+headers[pt].music_day_id
+headers[pt].music_night_id
+headers[pt].wild_pokemon
+headers[pt].event_file_id
+headers[pt].location_name →PLACE
+headers[pt].area_icon
+headers[pt].weather_id
+headers[pt].camera_angle_id
+headers[pt].location_specifier
+headers[pt].battle_background
+headers[pt].flags
+headers[hgss].id →MAP
+headers[hgss].internal_name
+headers[hgss].internal_name_bytes?
+headers[hgss].wild_pokemon
+headers[hgss].area_data_id
+headers[hgss].unknown0
+headers[hgss].worldmap_x
+headers[hgss].worldmap_y
+headers[hgss].matrix_id
+headers[hgss].script_file_id
+headers[hgss].level_script_id
+headers[hgss].text_archive_id
+headers[hgss].music_day_id
+headers[hgss].music_night_id
+headers[hgss].event_file_id
+headers[hgss].location_name →PLACE
+headers[hgss].area_icon
+headers[hgss].unknown1
+headers[hgss].kanto_flag
+headers[hgss].weather_id
+headers[hgss].location_type
+headers[hgss].camera_angle_id
+headers[hgss].follow_mode
+headers[hgss].battle_background
+headers[hgss].flags
 <locked>.locked
 <locked>.raw.hex
 <locked>.raw.base_sha1
