@@ -1,4 +1,4 @@
-import { useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
@@ -225,6 +225,22 @@ function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectS
 export function PreviewSection({ name, preview, town }: { name: string; preview: ProjectPreviewState; town: string | null }) {
   const headingId = useId();
   const dto = preview.preview;
+  const choose = useRef<HTMLButtonElement>(null);
+  const running = useRef<"choose" | "remove" | null>(null);
+  // Busy blocks the actions with aria-disabled, so the focused button keeps focus while the write runs. When it ends, focus rests on
+  // „Vorschaubild wählen…“: after choosing (set, cancelled or failed) and after „Entfernen“, whose button is gone then (focus fell to the body).
+  useEffect(() => {
+    const how = running.current;
+    if (preview.busy || how === null) return;
+    running.current = null;
+    const active = document.activeElement;
+    if (how === "choose" || active === null || active === document.body) choose.current?.focus();
+  }, [preview.busy]);
+  const change = (how: "choose" | "remove") => {
+    if (preview.busy) return;
+    running.current = how;
+    preview.change(how);
+  };
   return (
     <section className={styles.card} data-section="vorschaubild" aria-labelledby={headingId}>
       <h2 id={headingId} className={styles.heading}>
@@ -234,11 +250,11 @@ export function PreviewSection({ name, preview, town }: { name: string; preview:
         <ProjectPreview name={name} png={dto?.png ?? null} />
       </div>
       <div className={styles.actions}>
-        <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("choose")}>
+        <Button ref={choose} kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("choose")}>
           Vorschaubild wählen…
         </Button>
         {dto?.source === "eigen" && (
-          <Button kind="secondary" disabled={preview.busy} onClick={() => preview.change("remove")}>
+          <Button kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("remove")}>
             Entfernen
           </Button>
         )}

@@ -484,6 +484,56 @@ describe("TechnikArea", () => {
       expect(toasts()).toEqual([["info", "Vorschaubild entfernt"]]);
     });
 
+    it("keeps_keyboard_focus_meaningful_while_a_write_runs_and_after_it", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("eigen"));
+      await render({ start: "projekt", project: "/q" });
+      // Busy blocks the actions with aria-disabled, not `disabled`: the focused button keeps focus while the write runs.
+      let answer: (dto: ReturnType<typeof preview>) => void = () => {};
+      vi.mocked(projectPreviewSet).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      const remove = button("Entfernen", section()!) as HTMLButtonElement;
+      remove.focus();
+      await click(remove);
+      expect(document.activeElement).toBe(remove);
+      expect(remove.disabled).toBe(false);
+      expect(remove.getAttribute("aria-disabled")).toBe("true");
+      expect(button("Vorschaubild wählen…", section()!)?.getAttribute("aria-disabled")).toBe("true");
+      // A second activation while busy does nothing.
+      await click(remove);
+      await click(button("Vorschaubild wählen…", section()!));
+      expect(projectPreviewSet).toHaveBeenCalledOnce();
+      expect(openPath).not.toHaveBeenCalled();
+      // „Entfernen“ is gone with the write: focus moves to „Vorschaubild wählen…“, not to the body.
+      await act(async () => answer(preview("standard")));
+      expect(button("Entfernen", section()!)).toBeUndefined();
+      expect(document.activeElement).toBe(button("Vorschaubild wählen…", section()!));
+      expect(button("Vorschaubild wählen…", section()!)?.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("focus_rests_on_choose_after_choosing_whether_set_cancelled_or_failed", async () => {
+      await render({ start: "projekt" });
+      const choose = () => button("Vorschaubild wählen…", section()!) as HTMLButtonElement;
+      const pick = async () => {
+        choose().focus();
+        await click(choose());
+        await settle();
+        expect(document.activeElement).toBe(choose());
+      };
+      vi.mocked(openPath).mockResolvedValueOnce("/bilder/stadt.jpg");
+      vi.mocked(projectPreviewSet).mockResolvedValueOnce(preview("eigen"));
+      await pick();
+      vi.mocked(openPath).mockResolvedValueOnce(null);
+      await pick();
+      vi.mocked(openPath).mockResolvedValueOnce("/notiz.txt");
+      vi.mocked(projectPreviewSet).mockRejectedValueOnce({ code: "error", message: "preview.format: neither PNG nor JPEG", asset: null });
+      await pick();
+      // The native dialog took focus to the body meanwhile: it comes back to the button.
+      vi.mocked(openPath).mockImplementationOnce(async () => {
+        (document.activeElement as HTMLElement).blur();
+        return null;
+      });
+      await pick();
+    });
+
     it("the hint names the start town", async () => {
       vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
       const startTown = vi.fn((header: number) => (header === 411 ? "Zweiblattdorf" : null));

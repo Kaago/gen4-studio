@@ -30,7 +30,7 @@
   background: var(--g4-akzent-grund);
   color: var(--g4-akzent-auf);
 }
-.primary:hover:not(:disabled) {
+.primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--g4-akzent-hover);
 }
 
@@ -40,7 +40,7 @@
   border-color: var(--g4-linie-stark);
   border-bottom-width: 2px;
 }
-.secondary:hover:not(:disabled) {
+.secondary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--g4-flaeche-deck);
 }
 
@@ -48,7 +48,7 @@
   background: transparent;
   color: var(--g4-text-primaer);
 }
-.quiet:hover:not(:disabled) {
+.quiet:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--g4-flaeche-deck);
 }
 .quiet[aria-pressed="true"] {
@@ -61,7 +61,7 @@
   color: var(--g4-live-auf);
   font-weight: 700;
 }
-.play:hover:not(:disabled) {
+.play:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--g4-live-text);
   color: var(--g4-live-flaeche);
 }
@@ -70,17 +70,20 @@
   background: var(--g4-status-fehler);
   color: var(--g4-akzent-auf);
 }
-.danger:hover:not(:disabled) {
+.danger:hover:not(:disabled, [aria-disabled="true"]) {
   background: color-mix(in srgb, var(--g4-status-fehler) 85%, var(--g4-text-primaer));
 }
 
-.button:disabled {
+/* aria-disabled: looks like disabled but stays focusable, for a button that is busy while it has focus. */
+.button:disabled,
+.button[aria-disabled="true"] {
   background: var(--g4-flaeche-deck);
   border-color: var(--g4-linie-leise);
   color: var(--g4-text-deaktiviert);
   cursor: not-allowed;
 }
-.quiet:disabled {
+.quiet:disabled,
+.quiet[aria-disabled="true"] {
   background: transparent;
   border-color: transparent;
 }

@@ -130,7 +130,7 @@ Die Spec nannte für den Körper `scharnier/flaeche`; dieses Token gibt es nicht
 
 | Komponente | Varianten und Eigenschaften | Umsetzung |
 |---|---|---|
-| Taste | Art Primär, Sekundär, Leise, Spielen, Gefahr × Zustand Ruhe, Hover, Fokus, Gesperrt; Beschriftung, Symbol | `<Taste art>`; sekundär mit doppelter Unterkante; Fokus 2-px-Ring außen |
+| Taste | Art Primär, Sekundär, Leise, Spielen, Gefahr × Zustand Ruhe, Hover, Fokus, Gesperrt; Beschriftung, Symbol | `<Taste art>`; sekundär mit doppelter Unterkante; Fokus 2-px-Ring außen; Gesperrt auch als `aria-disabled` (sieht gesperrt aus, behält aber den Fokus, für eine Taste, deren Aktion gerade läuft; seit 4.0) |
 | Symboltaste | Ruhe, Hover, Aktiv, Gesperrt | immer mit Tooltip (Name + Kürzel) |
 | Tastenkürzel | Hell, Auf Scharnier | in Tooltip, Menü, Statusleiste, Picker-Fuß |
 | Eingabefeld | Ruhe, Fokus, Fehler, Gesperrt; Bezeichnung, Wert, Hinweis | Fehlertext sagt den Ausweg |
