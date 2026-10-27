@@ -925,7 +925,51 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_array,
         route: Route::Commands,
     },
+    // Base ROM and patch (4.1a).
+    ToolDef {
+        name: "base_status",
+        title: "Base ROM status",
+        description: "Reports the base ROM (Basis-ROM) of the project, which the patch needs:                       unassigned with the suggested .nds next to a DSPRE folder, found with its                       path, missing or unreadable with the reason.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("base_status"),
+    },
+    ToolDef {
+        name: "check_base",
+        title: "Check base ROM",
+        description: "Checks a .nds as the base ROM (Basis-ROM) of the project and writes                       nothing: another game is refused, another title or version and an                       unknown dump only warn.",
+        input_schema: base_nds_args,
+        output_schema: answers_object,
+        route: command("check_base"),
+    },
+    ToolDef {
+        name: "assign_base",
+        title: "Assign base ROM",
+        description: "Assigns a .nds as the base ROM (Basis-ROM) of the project, writes                       .g4/base.json and answers the base ROM status; this cannot be undone.                       Headless (studio mcp) it needs --allow-irreversible, without it the call                       answers needs_confirmation.",
+        input_schema: base_nds_args,
+        output_schema: answers_object,
+        route: command("assign_base"),
+    },
+    ToolDef {
+        name: "create_patch",
+        title: "Create patch",
+        description: "Builds the ROM to build/<name>.nds and writes an xdelta patch against the                       base ROM to build/<name>.xdelta with its notes, checked before it is                       written; this cannot be undone. Headless (studio mcp) it needs                       --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("create_patch"),
+    },
 ];
+
+/// The argument of `check_base` and `assign_base`.
+fn base_nds_args() -> Value {
+    object(
+        json!({ "nds": text(
+            "path of the .nds; relative to the project folder; headless only inside the \
+             project, an --allow-dir folder or the .nds next to a *_DSPRE_contents folder"
+        ) }),
+        &["nds"],
+    )
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -1052,6 +1096,8 @@ mod tests {
                 "refs",
                 "run_checks",
                 "plan_fix",
+                "base_status",
+                "check_base",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1091,6 +1137,8 @@ mod tests {
             "apply_fix",
             "apply_header_patch",
             "build_rom",
+            "assign_base",
+            "create_patch",
         ]
         .into_iter()
         .collect();
@@ -1214,7 +1262,13 @@ mod tests {
 
     #[test]
     fn irreversible_tools_name_the_headless_switch() {
-        for name in ["create_trainer", "apply_header_patch", "apply_fix"] {
+        for name in [
+            "create_trainer",
+            "apply_header_patch",
+            "apply_fix",
+            "assign_base",
+            "create_patch",
+        ] {
             let description = tool(name).description;
             assert!(
                 description.contains("--allow-irreversible")
@@ -1341,6 +1395,10 @@ mod tests {
             ("redo", json!({})),
             ("save", json!({})),
             ("build_rom", json!({ "out": "build/agent.nds" })),
+            ("base_status", json!({})),
+            ("check_base", json!({ "nds": "fehlt.nds" })),
+            ("assign_base", json!({ "nds": "fehlt.nds" })),
+            ("create_patch", json!({})),
         ]
     }
 

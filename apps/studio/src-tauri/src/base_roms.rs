@@ -300,6 +300,13 @@ impl BaseRoms {
         self.lock().settings.clone()
     }
 
+    /// Whether the file at `path` (resolved first; as given when it cannot be) is an original
+    /// under the configured `G4_ROMS_DIR`, which is never taken as a base ROM.
+    pub fn is_original(&self, path: &Path) -> bool {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        self.is_skipped(&canonical)
+    }
+
     /// Whether `canonical` is an original under the configured `G4_ROMS_DIR`.
     fn is_skipped(&self, canonical: &Path) -> bool {
         self.lock()

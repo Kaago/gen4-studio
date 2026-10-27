@@ -258,6 +258,8 @@ const NOT_IN_BATCH: &[&str] = &[
     "unignore_finding",
     "set_check_enabled",
     "export_map_part",
+    "assign_base",
+    "create_patch",
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -1820,6 +1822,34 @@ mod tests {
             history(&toolbox),
             json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
         );
+    }
+
+    #[test]
+    fn batch_refuses_assign_base_and_create_patch() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for (tool, args) in [
+            ("assign_base", json!({ "nds": "X.nds" })),
+            ("create_patch", json!({})),
+        ] {
+            for call in [
+                json!({ "tool": tool, "arguments": args }),
+                json!({ "tool": "g4_call", "arguments": { "command": tool, "args": args } }),
+            ] {
+                let mut calls = three_edits();
+                calls.push(call);
+                let (code, message, details) =
+                    failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+                assert_eq!(code, "error", "{message}");
+                assert_eq!(details["index"], 3);
+                assert!(
+                    message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                    "{message}"
+                );
+            }
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
     }
 
     #[test]

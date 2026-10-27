@@ -37,6 +37,7 @@ use commands::{
     agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
 };
 use commands::{apply_empty_region, plan_empty_region};
+use commands::{assign_base, base_status, check_base, create_patch, register_base_rom};
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use lsp::{lsp_send, lsp_start, lsp_stop};
@@ -176,7 +177,12 @@ pub fn run() {
             place_slots,
             create_place,
             rename_place,
-            assign_place
+            assign_place,
+            base_status,
+            check_base,
+            assign_base,
+            register_base_rom,
+            create_patch
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

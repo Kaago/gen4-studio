@@ -157,6 +157,11 @@ pub const COMMANDS: &[&str] = &[
     "create_place",
     "rename_place",
     "assign_place",
+    "base_status",
+    "check_base",
+    "assign_base",
+    "register_base_rom",
+    "create_patch",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -170,6 +175,21 @@ fn confine_source(policy: &dyn Policy, source: Source) -> Result<Source, CmdErro
         ),
         map => map,
     })
+}
+
+/// The `.nds` of `check_base` and `assign_base`: the sibling `.nds` DSPRE unpacked the open
+/// project from (`suggest_base`, never an original) even outside the folders the policy
+/// reads, since without it an agent could never assign it; any other path as the policy reads
+/// it. Relative paths are relative to the project folder.
+fn base_nds(
+    state: &AppState,
+    policy: &dyn Policy,
+    nds: &str,
+) -> Result<std::path::PathBuf, CmdError> {
+    match suggested_base_named(state, nds) {
+        Some(suggested) => Ok(suggested),
+        None => policy.read_path(nds),
+    }
 }
 
 fn path_text(path: &std::path::Path) -> Result<String, CmdError> {
@@ -693,6 +713,28 @@ pub fn dispatch(
             { headers: Vec<u16>, index: u8 },
             |a| assign_place_impl(state, &a.headers, a.index)
         ),
+        "base_status" => run!(json, "base_status", args, {}, |_a| base_status_impl(state)),
+        "check_base" => run!(json, "check_base", args, { nds: String }, |a| {
+            let nds = base_nds(state, policy, &a.nds)?;
+            check_base_impl(state, &path_text(&nds)?)
+        }),
+        "assign_base" => run!(json, "assign_base", args, { nds: String }, |a| {
+            let nds = base_nds(state, policy, &a.nds)?;
+            assign_base_impl(state, &path_text(&nds)?)
+        }),
+        "register_base_rom" => run!(json, "register_base_rom", args, { path: String }, |a| {
+            let path = policy.read_path(&a.path)?;
+            register_base_rom_impl(state, &path_text(&path)?)
+        }),
+        "create_patch" => run!(json, "create_patch", args, {}, |_a| {
+            // The targets are fixed (build/<Name>.nds and .xdelta); the policy still has the
+            // last word on them once the base ROM is found (and makes build/ when it may).
+            create_patch_checked(state, &|targets| {
+                policy.check_output(&path_text(&targets.rom)?)?;
+                policy.check_output(&path_text(&targets.patch)?)?;
+                Ok(())
+            })
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -704,7 +746,7 @@ mod tests {
     use crate::commands::policy::UserPolicy;
     use crate::commands::{
         dirty_impl, get_header_impl, get_matrix_impl, history_impl, list_headers_impl,
-        open_synthetic,
+        open_project_impl, open_synthetic,
     };
     use crate::state::AppState;
     use serde_json::{Value, json};
@@ -1008,6 +1050,11 @@ mod tests {
                 json!({ "index": 1, "name": "Zweiblattdorf" }),
             ),
             ("assign_place", json!({ "headers": [0], "index": 2 })),
+            ("base_status", json!({})),
+            ("check_base", json!({ "nds": per_in })),
+            ("assign_base", json!({ "nds": per_in })),
+            ("register_base_rom", json!({ "path": per_in })),
+            ("create_patch", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();
@@ -1026,6 +1073,86 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn assign_base_allows_the_suggested_sibling_and_refuses_other_outside_paths() {
+        use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+        // `<tmp>/X_DSPRE_contents` with `<tmp>/X.nds` next to it, outside the project.
+        let s = synthetic_project();
+        let (_rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("X_DSPRE_contents");
+        copy_dir(s.dir.path(), &root);
+        let nds = tmp.path().join("X.nds");
+        std::fs::copy(&rom, &nds).unwrap();
+        let state = AppState::default();
+        open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        let policy = UserPolicy::new(&root, &[], None).unwrap();
+        let outside = |name: &str, args: Value| match dispatch(&state, &policy, name, args) {
+            Err(DispatchError::Cmd(e)) => assert!(
+                e.message.starts_with("Pfad liegt außerhalb"),
+                "{name}: {}",
+                e.message
+            ),
+            other => panic!("{name}: {other:?}"),
+        };
+
+        // Another ROM outside the project is not read, not even a copy of the sibling.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let copy = elsewhere.path().join("X.nds");
+        std::fs::copy(&nds, &copy).unwrap();
+        for name in ["check_base", "assign_base"] {
+            outside(name, json!({ "nds": copy.to_str().unwrap() }));
+        }
+        outside(
+            "register_base_rom",
+            json!({ "path": copy.to_str().unwrap() }),
+        );
+        // The sibling as an original under G4_ROMS_DIR is not read either.
+        state
+            .base_roms
+            .configure_with(None, None, Some(tmp.path().to_path_buf()));
+        outside("assign_base", json!({ "nds": nds.to_str().unwrap() }));
+        assert!(!root.join(".g4").exists());
+        state.base_roms.configure_with(None, None, None);
+
+        // The sibling is read, absolute or relative to the project folder.
+        let check = json_of(call(
+            &state,
+            &policy,
+            "check_base",
+            json!({ "nds": "../X.nds" }),
+        ));
+        assert_eq!(check["refused"], Value::Null, "{check}");
+        let status = json_of(call(
+            &state,
+            &policy,
+            "assign_base",
+            json!({ "nds": nds.to_str().unwrap() }),
+        ));
+        assert_eq!(status["state"], "found", "{status}");
+        assert!(root.join(".g4/base.json").is_file());
+        // Base status reads; registering another path still goes through the policy.
+        let status = json_of(call(&state, &policy, "base_status", json!({})));
+        assert_eq!(status["state"], "found", "{status}");
+        outside(
+            "register_base_rom",
+            json!({ "path": nds.to_str().unwrap() }),
+        );
+    }
+
+    #[test]
+    fn create_patch_without_a_base_creates_nothing() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        match dispatch(&state, &policy, "create_patch", json!({})) {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!((e.code, e.message.as_str()), ("base_missing", NO_MARK))
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!fixture.dir.path().join("build").exists());
     }
 
     #[test]

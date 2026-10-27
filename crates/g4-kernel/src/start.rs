@@ -280,6 +280,23 @@ pub enum MarkState {
     Present(BaseMark),
 }
 
+impl MarkState {
+    /// Why no base ROM can be assigned to (or patched against) a project with this mark: the
+    /// sentence for an unreadable mark or one of a newer version, the same in app, MCP and
+    /// `g4k`; `None` for a missing or present mark.
+    pub fn refusal(&self) -> Option<String> {
+        match self {
+            MarkState::Unreadable(why) => Some(format!(
+                "Die Basismarke .g4/base.json ist nicht lesbar ({why}); entferne sie, dann ordne neu zu."
+            )),
+            MarkState::Newer(v) => Some(format!(
+                "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version {v})."
+            )),
+            MarkState::Missing | MarkState::Present(_) => None,
+        }
+    }
+}
+
 /// Reads the project's base mark. A newer `version` is recognised before the other fields
 /// are parsed, so a mark of a later format is never called broken.
 pub fn mark_state(root: &Path) -> MarkState {
@@ -860,19 +877,13 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
 /// project is given another ROM. The ROM of the mark again: nothing is written and the mark
 /// is returned as it is. Another ROM for a DSPRE mark: a new mark (new `created`).
 pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), KernelError> {
-    let current = match mark_state(root) {
-        MarkState::Unreadable(why) => {
-            return Err(KernelError::Refused(format!(
-                "Die Basismarke .g4/base.json ist nicht lesbar ({why}); entferne sie, dann ordne neu zu."
-            )));
-        }
-        MarkState::Newer(v) => {
-            return Err(KernelError::Refused(format!(
-                "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version {v})."
-            )));
-        }
+    let state = mark_state(root);
+    if let Some(why) = state.refusal() {
+        return Err(KernelError::Refused(why));
+    }
+    let current = match state {
         MarkState::Present(mark) => Some(mark),
-        MarkState::Missing => None,
+        MarkState::Missing | MarkState::Unreadable(_) | MarkState::Newer(_) => None,
     };
     let check = check_base(root, nds)?;
     if let Some(reason) = &check.refused {
@@ -1784,9 +1795,14 @@ mod create_tests {
             "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3)."
         );
         assert_eq!(mark_bytes(root), newer.as_bytes());
+        assert_eq!(
+            mark_state(root).refusal().as_deref(),
+            Some("Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3).")
+        );
 
         put_mark(root, "{kaputt");
         let msg = refused(assign_base(root, &rom));
+        assert_eq!(mark_state(root).refusal(), Some(msg.clone()));
         assert!(
             msg.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
             "{msg}"
