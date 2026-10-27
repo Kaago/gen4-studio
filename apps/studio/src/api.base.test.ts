@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { assignBase, baseStatus, checkBase, createPatch, errorText, formatBytes, patchName, registerBaseRom } from "./api";
+import { assignBase, baseStatus, checkBase, createPatch, errorText, formatBytes, registerBaseRom } from "./api";
 
 describe("base ROM commands", () => {
   beforeEach(() => {
@@ -26,6 +26,10 @@ describe("base ROM commands", () => {
     const status = { state: "unassigned", suggestion: "/roms/Sinnoh-Remix.nds" };
     invoke.mockResolvedValueOnce(status);
     await expect(baseStatus()).resolves.toEqual(status);
+    // A found base carries the name the patch gets, from the backend.
+    const found = { state: "found", mark: {}, label: "Platin DE (Testprojekt)", path: "/roms/X.nds", source: "known", patch_name: "Sinnoh-Remix-CPUD" };
+    invoke.mockResolvedValueOnce(found);
+    await expect(baseStatus()).resolves.toMatchObject({ patch_name: "Sinnoh-Remix-CPUD" });
   });
 
   it("format_bytes_uses_byte_kib_and_mib_with_a_comma", () => {
@@ -43,13 +47,5 @@ describe("base ROM commands", () => {
     expect(errorText({ code: "base_missing", message: "Diesem Projekt ist keine Basis-ROM zugeordnet.", asset: null, problems: [] })).toBe(
       "Diesem Projekt ist keine Basis-ROM zugeordnet.",
     );
-  });
-
-  it("patch_name_follows_the_kernel", () => {
-    expect(patchName("/roms/Pokemon - Platin-Edition (Germany)_DSPRE_contents", "CPUD")).toBe("Pokemon - Platin-Edition (Germany)-CPUD");
-    expect(patchName("/p/Sinnoh-Remix/", "CPUD")).toBe("Sinnoh-Remix-CPUD");
-    expect(patchName("C:\\Hacks\\Mein:Hack_DSPRE_contents", "CPUE")).toBe("Mein_Hack-CPUE");
-    expect(patchName("/p/ .Rom. ", "CPUE")).toBe("Rom-CPUE");
-    expect(patchName("/p/...", "CPUE")).toBe("Projekt-CPUE");
   });
 });

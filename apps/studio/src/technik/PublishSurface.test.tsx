@@ -31,9 +31,9 @@ describe("PublishSurface", () => {
   let root: Root;
   const onOpenProject = vi.fn();
 
-  function Host() {
-    const base = useBase();
-    return <PublishSurface base={base} project={PROJECT} onOpenProject={onOpenProject} />;
+  function Host({ building = false }: { building?: boolean }) {
+    const base = useBase({ project: PROJECT, active: true });
+    return <PublishSurface base={base} building={building} onOpenProject={onOpenProject} />;
   }
 
   beforeEach(() => {
@@ -67,7 +67,7 @@ describe("PublishSurface", () => {
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 
   it("without_a_project_offers_to_open_one", async () => {
-    await act(async () => root.render(<PublishSurface base={null} project={null} onOpenProject={onOpenProject} />));
+    await act(async () => root.render(<PublishSurface base={null} building={false} onOpenProject={onOpenProject} />));
     expect(surface()?.querySelector("h1")?.textContent).toBe("Veröffentlichen");
     expect(surface()?.textContent).toContain("Kein Projekt geöffnet.");
     expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
@@ -218,13 +218,14 @@ describe("PublishSurface", () => {
   });
 
   it("create_patch_asks_first_then_shows_size_path_and_self_check", async () => {
-    await show(found());
+    // The name comes from the backend's status (the kernel's rule), not from the folder.
+    await show(found({ patch_name: "Mein_Hack-CPUD" }));
     await click(button("Patch erstellen…", patchCard()!));
     expect(createPatch).not.toHaveBeenCalled();
     const asked = dialog()!;
     expect(dialogTitle()).toBe("Patch erstellen?");
     expect(asked.textContent).toContain(
-      "Speichert, baut die ROM und schreibt build/Sinnoh-Remix-CPUD.xdelta und build/Sinnoh-Remix-CPUD.xdelta.txt. Ein älterer Patch dort wird ersetzt.",
+      "Speichert, baut die ROM und schreibt build/Mein_Hack-CPUD.xdelta und build/Mein_Hack-CPUD.xdelta.txt. Ein älterer Patch dort wird ersetzt.",
     );
     await click(button("Abbrechen", asked));
     expect(dialog()).toBeNull();
@@ -263,6 +264,7 @@ describe("PublishSurface", () => {
     const fake = (status: BaseStatus, busy: BaseApi["busy"]): BaseApi => ({
       status,
       error: null,
+      errorFrom: null,
       busy,
       lastPatch: null,
       check: vi.fn(async () => null),
@@ -278,13 +280,45 @@ describe("PublishSurface", () => {
       [{ state: "unassigned", suggestion: SIBLING }, "check"],
       [missing(), "register"],
     ] as [BaseStatus, BaseApi["busy"]][]) {
-      await act(async () => root.render(<PublishSurface base={fake(status, busy)} project={PROJECT} onOpenProject={onOpenProject} />));
+      await act(async () => root.render(<PublishSurface base={fake(status, busy)} building={false} onOpenProject={onOpenProject} />));
       const buttons = [...baseCard()!.querySelectorAll("button")];
       expect(buttons.length).toBeGreaterThan(0);
       for (const b of buttons) expect(b.disabled).toBe(true);
     }
-    await act(async () => root.render(<PublishSurface base={fake(found(), "patch")} project={PROJECT} onOpenProject={onOpenProject} />));
+    await act(async () => root.render(<PublishSurface base={fake(found(), "patch")} building={false} onOpenProject={onOpenProject} />));
     expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
     expect(patchCard()?.textContent).toContain("Baue und erstelle den Patch …");
+  });
+
+  it("an_app_build_disables_the_patch_and_the_base_actions", async () => {
+    // A build or save of the app runs (session busy): nothing here may start another build or change the project.
+    await show(found());
+    await act(async () => root.render(<Host building />));
+    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
+    expect(patchCard()?.textContent).not.toContain("Baue und erstelle den Patch …");
+    await act(async () => root.render(<Host />));
+    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(false);
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: SIBLING });
+    await act(async () => root.render(<Host building />));
+    await act(async () => {});
+    for (const b of baseCard()!.querySelectorAll("button")) expect(b.disabled).toBe(true);
+  });
+
+  it("the_assigned_notice_goes_when_the_next_step_starts", async () => {
+    let finish: (dto: ReturnType<typeof patchDto>) => void = () => {};
+    vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await show();
+    await click(button("Zuordnen…", baseCard()!));
+    await click(button("Zuordnen", dialog()!));
+    await act(async () => {});
+    expect(baseCard()?.textContent).toContain("Basis-ROM zugeordnet: Platin DE (Testprojekt).");
+    await click(button("Patch erstellen…", patchCard()!));
+    await click(button("Patch erstellen", dialog()!));
+    expect(baseCard()?.textContent).not.toContain("Basis-ROM zugeordnet");
+    await act(async () => finish(patchDto()));
+    expect(baseCard()?.textContent).not.toContain("Basis-ROM zugeordnet");
   });
 });

@@ -30,11 +30,14 @@ export interface BaseMarkDto {
 /** Where the base ROM was found: `--base-rom`, the remembered entry, the `.nds` next to the folder, `G4_BASE_ROM_DIR`. */
 export type BaseSource = "explicit" | "known" | "sibling" | "dir";
 
-/** The base ROM of the open project. `label` names it („Platin DE (Testprojekt)“); `reason` is a German sentence ready to show. */
+/**
+ * The base ROM of the open project. `label` names it („Platin DE (Testprojekt)“); `reason` is a German sentence ready to show; `patch_name`
+ * is `<Projekt>-<Spielcode>`, the name `createPatch` writes under `build/` (the kernel's `patch::patch_name`).
+ */
 export type BaseStatus =
   | { state: "unassigned"; suggestion: string | null }
   | { state: "missing"; mark: BaseMarkDto; label: string; reason: string }
-  | { state: "found"; mark: BaseMarkDto; label: string; path: string; source: BaseSource }
+  | { state: "found"; mark: BaseMarkDto; label: string; path: string; source: BaseSource; patch_name: string }
   | { state: "unreadable"; reason: string };
 
 export interface BaseWarning {
@@ -87,19 +90,4 @@ export function formatBytes(n: number): string {
     unit += 1;
   }
   return `${value.toFixed(1).replace(".", ",")} ${UNITS[unit]}`;
-}
-
-// Control characters (Unicode Cc) as Rust's `char::is_control` knows them.
-const UNSAFE = /[/\\:*?"<>|\u0000-\u001f\u007f-\u009f]/g;
-
-/**
- * `<Projekt>-<Spielcode>`, the name of the patch in `build/`, as `g4_kernel::patch::patch_name` makes it: the folder name of
- * `root` without `_DSPRE_contents`, `/ \ : * ? " < > |` and control characters become `_`, spaces and dots at both ends go,
- * nothing left is `Projekt`.
- */
-export function patchName(root: string, gameCode: string): string {
-  const folder = root.split(/[/\\]/).filter((part) => part !== "").pop() ?? "";
-  const stem = folder.endsWith("_DSPRE_contents") ? folder.slice(0, -"_DSPRE_contents".length) : folder;
-  const clean = stem.replace(UNSAFE, "_").replace(/^[ .]+|[ .]+$/g, "");
-  return `${clean === "" ? "Projekt" : clean}-${gameCode}`;
 }

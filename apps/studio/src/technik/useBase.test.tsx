@@ -7,7 +7,7 @@ import { assignBase, baseStatus, createPatch, registerBaseRom } from "../api";
 import type { BaseStatus } from "../api";
 import { found, mark, missing, patchDto } from "./baseTesting";
 import { useBase } from "./useBase";
-import type { BaseApi } from "./useBase";
+import type { BaseApi, UseBaseOptions } from "./useBase";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -25,8 +25,8 @@ describe("useBase", () => {
   let root: Root;
   let shown: BaseApi;
 
-  function Probe() {
-    shown = useBase();
+  function Probe(options: Partial<UseBaseOptions>) {
+    shown = useBase({ project: "/a", active: true, ...options });
     return null;
   }
 
@@ -43,15 +43,49 @@ describe("useBase", () => {
   });
 
   it("reads_the_status_once_per_project", async () => {
-    await act(async () => root.render(<Probe key="/a" />));
+    // Without Technik on screen nothing is read (the status may hash a ROM).
+    await act(async () => root.render(<Probe active={false} />));
+    expect(baseStatus).not.toHaveBeenCalled();
+    await act(async () => root.render(<Probe />));
     expect(shown.status).toEqual({ state: "unassigned", suggestion: null });
-    await act(async () => root.render(<Probe key="/a" />));
+    await act(async () => root.render(<Probe />));
     expect(baseStatus).toHaveBeenCalledOnce();
-    // TechnikArea keys the hook by project: another project reads again.
-    vi.mocked(baseStatus).mockResolvedValue(found());
-    await act(async () => root.render(<Probe key="/b" />));
+    // Technik shown again: read again (an agent may have assigned meanwhile).
+    await act(async () => root.render(<Probe active={false} />));
+    await act(async () => root.render(<Probe />));
     expect(baseStatus).toHaveBeenCalledTimes(2);
+    // Another project starts from nothing and reads its own.
+    vi.mocked(baseStatus).mockResolvedValue(found());
+    await act(async () => root.render(<Probe project="/b" />));
+    expect(baseStatus).toHaveBeenCalledTimes(3);
     expect(shown.status?.state).toBe("found");
+    // No project: nothing is read.
+    await act(async () => root.render(<Probe project={null} />));
+    expect(shown.status).toBeNull();
+    expect(baseStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops_an_answer_for_the_project_before", async () => {
+    let answer: (status: BaseStatus) => void = () => {};
+    vi.mocked(baseStatus).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    await act(async () => root.render(<Probe />));
+    vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
+    await act(async () => root.render(<Probe project="/b" />));
+    await act(async () => answer(found()));
+    expect(shown.status).toEqual({ state: "unassigned", suggestion: null });
+  });
+
+  it("runs_the_patch_through_the_given_build_path", async () => {
+    const run = vi.fn(async () => patchDto({ size: 397 }));
+    vi.mocked(baseStatus).mockResolvedValue(found());
+    await act(async () => root.render(<Probe createPatch={run} />));
+    await act(async () => shown.createPatch());
+    expect(run).toHaveBeenCalledOnce();
+    expect(createPatch).not.toHaveBeenCalled();
+    expect(shown.lastPatch?.size).toBe(397);
+    // Another project forgets it.
+    await act(async () => root.render(<Probe project="/b" createPatch={run} />));
+    expect(shown.lastPatch).toBeNull();
   });
 
   it("assigns_and_reads_the_status_again", async () => {
@@ -96,6 +130,7 @@ describe("useBase", () => {
     vi.mocked(createPatch).mockRejectedValue({ code: "base_missing", message: "Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).", asset: null, problems: [] });
     await act(async () => shown.createPatch());
     expect(shown.error).toBe("Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).");
+    expect(shown.errorFrom).toBe("patch");
   });
 
   it("a_refused_register_keeps_the_status_and_says_why", async () => {
@@ -107,6 +142,7 @@ describe("useBase", () => {
     expect(registerBaseRom).toHaveBeenCalledWith("/roms/HeartGold.nds");
     expect(shown.status).toEqual(before);
     expect(shown.error).toBe("Das ist eine andere ROM (SHA-1 13b6853a…), gesucht ist Platin DE (Testprojekt) (d40f19ac…).");
+    expect(shown.errorFrom).toBe("register");
     expect(shown.busy).toBeNull();
 
     // A register that finds it clears the reason.

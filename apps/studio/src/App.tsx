@@ -28,6 +28,7 @@ import { ShellProvider, useShell } from "./ui/frame/ShellContext";
 import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
+import { useBase } from "./technik/useBase";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
@@ -206,6 +207,9 @@ function AppBody() {
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
+  // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
+  // builds on the session's build path, so open, save and build wait for it like for a build.
+  const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
   scriptBridge.current = scripts.bridge;
   // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).
   const unsavedRef = useRef(0);
@@ -816,6 +820,7 @@ function AppBody() {
         onClearWorld={() => {
           if (session.info) wizards.open({ kind: "clearWorld" });
         }}
+        base={info ? base : null}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

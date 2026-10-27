@@ -18,7 +18,6 @@ import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import styles from "./TechnikArea.module.css";
-import { useBase } from "./useBase";
 import type { BaseApi } from "./useBase";
 
 /** The entries of the list, each with its surface. */
@@ -60,6 +59,8 @@ export type TechnikAreaProps = {
   onHeaderPatchRepaired?: () => void;
   /** "Welt leeren…" (Werkzeuge): opens the wizard that makes the world an empty region with the start town. */
   onClearWorld: () => void;
+  /** The base ROM and the patch (Veröffentlichen), held by the app so a running patch survives leaving Technik; null without a project. */
+  base: BaseApi | null;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -104,19 +105,18 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 /**
  * The area Technik (spec 5.9): a list of five entries with their state, and the surface of the chosen one. Prüfen und Bauen,
  * Veröffentlichen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state
- * and the base ROM are read once per project, when the area shows.
+ * is read once per project, when the area shows; the base ROM comes from the app (`base`).
  */
 export function TechnikArea(props: TechnikAreaProps) {
-  return props.project === null ? <TechnikView {...props} patch={null} base={null} /> : <WithProject key={props.project} {...props} />;
+  return props.project === null ? <TechnikView {...props} patch={null} /> : <WithPatch key={props.project} {...props} />;
 }
 
-function WithProject(props: TechnikAreaProps) {
+function WithPatch(props: TechnikAreaProps) {
   const patch = useHeaderPatch(props.onHeaderPatch, { repaired: props.onHeaderPatchRepaired });
-  const base = useBase();
-  return <TechnikView {...props} patch={patch} base={base} />;
+  return <TechnikView {...props} patch={patch} />;
 }
 
-function TechnikView({ patch, base, ...props }: TechnikAreaProps & { patch: HeaderPatch | null; base: BaseApi | null }) {
+function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatch | null }) {
   const { entry, onEntry, listOpen, onToggleList, lastBuiltAt, emulatorPath, tools } = props;
   const status = useSyncExternalStore(tools.subscribe, tools.get);
   const now = useNow();
@@ -124,7 +124,7 @@ function TechnikView({ patch, base, ...props }: TechnikAreaProps & { patch: Head
   useRovingList(list);
   const subtitles: Record<TechnikEntry, string> = {
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
-    veroeffentlichen: publishSubtitle(base),
+    veroeffentlichen: publishSubtitle(props.base),
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
@@ -141,7 +141,7 @@ function TechnikView({ patch, base, ...props }: TechnikAreaProps & { patch: Head
       {entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (
-        <PublishSurface base={base} project={props.project} onOpenProject={props.onOpenProject} />
+        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (

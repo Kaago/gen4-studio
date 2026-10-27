@@ -26,6 +26,7 @@ export const found = (over: Partial<Extract<BaseStatus, { state: "found" }>> = {
   label: "Platin DE (Testprojekt)",
   path: "/Users/me/Roms/Pokemon - Platin-Edition (Germany).nds",
   source: "known",
+  patch_name: "Sinnoh-Remix-CPUD",
   ...over,
 });
 

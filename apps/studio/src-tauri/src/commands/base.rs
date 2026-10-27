@@ -33,11 +33,14 @@ pub enum BaseStatusDto {
         label: String,
         reason: String,
     },
+    /// `patch_name` is `<Projekt>-<Spielcode>`, the name `create_patch` writes under `build/`
+    /// (`patch::patch_name`), so the app can say where before it asks.
     Found {
         mark: BaseMark,
         label: String,
         path: String,
         source: BaseSource,
+        patch_name: String,
     },
     /// `.g4/base.json` is broken or from a newer version; `reason` is the kernel's sentence
     /// (`MarkState::refusal`). The build is not affected.
@@ -61,7 +64,7 @@ enum Base {
 }
 
 impl Base {
-    fn dto(self) -> BaseStatusDto {
+    fn dto(self, project: &Project) -> BaseStatusDto {
         match self {
             Base::Unassigned(suggestion) => BaseStatusDto::Unassigned {
                 suggestion: suggestion.map(|p| p.display().to_string()),
@@ -77,6 +80,7 @@ impl Base {
                 mark,
                 path: hit.path.display().to_string(),
                 source: hit.source,
+                patch_name: patch::patch_name(project),
             },
         }
     }
@@ -123,7 +127,7 @@ fn base_missing(message: String) -> CmdError {
 /// The base ROM of the open project; searches it like the patch does.
 pub fn base_status_impl(state: &AppState) -> Result<BaseStatusDto, CmdError> {
     let project = open_project(state)?;
-    Ok(base_of(state, &project.root).dto())
+    Ok(base_of(state, &project.root).dto(&project))
 }
 
 /// Checks the `.nds` at `nds` as the base ROM of the open project; writes nothing.
@@ -153,7 +157,7 @@ pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, Cm
     if let Err(e) = state.base_roms.register(nds, &check.info) {
         eprintln!("Basis-ROM nicht gemerkt: {e}");
     }
-    Ok(base_of(state, root).dto())
+    Ok(base_of(state, root).dto(&project))
 }
 
 /// „Basis-ROM suchen…“: remembers the ROM at `path` as the base ROM of the open project, but
@@ -179,7 +183,7 @@ pub fn register_base_rom_impl(state: &AppState, path: &str) -> Result<BaseStatus
         return Err(other_rom(&info.sha1, &mark).into());
     }
     state.base_roms.register(path, &info)?;
-    Ok(base_of(state, &project.root).dto())
+    Ok(base_of(state, &project.root).dto(&project))
 }
 
 /// Builds the open project to `build/<Name>.nds` (as `build_rom`) and writes the patch
@@ -417,6 +421,7 @@ mod tests {
             label,
             path,
             source,
+            patch_name,
         } = &status
         else {
             panic!("{status:?}");
@@ -425,9 +430,14 @@ mod tests {
         assert_eq!(label, &base_label(&mark));
         assert_eq!(canonical(path), canonical(text(&d.nds)));
         assert_eq!(*source, BaseSource::Known);
+        assert_eq!(
+            patch_name,
+            &patch::patch_name(&open_project(&d.state).unwrap())
+        );
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["state"], "found", "{json}");
         assert_eq!(json["source"], "known", "{json}");
+        assert_eq!(json["patch_name"], json!(patch_name), "{json}");
         assert_eq!(json["mark"]["sha1"], json!(mark.sha1), "{json}");
 
         // The ROM is remembered.

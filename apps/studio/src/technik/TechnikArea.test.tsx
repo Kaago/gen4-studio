@@ -11,6 +11,7 @@ import { fakeChecks, finding } from "../checks/checksTesting";
 import type { ChecksApi } from "../checks/useChecks";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
 import { found, missing, patchDto } from "./baseTesting";
+import { useBase } from "./useBase";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
 
@@ -59,6 +60,9 @@ describe("TechnikArea", () => {
   /** The area with its entry kept like App keeps it. */
   function Host({ start = "bauen", ...over }: Partial<TechnikAreaProps> & { start?: TechnikEntry }) {
     const [entry, setEntry] = useState<TechnikEntry>(start);
+    // The app holds the base ROM above the areas (as App does).
+    const project = over.project === undefined ? "/p" : over.project;
+    const base = useBase({ project, active: true });
     return (
       <TechnikArea
         project="/p"
@@ -73,6 +77,7 @@ describe("TechnikArea", () => {
         emulatorPath={null}
         tools={tools}
         {...handlers}
+        base={project === null ? null : base}
         {...over}
         entry={entry}
         onEntry={setEntry}

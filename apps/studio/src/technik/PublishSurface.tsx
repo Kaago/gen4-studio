@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { ReactNode } from "react";
-import { formatBytes, patchName } from "../api";
+import { formatBytes } from "../api";
 import type { BaseCheck, BaseStatus } from "../api";
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, Dialog, EmptyState, Notice } from "../ui/primitives";
@@ -49,18 +49,18 @@ function patchBlocked(status: BaseStatus | null): string | null {
 /**
  * Technik › Veröffentlichen: the card „Basis-ROM“ (state, assign, search a moved ROM) and the card „Patch“ (create it, its
  * result). Assigning asks first with what the check found; the patch asks first too. Nothing here opens by itself: the
- * suggestion of the `.nds` next to the folder shows only in this card and in the list's subtitle. While something runs, no
- * other action that changes the project is offered. `project` is the open project's folder, null without one.
+ * suggestion of the `.nds` next to the folder shows only in this card and in the list's subtitle. While something runs here, or a
+ * build or save of the app (`building`), no action that changes the project is offered. `base` is null without a project.
  */
-export function PublishSurface({ base, project, onOpenProject }: { base: BaseApi | null; project: string | null; onOpenProject: () => void }) {
-  if (base === null || project === null) {
+export function PublishSurface({ base, building, onOpenProject }: { base: BaseApi | null; building: boolean; onOpenProject: () => void }) {
+  if (base === null) {
     return (
       <Surface>
         <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann erstellt Technik hier seinen Patch." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
       </Surface>
     );
   }
-  return <Publish base={base} project={project} />;
+  return <Publish base={base} building={building} />;
 }
 
 function Surface({ children }: { children: ReactNode }) {
@@ -80,19 +80,17 @@ function Surface({ children }: { children: ReactNode }) {
 /** A `.nds` checked and waiting for the answer of the dialog „Basis-ROM zuordnen?“. */
 type Asking = { nds: string; check: BaseCheck };
 
-function Publish({ base, project }: { base: BaseApi; project: string }) {
+function Publish({ base, building }: { base: BaseApi; building: boolean }) {
   const { status, busy } = base;
   const [asking, setAsking] = useState<Asking | null>(null);
   const [askingPatch, setAskingPatch] = useState(false);
+  // „Basis-ROM zugeordnet“ shows after an assignment until the next step starts.
   const [assigned, setAssigned] = useState(false);
-  // Which card started the last step: its failure shows there.
-  const [origin, setOrigin] = useState<"base" | "patch">("base");
   const baseHeading = useId();
   const patchHeading = useId();
-  const running = busy !== null;
+  const running = busy !== null || building;
 
   const ask = async (nds: string) => {
-    setOrigin("base");
     setAssigned(false);
     const check = await base.check(nds);
     if (check !== null) setAsking({ nds, check });
@@ -107,22 +105,22 @@ function Publish({ base, project }: { base: BaseApi; project: string }) {
     setAssigned(true);
   };
   const search = async () => {
-    setOrigin("base");
     setAssigned(false);
     const path = await openPath(PICK);
     if (path !== null) await base.register(path);
   };
   const createPatch = () => {
     setAskingPatch(false);
-    setOrigin("patch");
+    setAssigned(false);
     void base.createPatch();
   };
 
-  const baseError = origin === "base" ? base.error : null;
-  const patchError = origin === "patch" ? base.error : null;
+  // A failure shows in the card whose button started the step (reading the status belongs to „Basis-ROM“).
+  const patchError = base.errorFrom === "patch" ? base.error : null;
+  const baseError = base.errorFrom === "patch" ? null : base.error;
   const blocked = patchBlocked(status);
   const plaque = status === null ? null : PLAQUE[status.state];
-  const name = status !== null && status.state === "found" ? patchName(project, status.mark.game_code) : null;
+  const name = status !== null && status.state === "found" ? status.patch_name : null;
   // After an assignment that went through: the status names the ROM.
   const assignedLabel = assigned && baseError === null && status !== null && (status.state === "found" || status.state === "missing") ? status.label : null;
 
