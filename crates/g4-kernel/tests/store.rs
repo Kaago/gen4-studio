@@ -1887,6 +1887,52 @@ fn text_archive_save_reports_warnings_and_is_stale_after_an_external_change() {
 }
 
 #[test]
+fn save_records_the_written_text_archives() {
+    use g4_kernel::build::state::BuildState;
+    use g4_kernel::text::{TextSide, TextSync};
+
+    let s = common::synthetic_project();
+    let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    for n in [433, 392] {
+        st.edit_text_archive(n, "edit", |d| d.messages[0].text = "Neu".into())
+            .unwrap();
+    }
+    st.edit_map(1, "cell", |m| {
+        m.set_cell(
+            0,
+            0,
+            Cell {
+                kind: 1,
+                collision: 0,
+            },
+        )
+    })
+    .unwrap();
+    assert!(BuildState::load(s.dir.path()).texts.is_empty());
+    st.save().unwrap();
+
+    let texts = BuildState::load(s.dir.path()).texts;
+    assert_eq!(texts.keys().copied().collect::<Vec<_>>(), [392, 433]);
+    for record in texts.values() {
+        // Hashed, so a copy of the project (other inodes) still compares by content.
+        assert!(
+            record.json.is_some_and(|fp| fp.xxh3.is_some()),
+            "{record:?}"
+        );
+        assert!(
+            record.member.is_some_and(|fp| fp.xxh3.is_some()),
+            "{record:?}"
+        );
+    }
+    let p = st.project();
+    let sync = TextSync::load(p);
+    assert_eq!(sync.side(p, 433).unwrap(), TextSide::InSync);
+    assert_eq!(sync.side(p, 392).unwrap(), TextSide::InSync);
+    // An archive the save did not write has no record.
+    assert_eq!(sync.side(p, 6).unwrap(), TextSide::OnlyMember);
+}
+
+#[test]
 fn broken_text_json_is_an_error_naming_the_file() {
     let s = common::synthetic_project();
     let mut st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));

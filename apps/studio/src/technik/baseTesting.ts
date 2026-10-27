@@ -62,6 +62,6 @@ export const patchDto = (over: Partial<PatchDto> = {}): PatchDto => ({
   target_sha1: "aa11bb22cc33dd44ee55ff6677889900aabbccdd",
   encode_ms: 120,
   verify_ms: 30,
-  build: { saved: 0, packed: [["maps", 3]], rom: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.nds", compiled: [], encoded: [], problems: [] },
+  build: { saved: 0, packed: [["maps", 3]], rom: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 },
   ...over,
 });

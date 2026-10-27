@@ -113,9 +113,75 @@ sortiert (unabhängig davon, welche Sprache der Editor zeigt), Segmente wie chat
 `<Projekt>/.g4/tmp`), schreibt dann die JSON atomar und benennt zuletzt die Temp-Datei in
 `unpacked/textArchives/NNNN` um. Die JSON wird nach dem Member nicht mehr angefasst.
 Weil `rename` den Zeitstempel der Temp-Datei behält, ist die mtime der JSON danach nicht
-älter als die des Members (ohne Zeitstempel zu setzen). Das ist die Rangfolge, die
-das Studio beim Laden verlangt: ist der Member neuer als die JSON, wurde er außerhalb des
-Studios geändert (in DSPRE `main`) und gewinnt.
+älter als die des Members (ohne Zeitstempel zu setzen). Das hält DSPREs Regel `--newer` ruhig;
+welche Fassung im Studio gilt, entscheidet die Zeit nicht mehr (nächster Abschnitt).
+
+`write_archive` gilt, wo das Studio die Texte verfasst (Speichern im Store). Ist die JSON die
+Quelle (der Build kodiert eine neuere JSON, das Auflösen behält die JSON), schreibt
+`encode_member` nur den Member: Die JSON behält ihre Bytes, auch eine andere Formatierung oder
+ein Zeilenende am Schluss, so bleibt `git status` nach `git switch` und Bauen sauber. Damit die
+JSON nicht älter als der Member ist, bekommt der Member dann die mtime der JSON, wenn seine
+neuer wäre.
+
+## Welche Fassung gilt
+
+Seit Phase 4.2 entscheiden Fingerabdrücke, nicht die mtime (`text::TextSync`, Implementierung
+`crates/g4-kernel/src/text.rs`). Je Archiv steht in `.g4/build/state.json` unter `texts` der
+letzte Abgleich: die Fingerabdrücke von JSON und Member, als beide zusammenpassten, immer mit
+Inhalts-Hash, dazu der Zeitpunkt der Aufnahme (Format und racy-Regel in
+[build_state.md](build_state.md)). `TextSync::side` vergleicht beide Dateien damit:
+
+| Seite (`TextSide`) | wann | es gilt |
+|---|---|---|
+| `Neither` | keine der beiden Dateien da | – (gepacktes NARC) |
+| `OnlyJson` / `OnlyMember` | nur eine Datei da | diese |
+| `Unknown` | beide da, kein Abgleich aufgezeichnet (kein Bauzustand) | JSON |
+| `InSync` | keine Seite geändert, oder beide geändert und der Member hält schon die Texte der JSON (ein Git-Wechsel, der beide passend tauscht) | JSON |
+| `JsonNewer` | nur die JSON geändert | JSON, der Build kodiert sie |
+| `MemberNewer` | nur der Member geändert (DSPRE) | Member |
+| `Conflict` | beide geändert, die Texte passen nicht | JSON zum Lesen; der Build fragt |
+
+Gleich heißt: gleicher `stat`, oder bei anderem `stat` (Kopie, Checkout, `touch`) gleicher
+Hash. Ein kopiertes oder geklontes Projekt mit seinem `.g4/build/` fragt daher nichts. Die
+Texte („hält der Member die Texte der JSON“: gleicher Schlüssel, gleiche Nachrichten) werden
+nur verglichen, wenn beide Seiten geändert sind.
+
+Aufgezeichnet wird (`text::record_text_sync`) nach jedem Speichern im Store (einmal je `save`
+für alle geschriebenen Archive, ebenso beim Anlegen eines Archivs), nach dem Kodieren im Build
+oder beim Übersetzen der Scripts, wenn der Build ein Archiv `Unknown` oder beidseitig passend
+geändert vorfindet, nach dem Schreiben der JSON aus dem Member (vor rotom, siehe unten) und nach
+dem Auflösen eines Konflikts. Ein veralteter Stand kann die falsche Seite lesen (ein seither
+aufgezeichneter Abgleich lässt einen neueren Member als `Unknown` oder `Conflict` erscheinen, dann
+gälte die JSON). Wer `TextSync` hält, lädt ihn daher neu, sobald `state.json` einen anderen `stat`
+hat (`TextSync::is_current`): der Store bei jedem Lesen und Speichern eines Textarchivs, die
+Prüfungen (`checks::Snapshot`) einmal je Lauf.
+
+**Speichern im Store:** Ein ungespeichertes Archiv mit `Conflict` wird nicht geschrieben; `save`
+gibt `KernelError::TextConflict` zurück, bevor irgendetwas geschrieben ist. Nach dem Auflösen gilt
+die übliche Regel: Weicht die geltende Datei von dem ab, was der Store geladen hat, ist es `Stale`.
+
+**Bauen (`chatot`):** kodiert die Archive mit `OnlyJson`, `JsonNewer` und `Unknown`, deren
+Member die Texte der JSON noch nicht hält; hält er sie schon, wird nur aufgezeichnet. Hat ein
+Archiv `Conflict`, bricht der Schritt mit `KernelError::TextConflict` ab, bevor etwas
+geschrieben ist („text archives changed as JSON and as member since the last build: 0012,
+0013“). Hat der Build `Unknown`-Archive kodiert oder geprüft, hängt er ein Problem der Schwere
+Hinweis an (Datei `.g4/build/state.json`, ohne Position): „N text archives without build state:
+the JSON version applies.“
+
+**Auflösen:** `text::resolve_conflict(project, n, TextKeep)`. `Json` kodiert den Member aus
+der JSON (die JSON behält ihre Bytes), `Member` schreibt die JSON aus dem Member (nur die Editorsprache, IDs
+`msg_NNNNN`). Beides zeichnet auf; der nächste Build läuft durch. Mit `Member` werden in einem
+übernommenen Projekt die Scriptdateien der Header, die das Archiv verwenden, als veraltet markiert
+(`scripts::mark_stale`): Ein Textliteral, das rotom an die verworfene JSON angehängt hatte, hängt
+die nächste Übersetzung wieder an. Markiert wird vor dem Schreiben: Scheitert die Markierung,
+bleibt das Archiv im Konflikt, statt als abgeglichen zu gelten.
+
+**Vor rotom** (`scripts::compile`): Eine JSON mit `MemberNewer` wird aus dem Member neu
+geschrieben und aufgezeichnet, denn rotom liest die JSON ohne diese Regel und hängte sonst an
+eine veraltete Fassung an. Im Build fragt schon der Schritt `rotom`: Hat ein Archiv `Conflict`,
+scheitert er mit `KernelError::TextConflict`, bevor rotom etwas schreibt. Außerhalb des Builds
+(Übersetzen nach dem Speichern der Header-Tabelle) wird ein Archiv mit `Conflict` nach rotoms
+Anhängen nicht kodiert; der nächste Build fragt.
 
 ## Prüfungen
 

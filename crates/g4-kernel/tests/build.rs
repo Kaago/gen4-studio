@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use g4_kernel::build::{build, extract_rom, pack_dir, prepare};
+use g4_kernel::build::{
+    BUILD_DIR, NO_STATE_HINT_FILE, StepStatus, build, clear_cache, extract_rom, pack_dir, prepare,
+    run_source_and_pack_steps, unpacked_unpacked,
+};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::scripts::{self, ScriptSource};
@@ -264,7 +267,7 @@ fn build_temp_files_stay_out_of_files_dir() {
 }
 
 #[test]
-fn hidden_file_below_files_is_error_before_anything_is_written() {
+fn hidden_file_stops_the_build_as_a_compile_problem() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
     p.ensure_unpacked(AssetKind::Map).unwrap();
@@ -275,14 +278,34 @@ fn hidden_file_below_files_is_error_before_anything_is_written() {
     .unwrap();
     let hidden = s.dir.path().join("files/fielddata/land_data/.DS_Store");
     std::fs::write(&hidden, b"junk").unwrap();
+    std::fs::create_dir_all(s.dir.path().join("files/x/.git")).unwrap();
     let before = std::fs::read(s.dir.path().join(MAP_NARC)).unwrap();
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
-    assert!(
-        matches!(err, KernelError::Build(ref m) if m.contains(".DS_Store") && m.contains("hidden")),
-        "{err}"
+    // One problem per hidden entry, as the check names it, so the app lists it in Problems.
+    let KernelError::Compile(problems) = err else {
+        panic!("{err}");
+    };
+    let files: Vec<String> = problems
+        .iter()
+        .map(|p| p.file.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        files,
+        ["files/fielddata/land_data/.DS_Store", "files/x/.git"],
+        "{problems:?}"
     );
+    for problem in &problems {
+        assert_eq!(problem.severity, Severity::Error);
+        assert!(
+            problem.message.starts_with("build.hidden-file: "),
+            "{}",
+            problem.message
+        );
+    }
     assert!(hidden.exists(), "nothing is deleted");
+    // Nothing was written: no archive, no build state.
     assert_eq!(std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(), before);
+    assert!(!s.dir.path().join(BUILD_DIR).join("state.json").exists());
 }
 
 #[test]
@@ -293,6 +316,22 @@ fn build_creates_missing_parent_of_out_rom() {
     // Fails at ds-rom by design on the synthetic project, but the directory is created first.
     build(&p, &out).unwrap_err();
     assert!(s.dir.path().join("a/b").is_dir());
+}
+
+#[test]
+fn write_if_changed_creates_the_parent_folder() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let narc = s.dir.path().join(MAP_NARC);
+    let folder = narc.parent().unwrap();
+    // A clone without the ignored NARCs: the packed map NARC and its folder are gone.
+    std::fs::remove_dir_all(folder).unwrap();
+    // ds-rom fails on the synthetic project; packing happens before it fails.
+    build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(folder.is_dir());
+    let fresh = pack_dir(&p.unpacked_dir(AssetKind::Map)).unwrap().write();
+    assert!(std::fs::read(&narc).unwrap() == fresh);
 }
 
 #[test]
@@ -322,6 +361,64 @@ fn pack_error_writes_no_archive() {
         std::fs::read(s.dir.path().join(MAP_NARC)).unwrap(),
         map_before
     );
+}
+
+#[test]
+fn clear_cache_removes_the_build_folder_and_keeps_g4() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let build_dir = s.dir.path().join(BUILD_DIR);
+    std::fs::create_dir_all(build_dir.join("blz")).unwrap();
+    std::fs::write(build_dir.join("x"), b"cache").unwrap();
+    std::fs::write(build_dir.join("blz/arm9-0.blz"), b"blz").unwrap();
+    std::fs::write(s.dir.path().join(".g4/base.json"), b"{}").unwrap();
+    clear_cache(&p).unwrap();
+    let left: Vec<String> = std::fs::read_dir(s.dir.path().join(".g4"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, vec!["base.json".to_owned()]);
+}
+
+#[test]
+fn clear_cache_keeps_only_the_text_sync_records() {
+    use g4_kernel::build::state::{BuildState, StepRecord, TextRecord};
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let build_dir = s.dir.path().join(BUILD_DIR);
+    std::fs::create_dir_all(build_dir.join("blz")).unwrap();
+    std::fs::write(build_dir.join("blz/arm9-0.blz"), b"blz").unwrap();
+    std::fs::write(s.dir.path().join(".g4/base.json"), b"{}").unwrap();
+    let text = TextRecord {
+        json: None,
+        member: None,
+        scanned_at_ns: 7,
+    };
+    BuildState::update(&p.root, |state| {
+        state.steps.insert("chatot".into(), StepRecord::default());
+        state.texts.insert(12, text.clone());
+    })
+    .unwrap();
+
+    clear_cache(&p).unwrap();
+    let state = BuildState::load(&p.root);
+    assert!(state.steps.is_empty() && state.rom.is_none(), "{state:?}");
+    assert_eq!(state.texts.into_iter().collect::<Vec<_>>(), [(12, text)]);
+    let left: Vec<String> = std::fs::read_dir(&build_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["state.json"], "the BLZ cache is gone");
+    assert!(s.dir.path().join(".g4/base.json").exists());
+}
+
+#[test]
+fn clear_cache_without_folder_is_ok() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert!(!s.dir.path().join(BUILD_DIR).exists());
+    clear_cache(&p).unwrap();
+    assert!(!s.dir.path().join(BUILD_DIR).exists());
 }
 
 #[test]
@@ -558,10 +655,11 @@ fn build_encodes_stale_text_json() {
 
     let pre = prepare(&p).unwrap();
     assert_eq!(pre.encoded, [433], "{pre:?}");
-    assert!(
-        pre.compiled.is_empty() && pre.problems.is_empty(),
-        "{pre:?}"
-    );
+    assert!(pre.compiled.is_empty(), "{pre:?}");
+    // No build state yet: the JSON applied, which the build says.
+    assert_eq!(pre.problems.len(), 1, "{pre:?}");
+    assert_eq!(pre.problems[0].severity, Severity::Info);
+    assert_eq!(pre.problems[0].file, Path::new(NO_STATE_HINT_FILE));
     assert_eq!(member_texts(&p, 433), ["Neu"]);
 
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
@@ -687,35 +785,61 @@ fn text_chatot_refuses_is_a_problem_and_the_other_archives_are_still_encoded() {
     std::thread::sleep(std::time::Duration::from_millis(20));
     write_text_json_chatot_refuses(&p, 5);
     let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
-    assert!(
-        matches!(&err, KernelError::Compile(ps) if ps.len() == 1 && ps[0].file == Path::new("expanded/textArchives/0005.json")),
-        "{err}"
-    );
+    let KernelError::Compile(problems) = &err else {
+        panic!("expected Compile, got {err}");
+    };
+    let errors: Vec<_> = problems
+        .iter()
+        .filter(|p| p.severity == Severity::Error)
+        .collect();
+    assert_eq!(errors.len(), 1, "{problems:?}");
+    assert_eq!(errors[0].file, Path::new("expanded/textArchives/0005.json"));
 }
 
 #[test]
-fn encode_stale_leaves_members_that_won_and_up_to_date_json_alone() {
+fn encode_stale_leaves_members_that_changed_and_synced_json_alone() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();
     p.ensure_unpacked(AssetKind::TextArchive).unwrap();
-    // A JSON older than its member: DSPRE changed the member, the member wins.
-    write_text_json(&p, 433, "Alt");
-    std::thread::sleep(std::time::Duration::from_millis(20));
     let member_path = p.member_path(AssetKind::TextArchive, 433);
-    let member = std::fs::read(&member_path).unwrap();
-    std::fs::write(&member_path, &member).unwrap();
     let json_path = p.expanded_dir(AssetKind::TextArchive).join("0433.json");
+    // A JSON written from the member, recorded in sync as a build would.
+    let doc = TextArchiveDoc::from_member(&std::fs::read(&member_path).unwrap(), "en_US").unwrap();
+    std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
+    std::fs::write(&json_path, doc.to_json()).unwrap();
+    text::record_text_sync(&p, &[433]).unwrap();
+
+    // DSPRE changes the member: it applies, nothing is encoded, however old it looks.
+    let member = common::text_archive_bytes(&["Nowhere", "Twinleaf Town", "Aus DSPRE"]);
+    std::fs::write(&member_path, &member).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&member_path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(3600))
+        .unwrap();
     let json = std::fs::read(&json_path).unwrap();
     let (encoded, problems) = text::encode_stale(&p).unwrap();
     assert!(encoded.is_empty() && problems.is_empty());
     assert_eq!(std::fs::read(&member_path).unwrap(), member);
     assert_eq!(std::fs::read(&json_path).unwrap(), json);
 
-    // A JSON that wins but says what the member says is not encoded (and not rewritten).
-    std::thread::sleep(std::time::Duration::from_millis(20));
-    std::fs::write(&json_path, &json).unwrap();
+    // A JSON that says what the member says is recorded, not encoded (nor rewritten).
+    let doc = TextArchiveDoc::from_member(&member, "en_US").unwrap();
+    let mut other = serde_json::from_slice::<serde_json::Value>(&doc.to_json()).unwrap();
+    other["messages"][0]["de_DE"] = "Nirgendwo".into();
+    let other = serde_json::to_vec_pretty(&other).unwrap();
+    std::fs::write(&json_path, &other).unwrap();
+    let (encoded, _) = text::encode_stale(&p).unwrap();
+    assert!(encoded.is_empty());
+    assert_eq!(std::fs::read(&json_path).unwrap(), other);
+    assert_eq!(std::fs::read(&member_path).unwrap(), member);
+
+    // An edited JSON is encoded once; the second run has nothing to do.
+    write_text_json(&p, 433, "Neu");
     let (encoded, _) = text::encode_stale(&p).unwrap();
     assert_eq!(encoded, [433]);
+    assert_eq!(member_texts(&p, 433), ["Neu"]);
     let (encoded, _) = text::encode_stale(&p).unwrap();
     assert!(encoded.is_empty(), "the second run has nothing to do");
 }
@@ -755,4 +879,87 @@ fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
     let b = std::fs::read(&ours).unwrap();
     assert_eq!(a.len(), b.len());
     assert!(a == b, "ROM bytes differ from dsrom CLI output");
+}
+
+/// A pack entry of `archives.yaml`: DSPRE's `pokeHeight` folder is packed into its NARC by
+/// the step `pack:pokeHeight`, after the archives' steps.
+#[test]
+fn build_packs_a_pack_only_folder() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let dir = s.dir.path().join("unpacked/pokeHeight");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000"), [1u8, 2, 3, 4]).unwrap();
+    std::fs::write(dir.join("0001"), [5u8; 6]).unwrap();
+
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    let at = ids.iter().position(|id| *id == "pack:pokeHeight");
+    let maps = ids.iter().position(|id| *id == "pack:maps");
+    assert!(at > maps && maps.is_some(), "{ids:?}");
+    let row = &rows[at.unwrap()];
+    assert_eq!((row.status, row.done, row.total), (StepStatus::Full, 2, 2));
+    let narc = narc_members(s.dir.path(), "files/poketool/pokegra/height.narc");
+    assert_eq!(narc, vec![vec![1u8, 2, 3, 4], vec![5u8; 6]]);
+
+    // `build` packs it too; `BuildReport::packed` names asset kinds only.
+    std::fs::write(dir.join("0001"), [7u8; 2]).unwrap();
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)), "{err:?}");
+    let narc = narc_members(s.dir.path(), "files/poketool/pokegra/height.narc");
+    assert_eq!(narc[1], vec![7u8; 2]);
+}
+
+/// The folders below `unpacked/` that neither an archive nor a pack entry packs.
+#[test]
+fn unpacked_unpacked_lists_foreign_folders() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert_eq!(unpacked_unpacked(&p).unwrap(), Vec::<String>::new());
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let unpacked = s.dir.path().join("unpacked");
+    for dir in ["pokeHeight", "zForeign", "interiorBuildingModels", ".git"] {
+        std::fs::create_dir_all(unpacked.join(dir)).unwrap();
+    }
+    std::fs::write(unpacked.join("notes.txt"), b"x").unwrap();
+    // Platinum has no interior building models: DSPRE's folder of them is foreign here.
+    assert_eq!(
+        unpacked_unpacked(&p).unwrap(),
+        vec!["interiorBuildingModels".to_owned(), "zForeign".to_owned()]
+    );
+}
+
+/// Gate "Vanilla bleibt byte-gleich" for the pack entries: every entry whose folder exists
+/// in the vanilla project packs back to its NARC byte for byte. Reads the project only.
+#[test]
+fn pack_only_entries_repack_byte_identical() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let mut differ = Vec::new();
+    for (packed, name) in p.archives.pack_only() {
+        let dir = root.join("unpacked").join(name);
+        if !dir.is_dir() {
+            eprintln!("{name}: no folder");
+            continue;
+        }
+        let ours = pack_dir(&dir).unwrap().write();
+        match std::fs::read(root.join(packed)) {
+            Ok(vanilla) if vanilla == ours => eprintln!("{name}: identical ({} bytes)", ours.len()),
+            Ok(vanilla) => differ.push(format!(
+                "{name}: repack differs from {} ({} vs {} bytes)",
+                packed.display(),
+                ours.len(),
+                vanilla.len()
+            )),
+            Err(e) => differ.push(format!(
+                "{name}: no vanilla NARC {} ({e})",
+                packed.display()
+            )),
+        }
+    }
+    eprintln!("not packed: {:?}", unpacked_unpacked(&p).unwrap());
+    assert!(differ.is_empty(), "{differ:#?}");
 }

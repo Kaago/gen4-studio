@@ -45,7 +45,7 @@ describe("TechnikArea", () => {
   let problems: ProblemsStore;
   let checks: ChecksApi;
   let tools: ToolStatusStore;
-  const handlers = { onBuild: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}), onClearWorld: vi.fn() };
+  const handlers = { onBuild: vi.fn(), onBuildFresh: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}), onClearWorld: vi.fn() };
 
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
@@ -88,6 +88,7 @@ describe("TechnikArea", () => {
         canRun
         lastBuiltAt={null}
         lastRom={null}
+        lastSteps={null}
         emulatorPath={null}
         tools={tools}
         {...handlers}
@@ -212,6 +213,43 @@ describe("TechnikArea", () => {
     expect(surface()?.textContent).toContain("Im Browser-Modus wird nur gebaut");
   });
 
+  it("rebuild_without_cache_calls_on_build_fresh", async () => {
+    await render();
+    const fresh = button("Neu bauen (ohne Cache)");
+    expect(fresh?.getAttribute("title")).toBe("Löscht den Bauzustand und baut alles neu");
+    await click(fresh);
+    expect(handlers.onBuildFresh).toHaveBeenCalledOnce();
+    expect(handlers.onBuild).not.toHaveBeenCalled();
+    // While a build runs, it starts none.
+    await render({ busy: true });
+    expect(button("Neu bauen (ohne Cache)")?.disabled).toBe(true);
+  });
+
+  it("shows_the_steps_of_the_last_build", async () => {
+    await render();
+    const heading = [...(surface()?.querySelectorAll("h2") ?? [])].find((h) => h.textContent === "Schritte");
+    expect(heading).toBeDefined();
+    expect(surface()?.textContent).toContain("Noch kein Build in dieser Sitzung.");
+    expect(surface()?.querySelector("[data-step]")).toBeNull();
+
+    const step = { status: "skipped" as const, ms: 0, done: 0, total: 0, cached: 0, reason: null };
+    await render({
+      lastBuiltAt: Date.now(),
+      lastRom: "/roms/out.nds",
+      lastSteps: [
+        { ...step, id: "pack:maps", status: "incremental", ms: 21, done: 1, total: 540 },
+        { ...step, id: "pack:textArchives" },
+        { ...step, id: "rom", status: "full", ms: 50 },
+      ],
+    });
+    expect(surface()?.textContent).not.toContain("Noch kein Build in dieser Sitzung.");
+    expect([...(surface()?.querySelectorAll<HTMLElement>("[data-step]") ?? [])].map((r) => `${r.dataset.step}=${r.dataset.status}`)).toEqual(["pack:maps=incremental", "rom=full"]);
+    expect(surface()?.textContent).toContain("Übersprungen (1)");
+    // The steps come after the last build's facts and before the problems.
+    const headings = [...(surface()?.querySelectorAll("h2") ?? [])].map((h) => h.textContent);
+    expect(headings.slice(0, 2)).toEqual(["Schritte", "Probleme"]);
+  });
+
   it("pruefen_und_bauen_shows_the_findings_in_the_same_table_as_the_problems_panel", async () => {
     const never = finding("warp.never-fires", "info", { key: "warp:5", args: ["5", "8", "4", "0x00", "0x00"] });
     problems.replaceChecks([finding("warp.dest-warp", "error", { args: ["2", "414", "5", "411", "3"] }), never]);
@@ -252,7 +290,7 @@ describe("TechnikArea", () => {
     await click(button("Prüfungen ein- und ausschalten"));
     const list = surface()!.querySelector<HTMLElement>("[role=list][aria-label='Prüfungen ein- und ausschalten']")!;
     const toggle = (code: string) => list.querySelector<HTMLElement>(`[data-check="${code}"] [role=switch]`)!;
-    expect(list.querySelectorAll("[data-check]")).toHaveLength(41);
+    expect(list.querySelectorAll("[data-check]")).toHaveLength(45);
     expect(toggle("encounter.empty-slot").getAttribute("aria-checked")).toBe("true");
     await click(toggle("encounter.empty-slot"));
     expect(checks.setEnabled).toHaveBeenCalledWith("encounter.empty-slot", false);

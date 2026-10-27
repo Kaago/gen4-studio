@@ -71,6 +71,14 @@ enum Command {
         project: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Print one JSON line `{ "ms", "rom", "steps" }` (a row per build step) instead of
+        /// the text lines.
+        #[arg(long)]
+        timings: bool,
+        /// Delete the build cache (`.g4/build/`, all but the text sync) first, so every step
+        /// runs fully.
+        #[arg(long)]
+        no_cache: bool,
     },
     /// Read data members from a built ROM's archives and compare them with expected values.
     /// Personal data and items are read with uxie, moves and learnsets with this project's
@@ -301,9 +309,28 @@ fn run(cli: Cli) -> Result<(), Failure> {
             kind,
             collision,
         }) => Ok(set_perm(&project, index, x, y, Cell { kind, collision })?),
-        Command::Build { project, out } => {
+        Command::Build {
+            project,
+            out,
+            timings,
+            no_cache,
+        } => {
             let project = Project::open(project)?;
+            if no_cache {
+                g4_kernel::build::clear_cache(&project)?;
+            }
             let report = build(&project, &out)?;
+            if timings {
+                print_problems(&report.problems);
+                let line = serde_json::json!({
+                    "ms": report.ms,
+                    "rom": report.rom.display().to_string(),
+                    "steps": report.steps,
+                });
+                println!("{line}");
+                return Ok(());
+            }
+            // The kinds whose pack step ran; skipped ones are missing.
             let mut line = String::from("packed");
             for (kind, count) in &report.packed {
                 line.push_str(&format!(

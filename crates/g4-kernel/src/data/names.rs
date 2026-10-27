@@ -1,7 +1,8 @@
 //! Names and descriptions of species, moves, items, abilities, types, trainers and trainer
 //! classes, read from the text archives of the project (`metadata/text_banks.yaml` says which
 //! archive holds which bank). They are read through [`Store::text_archive`], so an unsaved
-//! rename shows at once and the loader rule (newer member or JSON wins) applies.
+//! rename shows at once and the loader rule applies (`text::TextSync`: the JSON, or the
+//! member when only it changed since the last recorded sync).
 
 use std::collections::{BTreeMap, HashMap};
 

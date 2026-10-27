@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use g4_formats::area_data::AreaData;
 use g4_formats::data::encounter::Encounters;
@@ -26,7 +26,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
-use crate::text::{self, Problem, TextArchiveDoc, TextMessage};
+use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -389,8 +389,17 @@ fn unwritable_reason(value: &Loaded, bytes: &[u8], family: Family) -> Option<Str
     }
 }
 
-/// Reads the bytes of a location, given the editor's text language.
-type DiskReader = fn(&Location, &str) -> Result<Option<Vec<u8>>, KernelError>;
+/// How a [`DiskReader`] reads a location: the editor's text language and, for a text
+/// archive, whether its JSON is the version that applies (else its member), as
+/// [`TextSync`] decides.
+#[derive(Debug, Clone, Copy)]
+struct Reading {
+    lang: &'static str,
+    text_json: bool,
+}
+
+/// Reads the bytes of a location.
+type DiskReader = fn(&Location, Reading) -> Result<Option<Vec<u8>>, KernelError>;
 
 struct Asset {
     /// Bytes of the asset (a whole member, or the header table slice) as last read from or
@@ -817,6 +826,10 @@ pub struct Store {
     /// whenever it is loaded. Derived, never stored, so a reopened project shows it locked as
     /// well.
     placeholder_trainer: Option<u16>,
+    /// The text archives' recorded syncs, which decide whether an archive's JSON or member
+    /// applies; loaded on the first text access and again whenever `state.json` changed
+    /// since (a save, a build, a resolved conflict, see [`TextSync::is_current`]).
+    text_sync: Mutex<Option<Arc<TextSync>>>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -887,6 +900,7 @@ impl Store {
             locks: HashMap::new(),
             placeholder_trainer: crate::scripts::trainer_script_meta(project.family)
                 .map(|meta| meta.seen_id()),
+            text_sync: Mutex::new(None),
             project,
         }
     }
@@ -898,6 +912,48 @@ impl Store {
     /// Locale key of the text language shown in the editor.
     fn lang(&self) -> &'static str {
         self.project.language.locale_key()
+    }
+
+    /// The text archives' recorded syncs as `state.json` holds them now: the loaded ones
+    /// while its `stat` is unchanged (one `stat` per call), else read anew.
+    fn text_sync(&self) -> Arc<TextSync> {
+        let mut held = self.text_sync.lock().unwrap_or_else(|e| e.into_inner());
+        match &*held {
+            Some(sync) if sync.is_current(&self.project) => Arc::clone(sync),
+            _ => {
+                let sync = Arc::new(TextSync::load(&self.project));
+                *held = Some(Arc::clone(&sync));
+                sync
+            }
+        }
+    }
+
+    /// How the file of `id` is read: for a text archive, its JSON or its member by
+    /// [`TextSync`].
+    fn reading(&self, id: AssetId) -> Result<Reading, KernelError> {
+        let text_json = id.kind == AssetKind::TextArchive
+            && self.text_sync().side(&self.project, id.index)?.reads_json();
+        Ok(Reading {
+            lang: self.lang(),
+            text_json,
+        })
+    }
+
+    /// Records the text archives among `written` as in sync (the loaded [`TextSync`] sees the
+    /// new `state.json` on its next use). The state is a cache: a record that cannot be
+    /// written leaves the archive without one (its JSON applies) or with an older one (both
+    /// sides changed and match, so it reads in sync), which is why an error is not the
+    /// save's.
+    fn record_texts(&mut self, written: &[AssetId]) {
+        let texts: Vec<u16> = written
+            .iter()
+            .filter(|id| id.kind == AssetKind::TextArchive)
+            .map(|id| id.index)
+            .collect();
+        if texts.is_empty() {
+            return;
+        }
+        let _ = text::record_text_sync(&self.project, &texts);
     }
 
     /// Unpacks the archive of `kind` on first use per kind.
@@ -927,7 +983,7 @@ impl Store {
         }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
-        let bytes = read(&location, self.lang())?;
+        let bytes = read(&location, self.reading(id)?)?;
         Ok((location, bytes))
     }
 
@@ -1456,7 +1512,7 @@ impl Store {
         let saved = match self.assets.get(&HEADER_TABLE) {
             Some(asset) => {
                 let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
-                let on_disk = read_location(&location, lang)?;
+                let on_disk = read_location(&location, self.reading(HEADER_TABLE)?)?;
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(HEADER_TABLE));
                 }
@@ -1472,7 +1528,7 @@ impl Store {
         let snapshot = dynamic_headers::apply(&self.project, &headers)?;
         if let Some(asset) = self.assets.get(&HEADER_TABLE) {
             let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
-            if read_location(&location, lang)? != asset.saved_bytes {
+            if read_location(&location, self.reading(HEADER_TABLE)?)? != asset.saved_bytes {
                 // Only a locked table (one the codec does not write back byte for byte, so
                 // it was never edited) reads differently from the files: read it anew.
                 self.assets.remove(&HEADER_TABLE);
@@ -1899,6 +1955,7 @@ impl Store {
         }
         // Nothing to warn about in the fixed text.
         text::write_archive(&self.project.root, &json, &member, &doc)?;
+        self.record_texts(&[text_id(index)]);
         self.assets.insert(
             text_id(index),
             Asset {
@@ -1952,13 +2009,20 @@ impl Store {
 
     /// The index entry of `archive` from the disk; empty when it cannot be read or decoded.
     fn index_archive(&self, archive: u16, lang: &str) -> Vec<IndexedText> {
+        let reads_json = |archive| {
+            self.text_sync()
+                .side(&self.project, archive)
+                .is_ok_and(|side| side.reads_json())
+        };
         let doc = self
             .project
             .asset_location(AssetKind::TextArchive, archive)
             .ok()
             .and_then(|location| match location {
                 Location::TextSource { json, member } => {
-                    read_text_doc(&json, &member, lang).ok().flatten()
+                    read_text_doc(&json, &member, lang, reads_json(archive))
+                        .ok()
+                        .flatten()
                 }
                 _ => None,
             });
@@ -2380,6 +2444,11 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.locked.as_deref())
     }
 
+    /// Whether the store holds `id` (it was read, edited or created since it was opened).
+    pub fn is_loaded(&self, id: AssetId) -> bool {
+        self.assets.contains_key(&id)
+    }
+
     /// True if the serialized current value differs from the bytes last saved or loaded,
     /// or cannot be serialized. Assets that were never loaded, and locked (read-only) ones,
     /// are clean.
@@ -2411,16 +2480,32 @@ impl Store {
     /// Writes every dirty asset. First checks that each file (for the header table: its
     /// slice of `arm9.bin`, or the concatenation of its header files) still holds the bytes
     /// this store last saw; if any does not,
-    /// returns [`KernelError::Stale`] and writes nothing. A header table save re-reads
-    /// `arm9.bin` right before writing and replaces only the table's bytes in it, so changes
-    /// made to the rest of the file meanwhile are kept.
+    /// returns [`KernelError::Stale`] and writes nothing. A dirty text archive whose JSON and
+    /// member both changed since their last recorded sync ([`TextSide::Conflict`]) is
+    /// [`KernelError::TextConflict`], again before anything is written. A header table save
+    /// re-reads `arm9.bin` right before writing and replaces only the table's bytes in it, so
+    /// changes made to the rest of the file meanwhile are kept.
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
+        // A text archive whose JSON and member both changed since their last sync is not
+        // overwritten: the user picks a version first (`text::resolve_conflict`).
+        let sync = self.text_sync();
+        let mut conflicts = Vec::new();
+        for id in self.dirty() {
+            if id.kind == AssetKind::TextArchive
+                && sync.side(&self.project, id.index)? == TextSide::Conflict
+            {
+                conflicts.push(id.index);
+            }
+        }
+        if !conflicts.is_empty() {
+            return Err(KernelError::TextConflict(conflicts));
+        }
         let mut pending = Vec::new();
         for id in self.dirty() {
             let location = self.project.asset_location(id.kind, id.index)?;
             // A text archive that no longer decodes differs from what was loaded: stale.
-            let on_disk = read_base(&location, self.lang())?;
+            let on_disk = read_base(&location, self.reading(id)?)?;
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(id));
@@ -2469,6 +2554,7 @@ impl Store {
             report.written.push(id);
             self.drop_text_index(id);
         }
+        self.record_texts(&report.written);
         crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
     }
@@ -2519,14 +2605,17 @@ fn corrupt(change: Option<&mut Changeset>, part: usize) {
 
 /// The bytes at `location`. `None`: the file does not exist (for header files: one of
 /// them), or (for a slice) it is too short to contain it. A text archive reads as its
-/// canonical JSON, see [`read_text_doc`]; `lang` is the editor's text language.
-fn read_location(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelError> {
+/// canonical JSON, see [`read_text_doc`].
+fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>>, KernelError> {
     let (path, slice) = match location {
         Location::Member(path) => (path, None),
         Location::Slice { path, offset, len } => (path, Some((*offset, *len))),
         Location::HeaderFiles { dir, count } => return dynamic_headers::read_files(dir, *count),
         Location::TextSource { json, member } => {
-            return Ok(read_text_doc(json, member, lang)?.map(|doc| doc.to_json()));
+            return Ok(
+                read_text_doc(json, member, reading.lang, reading.text_json)?
+                    .map(|doc| doc.to_json()),
+            );
         }
         // Both files or nothing: a pair with a missing file is absent.
         Location::MemberPair { props, party } => {
@@ -2584,20 +2673,19 @@ fn write_pair(
     Ok(())
 }
 
-/// Like [`read_location`], but a text archive whose winning file does not decode reads as
-/// that file's raw bytes instead of failing. Those never equal the canonical JSON the store
+/// Like [`read_location`], but a text archive whose file that applies does not decode reads
+/// as that file's raw bytes instead of failing. Those never equal the canonical JSON the store
 /// saves, so for the stale check an undecodable file is "changed on disk" (`save` returns
 /// `Stale`), and `accept_disk_as_base` can adopt it as a base that keeps the asset dirty
 /// until a save overwrites the file with the store's version.
-fn read_base(location: &Location, lang: &str) -> Result<Option<Vec<u8>>, KernelError> {
+fn read_base(location: &Location, reading: Reading) -> Result<Option<Vec<u8>>, KernelError> {
     let Location::TextSource { json, member } = location else {
-        return read_location(location, lang);
+        return read_location(location, reading);
     };
-    match read_text_doc(json, member, lang) {
-        Err(KernelError::InvalidProject(_)) => match text::text_winner(json, member)? {
-            Some(path) => std::fs::read(path).map(Some).map_err(io_at(path)),
-            None => Ok(None),
-        },
+    match read_text_doc(json, member, reading.lang, reading.text_json) {
+        Err(KernelError::InvalidProject(_)) => {
+            read_file(if reading.text_json { json } else { member })
+        }
         other => Ok(other?.map(|doc| doc.to_json())),
     }
 }
@@ -2625,23 +2713,25 @@ fn text_error_at(path: &Path, error: KernelError) -> KernelError {
     }
 }
 
-/// A text archive as the loader rule (spec 4.1) sees it: the JSON when it exists and is not
-/// older than the member, else the decoded member. `None` when neither file exists.
+/// A text archive as the loader rule sees it: the decoded JSON when `reads_json` (the JSON
+/// applies, [`text::TextSide::reads_json`]), else the decoded member. `None` when that file
+/// does not exist.
 fn read_text_doc(
     json: &Path,
     member: &Path,
     lang: &str,
+    reads_json: bool,
 ) -> Result<Option<TextArchiveDoc>, KernelError> {
-    let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
-    match text::text_winner(json, member)? {
-        Some(path) if path == json => TextArchiveDoc::from_json(&read(json)?, lang)
-            .map(Some)
-            .map_err(|e| text_error_at(json, e)),
-        Some(path) => TextArchiveDoc::from_member(&read(path)?, lang)
-            .map(Some)
-            .map_err(|e| text_error_at(member, e)),
-        None => Ok(None),
-    }
+    let path = if reads_json { json } else { member };
+    let Some(bytes) = read_file(path)? else {
+        return Ok(None);
+    };
+    let doc = if reads_json {
+        TextArchiveDoc::from_json(&bytes, lang)
+    } else {
+        TextArchiveDoc::from_member(&bytes, lang)
+    };
+    doc.map(Some).map_err(|e| text_error_at(path, e))
 }
 
 /// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.
@@ -3283,18 +3373,52 @@ mod tests {
             assert!(st.undo().unwrap().is_empty());
         }
 
+        /// [`write_both`] with the same text on both sides, recorded as in sync, then
+        /// `json_text` written to the JSON or else `member_text` to the member, with an
+        /// mtime older than the other side's: the time decides nothing.
+        fn sync_then_change(st: &mut Store, json_text: Option<&str>, member_text: Option<&str>) {
+            write_both(st, "Alt", "Alt", true);
+            crate::text::record_text_sync(st.project(), &[433]).unwrap();
+            let old = SystemTime::now() - Duration::from_secs(200);
+            if let Some(text) = json_text {
+                let json = json_path(st, 433);
+                let doc = TextArchiveDoc::from_member(
+                    &text_archive_bytes(&["Nowhere", text, "Sandgem Town"]),
+                    "en_US",
+                )
+                .unwrap();
+                std::fs::write(&json, doc.to_json()).unwrap();
+                set_mtime(&json, old);
+            } else if let Some(text) = member_text {
+                let member = st.project().member_path(AssetKind::TextArchive, 433);
+                std::fs::write(
+                    &member,
+                    text_archive_bytes(&["Nowhere", text, "Sandgem Town"]),
+                )
+                .unwrap();
+                set_mtime(&member, old);
+            }
+        }
+
         #[test]
-        fn member_newer_than_json_wins() {
+        fn a_member_changed_since_the_sync_wins() {
             let (_s, mut st) = store();
-            write_both(&mut st, "Alt", "Neu", false);
+            sync_then_change(&mut st, None, Some("Neu"));
             assert_eq!(st.text_archive(433).unwrap().messages[1].text, "Neu");
             assert!(!st.is_dirty(ARCHIVE));
         }
 
         #[test]
-        fn json_newer_than_member_wins() {
+        fn a_json_changed_since_the_sync_wins() {
             let (_s, mut st) = store();
-            write_both(&mut st, "Alt", "Neu", true);
+            sync_then_change(&mut st, Some("Neu"), None);
+            assert_eq!(st.text_archive(433).unwrap().messages[1].text, "Neu");
+        }
+
+        #[test]
+        fn without_a_build_state_the_json_wins_even_when_older() {
+            let (_s, mut st) = store();
+            write_both(&mut st, "Alt", "Neu", false);
             assert_eq!(st.text_archive(433).unwrap().messages[1].text, "Alt");
         }
 

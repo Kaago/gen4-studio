@@ -220,7 +220,7 @@ pub(crate) fn create_patch_checked(
             targets.rom.display()
         ))
     })?;
-    let build = super::build_rom_impl(state, rom)?;
+    let build = super::build_rom_impl(state, rom, false)?;
     // The build takes the session as it is then: another project opened meanwhile was built.
     if !Arc::ptr_eq(&open_project(state)?, &project) {
         return Err(
@@ -568,7 +568,7 @@ mod tests {
         let out = d.root.join("build/out.nds");
         // The synthetic project has no real ds-rom config: the build fails the same way with
         // and without a mark, never because of the base.
-        let plain = build_rom_impl(&d.state, text(&out)).unwrap_err();
+        let plain = build_rom_impl(&d.state, text(&out), false).unwrap_err();
 
         put_mark(&d.root, "{kaputt");
         let status = base_status_impl(&d.state).unwrap();
@@ -583,7 +583,7 @@ mod tests {
             serde_json::to_value(&status).unwrap(),
             json!({ "state": "unreadable", "reason": reason })
         );
-        let broken = build_rom_impl(&d.state, text(&out)).unwrap_err();
+        let broken = build_rom_impl(&d.state, text(&out), false).unwrap_err();
         assert_eq!((broken.code, &broken.message), (plain.code, &plain.message));
         // No patch either, with the same reason.
         let err = create_patch_impl(&d.state).unwrap_err();
@@ -603,7 +603,7 @@ mod tests {
             reason,
             "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3)."
         );
-        let newer = build_rom_impl(&d.state, text(&out)).unwrap_err();
+        let newer = build_rom_impl(&d.state, text(&out), false).unwrap_err();
         assert_eq!((newer.code, &newer.message), (plain.code, &plain.message));
     }
 
@@ -636,7 +636,7 @@ mod tests {
         let err = create_patch_impl(&d.state).unwrap_err();
         assert_ne!(err.code, "base_missing", "{}", err.message);
         let targets = patch_targets(&d.state).unwrap();
-        let plain = build_rom_impl(&d.state, text(&targets.rom)).unwrap_err();
+        let plain = build_rom_impl(&d.state, text(&targets.rom), false).unwrap_err();
         assert_eq!((err.code, &err.message), (plain.code, &plain.message));
         assert!(!targets.patch.exists());
     }
@@ -661,6 +661,8 @@ mod tests {
                 compiled: vec![],
                 encoded: vec![],
                 problems: vec![],
+                steps: vec![],
+                ms: 42,
             },
         };
         assert_eq!(
@@ -681,6 +683,8 @@ mod tests {
                     "compiled": [],
                     "encoded": [],
                     "problems": [],
+                    "steps": [],
+                    "ms": 42,
                 },
             })
         );

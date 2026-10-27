@@ -17,6 +17,8 @@ export interface CheckMessage {
   severity: "error" | "warning" | "info";
   title: string;
   text: string;
+  /** The sentence when argument 1, a count, is „1“ (the singular: „1 Datei hat sich geändert“). */
+  one?: string;
   building?: { title?: string; text: string };
 }
 
@@ -217,6 +219,31 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     title: "Rate über 255",
     text: "Die Rate {1} ist größer als 255, das Spiel liest nur {2}. Wähle eine Rate bis 255.",
   },
+  "build.hidden-file": {
+    group: "cheap",
+    severity: "error",
+    title: "Versteckte Datei im ROM-Ordner",
+    text: "Die versteckte Datei {0} liegt unter files/ und käme beim Bauen in die ROM; der Build bricht daran ab. „Entfernen“ verschiebt sie nach .g4/backup.",
+  },
+  "build.member-gap": {
+    group: "cheap",
+    severity: "error",
+    title: "Lücke im Archivordner",
+    text: "Im Ordner unpacked/{0} passt {1} nicht in die Reihe 0000, 0001, …; der Build bricht daran ab. Ergänze die fehlende Datei oder entferne die fremde.",
+  },
+  "build.unpacked-not-packed": {
+    group: "cheap",
+    severity: "warning",
+    title: "Ordner wird nicht gepackt",
+    text: "Im Ordner unpacked/{0} haben sich {1} Dateien geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+    one: "Im Ordner unpacked/{0} hat sich 1 Datei geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+  },
+  "build.base-missing": {
+    group: "cheap",
+    severity: "info",
+    title: "Basis-ROM unbekannt",
+    text: "Das Projekt kennt seine Basis-ROM nicht. „Patch erstellen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik zu („Basis-ROM zuordnen…“).",
+  },
   "asset.unreadable": {
     group: "cheap",
     severity: "error",
@@ -388,7 +415,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
 export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth): string {
   const m = CHECK_MESSAGES[f.code];
   if (!m) return f.message;
-  const text = (depth === "bauen" ? m.building?.text : undefined) ?? m.text;
+  const text = (depth === "bauen" ? m.building?.text : undefined) ?? (f.args[1] === "1" ? m.one : undefined) ?? m.text;
   if (f.code === "asset.unreadable") {
     const [kind = "", index = "", why = ""] = f.args;
     const name = assetName(kind, index, depth);

@@ -214,3 +214,74 @@ fn project_start_empty_region_from_the_rom() {
     assert_eq!(checks.groups.len(), 3);
     assert!(errors.is_empty(), "{errors:#?}");
 }
+
+/// Gated (`G4_TEST_ROM`): a new project built three times to one path: once from scratch,
+/// once without a change (the ROM step skips), once after a map was edited and its old
+/// content saved back. Each time the ROM's SHA-1 is the one of the base mark.
+#[test]
+fn project_start_incremental_build_matches_the_rom() {
+    use g4_kernel::build::StepStatus;
+
+    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
+        eprintln!("skipped: G4_TEST_ROM not set");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("neu");
+    create_project(&nds, &dest, Template::Original, &mut |_| {}).unwrap();
+    let mark = read_base_mark(&dest).expect("base mark");
+    let project = std::sync::Arc::new(g4_kernel::project::Project::open(&dest).unwrap());
+    let out = tmp.path().join("out.nds");
+    let sha1 = || hex(&Sha1::digest(std::fs::read(&out).unwrap()));
+    let rom_row = |report: &g4_kernel::build::BuildReport| {
+        report
+            .steps
+            .iter()
+            .find(|r| r.id == "rom")
+            .map(|r| r.status)
+    };
+
+    let first = g4_kernel::build::build(&project, &out).unwrap();
+    assert_eq!(sha1(), mark.sha1, "first build");
+    assert_eq!(rom_row(&first), Some(StepStatus::Full));
+
+    let second = g4_kernel::build::build(&project, &out).unwrap();
+    assert_eq!(rom_row(&second), Some(StepStatus::Skipped));
+    assert_eq!(sha1(), mark.sha1, "build without a change");
+
+    let mut store = g4_kernel::store::Store::new(std::sync::Arc::clone(&project));
+    for _ in 0..2 {
+        store
+            .edit_map(0, "Kollision", |m| {
+                let mut cell = m.cell(0, 0)?;
+                cell.collision ^= 0x80;
+                m.set_cell(0, 0, cell)
+            })
+            .unwrap();
+        store.save().unwrap();
+    }
+    let third = g4_kernel::build::build(&project, &out).unwrap();
+    eprintln!(
+        "{}: {} / {} / {} ms, {:?}",
+        mark.game_code, first.ms, second.ms, third.ms, third.steps
+    );
+    // The saves reached the disk: the third build packed the maps again (fully, as the
+    // store's save created the member folder after the first build, or by splicing).
+    let maps_id = format!(
+        "pack:{}",
+        project
+            .archives
+            .unpacked_name(g4_kernel::project::AssetKind::Map)
+    );
+    let maps = third
+        .steps
+        .iter()
+        .find(|r| r.id == maps_id)
+        .unwrap_or_else(|| panic!("no row {maps_id} in {:?}", third.steps));
+    assert_ne!(maps.status, StepStatus::Skipped, "{maps:?}");
+    assert_eq!(
+        sha1(),
+        mark.sha1,
+        "build after a map edited and written back"
+    );
+}

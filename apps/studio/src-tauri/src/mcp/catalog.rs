@@ -193,7 +193,7 @@ fn finding_args() -> Value {
             ),
             "fix": {
                 "type": "string",
-                "enum": ["wrap", "append_message", "swap_min_max", "create_script"],
+                "enum": ["wrap", "append_message", "swap_min_max", "create_script", "remove_hidden"],
                 "description": "the fix, one of the finding's fixes[].id",
             },
         }),
@@ -851,7 +851,8 @@ static TOOLS: &[ToolDef] = &[
         name: "apply_fix",
         title: "Apply fix",
         description: "Applies a fix to a finding as plan_fix describes it; create_script \
-                      cannot be undone. Headless (studio mcp) create_script needs \
+                      (creates a script file) and remove_hidden (moves a hidden file below \
+                      files/ to .g4/backup) cannot be undone. Headless (studio mcp) both need \
                       --allow-irreversible, without it the call answers needs_confirmation.",
         input_schema: finding_args,
         output_schema: answers_object,
@@ -908,19 +909,68 @@ static TOOLS: &[ToolDef] = &[
         name: "build_rom",
         title: "Build ROM",
         description: "Saves the project and builds a playable ROM, by default to \
-                      build/<game code>.nds in the project.",
+                      build/<game code>.nds in the project; only the steps whose inputs \
+                      changed run (the answer lists them under steps), and fresh drops the \
+                      build cache first so every step runs fully. Text archives whose JSON and \
+                      member both changed since the last build stop it with the error \
+                      text_conflict (one problem per archive), which resolve_text_conflicts \
+                      decides.",
         input_schema: || {
             object(
-                json!({ "out": text(
-                    "target file, relative to the project folder; default build/<game \
-                     code>.nds; outside build/ only in an allowed folder, and then it cannot \
-                     be undone"
-                ) }),
+                json!({
+                    "out": text(
+                        "target file, relative to the project folder; default build/<game \
+                         code>.nds; outside build/ only in an allowed folder, and then it \
+                         cannot be undone"
+                    ),
+                    "fresh": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "drop the build cache (.g4/build/, all but the \
+                                        text sync) first and build every step fully",
+                    },
+                }),
                 &[],
             )
         },
         output_schema: answers_object,
         route: command("build_rom"),
+    },
+    ToolDef {
+        name: "resolve_text_conflicts",
+        title: "Resolve text conflicts",
+        description: "Decides text archives whose JSON and member both changed since the last \
+                      build (build_rom and save answer text_conflict and name them): per \
+                      archive keep json (the member is encoded from the JSON) or member (the \
+                      JSON is written from the member); the other version is overwritten, \
+                      which cannot be undone, and the answer lists the archives. Headless \
+                      (studio mcp) it needs --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
+        input_schema: || {
+            object(
+                json!({
+                    "choices": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "one choice per archive in conflict",
+                        "items": object(
+                            json!({
+                                "archive": uint("the text archive"),
+                                "keep": {
+                                    "type": "string",
+                                    "enum": ["json", "member"],
+                                    "description": "the version that applies",
+                                },
+                            }),
+                            &["archive", "keep"],
+                        ),
+                    },
+                }),
+                &["choices"],
+            )
+        },
+        output_schema: answers_array,
+        route: command("resolve_text_conflicts"),
     },
     // Special.
     ToolDef {
@@ -1232,6 +1282,7 @@ mod tests {
             "build_rom",
             "assign_base",
             "create_patch",
+            "resolve_text_conflicts",
         ]
         .into_iter()
         .collect();
@@ -1362,6 +1413,7 @@ mod tests {
             "project_preview_set",
             "assign_base",
             "create_patch",
+            "resolve_text_conflicts",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1370,6 +1422,12 @@ mod tests {
                 "{name}: {description}"
             );
         }
+        // Both fixes that cannot be undone are named.
+        let fix = tool("apply_fix").description;
+        assert!(
+            fix.contains("create_script") && fix.contains("remove_hidden"),
+            "{fix}"
+        );
     }
 
     #[test]
@@ -1389,6 +1447,11 @@ mod tests {
         assert_eq!(
             tool("edit_text").command_args(json!({ "archive": 433, "edit": "Append" })),
             json!({ "index": 433, "edit": "Append" })
+        );
+        // A build keeps its cache unless asked to build fresh.
+        assert_eq!(
+            tool("build_rom").command_args(json!({ "out": "build/a.nds" })),
+            json!({ "out": "build/a.nds", "fresh": false })
         );
         // No arguments at all are no arguments.
         assert_eq!(tool("history").command_args(Value::Null), json!({}));
@@ -1495,6 +1558,10 @@ mod tests {
             ("check_base", json!({ "nds": "fehlt.nds" })),
             ("assign_base", json!({ "nds": "fehlt.nds" })),
             ("create_patch", json!({})),
+            (
+                "resolve_text_conflicts",
+                json!({ "choices": [{ "archive": 433, "keep": "json" }] }),
+            ),
         ]
     }
 

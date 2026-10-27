@@ -127,3 +127,55 @@ unveränderten DSPRE-Ordner, sobald ihm seine `.nds` zugeordnet ist: die Marke m
 liefert die Secure-Area-CRC (gated Test `base_assign_on_the_vanilla_folder_has_no_warning_and_rebuilds_the_nds`,
 Platin DE `d40f19ac24d67c721a4ab25e1c013154443d75b4`). Ohne Marke weicht ein solcher Neubau genau in
 den vier Bytes `0x6C..0x6E` und `0x15E..0x160` ab.
+
+## Der Ordner `.g4`
+
+`.g4/` ist der Werkzeugordner von Gen4 Studio im Projekt. Er hat zwei Teile, die sich verschieden
+verhalten:
+
+- **Die oberste Ebene ist Projekt-Metadaten und versioniert:** `base.json` (diese Marke) und
+  `preview.png` (das Vorschaubild des Projekts). Sie gehören zum Projekt wie die Quellen und
+  wandern mit ihm in Git.
+- **Die Unterordner sind lokal und dürfen jederzeit gelöscht werden:**
+
+  | Ordner | Inhalt |
+  |---|---|
+  | `cache/` | berechnete Ansichten, zum Beispiel das Standard-Vorschaubild |
+  | `tmp/` | Temp-Dateien atomarer Schreibvorgänge (Schreiben, dann Umbenennen) |
+  | `build/` | der Build-Cache (`build::BUILD_DIR`): `blz/` und der Bauzustand |
+  | `backup/` | Sicherungen vor Umbauten, zum Beispiel `dynamicHeaders-<Zeit>/` |
+  | `models/` | der Cache der Kartenmodelle (GLB über apicula) |
+
+  Fehlt einer, legt der Kernel ihn bei Bedarf neu an. Ohne `build/` baut der nächste Build voll
+  und byte-gleich, der Ordner ist Cache, nie Quelle. „Neu bauen (ohne Cache)“ löscht ihn
+  (`build::clear_cache`).
+
+Projektdateien wie `g4-checks.json` und `g4-world.json` liegen in der Projektwurzel, weil sie
+Projektinhalt sind, nicht weil `.g4/` gelöscht werden dürfte.
+
+### BLZ-Cache `build/blz/`
+
+ds-rom komprimiert beim Laden eines Projekts das ARM9 und jedes Overlay mit `compressed: true`
+(BLZ), und das ist der größte Teil eines Builds. Der Build lädt darum ohne Kompression
+(`RomLoadOptions { compress: false, .. }`) und holt die komprimierten Bytes aus dem Cache
+(`crates/g4-kernel/src/build/blz.rs`):
+
+| Datei | Schlüssel |
+|---|---|
+| `ov<NNN>-<xxh3>.blz` | `NNN` die Overlay-ID, `xxh3` über die unkomprimierten Bytes |
+| `arm9-<xxh3>.blz` | `xxh3` über die unkomprimierten Bytes, dazu die Basisadresse |
+
+`xxh3` hat 16 Hex-Ziffern, sein Seed ist der Hash der `Cargo.lock`-Zeile von ds-rom (beim ARM9
+mit der Basisadresse, die nach dem Komprimieren in der Build-Info steht). Nach einem Update von
+ds-rom trifft darum kein alter Eintrag mehr, auch wenn der Kompressor andere Bytes schreibt.
+
+Ein Treffer setzt die Bytes als komprimiertes Modul ein, ein Fehlschlag komprimiert wie ds-rom
+und legt die Datei ab (über `tmp/` und Umbenennen). Passt die Fußzeile einer Datei nicht zum
+Modul (Länge, Kopflänge, Zuwachs beim Entpacken), etwa weil sie abgeschnitten ist, gilt sie als
+Fehlschlag und wird überschrieben. Die ROM ist dieselbe wie mit ds-roms eigener Kompression
+(gated Test `blz_cache_path_equals_rom_load` je Projekt). Signiert `arm9_overlays/overlays.yaml`
+ein Overlay oder die Tabelle, lädt der Build wie ds-rom mit Kompression (`BlzReport.fallback`);
+in Platin und HeartGold kommt das nicht vor. In den DSPRE-Ordnern von HeartGold DE und US liegen
+nach dem ersten Build 128 Dateien im Ordner (127 von 129 Overlays und das ARM9), in dem von
+Platin DE keine (dort ist nichts als komprimiert markiert). Alte Einträge bleiben liegen, bis der
+Ordner gelöscht wird.

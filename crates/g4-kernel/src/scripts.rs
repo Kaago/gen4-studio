@@ -7,7 +7,7 @@
 //! DSPRE leave. rotom compiles them straight into `unpacked/scripts/NNNN` (the DSPRE
 //! contract); the build packs that folder like any other.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use g4_formats::game::Family;
@@ -18,13 +18,15 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
-use crate::text::{Problem, Severity, TextArchiveDoc, text_winner, write_archive};
+use crate::text::{
+    Problem, Severity, TextArchiveDoc, TextSide, TextSync, record_text_sync, write_archive,
+};
 
 mod project_compile;
 
 pub const ROTOM_TOML: &str = "rotom.toml";
 
-const DATABASE_DIR: &str = ".rotom/command_database";
+pub(crate) const DATABASE_DIR: &str = ".rotom/command_database";
 const CACHE_DIR: &str = ".rotom/cache";
 const STATUS_DIR: &str = ".rotom/status";
 pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
@@ -117,10 +119,26 @@ fn load_config(project: &Project) -> Result<rotom::project_config::RotomConfig, 
     Ok(config)
 }
 
+/// rotom's compile state (`<status_dir>/compile-state.json`) and the include roots of
+/// `rotom.toml`, resolved against the project root. Without a configuration that loads:
+/// the default status folder and no include roots.
+pub(crate) fn watched_paths(project: &Project) -> (PathBuf, Vec<PathBuf>) {
+    match load_config(project) {
+        Ok(config) => (
+            config.status_dir(&project.root).join("compile-state.json"),
+            config.include_roots(&project.root),
+        ),
+        Err(_) => (
+            project.root.join(STATUS_DIR).join("compile-state.json"),
+            Vec::new(),
+        ),
+    }
+}
+
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
 /// way and no lower-case one exists (compared by exact name, so a case-insensitive file
 /// system does not hide the difference).
-fn member_dir(project: &Project) -> PathBuf {
+pub(crate) fn member_dir(project: &Project) -> PathBuf {
     let unpacked = project.root.join("unpacked");
     let has = |name: &str| {
         std::fs::read_dir(&unpacked)
@@ -504,9 +522,7 @@ fn materialize_text_json(
     n: u16,
     known: &mut BTreeMap<u16, u64>,
 ) -> Result<bool, KernelError> {
-    let json = project
-        .expanded_dir(AssetKind::TextArchive)
-        .join(format!("{n:04}.json"));
+    let json = crate::text::json_path(project, n);
     if json.exists() {
         return Ok(false);
     }
@@ -522,32 +538,51 @@ fn materialize_text_json(
         std::fs::create_dir_all(dir).map_err(io_at(dir))?;
     }
     write_atomic(&project.root, &json, &bytes)?;
+    // Written from the member: the two are in sync.
+    record_text_sync(project, &[n])?;
     known.insert(n, xxh3_64(&bytes));
     Ok(true)
 }
 
-/// Rewrites every `expanded/textArchives/NNNN.json` that is older than its member (DSPRE
-/// changed the member) from the member, by the store's loader rule: rotom reads the JSON
-/// without any mtime rule, so it would number and append messages against a stale file and
-/// the later encode would overwrite the member's newer content. The member stays untouched;
-/// the new JSON is not older than it, so the store agrees.
-fn refresh_stale_text_json(project: &Project) -> Result<(), KernelError> {
+/// Rewrites every `expanded/textArchives/NNNN.json` whose member applies by the store's
+/// loader rule ([`TextSide::MemberNewer`]: DSPRE changed the member since the last recorded
+/// sync) from the member, and records it as in sync: rotom reads the JSON without any such
+/// rule, so it would number and append messages against a stale file and the later encode
+/// would overwrite the member's newer content. The member stays untouched. Archives whose
+/// sides both changed consistently are recorded too. Returns the archives in
+/// [`TextSide::Conflict`]: [`compile`] does not encode them, the build asks.
+fn refresh_stale_text_json(project: &Project) -> Result<BTreeSet<u16>, KernelError> {
     let lang = project.language.locale_key();
+    let sync = TextSync::load(project);
+    let mut conflicts = BTreeSet::new();
+    let mut synced = Vec::new();
     for n in numbered_files(&project.expanded_dir(AssetKind::TextArchive), Some("json"))? {
-        let json = project
-            .expanded_dir(AssetKind::TextArchive)
-            .join(format!("{n:04}.json"));
-        let member = project.member_path(AssetKind::TextArchive, n);
-        if text_winner(&json, &member)? != Some(member.as_path()) {
-            continue;
+        match sync.check(project, n)? {
+            (TextSide::MemberNewer, _) => {}
+            (TextSide::InSync, true) => {
+                synced.push(n);
+                continue;
+            }
+            (TextSide::Conflict, _) => {
+                conflicts.insert(n);
+                continue;
+            }
+            _ => continue,
         }
+        let member = project.member_path(AssetKind::TextArchive, n);
         let bytes = std::fs::read(&member).map_err(io_at(&member))?;
         // An undecodable member is left to the text editor to report.
         if let Ok(doc) = TextArchiveDoc::from_member(&bytes, lang) {
-            write_atomic(&project.root, &json, &doc.to_json())?;
+            write_atomic(
+                &project.root,
+                &crate::text::json_path(project, n),
+                &doc.to_json(),
+            )?;
+            synced.push(n);
         }
     }
-    Ok(())
+    record_text_sync(project, &synced)?;
+    Ok(conflicts)
 }
 
 /// Makes the rotom sources of script files `files` stale in rotom's compile state, so the
@@ -600,7 +635,7 @@ pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
 pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
     let config = load_config(project)?;
     let root = &project.root;
-    refresh_stale_text_json(project)?;
+    let conflicts = refresh_stale_text_json(project)?;
     let mut before = text_json_hashes(project)?;
     let state_path = config.status_dir(root).join("compile-state.json");
     let quirks = saved_quirks(&state_path);
@@ -673,10 +708,10 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         // The member folder must be complete before one member lands in it.
         project.ensure_unpacked(AssetKind::TextArchive)?;
         let lang = project.language.locale_key();
-        for &n in &touched_archives {
-            let json = project
-                .expanded_dir(AssetKind::TextArchive)
-                .join(format!("{n:04}.json"));
+        let mut encoded = Vec::new();
+        // An archive in conflict keeps its member: the build's text step asks first.
+        for &n in touched_archives.iter().filter(|n| !conflicts.contains(n)) {
+            let json = crate::text::json_path(project, n);
             let bytes = std::fs::read(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
             let member = project.member_path(AssetKind::TextArchive, n);
@@ -686,12 +721,14 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
                         problem.file = relative(root, &problem.file);
                         problems.push(problem);
                     }
+                    encoded.push(n);
                 }
                 // rotom already wrote the script's member and appended to the JSON: report
                 // the refused archive and carry on, `touched_archives` keeps it.
                 Err(e) => problems.push(archive_failure(root, &json, n, e)?),
             }
         }
+        record_text_sync(project, &encoded)?;
     }
     problems.sort_by(|a, b| (&a.file, a.line, a.col).cmp(&(&b.file, b.line, b.col)));
     Ok(CompileReport {
@@ -1913,9 +1950,14 @@ mod tests {
         )
         .unwrap();
         assert!(encoded.messages.iter().any(|m| m.text == "Hallo Welt"));
-        // The JSON is not older than the member, so the editor and DSPRE keep using it.
+        // The JSON is not older than the member, so DSPRE (`--newer`) keeps using it, and
+        // the two are recorded in sync for the editor.
         let modified = |p: &Path| std::fs::metadata(p).unwrap().modified().unwrap();
         assert!(modified(&json_path) >= modified(&member_path));
+        assert_eq!(
+            crate::text::TextSync::load(&p).side(&p, 433).unwrap(),
+            crate::text::TextSide::InSync
+        );
     }
 
     #[test]
@@ -2491,7 +2533,7 @@ AlreadyGiven:
     }
 
     #[test]
-    fn a_member_newer_than_its_json_wins_and_gets_the_new_literal() {
+    fn a_member_changed_since_the_sync_wins_and_gets_the_new_literal() {
         let (_s, p) = adopted();
         p.ensure_unpacked(AssetKind::TextArchive).unwrap();
         let json_path = p.expanded_dir(AssetKind::TextArchive).join("0433.json");
@@ -2503,7 +2545,8 @@ AlreadyGiven:
         .unwrap();
         std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
         std::fs::write(&json_path, stale.to_json()).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        // The two in sync, as after a build.
+        crate::text::record_text_sync(&p, &[433]).unwrap();
         // DSPRE changed the member afterwards.
         let edited = crate::test_support::text_archive_bytes(&[
             "Nowhere",

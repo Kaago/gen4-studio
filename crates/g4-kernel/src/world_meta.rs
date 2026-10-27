@@ -1,7 +1,9 @@
 //! What the world tree knows that the ROM does not (phase 3e.2) and the project file
 //! `g4-world.json` that keeps it: the names of world maps, the names of rooms, and the rooms
 //! the user assigned to an area by hand. Like `g4-checks.json` the file lives in the project
-//! root (not in `.g4/`, which may be deleted), is read robustly (a broken file reads empty,
+//! root, because it is project content (the top level of `.g4/` is versioned metadata such as
+//! `base.json` and `preview.png`; its folders `cache/`, `tmp/`, `build/`, `backup/` and
+//! `models/` are local and may be deleted). It is read robustly (a broken file reads empty,
 //! with the reason, and never keeps the project closed; ruling R15) and is written whole and
 //! atomically. It is never overwritten while it cannot be read: the caller checks `load`
 //! before it calls `save`.

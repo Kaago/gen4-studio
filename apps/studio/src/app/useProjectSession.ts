@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
-import type { AssetId, BuildReport, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo } from "../api";
+import { acceptDisk, buildRom, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives } from "../api";
+import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, TextKeep } from "../api";
 import { staleText } from "../assets";
+import { formatSeconds } from "../technik/stepWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -32,6 +33,33 @@ function storeEmulator(path: string) {
     /* the choice is simply asked again next time */
   }
 }
+
+/** „Textarchiv 0012“, „Textarchive 0012, 0045 und 0433“: the archives a conflict names. */
+function archivesText(archives: readonly number[]): string {
+  const names = archives.map((a) => String(a).padStart(4, "0"));
+  if (names.length === 1) return `Textarchiv ${names[0]}`;
+  return `Textarchive ${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
+}
+
+/**
+ * A save met text archives changed as JSON and as member: the save asks nothing itself, the next build does (a ruling of 4.2). Without
+ * archives (an error without problems) the backend's message stands.
+ */
+function saveConflictText(e: CmdError): string {
+  const archives = textConflictArchives(e);
+  if (archives.length === 0) return e.message;
+  const verb = archives.length === 1 ? "wurde" : "wurden";
+  return `${archivesText(archives)} ${verb} als Text und als Spieldatei geändert. Wähle beim nächsten „Bauen“, welche Fassung gilt.`;
+}
+
+/** Ends a sentence of the backend with a full stop. */
+const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+/**
+ * A build waiting for the user to choose which version of each archive in conflict applies; it then goes to `out` with the same `fresh`.
+ * `play`: the build came from „Hier spielen“, so the ROM is started after it. `resolving`: the choice is being written (the dialog waits).
+ */
+export type TextConflicts = { archives: number[]; out: string; fresh: boolean; play: boolean; resolving: boolean };
 
 function forgetEmulator() {
   try {
@@ -68,6 +96,14 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
+  /** The steps of the last build (null: none since this project was opened). */
+  const [lastSteps, setLastSteps] = useState<BuildStep[] | null>(null);
+  /** Whether the last build was started with „Neu bauen (ohne Cache)“. */
+  const [lastBuildFresh, setLastBuildFresh] = useState(false);
+  /** The error texts the builds of this session showed: a successful build closes their toasts (errors stay until closed otherwise). */
+  const buildErrors = useRef(new Set<string>());
+  /** A build stopped by text archives in conflict: the dialog asks, `resolveConflicts` builds again. */
+  const [textConflicts, setTextConflicts] = useState<TextConflicts | null>(null);
   /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
   const [emulatorPath, setEmulatorPath] = useState<string | null>(() => storedEmulator());
   const [counts, setCounts] = useState<MemberCounts>({});
@@ -119,6 +155,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     const locked = eventReadOnlyReason(e);
     if (locked !== null) {
       setMessage({ kind: "error", text: lockedText(locked) });
+      return;
+    }
+    if (isCmdError(e) && e.code === "text_conflict") {
+      setMessage({ kind: "error", text: saveConflictText(e) });
       return;
     }
     if (isCmdError(e) && e.code === "stale" && e.asset) {
@@ -197,6 +237,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setInfo(opened);
       setLastRom(null);
       setLastBuiltAt(null);
+      setLastSteps(null);
+      setLastBuildFresh(false);
+      setTextConflicts(null);
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
@@ -275,15 +318,16 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
    * The one build path of the session: `busy` while it runs (the app's open, save and build guards read it), the open scripts saved first
    * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
    * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or `create_patch`, which builds before it writes the
-   * patch). After it the build's time and problems are the session's, its ROM becomes the last ROM only with `ownsRom` (a patch's ROM is
-   * not „Hier spielen“'s target: building there would change the ROM its notes name), and the unsaved edits are read again. A compile
-   * failure puts its problems into the store; every failure is thrown on. Answers what `run` answered and how many store files were saved
-   * ahead of the scripts.
+   * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache), its ROM becomes the last ROM
+   * only with `ownsRom` (a patch's ROM is not „Hier spielen“'s target: building there would change the ROM its notes name), and the unsaved
+   * edits are read again. A compile failure puts its problems into the store; every failure is thrown on. Answers what `run` answered and how
+   * many store files were saved ahead of the scripts.
    */
   async function guardedBuild<R>(
     run: () => Promise<R>,
     reportOf: (result: R) => BuildReport,
     ownsRom: boolean,
+    fresh = false,
   ): Promise<{ result: R; storeSaved: number }> {
     setBusy(true);
     try {
@@ -294,6 +338,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       const report = reportOf(result);
       if (ownsRom) setLastRom(report.rom);
       setLastBuiltAt(Date.now());
+      setLastSteps(report.steps);
+      setLastBuildFresh(fresh);
       problems.applyBuildReport(report.problems);
       return { result, storeSaved };
     } catch (e) {
@@ -307,27 +353,74 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   /**
    * Builds the ROM (saving first). Without `known` the output path is asked for; with it (the path of an earlier build) no dialog opens.
-   * Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build).
+   * `fresh` („Neu bauen (ohne Cache)“) drops the build state first, so every step runs fully. `play`: the build of „Hier spielen“ (kept
+   * with a text conflict, so the caller of `resolveConflicts` can start the ROM). Resolves to the ROM's path, or null when nothing was built
+   * (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
    */
-  async function onBuild(known?: string): Promise<string | null> {
+  async function onBuild(known?: string, fresh = false, play = false): Promise<string | null> {
+    let out: string | null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
-      const out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
-      if (!out) return null;
+      out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+    if (!out) return null;
+    return buildTo(out, fresh, play, false);
+  }
+
+  /** Shows an error of a build; the next successful build closes its toast. */
+  function buildError(shown: Message) {
+    buildErrors.current.add(shown.text);
+    setMessage(shown);
+  }
+
+  /** Closes the error toasts of earlier builds that are still open: the build they were about went through now. */
+  function closeBuildErrors() {
+    for (const shown of listToasts()) if (shown.kind === "error" && buildErrors.current.has(shown.text)) toast.dismiss(shown.id);
+    buildErrors.current.clear();
+  }
+
+  /**
+   * Saves and builds to `out` on the session's build path. `resolved`: the build after a text conflict was resolved; a conflict now asks no
+   * second time.
+   */
+  async function buildTo(out: string, fresh: boolean, play: boolean, resolved: boolean): Promise<string | null> {
+    try {
       setMessage({ kind: "info", text: "Baue ROM ..." });
-      const { result: report, storeSaved } = await guardedBuild(() => buildRom(out), (r) => r, true);
-      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
+      const { result: report, storeSaved } = await guardedBuild(() => buildRom(out, fresh), (r) => r, true, fresh);
+      closeBuildErrors();
+      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} in ${formatSeconds(report.ms)} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
       return report.rom;
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
-        const errors = (e.problems ?? []).filter((p) => p.severity === "error").length;
+        const list = e.problems ?? [];
+        const errors = list.filter((p) => p.severity === "error").length;
+        // Hidden files under files/ (source "build"): the backend's message counts them apart and says how to remove them.
+        const hidden = list.some((p) => p.severity === "error" && (p.source === "build" || p.message.startsWith("build.hidden-file")));
+        const actions = onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined;
         // Spec 5.7: the one toast a compile problem gets. The problems themselves went to the store and its counts.
-        setMessage(
-          errors > 0
-            ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions: onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined }
-            : { kind: "error", text: `Build abgebrochen: ${e.message}` },
+        buildError(
+          hidden
+            ? { kind: "error", text: sentence(e.message), actions }
+            : errors > 0
+              ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions }
+              : { kind: "error", text: `Build abgebrochen: ${e.message}` },
         );
+      } else if (isCmdError(e) && e.code === "text_conflict" && textConflictArchives(e).length > 0) {
+        const archives = textConflictArchives(e);
+        if (resolved) {
+          // Changed again since the choice (or another archive): no loop of questions; the next „Bauen“ asks afresh.
+          const verb = archives.length === 1 ? "ist" : "sind";
+          buildError({ kind: "error", text: `Build abgebrochen: ${archivesText(archives)} ${verb} nach dem Auflösen wieder auf beiden Seiten geändert. Baue erneut, dann fragt das Studio noch einmal.` });
+        } else {
+          setMessage(null);
+          setTextConflicts({ archives, out, fresh, play, resolving: false });
+        }
       } else {
+        // The plain error of a build (a stale or locked asset of the save keeps its own words and way out).
+        buildErrors.current.add(errorText(e));
         fail(e);
       }
       return null;
@@ -336,11 +429,45 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   /**
    * „Patch erstellen“ (Technik › Veröffentlichen) on the session's build path: saving, Bauen and opening wait for it, and its build counts
-   * as the last build (time, problems), but the ROM it built (`build/<Name>.nds`, named with its SHA-1 in the notes) does not become the
-   * last ROM, so „Hier spielen“ never builds over it. A failure is thrown on: the patch card says why.
+   * as the last build (time, steps, problems), but the ROM it built (`build/<Name>.nds`, named with its SHA-1 in the notes) does not become
+   * the last ROM, so „Hier spielen“ never builds over it. A failure is thrown on: the patch card says why.
    */
   async function buildPatch(): Promise<PatchDto> {
     return (await guardedBuild(createPatch, (dto) => dto.build, false)).result;
+  }
+
+  /**
+   * „Übernehmen und bauen“ of the text conflict: resolves each archive as chosen, then builds again to the same path with the same `fresh`.
+   * While the choice is written the dialog stays open and waits (`resolving`, the session is busy); it closes when the build starts. A refused
+   * resolve says why and builds nothing. Resolves to the ROM's path, or null when nothing was built; whether to start it is `play` of the
+   * conflict.
+   */
+  async function resolveConflicts(choices: { archive: number; keep: TextKeep }[]): Promise<string | null> {
+    const pending = textConflicts;
+    if (pending === null || pending.resolving) return null;
+    setTextConflicts({ ...pending, resolving: true });
+    setBusy(true);
+    let archives: number[];
+    try {
+      archives = await resolveTextConflicts(choices);
+    } catch (e) {
+      setTextConflicts(null);
+      setBusy(false);
+      fail(e);
+      await refreshDirty();
+      return null;
+    }
+    setTextConflicts(null);
+    // The text panel and the language server read the overwritten archives again.
+    for (const archive of archives) bus.emit({ topic: "textData", archive });
+    if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
+    return buildTo(pending.out, pending.fresh, pending.play, true);
+  }
+
+  /** „Abbrechen“ of the text conflict: nothing is built, nothing is overwritten. */
+  function cancelConflicts() {
+    setTextConflicts(null);
+    setMessage({ kind: "info", text: "Nichts gebaut. Beim nächsten „Bauen“ fragt das Studio wieder, welche Fassung gilt." });
   }
 
   async function pickEmulator(): Promise<string | null> {
@@ -392,6 +519,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     busy,
     lastRom,
     lastBuiltAt,
+    lastSteps,
+    lastBuildFresh,
+    textConflicts,
     emulatorPath,
     counts,
     dirtyRevision,
@@ -406,6 +536,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     onSave,
     onBuild,
     buildPatch,
+    resolveConflicts,
+    cancelConflicts,
     onPickEmulator,
     onRun,
     patchRepaired,

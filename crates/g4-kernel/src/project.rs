@@ -194,8 +194,9 @@ impl std::fmt::Display for AssetId {
 struct ArchiveEntry {
     packed: String,
     packed_jp: Option<String>,
-    /// Paths for single games of the family, keyed by the first three characters of the
-    /// game code (SoulSilver `IPG`, Pearl `APA`); they take precedence over `packed_jp`.
+    /// Paths for single games of the family, keyed by the game code (Platinum DE `CPUD`) or
+    /// its first three characters (SoulSilver `IPG`, Pearl `APA`), the full code first; they
+    /// take precedence over `packed_jp`.
     by_game: Option<BTreeMap<String, String>>,
     unpacked: String,
 }
@@ -227,6 +228,10 @@ struct FamilyArchives {
     trainer_text_offsets: ArchiveEntry,
     item_icons: ArchiveEntry,
     mon_icons: ArchiveEntry,
+    /// Folders DSPRE unpacks that no asset kind covers, packed by the build only (see
+    /// [`ArchiveMap::pack_only`]). DP has none.
+    #[serde(default)]
+    pack_only: Vec<ArchiveEntry>,
 }
 
 /// DSPRE folder names of the optional archives. They are also reported for families
@@ -267,6 +272,8 @@ pub struct ArchiveMap {
     /// Indexed by `AssetKind::slot`; `None`: the archive does not exist in this family (or
     /// the kind has none, like the header table).
     entries: [Option<(PathBuf, String)>; AssetKind::ALL.len()],
+    /// See [`ArchiveMap::pack_only`].
+    pack_only: Vec<(PathBuf, String)>,
 }
 
 impl ArchiveMap {
@@ -290,7 +297,11 @@ impl ArchiveMap {
         let japanese = language == Language::Japanese;
         let game = game_code.get(..3).unwrap_or(game_code);
         let resolve = |mut e: ArchiveEntry| {
-            let packed = match (e.by_game.as_mut().and_then(|m| m.remove(game)), e.packed_jp) {
+            let by_game = e
+                .by_game
+                .as_mut()
+                .and_then(|m| m.remove(game_code).or_else(|| m.remove(game)));
+            let packed = match (by_game, e.packed_jp) {
                 (Some(path), _) => path,
                 (None, Some(jp)) if japanese => jp,
                 _ => e.packed,
@@ -326,6 +337,7 @@ impl ArchiveMap {
                 // The trainer is a pair of the two trainer archives, no archive of its own.
                 None,
             ],
+            pack_only: archives.pack_only.into_iter().map(resolve).collect(),
         })
     }
 
@@ -349,6 +361,14 @@ impl ArchiveMap {
             None if kind == AssetKind::Trainer => TRAINER_PAIR_NAME,
             None => INTERIOR_UNPACKED_NAME,
         }
+    }
+
+    /// The pack entries of the family (`pack_only` in `archives.yaml`): the packed path
+    /// (relative to the project root) and the folder name below `unpacked/` of each folder
+    /// DSPRE unpacks that no asset kind covers. The build packs them like the archives; no
+    /// editor reads them.
+    pub fn pack_only(&self) -> &[(PathBuf, String)] {
+        &self.pack_only
     }
 
     /// All kinds that have an archive in this family, in `AssetKind::ALL` order. The header

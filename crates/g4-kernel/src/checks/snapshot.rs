@@ -11,7 +11,9 @@
 //! Text archives and script sources are cached between runs in a [`SnapshotCache`] that the
 //! caller keeps (the session's checks state) and hands to the next snapshot: an entry is reused
 //! while its key matches, the archive's text generation plus the stamp (length, modification
-//! time) of the file it came from, or for a script the stamp of its source.
+//! time) of the file it came from, or for a script the stamp of its source. Which file a text
+//! archive comes from, its JSON or its member, [`TextSync`] decides; the cache keeps it while
+//! the stamp of `.g4/build/state.json` stays the same.
 //!
 //! A value that cannot be read never stops a run: the accessor returns `None` and the snapshot
 //! names it in [`Snapshot::unreadable`] for the `asset.unreadable` check.
@@ -33,13 +35,14 @@ use serde::Serialize;
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
+use super::build::{BuildFacts, CachedUnpacked};
 use super::scripts::{ScriptFacts, ScriptInput, facts_of};
 use crate::disk::Disk;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, SourceKind};
 use crate::store::Loaded;
-use crate::text::{self, TextArchiveDoc};
+use crate::text::{self, TextArchiveDoc, TextSide, TextSync};
 
 /// What a check run takes from the store under its lock; see
 /// [`crate::store::Store::snapshot_overlay`]. Lists are sorted by kind and index.
@@ -116,6 +119,12 @@ type Cached<T> = (u64, Result<Arc<T>, String>);
 pub struct SnapshotCache {
     texts: HashMap<u16, Cached<TextEntry>>,
     scripts: HashMap<u16, Cached<ScriptEntry>>,
+    /// The text archives' recorded syncs of an earlier run, reused while `state.json` is
+    /// unchanged ([`TextSync::is_current`]).
+    text_sync: Option<Arc<TextSync>>,
+    /// The build checks' facts of the folders below `unpacked/` of an earlier run, with their
+    /// key (see [`BuildFacts`]).
+    build_facts: Option<CachedUnpacked>,
 }
 
 impl SnapshotCache {
@@ -174,6 +183,8 @@ pub struct Snapshot {
     /// Per script file: what the script checks read from it ([`Snapshot::script_facts`]).
     script_facts: OnceLock<Vec<OnceLock<Arc<ScriptFacts>>>>,
     packed_text_stamp: OnceLock<Option<(u64, u128)>>,
+    text_sync: OnceLock<Arc<TextSync>>,
+    build_facts: OnceLock<Arc<BuildFacts>>,
     cache: Mutex<SnapshotCache>,
     unreadable: Mutex<BTreeMap<(usize, Option<u16>), Unreadable>>,
     /// Work the running check left undone ([`Snapshot::note_skip`]), until the runner takes it.
@@ -200,6 +211,8 @@ impl Snapshot {
             scripts: OnceLock::new(),
             script_facts: OnceLock::new(),
             packed_text_stamp: OnceLock::new(),
+            text_sync: OnceLock::new(),
+            build_facts: OnceLock::new(),
             cache: Mutex::new(cache),
             unreadable: Mutex::new(BTreeMap::new()),
             skips: Mutex::new(Vec::new()),
@@ -467,8 +480,8 @@ impl Snapshot {
         })
     }
 
-    /// Text archive `index`: the store's unsaved document, else the disk's file the loader
-    /// rule picks (the JSON when it is not older than the member), else the packed member.
+    /// Text archive `index`: the store's unsaved document, else the disk's file that applies
+    /// by [`TextSync`] (the JSON or the member), else the packed member.
     /// `None` when it does not exist or does not decode (named in [`Snapshot::unreadable`]).
     pub fn text_archive(&self, index: u16) -> Option<Arc<TextEntry>> {
         self.text_slots()
@@ -537,16 +550,31 @@ impl Snapshot {
             .ok()
     }
 
+    /// The text archives' recorded syncs: those of the last run while `state.json` is
+    /// unchanged, else read anew (once per snapshot).
+    fn text_sync(&self) -> &TextSync {
+        self.text_sync.get_or_init(|| {
+            let mut cache = lock(&self.cache);
+            if let Some(sync) = &cache.text_sync
+                && sync.is_current(&self.project)
+            {
+                return Arc::clone(sync);
+            }
+            let sync = Arc::new(TextSync::load(&self.project));
+            cache.text_sync = Some(Arc::clone(&sync));
+            sync
+        })
+    }
+
     /// Which file text archive `index` is read from, with its stamp; `None` when there is none.
     fn text_file(&self, index: u16) -> Result<Option<(TextStamp, TextFile)>, KernelError> {
         let kind = AssetKind::TextArchive;
-        let json = self
-            .project
-            .expanded_dir(kind)
-            .join(format!("{index:04}.json"));
+        let json = text::json_path(&self.project, index);
         let member = self.project.member_path(kind, index);
-        if let Some(path) = text::text_winner(&json, &member)? {
-            let is_json = path == json;
+        let side = self.text_sync().side(&self.project, index)?;
+        if side != TextSide::Neither {
+            let is_json = side.reads_json();
+            let path = if is_json { &json } else { &member };
             let (len, modified) = file_stamp(path)?;
             let which = if is_json {
                 TextFile::Json(json)
@@ -717,6 +745,22 @@ impl Snapshot {
                     ScriptInput::LevelJson(&entry.source),
                 )),
                 SourceKind::Binary => from_member(self),
+            })
+            .clone()
+    }
+
+    // --- build ---
+
+    /// What the build checks read, once per snapshot; the facts of the folders below
+    /// `unpacked/` come from the cache while their key holds (see [`BuildFacts`]).
+    pub(crate) fn build_facts(&self) -> Arc<BuildFacts> {
+        self.build_facts
+            .get_or_init(|| {
+                // Read without holding the cache, which the text and script loads share.
+                let mut cached = lock(&self.cache).build_facts.take();
+                let facts = BuildFacts::read(&self.project, &mut cached);
+                lock(&self.cache).build_facts = cached;
+                Arc::new(facts)
             })
             .clone()
     }

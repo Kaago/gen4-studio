@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encounterProblemFile, trainerProblemFile } from "../../api";
 import type { CheckProblemDto, ProblemDto } from "../../api";
 import { finding } from "../../checks/checksTesting";
-import { ProblemsStore, countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, scriptPath, textArchiveOf, trainerOf } from "./problems";
+import { NO_STATE_HINT_FILE, ProblemsStore, buildProblemText, countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, scriptPath, textArchiveOf, trainerOf } from "./problems";
 
 const problem = (file: string, line: number, message: string, severity: ProblemDto["severity"] = "error", source: ProblemDto["source"] = "compile"): ProblemDto => ({
   severity,
@@ -125,6 +125,17 @@ describe("ProblemsStore", () => {
     store.applyBuildReport([problem(B, 4, "fresh warning", "warning")]);
     expect(store.list().map((p) => p.message)).toEqual(["kept warning", "fresh warning", "text warning"]);
     expect(store.counts()).toEqual({ errors: 0, warnings: 3, infos: 0 });
+  });
+
+  it("build_rows_keep_their_source_and_go_with_the_next_build_that_does_not_report_them", () => {
+    const store = new ProblemsStore();
+    const hint = problem(NO_STATE_HINT_FILE, 0, "3 text archives without build state: the JSON version applies.", "info", "build");
+    const hidden = problem("files/data/.DS_Store", 0, "build.hidden-file: files/data/.DS_Store is hidden", "error", "build");
+    store.applyReport([hidden]);
+    store.applyBuildReport([hint]);
+    expect(store.list().map((p) => [p.file, p.source])).toEqual([[NO_STATE_HINT_FILE, "build"]]);
+    store.applyBuildReport([]);
+    expect(store.list()).toEqual([]);
   });
 
   it("replace_data_replaces_one_members_rows_and_never_piles_them_up", () => {
@@ -266,5 +277,22 @@ describe("problem paths", () => {
     expect(countsText({ errors: 2, warnings: 1, infos: 3 })).toBe("2 Fehler, 1 Warnung, 3 Hinweise");
     expect(countsText({ errors: 0, warnings: 0, infos: 1 })).toBe("1 Hinweis");
     expect(countsText({ errors: 0, warnings: 0, infos: 0 })).toBe("");
+  });
+});
+
+describe("buildProblemText", () => {
+  it("words_the_build_rows_in_german", () => {
+    expect(buildProblemText({ file: NO_STATE_HINT_FILE, message: "3 text archives without build state: the JSON version applies." })).toBe(
+      "3 Textarchive ohne Bauzustand: die JSON-Fassung gilt.",
+    );
+    expect(buildProblemText({ file: NO_STATE_HINT_FILE, message: "1 text archive without build state: the JSON version applies." })).toBe(
+      "1 Textarchiv ohne Bauzustand: die JSON-Fassung gilt.",
+    );
+    const hidden = "build.hidden-file: files/data/.DS_Store is hidden and below files/, so it would be packed into the ROM";
+    expect(buildProblemText({ file: "files/data/.DS_Store", message: hidden })).toBe(
+      "Die versteckte Datei files/data/.DS_Store liegt unter files/ und käme beim Bauen in die ROM; der Build bricht daran ab. „Entfernen“ verschiebt sie nach .g4/backup.",
+    );
+    // A sentence the backend already words in German stays as it is.
+    expect(buildProblemText({ file: "expanded/textArchives/0012.json", message: "Textarchiv 0012 …" })).toBe("Textarchiv 0012 …");
   });
 });

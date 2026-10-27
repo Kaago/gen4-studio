@@ -22,6 +22,10 @@ type Phase =
 
 const UNSAVED_ARCHIVE = /^text archive (\d+) has unsaved changes/;
 
+/** The kernel's stand-in for the time a moved file's backup folder gets (UTC, taken when it moves), in the dialog's words. */
+const BACKUP_TIME = "<time>";
+const backupPath = (to: string) => to.replace(BACKUP_TIME, "<UTC-Zeitpunkt>");
+
 /**
  * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ with „Speichern und
  * anlegen“ when creating a script meets an unsaved text archive (the compile rewrites text archives); else a German sentence with the way
@@ -36,7 +40,8 @@ function failure(e: unknown, plan: FixPlanDto | null): Phase {
 }
 
 /**
- * „Beheben…“ of a finding (spec 3b.4 §6): the preview of its first fix (`plan_fix`) as before and after per changed asset, „Nicht rückgängig“
+ * „Beheben…“ of a finding (spec 3b.4 §6): the preview of its first fix (`plan_fix`) as before and after per changed asset and a line „{path} →
+ * {to}“ per file it moves, „Nicht rückgängig“
  * for a fix undo cannot take back, then one step (`apply_fix`). It closes when the finding is gone; it stays with „Nicht behoben“ when the
  * check still reports it, and says „Befund ist nicht mehr aktuell“ (and offers to check again) when its subject changed meanwhile.
  */
@@ -117,6 +122,13 @@ export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckP
             {plan.changes.map((change) => (
               <BeforeAfter key={`${change.asset.kind}:${change.asset.index}`} label={change.label} before={change.before} after={change.after} />
             ))}
+            {plan.files && plan.files.length > 0 && (
+              <ul className={styles.files}>
+                {plan.files.map((file) => (
+                  <li key={file.path} data-fix-file>{`${file.path} → ${backupPath(file.to)}`}</li>
+                ))}
+              </ul>
+            )}
           </>
         )}
         {phase.kind === "applying" && <p role="status">Behebe …</p>}

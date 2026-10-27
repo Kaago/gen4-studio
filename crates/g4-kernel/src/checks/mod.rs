@@ -20,6 +20,7 @@ use uxie::map_header::MapHeader;
 
 use crate::project::{AssetId, AssetKind};
 
+mod build;
 mod data;
 #[cfg(test)]
 mod fake;
@@ -32,9 +33,10 @@ pub mod snapshot;
 mod text;
 mod world;
 
+pub(crate) use build::BuildFacts;
 pub(crate) use scripts::ScriptFacts;
 
-pub use fix::{FixChange, FixPlan, FixResult, apply_fix, plan_fix};
+pub use fix::{FixChange, FixFileChange, FixPlan, FixResult, apply_fix, plan_fix};
 pub use ignore::{
     IGNORE_FILE, IgnoreFile, IgnoreKey, IgnoreSet, fingerprint_text, parse_fingerprint,
 };
@@ -151,6 +153,8 @@ pub enum FixId {
     SwapMinMax,
     /// Create the missing script.
     CreateScript,
+    /// Move a hidden entry below `files/` to `.g4/backup/hidden-<time>/`.
+    RemoveHidden,
 }
 
 /// How a check is scheduled: cheap ones run on every change, the others per script file or
@@ -314,6 +318,9 @@ pub(crate) trait Source {
     /// Notes that the running check left part of its work undone (a script file it cannot
     /// decode, say); the runner reports it in `skipped` next to the check's findings.
     fn note_skip(&self, why: String);
+    /// What the build checks read: hidden entries below `files/`, member folders out of
+    /// sequence, changed folders the build does not pack, the base mark.
+    fn build_facts(&self) -> Arc<BuildFacts>;
 }
 
 impl Source for Snapshot {
@@ -395,6 +402,9 @@ impl Source for Snapshot {
     fn note_skip(&self, why: String) {
         Snapshot::note_skip(self, why);
     }
+    fn build_facts(&self) -> Arc<BuildFacts> {
+        Snapshot::build_facts(self)
+    }
 }
 
 /// A check of the catalogue: runs on a [`Source`] (the world and data checks in the cheap
@@ -442,11 +452,11 @@ impl Registry {
     }
 
     /// Every registered check, in catalogue order: the world checks (the place checks last),
-    /// the data checks, `asset.unreadable` (the last cheap one, it reads every member the
-    /// cheap checks use first), then the script checks (per script file) and the text checks
+    /// the data checks, the build checks, `asset.unreadable` (the last cheap one, it reads
+    /// every member the cheap checks use first), then the script checks (per script file) and the text checks
     /// (per text archive).
     pub fn all() -> &'static [&'static dyn Check] {
-        static ALL: [&dyn Check; 41] = [
+        static ALL: [&dyn Check; 45] = [
             &world::WarpDestHeader,
             &world::WarpDestWarp,
             &world::WarpOffMap,
@@ -478,6 +488,10 @@ impl Registry {
             &data::EncounterLevelHigh,
             &data::EncounterMinMax,
             &data::EncounterRateByte,
+            &build::BuildHiddenFile,
+            &build::BuildMemberGap,
+            &build::BuildUnpackedNotPacked,
+            &build::BuildBaseMissing,
             &world::AssetUnreadable,
             &scripts::EventScriptMissing,
             &scripts::HeaderLevelTarget,
@@ -604,6 +618,10 @@ mod tests {
             FixId::SwapMinMax
         );
         assert_eq!(
+            serde_json::to_value(FixId::RemoveHidden).unwrap(),
+            "remove_hidden"
+        );
+        assert_eq!(
             serde_json::to_value(Group::PerScript).unwrap(),
             "per_script"
         );
@@ -618,7 +636,7 @@ mod tests {
     fn registry_lists_each_code_once_in_its_group() {
         let all = Registry::all();
         let mut codes: Vec<&str> = all.iter().map(|c| c.code()).collect();
-        assert_eq!(codes.len(), 41);
+        assert_eq!(codes.len(), 45);
         let in_group = |group: Group| -> Vec<&str> {
             all.iter()
                 .filter(|c| c.group() == group)
@@ -626,7 +644,7 @@ mod tests {
                 .collect()
         };
         let cheap = in_group(Group::Cheap);
-        assert_eq!(cheap.len(), 32);
+        assert_eq!(cheap.len(), 36);
         assert_eq!(cheap.last(), Some(&"asset.unreadable"));
         assert_eq!(
             in_group(Group::PerScript),
@@ -649,7 +667,7 @@ mod tests {
         );
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), 41, "a code is registered twice");
+        assert_eq!(codes.len(), 45, "a code is registered twice");
         assert_eq!(
             Registry::get("warp.dest-header").map(|c| c.code()),
             Some("warp.dest-header")
@@ -660,7 +678,14 @@ mod tests {
         assert_eq!(Registry::position("place.name-too-long"), Some(19));
         assert_eq!(Registry::position("place.index-out-of-bank"), Some(20));
         assert_eq!(Registry::position("trainer.no-party"), Some(21));
-        assert_eq!(Registry::position("text.json-broken"), Some(40));
+        // The build checks close the data checks, before asset.unreadable.
+        assert_eq!(Registry::position("encounter.rate-byte"), Some(30));
+        assert_eq!(Registry::position("build.hidden-file"), Some(31));
+        assert_eq!(Registry::position("build.member-gap"), Some(32));
+        assert_eq!(Registry::position("build.unpacked-not-packed"), Some(33));
+        assert_eq!(Registry::position("build.base-missing"), Some(34));
+        assert_eq!(Registry::position("asset.unreadable"), Some(35));
+        assert_eq!(Registry::position("text.json-broken"), Some(44));
         assert!(Registry::get("warp.no-such-check").is_none());
     }
 }

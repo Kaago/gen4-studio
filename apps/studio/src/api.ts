@@ -430,12 +430,15 @@ export interface AssetId {
  * "finding_stale": `planFix` / `applyFix` on a finding that is no longer reported as it was sent (its subject changed); nothing
  * was changed.
  * "base_missing": `createPatch` without a found base ROM; nothing was built.
+ * "text_conflict": a build or a save met text archives whose JSON and member both changed since the last build; nothing was written.
+ * `problems` holds one error per archive (source "build", file "expanded/textArchives/0012.json", see `textConflictArchives`), and
+ * `resolveTextConflicts` decides which version applies.
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing" | "text_conflict";
   message: string;
   asset: AssetId | null;
-  /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
+  /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
   problems?: ProblemDto[];
 }
 
@@ -450,7 +453,8 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "error" ||
       o.code === "compile" ||
       o.code === "finding_stale" ||
-      o.code === "base_missing") &&
+      o.code === "base_missing" ||
+      o.code === "text_conflict") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -472,9 +476,11 @@ export interface ProblemDto extends Partial<CheckFieldsDto> {
   message: string;
   /**
    * "encounter" and "trainer": the rows of a data document (file "encounters/0012", "trainers/0012"), see `ProblemsStore.replaceData`;
-   * "check": a finding of the project checks, see `ProblemsStore.replaceChecks`.
+   * "check": a finding of the project checks, see `ProblemsStore.replaceChecks`;
+   * "build": the build's own rows: the hint that text archives had no build state (info, file ".g4/build/state.json"), a hidden file below
+   * `files/` that stops the build (message "build.hidden-file: …"), a text conflict (see `CmdError`); `buildProblemText` words them.
    */
-  source: "compile" | "text" | "encounter" | "trainer" | "check";
+  source: "compile" | "text" | "encounter" | "trainer" | "check" | "build";
 }
 
 export interface SaveReport {
@@ -490,15 +496,38 @@ export interface SaveReport {
 export interface BuildReport {
   /** Dirty assets that were saved before building. */
   saved: number;
-  /** Asset kinds that were packed (every kind the project has an archive for, by unpacked folder name) with their member counts. */
+  /** Asset kinds whose pack step ran (by unpacked folder name) with their member counts; kinds whose step was skipped are missing. */
   packed: [string, number][];
   rom: string;
   /** Script files compiled before packing. */
   compiled: number[];
   /** Text archives encoded before packing. */
   encoded: number[];
-  /** Warnings of the pre-build save, the compile and the text encoding; `source` tells them apart. */
+  /** Warnings of the pre-build save, the compile and the text encoding, and the build's own hint; `source` tells them apart. */
   problems: ProblemDto[];
+  /** One row per build step in build order (`watch:*` rows are not for display). */
+  steps: BuildStep[];
+  /** Milliseconds of the build, without the save before it. */
+  ms: number;
+}
+
+/** How a build step ran: not at all (nothing it reads changed), on the changed inputs only, or over all of them. */
+export type StepStatus = "skipped" | "incremental" | "full";
+
+/**
+ * One row of a build: `id` is `rotom`, `chatot`, `pack:<unpacked folder>`, `watch:<unpacked folder>`, `blz:arm9`, `blz:overlays`, `rom` or
+ * `crc`. A skipped step has zero counters. `reason` says why a step ran fully: "no-state", "build.cache-stale" (a new tool),
+ * "output-changed", "removed"; for `blz:*` "not-compressed" (skipped) or "fallback" (ds-rom compressed all itself); for `crc`
+ * "no-base-mark" or "secure-area-changed". `technik/stepWords.ts` words them.
+ */
+export interface BuildStep {
+  id: string;
+  status: StepStatus;
+  ms: number;
+  done: number;
+  total: number;
+  cached: number;
+  reason: string | null;
 }
 
 export const setPermission = (index: number, x: number, y: number, kind: number, collision: number) =>
@@ -518,8 +547,18 @@ export interface HistoryDto {
 export const history = () => invoke<HistoryDto>("history");
 export const dirty = () => invoke<AssetId[]>("dirty");
 export const save = () => invoke<SaveReport>("save");
-/** Saves dirty assets, then builds the ROM at `out`. */
-export const buildRom = (out: string) => invoke<BuildReport>("build_rom", { out });
+/** Saves dirty assets, then builds the ROM at `out`; `fresh` drops the build cache first (the text sync stays), so every step runs fully. */
+export const buildRom = (out: string, fresh = false) => invoke<BuildReport>("build_rom", { out, fresh });
+/** Which version of a text archive applies: its JSON ("Text (JSON)") or its member ("Spieldatei"). */
+export type TextKeep = "json" | "member";
+/** Resolves text archives in conflict (see `CmdError` "text_conflict"), each as chosen; resolves to the archives. */
+export const resolveTextConflicts = (choices: { archive: number; keep: TextKeep }[]) => invoke<number[]>("resolve_text_conflicts", { choices });
+/** The text archives a "text_conflict" error names, from its problems' files (in their order); [] for any other file or none. */
+export const textConflictArchives = (e: CmdError): number[] =>
+  (e.problems ?? []).flatMap((p) => {
+    const match = /^expanded\/textArchives\/(\d+)\.json$/.exec(p.file);
+    return match ? [Number(match[1])] : [];
+  });
 /** Starts the emulator on the ROM and resolves to its PID without waiting. */
 export const runRom = (emulator: string, rom: string) => invoke<number>("run_rom", { emulator, rom });
 /** Drops the own changes of an asset and loads it from disk again. */

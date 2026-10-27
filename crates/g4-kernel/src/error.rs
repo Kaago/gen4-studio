@@ -69,6 +69,23 @@ pub enum KernelError {
     /// A map part import or export was refused before anything was written.
     #[error("import refused: {0}")]
     Import(String),
+    /// Text archives whose JSON and member both changed since their last recorded sync and
+    /// disagree (see [`crate::text::TextSync`]); the build wrote nothing. Resolved per
+    /// archive with [`crate::text::resolve_conflict`].
+    #[error(
+        "text archives changed as JSON and as member since the last build: {}",
+        archive_list(.0)
+    )]
+    TextConflict(Vec<u16>),
+}
+
+/// `0012, 0013`
+fn archive_list(archives: &[u16]) -> String {
+    archives
+        .iter()
+        .map(|n| format!("{n:04}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Adapter for `.map_err(io_at(&path))?`: attaches the path to an I/O error.

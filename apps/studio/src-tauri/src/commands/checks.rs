@@ -21,8 +21,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use g4_kernel::checks::{
-    ChecksReport, Finding, FixId, Group, IGNORE_FILE, IgnoreKey, IgnoreSet, MapCell, Registry,
-    Severity, Snapshot, SnapshotCache, Subject, fingerprint_text, fix as fixes, parse_fingerprint,
+    ChecksReport, Finding, FixFileChange, FixId, Group, IGNORE_FILE, IgnoreKey, IgnoreSet, MapCell,
+    Registry, Severity, Snapshot, SnapshotCache, Subject, fingerprint_text, fix as fixes,
+    parse_fingerprint,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::AssetId;
@@ -257,6 +258,8 @@ fn fix_dto(id: FixId) -> FixDto {
         FixId::SwapMinMax => ("Tauschen", false),
         // `add_script` writes the script file at once; undo cannot take it back.
         FixId::CreateScript => ("Script anlegen", true),
+        // Moves the file to `.g4/backup/` past the store; undo cannot take it back.
+        FixId::RemoveHidden => ("Entfernen", true),
     };
     FixDto {
         id,
@@ -528,10 +531,13 @@ pub struct FixChangeDto {
     pub after: String,
 }
 
-/// What a fix would change; `irreversible` ones (`create_script`) undo cannot take back.
+/// What a fix would change: per asset (`changes`) and per file it moves (`files`, from `path`
+/// to `to`, project-relative; only `remove_hidden` moves one). `irreversible` ones
+/// (`create_script`, `remove_hidden`) undo cannot take back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FixPlanDto {
     pub changes: Vec<FixChangeDto>,
+    pub files: Vec<FixFileChange>,
     pub irreversible: bool,
 }
 
@@ -578,14 +584,15 @@ pub fn plan_fix_impl(
                 after: c.after,
             })
             .collect(),
+        files: plan.files,
         irreversible: plan.irreversible,
     })
 }
 
 /// Applies `fix` of `finding` under the session lock: the finding is checked again on the
 /// current state (`finding_stale` and nothing written when it changed), then changed as one
-/// undoable step "Behoben: <code>" (`create_script`: written at once), then its subject checked
-/// again.
+/// undoable step "Behoben: <code>" (`create_script` and `remove_hidden`: written at once), then
+/// its subject checked again.
 pub fn apply_fix_impl(
     state: &AppState,
     finding: &FindingArg,
@@ -595,7 +602,7 @@ pub fn apply_fix_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix);
-    if fix == FixId::CreateScript {
+    if matches!(fix, FixId::CreateScript | FixId::RemoveHidden) {
         // Written at once, past the store; also a compile that failed after the write.
         session.files_written();
     }
@@ -1056,6 +1063,14 @@ mod tests {
                 json!([{ "id": id, "label": label, "irreversible": false }])
             );
         }
+        let row = json_of(&finding_dto(
+            &finding.clone().with_fixes([FixId::RemoveHidden]),
+            &BTreeMap::new(),
+        ));
+        assert_eq!(
+            row["fixes"],
+            json!([{ "id": "remove_hidden", "label": "Entfernen", "irreversible": true }])
+        );
     }
 
     #[test]
@@ -1379,13 +1394,21 @@ mod tests {
             .map(|p| p.check.as_ref().unwrap().code)
             .collect();
         codes.dedup();
-        assert_eq!(codes, ["header.text-split", "encounter.empty-slot"]);
-        assert_eq!(answer.ignored.len(), 3);
+        // The synthetic project has no base mark: the hint is ignored too.
+        assert_eq!(
+            codes,
+            [
+                "header.text-split",
+                "encounter.empty-slot",
+                "build.base-missing"
+            ]
+        );
+        assert_eq!(answer.ignored.len(), 4);
         let file: Value = serde_json::from_str(
             &std::fs::read_to_string(root_of(&fixture).join(IGNORE_FILE)).unwrap(),
         )
         .unwrap();
-        assert_eq!(file["ignored"].as_array().unwrap().len(), 3);
+        assert_eq!(file["ignored"].as_array().unwrap().len(), 4);
         // A new session reads the baseline: only the errors are left.
         let other = AppState::default();
         open_project_impl(&other, root_of(&fixture).to_str().unwrap()).unwrap();
@@ -1551,6 +1574,44 @@ mod tests {
             key,
             fingerprint,
         }
+    }
+
+    #[test]
+    fn remove_hidden_plans_the_move_and_moves_the_file_to_the_backup() {
+        let (fixture, state) = open_synthetic();
+        let root = fixture.dir.path();
+        std::fs::create_dir_all(root.join("files/x")).unwrap();
+        std::fs::write(root.join("files/x/.DS_Store"), b"junk").unwrap();
+        let report = run_checks_impl(&state, CheckScope::Cheap).unwrap();
+        let found = rows(&report, "build.hidden-file");
+        assert_eq!(found.len(), 1);
+        let finding = finding_arg(found[0]);
+        assert_eq!(finding.key, "files/x/.DS_Store");
+
+        let plan = json_of(&plan_fix_impl(&state, &finding, FixId::RemoveHidden).unwrap());
+        assert_eq!(plan["irreversible"], true);
+        assert_eq!(plan["changes"], json!([]));
+        let files = plan["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0]["path"], "files/x/.DS_Store");
+        let to = files[0]["to"].as_str().unwrap();
+        assert!(
+            to.starts_with(".g4/backup/hidden-") && to.ends_with("/files/x/.DS_Store"),
+            "{to}"
+        );
+        // Plans of the other fixes move no file.
+        let (_wide_fixture, wide_state, wide) = too_wide();
+        let wrap = json_of(&plan_fix_impl(&wide_state, &finding_arg(&wide), FixId::Wrap).unwrap());
+        assert_eq!(wrap["files"], json!([]));
+
+        let result = apply_fix_impl(&state, &finding, FixId::RemoveHidden).unwrap();
+        assert_eq!(
+            json_of(&result),
+            json!({ "changed": [], "remaining": false })
+        );
+        assert!(!root.join("files/x/.DS_Store").exists());
+        let after = run_checks_impl(&state, CheckScope::Cheap).unwrap();
+        assert!(rows(&after, "build.hidden-file").is_empty());
     }
 
     #[test]

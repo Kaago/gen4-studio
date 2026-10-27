@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -173,6 +173,7 @@ vi.mock("./api", async (importOriginal) => ({
   projectPreviewGet: vi.fn(),
   projectPreviewSet: vi.fn(),
   buildRom: vi.fn(),
+  resolveTextConflicts: vi.fn(),
   save: vi.fn(),
   openProject: vi.fn(),
   listHeaders: vi.fn(),
@@ -780,7 +781,7 @@ describe("App wiring", () => {
       expect(openPath).not.toHaveBeenCalled();
       expect(openProject).not.toHaveBeenCalled();
       // Once the build is done, Cmd+O opens again.
-      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
       vi.mocked(openPath).mockResolvedValue(null);
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
       expect(openPath).toHaveBeenCalledOnce();
@@ -904,8 +905,33 @@ describe("App wiring", () => {
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
       expect(statusLine()).toContain("Noch nicht gebaut");
       vi.mocked(savePath).mockResolvedValue("/out.nds");
-      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
       await click("Bauen");
+      expect(statusLine()).toContain("Gebaut gerade eben");
+    });
+
+    it("a_text_conflict_of_the_build_asks_in_a_dialog_and_builds_again_after_the_choice", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(resolveTextConflicts).mockResolvedValue([12]);
+      vi.mocked(buildRom)
+        .mockRejectedValueOnce({
+          code: "text_conflict",
+          message: "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt.",
+          asset: null,
+          problems: [{ severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "Textarchiv 0012 …", source: "build" }],
+        })
+        .mockResolvedValueOnce({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
+      await click("Bauen");
+      const dialog = document.querySelector<HTMLElement>("[data-text-conflict]");
+      expect(dialog?.textContent).toContain("Textarchiv 0012");
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      await act(async () => [...dialog!.querySelectorAll("button")].find((b) => b.textContent === "Übernehmen und bauen")!.click());
+      expect(resolveTextConflicts).toHaveBeenCalledExactlyOnceWith([{ archive: 12, keep: "json" }]);
+      expect(vi.mocked(buildRom).mock.calls).toEqual([
+        ["/out.nds", false],
+        ["/out.nds", false],
+      ]);
+      expect(savePath).toHaveBeenCalledOnce();
       expect(statusLine()).toContain("Gebaut gerade eben");
     });
 
@@ -1111,7 +1137,7 @@ describe("App wiring", () => {
           target_sha1: "aa",
           encode_ms: 1,
           verify_ms: 1,
-          build: { saved: 0, packed: [], rom, compiled: [], encoded: [], problems: [] },
+          build: { saved: 0, packed: [], rom, compiled: [], encoded: [], problems: [], steps: [], ms: 0 },
         }),
       );
       expect(titleButton("Bauen")?.disabled).toBe(false);
@@ -1146,7 +1172,7 @@ describe("App wiring", () => {
       expect(patchButton()?.disabled).toBe(false);
       await click("Bauen");
       expect(patchButton()?.getAttribute("aria-disabled")).toBe("true");
-      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
       expect(patchButton()?.disabled).toBe(false);
     });
 
@@ -1238,7 +1264,7 @@ describe("App wiring", () => {
     /** The world's mocked dock: which group is maximized (0 the view's), the heights of its groups, the heights App set. */
     const welt = () => shown.docks.welt!;
     const maximize = () => hinge().querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
-    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
     const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
     afterEach(() => {
@@ -1451,7 +1477,7 @@ describe("App wiring", () => {
       vi.mocked(savePath).mockResolvedValue("/out.nds");
       built();
       await pressHinge(/Hier spielen/);
-      expect(buildRom).toHaveBeenCalledWith("/out.nds");
+      expect(buildRom).toHaveBeenCalledWith("/out.nds", false);
       expect(runRom).not.toHaveBeenCalled();
       expect(infos()).toContainEqual(expect.stringContaining("Im Browser-Modus wird nur gebaut"));
     });
@@ -1502,12 +1528,42 @@ describe("App wiring", () => {
       expect(runRom).not.toHaveBeenCalled();
     });
 
+    it("plays_after_a_text_conflict_of_hier_spielen_is_resolved_and_not_after_one_of_bauen", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/Applications/melonDS");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(4242);
+      vi.mocked(resolveTextConflicts).mockResolvedValue([12]);
+      const conflict = {
+        code: "text_conflict",
+        message: "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt.",
+        asset: null,
+        problems: [{ severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "Textarchiv 0012 …", source: "build" }],
+      };
+      const done = { saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 };
+      const resolve = () => act(async () => [...document.querySelector<HTMLElement>("[data-text-conflict]")!.querySelectorAll("button")].find((b) => b.textContent === "Übernehmen und bauen")!.click());
+      vi.mocked(buildRom).mockRejectedValueOnce(conflict).mockResolvedValueOnce(done);
+      await pressHinge(/Hier spielen/);
+      expect(runRom).not.toHaveBeenCalled();
+      await resolve();
+      expect(buildRom).toHaveBeenCalledTimes(2);
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/Applications/melonDS", "/out.nds");
+
+      // The same conflict from „Bauen“ builds only.
+      vi.mocked(runRom).mockClear();
+      vi.mocked(buildRom).mockRejectedValueOnce(conflict).mockResolvedValueOnce(done);
+      await click("Bauen");
+      await resolve();
+      expect(buildRom).toHaveBeenCalledTimes(4);
+      expect(runRom).not.toHaveBeenCalled();
+    });
+
     it("asks_for_the_output_path_on_the_first_play_only_and_builds_to_the_last_path_afterwards", async () => {
       vi.mocked(savePath).mockResolvedValue("/chosen/out.nds");
-      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [] });
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
       await pressHinge(/Hier spielen/);
       expect(savePath).toHaveBeenCalledOnce();
-      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds");
+      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds", false);
       // Button and Cmd+R now build to that path without a dialog.
       vi.mocked(savePath).mockClear();
       await pressHinge(/Hier spielen/);
@@ -1545,7 +1601,7 @@ describe("App wiring", () => {
       expect(busy.disabled).toBe(true);
       await act(async () => busy.click());
       expect(buildRom).toHaveBeenCalledOnce();
-      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
       expect(hingeButton(/Hier spielen/)?.disabled).toBe(false);
     });
 

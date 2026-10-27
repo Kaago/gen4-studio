@@ -23,6 +23,7 @@ use uxie::MapHeader;
 use xxhash_rust::xxh3::xxh3_64;
 
 use super::{relative, rotom_error};
+use crate::build::fingerprint::hash_remembered;
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::project::Project;
 
@@ -113,10 +114,11 @@ fn load_context(
 }
 
 /// rotom v0.7.0 src/lib.rs `project_dependency_hash`: the file's hash, `u64::MAX` for a
-/// missing file, `None` when it cannot be read.
+/// missing file, `None` when it cannot be read. Hashes of unchanged files come from memory
+/// ([`hash_remembered`]).
 fn dependency_hash(path: &Path) -> Option<u64> {
-    match std::fs::read(path) {
-        Ok(bytes) => Some(xxh3_64(&bytes)),
+    match hash_remembered(path) {
+        Ok(hash) => Some(hash),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(u64::MAX),
         Err(_) => None,
     }
@@ -355,16 +357,20 @@ pub(super) fn compile_project(
     for (input, output) in work {
         let rel = relative(root, &input);
         current.push(rel.clone());
-        let source = match std::fs::read_to_string(&input) {
-            Ok(source) => source,
+        let read_failure = |e: std::io::Error| {
+            let message = format!("Failed to read input file '{}': {e}", input.display());
+            failure(&input, message)
+        };
+        // rotom reads every source and output to hash them; a thousand sources took about
+        // 150 ms per build. Unchanged files are hashed once per process (`hash_remembered`).
+        let source_hash = match hash_remembered(&input) {
+            Ok(hash) => hash,
             Err(e) => {
-                let message = format!("Failed to read input file '{}': {e}", input.display());
-                empty.failures.push(failure(&input, message));
+                empty.failures.push(read_failure(e));
                 continue;
             }
         };
-        let source_hash = xxh3_64(source.as_bytes());
-        let output_hash = std::fs::read(&output).ok().map(|bytes| xxh3_64(&bytes));
+        let output_hash = hash_remembered(&output).ok();
         let entry = state.entries.get(&rel);
         // rotom's fast path: source, output and every recorded dependency unchanged.
         if !force
@@ -384,6 +390,11 @@ pub(super) fn compile_project(
                     dependency_hashes: entry.dependency_hashes.clone(),
                 },
             );
+            continue;
+        }
+        // rotom reads the source as text: one that is not is a failure, as there.
+        if let Err(e) = std::fs::read_to_string(&input) {
+            empty.failures.push(read_failure(e));
             continue;
         }
         match include_dependencies(root, &input, constants) {

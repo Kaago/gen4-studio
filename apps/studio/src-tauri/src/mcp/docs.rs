@@ -15,6 +15,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/area_data.md"),
     ),
     (
+        "build_state",
+        include_str!("../../../../../docs/formats/build_state.md"),
+    ),
+    (
         "check_limits",
         include_str!("../../../../../docs/formats/check_limits.md"),
     ),

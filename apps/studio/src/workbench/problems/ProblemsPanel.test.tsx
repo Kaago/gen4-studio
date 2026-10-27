@@ -113,6 +113,14 @@ describe("ProblemsPanel", () => {
     expect(goTo).toHaveBeenCalledWith({ kind: "trainer", index: 12 });
   });
 
+  it("a_build_problem_says_its_sentence_in_german_with_the_source_bauen", () => {
+    const message = "2 text archives without build state: the JSON version applies.";
+    act(() => store.applyBuildReport([problem(".g4/build/state.json", 0, message, "info", "build")]));
+    const row = bodyRows()[0]!;
+    expect(cells(row).map((c) => c.textContent)).toEqual(["", "Bauzustand", "0:3", "2 Textarchive ohne Bauzustand: die JSON-Fassung gilt.", "Bauen"]);
+    expect(fileButton(row).disabled).toBe(true);
+  });
+
   it("a_problem_of_an_unknown_file_is_shown_with_a_disabled_reference", () => {
     act(() => store.replaceForFile("rotom.toml", [problem("rotom.toml", 1, "kaputt")]));
     const button = fileButton(bodyRows()[0]!);

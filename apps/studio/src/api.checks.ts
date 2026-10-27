@@ -40,9 +40,9 @@ export interface SubjectDto {
   index: number;
 }
 
-export type FixId = "wrap" | "append_message" | "swap_min_max" | "create_script";
+export type FixId = "wrap" | "append_message" | "swap_min_max" | "create_script" | "remove_hidden";
 
-/** A fix of a finding: the German `label` of its button; `irreversible` ones (`create_script`) cannot be undone. */
+/** A fix of a finding: the German `label` of its button; `irreversible` ones (`create_script`, `remove_hidden`) cannot be undone. */
 export interface FixDto {
   id: FixId;
   label: string;
@@ -136,9 +136,16 @@ export interface FixChangeDto {
   after: string;
 }
 
-/** What a fix would change. `irreversible` (`create_script`): written at once, undo cannot take it back. */
+/** A file a fix moves (`remove_hidden`): from `path` to `to`, both relative to the project („files/x/.DS_Store“ → „.g4/backup/hidden-<time>/files/x/.DS_Store“; `<time>` stands for the folder's UTC time, taken when the file moves). */
+export interface FixFileChangeDto {
+  path: string;
+  to: string;
+}
+
+/** What a fix would change. `files`: the files it moves (none: empty or absent). `irreversible` (`create_script`, `remove_hidden`): written at once, undo cannot take it back. */
 export interface FixPlanDto {
   changes: FixChangeDto[];
+  files?: FixFileChangeDto[];
   irreversible: boolean;
 }
 

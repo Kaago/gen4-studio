@@ -64,6 +64,8 @@ import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { AgentQuestion } from "./app/AgentQuestion";
+import { TextConflictDialog } from "./app/TextConflictDialog";
+import type { TextConflictChoice } from "./app/TextConflictDialog";
 import { useAgents } from "./app/useAgents";
 import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
@@ -377,17 +379,26 @@ function AppBody() {
   // "Hier spielen": saves and builds; inside the app it then runs the ROM (asking for an emulator first when none is set). In the browser mode it only builds.
   // It builds to the path of the last build without asking; only the first play asks for one (the title bar's "Bauen" always asks).
   const playing = useRef(false);
+  const playRom = useStableCallback(async (rom: string) => {
+    if (inTauri()) await session.onRun(rom);
+    else toast.info("Im Browser-Modus wird nur gebaut");
+  });
   const onPlay = useStableCallback(async () => {
     if (!session.info || session.busy || playing.current) return;
     playing.current = true;
     try {
-      const rom = await session.onBuild(session.lastRom ?? undefined);
+      const rom = await session.onBuild(session.lastRom ?? undefined, false, true);
       if (rom === null) return;
-      if (inTauri()) await session.onRun(rom);
-      else toast.info("Im Browser-Modus wird nur gebaut");
+      await playRom(rom);
     } finally {
       playing.current = false;
     }
+  });
+  // „Übernehmen und bauen“ of a text conflict: the build goes on as it was asked for; one from „Hier spielen“ then plays.
+  const onResolveConflicts = useStableCallback(async (choices: TextConflictChoice[]) => {
+    const play = session.textConflicts?.play ?? false;
+    const rom = await session.resolveConflicts(choices);
+    if (rom !== null && play) await playRom(rom);
   });
   useWindowGuards(unsavedRef, session.setMessage);
   // The tool of the scene. Switching to painting shows the terrain layer (painting hidden tiles would be blind).
@@ -891,7 +902,10 @@ function AppBody() {
         busy={session.busy}
         lastBuiltAt={session.lastBuiltAt}
         lastRom={session.lastRom}
+        lastSteps={session.lastSteps}
+        lastBuildFresh={session.lastBuildFresh}
         onBuild={() => void session.onBuild()}
+        onBuildFresh={() => void session.onBuild(undefined, true)}
         onRun={() => void session.onRun()}
         canRun={inTauri()}
         onOpenProject={openProject}
@@ -1044,6 +1058,15 @@ function AppBody() {
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
+      {session.textConflicts !== null && (
+        <TextConflictDialog
+          key={session.textConflicts.archives.join(",")}
+          archives={session.textConflicts.archives}
+          onResolve={(choices) => void onResolveConflicts(choices)}
+          onCancel={session.cancelConflicts}
+          busy={session.textConflicts.resolving}
+        />
+      )}
       {importMap !== null && (
         <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
       )}

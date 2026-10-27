@@ -25,6 +25,8 @@ const APP_ONLY: Kind = Kind::Unavailable("Nur in der App");
 
 /// Why an agent may not name a project folder: the server serves one project.
 const BOUND_PROJECT: &str = "Das Projekt ist fest (--project); ohne path aufrufen";
+/// Why the fix `remove_hidden` cannot be undone: it moves the file past the store.
+const REMOVE_HIDDEN: &str = "Versteckte Datei nach .g4/backup verschieben";
 
 /// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
 const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
@@ -106,6 +108,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
     ("reload_asset", Kind::Write),
     ("accept_disk", Kind::Write),
+    (
+        "resolve_text_conflicts",
+        Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben"),
+    ),
     ("force_quit", APP_ONLY),
     ("data_list", Kind::Read),
     ("data_get", Kind::Read),
@@ -204,8 +210,9 @@ impl From<Kind> for Class {
 /// What the call of `command` with `args` (keyed as `dispatch` takes them) does. A build or
 /// map part export lands in `build/` (a write; `build_rom` without `out` goes there too) or
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
-/// a script; `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic
-/// Headers patch. The project preview commands with a `path` (another project folder) are
+/// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
+/// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
+/// patch. The project preview commands with a `path` (another project folder) are
 /// unavailable, also when it names the bound project. A name the table does not have is
 /// unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
@@ -237,6 +244,9 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         }
         "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => {
             NEW_SCRIPT.into()
+        }
+        "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("remove_hidden") => {
+            Kind::Irreversible(REMOVE_HIDDEN).into()
         }
         "create_area" | "create_room"
             if args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)) =>
@@ -347,6 +357,10 @@ mod tests {
                 (
                     "repair_header_patch",
                     Kind::Irreversible("Header-Patch reparieren")
+                ),
+                (
+                    "resolve_text_conflicts",
+                    Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
                 ),
                 ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
             ]
@@ -582,6 +596,15 @@ mod tests {
             ),
             Class::Irreversible("Script anlegen".to_owned())
         );
+        // Removing a hidden file moves it past the store.
+        assert_eq!(
+            classify(
+                "apply_fix",
+                &json!({ "finding": finding, "fix": "remove_hidden" }),
+                &policy
+            ),
+            Class::Irreversible("Versteckte Datei nach .g4/backup verschieben".to_owned())
+        );
         assert_eq!(
             classify(
                 "apply_fix",
@@ -599,6 +622,33 @@ mod tests {
             ),
             Class::Read
         );
+    }
+
+    #[test]
+    fn resolve_text_conflicts_needs_a_confirmation() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let class = classify(
+            "resolve_text_conflicts",
+            &json!({ "choices": [{ "archive": 12, "keep": "json" }] }),
+            &policy,
+        );
+        assert_eq!(
+            class,
+            Class::Irreversible("Eine Fassung eines Textarchivs überschreiben".to_owned())
+        );
+        let writer = Access {
+            write: true,
+            irreversible: false,
+            expert: false,
+        };
+        let e = refused("resolve_text_conflicts", &class, writer);
+        assert_eq!(e.code, "needs_confirmation");
+        let confirmed = Access {
+            irreversible: true,
+            ..writer
+        };
+        assert!(admit("resolve_text_conflicts", &class, &confirmed).is_ok());
     }
 
     fn refused(command: &str, class: &Class, access: Access) -> CmdError {

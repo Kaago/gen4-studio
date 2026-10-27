@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { HeaderPatchDto } from "../api";
+import type { BuildStep, HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
@@ -20,6 +20,7 @@ import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import { PublishSurface, publishSubtitle } from "./PublishSurface";
+import { BuildSteps } from "./BuildSteps";
 import styles from "./TechnikArea.module.css";
 import type { BaseApi } from "./useBase";
 
@@ -46,8 +47,14 @@ export type TechnikAreaProps = {
   /** When the last ROM was built in this session, and where it went. */
   lastBuiltAt: number | null;
   lastRom: string | null;
+  /** The steps of the last build in this session; null before the first. */
+  lastSteps: BuildStep[] | null;
+  /** The last build was started with „Neu bauen (ohne Cache)“ (its steps say so instead of „erster Build“). */
+  lastBuildFresh?: boolean;
   /** Builds the ROM (asks where to). */
   onBuild: () => void;
+  /** „Neu bauen (ohne Cache)“: drops the build state, then builds every step fully (asks where to). */
+  onBuildFresh: () => void;
   /** Starts the last ROM built in the emulator. */
   onRun: () => void;
   /** Whether an emulator can be started here (not in the browser mode: the bridge refuses). */
@@ -274,7 +281,7 @@ export function PreviewSection({ name, preview, town }: { name: string; preview:
   );
 }
 
-function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, onBuild, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
+function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, lastBuildFresh = false, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   if (project === null) {
@@ -289,6 +296,9 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
       <div className={styles.actions}>
         <Button kind="primary" icon="build" disabled={busy} onClick={onBuild}>
           Bauen
+        </Button>
+        <Button kind="secondary" icon="build" disabled={busy} onClick={onBuildFresh} title="Löscht den Bauzustand und baut alles neu">
+          Neu bauen (ohne Cache)
         </Button>
         <Button kind="secondary" icon="play" disabled={busy || !canRun || lastRom === null} onClick={onRun} title={canRun && lastRom === null ? "Erst bauen, dann starten" : undefined}>
           Starten
@@ -309,6 +319,8 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
           </div>
         )}
       </dl>
+      <h2 className={styles.heading}>Schritte</h2>
+      {lastSteps === null ? <p className={styles.text}>Noch kein Build in dieser Sitzung.</p> : <BuildSteps steps={lastSteps} depth={depth} fresh={lastBuildFresh} />}
       <h2 className={styles.heading}>Probleme</h2>
       {checks !== null && <Baseline checks={checks} rows={rows} />}
       {rows.length === 0 && checks === null ? (

@@ -89,6 +89,13 @@ const SOLL: &[(&str, [usize; 3])] = &[
     ("encounter.level-high", [0, 0, 0]),
     ("encounter.min-max", [0, 0, 0]),
     ("encounter.rate-byte", [0, 0, 0]),
+    // Build (4.2): no hidden entry below files/, every member folder in sequence, no build
+    // state (so nothing to compare the folders the build does not pack with), no base mark
+    // (the vanilla projects are DSPRE folders).
+    ("build.hidden-file", [0, 0, 0]),
+    ("build.member-gap", [0, 0, 0]),
+    ("build.unpacked-not-packed", [0, 0, 0]),
+    ("build.base-missing", [1, 1, 1]),
     // Scripts (from the members, the same after adopting). event.script-missing: signs only
     // (warnings, Pt event file 44 sign 1 calls #45), objects and triggers 0
     // ([`SIGNS_WITHOUT_SCRIPT`]). header.level-target: Pt header 186 -> #1 missing in 197,
