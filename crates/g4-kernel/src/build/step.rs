@@ -37,6 +37,8 @@ pub const CACHE_STALE: &str = "build.cache-stale";
 pub const OUTPUT_CHANGED: &str = "output-changed";
 /// An output is missing (a deleted ROM, a new output path).
 pub const REMOVED: &str = "removed";
+/// The id prefix of the watching steps (`watch:<folder>`, see [`run_watches`]).
+pub const WATCH_PREFIX: &str = "watch:";
 
 /// One step of the build graph, see the module documentation.
 pub trait Step {
@@ -425,6 +427,104 @@ pub(crate) fn run_steps_and(
         return Err(KernelError::Compile(problems));
     }
     written.map(|()| reports)
+}
+
+/// Records the baselines of watching steps (`watch:*`): steps that never run, whose entry
+/// holds their inputs as they were when first recorded, for a check to compare with. Without
+/// an entry (or with another salt) every input file is fingerprinted with its content hash,
+/// so a copied project (other inodes and ctimes) still compares by content. With one, each
+/// recorded file whose content is unchanged gets its `stat` refreshed (and a racy one its
+/// scan time); a changed or removed file keeps its baseline fingerprint and an added one is
+/// not taken in. The entries of watching steps no longer in `steps` (ids starting with
+/// [`WATCH_PREFIX`]: the folder is gone or packed now) are removed, so a folder made anew
+/// gets a new baseline. Every step reports a [`StepStatus::Skipped`] row without counters.
+pub(crate) fn run_watches(
+    project: &Project,
+    steps: &[&dyn Step],
+) -> Result<Vec<StepReport>, KernelError> {
+    let root = &project.root;
+    let state = BuildState::load(root);
+    let mut changes = Vec::new();
+    let mut reports = Vec::new();
+    for step in steps {
+        let t = Instant::now();
+        let id = step.id();
+        let salt = step.salt();
+        let entry = match state.steps.get(&id).filter(|e| e.salt == salt) {
+            None => Some(baseline(project, *step, salt)?),
+            Some(entry) => refresh_baseline(root, entry)?,
+        };
+        if let Some(entry) = entry {
+            changes.push((id.clone(), entry));
+        }
+        reports.push(StepReport {
+            id,
+            status: StepStatus::Skipped,
+            ms: t.elapsed().as_millis() as u64,
+            done: 0,
+            total: 0,
+            cached: 0,
+            reason: None,
+        });
+    }
+    let listed: BTreeSet<&str> = reports.iter().map(|r| r.id.as_str()).collect();
+    let gone: Vec<String> = state
+        .steps
+        .keys()
+        .filter(|id| id.starts_with(WATCH_PREFIX) && !listed.contains(id.as_str()))
+        .cloned()
+        .collect();
+    if !changes.is_empty() || !gone.is_empty() {
+        BuildState::update(root, |state| {
+            for id in &gone {
+                state.steps.remove(id);
+            }
+            state.steps.extend(changes);
+        })?;
+    }
+    Ok(reports)
+}
+
+/// A watching step's first entry: its input files fingerprinted with their content hash.
+fn baseline(project: &Project, step: &dyn Step, salt: String) -> Result<StepRecord, KernelError> {
+    let root = &project.root;
+    let at = fingerprint::now_ns();
+    let mut inputs = BTreeMap::new();
+    for file in expand(root, &step.inputs(project)?)? {
+        if let Some(fp) = fingerprint::capture_hashed(&root.join(&file))? {
+            inputs.insert(file, fp);
+        }
+    }
+    Ok(StepRecord {
+        salt,
+        scanned_at_ns: at,
+        inputs,
+        outputs: BTreeMap::new(),
+        ms: 0,
+    })
+}
+
+/// `entry` with the unchanged files refreshed (see [`run_watches`]); `None` when nothing
+/// needs it.
+fn refresh_baseline(root: &Path, entry: &StepRecord) -> Result<Option<StepRecord>, KernelError> {
+    let now = fingerprint::now_ns();
+    let mut inputs = entry.inputs.clone();
+    let mut refresh = false;
+    for (file, recorded) in &entry.inputs {
+        let (seen, fp) =
+            fingerprint::compare(&root.join(file), Some(recorded), entry.scanned_at_ns, now)?;
+        if let (Seen::Same, Some(fp)) = (seen, fp) {
+            refresh |= fp != *recorded || fingerprint::is_racy(recorded, entry.scanned_at_ns);
+            inputs.insert(file.clone(), fp);
+        }
+    }
+    Ok(refresh.then(|| StepRecord {
+        salt: entry.salt.clone(),
+        scanned_at_ns: now,
+        inputs,
+        outputs: BTreeMap::new(),
+        ms: 0,
+    }))
 }
 
 #[cfg(test)]

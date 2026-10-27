@@ -3,9 +3,11 @@
 //! extracts a `.nds` into a new ds-rom project folder.
 //!
 //! A build is a fixed list of steps ([`step::Step`]): `rotom`, `chatot`, one `pack:<name>`
-//! per archive and `rom`. Each runs only when its inputs changed since it last succeeded,
-//! recorded in [`state::BuildState`] (`.g4/build/state.json`, see
-//! `docs/formats/build_state.md`). Without that state everything runs, with the same result.
+//! per archive and per pack entry of `archives.yaml`, one `watch:<name>` per other folder
+//! below `unpacked/` (it never runs, see [`unpacked_unpacked`]) and `rom`. Each runs only
+//! when its inputs changed since it last succeeded, recorded in [`state::BuildState`]
+//! (`.g4/build/state.json`, see `docs/formats/build_state.md`). Without that state
+//! everything runs, with the same result.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -69,8 +71,9 @@ pub struct BuildReport {
     /// [`scripts::CompileReport::touched_archives`]); a store that holds them must reload.
     pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
-    /// The rows of all steps in build order: those of [`Prepared::steps`], `pack:*`, then
-    /// `rom` (skipped) or `blz:arm9`, `blz:overlays`, `rom`, `crc`.
+    /// The rows of all steps in build order: those of [`Prepared::steps`], `pack:*`,
+    /// `watch:*` (always skipped, not for display), then `rom` (skipped) or `blz:arm9`,
+    /// `blz:overlays`, `rom`, `crc`.
     pub steps: Vec<StepReport>,
     pub ms: u64,
 }
@@ -142,12 +145,14 @@ pub fn pack_dir(dir: &Path) -> Result<Narc, KernelError> {
     Ok(Narc { members })
 }
 
+#[cfg(feature = "test-support")]
 thread_local! {
     static MEMBER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// The bytes of one member file, counted for [`member_reads`].
+/// The bytes of one member file, counted for [`member_reads`] (test support only).
 fn read_member(path: &Path) -> Result<Vec<u8>, KernelError> {
+    #[cfg(feature = "test-support")]
     MEMBER_READS.with(|reads| reads.set(reads.get() + 1));
     std::fs::read(path).map_err(io_at(path))
 }
@@ -313,6 +318,7 @@ pub fn build_prepared(
 ) -> Result<BuildReport, KernelError> {
     let t = Instant::now();
     let (packed, mut rows) = run_pack_steps(project)?;
+    rows.extend(run_watch_steps(project)?);
 
     // The same ROM as the reference `dsrom build` (no ARM7 BIOS, compression as configured),
     // with the compressed ARM9 and overlays from the BLZ cache.
@@ -379,13 +385,57 @@ fn run_pack_steps(project: &Project) -> Result<(Packed, Vec<StepReport>), Kernel
     Ok((packed, rows))
 }
 
+/// Records the baselines of the `watch:*` steps, one per folder of [`unpacked_unpacked`]
+/// (see [`step::run_watches`]), and returns their rows.
+fn run_watch_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
+    let watches = steps::watch_steps(project)?;
+    let dyn_steps: Vec<&dyn step::Step> = watches.iter().map(|s| s as &dyn step::Step).collect();
+    step::run_watches(project, &dyn_steps)
+}
+
 /// The steps before `rom` without ds-rom, for the build graph's tests on synthetic projects
-/// (which ds-rom cannot build): [`prepare`] and the `pack:*` steps, their rows in order.
+/// (which ds-rom cannot build): [`prepare`], the `pack:*` and the `watch:*` steps, their rows
+/// in order.
 #[cfg(feature = "test-support")]
 pub fn run_source_and_pack_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
     let mut rows = prepare(project)?.steps;
     rows.extend(run_pack_steps(project)?.1);
+    rows.extend(run_watch_steps(project)?);
     Ok(rows)
+}
+
+/// The folders below `unpacked/` that the build does not pack, by name: neither an archive
+/// of the project's family nor a pack entry of `archives.yaml` names them. DSPRE unpacks
+/// them, so a change there does not reach the ROM; the build watches them (`watch:<name>`)
+/// for the check `build.unpacked-not-packed`. Hidden folders, files and names that are not
+/// UTF-8 are left out; no `unpacked/` is an empty list.
+pub fn unpacked_unpacked(project: &Project) -> Result<Vec<String>, KernelError> {
+    let dir = project.root.join("unpacked");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_at(&dir)(e)),
+    };
+    let archives = &project.archives;
+    let packed = |name: &str| {
+        archives.kinds().any(|k| archives.unpacked_name(k) == name)
+            || archives.pack_only().iter().any(|(_, n)| n == name)
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(io_at(&dir))?;
+        if !entry.file_type().map_err(io_at(&entry.path()))?.is_dir() {
+            continue;
+        }
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.starts_with('.') && !packed(&name) {
+            names.push(name);
+        }
+    }
+    names.sort();
+    Ok(names)
 }
 
 /// Extracts a `.nds` into a new ds-rom project folder (`Rom::extract` + `Rom::save`) and

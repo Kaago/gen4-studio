@@ -35,7 +35,7 @@ JSON, kompakt, UTF-8.
 | Feld | Inhalt |
 |---|---|
 | `version` | Formatversion, heute `1` (`salt::STATE_VERSION`) |
-| `steps` | je Schritt-ID (`rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
+| `steps` | je Schritt-ID (`rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `watch:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
 | `steps.*.salt` | Werkzeug-Salz des Schritts (siehe unten) |
 | `steps.*.scanned_at_ns` | Zeitpunkt der Aufnahme, Nanosekunden seit 1970 (für die racy-Regel) |
 | `steps.*.inputs`, `outputs` | Pfad → Fingerabdruck; Pfade projektrelativ mit `/`, eine Ausgabe außerhalb des Projekts (die ROM) absolut |
@@ -83,14 +83,15 @@ rotoms `compile-state.json`, die JSON und Member der kodierten Textarchive); die
 Lauf aufgenommen, ebenso die Ausgaben. Ändert jemand anderes eine Eingabe, während der Schritt
 läuft, sieht der nächste Build sie als geändert. Scheitert ein Schritt, wird sein alter Eintrag
 gelöscht. `prepare_for_build` schreibt die Einträge von `rotom` und
-`chatot`, `build_prepared` die der Pack-Schritte und von `rom`.
+`chatot`, `build_prepared` die der Pack- und Beobachtungs-Schritte und von `rom`.
 
 ## Werkzeug-Salz
 
 `crates/g4-kernel/build.rs` liest die Zeilen von ds-rom, rotom, chatot und uxie aus `Cargo.lock`
 (`"<name> <version> <source>"`, sonst `"unknown"`). Das Salz eines Schritts ist diese Zeile plus
 `#<Revision>` (`steps.rs`: `ROTOM_REV`, `CHATOT_REV`, `PACK_REV`, `ROM_REV`); `rotom` hängt die
-uxie-Zeile an (`+…`), `pack:*` hat kein Werkzeug (`g4-formats narc#<PACK_REV>`). Ein Kernel-Update
+uxie-Zeile an (`+…`), `pack:*` hat kein Werkzeug (`g4-formats narc#<PACK_REV>`), `watch:*` ebenso
+nicht (`watch#<WATCH_REV>`). Ein Kernel-Update
 ohne Werkzeugwechsel behält den Zustand, ein neues Werkzeug oder eine neue Revision lässt den
 Schritt einmal voll laufen.
 
@@ -101,6 +102,7 @@ Schritt einmal voll laufen.
 | `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
+| `watch:<Ordner>` | `unpacked/<Ordner>/` | – |
 | `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `banner/`, `files/` | die Ziel-ROM |
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
@@ -118,5 +120,19 @@ vollen Packen. Statt einzusetzen packt er voll, und die Zeile zeigt „voll“: 
 Member (`removed`, das NARC schrumpft) und wenn die Member nicht zum NARC passen
 (`output-changed`). Geschrieben wird das NARC nur bei geänderten Bytes, der Elternordner wird
 dabei angelegt (ein Klon ohne die ignorierten NARCs).
+
+`pack:<Ordner>` gibt es je Archiv (`AssetKind::ALL`-Reihenfolge) und danach je Pack-Eintrag aus
+`archives.yaml` (`pack_only`: DSPRE-Ordner, die kein Editor liest, nur Ordner, deren Vanilla-Repack
+auf Platin DE, HeartGold DE und HeartGold US byte-gleich ist), jeweils nur, wenn der Ordner existiert.
+
+`watch:<Ordner>` steht für jeden übrigen Unterordner von `unpacked/` (`build::unpacked_unpacked`).
+Der Schritt läuft nie und schreibt nichts, seine Zeile ist immer „übersprungen“ und wird nicht
+angezeigt. Sein Eintrag ist die Grundlinie für die Prüfung `build.unpacked-not-packed`: Ohne
+Eintrag (oder mit anderem Salz) nimmt er jede Datei des Ordners mit Inhaltshash auf, damit ein
+kopiertes Projekt über den Inhalt vergleicht. Danach erneuert er nur den `stat` der Dateien mit
+unverändertem Inhalt; eine geänderte oder entfernte Datei behält ihren Fingerabdruck der
+Grundlinie, eine neue kommt nicht hinzu. Die Grundlinie gilt also bis „Neu bauen (ohne Cache)“.
+Verschwindet der Ordner (oder packt ihn ein neuer Pack-Eintrag), entfällt sein Eintrag beim
+nächsten Bauen; ein neu angelegter Ordner bekommt eine neue Grundlinie.
 
 Der BLZ-Cache liegt daneben unter `.g4/build/blz/` (`arm9-<xxh3>.blz`, `ov<NNN>-<xxh3>.blz`).

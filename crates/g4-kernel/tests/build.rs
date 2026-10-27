@@ -6,7 +6,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use g4_kernel::build::{
-    BUILD_DIR, NO_STATE_HINT_FILE, build, clear_cache, extract_rom, pack_dir, prepare,
+    BUILD_DIR, NO_STATE_HINT_FILE, StepStatus, build, clear_cache, extract_rom, pack_dir, prepare,
+    run_source_and_pack_steps, unpacked_unpacked,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
@@ -826,4 +827,87 @@ fn vanilla_rebuild_matches_dsrom_cli_after_adopt() {
     let b = std::fs::read(&ours).unwrap();
     assert_eq!(a.len(), b.len());
     assert!(a == b, "ROM bytes differ from dsrom CLI output");
+}
+
+/// A pack entry of `archives.yaml`: DSPRE's `pokeHeight` folder is packed into its NARC by
+/// the step `pack:pokeHeight`, after the archives' steps.
+#[test]
+fn build_packs_a_pack_only_folder() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let dir = s.dir.path().join("unpacked/pokeHeight");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000"), [1u8, 2, 3, 4]).unwrap();
+    std::fs::write(dir.join("0001"), [5u8; 6]).unwrap();
+
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    let at = ids.iter().position(|id| *id == "pack:pokeHeight");
+    let maps = ids.iter().position(|id| *id == "pack:maps");
+    assert!(at > maps && maps.is_some(), "{ids:?}");
+    let row = &rows[at.unwrap()];
+    assert_eq!((row.status, row.done, row.total), (StepStatus::Full, 2, 2));
+    let narc = narc_members(s.dir.path(), "files/poketool/pokegra/height.narc");
+    assert_eq!(narc, vec![vec![1u8, 2, 3, 4], vec![5u8; 6]]);
+
+    // `build` packs it too; `BuildReport::packed` names asset kinds only.
+    std::fs::write(dir.join("0001"), [7u8; 2]).unwrap();
+    let err = build(&p, &s.dir.path().join("out.nds")).unwrap_err();
+    assert!(matches!(err, KernelError::Build(_)), "{err:?}");
+    let narc = narc_members(s.dir.path(), "files/poketool/pokegra/height.narc");
+    assert_eq!(narc[1], vec![7u8; 2]);
+}
+
+/// The folders below `unpacked/` that neither an archive nor a pack entry packs.
+#[test]
+fn unpacked_unpacked_lists_foreign_folders() {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    assert_eq!(unpacked_unpacked(&p).unwrap(), Vec::<String>::new());
+    p.ensure_unpacked(AssetKind::Map).unwrap();
+    let unpacked = s.dir.path().join("unpacked");
+    for dir in ["pokeHeight", "zForeign", "interiorBuildingModels", ".git"] {
+        std::fs::create_dir_all(unpacked.join(dir)).unwrap();
+    }
+    std::fs::write(unpacked.join("notes.txt"), b"x").unwrap();
+    // Platinum has no interior building models: DSPRE's folder of them is foreign here.
+    assert_eq!(
+        unpacked_unpacked(&p).unwrap(),
+        vec!["interiorBuildingModels".to_owned(), "zForeign".to_owned()]
+    );
+}
+
+/// Gate "Vanilla bleibt byte-gleich" for the pack entries: every entry whose folder exists
+/// in the vanilla project packs back to its NARC byte for byte. Reads the project only.
+#[test]
+fn pack_only_entries_repack_byte_identical() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let mut differ = Vec::new();
+    for (packed, name) in p.archives.pack_only() {
+        let dir = root.join("unpacked").join(name);
+        if !dir.is_dir() {
+            eprintln!("{name}: no folder");
+            continue;
+        }
+        let ours = pack_dir(&dir).unwrap().write();
+        match std::fs::read(root.join(packed)) {
+            Ok(vanilla) if vanilla == ours => eprintln!("{name}: identical ({} bytes)", ours.len()),
+            Ok(vanilla) => differ.push(format!(
+                "{name}: repack differs from {} ({} vs {} bytes)",
+                packed.display(),
+                ours.len(),
+                vanilla.len()
+            )),
+            Err(e) => differ.push(format!(
+                "{name}: no vanilla NARC {} ({e})",
+                packed.display()
+            )),
+        }
+    }
+    eprintln!("not packed: {:?}", unpacked_unpacked(&p).unwrap());
+    assert!(differ.is_empty(), "{differ:#?}");
 }

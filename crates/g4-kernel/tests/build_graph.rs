@@ -492,3 +492,76 @@ fn map_edit_incremental_equals_full() {
         "A == B"
     );
 }
+
+/// A folder below `unpacked/` that nothing packs gets a `watch:<name>` row after the pack
+/// steps: always skipped, nothing written, no member naming asked. Its entry holds the
+/// hashed fingerprints of the folder's files as they were first recorded, the baseline
+/// `build.unpacked-not-packed` compares with: a changed or removed file keeps its baseline
+/// fingerprint, an added one is not taken in, an unchanged one is refreshed.
+#[test]
+fn a_foreign_folder_is_watched_with_a_kept_baseline() {
+    let (_s, p) = project();
+    let dir = p.root.join("unpacked/zForeign");
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::write(dir.join("a.bin"), b"one").unwrap();
+    std::fs::write(dir.join("0000"), b"two").unwrap();
+    std::fs::write(dir.join("gone"), b"three").unwrap();
+    std::fs::write(dir.join("sub/x"), b"nested").unwrap();
+    std::fs::write(dir.join(".DS_Store"), b"junk").unwrap();
+
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids.last(), Some(&"watch:zForeign"), "{ids:?}");
+    let watch = row(&rows, "watch:zForeign");
+    assert_eq!(
+        (watch.status, watch.done, watch.total),
+        (StepStatus::Skipped, 0, 0)
+    );
+    let first = BuildState::load(&p.root).steps["watch:zForeign"].clone();
+    let keys: Vec<&str> = first.inputs.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "unpacked/zForeign/0000",
+            "unpacked/zForeign/a.bin",
+            "unpacked/zForeign/gone"
+        ]
+    );
+    assert!(first.inputs.values().all(|fp| fp.xxh3.is_some()), "hashed");
+    assert!(first.outputs.is_empty());
+
+    std::thread::sleep(Duration::from_millis(20));
+    std::fs::write(dir.join("a.bin"), b"ONE!").unwrap();
+    std::fs::write(dir.join("b.bin"), b"new").unwrap();
+    std::fs::remove_file(dir.join("gone")).unwrap();
+    // Touched, same bytes.
+    let touched = std::fs::File::options()
+        .write(true)
+        .open(dir.join("0000"))
+        .unwrap();
+    touched
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
+    drop(touched);
+
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    assert_eq!(row(&rows, "watch:zForeign").status, StepStatus::Skipped);
+    let second = BuildState::load(&p.root).steps["watch:zForeign"].clone();
+    let key = |name: &str| format!("unpacked/zForeign/{name}");
+    assert_eq!(second.inputs[&key("a.bin")], first.inputs[&key("a.bin")]);
+    assert_eq!(second.inputs[&key("gone")], first.inputs[&key("gone")]);
+    assert!(!second.inputs.contains_key(&key("b.bin")));
+    let (before, after) = (first.inputs[&key("0000")], second.inputs[&key("0000")]);
+    assert_ne!(before.mtime_ns, after.mtime_ns, "refreshed");
+    assert_eq!(before.xxh3, after.xxh3);
+
+    // A folder gone loses its entry: made anew, it gets a new baseline.
+    std::fs::remove_dir_all(&dir).unwrap();
+    let rows = run_source_and_pack_steps(&p).unwrap();
+    assert!(rows.iter().all(|r| !r.id.starts_with("watch:")), "{rows:?}");
+    assert!(
+        !BuildState::load(&p.root)
+            .steps
+            .contains_key("watch:zForeign")
+    );
+}

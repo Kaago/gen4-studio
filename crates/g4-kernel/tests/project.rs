@@ -932,3 +932,71 @@ fn vanilla_underground_header_has_its_map_type() {
     assert_eq!(by_name("NOTHING").map_type, 0);
     assert_eq!(headers.iter().filter(|h| h.map_type == 6).count(), 1);
 }
+
+/// The pack entries of `archives.yaml` (folders DSPRE unpacks that the app does not edit).
+#[test]
+fn pack_only_entries_parse_for_pt_and_hgss() {
+    use g4_kernel::project::ArchiveMap;
+    let map = |code: &str| {
+        let family = Family::from_game_code(code).unwrap();
+        let language = Language::from_game_code(code).unwrap();
+        ArchiveMap::for_game(family, language, code).unwrap()
+    };
+    let has = |map: &ArchiveMap, packed: &str, unpacked: &str| {
+        map.pack_only()
+            .iter()
+            .any(|(p, u)| p == Path::new(packed) && u == unpacked)
+    };
+    for code in ["CPUD", "CPUE"] {
+        assert!(
+            has(
+                &map(code),
+                "files/poketool/pokegra/height.narc",
+                "pokeHeight"
+            ),
+            "{code}: {:?}",
+            map(code).pack_only()
+        );
+    }
+    for code in ["IPKD", "IPKE", "IPGE"] {
+        assert!(
+            has(&map(code), "files/a/2/5/3", "rockSmash"),
+            "{code}: {:?}",
+            map(code).pack_only()
+        );
+    }
+    assert!(map("ADAE").pack_only().is_empty(), "dp has no pack entries");
+    // Platinum's trade data: per language outside Japanese and English (`by_game` by the
+    // full game code).
+    let trade = |code: &str| {
+        map(code)
+            .pack_only()
+            .iter()
+            .find(|(_, u)| u == "tradeData")
+            .map(|(p, _)| p.clone())
+            .unwrap()
+    };
+    assert_eq!(
+        trade("CPUD"),
+        Path::new("files/resource/ger/pokemon_trade/fld_trade.narc")
+    );
+    for code in ["CPUE", "CPUJ"] {
+        assert_eq!(
+            trade(code),
+            Path::new("files/fielddata/pokemon_trade/fld_trade.narc")
+        );
+    }
+
+    // No pack entry names an archive's NARC or folder, and none is listed twice.
+    for code in ["ADAE", "CPUD", "CPUE", "CPUJ", "IPKD", "IPKE", "IPGE"] {
+        let map = map(code);
+        let mut packed: Vec<&Path> = map.kinds().filter_map(|k| map.packed(k)).collect();
+        let mut names: Vec<&str> = map.kinds().map(|k| map.unpacked_name(k)).collect();
+        for (p, u) in map.pack_only() {
+            assert!(!packed.contains(&p.as_path()), "{code}: {p:?} twice");
+            assert!(!names.contains(&u.as_str()), "{code}: {u} twice");
+            packed.push(p);
+            names.push(u);
+        }
+    }
+}

@@ -1,7 +1,8 @@
 //! The build graph's steps, in build order: `rotom` (adopted scripts only), `chatot`, one
-//! `pack:<unpacked name>` per archive (`AssetKind::ALL` order) and `rom`. Each salt is the
-//! tool's `Cargo.lock` line and the step's revision below; raise a revision when the step's
-//! own code changes what it writes.
+//! `pack:<unpacked name>` per archive (`AssetKind::ALL` order, then the pack entries of
+//! `archives.yaml`), one `watch:<name>` per other folder below `unpacked/` and `rom`. Each
+//! salt is the tool's `Cargo.lock` line and the step's revision below; raise a revision when
+//! the step's own code changes what it writes.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -9,8 +10,12 @@ use std::time::Instant;
 
 use super::blz::{self, BlzCount};
 use super::salt::{Tool, lock, step_salt};
-use super::step::{Dirty, OUTPUT_CHANGED, REMOVED, Step, StepReport, StepRun, StepStatus};
-use super::{build_err, pack_dir, read_member, replace_file, splice, write_if_changed};
+use super::step::{
+    Dirty, OUTPUT_CHANGED, REMOVED, Step, StepReport, StepRun, StepStatus, WATCH_PREFIX,
+};
+use super::{
+    build_err, pack_dir, read_member, replace_file, splice, unpacked_unpacked, write_if_changed,
+};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 use crate::scripts::{self, CompileReport, numbered_files};
@@ -21,6 +26,8 @@ pub(crate) const CHATOT_REV: u32 = 1;
 /// The NARC writer of `g4-formats`.
 pub(crate) const PACK_REV: u32 = 1;
 pub(crate) const ROM_REV: u32 = 1;
+/// What a `watch:*` entry records (hashed fingerprints of the folder's files).
+pub(crate) const WATCH_REV: u32 = 1;
 
 /// `path` relative to the project root (as it is when it lies outside).
 fn relative(project: &Project, path: &Path) -> PathBuf {
@@ -228,14 +235,7 @@ pub(crate) fn no_state_hint(count: usize) -> Problem {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PackKind {
     Asset(AssetKind),
-    #[expect(
-        dead_code,
-        reason = "Task 5 adds the pack entries of archives.yaml to pack_steps"
-    )]
-    Only {
-        packed: PathBuf,
-        unpacked: String,
-    },
+    Only { packed: PathBuf, unpacked: String },
 }
 
 /// Packs `unpacked/<name>/` into its NARC. Fully (no entry, another salt, the NARC missing or
@@ -252,22 +252,36 @@ pub(crate) struct PackStep {
 }
 
 /// One [`PackStep`] per archive of the project whose unpacked folder exists, in
-/// `AssetKind::ALL` order.
+/// `AssetKind::ALL` order, then one per pack entry of `archives.yaml` whose folder exists,
+/// in the file's order.
 pub(crate) fn pack_steps(project: &Project) -> Vec<PackStep> {
-    project
-        .archives
-        .kinds()
-        .filter_map(|kind| {
-            let dir = project.unpacked_dir(kind);
-            let packed = project.archives.packed(kind)?;
-            dir.is_dir().then(|| PackStep {
-                kind: PackKind::Asset(kind),
-                name: project.archives.unpacked_name(kind).to_owned(),
-                unpacked: relative(project, &dir),
-                packed: packed.to_path_buf(),
-            })
+    let assets = project.archives.kinds().filter_map(|kind| {
+        let dir = project.unpacked_dir(kind);
+        let packed = project.archives.packed(kind)?;
+        dir.is_dir().then(|| PackStep {
+            kind: PackKind::Asset(kind),
+            name: project.archives.unpacked_name(kind).to_owned(),
+            unpacked: relative(project, &dir),
+            packed: packed.to_path_buf(),
         })
-        .collect()
+    });
+    let only = project
+        .archives
+        .pack_only()
+        .iter()
+        .filter_map(|(packed, name)| {
+            let unpacked = Path::new("unpacked").join(name);
+            project.root.join(&unpacked).is_dir().then(|| PackStep {
+                kind: PackKind::Only {
+                    packed: packed.clone(),
+                    unpacked: name.clone(),
+                },
+                name: name.clone(),
+                unpacked,
+                packed: packed.clone(),
+            })
+        });
+    assets.chain(only).collect()
 }
 
 /// The member count of a NARC that [`splice`] wrote: the `u16` after the BTAF block's magic
@@ -364,6 +378,45 @@ impl Step for PackStep {
             Some(run) => Ok(run),
             None => self.pack_fully(p, Some(OUTPUT_CHANGED)),
         }
+    }
+}
+
+/// Watches `unpacked/<name>/`, a folder below `unpacked/` that nothing packs
+/// ([`unpacked_unpacked`]): DSPRE unpacks it, but a change to it does not reach the ROM. It
+/// never runs and writes nothing; its entry is the baseline `build.unpacked-not-packed`
+/// compares the folder with, kept by [`super::step::run_watches`] (not by the runner) and
+/// reported as a skipped row, which the app does not show.
+pub(crate) struct WatchStep {
+    name: String,
+}
+
+/// One [`WatchStep`] per folder of [`unpacked_unpacked`], in its order (by name).
+pub(crate) fn watch_steps(project: &Project) -> Result<Vec<WatchStep>, KernelError> {
+    Ok(unpacked_unpacked(project)?
+        .into_iter()
+        .map(|name| WatchStep { name })
+        .collect())
+}
+
+impl Step for WatchStep {
+    fn id(&self) -> String {
+        format!("{WATCH_PREFIX}{}", self.name)
+    }
+
+    fn salt(&self) -> String {
+        format!("watch#{WATCH_REV}")
+    }
+
+    fn inputs(&self, _: &Project) -> Result<Vec<PathBuf>, KernelError> {
+        Ok(vec![Path::new("unpacked").join(&self.name)])
+    }
+
+    fn outputs(&self, _: &Project) -> Result<Vec<PathBuf>, KernelError> {
+        Ok(Vec::new())
+    }
+
+    fn run(&self, _: &Project, _: &Dirty) -> Result<StepRun, KernelError> {
+        Ok(StepRun::default())
     }
 }
 
