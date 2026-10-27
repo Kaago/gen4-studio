@@ -18,7 +18,7 @@ import {
   TreeRow,
   useRovingList,
 } from "../../primitives";
-import type { Area, BadgeKind } from "../../primitives";
+import type { Area, BadgeKind, MenuEntry } from "../../primitives";
 import styles from "../Gallery.module.css";
 
 const places = [
@@ -50,6 +50,18 @@ const areas: { area: Area; label: string; tech: string }[] = [
   { area: "technik", label: "Header-Patch", tech: "arm9" },
 ];
 
+/** The context menu of a place row: the last place is new, so it has no original. */
+const placeMenu = (id: string): MenuEntry[] => [
+  { label: "Auf Original zurücksetzen…", icon: "undo", onSelect: () => {}, ...(id === "d" && { disabled: true, detail: "Kein Original" }) },
+];
+/** The context menu of a tree row: two targets side by side, each with its own label. */
+const treeMenu: MenuEntry[] = [
+  { label: "Karte auf Original zurücksetzen…", icon: "undo", onSelect: () => {} },
+  { label: "Header auf Original zurücksetzen…", icon: "undo", onSelect: () => {} },
+  "separator",
+  { label: "Eventdatei auf Original zurücksetzen…", icon: "undo", onSelect: () => {}, disabled: true, detail: "Basis-ROM fehlt" },
+];
+
 const badgeKinds: BadgeKind[] = ["unsaved", "irreversible", "locked", "changedOnDisk", "ptHgssOnly", "error", "live", "info"];
 
 function TreeList() {
@@ -70,6 +82,7 @@ function TreeList() {
           onToggle={() => setOpen((o) => ({ ...o, [node.id]: !o[node.id] }))}
           selected={selected === node.id}
           onSelect={() => setSelected(node.id)}
+          contextMenu={node.children ? undefined : treeMenu}
         />,
       );
       if (node.children && isOpen) walk(node.children, depth + 1);
@@ -98,6 +111,7 @@ function PlaceList() {
           selected={selected === p.id}
           onSelect={() => setSelected(p.id)}
           trailing={p.id === "a" ? <Badge kind="unsaved">3</Badge> : undefined}
+          contextMenu={placeMenu(p.id)}
         />
       ))}
     </div>
@@ -118,7 +132,8 @@ export function ContentPage() {
         <h2 className={styles.blockTitle}>Liste und Baum</h2>
         <p className={styles.note}>
           Tab landet auf genau einer Zeile; Pfeil hoch und runter bewegen sie, Pos1 und Ende springen an die Enden. Im Baum öffnet Pfeil
-          rechts und schließt Pfeil links einen Ast.
+          rechts und schließt Pfeil links einen Ast. Rechtsklick, Umschalt+F10 oder die Kontextmenü-Taste öffnen das Kontextmenü einer
+          Zeile (in der Liste jede Zeile, im Baum die Blätter).
         </p>
         <div className={styles.columns}>
           <PlaceList />

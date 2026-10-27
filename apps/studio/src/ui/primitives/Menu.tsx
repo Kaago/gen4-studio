@@ -1,5 +1,6 @@
+import { ContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import styles from "./Menu.module.css";
@@ -96,4 +97,28 @@ export function Menu({ trigger, label, items, onOpenChange }: MenuProps) {
       </BaseMenu.Portal>
     </BaseMenu.Root>
   );
+}
+
+/** The popup of a context menu, inside a `ContextMenu.Root` whose trigger is the right-clicked thing (`Reference`, `ListRow`, `TreeRow`). */
+export function ContextMenuPopup({ children }: { children: ReactNode }) {
+  return (
+    <ContextMenu.Portal>
+      <ContextMenu.Positioner className={styles.positioner}>
+        <BaseMenu.Popup className={styles.popup}>{children}</BaseMenu.Popup>
+      </ContextMenu.Positioner>
+    </ContextMenu.Portal>
+  );
+}
+
+/**
+ * Shift+F10 and the context menu key on the focused element open its context menu at its lower edge, as a right click there would (the
+ * way the deck does it for its tabs). Only for the element itself, not for a control inside it; true when it opened the menu.
+ */
+export function openContextMenuByKey(event: KeyboardEvent<HTMLElement>): boolean {
+  const byKey = event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey);
+  if (!byKey || event.target !== event.currentTarget) return false;
+  event.preventDefault();
+  const box = event.currentTarget.getBoundingClientRect();
+  event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left, clientY: box.bottom }));
+  return true;
 }

@@ -429,13 +429,15 @@ export interface AssetId {
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  * "finding_stale": `planFix` / `applyFix` on a finding that is no longer reported as it was sent (its subject changed); nothing
  * was changed.
- * "base_missing": `createPatch` without a found base ROM; nothing was built.
+ * "base_missing": `createPatch` without a found base ROM; nothing was built. Likewise `planReset`, `resetToOriginal` and
+ * `changedFromOriginal`: nothing was reset.
+ * "no_original": `planReset` / `resetToOriginal` of an entry or message the base ROM does not have; nothing was reset.
  * "text_conflict": a build or a save met text archives whose JSON and member both changed since the last build; nothing was written.
  * `problems` holds one error per archive (source "build", file "expanded/textArchives/0012.json", see `textConflictArchives`), and
  * `resolveTextConflicts` decides which version applies.
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing" | "text_conflict";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing" | "text_conflict" | "no_original";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -454,7 +456,8 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "compile" ||
       o.code === "finding_stale" ||
       o.code === "base_missing" ||
-      o.code === "text_conflict") &&
+      o.code === "text_conflict" ||
+      o.code === "no_original") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -971,6 +974,7 @@ export * from "./api.base";
 export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";
+export * from "./api.original";
 export * from "./project/api.preview";
 export * from "./project/api.start";
 export * from "./project/api.templates";

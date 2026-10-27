@@ -1,7 +1,10 @@
+import { ContextMenu } from "@base-ui/react/context-menu";
 import { useId } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
+import { ContextMenuPopup, MenuEntries, openContextMenuByKey } from "./Menu";
+import type { MenuEntry } from "./Menu";
 import styles from "./ListRow.module.css";
 
 /** Pass-through `data-*` attributes (`data-archive`, `data-script`, …) that tests and scripts address rows by. */
@@ -29,6 +32,8 @@ export type ListRowProps = {
   /** In a list that renders only some of its rows: how many rows it has, and this row's place among them (1-based). */
   ariaSetSize?: number;
   ariaPosInSet?: number;
+  /** Entries a right click on the row lists (also Shift+F10 and the context menu key on the focused row); without them the row has no menu of its own. */
+  contextMenu?: readonly MenuEntry[];
 };
 
 /** Enter and Space select, but only when the row itself has focus (not a control inside `trailing`). */
@@ -44,15 +49,38 @@ export function rowClass(selected: boolean, disabled: boolean | undefined): stri
   return [styles.row, selected ? styles.selected : "", disabled ? styles.disabled : ""].filter(Boolean).join(" ");
 }
 
+/** The attributes of a row's element, with its pass-through `data-*` attributes. */
+export type RowElementProps = Omit<HTMLAttributes<HTMLDivElement>, "contextMenu"> & RowDataAttrs & { "data-roving": string };
+
+/**
+ * The element of a row: a plain `div`, or with `menu` the trigger of a context menu (the `div` keeps its role and handlers), opened
+ * by a right click and by Shift+F10 or the context menu key at the row's lower edge.
+ */
+export function RowElement({ menu, children, ...attrs }: RowElementProps & { menu: readonly MenuEntry[] | undefined; children: ReactNode }) {
+  if (menu === undefined) return <div {...attrs}>{children}</div>;
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!openContextMenuByKey(event)) attrs.onKeyDown?.(event);
+  };
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger render={<div {...attrs} onKeyDown={onKeyDown} />}>{children}</ContextMenu.Trigger>
+      <ContextMenuPopup>
+        <MenuEntries items={menu} />
+      </ContextMenuPopup>
+    </ContextMenu.Root>
+  );
+}
+
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet }: ListRowProps) {
+export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet, contextMenu }: ListRowProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const subtitleId = `${id}-subtitle`;
   const named = subtitle !== undefined && ariaLabel === undefined;
   return (
-    <div
+    <RowElement
       {...dataAttrs}
+      menu={contextMenu}
       role="option"
       aria-selected={selected}
       aria-label={ariaLabel}
@@ -83,6 +111,6 @@ export function ListRow({ label, tech, icon, leading, subtitle, selected, onSele
       )}
       {tech && <span className={styles.tech}>{tech}</span>}
       {trailing && <span className={styles.trailing}>{trailing}</span>}
-    </div>
+    </RowElement>
   );
 }

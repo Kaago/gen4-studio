@@ -1,7 +1,7 @@
 import { useId } from "react";
 import type { KeyboardEvent } from "react";
 import { Icon } from "./Icon";
-import { rowClass, selectOnKey } from "./ListRow";
+import { RowElement, rowClass, selectOnKey } from "./ListRow";
 import type { ListRowProps } from "./ListRow";
 import listStyles from "./ListRow.module.css";
 import styles from "./TreeRow.module.css";
@@ -14,8 +14,8 @@ export type TreeRowProps = ListRowProps & {
   onToggle?: () => void;
 };
 
-/** One row of a tree: indent by depth, a caret for branches, Right opens and Left closes a branch; `subtitle` is a second line as in `ListRow`. */
-export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, depth, expanded, onToggle }: TreeRowProps) {
+/** One row of a tree: indent by depth, a caret for branches, Right opens and Left closes a branch; `subtitle` and `contextMenu` as in `ListRow`. */
+export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, depth, expanded, onToggle, contextMenu }: TreeRowProps) {
   const branch = expanded !== undefined;
   const id = useId();
   const labelId = `${id}-label`;
@@ -34,8 +34,9 @@ export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trail
     if (!disabled) selectOnKey(event, onSelect);
   };
   return (
-    <div
+    <RowElement
       {...dataAttrs}
+      menu={contextMenu}
       role="treeitem"
       aria-level={depth + 1}
       aria-selected={selected}
@@ -77,6 +78,6 @@ export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trail
       )}
       {tech && <span className={listStyles.tech}>{tech}</span>}
       {trailing && <span className={listStyles.trailing}>{trailing}</span>}
-    </div>
+    </RowElement>
   );
 }

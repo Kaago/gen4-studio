@@ -141,4 +141,78 @@ describe("ListRow and TreeRow", () => {
     pressKey(item, " ");
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  describe("context menu", () => {
+    const row = () => container.querySelector<HTMLElement>("[role=option]")!;
+    const entries = () => [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    const menu = () => document.querySelector("[role=menu]");
+    const rightClick = (el: HTMLElement) =>
+      act(() => void el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })));
+
+    it("context_menu_opens_on_right_click_and_shift_f10", () => {
+      const onReset = vi.fn();
+      const onSelect = vi.fn();
+      act(() =>
+        root.render(
+          <ListRow
+            label="Trainer 0002"
+            selected={false}
+            onSelect={onSelect}
+            dataAttrs={{ "data-trainer": 2 }}
+            contextMenu={[{ label: "Auf Original zurücksetzen…", icon: "undo", onSelect: onReset }, "separator", { label: "Gesperrt", onSelect: () => {}, disabled: true, detail: "Kein Original" }]}
+          />,
+        ),
+      );
+      // The row stays the option it was.
+      expect(row().getAttribute("aria-selected")).toBe("false");
+      expect(row().getAttribute("data-trainer")).toBe("2");
+      expect(menu()).toBeNull();
+      rightClick(row());
+      expect(menu()).not.toBeNull();
+      expect(entries().map((e) => e.textContent)).toEqual(["Auf Original zurücksetzen…", "GesperrtKein Original"]);
+      // A right click does not select the row.
+      expect(onSelect).not.toHaveBeenCalled();
+      act(() => entries()[0]!.click());
+      expect(onReset).toHaveBeenCalledTimes(1);
+
+      // Shift+F10 on the focused row opens it too, and is not passed on.
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset }]} />));
+      const pressed = pressKey(row(), "F10", { shiftKey: true });
+      expect(pressed.defaultPrevented).toBe(true);
+      expect(menu()).not.toBeNull();
+      expect(entries().map((e) => e.textContent)).toEqual(["Auf Original zurücksetzen…"]);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("the_context_menu_key_opens_it_as_well", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      pressKey(row(), "ContextMenu");
+      expect(menu()).not.toBeNull();
+    });
+
+    it("enter_still_selects_a_row_with_a_context_menu", () => {
+      const onSelect = vi.fn();
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      pressKey(row(), "Enter");
+      act(() => row().click());
+      expect(onSelect).toHaveBeenCalledTimes(2);
+      // F10 without Shift is no menu key.
+      pressKey(row(), "F10");
+      expect(menu()).toBeNull();
+    });
+
+    it("without_context_menu_nothing_changes", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} />));
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+      act(() => void row().dispatchEvent(event));
+      expect(menu()).toBeNull();
+      // The browser's own menu is not taken away.
+      expect(event.defaultPrevented).toBe(false);
+      const pressed = pressKey(row(), "F10", { shiftKey: true });
+      expect(pressed.defaultPrevented).toBe(false);
+      expect(menu()).toBeNull();
+      // The row is the option element itself, as before.
+      expect(container.firstElementChild?.getAttribute("role")).toBe("option");
+    });
+  });
 });

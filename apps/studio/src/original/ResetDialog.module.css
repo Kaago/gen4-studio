@@ -1,0 +1,48 @@
+/* The body of „Auf Original zurücksetzen?“: notices, the comparison per change, the header fields. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* „Lade Vergleich …“, „Setze zurück …“. */
+.wait {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.change {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.changeLabel {
+  margin: 0;
+  font: var(--g4-font-text-s-betont);
+}
+
+/* One differing header field per row: its checkbox, the values before and after beside it. */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-4) var(--g4-raum-12);
+  min-height: var(--g4-dichte-zeile);
+}
+
+.values {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}

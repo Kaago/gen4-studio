@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -209,6 +209,7 @@ vi.mock("./api", async (importOriginal) => ({
   agentSettings: vi.fn(),
   baseStatus: vi.fn(),
   createPatch: vi.fn(),
+  originalStatus: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -284,6 +285,7 @@ describe("App wiring", () => {
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
+    vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -2381,6 +2383,31 @@ describe("App wiring", () => {
       await vi.waitFor(() => expect(log.map((entry) => entry.split("@")[0])).toEqual(expect.arrayContaining(["headerTable", "areaData", "buildingData", "dataChanged"])), { timeout: 4000 });
       expect(memberCounts).toHaveBeenCalled();
       expect(dirty).toHaveBeenCalled();
+    });
+
+    it("reads_what_can_be_reset_once_per_project_and_again_when_an_agent_assigns_a_base", async () => {
+      vi.mocked(originalStatus).mockClear();
+      await inTheApp();
+      expect(originalStatus).toHaveBeenCalledTimes(1);
+      // Other tools leave it alone.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(originalStatus).toHaveBeenCalledTimes(1);
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(originalStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it("an_agent_reset_to_original_reloads_like_the_other_tools", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "reset_to_original", label: "Auf Original zurückgesetzt: Matrix", assets: [{ kind: "Matrix", index: 0 }] });
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
+      expect(data().history.current).toBe(1);
     });
 
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {

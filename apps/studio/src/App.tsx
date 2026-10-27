@@ -30,6 +30,8 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
+import { OriginalProvider } from "./original/OriginalContext";
+import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
@@ -49,7 +51,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
+import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -219,6 +221,8 @@ function AppBody() {
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
+  // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
+  const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
   // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).
   const unsavedRef = useRef(0);
@@ -349,6 +353,8 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
+    // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
+    if (session.info !== null && event.tool === "assign_base") void original.refresh();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
@@ -362,6 +368,13 @@ function AppBody() {
         await session.staleRefresh.current();
       })
       .catch(session.fail);
+  });
+  // „Auf Original zurücksetzen“ went in (one undo step; a script, texture or model was written at once): the changed assets are read again
+  // as after ⌘Z, an open script file too, then the message names the entity. An agent's reset comes as an agent event, on the path above.
+  const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
+    if (result.changed.length > 0) scene.noteHistoryMoved();
+    await reloadChanged(result.changed, true);
+    session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
   const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
@@ -968,7 +981,7 @@ function AppBody() {
   );
 
   return (
-    <>
+    <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <Workbench data={data} live={live}>
         {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
         <TextAreaHost onShown={setTextShown}>
@@ -1072,6 +1085,6 @@ function AppBody() {
       )}
       <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}
-    </>
+    </OriginalProvider>
   );
 }
