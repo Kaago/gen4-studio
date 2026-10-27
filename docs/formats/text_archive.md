@@ -143,9 +143,15 @@ Aufgezeichnet wird (`text::record_text_sync`) nach jedem Speichern im Store (ein
 für alle geschriebenen Archive, ebenso beim Anlegen eines Archivs), nach dem Kodieren im Build
 oder beim Übersetzen der Scripts, wenn der Build ein Archiv `Unknown` oder beidseitig passend
 geändert vorfindet, nach dem Schreiben der JSON aus dem Member (vor rotom, siehe unten) und nach
-dem Auflösen eines Konflikts. Der Store lädt `TextSync` beim ersten Textzugriff und verwirft ihn
-nach dem Speichern; ein veralteter Stand liest höchstens die JSON statt eines passenden Members.
-Die Prüfungen (`checks::Snapshot`) halten ihn, solange `state.json` denselben `stat` hat.
+dem Auflösen eines Konflikts. Ein veralteter Stand kann die falsche Seite lesen (ein seither
+aufgezeichneter Abgleich lässt einen neueren Member als `Unknown` oder `Conflict` erscheinen, dann
+gälte die JSON). Wer `TextSync` hält, lädt ihn daher neu, sobald `state.json` einen anderen `stat`
+hat (`TextSync::is_current`): der Store bei jedem Lesen und Speichern eines Textarchivs, die
+Prüfungen (`checks::Snapshot`) einmal je Lauf.
+
+**Speichern im Store:** Ein ungespeichertes Archiv mit `Conflict` wird nicht geschrieben; `save`
+gibt `KernelError::TextConflict` zurück, bevor irgendetwas geschrieben ist. Nach dem Auflösen gilt
+die übliche Regel: Weicht die geltende Datei von dem ab, was der Store geladen hat, ist es `Stale`.
 
 **Bauen (`chatot`):** kodiert die Archive mit `OnlyJson`, `JsonNewer` und `Unknown`, deren
 Member die Texte der JSON noch nicht hält; hält er sie schon, wird nur aufgezeichnet. Hat ein
@@ -157,12 +163,17 @@ the JSON version applies.“
 
 **Auflösen:** `text::resolve_conflict(project, n, TextKeep)`. `Json` kodiert den Member aus
 der JSON (wie Speichern), `Member` schreibt die JSON aus dem Member (nur die Editorsprache, IDs
-`msg_NNNNN`). Beides zeichnet auf; der nächste Build läuft durch.
+`msg_NNNNN`). Beides zeichnet auf; der nächste Build läuft durch. Mit `Member` werden in einem
+übernommenen Projekt die Scriptdateien der Header, die das Archiv verwenden, als veraltet markiert
+(`scripts::mark_stale`): Ein Textliteral, das rotom an die verworfene JSON angehängt hatte, hängt
+die nächste Übersetzung wieder an.
 
 **Vor rotom** (`scripts::compile`): Eine JSON mit `MemberNewer` wird aus dem Member neu
 geschrieben und aufgezeichnet, denn rotom liest die JSON ohne diese Regel und hängte sonst an
-eine veraltete Fassung an. Ein Archiv mit `Conflict` wird nach rotoms Anhängen nicht kodiert;
-der Build fragt.
+eine veraltete Fassung an. Im Build fragt schon der Schritt `rotom`: Hat ein Archiv `Conflict`,
+scheitert er mit `KernelError::TextConflict`, bevor rotom etwas schreibt. Außerhalb des Builds
+(Übersetzen nach dem Speichern der Header-Tabelle) wird ein Archiv mit `Conflict` nach rotoms
+Anhängen nicht kodiert; der nächste Build fragt.
 
 ## Prüfungen
 

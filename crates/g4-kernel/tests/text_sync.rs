@@ -360,3 +360,135 @@ fn a_copied_project_with_its_state_asks_nothing() {
     let again = prepare_for_build(&c, &out(&c)).unwrap();
     assert_eq!(row(&again.steps, "chatot").status, StepStatus::Skipped);
 }
+
+fn text_id(index: u16) -> g4_kernel::store::AssetId {
+    g4_kernel::store::AssetId {
+        kind: AssetKind::TextArchive,
+        index,
+    }
+}
+
+#[test]
+fn a_store_sees_a_sync_recorded_elsewhere_and_does_not_save_over_a_newer_member() {
+    let (_s, p) = project();
+    // The store reads (no state yet: the JSON) and edits archive 1.
+    let mut store = Store::new(Arc::new(Project::open(&p.root).unwrap()));
+    assert_eq!(texts_of(store.text_archive(1).unwrap().clone()), ["Zwei"]);
+    store
+        .edit_text_archive(1, "edit", |d| d.messages[0].text = "Im Editor".into())
+        .unwrap();
+    // A build records both archives, then DSPRE changes both members.
+    record_text_sync(&p, &[0, 1]).unwrap();
+    write_member(&p, 0, &["Aus DSPRE"]);
+    write_member(&p, 1, &["Auch aus DSPRE"]);
+    let member = std::fs::read(member_path(&p, 1)).unwrap();
+
+    assert_eq!(
+        texts_of(store.text_archive(0).unwrap().clone()),
+        ["Aus DSPRE"]
+    );
+    assert!(matches!(
+        store.save().unwrap_err(),
+        KernelError::Stale(id) if id == text_id(1)
+    ));
+    assert_eq!(std::fs::read(member_path(&p, 1)).unwrap(), member);
+}
+
+#[test]
+fn a_store_save_does_not_overwrite_a_conflict() {
+    let (_s, p) = synced();
+    let mut store = Store::new(Arc::new(Project::open(&p.root).unwrap()));
+    store
+        .edit_text_archive(0, "edit", |d| d.messages[0].text = "Im Editor".into())
+        .unwrap();
+    write_json(&p, 0, &["JSON-Fassung"]);
+    write_member(&p, 0, &["Member-Fassung"]);
+    let json = std::fs::read(json_path(&p, 0)).unwrap();
+    let member = std::fs::read(member_path(&p, 0)).unwrap();
+
+    let err = store.save().unwrap_err();
+    assert!(
+        matches!(&err, KernelError::TextConflict(n) if n == &[0]),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(json_path(&p, 0)).unwrap(), json);
+    assert_eq!(std::fs::read(member_path(&p, 0)).unwrap(), member);
+
+    // Resolved, the JSON still differs from what the store read: the usual stale case,
+    // and keeping the store's version saves it.
+    resolve_conflict(&p, 0, TextKeep::Json).unwrap();
+    assert!(matches!(
+        store.save().unwrap_err(),
+        KernelError::Stale(id) if id == text_id(0)
+    ));
+    store.accept_disk_as_base(text_id(0)).unwrap();
+    store.save().unwrap();
+    assert_eq!(member_texts(&p, 0), ["Im Editor"]);
+    assert_eq!(side(&p, 0), TextSide::InSync);
+}
+
+/// The synthetic project with adopted scripts and archive 433 (the location bank, which a
+/// header of script file 0 uses) as a JSON and member in sync, after one build.
+fn adopted() -> (common::Synthetic, Project) {
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    g4_kernel::scripts::adopt(&p, &mut |_| {}).unwrap();
+    p.ensure_unpacked(AssetKind::TextArchive).unwrap();
+    write_json(&p, 433, &["Nowhere", "Twinleaf Town", "Sandgem Town"]);
+    write_member(&p, 433, &["Nowhere", "Twinleaf Town", "Sandgem Town"]);
+    record_text_sync(&p, &[433]).unwrap();
+    prepare_for_build(&p, &out(&p)).unwrap();
+    (s, p)
+}
+
+/// Archive 433 changed on both sides, differently.
+fn conflict_433(p: &Project) {
+    write_json(p, 433, &["Nowhere", "Twinleaf Town", "JSON-Fassung"]);
+    write_member(p, 433, &["Nowhere", "Twinleaf Town", "Member-Fassung"]);
+    assert_eq!(side(p, 433), TextSide::Conflict);
+}
+
+#[test]
+fn a_conflict_stops_rotom_before_it_writes() {
+    use g4_kernel::scripts::{self, ScriptSource};
+
+    let (_s, p) = adopted();
+    conflict_433(&p);
+    scripts::write_source(
+        &p,
+        0,
+        &ScriptSource::Rotom("script Main #1:\n    Message \"Hallo Welt\"\n    End\n".into()),
+    )
+    .unwrap();
+    let script = std::fs::read(p.member_path(AssetKind::Script, 0)).unwrap();
+    let state = std::fs::read(p.root.join(".rotom/status/compile-state.json")).unwrap();
+    let json = std::fs::read(json_path(&p, 433)).unwrap();
+    let member = std::fs::read(member_path(&p, 433)).unwrap();
+
+    let err = prepare_for_build(&p, &out(&p)).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::TextConflict(n) if n == &[433]),
+        "{err}"
+    );
+    assert_eq!(
+        std::fs::read(p.member_path(AssetKind::Script, 0)).unwrap(),
+        script
+    );
+    assert_eq!(
+        std::fs::read(p.root.join(".rotom/status/compile-state.json")).unwrap(),
+        state
+    );
+    assert_eq!(std::fs::read(json_path(&p, 433)).unwrap(), json);
+    assert_eq!(std::fs::read(member_path(&p, 433)).unwrap(), member);
+}
+
+#[test]
+fn resolving_with_the_member_recompiles_the_scripts_using_the_archive() {
+    let (_s, p) = adopted();
+    assert!(g4_kernel::scripts::compile(&p).unwrap().compiled.is_empty());
+    conflict_433(&p);
+    resolve_conflict(&p, 433, TextKeep::Member).unwrap();
+    assert_eq!(side(&p, 433), TextSide::InSync);
+    let compiled = g4_kernel::scripts::compile(&p).unwrap().compiled;
+    assert!(compiled.contains(&0), "{compiled:?}");
+}

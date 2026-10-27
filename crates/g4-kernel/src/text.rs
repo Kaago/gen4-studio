@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_json::{Map, Value};
 
 use crate::build::fingerprint::{self, Seen};
-use crate::build::state::{BuildState, TextRecord};
+use crate::build::state::{BuildState, TextRecord, state_path};
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
@@ -301,20 +301,32 @@ impl TextSide {
 /// The text archives' last recorded syncs (`texts` in `.g4/build/state.json`), loaded once
 /// and asked per archive. A sync is recorded ([`record_text_sync`]) after a store save,
 /// after the build encoded an archive or found its member current, after the JSON was
-/// written from the member, and after a conflict was resolved. An outdated `TextSync` can at
-/// most read the JSON where a matching member would apply: when both sides changed, the
-/// member's texts decide ([`TextSide::InSync`] or [`TextSide::Conflict`]).
+/// written from the member, and after a conflict was resolved. An outdated `TextSync` can
+/// read the wrong side (a record written since makes a newer member look `Unknown` or
+/// `Conflict`, so the JSON is read), so a holder that keeps one checks
+/// [`TextSync::is_current`] before it asks.
 #[derive(Debug, Clone, Default)]
 pub struct TextSync {
     records: BTreeMap<u16, TextRecord>,
+    /// The `stat` of `state.json` taken right before it was read (`None`: no file).
+    stamp: Option<fingerprint::Fp>,
 }
 
 impl TextSync {
     /// The project's records; none without a build state.
     pub fn load(project: &Project) -> TextSync {
+        // Taken before the read: a write in between makes the next check load again.
+        let stamp = state_stamp(project);
         TextSync {
             records: BuildState::load(&project.root).texts,
+            stamp,
         }
+    }
+
+    /// Whether `state.json` still has the `stat` it had when this was loaded (every write
+    /// replaces the file, so a record written since changes it).
+    pub fn is_current(&self, project: &Project) -> bool {
+        state_stamp(project) == self.stamp
     }
 
     /// Which version of text archive `archive` applies, see [`TextSide`]. The `stat` of both
@@ -365,6 +377,23 @@ impl TextSync {
             (false, false) => (TextSide::Conflict, false),
         })
     }
+}
+
+/// The `stat` of the project's `state.json`; `None` when it is missing or unreadable.
+fn state_stamp(project: &Project) -> Option<fingerprint::Fp> {
+    fingerprint::stat(&state_path(&project.root)).ok().flatten()
+}
+
+/// The text archives with a JSON whose side is [`TextSide::Conflict`], in order.
+pub(crate) fn conflicts(project: &Project) -> Result<Vec<u16>, KernelError> {
+    let sync = TextSync::load(project);
+    let mut found = Vec::new();
+    for n in numbered_files(&project.expanded_dir(AssetKind::TextArchive), Some("json"))? {
+        if sync.side(project, n)? == TextSide::Conflict {
+            found.push(n);
+        }
+    }
+    Ok(found)
 }
 
 /// Whether the JSON at `json` reads and `member` already holds its texts.
@@ -419,7 +448,9 @@ pub enum TextKeep {
 /// member from the JSON (like a save), `Member` writes the JSON from the member (like
 /// DSPRE's expand: the editor's language only, message ids `msg_NNNNN`). Either file may be
 /// overwritten, which is the point; the other one is left as it is. Works whatever the
-/// archive's side is.
+/// archive's side is. With `Member` in an adopted project, the script files whose headers
+/// use the archive are marked stale ([`crate::scripts::mark_stale`]): a text literal rotom
+/// appended to the dropped JSON is appended again by the next compile.
 pub fn resolve_conflict(
     project: &Project,
     archive: u16,
@@ -428,6 +459,21 @@ pub fn resolve_conflict(
     let json = json_path(project, archive);
     let member = project.member_path(AssetKind::TextArchive, archive);
     let lang = project.language.locale_key();
+    // Read before anything is written: an unreadable header table leaves both files alone.
+    let users = match keep {
+        TextKeep::Member if crate::scripts::is_adopted(project) => {
+            let mut files: Vec<u16> = project
+                .read_headers()?
+                .iter()
+                .filter(|h| h.text_archive_id() == archive)
+                .map(|h| h.script_file_id())
+                .collect();
+            files.sort_unstable();
+            files.dedup();
+            files
+        }
+        _ => Vec::new(),
+    };
     project.ensure_unpacked(AssetKind::TextArchive)?;
     match keep {
         TextKeep::Json => {
@@ -445,7 +491,8 @@ pub fn resolve_conflict(
             write_atomic(&project.root, &json, &doc.to_json())?;
         }
     }
-    record_text_sync(project, &[archive])
+    record_text_sync(project, &[archive])?;
+    crate::scripts::mark_stale(project, &users)
 }
 
 /// Position of byte offset `at` in a message's `text`: 1-based line and 1-based UTF-16

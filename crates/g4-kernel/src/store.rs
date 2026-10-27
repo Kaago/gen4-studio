@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use g4_formats::area_data::AreaData;
 use g4_formats::data::encounter::Encounters;
@@ -26,7 +26,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
-use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSync};
+use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -827,10 +827,9 @@ pub struct Store {
     /// well.
     placeholder_trainer: Option<u16>,
     /// The text archives' recorded syncs, which decide whether an archive's JSON or member
-    /// applies; loaded on the first text access, dropped after a save records new ones. An
-    /// outdated one (a build recorded since) reads at most the JSON where a matching member
-    /// would apply, see [`TextSync`].
-    text_sync: OnceLock<TextSync>,
+    /// applies; loaded on the first text access and again whenever `state.json` changed
+    /// since (a save, a build, a resolved conflict, see [`TextSync::is_current`]).
+    text_sync: Mutex<Option<Arc<TextSync>>>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -901,7 +900,7 @@ impl Store {
             locks: HashMap::new(),
             placeholder_trainer: crate::scripts::trainer_script_meta(project.family)
                 .map(|meta| meta.seen_id()),
-            text_sync: OnceLock::new(),
+            text_sync: Mutex::new(None),
             project,
         }
     }
@@ -915,8 +914,18 @@ impl Store {
         self.project.language.locale_key()
     }
 
-    fn text_sync(&self) -> &TextSync {
-        self.text_sync.get_or_init(|| TextSync::load(&self.project))
+    /// The text archives' recorded syncs as `state.json` holds them now: the loaded ones
+    /// while its `stat` is unchanged (one `stat` per call), else read anew.
+    fn text_sync(&self) -> Arc<TextSync> {
+        let mut held = self.text_sync.lock().unwrap_or_else(|e| e.into_inner());
+        match &*held {
+            Some(sync) if sync.is_current(&self.project) => Arc::clone(sync),
+            _ => {
+                let sync = Arc::new(TextSync::load(&self.project));
+                *held = Some(Arc::clone(&sync));
+                sync
+            }
+        }
     }
 
     /// How the file of `id` is read: for a text archive, its JSON or its member by
@@ -930,10 +939,11 @@ impl Store {
         })
     }
 
-    /// Records the text archives among `written` as in sync and drops the loaded
-    /// [`TextSync`]. The state is a cache: a record that cannot be written leaves the
-    /// archive without one (its JSON applies) or with an older one (both sides changed and
-    /// match, so it reads in sync), which is why an error is not the save's.
+    /// Records the text archives among `written` as in sync (the loaded [`TextSync`] sees the
+    /// new `state.json` on its next use). The state is a cache: a record that cannot be
+    /// written leaves the archive without one (its JSON applies) or with an older one (both
+    /// sides changed and match, so it reads in sync), which is why an error is not the
+    /// save's.
     fn record_texts(&mut self, written: &[AssetId]) {
         let texts: Vec<u16> = written
             .iter()
@@ -944,7 +954,6 @@ impl Store {
             return;
         }
         let _ = text::record_text_sync(&self.project, &texts);
-        self.text_sync = OnceLock::new();
     }
 
     /// Unpacks the archive of `kind` on first use per kind.
@@ -2466,11 +2475,27 @@ impl Store {
     /// Writes every dirty asset. First checks that each file (for the header table: its
     /// slice of `arm9.bin`, or the concatenation of its header files) still holds the bytes
     /// this store last saw; if any does not,
-    /// returns [`KernelError::Stale`] and writes nothing. A header table save re-reads
-    /// `arm9.bin` right before writing and replaces only the table's bytes in it, so changes
-    /// made to the rest of the file meanwhile are kept.
+    /// returns [`KernelError::Stale`] and writes nothing. A dirty text archive whose JSON and
+    /// member both changed since their last recorded sync ([`TextSide::Conflict`]) is
+    /// [`KernelError::TextConflict`], again before anything is written. A header table save
+    /// re-reads `arm9.bin` right before writing and replaces only the table's bytes in it, so
+    /// changes made to the rest of the file meanwhile are kept.
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
+        // A text archive whose JSON and member both changed since their last sync is not
+        // overwritten: the user picks a version first (`text::resolve_conflict`).
+        let sync = self.text_sync();
+        let mut conflicts = Vec::new();
+        for id in self.dirty() {
+            if id.kind == AssetKind::TextArchive
+                && sync.side(&self.project, id.index)? == TextSide::Conflict
+            {
+                conflicts.push(id.index);
+            }
+        }
+        if !conflicts.is_empty() {
+            return Err(KernelError::TextConflict(conflicts));
+        }
         let mut pending = Vec::new();
         for id in self.dirty() {
             let location = self.project.asset_location(id.kind, id.index)?;

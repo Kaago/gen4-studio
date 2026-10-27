@@ -91,7 +91,7 @@ fn ns(time: std::io::Result<SystemTime>) -> i128 {
 }
 
 /// The `stat` part of a fingerprint (no hash); `None` when the file does not exist.
-fn stat(path: &Path) -> Result<Option<Fp>, KernelError> {
+pub(crate) fn stat(path: &Path) -> Result<Option<Fp>, KernelError> {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

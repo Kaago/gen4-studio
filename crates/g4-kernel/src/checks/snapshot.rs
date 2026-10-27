@@ -36,7 +36,6 @@ use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
 use super::scripts::{ScriptFacts, ScriptInput, facts_of};
-use crate::build::state::state_path;
 use crate::disk::Disk;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
@@ -119,12 +118,10 @@ type Cached<T> = (u64, Result<Arc<T>, String>);
 pub struct SnapshotCache {
     texts: HashMap<u16, Cached<TextEntry>>,
     scripts: HashMap<u16, Cached<ScriptEntry>>,
-    text_sync: Option<CachedSync>,
+    /// The text archives' recorded syncs of an earlier run, reused while `state.json` is
+    /// unchanged ([`TextSync::is_current`]).
+    text_sync: Option<Arc<TextSync>>,
 }
-
-/// The text archives' recorded syncs with the stamp (length, modification time) of
-/// `state.json` they were read at (`None`: no file).
-type CachedSync = (Option<(u64, u128)>, Arc<TextSync>);
 
 impl SnapshotCache {
     /// Number of cached text archives and script files.
@@ -547,19 +544,18 @@ impl Snapshot {
             .ok()
     }
 
-    /// The text archives' recorded syncs: those of the last run while `state.json` has the
-    /// same stamp, else read anew (once per snapshot).
+    /// The text archives' recorded syncs: those of the last run while `state.json` is
+    /// unchanged, else read anew (once per snapshot).
     fn text_sync(&self) -> &TextSync {
         self.text_sync.get_or_init(|| {
-            let stamp = file_stamp(&state_path(&self.project.root)).ok();
             let mut cache = lock(&self.cache);
-            if let Some((key, sync)) = &cache.text_sync
-                && *key == stamp
+            if let Some(sync) = &cache.text_sync
+                && sync.is_current(&self.project)
             {
                 return Arc::clone(sync);
             }
             let sync = Arc::new(TextSync::load(&self.project));
-            cache.text_sync = Some((stamp, Arc::clone(&sync)));
+            cache.text_sync = Some(Arc::clone(&sync));
             sync
         })
     }

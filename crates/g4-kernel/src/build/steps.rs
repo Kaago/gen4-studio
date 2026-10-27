@@ -47,7 +47,9 @@ fn has_error(problems: &[Problem]) -> bool {
 /// `mark_stale` changes), its configuration and command database, and the header table
 /// (`arm9.bin`, or `unpacked/dynamicHeaders/` once the Dynamic Headers patch is applied). rotom's compile
 /// state still decides what compiles; the gate only decides whether rotom runs at all.
-/// Problems with an error fail the step (`Compile`); the report is in [`RotomStep::report`].
+/// Before it compiles, a text archive in [`text::TextSide::Conflict`] fails the step with
+/// [`KernelError::TextConflict`] (nothing written). Problems with an error fail the step
+/// (`Compile`); the report is in [`RotomStep::report`].
 #[derive(Default)]
 pub(crate) struct RotomStep {
     pub(crate) report: RefCell<Option<CompileReport>>,
@@ -84,6 +86,13 @@ impl Step for RotomStep {
     }
 
     fn run(&self, p: &Project, _dirty: &Dirty) -> Result<StepRun, KernelError> {
+        // rotom appends text literals to the archives' JSON and writes script members that
+        // number them: a text conflict is asked before it writes anything, or a member kept
+        // in the resolution would leave a script pointing at a message that is gone.
+        let conflicts = text::conflicts(p)?;
+        if !conflicts.is_empty() {
+            return Err(KernelError::TextConflict(conflicts));
+        }
         let report = scripts::compile(p)?;
         let dir = p.expanded_dir(AssetKind::Script);
         let total =
