@@ -355,6 +355,30 @@ lesen oder aus der gegebenen Basis-ROM nicht anlegen, ist das `textproject.base-
 **Check** (`textproject::check`, `g4k text check`): wie der Import, schreibt nie (auch keine
 Basisschicht); nennt die Probleme, die Hinweise und die Dateien, die ein Import schreiben würde.
 
+**Build** (Schritt `textproject`, `textproject::step`, nur mit `g4-project.json`, vor `rotom` und
+`chatot`): plant wie der Import, schreibt aber nur die Einheiten, deren JSON-Seite gilt. Eine
+Einheit ist eine Entität (JSON mit Beifiles ↔ ihre Member), die Item-Dateien eines Item-Members, ein
+Binärmember, ein Blob (`data/raw/X` ↔ `X`), die Header-Tabelle (alle `data/headers/*` ↔ Ausschnitt in
+`arm9.bin` bzw. Dynamic-Header-Dateien und `mapname.bin`) oder die Quirks-Datei (↔ Compile-Zustand).
+Je Einheit, deren erzeugte Bytes vom Member abweichen:
+
+| Lauf | JSON-Seite geändert | Member-Seite geändert | Wirkung |
+|---|---|---|---|
+| inkrementell | ja | nein | Member schreiben |
+| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` |
+| inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
+
+Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
+Register plant alle Einheiten und gilt für jede abweichende als JSON-Änderung; eine abweichende
+Einheit ohne Änderung auf einer der beiden Seiten (die Items werden als Ganzes geplant) gilt als
+`member-newer`. Die als neuer behaltenen Member merkt sich der Schritt in
+`.g4/build/textproject.json`, damit eine spätere Änderung ihrer JSON ein Konflikt ist und kein
+stilles Überschreiben; ein voller Lauf vergisst sie. Die Quirks gehen immer in den Compile-Zustand
+(rotoms Cache). Erst werden alle Einheiten entschieden, dann geschrieben: ein Fehler und nichts
+wird geschrieben. Ohne Basismarke oder Basisschicht darf ein voller Lauf nur fehlende Member
+schreiben.
+
 ## Schema-Version und Migration
 
 `schemaVersion` zählt die Dateiformate unter `data/` und das Manifest. Jede Namensänderung eines
@@ -388,6 +412,9 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.reserved` | Info | `schemas` oder `plugins` im Manifest sind nicht leer |
 | `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt |
 | `textproject.base-unchecked` | Warnung | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
+| `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |
+| `textproject.conflict` | Fehler | Build: JSON und Member einer Einheit sind beide seit dem letzten Build geändert; nichts geschrieben |
+| `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
 
 ## Quellenliste
 

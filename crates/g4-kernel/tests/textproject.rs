@@ -8,14 +8,17 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+use g4_formats::narc::Narc;
 use g4_kernel::base::BaseRom;
+use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
 use g4_kernel::text::{Problem, Severity};
 use g4_kernel::textproject::manifest::SchemaState;
+use g4_kernel::textproject::quirks::quirks_from_state;
 use g4_kernel::textproject::{ExportOptions, ExportReport, check, export, import, sources};
 
 use common::{Synthetic, copy_dir, synthetic_map_bytes, synthetic_project, synthetic_rom};
@@ -878,4 +881,226 @@ fn export_refuses_text_in_conflict_and_writes_nothing() {
     }
     assert_eq!(fx.mtimes(), before, "nothing written");
     assert_eq!(fx.read("data/moves/0001.json"), b"{}\n");
+}
+
+// The build step `textproject`: entity JSON into members before rotom and chatot.
+
+const MOVE_1: &str = "unpacked/moveData/0001";
+const MOVE_1_JSON: &str = "data/moves/0001.json";
+
+fn step_row<'a>(rows: &'a [StepReport], id: &str) -> &'a StepReport {
+    rows.iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("no row {id} in {rows:?}"))
+}
+
+/// Exported, then built once: the step runs fully and finds every member in sync.
+fn built() -> Fx {
+    let fx = Fx::new();
+    fx.export();
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    let row = &rows[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.done),
+        ("textproject", StepStatus::Full, 0),
+        "{rows:?}"
+    );
+    // The next writes get other mtimes than the recorded ones.
+    std::thread::sleep(Duration::from_millis(20));
+    fx
+}
+
+#[test]
+fn the_step_runs_only_with_a_manifest() {
+    let fx = Fx::new();
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    assert!(rows.iter().all(|r| r.id != "textproject"), "{rows:?}");
+
+    fx.export();
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(ids[..3], ["textproject", "rotom", "chatot"], "{ids:?}");
+}
+
+#[test]
+fn an_edited_json_reaches_its_member_and_the_packed_narc() {
+    let fx = built();
+    let before = fx.read(MOVE_1);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    let row = step_row(&rows, "textproject");
+    assert_eq!(
+        (row.status, row.done),
+        (StepStatus::Incremental, 1),
+        "{row:?}"
+    );
+    assert!(row.total > 1, "{row:?}");
+    let member = fx.read(MOVE_1);
+    assert_ne!(member, before);
+    assert_eq!(member[3], 99, "power");
+    let packed = fx
+        .p()
+        .archives
+        .packed(AssetKind::Move)
+        .unwrap()
+        .to_path_buf();
+    let narc = Narc::read(&fx.read(packed.to_str().unwrap())).unwrap();
+    assert_eq!(narc.members[1], member);
+    assert_ne!(step_row(&rows, "pack:moveData").status, StepStatus::Skipped);
+
+    let again = run_source_and_pack_steps(&fx.p()).unwrap();
+    assert_eq!(step_row(&again, "textproject").status, StepStatus::Skipped);
+}
+
+#[test]
+fn member_newer_is_kept_and_a_later_json_edit_conflicts() {
+    let fx = built();
+    // Studio or DSPRE changes move 1's member after the export.
+    let mut dspre = fx.read(MOVE_1);
+    dspre[3] = 77;
+    fx.write(MOVE_1, &dspre);
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    let row = &prepared.steps[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.done),
+        ("textproject", StepStatus::Incremental, 0)
+    );
+    let newer: Vec<&Problem> = prepared
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject."))
+        .collect();
+    assert_eq!(newer.len(), 1, "{:?}", prepared.problems);
+    assert_eq!(newer[0].severity, Severity::Warning);
+    assert_eq!(
+        newer[0].message,
+        "textproject.member-newer: unpacked/moveData/0001 ist neuer als data/moves/0001.json; \
+         g4k text export übernimmt ihn, g4k text import verwirft ihn."
+    );
+    assert_eq!(fx.read(MOVE_1), dspre, "the member is kept");
+
+    // Later the same entity's JSON is edited: both sides changed, nothing is written.
+    std::thread::sleep(Duration::from_millis(20));
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.conflict"], "{problems:?}");
+    assert_eq!(
+        problems[0].message,
+        "textproject.conflict: data/moves/0001.json und unpacked/moveData/0001 sind beide \
+         geändert; nichts geschrieben."
+    );
+    assert_eq!(problems[0].file, Path::new(MOVE_1_JSON));
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1), dspre);
+
+    // The failed step lost its entry: the full run that follows does not let the JSON win
+    // either.
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1), dspre);
+}
+
+#[test]
+fn full_run_never_overwrites_a_member_that_left_the_base() {
+    let fx = built();
+    let base = fx.read(MOVE_1);
+    let mut dspre = base.clone();
+    dspre[3] = 77;
+    fx.write(MOVE_1, &dspre);
+    build::clear_cache(&fx.p()).unwrap();
+
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
+    assert_eq!(
+        problems[0].message,
+        "textproject.unsynced: unpacked/moveData/0001 weicht von data/moves/0001.json und von \
+         der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt)."
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1), dspre);
+
+    // The member back at the base and the JSON edited: the full run writes it. So does it a
+    // missing member.
+    fx.write(MOVE_1, &base);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let two = fx.read("unpacked/moveData/0002");
+    std::fs::remove_file(fx.root().join("unpacked/moveData/0002")).unwrap();
+    build::clear_cache(&fx.p()).unwrap();
+    let prepared = build::prepare(&fx.p()).unwrap();
+    let row = &prepared.steps[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.done),
+        ("textproject", StepStatus::Full, 2),
+        "{row:?}"
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+    assert_eq!(fx.read("unpacked/moveData/0002"), two);
+}
+
+#[test]
+fn a_raw_blob_edit_reaches_its_file() {
+    let fx = Fx::new();
+    fx.write("files/a/b.bin", &[7, 8, 9]);
+    fx.export();
+    assert_eq!(fx.read("data/raw/files/a/b.bin"), [7, 8, 9]);
+    run_source_and_pack_steps(&fx.p()).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+
+    fx.write("data/raw/files/a/b.bin", &[1, 2, 3, 4]);
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    let row = step_row(&rows, "textproject");
+    assert_eq!(
+        (row.status, row.done),
+        (StepStatus::Incremental, 1),
+        "{row:?}"
+    );
+    assert_eq!(fx.read("files/a/b.bin"), [1, 2, 3, 4]);
+}
+
+#[test]
+fn a_quirks_edit_reaches_the_compile_state() {
+    let fx = built();
+    fx.write(
+        "data/rotom-quirks.json",
+        b"{\n  \"quirks\": {\n    \"expanded/scripts/0000.rotom\": {\n      \"jump_table_end_marker_count\": 2\n    }\n  }\n}\n",
+    );
+    let prepared = build::prepare(&fx.p()).unwrap();
+    let row = &prepared.steps[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.done),
+        ("textproject", StepStatus::Incremental, 1),
+        "{row:?}"
+    );
+    let state = quirks_from_state(&fx.p()).unwrap();
+    assert_eq!(
+        state.quirks["expanded/scripts/0000.rotom"].jump_table_end_marker_count,
+        Some(2)
+    );
+}
+
+#[test]
+fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
+    let fx = built();
+    fx.edit(
+        "g4-project.json",
+        "\"schemaVersion\": 1",
+        "\"schemaVersion\": 0",
+    );
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].file, Path::new("g4-project.json"));
+    assert!(
+        problems[0]
+            .message
+            .ends_with("`g4k text migrate` ausführen."),
+        "{}",
+        problems[0].message
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
 }

@@ -71,13 +71,6 @@ pub struct ImportReport {
 pub(crate) struct PlannedWrite {
     pub path: PathBuf,
     pub bytes: Vec<u8>,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the build step (Task 10) maps its members to units by it"
-        )
-    )]
     pub unit: Vec<PathBuf>,
 }
 
@@ -215,8 +208,9 @@ fn ms_since(start: Instant) -> u64 {
 /// Imports the text project into the members of `project`. Every file is read and checked
 /// first; one error and the import is `Err(Compile(problems))` with nothing written. Parts
 /// stored as `base_sha1` come from the current member when it has them, else from the base
-/// layer, made from `base` when there is none. Afterwards the build's `prepare` compiles the
-/// scripts and encodes the texts.
+/// layer, made from `base` when there is none. Afterwards the build's `prepare` runs its
+/// steps (`textproject` finds the members in sync), compiles the scripts and encodes the
+/// texts.
 pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport, KernelError> {
     let start = Instant::now();
     if project.family == Family::Dp {
@@ -235,7 +229,12 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
     let applied = apply_import(project, &plan)?;
     let prepared = build::prepare(project)?;
     let mut problems = plan.problems;
-    problems.extend(prepared.problems);
+    // The build step `textproject` plans again and finds the plan's hints once more.
+    for problem in prepared.problems {
+        if !problems.contains(&problem) {
+            problems.push(problem);
+        }
+    }
     Ok(ImportReport {
         arts: plan.arts,
         raw_written: applied.raw,

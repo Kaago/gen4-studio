@@ -40,10 +40,19 @@ pub(crate) const ID_DANGLING_CODE: &str = "textproject.id-dangling";
 /// Hint: binary members without a file under `data/<art>/` could not be compared with the
 /// base layer (no layer and no base ROM); they stay as they are.
 pub(crate) const BASE_UNCHECKED_CODE: &str = "textproject.base-unchecked";
+/// Build step, warning: a member changed since the last build while its JSON did not; the
+/// member stays.
+pub(crate) const MEMBER_NEWER_CODE: &str = "textproject.member-newer";
+/// Build step: the JSON and the member of a unit both changed since the last build; nothing
+/// is written.
+pub(crate) const CONFLICT_CODE: &str = "textproject.conflict";
+/// Build step, full run: a member differs from its JSON and from the base layer; nothing is
+/// written.
+pub(crate) const UNSYNCED_CODE: &str = "textproject.unsynced";
 
 /// Every code, for the documentation test.
 #[cfg(test)]
-const ALL: [&str; 16] = [
+const ALL: [&str; 19] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -60,6 +69,9 @@ const ALL: [&str; 16] = [
     RESERVED_CODE,
     ID_DANGLING_CODE,
     BASE_UNCHECKED_CODE,
+    MEMBER_NEWER_CODE,
+    CONFLICT_CODE,
+    UNSYNCED_CODE,
 ];
 
 #[cfg(test)]

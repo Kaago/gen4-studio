@@ -45,7 +45,7 @@ JSON, kompakt, UTF-8.
 | Feld | Inhalt |
 |---|---|
 | `version` | Formatversion, heute `1` (`salt::STATE_VERSION`) |
-| `steps` | je Schritt-ID (`rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `watch:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
+| `steps` | je Schritt-ID (`textproject`, `rotom`, `chatot`, `pack:<Ordner unter unpacked/>`, `watch:<Ordner unter unpacked/>`, `rom`) ein Eintrag |
 | `steps.*.salt` | Werkzeug-Salz des Schritts (siehe unten) |
 | `steps.*.scanned_at_ns` | Zeitpunkt der Aufnahme, Nanosekunden seit 1970 (für die racy-Regel) |
 | `steps.*.inputs`, `outputs` | Pfad → Fingerabdruck; Pfade projektrelativ mit `/`, eine Ausgabe außerhalb des Projekts (die ROM) absolut |
@@ -123,7 +123,7 @@ Lauf aufgenommen, ebenso die Ausgaben. Ändert jemand anderes eine Eingabe, wäh
 läuft, sieht der nächste Build sie als geändert. Scheitert ein Schritt, wird sein alter Eintrag
 gelöscht. Ausnahme ist ein Textkonflikt (`KernelError::TextConflict`): `rotom` und `chatot` melden
 ihn, bevor sie etwas schreiben, also behalten sie ihren Eintrag, und der Build nach dem Auflösen
-läuft inkrementell statt mit `no-state` („erster Build“). `prepare_for_build` schreibt die Einträge von `rotom` und
+läuft inkrementell statt mit `no-state` („erster Build“). `prepare_for_build` schreibt die Einträge von `textproject`, `rotom` und
 `chatot`, `build_prepared` die der Pack- und Beobachtungs-Schritte und von `rom`.
 
 ## Werkzeug-Salz
@@ -140,11 +140,24 @@ Schritt einmal voll laufen.
 
 | Schritt | Eingaben | Ausgaben |
 |---|---|---|
+| `textproject` (nur mit `g4-project.json`, vor `rotom`) | `g4-project.json`, `data/ids/`, `data/rotom-quirks.json`, je bekannte Art `data/<art>/`, alle Dateien unter `data/raw/` (rekursiv, vom Schritt gelistet) und je Blob `data/raw/X` die Datei `X`, je abgebildete Art der Member-Ordner unter `unpacked/`, `arm9/arm9.bin`, `files/fielddata/maptable/mapname.bin`, bei angewandtem Dynamic-Headers-Patch `unpacked/dynamicHeaders/` | – |
 | `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
 | `watch:<Ordner>` | `unpacked/<Ordner>/` | – |
 | `rom` | `config.yaml`, `header.yaml`, `header_logo.png`, `path_order.txt`, `multiboot_signature.yaml`, `.g4/base.json`, alle Dateien unter `arm9/`, `arm9_overlays/`, `arm7/`, `arm7_overlays/`, `banner/`, `files/` (`multiboot_signature.yaml` und `arm7_overlays/` schreibt ds-rom nur, wenn die ROM sie hat; keines der drei Spiele hat sie) | die Ziel-ROM |
+
+`textproject`: schreibt je Einheit (Entität, Blob, Header-Tabelle, Quirks) die Member aus der JSON,
+wenn sich inkrementell nur die JSON-Seite geändert hat; ist nur der Member neuer, bleibt er
+(Hinweis `textproject.member-newer`), sind beide geändert, scheitert der Schritt
+(`textproject.conflict`); voll schreibt er nur über fehlende oder der Basisschicht gleiche Member,
+sonst `textproject.unsynced`. Die Regeltabelle steht in [text_project.md](text_project.md) unter
+„Build“. Die Member sind Eingaben, keine Ausgaben (wie bei `chatot`); die geschriebenen stehen in
+`StepRun.wrote`. Die als neuer behaltenen Member merkt er sich in `.g4/build/textproject.json`
+(`{"version": 1, "member_newer": ["unpacked/…/NNNN", …]}`, fehlt, wenn es keine gibt), damit eine
+spätere Änderung ihrer JSON ein Konflikt wird; „ohne Cache“ löscht die Datei mit, der volle Lauf
+danach urteilt über die Basisschicht. Salz: `textproject#<TEXTPROJECT_REV>+schema<SCHEMA_VERSION>+`
+und die uxie-Zeile.
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
 `scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,
