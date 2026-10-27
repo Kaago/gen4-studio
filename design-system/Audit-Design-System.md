@@ -127,6 +127,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Wertebalken | umgesetzt | Schnitt-Strich, Urteil „über/unter Schnitt“, Abweichung links in Kobalt |
 | Budget | **fehlt** | nur Längenbalken in Texte („34 von 38“) und Zähler („4 von 7“) |
 | Listenzeile, Baumzeile, Inspector-Zeile | umgesetzt | 32 hoch; Inspector-Bezeichnung 400 statt 600 |
+| Kontextmenü an Listen- und Baumzeile | teilweise (4.1b) | Rechtsklick, Shift+F10 und Kontextmenü-Taste öffnen das Popup des Menüs. Es trägt bisher nur „… auf Original zurücksetzen…“, nicht die übrigen Einträge des Menüs „Aktionen“ (Plan 4.1b: „gleiche Einträge“); in der `.fig` noch nicht gezeichnet (`openpencil/NACHTRAG-4-1b.md`) |
 | Scharnier | umgesetzt ohne Spielen | siehe Abschnitt 4 |
 | Titelleiste | umgesetzt (macOS) | Windows fehlt |
 | Atlas-Eintrag | erweitert | 64 hoch, Symbol 24, gesperrt, Kompakt |
@@ -165,7 +166,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | 12 | Skript: Mutter, Morgen | teilweise | Reiter „Script“ der Welt-Hand, Scripts nach Nummer |
 | 13 | Flags und Variablen | offen (3d) | nur die Tabelle im Level-Script |
 | 14 | Dialog bearbeiten | teilweise | über Archiv und Nummer im Bereich Texte, kein Weg von der Figur |
-| 15 | Pokédex: Staravia | umgesetzt | ohne DS-Profil; „vorher“ heißt letzte Speicherung, nicht Original |
+| 15 | Pokédex: Staravia | umgesetzt | ohne DS-Profil; „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
 | 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht |
 | 17 | Trainer: Wanderer Kai | teilweise | ohne Kampfvorschau, Sichtlinie und Kampfsprites |
 | 18 | Begegnungen: Route 201 | teilweise | Bauen statt Erzählen: Methodenreiter und Tabelle statt Draufsicht und Regler |
@@ -190,6 +191,8 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 - „Scripts übernehmen“.
 - Hilfe mit Glossar.
 - Technik › Emulator und Werkzeuge.
+- Technik › Änderungen (teilweise, 4.1b): was im gespeicherten Projekt von der Basis-ROM abweicht, in Gruppen, mit „Auf Original zurücksetzen…“ je Zeile. Es fehlen „Öffnen“ und der Umschalter Basis/Commit (4.4) und ein Bildvergleich bei Texturen und Modellen.
+- Dialog „… auf Original zurücksetzen?“ mit Vorher und Nachher (4.1b), aus dem Menü „Aktionen“ der Köpfe und dem Kontextmenü der Listen; Header Feld für Feld mit Kästchen.
 
 **Die `.fig` nach dem Nachzug:**
 - Die vier bisherigen Screen-Seiten heißen „Zielbild: …“. Sie bleiben der Entwurf für 3d bis 6, und jeder Screen trägt eine Marke Umgesetzt, Teilweise oder Offen.
