@@ -2365,11 +2365,9 @@ impl Store {
         for (asset, file) in &files {
             let (expected, _) = side.file(file);
             if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
-                return Err(StepError::Drop(KernelError::Refused(format!(
-                    "{} wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den \
-                     Schritt nicht zurück, er fällt aus dem Verlauf.",
-                    crate::original::asset_label(*asset)
-                ))));
+                return Err(StepError::Drop(KernelError::Refused(
+                    side.changed_outside(crate::original::asset_label(*asset)),
+                )));
             }
         }
         write_files_and_entries(&self.project, &files, &entries, side).map_err(StepError::Keep)?;
@@ -2782,6 +2780,21 @@ impl Side {
         match self {
             Side::Before => (entry.after.as_ref(), entry.before.as_ref()),
             Side::After => (entry.before.as_ref(), entry.after.as_ref()),
+        }
+    }
+
+    /// Why a file step whose file `label` changed since it was written is dropped instead of
+    /// moved to this side.
+    fn changed_outside(self, label: String) -> String {
+        match self {
+            Side::Before => format!(
+                "{label} wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt \
+                 den Schritt nicht zurück, er fällt aus dem Verlauf."
+            ),
+            Side::After => format!(
+                "{label} wurde seit dem Rückgängigmachen außerhalb des Studios geändert; ⌘⇧Z \
+                 stellt den Schritt nicht wieder her, er fällt aus dem Verlauf."
+            ),
         }
     }
 
@@ -3973,9 +3986,9 @@ mod tests {
             std::fs::write(&path, b"von DSPRE").unwrap();
             let err = st.undo().unwrap_err();
             assert!(
-                matches!(&err, KernelError::Refused(r)
-                    if r.contains("außerhalb des Studios geändert")
-                        && r.starts_with("Scriptdatei 0000 ")),
+                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
+                    Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den Schritt nicht \
+                    zurück, er fällt aus dem Verlauf."),
                 "{err}"
             );
             assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
@@ -3993,7 +4006,13 @@ mod tests {
             file_step(&mut st, "Datei", script(0), &path, b"neu");
             st.undo().unwrap();
             std::fs::write(&path, b"von DSPRE").unwrap();
-            assert!(matches!(st.redo(), Err(KernelError::Refused(_))));
+            let err = st.redo().unwrap_err();
+            assert!(
+                matches!(&err, KernelError::Refused(r) if r == "Scriptdatei 0000 wurde seit dem \
+                    Rückgängigmachen außerhalb des Studios geändert; ⌘⇧Z stellt den Schritt nicht \
+                    wieder her, er fällt aus dem Verlauf."),
+                "{err}"
+            );
             assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
             assert_eq!(st.history(), (vec![], vec![]));
         }

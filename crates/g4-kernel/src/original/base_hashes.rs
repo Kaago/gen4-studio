@@ -70,7 +70,8 @@ fn write_atomic_here(path: &Path, bytes: &[u8]) -> Result<(), KernelError> {
 
 /// The member hashes of the archives at `packed` (project-relative `files/…` paths) in the
 /// base: read from `<cache>/base/<sha1>.json` where it holds them, the others computed from
-/// [`Original::narc_at`] and the file written again (atomically) when any were added. A file
+/// [`Original::narc_at`] and the file written again (atomically, best effort: a failed write
+/// is ignored) when any were added. A file
 /// that is missing, broken, of another version or of another SHA-1 counts as empty. An
 /// archive the base does not have is left out (and looked up again next time). Without
 /// `cache` everything is computed in memory. The result holds every archive of the file, not
@@ -103,10 +104,13 @@ pub fn base_hashes(
         hashes.archives.insert(name, members);
         added = true;
     }
-    if added && let Some(file) = &file {
-        let bytes = serde_json::to_vec(&hashes)
-            .map_err(|e| KernelError::Build(format!("{}: {e}", file.display())))?;
-        write_atomic_here(file, &bytes)?;
+    if added
+        && let Some(file) = &file
+        && let Ok(bytes) = serde_json::to_vec(&hashes)
+    {
+        // Best effort: a cache that cannot be written costs the hashing next time, never the
+        // list.
+        let _ = write_atomic_here(file, &bytes);
     }
     Ok(hashes)
 }
@@ -194,6 +198,21 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(left.len(), 1, "no temp file stays: {left:?}");
+    }
+
+    #[test]
+    fn a_cache_that_cannot_be_written_still_returns_the_hashes() {
+        let base = synthetic_project();
+        let original = ProjectOriginal::new(base.dir.path());
+        let cache = tempfile::tempdir().unwrap();
+        // A file where the folder `base/` should be: nothing can be written below it.
+        std::fs::write(cache.path().join("base"), b"kein Ordner").unwrap();
+        let hashes = base_hashes(&original, &[PathBuf::from(MAPS)], Some(cache.path())).unwrap();
+        assert_eq!(hashes.archives[MAPS], member_hashes(base.dir.path(), MAPS));
+        assert_eq!(
+            std::fs::read(cache.path().join("base")).unwrap(),
+            b"kein Ordner"
+        );
     }
 
     #[test]
