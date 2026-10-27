@@ -1273,3 +1273,270 @@ fn a_packed_member_without_its_folder_is_judged_by_the_base() {
     assert_eq!(fx.mtimes(), before, "nothing written");
     assert!(!fx.exists("unpacked/moveData"));
 }
+
+// Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base
+// ROM next to the original (only read). Deviations are findings in export, import or the
+// build step, never exceptions here.
+
+/// A vanilla copy with its sibling `.nds` assigned as base ROM (without a warning), exported
+/// with script adoption: the tempdir, the copy's root, the `.nds` and the export's report.
+/// `None` (after `skipped: …`) without `G4_TEST_PROJECT` or without the `.nds`.
+fn exported_copy() -> Option<(tempfile::TempDir, PathBuf, PathBuf, ExportReport)> {
+    let orig = common::vanilla_project()?;
+    let Some(nds) = g4_kernel::start::suggest_base(&orig) else {
+        eprintln!(
+            "skipped: no <Name>.nds with the same game code next to {}",
+            orig.display()
+        );
+        return None;
+    };
+    let (tmp, copy) = common::vanilla_copy()?;
+    let (check, _mark) = g4_kernel::start::assign_base(&copy, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    assert!(check.warnings.is_empty(), "{:#?}", check.warnings);
+    let base = BaseRom::open(&nds, None).unwrap();
+    let report = export(
+        &Project::open(&copy).unwrap(),
+        &base,
+        &ExportOptions {
+            adopt_scripts: true,
+        },
+    )
+    .unwrap();
+    Some((tmp, copy, nds, report))
+}
+
+fn sha1_hex(bytes: &[u8]) -> String {
+    use sha1::{Digest, Sha1};
+    Sha1::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn ms(start: std::time::Instant) -> u128 {
+    start.elapsed().as_millis()
+}
+
+/// SHA-1 of every file (relative path) below `root.join(rel)`, or of the file `rel` itself.
+fn hashes(root: &Path, rel: &str, out: &mut BTreeMap<PathBuf, String>) {
+    let path = root.join(rel);
+    if path.is_file() {
+        out.insert(PathBuf::from(rel), sha1_hex(&std::fs::read(&path).unwrap()));
+        return;
+    }
+    let mut times = BTreeMap::new();
+    files(root, Path::new(rel), &mut times);
+    for file in times.into_keys() {
+        let bytes = std::fs::read(root.join(&file)).unwrap();
+        out.insert(file, sha1_hex(&bytes));
+    }
+}
+
+/// The SHA-1 of the ROM `project` builds into `out`.
+fn built_sha1(project: &Path, out: &Path) -> String {
+    build::build(&Project::open(project).unwrap(), out).unwrap();
+    g4_kernel::start::inspect_rom(out).unwrap().sha1
+}
+
+/// Prints the JSON and side files per art and every locked member (for the gate document).
+fn print_arts(code: &str, root: &Path, report: &ExportReport) {
+    for a in &report.arts {
+        eprintln!(
+            "textproject-art {code} {} entities={} json={} side={}",
+            a.art, a.entities, a.json_files, a.side_files
+        );
+    }
+    let mut times = BTreeMap::new();
+    files(root, Path::new("data"), &mut times);
+    for file in times.keys() {
+        if file.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join(file)).unwrap()).unwrap();
+        let mut found = Vec::new();
+        locked(&value, "", &mut found);
+        for (at, reason) in found {
+            eprintln!("textproject-locked {code} {}{at} {reason}", file.display());
+        }
+    }
+}
+
+fn locked(value: &serde_json::Value, at: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(reason) = map.get("locked") {
+                out.push((at.to_owned(), reason.to_string()));
+            }
+            for (k, v) in map {
+                locked(v, &format!("{at}/{k}"), out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                locked(v, &format!("{at}/{i}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn textproject_round_trip() {
+    let Some((tmp, copy, nds, report)) = exported_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let code = base.game_code().to_owned();
+    print_arts(&code, &copy, &report);
+    let json: u32 = report.arts.iter().map(|a| a.json_files).sum();
+    let side: u32 = report.arts.iter().map(|a| a.side_files).sum();
+    assert_eq!(
+        report.raw_blobs, 0,
+        "blobs in vanilla: {:?}",
+        report.not_built
+    );
+    assert_eq!(side, 0, "side files in vanilla: {:?}", report.arts);
+
+    let project = Project::open(&copy).unwrap();
+    let mapname = project.mapname_path();
+    let mapname_rel = mapname.strip_prefix(&copy).unwrap().to_path_buf();
+    let mut before = BTreeMap::new();
+    hashes(&copy, "unpacked", &mut before);
+    hashes(&copy, "arm9/arm9.bin", &mut before);
+    hashes(&copy, mapname_rel.to_str().unwrap(), &mut before);
+
+    // Every member the text project owns goes; the header table and the internal names are
+    // zeroed.
+    let owned = g4_kernel::textproject::base_layer::owned_paths(&project).unwrap();
+    let dynamic = project.unpacked_dir(AssetKind::DynamicHeaders);
+    for rel in &owned {
+        let path = copy.join(rel);
+        if path == mapname || path.starts_with(&dynamic) {
+            let len = std::fs::metadata(&path).unwrap().len() as usize;
+            std::fs::write(&path, vec![0u8; len]).unwrap();
+        } else if path.is_file() {
+            std::fs::remove_file(&path).unwrap();
+        }
+    }
+    use g4_kernel::project::Location;
+    match project.asset_location(AssetKind::HeaderTable, 0).unwrap() {
+        Location::Slice { path, offset, len } => {
+            let mut bytes = std::fs::read(&path).unwrap();
+            let offset = usize::try_from(offset).unwrap();
+            bytes[offset..offset + len].fill(0);
+            std::fs::write(&path, bytes).unwrap();
+        }
+        Location::HeaderFiles { .. } => {} // zeroed above with the Dynamic Headers files
+        other => panic!("header table at {other:?}"),
+    }
+
+    let started = std::time::Instant::now();
+    import(&Project::open(&copy).unwrap(), Some(&base)).unwrap();
+    let import_ms = ms(started);
+    let mut after = BTreeMap::new();
+    hashes(&copy, "unpacked", &mut after);
+    hashes(&copy, "arm9/arm9.bin", &mut after);
+    hashes(&copy, mapname_rel.to_str().unwrap(), &mut after);
+    let differs: Vec<&PathBuf> = before
+        .iter()
+        .filter(|(path, sha1)| after.get(*path) != Some(sha1))
+        .map(|(path, _)| path)
+        .collect();
+    assert!(
+        differs.is_empty(),
+        "{} files differ after the import, the first: {:?}",
+        differs.len(),
+        &differs[..differs.len().min(10)]
+    );
+
+    let started = std::time::Instant::now();
+    let sha1 = built_sha1(&copy, &tmp.path().join("out.nds"));
+    let build_ms = ms(started);
+    assert_eq!(
+        sha1,
+        base.sha1(),
+        "the rebuilt ROM differs from the base ROM"
+    );
+    eprintln!(
+        "textproject-stats {code} files={} bytes={} json={json} side={side} raw={} \
+         base_layer_ms={} export_ms={} import_ms={import_ms} build_ms={build_ms}",
+        report.files, report.bytes, report.raw_blobs, report.base_layer_ms, report.ms
+    );
+}
+
+#[test]
+fn textproject_export_idempotent() {
+    let Some((_tmp, copy, nds, _report)) = exported_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let snapshot = || {
+        sources(&Project::open(&copy).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|rel| {
+                let path = copy.join(&rel);
+                let sha1 = sha1_hex(&std::fs::read(&path).unwrap());
+                let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+                (rel, (sha1, mtime))
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    let before = snapshot();
+    let started = std::time::Instant::now();
+    let again = export(
+        &Project::open(&copy).unwrap(),
+        &base,
+        &ExportOptions {
+            adopt_scripts: true,
+        },
+    )
+    .unwrap();
+    let second_ms = ms(started);
+    assert_eq!((again.written, again.removed), (0, 0), "{again:?}");
+    let after = snapshot();
+    if after != before {
+        let changed: Vec<&PathBuf> = before
+            .keys()
+            .chain(after.keys())
+            .filter(|k| before.get(*k) != after.get(*k))
+            .take(10)
+            .collect();
+        panic!("the second export changed sources: {changed:?}");
+    }
+    eprintln!(
+        "textproject-second-export {} ms={second_ms}",
+        base.game_code()
+    );
+}
+
+#[test]
+fn textproject_from_base() {
+    let Some((tmp, copy, nds, _report)) = exported_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let fresh = tmp.path().join("fresh");
+    let started = std::time::Instant::now();
+    build::extract_rom(&nds, &fresh).unwrap();
+    let extract_ms = ms(started);
+    for rel in sources(&Project::open(&copy).unwrap()).unwrap() {
+        let to = fresh.join(&rel);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(copy.join(&rel), &to).unwrap();
+    }
+    let started = std::time::Instant::now();
+    import(&Project::open(&fresh).unwrap(), Some(&base)).unwrap();
+    let import_ms = ms(started);
+    let started = std::time::Instant::now();
+    let sha1 = built_sha1(&fresh, &tmp.path().join("fresh.nds"));
+    let build_ms = ms(started);
+    assert_eq!(sha1, base.sha1(), "the ROM built from the base differs");
+    eprintln!(
+        "textproject-from-base {} extract_ms={extract_ms} import_ms={import_ms} \
+         build_ms={build_ms} equal",
+        base.game_code()
+    );
+}
