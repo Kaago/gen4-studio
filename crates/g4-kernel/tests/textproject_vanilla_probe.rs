@@ -90,9 +90,11 @@ fn vanilla_base_layer_has_no_raw_blobs() {
     assert!(!created_again);
     assert_eq!(again.root, layer.root);
 
+    let start = std::time::Instant::now();
     let diff = raw_diff(&project, &layer).unwrap();
+    let diff_ms = start.elapsed().as_millis();
     eprintln!(
-        "base-layer {} ms={ms} files={files} bytes={bytes} not_built={}",
+        "base-layer {} ms={ms} diff_ms={diff_ms} files={files} bytes={bytes} not_built={}",
         project.game_code,
         diff.not_built.join(",")
     );

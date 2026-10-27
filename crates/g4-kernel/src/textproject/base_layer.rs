@@ -18,8 +18,11 @@ use std::collections::BTreeSet;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use g4_formats::map::MapFile;
+use g4_formats::narc::Narc;
 
 use crate::base::BaseRom;
 use crate::build;
@@ -145,9 +148,12 @@ impl BaseLayer {
     }
 
     /// The layer of `base` below `project_root`, extracted first when there is no complete
-    /// one (`true`: newly made). It is extracted into `.<sha1>.tmp` next to its place, every
-    /// archive (asset kinds and pack entries) unpacked into `unpacked/`, marked complete and
-    /// then renamed; a half layer of an earlier run is deleted first.
+    /// one (`true`: newly made). It is extracted into a temp folder of its own
+    /// (`.<sha1>.tmp.<pid>.<n>`) next to its place, every archive (asset kinds and pack
+    /// entries) unpacked into `unpacked/`, marked complete and then renamed. Half layers of
+    /// earlier runs are deleted first: the layer's folder without its marker (never one with
+    /// it) and temp folders older than an hour (a younger one may be another run's work).
+    /// When another run renames its layer into place first, that layer is the result.
     pub fn ensure(project_root: &Path, base: &BaseRom) -> Result<(BaseLayer, bool), KernelError> {
         let sha1 = base.sha1();
         if let Some(layer) = BaseLayer::open(project_root, sha1) {
@@ -155,18 +161,23 @@ impl BaseLayer {
         }
         let cache = project_root.join(BASE_LAYER_DIR);
         let dir = cache.join(sha1);
-        let tmp = cache.join(format!(".{sha1}.tmp"));
-        remove_tree(&tmp)?;
-        remove_tree(&dir)?;
+        if !dir.join(COMPLETE).is_file() {
+            remove_tree(&dir)?;
+        }
+        remove_stale_tmps(&cache, sha1)?;
         std::fs::create_dir_all(&cache).map_err(io_at(&cache))?;
-        let made = extract_layer(base, &tmp)
-            .and_then(|()| std::fs::rename(&tmp, &dir).map_err(io_at(&dir)));
-        if let Err(e) = made {
-            // Best effort: the next run deletes a leftover anyway.
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let tmp = cache.join(format!(
+            ".{sha1}.tmp.{}.{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        if let Err(e) = extract_layer(base, &tmp) {
+            // Best effort: a leftover goes once it is stale.
             let _ = std::fs::remove_dir_all(&tmp);
             return Err(e);
         }
-        Ok((BaseLayer::new(dir, sha1), true))
+        finish_layer(&tmp, &dir, sha1)
     }
 
     /// The bytes of file `rel` (relative to the layer's root); `None` when it has none.
@@ -245,18 +256,66 @@ impl BasePart for BaseLayer {
     }
 }
 
+/// How old a temp folder of a layer must be to count as the leftover of a dead run.
+const STALE_TMP: Duration = Duration::from_secs(3600);
+
+/// Renames the complete layer `tmp` to `dir` (`true`: this run made it). When the rename
+/// fails because another run got there first (`dir` has its marker), that layer is the
+/// result (`false`) and `tmp` goes.
+fn finish_layer(tmp: &Path, dir: &Path, sha1: &str) -> Result<(BaseLayer, bool), KernelError> {
+    match std::fs::rename(tmp, dir) {
+        Ok(()) => Ok((BaseLayer::new(dir, sha1), true)),
+        Err(e) => {
+            // Best effort: a leftover goes once it is stale.
+            let _ = std::fs::remove_dir_all(tmp);
+            if dir.join(COMPLETE).is_file() {
+                Ok((BaseLayer::new(dir, sha1), false))
+            } else {
+                Err(io_at(dir)(e))
+            }
+        }
+    }
+}
+
+/// Deletes the temp folders of base `sha1` in `cache` older than [`STALE_TMP`].
+fn remove_stale_tmps(cache: &Path, sha1: &str) -> Result<(), KernelError> {
+    let prefix = format!(".{sha1}.tmp");
+    let entries = match std::fs::read_dir(cache) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_at(cache)(e)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(io_at(cache))?;
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        let age = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok());
+        if age.is_some_and(|age| age >= STALE_TMP) {
+            remove_tree(&entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// Extracts `base` into `dest`, unpacks every archive and writes the marker.
 fn extract_layer(base: &BaseRom, dest: &Path) -> Result<(), KernelError> {
     let raw = ds_rom::rom::raw::Rom::new(base.bytes());
     let layer = guard_panic("ds-rom", || build::extract_raw(&raw, dest))??;
     let archives = layer.archives.clone();
     for kind in archives.kinds() {
-        if let Some(packed) = archives.packed(kind) {
+        // An archive the ROM lacks has no folder in a DSPRE project either.
+        if let Some(packed) = archives.packed(kind)
+            && layer.root.join(packed).is_file()
+        {
             layer.unpack_archive(packed, archives.unpacked_name(kind))?;
         }
     }
     for (packed, name) in archives.pack_only() {
-        // A pack entry the ROM lacks has no folder in a DSPRE project either.
         if layer.root.join(packed).is_file() {
             layer.unpack_archive(packed, name)?;
         }
@@ -431,29 +490,48 @@ fn is_project_file(rel: &Path) -> bool {
         .is_some_and(|e| ROM_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
 }
 
-/// The packed NARCs the build writes: of every archive (asset kinds and pack entries) whose
-/// folder below `unpacked/` exists.
-fn build_outputs(project: &Project) -> BTreeSet<PathBuf> {
+/// Whether `rel` (a folder when `is_dir`) is outside the range of the blobs by its name: a
+/// hidden component anywhere, one of the [`OWN_DIRS`] at the root or anything in it, and for
+/// a file [`is_project_file`].
+fn outside_range(rel: &Path, is_dir: bool) -> bool {
+    let mut parts = rel.components().map(|c| c.as_os_str());
+    let first = parts.next();
+    let nested = parts.next().is_some();
+    rel.components()
+        .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        || (first.is_some_and(|f| OWN_DIRS.iter().any(|d| f == *d)) && (is_dir || nested))
+        || (!is_dir && is_project_file(rel))
+}
+
+/// Every archive (asset kinds and pack entries) as its packed path and its folder (absolute)
+/// as the build packs it: the scripts from [`scripts::member_dir`].
+fn archive_folders(project: &Project) -> Vec<(PathBuf, PathBuf)> {
     let archives = &project.archives;
-    let mut outputs = BTreeSet::new();
+    let mut folders = Vec::new();
     for kind in archives.kinds() {
         let dir = if kind == AssetKind::Script {
             scripts::member_dir(project)
         } else {
             project.unpacked_dir(kind)
         };
-        if let Some(packed) = archives.packed(kind)
-            && dir.is_dir()
-        {
-            outputs.insert(packed.to_path_buf());
+        if let Some(packed) = archives.packed(kind) {
+            folders.push((packed.to_path_buf(), dir));
         }
     }
     for (packed, name) in archives.pack_only() {
-        if project.root.join("unpacked").join(name).is_dir() {
-            outputs.insert(packed.clone());
-        }
+        folders.push((packed.clone(), project.root.join("unpacked").join(name)));
     }
-    outputs
+    folders
+}
+
+/// The packed NARCs the build writes: of every archive whose folder below `unpacked/`
+/// exists.
+fn build_outputs(project: &Project) -> BTreeSet<PathBuf> {
+    archive_folders(project)
+        .into_iter()
+        .filter(|(_, dir)| dir.is_dir())
+        .map(|(packed, _)| packed)
+        .collect()
 }
 
 /// Offset and length of the header table in `arm9/arm9.bin`.
@@ -482,7 +560,9 @@ fn masked(mut bytes: Vec<u8>, slice: Slice) -> Vec<u8> {
 /// The value of YAML file `rel` as the build reads it: the ds-rom configuration at the root
 /// (`config.yaml`) through ds-rom's own `RomConfig`, so keys the build's ds-rom does not read
 /// drop out (DSPRE's newer ds-rom adds a `padding` block, which the build ignores), any
-/// other YAML as it is. `None` when it does not parse.
+/// other YAML as it is. `None` when it does not parse. `RomConfig` is parsed here with
+/// `serde_yaml`, while the build's ds-rom reads it with `serde_saphyr`; where `serde_yaml`
+/// fails, the file falls back to the plain `Value` compare.
 fn yaml_value(rel: &Path, bytes: &[u8]) -> Option<serde_yaml::Value> {
     if rel == Path::new(ROM_CONFIG_FILE)
         && let Ok(config) = serde_yaml::from_slice::<ds_rom::rom::RomConfig>(bytes)
@@ -504,12 +584,16 @@ fn is_yaml(rel: &Path) -> bool {
 /// zeroed; `.yaml`/`.yml` by their `serde_yaml::Value` (bytes when either does not parse).
 pub fn raw_diff(project: &Project, layer: &BaseLayer) -> Result<RawDiff, KernelError> {
     let owned = owned_paths(project)?;
-    let not_built = build::unpacked_unpacked(project)?;
-    let outputs = build_outputs(project);
     let unpacked = Path::new("unpacked");
+    // The script folder as the build packs it (DSPRE Avalonia writes `unpacked/Scripts`); the
+    // layer has it under the archive's own name.
+    let scripts_dir = relative(project, &scripts::member_dir(project));
+    let layer_scripts_dir = unpacked.join(project.archives.unpacked_name(AssetKind::Script));
+    let mut not_built = build::unpacked_unpacked(project)?;
+    not_built.retain(|name| unpacked.join(name) != scripts_dir);
+    let outputs = build_outputs(project);
     let skip_dir = |rel: &Path| {
-        let top = rel.parent().is_some_and(|p| p.as_os_str().is_empty());
-        (top && OWN_DIRS.iter().any(|d| rel == Path::new(d)))
+        outside_range(rel, true)
             || (rel.parent() == Some(unpacked)
                 && not_built
                     .iter()
@@ -522,26 +606,32 @@ pub fn raw_diff(project: &Project, layer: &BaseLayer) -> Result<RawDiff, KernelE
     let masks = (header_slice(project), header_slice(layer.project()?));
     let mut changed = Vec::new();
     for rel in files {
-        if is_project_file(&rel) || owned.contains(&rel) || outputs.contains(&rel) {
+        if outside_range(&rel, false) || owned.contains(&rel) || outputs.contains(&rel) {
             continue;
         }
-        if differs(project, layer, &rel, rel == arm9, masks)? {
+        let theirs = match rel.strip_prefix(&scripts_dir) {
+            Ok(rest) if scripts_dir != layer_scripts_dir => layer_scripts_dir.join(rest),
+            _ => rel.clone(),
+        };
+        if differs(project, layer, &rel, &theirs, rel == arm9, masks)? {
             changed.push(rel);
         }
     }
     Ok(RawDiff { changed, not_built })
 }
 
-/// Whether file `rel` of the project differs from the layer's (see [`raw_diff`]).
+/// Whether file `rel` of the project differs from the layer's file `theirs_rel` (the same
+/// path but for the script folder, see [`raw_diff`]).
 fn differs(
     project: &Project,
     layer: &BaseLayer,
     rel: &Path,
+    theirs_rel: &Path,
     is_arm9: bool,
     (ours_mask, theirs_mask): (Slice, Slice),
 ) -> Result<bool, KernelError> {
     let ours = project.root.join(rel);
-    let theirs = layer.root.join(rel);
+    let theirs = layer.root.join(theirs_rel);
     let their_len = match std::fs::metadata(&theirs) {
         Ok(meta) if meta.is_file() => meta.len(),
         Ok(_) => return Ok(true),
@@ -587,17 +677,28 @@ fn packed_of(project: &Project, name: &str) -> Option<PathBuf> {
         })
 }
 
-/// Writes blob `bytes` at `rel` (relative to the root) if it differs; `true` when written.
-/// For a member `unpacked/<folder>/NNNN` whose folder is missing, the folder's archive is
-/// unpacked first, so the other members stay. `rel` must be a plain relative path.
+/// Writes blob `bytes` at `rel` (relative to the root) if it differs; `true` when anything
+/// was written. `rel` must be a plain relative path in the range of the blobs (see the
+/// module docs). For a member `unpacked/<folder>/NNNN` whose folder is missing, the folder's
+/// archive is unpacked first, so the other members stay. A packed NARC whose folder exists
+/// replaces that folder's members as well, or the build would pack the folder over it.
 #[cfg_attr(not(test), expect(dead_code, reason = "import (Task 9) is the caller"))]
 pub(crate) fn place_raw(project: &Project, rel: &Path, bytes: &[u8]) -> Result<bool, KernelError> {
     let plain = rel.components().all(|c| matches!(c, Component::Normal(_)));
-    if !plain || rel.as_os_str().is_empty() {
+    if !plain || rel.as_os_str().is_empty() || outside_range(rel, false) {
         return Err(KernelError::InvalidProject(format!(
-            "`{}` ist kein Pfad innerhalb des Projekts.",
+            "`{}` liegt nicht im Bereich der Blobs (data/raw).",
             rel.display()
         )));
+    }
+    if let Some((_, dir)) = archive_folders(project)
+        .into_iter()
+        .find(|(packed, dir)| packed == rel && dir.is_dir())
+    {
+        let narc = Narc::read(bytes)?;
+        let wrote = write_if_changed(&project.root, rel, bytes)?;
+        let replaced = replace_members(&dir, &narc.members)?;
+        return Ok(wrote || replaced);
     }
     let parts: Vec<_> = rel.components().map(|c| c.as_os_str()).collect();
     if let [first, folder, _] = parts.as_slice()
@@ -609,6 +710,67 @@ pub(crate) fn place_raw(project: &Project, rel: &Path, bytes: &[u8]) -> Result<b
         project.unpack_archive(&packed, name)?;
     }
     write_if_changed(&project.root, rel, bytes)
+}
+
+/// Makes folder `dir` hold exactly `members` (`0000`, `0001`, …; hidden entries aside):
+/// `false` when it does already; else the members are written into a temp folder of their
+/// own next to it, which then takes the folder's place. `true` when replaced.
+fn replace_members(dir: &Path, members: &[Vec<u8>]) -> Result<bool, KernelError> {
+    let mut names = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
+        let name = entry.map_err(io_at(dir))?.file_name();
+        if !name.to_string_lossy().starts_with('.') {
+            names.push(name.to_string_lossy().into_owned());
+        }
+    }
+    names.sort();
+    let wanted: Vec<String> = (0..members.len()).map(|i| format!("{i:04}")).collect();
+    if names == wanted {
+        let mut same = true;
+        for (name, bytes) in wanted.iter().zip(members) {
+            let path = dir.join(name);
+            if std::fs::read(&path).map_err(io_at(&path))? != *bytes {
+                same = false;
+                break;
+            }
+        }
+        if same {
+            return Ok(false);
+        }
+    }
+    let parent = dir.parent().unwrap_or(dir);
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let tag = format!(
+        "{}.{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    );
+    let tmp = parent.join(format!(".{name}.unpacking.{tag}"));
+    let old = parent.join(format!(".{name}.replaced.{tag}"));
+    let written = (|| {
+        std::fs::create_dir(&tmp).map_err(io_at(&tmp))?;
+        for (file, bytes) in wanted.iter().zip(members) {
+            let path = tmp.join(file);
+            std::fs::write(&path, bytes).map_err(io_at(&path))?;
+        }
+        std::fs::rename(dir, &old).map_err(io_at(dir))
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = std::fs::rename(&tmp, dir) {
+        // Put the old folder back, so the project keeps its members.
+        let _ = std::fs::rename(&old, dir);
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(io_at(dir)(e));
+    }
+    remove_tree(&old)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -875,13 +1037,143 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cache = dir.path().join(BASE_LAYER_DIR);
         let half = cache.join(base.sha1());
-        let tmp = cache.join(format!(".{}.tmp", base.sha1()));
+        let stale = cache.join(format!(".{}.tmp.1.0", base.sha1()));
+        let running = cache.join(format!(".{}.tmp.2.0", base.sha1()));
         std::fs::create_dir_all(half.join("unpacked")).unwrap();
-        std::fs::create_dir_all(tmp.join("files")).unwrap();
+        std::fs::create_dir_all(stale.join("files")).unwrap();
+        std::fs::create_dir_all(running.join("files")).unwrap();
+        let old = std::time::SystemTime::now() - STALE_TMP - std::time::Duration::from_secs(60);
+        std::fs::File::open(&stale)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
 
         // ds-rom cannot extract the header-only ROM.
         assert!(BaseLayer::ensure(dir.path(), &base).is_err());
-        assert!(!half.exists() && !tmp.exists());
+        assert!(!half.exists(), "a layer folder without its marker is half");
+        assert!(!stale.exists(), "a stale temp folder is a leftover");
+        assert!(running.exists(), "a young temp folder may be another run's");
+        let left: Vec<_> = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(left, [running], "the run's own temp folder is gone");
+    }
+
+    #[test]
+    fn a_layer_another_run_finished_first_is_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let layer = dir.path().join(SHA1);
+        let tmp = dir.path().join(format!(".{SHA1}.tmp.1.0"));
+        for d in [&layer, &tmp] {
+            std::fs::create_dir_all(d.join("unpacked")).unwrap();
+            std::fs::write(d.join(COMPLETE), SHA1).unwrap();
+        }
+        std::fs::write(layer.join("header.yaml"), "theirs").unwrap();
+
+        let (taken, created) = finish_layer(&tmp, &layer, SHA1).unwrap();
+        assert!(!created);
+        assert_eq!(taken.root, layer);
+        assert!(!tmp.exists());
+        assert_eq!(std::fs::read(layer.join("header.yaml")).unwrap(), b"theirs");
+
+        let fresh = dir.path().join("fresh");
+        let tmp = dir.path().join(format!(".{SHA1}.tmp.1.1"));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join(COMPLETE), SHA1).unwrap();
+        let (made, created) = finish_layer(&tmp, &fresh, SHA1).unwrap();
+        assert!(created);
+        assert!(made.root.join(COMPLETE).is_file() && !tmp.exists());
+    }
+
+    #[test]
+    fn an_avalonia_scripts_folder_is_compared_not_skipped() {
+        let f = Fixture::with(|p| {
+            p.ensure_unpacked(AssetKind::Script).unwrap();
+        });
+        let unpacked = f.root().join("unpacked");
+        std::fs::rename(unpacked.join("scripts"), unpacked.join("Scripts")).unwrap();
+        assert_eq!(f.diff(), RawDiff::default());
+
+        f.write("unpacked/Scripts/0001", b"changed script");
+        assert_eq!(
+            f.diff(),
+            RawDiff {
+                changed: paths(&["unpacked/Scripts/0001"]),
+                not_built: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn place_raw_replaces_an_unpacked_folder_with_the_members_of_a_narc_blob() {
+        let f = Fixture::with(|p| {
+            p.ensure_unpacked(AssetKind::Move).unwrap();
+        });
+        let project = f.project();
+        let packed = project
+            .archives
+            .packed(AssetKind::Move)
+            .unwrap()
+            .to_path_buf();
+        let dir = project.unpacked_dir(AssetKind::Move);
+        assert!(dir.join("0003").is_file());
+        let members = vec![vec![7u8; 6], vec![8; 3]];
+        let narc = Narc {
+            members: members.clone(),
+        }
+        .write();
+
+        assert!(place_raw(&project, &packed, &narc).unwrap());
+
+        assert_eq!(std::fs::read(project.root.join(&packed)).unwrap(), narc);
+        let mut names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["0000", "0001"], "exactly the blob's members");
+        assert_eq!(std::fs::read(dir.join("0000")).unwrap(), members[0]);
+        assert_eq!(std::fs::read(dir.join("0001")).unwrap(), members[1]);
+        let leftovers: Vec<_> = std::fs::read_dir(f.root().join("unpacked"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+        assert!(!place_raw(&project, &packed, &narc).unwrap(), "unchanged");
+
+        let not_a_narc = place_raw(&project, &packed, b"no narc");
+        assert!(not_a_narc.is_err(), "{not_a_narc:?}");
+    }
+
+    #[test]
+    fn place_raw_refuses_paths_outside_the_blob_range() {
+        let f = Fixture::new();
+        let project = f.project();
+        for rel in [
+            ".g4/cache/x",
+            "files/.DS_Store",
+            "data/raw/x.bin",
+            "expanded/textArchives/0000.json",
+            "build/out.nds",
+            "plugins/p/x",
+            "g4-project.json",
+            "g4-world.json",
+            "rotom.toml",
+            "hack.nds",
+            "files/x.srl",
+            "patch.xdelta",
+        ] {
+            let err = place_raw(&project, Path::new(rel), b"x").unwrap_err();
+            assert!(err.to_string().contains(rel), "{rel}: {err}");
+            assert!(!f.root().join(rel).exists(), "{rel}");
+        }
+        assert!(place_raw(&project, Path::new("files/data/x.bin"), b"x").unwrap());
+        assert!(
+            place_raw(&project, Path::new("data"), b"x").unwrap(),
+            "a file at the root"
+        );
     }
 
     #[test]
