@@ -68,6 +68,14 @@ impl fmt::Display for PartKey {
 pub(crate) trait BasePart {
     /// The bytes of part `which` in the base layer; `None` when the base has no such part.
     fn base_bytes(&self, which: PartKey) -> Result<Option<Vec<u8>>, KernelError>;
+
+    /// Whether there is a base to ask at all: `Ok(false)` when neither a base layer nor a
+    /// base ROM is at hand (a caller may then leave what only the base could tell as it is),
+    /// an error when getting the base failed (a broken layer, an extraction that failed).
+    /// A fixed base (the base layer itself, a test map) always is there.
+    fn available(&self) -> Result<bool, KernelError> {
+        Ok(true)
+    }
 }
 
 /// A member as its value, or locked as raw bytes with the reason.

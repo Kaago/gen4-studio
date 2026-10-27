@@ -83,7 +83,82 @@ Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weit
 `{"id": …, "same_member_as": "<ID>"}`; ein Member, auf den keine ID zeigt, ist ein Blob, wo er
 abweicht.
 
-Beispiele (gekürzt, `…` steht für weggelassene Felder):
+Beispiele aus dem synthetischen Testprojekt (gekürzt, `…` steht für weggelassene Felder):
+
+`headers` (`data/headers/0000.json`):
+
+```json
+{
+  "id": "MAP_T01",
+  "internal_name": "T01",
+  "area_data_id": 0,
+  "matrix_id": 0,
+  "script_file_id": 0,
+  "level_script_id": 1,
+  "text_archive_id": 433,
+  "location_name": "PLACE_TWINLEAF_TOWN",
+  "…": "…"
+}
+```
+
+`matrices` (`data/matrices/0000.json`):
+
+```json
+{ "name": "m", "width": 2, "height": 1, "maps": ["0000 0001"] }
+```
+
+`maps` (`data/maps/0000.json`):
+
+```json
+{
+  "source": "binary",
+  "permissions": ["0080 0100 0200 …", "…"],
+  "buildings": [{ "model_id": 7, "position": [196608, 0, 0], "rotation": [171, 0, 0], "scale": [4096, 0, 0] }],
+  "model": { "hex": "000000000000" },
+  "bdhc": { "hex": "cafe01" }
+}
+```
+
+`area_data` (`data/area_data/0001.json`, Platin):
+
+```json
+{ "buildings_tileset": 1, "map_tileset": 2, "unknown": 0, "light_type": 0 }
+```
+
+`events` (`data/events/0000.json`):
+
+```json
+{ "bg_events": [], "object_events": [], "warp_events": [], "coord_events": [] }
+```
+
+`encounters` (`data/encounters/0000.json`, Platin):
+
+```json
+{
+  "data": {
+    "grass_rate": 10,
+    "grass_00_level": 2,
+    "grass_00_species": "SPECIES_BULBASAUR",
+    "grass_01_level": 0,
+    "grass_01_species": "SPECIES_NONE",
+    "…": "…",
+    "super_rod_4_species": "SPECIES_NONE"
+  }
+}
+```
+
+`species` (`data/species/0001.json`):
+
+```json
+{
+  "id": "SPECIES_BULBASAUR",
+  "personal": { "hp": 2, "type1": "TYPE_FIGHTING", "ability1": "ABILITY_STENCH", "…": "…", "tm_bits": "01000000000000000000000000000000" },
+  "learnset": { "moves": [{ "level": 1, "move": "MOVE_POUND" }, { "level": 5, "move": "MOVE_KARATE_CHOP" }], "terminated": true },
+  "evolution": { "method0": 4, "param0": 16, "target0": "SPECIES_IVYSAUR", "…": "…" }
+}
+```
+
+`moves` (`data/moves/0001.json`):
 
 ```json
 {
@@ -101,14 +176,22 @@ Beispiele (gekürzt, `…` steht für weggelassene Felder):
 }
 ```
 
+`items` (von Hand, das synthetische Projekt hat keine geprüfte Item-Tabelle): die erste ID eines
+Members trägt die Daten (`data/items/0001.json`), eine weitere ID desselben Members verweist auf sie
+(`data/items/0002.json`):
+
 ```json
 {
-  "id": "SPECIES_BULBASAUR",
-  "personal": { "hp": 2, "type1": "TYPE_FIGHTING", "ability1": "ABILITY_STENCH", "…": "…", "tm_bits": "01000000000000000000000000000000" },
-  "learnset": { "moves": [{ "level": 1, "move": "MOVE_POUND" }, { "level": 5, "move": "MOVE_KARATE_CHOP" }], "terminated": true },
-  "evolution": { "method0": 4, "param0": 16, "target0": "SPECIES_IVYSAUR", "…": "…" }
+  "id": "ITEM_MASTER_BALL",
+  "data": { "price": 100, "hold_effect": 0, "…": "…", "natural_gift_type": "TYPE_NORMAL", "…": "…" }
 }
 ```
+
+```json
+{ "id": "ITEM_ULTRA_BALL", "same_member_as": "ITEM_MASTER_BALL" }
+```
+
+`trainers` (`data/trainers/0001.json`):
 
 ```json
 {
@@ -126,45 +209,13 @@ Beispiele (gekürzt, `…` steht für weggelassene Felder):
 }
 ```
 
-```json
-{
-  "id": "MAP_T01",
-  "internal_name": "T01",
-  "area_data_id": 0,
-  "matrix_id": 0,
-  "script_file_id": 0,
-  "level_script_id": 1,
-  "text_archive_id": 433,
-  "location_name": "PLACE_TWINLEAF_TOWN",
-  "…": "…"
-}
-```
-
-```json
-{ "name": "m", "width": 2, "height": 1, "maps": ["0000 0001"] }
-```
-
-```json
-{ "buildings_tileset": 1, "map_tileset": 2, "unknown": 0, "light_type": 0 }
-```
-
-```json
-{ "bg_events": [], "object_events": [], "warp_events": [], "coord_events": [] }
-```
-
-```json
-{
-  "source": "binary",
-  "permissions": ["0080 0100 0200 …", "…"],
-  "buildings": [{ "model_id": 7, "position": [196608, 0, 0], "rotation": [171, 0, 0], "scale": [4096, 0, 0] }],
-  "model": { "hex": "000000000000" },
-  "bdhc": { "hex": "cafe01" }
-}
-```
+`trainer_text_table` (`data/trainer_text_table/0000.json`):
 
 ```json
 { "entries": [[1, 0], [1, 2]] }
 ```
+
+`trainer_text_offsets` (`data/trainer_text_offsets/0000.json`):
 
 ```json
 { "offsets": [0, 0] }
@@ -298,7 +349,8 @@ Member je Art (Archiv vorher entpackt), Header zuletzt, Quirks in den Compile-Zu
 `build::prepare` (Scripts kompilieren, Texte kodieren). Ein Member jenseits der letzten JSON seiner
 Art ist `textproject.member-without-json` (Löschen kommt mit 4.3b); neue Entitäten werden angehängt,
 nur lückenlos. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht und ohne Basis-ROM
-bleiben sie, wie sie sind (`textproject.base-unchecked`).
+bleiben sie, wie sie sind (`textproject.base-unchecked`, eine Warnung). Lässt sich die Basisschicht nicht
+lesen oder aus der gegebenen Basis-ROM nicht anlegen, ist das `textproject.base-missing` (ein Fehler).
 
 **Check** (`textproject::check`, `g4k text check`): wie der Import, schreibt nie (auch keine
 Basisschicht); nennt die Probleme, die Hinweise und die Dateien, die ein Import schreiben würde.
@@ -315,15 +367,16 @@ eine ältere Version ab („…: `g4k text migrate` ausführen.“), eine neuere
 
 ## Codes
 
-Jede Meldung ist `<code>: <Satz>`, bei einer Entität `<code>: <JSON-Pfad>: <Satz>`.
+Jede Meldung ist `<code>: <Satz>`, bei einer Entität `<code>: <JSON-Pfad>: <Satz>`. Ein Fehler hält Import
+und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 
-| Code | Art | Bedeutung |
+| Code | Schwere | Bedeutung |
 |---|---|---|
 | `textproject.schema` | Fehler | Datei passt nicht zum Schema: kein JSON, unbekannter oder vertippter Schlüssel, falscher Typ, Wert außerhalb des Bereichs, Lücke in der Nummerierung |
 | `textproject.unknown-id` | Fehler | eine ID, die keine Tabelle und kein Register kennt |
 | `textproject.id-mismatch` | Fehler | `id` ist nicht die ID der Nummer der Datei |
 | `textproject.side-file` | Fehler | ein Beifile `{"file"}` fehlt oder ist nicht lesbar |
-| `textproject.base-missing` | Fehler | ein `base_sha1`-Teil, den weder der Member noch eine Basisschicht hat |
+| `textproject.base-missing` | Fehler | ein `base_sha1`-Teil, den weder der Member noch eine Basisschicht hat, oder eine Basisschicht, die sich nicht lesen oder anlegen lässt |
 | `textproject.base-mismatch` | Fehler | die Basisschicht hat für den Teil andere Bytes |
 | `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
@@ -331,10 +384,10 @@ Jede Meldung ist `<code>: <Satz>`, bei einer Entität `<code>: <JSON-Pfad>: <Sat
 | `textproject.header-table` | Fehler | die Header-Tabelle ist nicht lesbar oder nicht zu finden |
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |
-| `textproject.unknown-art` | Hinweis | ein Ordner unter `data/`, den keine Art kennt; bleibt unberührt |
-| `textproject.reserved` | Hinweis | `schemas` oder `plugins` im Manifest sind nicht leer |
-| `textproject.id-dangling` | Hinweis | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt |
-| `textproject.base-unchecked` | Hinweis | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
+| `textproject.unknown-art` | Warnung | ein Ordner unter `data/`, den keine Art kennt; bleibt unberührt |
+| `textproject.reserved` | Info | `schemas` oder `plugins` im Manifest sind nicht leer |
+| `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt |
+| `textproject.base-unchecked` | Warnung | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
 
 ## Quellenliste
 

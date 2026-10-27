@@ -784,3 +784,98 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
     }
     assert!(!scripts.exists("rotom.toml"));
 }
+
+#[test]
+fn a_failing_base_is_an_error_not_an_unchecked_member() {
+    // A base ROM is given, but the base layer cannot be made from it (the synthetic ROM has
+    // no file system): every binary kind reports that, nothing is kept silently.
+    let fx = Fx::new();
+    fx.export();
+    fx.remove_layer();
+    let before = fx.mtimes();
+    let problems = compile_problems(import(&fx.p(), Some(&fx.base())));
+    assert_eq!(
+        codes(&problems),
+        [
+            "textproject.base-missing",
+            "textproject.base-missing",
+            "textproject.base-missing"
+        ],
+        "{problems:#?}"
+    );
+    for p in &problems {
+        assert_eq!(p.severity, Severity::Error);
+        assert!(
+            p.message.contains("Basisschicht ließ sich nicht anlegen"),
+            "{}",
+            p.message
+        );
+    }
+    assert_eq!(problems[0].file, Path::new("data/map_textures"));
+    assert_eq!(fx.mtimes(), before);
+
+    // A layer that is there but cannot be read: the member's file is named.
+    let fx = Fx::new();
+    fx.export();
+    let member = fx
+        .root()
+        .join(LAYER_DIR)
+        .join(&fx.sha1)
+        .join("unpacked/mapTextures/0000");
+    std::fs::remove_file(&member).unwrap();
+    std::fs::create_dir(&member).unwrap();
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(
+        codes(&problems),
+        ["textproject.base-missing"],
+        "{problems:#?}"
+    );
+    assert_eq!(problems[0].file, Path::new("data/map_textures/0000.nsbtx"));
+}
+
+#[test]
+fn check_names_the_compile_state_when_the_quirks_change_it() {
+    let fx = Fx::new();
+    fx.export();
+    fx.write(
+        "data/rotom-quirks.json",
+        b"{\n  \"quirks\": {\n    \"expanded/scripts/0000.rotom\": {\n      \"jump_table_end_marker_count\": 2\n    }\n  }\n}\n",
+    );
+    let report = check(&fx.p()).unwrap();
+    assert!(report.problems.is_empty(), "{:?}", report.problems);
+    assert_eq!(
+        report.differs,
+        [PathBuf::from(".rotom/status/compile-state.json")]
+    );
+}
+
+#[test]
+fn export_refuses_text_in_conflict_and_writes_nothing() {
+    let fx = Fx::new();
+    fx.export();
+    // The JSON and the member of the location bank both change, to different texts.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fx.edit(
+        "expanded/textArchives/0433.json",
+        "Twinleaf Town",
+        "Edited Town",
+    );
+    fx.write(
+        "unpacked/textArchives/0433",
+        &common::text_archive_bytes(&["Nowhere", "Other Town", "Sandgem Town"]),
+    );
+    fx.write("data/moves/0001.json", b"{}\n");
+    let before = fx.mtimes();
+    match export(
+        &fx.p(),
+        &fx.base(),
+        &ExportOptions {
+            adopt_scripts: true,
+        },
+    ) {
+        Err(KernelError::TextConflict(archives)) => assert_eq!(archives, [433]),
+        other => panic!("expected TextConflict, got {other:?}"),
+    }
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read("data/moves/0001.json"), b"{}\n");
+}

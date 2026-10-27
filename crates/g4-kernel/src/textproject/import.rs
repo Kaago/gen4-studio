@@ -24,19 +24,20 @@ use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
 
 use super::MANIFEST_FILE;
-use super::arts::{ARTS, Art, binary_name, member_rel, numbered, read_members};
+use super::arts::{ARTS, Art, binary_name, file_names, member_rel, numbered, read_members};
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
 };
 use super::canon::{json_problem, problem, write_if_changed};
 use super::codes::{
-    BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE, RAW_PATH_CODE, SCHEMA_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE,
+    RAW_PATH_CODE, SCHEMA_CODE,
 };
 use super::export::ArtStats;
 use super::locate::{key_position, located, relocate};
 use super::manifest::read_manifest;
 use super::part::{BasePart, PartKey};
-use super::quirks::{QUIRKS_FILE, QuirksFile, load_quirks, seed_quirks};
+use super::quirks::{QUIRKS_FILE, QuirksFile, load_quirks, seed_changes, seed_quirks};
 use super::registry::Symbols;
 use super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
@@ -63,19 +64,40 @@ pub struct ImportReport {
     pub ms: u64,
 }
 
+/// One write of an [`ImportPlan`]: file `path` (relative to the root) gets `bytes`; `unit` are
+/// the source files of the text project it comes from (relative, sorted; see
+/// [`plan_import`]).
+#[derive(Debug, Clone)]
+pub(crate) struct PlannedWrite {
+    pub path: PathBuf,
+    pub bytes: Vec<u8>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the build step (Task 10) maps its members to units by it"
+        )
+    )]
+    pub unit: Vec<PathBuf>,
+}
+
 /// What an import would write, found by [`plan_import`] without writing: `writes` are the
-/// members (relative paths below `unpacked/`) whose bytes change, `raw` the blobs (their
-/// path in the project, not under `data/raw/`) that change their file, `headers` the header
-/// table when it changes (`header_paths`: the files `write_headers` would change), `quirks`
-/// the quirks file, `problems` every error and warning found, `arts` per art the entities
-/// read and the members that would be written.
+/// members (below `unpacked/`) whose bytes change, `raw` the blobs (`path` is the file in the
+/// project, not under `data/raw/`) that change their file, `headers` the header table when it
+/// changes (`header_paths`: the files `write_headers` would change; `header_unit`: every
+/// header file read), `quirks` the quirks file (its unit is [`QUIRKS_FILE`]) and
+/// `quirks_path` rotom's compile state when seeding the quirks would change it, `problems`
+/// every error and warning found, `arts` per art the entities read and the members that
+/// would be written.
 #[derive(Debug, Default)]
 pub(crate) struct ImportPlan {
-    pub writes: Vec<(PathBuf, Vec<u8>)>,
-    pub raw: Vec<(PathBuf, Vec<u8>)>,
+    pub writes: Vec<PlannedWrite>,
+    pub raw: Vec<PlannedWrite>,
     pub headers: Option<HeaderWrite>,
     pub header_paths: Vec<PathBuf>,
+    pub header_unit: Vec<PathBuf>,
     pub quirks: QuirksFile,
+    pub quirks_path: Option<PathBuf>,
     pub problems: Vec<Problem>,
     pub arts: Vec<ArtStats>,
 }
@@ -86,14 +108,16 @@ impl ImportPlan {
         self.problems.iter().any(|p| p.severity == Severity::Error)
     }
 
-    /// Every path the import would write, sorted: blobs, members, header files.
+    /// Every path the import would write, sorted: blobs, members, header files, the compile
+    /// state.
     pub(crate) fn paths(&self) -> Vec<PathBuf> {
         let mut paths: Vec<PathBuf> = self
             .raw
             .iter()
             .chain(&self.writes)
-            .map(|(p, _)| p.clone())
+            .map(|w| w.path.clone())
             .chain(self.header_paths.iter().cloned())
+            .chain(self.quirks_path.iter().cloned())
             .collect();
         paths.sort();
         paths.dedup();
@@ -101,15 +125,25 @@ impl ImportPlan {
     }
 }
 
+/// Why [`LazyBase`] has no layer: none is there and nothing to make one from
+/// (`Unavailable`), or getting it failed (`Failed`: the extraction from the base ROM).
+#[derive(Debug, Clone)]
+enum NoLayer {
+    Unavailable(String),
+    Failed(String),
+}
+
 /// The base layer as the import needs it, opened on first use: the complete layer of the
-/// mark's base (or of `base`), else made from `base` when `ensure` allows writing the cache;
-/// else every question fails with `base::missing_text`.
+/// mark's base (or of `base`), else made from `base` when `ensure` allows writing the cache.
+/// Without layer and base ROM every question fails with `base::missing_text`
+/// ([`BasePart::available`] is `false`); a failed extraction fails every question with its
+/// error ([`BasePart::available`] is that error).
 pub(crate) struct LazyBase<'a> {
     root: &'a Path,
     mark: Option<BaseMark>,
     base: Option<&'a BaseRom>,
     ensure: bool,
-    layer: OnceCell<Result<BaseLayer, String>>,
+    layer: OnceCell<Result<BaseLayer, NoLayer>>,
 }
 
 impl<'a> LazyBase<'a> {
@@ -124,7 +158,7 @@ impl<'a> LazyBase<'a> {
     }
 
     /// The layer, or why there is none.
-    pub(crate) fn layer(&self) -> Result<&BaseLayer, String> {
+    fn layer(&self) -> Result<&BaseLayer, &NoLayer> {
         self.layer
             .get_or_init(|| {
                 let sha1 = self
@@ -138,17 +172,20 @@ impl<'a> LazyBase<'a> {
                 if let (Some(base), true) = (self.base, self.ensure) {
                     return BaseLayer::ensure(self.root, base)
                         .map(|(layer, _)| layer)
-                        .map_err(|e| e.to_string());
+                        .map_err(|e| {
+                            NoLayer::Failed(format!(
+                                "die Basisschicht ließ sich nicht anlegen ({e})"
+                            ))
+                        });
                 }
-                Err(match &self.mark {
+                Err(NoLayer::Unavailable(match &self.mark {
                     Some(mark) => missing_text(mark),
                     None => {
                         "Das Projekt kennt seine Basis-ROM nicht (.g4/base.json fehlt).".to_owned()
                     }
-                })
+                }))
             })
             .as_ref()
-            .map_err(Clone::clone)
     }
 }
 
@@ -156,7 +193,17 @@ impl BasePart for LazyBase<'_> {
     fn base_bytes(&self, which: PartKey) -> Result<Option<Vec<u8>>, KernelError> {
         match self.layer() {
             Ok(layer) => layer.base_bytes(which),
-            Err(why) => Err(KernelError::Refused(why)),
+            Err(NoLayer::Unavailable(why) | NoLayer::Failed(why)) => {
+                Err(KernelError::Refused(why.clone()))
+            }
+        }
+    }
+
+    fn available(&self) -> Result<bool, KernelError> {
+        match self.layer() {
+            Ok(_) => Ok(true),
+            Err(NoLayer::Unavailable(_)) => Ok(false),
+            Err(NoLayer::Failed(why)) => Err(KernelError::Refused(why.clone())),
         }
     }
 }
@@ -206,11 +253,29 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
     only.is_none_or(|only| paths.iter().any(|p| only.contains(p)))
 }
 
-/// Reads and checks the whole text project (or, with `only`, the units with a source file in
-/// it: an entity's JSON or side file, a blob, any header file, the quirks file) and finds
-/// what the import would write; writes nothing. The manifest must have the current schema
-/// version (else `Refused` with the sentence of the manifest module). Every problem lands in
-/// [`ImportPlan::problems`], with file, line and column where the file has them.
+/// Reads and checks the whole text project and finds what the import would write; writes
+/// nothing. The manifest must have the current schema version (else `Refused` with the
+/// sentence of the manifest module). Every problem lands in [`ImportPlan::problems`], with
+/// file, line and column where the file has them.
+///
+/// A **unit** is what one source decides, with its source files (relative to the root):
+/// - an entity of an art of whole members: `data/<art>/NNNN.json` and every side file
+///   `data/<art>/NNNN.*`; its writes are all its members (a species writes up to three);
+/// - an item member: the files (JSON and side files) of every item id whose table entry names
+///   the member, the carrier and its `same_member_as` ids alike;
+/// - a member of a binary kind: `data/<art>/NNNN.<ext>`, whether it exists or not (without
+///   it the member is the base layer's);
+/// - a blob: `data/raw/<path>`;
+/// - the header table: every `data/headers/NNNN.json` ([`ImportPlan::header_unit`]);
+/// - the quirks: [`QUIRKS_FILE`].
+///
+/// Every [`PlannedWrite`] carries its unit. With `only` (source paths relative to the root)
+/// just the units with a source file in it are imported and planned: an entity whose JSON or
+/// a side file is in it, the items when any item file is, a binary member whose file path
+/// is, a blob whose path is, the header table when any header file is, the quirks when the
+/// quirks file is. The checks of the numbering (gaps, members without JSON) look at the
+/// files on disk and always run; an entity outside `only` counts as present for the append
+/// check of the ones after it.
 pub(crate) fn plan_import(
     project: &Project,
     base: &dyn BasePart,
@@ -389,48 +454,35 @@ fn plan_entities<E: EntitySchema>(
     };
     let numbers = numbered(&dir, "json")?;
     check_numbering(&rel_dir, &numbers, members, plan);
+    let names = file_names(&dir)?;
+    // The next member each archive can append. An entity the plan does not import (outside
+    // `only`, unreadable, or with an error) counts as appending all its parts, and a gap in
+    // the numbering (reported above) as filled: the append check judges only parts an
+    // imported entity really leaves out, so no error follows from another one.
     let mut next: Vec<usize> = current.iter().map(Vec::len).collect();
+    let mut prev: Option<usize> = None;
     for n in numbers {
         stats.entities += 1;
         stats.json_files += 1;
-        if !entity_wanted(only, &rel_dir, n) {
-            continue;
+        if prev.map_or(n != 0, |p| n != p + 1) {
+            next.iter_mut().for_each(|x| *x = (*x).max(n));
         }
-        let file = rel_dir.join(format!("{n:04}.json"));
-        let bytes = match read_source(&project.root, &file) {
-            Ok(bytes) => bytes,
-            Err(p) => {
-                plan.problems.push(p);
-                continue;
-            }
-        };
-        stats.bytes += bytes.len() as u64;
-        let entity: E = match parse(&file, &bytes) {
-            Ok(entity) => entity,
-            Err(p) => {
-                plan.problems.push(p);
-                continue;
-            }
-        };
+        prev = Some(n);
         let cur: Vec<Option<Vec<u8>>> = current
             .iter()
             .map(|c| c.get(n).cloned().flatten())
             .collect();
-        let ctx = ImportCtx {
-            family: project.family,
-            symbols,
-            dir: &dir,
-            base,
-            current: &cur,
+        let file = rel_dir.join(format!("{n:04}.json"));
+        let parts = if entity_wanted(only, &rel_dir, n) {
+            import_entity::<E>(project, &file, n, symbols, base, &cur, plan, stats)
+        } else {
+            None
         };
-        let index = u32::try_from(n).unwrap_or(u32::MAX);
-        let parts = match entity.import(index, &ctx) {
-            Ok(parts) => parts,
-            Err(message) => {
-                plan.problems.push(located(&file, &bytes, &message));
-                continue;
-            }
+        let Some(parts) = parts else {
+            next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
+            continue;
         };
+        let unit = unit_of(&rel_dir, &names, n);
         for (k, part) in parts.into_iter().enumerate() {
             let Some(&kind) = kinds.get(k) else { break };
             match part {
@@ -450,7 +502,11 @@ fn plan_entities<E: EntitySchema>(
                     }
                     next[k] = next[k].max(n + 1);
                     if cur[k].as_deref() != Some(new.as_slice()) {
-                        plan.writes.push((member_rel(project, kind, n), new));
+                        plan.writes.push(PlannedWrite {
+                            path: member_rel(project, kind, n),
+                            bytes: new,
+                            unit: unit.clone(),
+                        });
                     }
                 }
                 None if cur[k].is_some() => plan.problems.push(problem(
@@ -467,6 +523,52 @@ fn plan_entities<E: EntitySchema>(
         }
     }
     Ok(())
+}
+
+/// Entity `n` of file `file` read, parsed and imported against its current members `cur`;
+/// `None` (with the problem in the plan) when any of that fails.
+#[allow(clippy::too_many_arguments)]
+fn import_entity<E: EntitySchema>(
+    project: &Project,
+    file: &Path,
+    n: usize,
+    symbols: &Symbols,
+    base: &dyn BasePart,
+    cur: &[Option<Vec<u8>>],
+    plan: &mut ImportPlan,
+    stats: &mut ArtStats,
+) -> Option<Vec<Option<Vec<u8>>>> {
+    let bytes = read_source(&project.root, file)
+        .map_err(|p| plan.problems.push(p))
+        .ok()?;
+    stats.bytes += bytes.len() as u64;
+    let entity: E = parse(file, &bytes)
+        .map_err(|p| plan.problems.push(p))
+        .ok()?;
+    let dir = project.root.join(file.parent().unwrap_or(file));
+    let ctx = ImportCtx {
+        family: project.family,
+        symbols,
+        dir: &dir,
+        base,
+        current: cur,
+    };
+    let index = u32::try_from(n).unwrap_or(u32::MAX);
+    entity
+        .import(index, &ctx)
+        .map_err(|message| plan.problems.push(located(file, &bytes, &message)))
+        .ok()
+}
+
+/// The unit of entity `n` in folder `rel_dir` (with the visible file `names`): its JSON and
+/// every side file with its stem `NNNN.`, relative to the root, sorted.
+fn unit_of(rel_dir: &Path, names: &[String], n: usize) -> Vec<PathBuf> {
+    let stem = format!("{n:04}.");
+    names
+        .iter()
+        .filter(|name| name.starts_with(&stem))
+        .map(|name| rel_dir.join(name))
+        .collect()
 }
 
 /// The items through the ARM9 item table: every id's file parsed, then checked across ids
@@ -554,8 +656,19 @@ fn plan_items(
                 if let Some(new) = new
                     && current.get(m).cloned().flatten().as_deref() != Some(new.as_slice())
                 {
-                    plan.writes
-                        .push((member_rel(project, AssetKind::Item, m), new));
+                    // Every id whose table entry names the member, with its side files.
+                    let names = file_names(&dir)?;
+                    let unit = member_of
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, &x)| usize::from(x) == m)
+                        .flat_map(|(id, _)| unit_of(&rel_dir, &names, id))
+                        .collect();
+                    plan.writes.push(PlannedWrite {
+                        path: member_rel(project, AssetKind::Item, m),
+                        bytes: new,
+                        unit,
+                    });
                 }
             }
         }
@@ -589,6 +702,7 @@ fn plan_headers(
     let mut files = Vec::with_capacity(numbers.len());
     for n in numbers {
         let file = rel_dir.join(format!("{n:04}.json"));
+        plan.header_unit.push(file.clone());
         match read_source(&project.root, &file) {
             Ok(bytes) => {
                 stats.bytes += bytes.len() as u64;
@@ -646,7 +760,10 @@ fn header_changes(project: &Project, w: &HeaderWrite) -> Result<Vec<PathBuf>, Ke
 }
 
 /// A binary kind: member `i` is `data/<art>/NNNN.<ext>` when that file exists, else the base
-/// layer's member. Without base layer the members without file stay (a warning).
+/// layer's member. Without base layer and base ROM the members without file stay as they are
+/// (`textproject.base-unchecked`, a warning); a base that fails (a broken layer, a failed
+/// extraction) is `textproject.base-missing`. With `only`, just the members whose file path
+/// is in it, and the base is asked for nothing else.
 fn plan_binary(
     project: &Project,
     kind: AssetKind,
@@ -659,67 +776,122 @@ fn plan_binary(
     let rel_dir = Art::Binary(kind).dir();
     let dir = project.root.join(&rel_dir);
     let files: BTreeSet<usize> = numbered(&dir, ext)?.into_iter().collect();
+    let file_of = |i: usize| rel_dir.join(format!("{i:04}.{ext}"));
+    let indices: Option<Vec<usize>> = only.map(|only| {
+        only.iter()
+            .filter(|p| p.parent() == Some(rel_dir.as_path()))
+            .filter_map(|p| {
+                let stem = p.file_name()?.to_str()?.strip_suffix(&format!(".{ext}"))?;
+                let i: usize = stem.parse().ok()?;
+                (file_of(i) == **p).then_some(i)
+            })
+            .collect()
+    });
     let current = read_members(project, kind)?;
-    let key = |i: usize| PartKey {
-        art,
-        index: u32::try_from(i).unwrap_or(u32::MAX),
-        part: ext,
-    };
+    let mut availability: Option<bool> = None;
     let mut unchecked = false;
-    let end = current.len().max(files.last().map_or(0, |&n| n + 1));
-    let mut i = 0;
-    loop {
-        let file = rel_dir.join(format!("{i:04}.{ext}"));
-        let want = if files.contains(&i) {
-            stats.side_files += 1;
-            match std::fs::read(project.root.join(&file)) {
-                Ok(bytes) => Some(bytes),
-                Err(e) => {
-                    plan.problems.push(problem(
-                        &file,
-                        SCHEMA_CODE,
-                        format!("{ROOT}: nicht lesbar ({e})."),
-                    ));
-                    i += 1;
-                    continue;
-                }
+    // The bytes member `i` should have: Ok(None) when neither a file nor the base has one,
+    // Err(()) when a problem was recorded (and the art is to stop when `stop`).
+    let mut want_of =
+        |i: usize, plan: &mut ImportPlan, stop: &mut bool| -> Result<Option<Vec<u8>>, ()> {
+            let file = file_of(i);
+            if files.contains(&i) {
+                return std::fs::read(project.root.join(&file))
+                    .map(Some)
+                    .map_err(|e| {
+                        plan.problems.push(problem(
+                            &file,
+                            SCHEMA_CODE,
+                            format!("{ROOT}: nicht lesbar ({e})."),
+                        ));
+                    });
             }
-        } else {
-            match base.base_bytes(key(i)) {
-                Ok(found) => found,
-                Err(_) => {
-                    unchecked = true;
-                    current.get(i).cloned().flatten()
-                }
+            let available = match availability {
+                Some(a) => a,
+                None => match base.available() {
+                    Ok(a) => {
+                        availability = Some(a);
+                        a
+                    }
+                    Err(e) => {
+                        plan.problems.push(problem(
+                            &rel_dir,
+                            BASE_MISSING_CODE,
+                            format!("{ROOT}: {art}: {e}"),
+                        ));
+                        *stop = true;
+                        return Err(());
+                    }
+                },
+            };
+            if !available {
+                unchecked = true;
+                return Ok(current.get(i).cloned().flatten());
             }
-        };
-        match want {
-            Some(want) => {
-                stats.entities += 1;
-                if entity_wanted(only, &rel_dir, i)
-                    && current.get(i).cloned().flatten().as_deref() != Some(want.as_slice())
-                {
-                    plan.writes.push((member_rel(project, kind, i), want));
-                }
-            }
-            None if i >= end => break,
-            None if current.get(i).is_some_and(Option::is_some) => {
+            let key = PartKey {
+                art,
+                index: u32::try_from(i).unwrap_or(u32::MAX),
+                part: ext,
+            };
+            base.base_bytes(key).map_err(|e| {
                 plan.problems.push(problem(
                     &file,
-                    MEMBER_WITHOUT_JSON_CODE,
-                    format!(
-                        "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in der \
-                         Basisschicht; der Import löscht keine Member, Löschen ist 4.3b."
-                    ),
+                    BASE_MISSING_CODE,
+                    format!("{ROOT}: {key}: {e}"),
                 ));
-            }
-            None => plan.problems.push(problem(
-                &file,
-                SCHEMA_CODE,
-                format!("{ROOT}: die Datei fehlt; die Dateien sind lückenlos nummeriert."),
-            )),
+            })
+        };
+    let push = |i: usize, want: Vec<u8>, plan: &mut ImportPlan| {
+        if current.get(i).cloned().flatten().as_deref() != Some(want.as_slice()) {
+            plan.writes.push(PlannedWrite {
+                path: member_rel(project, kind, i),
+                bytes: want,
+                unit: vec![file_of(i)],
+            });
         }
-        i += 1;
+    };
+    let mut stop = false;
+    if let Some(indices) = indices {
+        for i in indices {
+            if let Ok(Some(want)) = want_of(i, plan, &mut stop) {
+                stats.entities += 1;
+                push(i, want, plan);
+            }
+            if stop {
+                return Ok(());
+            }
+        }
+    } else {
+        stats.side_files = u32::try_from(files.len()).unwrap_or(u32::MAX);
+        let end = current.len().max(files.last().map_or(0, |&n| n + 1));
+        let mut i = 0;
+        loop {
+            match want_of(i, plan, &mut stop) {
+                _ if stop => return Ok(()),
+                Err(()) => {}
+                Ok(Some(want)) => {
+                    stats.entities += 1;
+                    push(i, want, plan);
+                }
+                Ok(None) if i >= end => break,
+                Ok(None) if current.get(i).is_some_and(Option::is_some) => {
+                    plan.problems.push(problem(
+                        &file_of(i),
+                        MEMBER_WITHOUT_JSON_CODE,
+                        format!(
+                            "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in der \
+                             Basisschicht; der Import löscht keine Member, Löschen ist 4.3b."
+                        ),
+                    ));
+                }
+                Ok(None) => plan.problems.push(problem(
+                    &file_of(i),
+                    SCHEMA_CODE,
+                    format!("{ROOT}: die Datei fehlt; die Dateien sind lückenlos nummeriert."),
+                )),
+            }
+            i += 1;
+        }
     }
     if unchecked {
         plan.problems.push(Problem {
@@ -732,7 +904,7 @@ fn plan_binary(
                      sind."
                 ),
             )
-        })
+        });
     }
     Ok(())
 }
@@ -771,7 +943,11 @@ fn plan_raw(
             continue;
         }
         if raw_differs(project, &rel, &bytes)? {
-            plan.raw.push((rel, bytes));
+            plan.raw.push(PlannedWrite {
+                path: rel,
+                bytes,
+                unit: vec![blob],
+            });
         }
     }
     Ok(())
@@ -797,6 +973,7 @@ fn plan_quirks(
         Err(e) => return Err(e),
     };
     let bytes = std::fs::read(project.root.join(rel)).unwrap_or_default();
+    let mut valid = true;
     for key in quirks.quirks.keys() {
         let plain = key
             .split('/')
@@ -806,6 +983,7 @@ fn plan_quirks(
             .is_some_and(|rest| rest.starts_with('/'));
         let exists = plain && under && project.root.join(key).is_file();
         if !exists {
+            valid = false;
             let (line, col) = key_position(&bytes, key, 0);
             plan.problems.push(Problem {
                 line,
@@ -821,6 +999,15 @@ fn plan_quirks(
                 )
             });
         }
+    }
+    if valid && scripts::is_adopted(project) && seed_changes(project, &quirks)? > 0 {
+        let (state, _) = scripts::watched_paths(project);
+        plan.quirks_path = Some(
+            state
+                .strip_prefix(&project.root)
+                .unwrap_or(&state)
+                .to_path_buf(),
+        );
     }
     plan.quirks = quirks;
     Ok(())
@@ -842,15 +1029,15 @@ pub(crate) struct Applied {
 /// only).
 pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Applied, KernelError> {
     let mut out = Applied::default();
-    for (rel, bytes) in &plan.raw {
-        if place_raw(project, rel, bytes)? {
-            out.paths.push(rel.clone());
+    for w in &plan.raw {
+        if place_raw(project, &w.path, &w.bytes)? {
+            out.paths.push(w.path.clone());
             out.raw += 1;
         }
     }
     let mut unpacked: Vec<AssetKind> = Vec::new();
-    for (rel, _) in &plan.writes {
-        let folder = rel.components().nth(1).map(|c| c.as_os_str());
+    for w in &plan.writes {
+        let folder = w.path.components().nth(1).map(|c| c.as_os_str());
         if let Some(kind) = AssetKind::ALL.into_iter().find(|&k| {
             project.has_archive(k) && folder.is_some_and(|f| f == project.archives.unpacked_name(k))
         }) && !unpacked.contains(&kind)
@@ -859,9 +1046,9 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
             unpacked.push(kind);
         }
     }
-    for (rel, bytes) in &plan.writes {
-        if write_if_changed(&project.root, rel, bytes)? {
-            out.paths.push(rel.clone());
+    for w in &plan.writes {
+        if write_if_changed(&project.root, &w.path, &w.bytes)? {
+            out.paths.push(w.path.clone());
             out.members += 1;
         }
     }
@@ -883,4 +1070,216 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::*;
+    use crate::start::{BASE_MARK_VERSION, ORIGIN_DSPRE};
+    use crate::test_support::{Synthetic, copy_dir, synthetic_project, synthetic_rom};
+    use crate::textproject::export::{ExportOptions, export};
+
+    /// The synthetic project exported against a base layer that is a copy of it.
+    fn exported() -> (Synthetic, Project) {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let kinds: Vec<AssetKind> = p.archives.kinds().collect();
+        for kind in kinds {
+            if kind != AssetKind::DynamicHeaders
+                && p.archives
+                    .packed(kind)
+                    .is_some_and(|k| p.root.join(k).is_file())
+            {
+                p.ensure_unpacked(kind).unwrap();
+            }
+        }
+        let (_rom_dir, rom) = synthetic_rom();
+        let base = BaseRom::open(&rom, None).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        copy_dir(&p.root, &tmp.path().join("layer"));
+        let layer = p.root.join(".g4/cache/base-layer").join(base.sha1());
+        copy_dir(&tmp.path().join("layer"), &layer);
+        std::fs::write(layer.join(".complete"), base.sha1()).unwrap();
+        let mark = BaseMark {
+            version: BASE_MARK_VERSION,
+            origin: ORIGIN_DSPRE.to_owned(),
+            sha1: base.sha1().to_owned(),
+            game_code: "CPUE".to_owned(),
+            title: "POKEMON PL".to_owned(),
+            revision: 0,
+            size: 0x8000,
+            template: None,
+            created: "2026-10-27T12:00:00Z".to_owned(),
+            assigned: None,
+            studio_version: "0".to_owned(),
+            secure_area_crc: 0,
+            secure_area_sha1: "0".repeat(40),
+        };
+        std::fs::write(
+            p.root.join(".g4/base.json"),
+            serde_json::to_vec(&mark).unwrap(),
+        )
+        .unwrap();
+        export(
+            &p,
+            &base,
+            &ExportOptions {
+                adopt_scripts: true,
+            },
+        )
+        .unwrap();
+        (s, Project::open(&p.root).unwrap())
+    }
+
+    /// A base that counts the questions it is asked.
+    struct Counting<'a> {
+        inner: &'a dyn BasePart,
+        calls: Cell<u32>,
+    }
+
+    impl BasePart for Counting<'_> {
+        fn base_bytes(&self, which: PartKey) -> Result<Option<Vec<u8>>, KernelError> {
+            self.calls.set(self.calls.get() + 1);
+            self.inner.base_bytes(which)
+        }
+    }
+
+    fn plan(p: &Project, only: Option<&[&str]>) -> (ImportPlan, u32) {
+        let lazy = LazyBase::new(p, None, false);
+        let base = Counting {
+            inner: &lazy,
+            calls: Cell::new(0),
+        };
+        let only: Option<BTreeSet<PathBuf>> = only.map(|o| o.iter().map(PathBuf::from).collect());
+        let plan = plan_import(p, &base, only.as_ref()).unwrap();
+        let calls = base.calls.get();
+        (plan, calls)
+    }
+
+    fn paths(list: &[&str]) -> Vec<PathBuf> {
+        list.iter().map(PathBuf::from).collect()
+    }
+
+    fn write_to(p: &Project, rel: &str, bytes: &[u8]) {
+        let path = p.root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn every_write_names_its_unit() {
+        let (_s, p) = exported();
+        for folder in ["personalPokeData", "learnsets", "evolutions"] {
+            std::fs::remove_file(p.root.join("unpacked").join(folder).join("0001")).unwrap();
+        }
+        write_to(&p, "data/species/0001.note", b"side");
+        std::fs::remove_file(p.root.join("unpacked/mapTextures/0000")).unwrap();
+        write_to(&p, "data/raw/files/new.bin", b"new");
+        let (plan, _) = plan(&p, None);
+        assert!(!plan.has_errors(), "{:?}", plan.problems);
+
+        let species: Vec<&PlannedWrite> = plan
+            .writes
+            .iter()
+            .filter(|w| w.unit.contains(&PathBuf::from("data/species/0001.json")))
+            .collect();
+        assert_eq!(
+            species.iter().map(|w| w.path.clone()).collect::<Vec<_>>(),
+            paths(&[
+                "unpacked/personalPokeData/0001",
+                "unpacked/learnsets/0001",
+                "unpacked/evolutions/0001"
+            ])
+        );
+        for w in &species {
+            assert_eq!(
+                w.unit,
+                paths(&["data/species/0001.json", "data/species/0001.note"])
+            );
+        }
+        let texture = plan
+            .writes
+            .iter()
+            .find(|w| w.path == Path::new("unpacked/mapTextures/0000"))
+            .unwrap();
+        assert_eq!(texture.unit, paths(&["data/map_textures/0000.nsbtx"]));
+        assert_eq!(plan.raw.len(), 1);
+        assert_eq!(plan.raw[0].path, Path::new("files/new.bin"));
+        assert_eq!(plan.raw[0].unit, paths(&["data/raw/files/new.bin"]));
+        assert_eq!(
+            plan.header_unit,
+            paths(&["data/headers/0000.json", "data/headers/0001.json"])
+        );
+        assert_eq!(plan.writes.len(), 4);
+    }
+
+    /// Moves 4 and 5 appended as files (fallback ids, the table's names would do too).
+    fn append_moves(p: &Project) {
+        let three = std::fs::read_to_string(p.root.join("data/moves/0003.json")).unwrap();
+        let id = three.lines().nth(1).unwrap().to_owned();
+        for n in [4, 5] {
+            let text = three.replace(&id, &format!("  \"id\": \"MOVE_{n:04}\","));
+            write_to(p, &format!("data/moves/{n:04}.json"), text.as_bytes());
+        }
+    }
+
+    #[test]
+    fn only_plans_its_units_and_judges_appends_by_the_files() {
+        let (_s, p) = exported();
+        append_moves(&p);
+        let (all, _) = plan(&p, None);
+        assert!(!all.has_errors(), "{:?}", all.problems);
+        let moves: Vec<PathBuf> = all
+            .writes
+            .iter()
+            .filter(|w| w.path.starts_with("unpacked/moveData"))
+            .map(|w| w.path.clone())
+            .collect();
+        assert_eq!(
+            moves,
+            paths(&["unpacked/moveData/0004", "unpacked/moveData/0005"])
+        );
+
+        // Move 5 alone: move 4 is outside `only` and counts as present; no binary member
+        // is in `only`, so the base is never asked.
+        let (only, calls) = plan(&p, Some(&["data/moves/0005.json"]));
+        assert!(only.problems.is_empty(), "{:?}", only.problems);
+        assert_eq!(
+            only.paths(),
+            paths(&["unpacked/moveData/0005"]),
+            "{:?}",
+            only.problems
+        );
+        assert_eq!(calls, 0);
+
+        // A binary member in `only`: the base is asked for it alone.
+        std::fs::remove_file(p.root.join("unpacked/mapTextures/0000")).unwrap();
+        let (only, calls) = plan(&p, Some(&["data/map_textures/0000.nsbtx"]));
+        assert_eq!(only.paths(), paths(&["unpacked/mapTextures/0000"]));
+        assert_eq!(calls, 1);
+        let (_, calls) = plan(&p, None);
+        assert!(calls > 1, "a full plan asks for every member");
+    }
+
+    #[test]
+    fn a_broken_entity_makes_no_append_error_for_the_next() {
+        let (_s, p) = exported();
+        append_moves(&p);
+        write_to(&p, "data/moves/0004.json", b"{\n  \"id\": \n");
+        let (plan, _) = plan(&p, None);
+        let errors: Vec<&Problem> = plan
+            .problems
+            .iter()
+            .filter(|p| p.severity == Severity::Error)
+            .collect();
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert_eq!(errors[0].file, Path::new("data/moves/0004.json"));
+        assert!(
+            plan.writes
+                .iter()
+                .any(|w| w.path == Path::new("unpacked/moveData/0005"))
+        );
+    }
 }

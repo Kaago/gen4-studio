@@ -145,9 +145,25 @@ pub fn quirks_from_state(project: &Project) -> Result<QuirksFile, KernelError> {
 /// entries, and sources the file does not name, stay as they are. The state is saved
 /// (atomically, by rotom) only when something changed; the number of changed entries.
 pub fn seed_quirks(project: &Project, file: &QuirksFile) -> Result<u32, KernelError> {
-    if file.quirks.is_empty() {
-        return Ok(0);
+    let (path, state, changed) = seeded(project, file)?;
+    if changed > 0 {
+        // rotom v0.7.0: src/compile_state.rs CompileState::save (temp file, then rename)
+        state.save(&path).map_err(io_at(&path))?;
     }
+    Ok(changed)
+}
+
+/// How many compile state entries [`seed_quirks`] would change, without saving anything.
+pub fn seed_changes(project: &Project, file: &QuirksFile) -> Result<u32, KernelError> {
+    Ok(seeded(project, file)?.2)
+}
+
+/// The compile state (its path, the state with `file`'s quirks put in, the number of entries
+/// changed), not saved.
+fn seeded(
+    project: &Project,
+    file: &QuirksFile,
+) -> Result<(PathBuf, rotom::CompileState, u32), KernelError> {
     let (path, mut state) = load_state(project)?;
     let mut changed = 0;
     for (key, quirk) in &file.quirks {
@@ -168,11 +184,7 @@ pub fn seed_quirks(project: &Project, file: &QuirksFile) -> Result<u32, KernelEr
         }
         changed += 1;
     }
-    if changed > 0 {
-        // rotom v0.7.0: src/compile_state.rs CompileState::save (temp file, then rename)
-        state.save(&path).map_err(io_at(&path))?;
-    }
-    Ok(changed)
+    Ok((path, state, changed))
 }
 
 #[cfg(test)]
