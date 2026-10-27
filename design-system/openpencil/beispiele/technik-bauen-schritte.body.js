@@ -13,9 +13,11 @@
   if (HX_DUNKEL) Object.assign(HX, HX_DUNKEL);
   const KONFLIKT = MODE === 'konflikt';
 
-  // ----- Liste „Technik“: vier Einträge mit Symbol und Zustand -----
+  // ----- Liste „Technik“: sechs Einträge (mit „Projekt“ aus 4.0 und „Veröffentlichen“ aus 4.1a) mit Symbol und Zustand -----
   const eintraege = [
+    ['Projekt', 'ph:folder-open', 'Kartenbild der Startstadt'],
     ['Prüfen und Bauen', 'ph:hammer', KONFLIKT ? 'Noch nicht gebaut' : 'gebaut gerade eben', true],
+    ['Veröffentlichen', 'ph:upload-simple', 'Keine Basis-ROM zugeordnet'],
     ['Patches', 'ph:bandaids', 'Dynamische Header: angewendet'],
     ['Emulator', 'ph:game-controller', '/Applications/melonDS.app'],
     ['Werkzeuge', 'ph:toolbox', 'Alle bereit'],

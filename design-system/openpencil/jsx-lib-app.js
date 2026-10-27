@@ -374,7 +374,7 @@ const VorschauBild = (art, s = 1) => {
 const VorschauName = (name, s = 1) => <Frame name="Platzhalter mit Name" w={256 * s} h={192 * s} bg={v('ds/grund')} flex="row" items="center" justify="center" px={12 * s}>{T(name, { f: PX, s: 16 * s, lh: 20 * s, c: 'ds/textbox/flaeche', align: 'center' })}</Frame>;
 // Projektkarte (StartPane, ProjectCard): blatt, Rand linie/standard, radius/fenster; oben 8 px eingerückt der DS-Rahmen 4 : 3 (radius/bildschirm),
 // darin der Bildschirm 256 × 192; „Zuletzt“ (Info, Verlauf) oben links und „…“ oben rechts auf dem Rahmen; darunter Name, Spiel, Zeit.
-// bild 'eigen' | 'standard' | null (Platzhalter); fehlt: „nicht gefunden“ (deck, grau, Bildschirm halb deckend, Taste „Aus der Liste nehmen“); menu: Einträge für MenuX
+// bild 'eigen' | 'standard' | null (Platzhalter); fehlt: „nicht gefunden“ (deck, grau, Bildschirm halb deckend, Taste „Aus der Liste nehmen“); menu: Einträge für MenuX; ein langer Spielname (HeartGold/SoulSilver) setzt die Zeit wie die App in eine eigene Zeile
 const ProjKarte = ({ name, game = 'Platin, DE', zeit = 'gerade eben', bild = null, zuletzt, fehlt, w = 309, menu, hover }) => {
   const fw = w - 16, fh = Math.round(fw * 3 / 4);
   return <Frame name={'Projektkarte: ' + name} flex="col" w={w} rounded={12} bg={v(fehlt ? 'flaeche/deck' : 'flaeche/blatt')} stroke={v(hover ? 'linie/stark' : 'linie/standard')} strokeWidth={1}>
@@ -387,7 +387,7 @@ const ProjKarte = ({ name, game = 'Platin, DE', zeit = 'gerade eben', bild = nul
     </Frame>
     <Frame flex="col" gap={6} pt={8} px={8} pb={12} w="fill">
       {T(name, { s: 15, w: 600, c: fehlt ? 'text/sekundaer' : 'text/primaer', one: true, width: 'fill' })}
-      <Frame flex="row" items="center" gap={8} w="fill">{Badge(game, 'neutral', 'ph:game-controller')}{fehlt ? T('nicht gefunden', { s: 12, w: 600, c: 'text/sekundaer' }) : T('geöffnet ' + zeit, { s: 12, c: 'text/sekundaer' })}</Frame>
+      <Frame flex={game.length > 16 ? 'col' : 'row'} items={game.length > 16 ? 'start' : 'center'} gap={game.length > 16 ? 4 : 8} w="fill">{Badge(game, 'neutral', 'ph:game-controller')}{fehlt ? T('nicht gefunden', { s: 12, w: 600, c: 'text/sekundaer' }) : T('geöffnet ' + zeit, { s: 12, c: 'text/sekundaer' })}</Frame>
     </Frame>
     {fehlt && <Frame flex="row" px={8} pb={12} w="fill">{Btn({ label: 'Aus der Liste nehmen', small: true })}</Frame>}
     {menu && MenuX({ x: w - 12 - 220, y: 12 + 28, w: 220, items: menu })}

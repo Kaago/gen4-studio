@@ -11,12 +11,13 @@
   const NAMES = { gefunden: 'App: Technik, Veröffentlichen', fehlt: 'App: Technik, Basis-ROM fehlt', zuordnen: 'App: Technik, Basis-ROM zuordnen' };
   const GRUND = 'Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).';
 
-  // ----- Liste „Technik“: fünf Einträge mit Symbol und Zustand, „Veröffentlichen“ gewählt -----
+  // ----- Liste „Technik“: sechs Einträge (mit „Projekt“ aus 4.0) mit Symbol und Zustand, „Veröffentlichen“ gewählt; nach dem Patch ist seine ROM der letzte Build -----
   const sub = { gefunden: 'Patch erstellt', fehlt: 'Basis-ROM fehlt', zuordnen: 'Keine Basis-ROM zugeordnet' }[MODE];
   const liste = ListPane([
     PanelHead({ title: 'Technik' }),
     <Frame flex="col" gap={2} p={8} w="fill">
-      {ListRow({ title: 'Prüfen und Bauen', sub: 'Noch nicht gebaut', icon: 'ph:hammer' })}
+      {ListRow({ title: 'Projekt', sub: 'Kartenbild der Startstadt', icon: 'ph:folder-open' })}
+      {ListRow({ title: 'Prüfen und Bauen', sub: MODE === 'gefunden' ? 'gebaut gerade eben' : 'Noch nicht gebaut', icon: 'ph:hammer' })}
       {ListRow({ title: 'Veröffentlichen', sub, icon: 'ph:upload-simple', sel: true })}
       {ListRow({ title: 'Patches', sub: 'Dynamische Header verfügbar', icon: 'ph:bandaids' })}
       {ListRow({ title: 'Emulator', sub: 'Kein Emulator gewählt', icon: 'ph:game-controller' })}
@@ -75,7 +76,7 @@
     <Frame flex="col" gap={16} w={880}>{basis}{patch}</Frame>
   </Frame>;
 
-  const win = Window({ name: NAMES[MODE], active: 'technik', title: { project: 'Sinnoh-Remix', game: 'Platin, DE' }, status: Statusbar(), children: [liste, flaeche] });
+  const win = Window({ name: NAMES[MODE], active: 'technik', title: { project: 'Sinnoh-Remix', game: 'Platin, DE' }, status: Statusbar(MODE === 'gefunden' ? { build: 'Gebaut gerade eben', built: true } : {}), children: [liste, flaeche] });
   if (MODE !== 'zuordnen') return win;
 
   // ----- Dialog „Basis-ROM zuordnen?“ (Dialog-Primitive wie DialogX, mit Inhalt): Beschreibung, eine Warnung (Meldung wie Notice, mit
