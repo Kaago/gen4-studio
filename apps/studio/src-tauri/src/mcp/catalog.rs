@@ -1142,6 +1142,29 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("reset_to_original"),
     },
+    // Text project (4.3a).
+    ToolDef {
+        name: "text_check",
+        title: "Check text project",
+        description: "Checks the text project (g4-project.json, data/) without writing: schema \
+                      version, problems with file and line, and the members an import would \
+                      write.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("text_check"),
+    },
+    ToolDef {
+        name: "text_export",
+        title: "Export text project",
+        description: "Writes the project as a text project: g4-project.json and one JSON per \
+                      entity under data/ with symbolic ids, binary parts only where they differ \
+                      from the base ROM; needs a saved project, adopted scripts and the base \
+                      ROM; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("text_export"),
+    },
 ];
 
 /// The argument of `plan_reset`.
@@ -1289,7 +1312,7 @@ mod tests {
 
     #[test]
     fn tool_count_is_about_thirty() {
-        assert!((30..=50).contains(&catalog().len()), "{}", catalog().len());
+        assert!((30..=60).contains(&catalog().len()), "{}", catalog().len());
     }
 
     #[test]
@@ -1332,6 +1355,7 @@ mod tests {
                 "check_base",
                 "changed_from_original",
                 "plan_reset",
+                "text_check",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1376,6 +1400,7 @@ mod tests {
             "create_patch",
             "resolve_text_conflicts",
             "reset_to_original",
+            "text_export",
         ]
         .into_iter()
         .collect();
@@ -1508,6 +1533,7 @@ mod tests {
             "assign_base",
             "create_patch",
             "resolve_text_conflicts",
+            "text_export",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1665,6 +1691,8 @@ mod tests {
                 "reset_to_original",
                 json!({ "target": { "kind": "header", "id": 0 }, "fields": ["music_day"] }),
             ),
+            ("text_check", json!({})),
+            ("text_export", json!({})),
         ]
     }
 

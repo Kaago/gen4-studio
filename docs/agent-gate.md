@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) und [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen) und [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -869,3 +869,48 @@ scripts/agent/mcp.sh call reset_to_original '{"target":{"kind":"trainer","index"
 Die Oberfläche lädt den Trainer nach dem Reset neu; ein `g4_batch` mit `reset_to_original` eines Scripts lehnt ab („reset_to_original geht nicht in g4_batch“).
 
 **Blick-Bilder:** Die Werkzeuge des Browser-Fensters schreiben keine Datei. Die 17 Bilder unter `target/agent/gate-2026-10-27/4-1b/` entstanden mit Chrome headless über CDP (ein kleines Skript im Scratchpad, nicht im Repo; Seite der laufenden Test-Umgebung, 1440 × 900; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste). Namen `blick-<fläche>-<zustand>-<thema>.png`, Liste in der Gate-Datei, Abschnitt „Blick“.
+
+## Phase 4.3a ([phase-4-3a-gate.md](phase-4-3a-gate.md))
+
+4.3a schreibt ein Projekt als Textprojekt (`g4-project.json`, `data/`) und liest es zurück, kopflos über `g4k text …` und über MCP `text_check`/`text_export`; es gibt keine Oberfläche. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `4-3a-<zweck>_DSPRE_contents` und `.nds` `4-3a-<zweck>.nds` direkt nebeneinander (sonst findet `g4k` die Basis-ROM nicht von selbst): `pt`, `hgde`, `hgus` für das Szenario, `mcp` (Platin DE) für MCP. Der Klon-Weg legt `4-3a-klon-<k>/` an (`repo/` ist der Git-Klon der Kopie, `fresh/` das Extract). `git init` läuft **in der Kopie**, nie im Repo. Kein exportiertes `data/` eines Vanilla-Projekts ins Repo.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | im Hintergrund, `> target/agent/gate-sh-4-3a.log`, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests des Textprojekts laufen je Projekt mit; „build graph (timings)“ unter Last einmal wiederholen |
+| (1) Messzeilen | Agent | je Projekt `G4_TEST_PROJECT=<Original> cargo test --release -p g4-kernel --all-features --test textproject --test textproject_vanilla_probe -- textproject_round_trip textproject_export_idempotent textproject_from_base vanilla_ --nocapture --test-threads 1`; die Zeilen `textproject-stats`, `textproject-second-export`, `textproject-from-base`, `base-layer`, `items` in die Messtabelle |
+| (2) Szenario kopflos | Agent | Release-`g4k`, Befehle unten und in der Gate-Datei |
+| (3) MCP | Agent | kopflos `studio mcp --project <Kopie> [--allow-irreversible]`, über die Brücke `mcp.sh` und `call.sh`, Befehle unten |
+| (4) Lesbarkeit, Lizenz | Hand | siehe Gate-Datei, Abschnitt „(4) Hand und Blick“ |
+
+**Szenario (2)**, aus der Wurzel des Worktrees nach `cargo build --release -p g4-kernel --bin g4k` (`K` ist `$G4_ROMS_DIR/_testkopien`, `P=$K/4-3a-<k>_DSPRE_contents`):
+
+```sh
+G=$PWD/target/release/g4k
+$G base assign $P $K/4-3a-<k>.nds
+$G text export $P                       # kalt: Basisschicht unter .g4/cache/base-layer/<sha1>/, Scripts übernommen
+$G text export $P                       # written=0 removed=0
+(cd $P && git init -q && $G text sources . | tr '\n' '\0' | xargs -0 git add && git commit -qm Ausgangsstand)
+$G text export $P && git -C $P status --porcelain --untracked-files=no   # leer
+$G text check $P                        # schema=current, differs=0
+python3 -I scripts/agent/textproject_diff.py $K/4-3a-klon-hgde/repo $K/4-3a-klon-hgus/repo   # vier Karten, 829 Textarchive
+```
+
+Zeiten mit `/usr/bin/time -p` und `uptime` daneben messen; ein Export dauert unter Last ein Vielfaches (Microsoft Defender prüft jede Datei). Für „Export warm“ `data/` und `g4-project.json` **außerhalb** des Projekts ablegen: ein Ordner in der Wurzel (etwa `data.prev/`) wird beim Export ein Blob unter `data/raw/` und beim Import wieder angelegt.
+
+**MCP (3).** Kopflos (der Python-Client der Handprobe in [dev-setup.md](dev-setup.md), „MCP“): `text_check` → `missing`; `text_export` ohne `--allow-irreversible` → `needs_confirmation`, mit ihm → `not_adopted`, bis die Scripts übernommen sind; nach einem ungespeicherten `set_matrix_cell` → `unsaved`. Über die Brücke (Ports wie in der Gate-Datei, Seite mit `?project=<Kopie>` im Browser-Fenster):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                 # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call text_check '{}'                                 # missing
+scripts/agent/mcp.sh call text_export '{}'                                # not_adopted, ohne Frage
+scripts/agent/call.sh adopt_scripts '{}'                                  # der eigene Schritt der Oberfläche
+scripts/agent/mcp.sh call text_export '{}' > target/agent/mcp-export.out 2>&1 &
+scripts/agent/call.sh agent_status                                        # question: {kind: confirm, what: "Textprojekt exportieren"}
+# im Browser-Fenster „Zulassen“, oder: scripts/agent/call.sh agent_answer '{"question":<id>,"answer":"allow"}'
+scripts/agent/mcp.sh call text_check '{}'                                 # current
+```
+
+Mit einer ungespeicherten Änderung (`mcp.sh call set_matrix_cell …`) antwortet `text_export` `unsaved`, ohne zu fragen; `undo` nimmt sie zurück.

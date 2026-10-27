@@ -2,12 +2,15 @@
 //! ds-rom (the compressed ARM9 and overlays from the BLZ cache under [`BUILD_DIR`]), and
 //! extracts a `.nds` into a new ds-rom project folder.
 //!
-//! A build is a fixed list of steps ([`step::Step`]): `rotom`, `chatot`, one `pack:<name>`
-//! per archive and per pack entry of `archives.yaml`, one `watch:<name>` per other folder
-//! below `unpacked/` (it never runs, see [`unpacked_unpacked`]) and `rom`. Each runs only
-//! when its inputs changed since it last succeeded, recorded in [`state::BuildState`]
-//! (`.g4/build/state.json`, see `docs/formats/build_state.md`). Without that state
-//! everything runs, with the same result.
+//! A build is a fixed list of steps ([`step::Step`]): `textproject` (text projects only),
+//! `rotom`, `chatot`, one `pack:<name>` per archive and per pack entry of `archives.yaml`,
+//! one `watch:<name>` per other folder below `unpacked/` (it never runs, see
+//! [`unpacked_unpacked`]) and `rom`. Each runs only when its inputs changed since it last
+//! succeeded, recorded in [`state::BuildState`] (`.g4/build/state.json`, see
+//! `docs/formats/build_state.md`). Without that state everything runs, with the same result;
+//! except that `textproject` then cannot tell which side of a unit changed, so a member that
+//! differs from its JSON and from the base layer stops it (`textproject.unsynced`) instead of
+//! being overwritten.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -33,8 +36,11 @@ pub use step::{StepReport, StepStatus};
 pub use steps::NO_STATE_HINT_FILE;
 pub(crate) use steps::pack_entries;
 
+pub(crate) use salt::{Tool, lock};
 use state::BuildState;
 use steps::{ChatotStep, PackKind, PackStep, RomStep, RotomStep};
+
+use crate::textproject::{self, step::TextProjectStep};
 
 /// The build's cache below the project root: the BLZ cache (`blz/`) and the build state.
 /// Everything in it may be deleted; the next build then runs fully.
@@ -44,7 +50,10 @@ pub const BUILD_DIR: &str = ".g4/build";
 /// the next build runs every step fully) but keeps the text archives' sync records in
 /// `state.json`, so which version of a text applies still follows the fingerprints: a member
 /// DSPRE changed since the last build is not overwritten by its JSON. Only a project without
-/// any state reads every JSON (with the build's hint). A missing folder is not an error.
+/// any state reads every JSON (with the build's hint). In a text project the next build's
+/// `textproject` runs fully: a member that differs from its entity JSON and from the base
+/// layer stops it with `textproject.unsynced` (`g4k text import` or `g4k text export`
+/// decides) instead of being overwritten. A missing folder is not an error.
 pub fn clear_cache(project: &Project) -> Result<(), KernelError> {
     BuildState::clear_keeping_texts(&project.root)
 }
@@ -85,16 +94,20 @@ pub struct Prepared {
     pub encoded: Vec<u16>,
     pub touched_archives: Vec<u16>,
     pub problems: Vec<Problem>,
-    /// The rows of `rotom` (adopted projects only) and `chatot`.
+    /// The rows of `textproject` (text projects only), `rotom` (adopted projects only) and
+    /// `chatot`.
     pub steps: Vec<StepReport>,
 }
 
-/// Brings the unpacked folders up to date with their sources: compiles stale scripts (only
-/// where the project is adopted) and encodes stale text JSON, each step only when its
-/// sources changed since it last succeeded. Any [`Severity::Error`] among the problems of
-/// either step is `Err(KernelError::Compile(problems))` (all problems, both steps), and the
-/// caller packs nothing. Warnings come back in [`Prepared::problems`].
+/// Brings the unpacked folders up to date with their sources: writes the members of a text
+/// project from its JSON (only where the project has a `g4-project.json`, never over a
+/// member newer than its JSON, see `textproject::step`), compiles stale scripts (only where
+/// the project is adopted) and encodes stale text JSON, each step only when its sources
+/// changed since it last succeeded. Any [`Severity::Error`] among the problems of the steps
+/// is `Err(KernelError::Compile(problems))` (all problems, all steps), and the caller packs
+/// nothing. Warnings come back in [`Prepared::problems`].
 pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
+    let text_project = TextProjectStep::default();
     let rotom = RotomStep::default();
     let chatot = ChatotStep::default();
     let mut steps: Vec<&dyn step::Step> = Vec::new();
@@ -102,17 +115,24 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
         steps.push(&rotom);
     }
     steps.push(&chatot);
-    let rows = match step::run_steps(project, &steps) {
+    let mut pending = step::Pending::default();
+    let ran = prepare_steps(project, &text_project, &steps, &mut pending);
+    let written = pending.write(&project.root);
+    let ran = ran.and_then(|rows| written.map(|()| rows));
+    let rows = match ran {
         Ok(rows) => Some(rows),
         // The problems come from the steps themselves, in step order.
         Err(KernelError::Compile(_)) => None,
         Err(e) => return Err(e),
     };
-    let mut prepared = Prepared::default();
+    let mut prepared = Prepared {
+        problems: text_project.problems.into_inner(),
+        ..Prepared::default()
+    };
     if let Some(report) = rotom.report.into_inner() {
         prepared.compiled = report.compiled;
         prepared.touched_archives = report.touched_archives;
-        prepared.problems = report.problems;
+        prepared.problems.extend(report.problems);
     }
     let (encoded, problems) = chatot.result.into_inner();
     prepared.encoded = encoded;
@@ -128,6 +148,43 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     );
     prepared.steps = rows;
     Ok(prepared)
+}
+
+/// The steps of [`prepare`] with their entry changes left in `pending`: `textproject` first
+/// (text projects only), then `steps`. A skipped `textproject` has not seeded the quirks
+/// file; when rotom's compile state lost them since (deleted or reset), they are seeded here,
+/// before `rotom`. As in [`step::run_steps`], a [`KernelError::Compile`] lets the later steps
+/// run and comes back with all their problems.
+fn prepare_steps(
+    project: &Project,
+    text_project: &TextProjectStep,
+    steps: &[&dyn step::Step],
+    pending: &mut step::Pending,
+) -> Result<Vec<StepReport>, KernelError> {
+    let mut rows = Vec::new();
+    let mut problems = Vec::new();
+    if textproject::is_text_project(&project.root) {
+        match step::run_steps_into(project, &[text_project], pending) {
+            Ok(own) => {
+                if own.iter().all(|r| r.status == StepStatus::Skipped) {
+                    textproject::step::reseed_quirks(project)?;
+                }
+                rows.extend(own);
+            }
+            Err(KernelError::Compile(found)) => problems.extend(found),
+            Err(e) => return Err(e),
+        }
+    }
+    match step::run_steps_into(project, steps, pending) {
+        Ok(own) => rows.extend(own),
+        Err(KernelError::Compile(found)) => problems.extend(found),
+        Err(e) => return Err(e),
+    }
+    if problems.is_empty() {
+        Ok(rows)
+    } else {
+        Err(KernelError::Compile(problems))
+    }
 }
 
 fn build_err(e: impl std::fmt::Display) -> KernelError {
@@ -574,7 +631,12 @@ pub fn extract_rom(nds: &Path, dest: &Path) -> Result<Project, KernelError> {
         }
     }
     let raw_rom = raw::Rom::from_file(nds).map_err(build_err)?;
-    let rom = Rom::extract(&raw_rom).map_err(build_err)?;
+    extract_raw(&raw_rom, dest)
+}
+
+/// [`extract_rom`] for a ROM already in memory; `dest` must not exist or be empty.
+pub(crate) fn extract_raw(raw_rom: &raw::Rom, dest: &Path) -> Result<Project, KernelError> {
+    let rom = Rom::extract(raw_rom).map_err(build_err)?;
     rom.save(dest, None).map_err(|e| match e {
         RomSaveError::BlowfishKeyNeeded => KernelError::Build(
             "the ROM's ARM9 is encrypted; encrypted ROMs are not supported".to_owned(),

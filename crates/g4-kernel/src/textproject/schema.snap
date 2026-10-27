@@ -1,0 +1,549 @@
+schemaVersion 1
+species.id →SPECIES
+species.personal?.hp
+species.personal?.attack
+species.personal?.defense
+species.personal?.speed
+species.personal?.sp_attack
+species.personal?.sp_defense
+species.personal?.type1 →TYPE
+species.personal?.type2 →TYPE
+species.personal?.catch_rate
+species.personal?.base_exp
+species.personal?.ev_yield_hp
+species.personal?.ev_yield_attack
+species.personal?.ev_yield_defense
+species.personal?.ev_yield_speed
+species.personal?.ev_yield_sp_attack
+species.personal?.ev_yield_sp_defense
+species.personal?.ev_yield_rest?
+species.personal?.item1 →ITEM
+species.personal?.item2 →ITEM
+species.personal?.gender_ratio
+species.personal?.egg_cycles
+species.personal?.base_friendship
+species.personal?.growth_rate
+species.personal?.egg_group1
+species.personal?.egg_group2
+species.personal?.ability1 →ABILITY
+species.personal?.ability2 →ABILITY
+species.personal?.flee_rate
+species.personal?.color
+species.personal?.flip
+species.personal?.color_flip_rest?
+species.personal?.pad_1a
+species.personal?.tm_bits
+species.learnset?.moves[].level
+species.learnset?.moves[].move →MOVE
+species.learnset?.terminated
+species.learnset?.tail?
+species.evolution?.method0
+species.evolution?.param0
+species.evolution?.target0 →SPECIES
+species.evolution?.method1
+species.evolution?.param1
+species.evolution?.target1 →SPECIES
+species.evolution?.method2
+species.evolution?.param2
+species.evolution?.target2 →SPECIES
+species.evolution?.method3
+species.evolution?.param3
+species.evolution?.target3 →SPECIES
+species.evolution?.method4
+species.evolution?.param4
+species.evolution?.target4 →SPECIES
+species.evolution?.method5
+species.evolution?.param5
+species.evolution?.target5 →SPECIES
+species.evolution?.method6
+species.evolution?.param6
+species.evolution?.target6 →SPECIES
+species.evolution?.pad_2a
+species.personal? <member>
+species.learnset? <member>
+species.evolution? <member>
+moves.id →MOVE
+moves.data.effect
+moves.data.category
+moves.data.power
+moves.data.move_type →TYPE
+moves.data.accuracy
+moves.data.pp
+moves.data.effect_chance
+moves.data.target
+moves.data.priority
+moves.data.flags
+moves.data.contest
+moves.data.contest_type
+moves.data.pad_0e
+moves.data <member>
+items.id →ITEM
+items.data?.price
+items.data?.hold_effect
+items.data?.hold_param
+items.data?.pluck_effect
+items.data?.fling_effect
+items.data?.fling_power
+items.data?.natural_gift_power
+items.data?.natural_gift_type →TYPE
+items.data?.prevent_toss
+items.data?.can_register
+items.data?.field_pocket
+items.data?.battle_pocket
+items.data?.pocket_word_rest?
+items.data?.field_use_func
+items.data?.battle_use_func
+items.data?.party_use
+items.data?.pad_0d
+items.data?.slp_heal
+items.data?.psn_heal
+items.data?.brn_heal
+items.data?.frz_heal
+items.data?.prlz_heal
+items.data?.cfs_heal
+items.data?.inf_heal
+items.data?.guard_spec
+items.data?.revive
+items.data?.revive_all
+items.data?.level_up
+items.data?.evolve
+items.data?.attack_stages
+items.data?.defense_stages
+items.data?.sp_attack_stages
+items.data?.sp_defense_stages
+items.data?.speed_stages
+items.data?.party_flags_0e_rest?
+items.data?.accuracy_stages
+items.data?.crit_stages
+items.data?.pp_up
+items.data?.pp_max
+items.data?.party_flags_12_rest?
+items.data?.pp_restore
+items.data?.pp_restore_all
+items.data?.hp_restore
+items.data?.hp_ev_flag
+items.data?.attack_ev_flag
+items.data?.defense_ev_flag
+items.data?.speed_ev_flag
+items.data?.sp_attack_ev_flag
+items.data?.party_flags_13_rest?
+items.data?.sp_defense_ev_flag
+items.data?.friendship_low_flag
+items.data?.friendship_mid_flag
+items.data?.friendship_high_flag
+items.data?.party_flags_14_rest?
+items.data?.hp_ev
+items.data?.attack_ev
+items.data?.defense_ev
+items.data?.speed_ev
+items.data?.sp_attack_ev
+items.data?.sp_defense_ev
+items.data?.hp_amount
+items.data?.pp_amount
+items.data?.friendship_low
+items.data?.friendship_mid
+items.data?.friendship_high
+items.data?.pad_20
+items.same_member_as? →ITEM
+items.data? <member>
+encounters[pt].data.grass_rate
+encounters[pt].data.grass_00_level
+encounters[pt].data.grass_00_species →SPECIES
+encounters[pt].data.grass_01_level
+encounters[pt].data.grass_01_species →SPECIES
+encounters[pt].data.grass_02_level
+encounters[pt].data.grass_02_species →SPECIES
+encounters[pt].data.grass_03_level
+encounters[pt].data.grass_03_species →SPECIES
+encounters[pt].data.grass_04_level
+encounters[pt].data.grass_04_species →SPECIES
+encounters[pt].data.grass_05_level
+encounters[pt].data.grass_05_species →SPECIES
+encounters[pt].data.grass_06_level
+encounters[pt].data.grass_06_species →SPECIES
+encounters[pt].data.grass_07_level
+encounters[pt].data.grass_07_species →SPECIES
+encounters[pt].data.grass_08_level
+encounters[pt].data.grass_08_species →SPECIES
+encounters[pt].data.grass_09_level
+encounters[pt].data.grass_09_species →SPECIES
+encounters[pt].data.grass_10_level
+encounters[pt].data.grass_10_species →SPECIES
+encounters[pt].data.grass_11_level
+encounters[pt].data.grass_11_species →SPECIES
+encounters[pt].data.swarm_0 →SPECIES
+encounters[pt].data.swarm_1 →SPECIES
+encounters[pt].data.day_0 →SPECIES
+encounters[pt].data.day_1 →SPECIES
+encounters[pt].data.night_0 →SPECIES
+encounters[pt].data.night_1 →SPECIES
+encounters[pt].data.radar_0 →SPECIES
+encounters[pt].data.radar_1 →SPECIES
+encounters[pt].data.radar_2 →SPECIES
+encounters[pt].data.radar_3 →SPECIES
+encounters[pt].data.form_rate_0
+encounters[pt].data.form_rate_1
+encounters[pt].data.form_rate_2
+encounters[pt].data.form_rate_3
+encounters[pt].data.form_rate_4
+encounters[pt].data.unown_table
+encounters[pt].data.dual_ruby_0 →SPECIES
+encounters[pt].data.dual_ruby_1 →SPECIES
+encounters[pt].data.dual_sapphire_0 →SPECIES
+encounters[pt].data.dual_sapphire_1 →SPECIES
+encounters[pt].data.dual_emerald_0 →SPECIES
+encounters[pt].data.dual_emerald_1 →SPECIES
+encounters[pt].data.dual_firered_0 →SPECIES
+encounters[pt].data.dual_firered_1 →SPECIES
+encounters[pt].data.dual_leafgreen_0 →SPECIES
+encounters[pt].data.dual_leafgreen_1 →SPECIES
+encounters[pt].data.surf_rate
+encounters[pt].data.surf_0_max
+encounters[pt].data.surf_0_min
+encounters[pt].data.surf_0_pad
+encounters[pt].data.surf_0_species →SPECIES
+encounters[pt].data.surf_1_max
+encounters[pt].data.surf_1_min
+encounters[pt].data.surf_1_pad
+encounters[pt].data.surf_1_species →SPECIES
+encounters[pt].data.surf_2_max
+encounters[pt].data.surf_2_min
+encounters[pt].data.surf_2_pad
+encounters[pt].data.surf_2_species →SPECIES
+encounters[pt].data.surf_3_max
+encounters[pt].data.surf_3_min
+encounters[pt].data.surf_3_pad
+encounters[pt].data.surf_3_species →SPECIES
+encounters[pt].data.surf_4_max
+encounters[pt].data.surf_4_min
+encounters[pt].data.surf_4_pad
+encounters[pt].data.surf_4_species →SPECIES
+encounters[pt].data.pad_f8
+encounters[pt].data.old_rod_rate
+encounters[pt].data.old_rod_0_max
+encounters[pt].data.old_rod_0_min
+encounters[pt].data.old_rod_0_pad
+encounters[pt].data.old_rod_0_species →SPECIES
+encounters[pt].data.old_rod_1_max
+encounters[pt].data.old_rod_1_min
+encounters[pt].data.old_rod_1_pad
+encounters[pt].data.old_rod_1_species →SPECIES
+encounters[pt].data.old_rod_2_max
+encounters[pt].data.old_rod_2_min
+encounters[pt].data.old_rod_2_pad
+encounters[pt].data.old_rod_2_species →SPECIES
+encounters[pt].data.old_rod_3_max
+encounters[pt].data.old_rod_3_min
+encounters[pt].data.old_rod_3_pad
+encounters[pt].data.old_rod_3_species →SPECIES
+encounters[pt].data.old_rod_4_max
+encounters[pt].data.old_rod_4_min
+encounters[pt].data.old_rod_4_pad
+encounters[pt].data.old_rod_4_species →SPECIES
+encounters[pt].data.good_rod_rate
+encounters[pt].data.good_rod_0_max
+encounters[pt].data.good_rod_0_min
+encounters[pt].data.good_rod_0_pad
+encounters[pt].data.good_rod_0_species →SPECIES
+encounters[pt].data.good_rod_1_max
+encounters[pt].data.good_rod_1_min
+encounters[pt].data.good_rod_1_pad
+encounters[pt].data.good_rod_1_species →SPECIES
+encounters[pt].data.good_rod_2_max
+encounters[pt].data.good_rod_2_min
+encounters[pt].data.good_rod_2_pad
+encounters[pt].data.good_rod_2_species →SPECIES
+encounters[pt].data.good_rod_3_max
+encounters[pt].data.good_rod_3_min
+encounters[pt].data.good_rod_3_pad
+encounters[pt].data.good_rod_3_species →SPECIES
+encounters[pt].data.good_rod_4_max
+encounters[pt].data.good_rod_4_min
+encounters[pt].data.good_rod_4_pad
+encounters[pt].data.good_rod_4_species →SPECIES
+encounters[pt].data.super_rod_rate
+encounters[pt].data.super_rod_0_max
+encounters[pt].data.super_rod_0_min
+encounters[pt].data.super_rod_0_pad
+encounters[pt].data.super_rod_0_species →SPECIES
+encounters[pt].data.super_rod_1_max
+encounters[pt].data.super_rod_1_min
+encounters[pt].data.super_rod_1_pad
+encounters[pt].data.super_rod_1_species →SPECIES
+encounters[pt].data.super_rod_2_max
+encounters[pt].data.super_rod_2_min
+encounters[pt].data.super_rod_2_pad
+encounters[pt].data.super_rod_2_species →SPECIES
+encounters[pt].data.super_rod_3_max
+encounters[pt].data.super_rod_3_min
+encounters[pt].data.super_rod_3_pad
+encounters[pt].data.super_rod_3_species →SPECIES
+encounters[pt].data.super_rod_4_max
+encounters[pt].data.super_rod_4_min
+encounters[pt].data.super_rod_4_pad
+encounters[pt].data.super_rod_4_species →SPECIES
+encounters[hgss].data.grass_rate
+encounters[hgss].data.surf_rate
+encounters[hgss].data.rock_rate
+encounters[hgss].data.old_rod_rate
+encounters[hgss].data.good_rod_rate
+encounters[hgss].data.super_rod_rate
+encounters[hgss].data.pad_06
+encounters[hgss].data.grass_level_00
+encounters[hgss].data.grass_level_01
+encounters[hgss].data.grass_level_02
+encounters[hgss].data.grass_level_03
+encounters[hgss].data.grass_level_04
+encounters[hgss].data.grass_level_05
+encounters[hgss].data.grass_level_06
+encounters[hgss].data.grass_level_07
+encounters[hgss].data.grass_level_08
+encounters[hgss].data.grass_level_09
+encounters[hgss].data.grass_level_10
+encounters[hgss].data.grass_level_11
+encounters[hgss].data.grass_morning_00 →SPECIES
+encounters[hgss].data.grass_morning_01 →SPECIES
+encounters[hgss].data.grass_morning_02 →SPECIES
+encounters[hgss].data.grass_morning_03 →SPECIES
+encounters[hgss].data.grass_morning_04 →SPECIES
+encounters[hgss].data.grass_morning_05 →SPECIES
+encounters[hgss].data.grass_morning_06 →SPECIES
+encounters[hgss].data.grass_morning_07 →SPECIES
+encounters[hgss].data.grass_morning_08 →SPECIES
+encounters[hgss].data.grass_morning_09 →SPECIES
+encounters[hgss].data.grass_morning_10 →SPECIES
+encounters[hgss].data.grass_morning_11 →SPECIES
+encounters[hgss].data.grass_day_00 →SPECIES
+encounters[hgss].data.grass_day_01 →SPECIES
+encounters[hgss].data.grass_day_02 →SPECIES
+encounters[hgss].data.grass_day_03 →SPECIES
+encounters[hgss].data.grass_day_04 →SPECIES
+encounters[hgss].data.grass_day_05 →SPECIES
+encounters[hgss].data.grass_day_06 →SPECIES
+encounters[hgss].data.grass_day_07 →SPECIES
+encounters[hgss].data.grass_day_08 →SPECIES
+encounters[hgss].data.grass_day_09 →SPECIES
+encounters[hgss].data.grass_day_10 →SPECIES
+encounters[hgss].data.grass_day_11 →SPECIES
+encounters[hgss].data.grass_night_00 →SPECIES
+encounters[hgss].data.grass_night_01 →SPECIES
+encounters[hgss].data.grass_night_02 →SPECIES
+encounters[hgss].data.grass_night_03 →SPECIES
+encounters[hgss].data.grass_night_04 →SPECIES
+encounters[hgss].data.grass_night_05 →SPECIES
+encounters[hgss].data.grass_night_06 →SPECIES
+encounters[hgss].data.grass_night_07 →SPECIES
+encounters[hgss].data.grass_night_08 →SPECIES
+encounters[hgss].data.grass_night_09 →SPECIES
+encounters[hgss].data.grass_night_10 →SPECIES
+encounters[hgss].data.grass_night_11 →SPECIES
+encounters[hgss].data.radio_0 →SPECIES
+encounters[hgss].data.radio_1 →SPECIES
+encounters[hgss].data.radio_2 →SPECIES
+encounters[hgss].data.radio_3 →SPECIES
+encounters[hgss].data.surf_0_min
+encounters[hgss].data.surf_0_max
+encounters[hgss].data.surf_0_species →SPECIES
+encounters[hgss].data.surf_1_min
+encounters[hgss].data.surf_1_max
+encounters[hgss].data.surf_1_species →SPECIES
+encounters[hgss].data.surf_2_min
+encounters[hgss].data.surf_2_max
+encounters[hgss].data.surf_2_species →SPECIES
+encounters[hgss].data.surf_3_min
+encounters[hgss].data.surf_3_max
+encounters[hgss].data.surf_3_species →SPECIES
+encounters[hgss].data.surf_4_min
+encounters[hgss].data.surf_4_max
+encounters[hgss].data.surf_4_species →SPECIES
+encounters[hgss].data.rock_0_min
+encounters[hgss].data.rock_0_max
+encounters[hgss].data.rock_0_species →SPECIES
+encounters[hgss].data.rock_1_min
+encounters[hgss].data.rock_1_max
+encounters[hgss].data.rock_1_species →SPECIES
+encounters[hgss].data.old_rod_0_min
+encounters[hgss].data.old_rod_0_max
+encounters[hgss].data.old_rod_0_species →SPECIES
+encounters[hgss].data.old_rod_1_min
+encounters[hgss].data.old_rod_1_max
+encounters[hgss].data.old_rod_1_species →SPECIES
+encounters[hgss].data.old_rod_2_min
+encounters[hgss].data.old_rod_2_max
+encounters[hgss].data.old_rod_2_species →SPECIES
+encounters[hgss].data.old_rod_3_min
+encounters[hgss].data.old_rod_3_max
+encounters[hgss].data.old_rod_3_species →SPECIES
+encounters[hgss].data.old_rod_4_min
+encounters[hgss].data.old_rod_4_max
+encounters[hgss].data.old_rod_4_species →SPECIES
+encounters[hgss].data.good_rod_0_min
+encounters[hgss].data.good_rod_0_max
+encounters[hgss].data.good_rod_0_species →SPECIES
+encounters[hgss].data.good_rod_1_min
+encounters[hgss].data.good_rod_1_max
+encounters[hgss].data.good_rod_1_species →SPECIES
+encounters[hgss].data.good_rod_2_min
+encounters[hgss].data.good_rod_2_max
+encounters[hgss].data.good_rod_2_species →SPECIES
+encounters[hgss].data.good_rod_3_min
+encounters[hgss].data.good_rod_3_max
+encounters[hgss].data.good_rod_3_species →SPECIES
+encounters[hgss].data.good_rod_4_min
+encounters[hgss].data.good_rod_4_max
+encounters[hgss].data.good_rod_4_species →SPECIES
+encounters[hgss].data.super_rod_0_min
+encounters[hgss].data.super_rod_0_max
+encounters[hgss].data.super_rod_0_species →SPECIES
+encounters[hgss].data.super_rod_1_min
+encounters[hgss].data.super_rod_1_max
+encounters[hgss].data.super_rod_1_species →SPECIES
+encounters[hgss].data.super_rod_2_min
+encounters[hgss].data.super_rod_2_max
+encounters[hgss].data.super_rod_2_species →SPECIES
+encounters[hgss].data.super_rod_3_min
+encounters[hgss].data.super_rod_3_max
+encounters[hgss].data.super_rod_3_species →SPECIES
+encounters[hgss].data.super_rod_4_min
+encounters[hgss].data.super_rod_4_max
+encounters[hgss].data.super_rod_4_species →SPECIES
+encounters[hgss].data.land_swarm →SPECIES
+encounters[hgss].data.surf_swarm →SPECIES
+encounters[hgss].data.night_fish →SPECIES
+encounters[hgss].data.fish_swarm →SPECIES
+encounters[pt].data <member>
+encounters[hgss].data <member>
+trainer_text_table.entries[][]
+trainer_text_table <member>
+trainer_text_offsets.offsets[]
+trainer_text_offsets <member>
+trainers.id →TRAINER
+trainers.data.class →TRAINER_CLASS
+trainers.data.has_moves
+trainers.data.has_items
+trainers.data.flags_rest?
+trainers.data.unknown
+trainers.data.items[] →ITEM
+trainers.data.ai
+trainers.data.battle_type
+trainers.data.party[].species →SPECIES
+trainers.data.party[].form
+trainers.data.party[].level
+trainers.data.party[].iv_or_difficulty
+trainers.data.party[].byte1
+trainers.data.party[].item? →ITEM
+trainers.data.party[].moves?[] →MOVE
+trainers.data.party[].ball_capsule?
+trainers.data <locked: locked, props, party>
+matrices.name
+matrices.width
+matrices.height
+matrices.maps[]
+matrices.headers?[]
+matrices.altitudes?[]
+matrices <member>
+area_data[pt].buildings_tileset
+area_data[pt].map_tileset
+area_data[pt].unknown
+area_data[pt].light_type
+area_data[hgss].buildings_tileset
+area_data[hgss].map_tileset
+area_data[hgss].dynamic_texture_type
+area_data[hgss].area_type
+area_data[hgss].light_type
+area_data[pt] <member>
+area_data[hgss] <member>
+events.bg_events[].script
+events.bg_events[].event_type
+events.bg_events[].x
+events.bg_events[].z
+events.bg_events[].y
+events.bg_events[].player_facing_dir
+events.object_events[].local_id
+events.object_events[].graphics_id
+events.object_events[].movement_type
+events.object_events[].trainer_type
+events.object_events[].hidden_flag
+events.object_events[].script
+events.object_events[].dir
+events.object_events[].data[]
+events.object_events[].movement_range_x
+events.object_events[].movement_range_z
+events.object_events[].x
+events.object_events[].z
+events.object_events[].y
+events.warp_events[].x
+events.warp_events[].z
+events.warp_events[].dest_header_id →MAP
+events.warp_events[].dest_warp_id
+events.warp_events[].height
+events.coord_events[].script
+events.coord_events[].x
+events.coord_events[].z
+events.coord_events[].width
+events.coord_events[].length
+events.coord_events[].y
+events.coord_events[].value
+events.coord_events[].var
+events <member>
+maps.source
+maps.permissions[]
+maps.buildings[].model_id
+maps.buildings[].position[]
+maps.buildings[].rotation[]
+maps.buildings[].scale[]
+maps.buildings[].dummy?
+maps.buildings_tail?
+maps.model.hex
+maps.bdhc.hex
+maps.bgs?.hex
+maps <member>
+headers[pt].id →MAP
+headers[pt].internal_name
+headers[pt].internal_name_bytes?
+headers[pt].area_data_id
+headers[pt].unknown1
+headers[pt].matrix_id
+headers[pt].script_file_id
+headers[pt].level_script_id
+headers[pt].text_archive_id
+headers[pt].music_day_id
+headers[pt].music_night_id
+headers[pt].wild_pokemon
+headers[pt].event_file_id
+headers[pt].location_name →PLACE
+headers[pt].area_icon
+headers[pt].weather_id
+headers[pt].camera_angle_id
+headers[pt].location_specifier
+headers[pt].battle_background
+headers[pt].flags
+headers[hgss].id →MAP
+headers[hgss].internal_name
+headers[hgss].internal_name_bytes?
+headers[hgss].wild_pokemon
+headers[hgss].area_data_id
+headers[hgss].unknown0
+headers[hgss].worldmap_x
+headers[hgss].worldmap_y
+headers[hgss].matrix_id
+headers[hgss].script_file_id
+headers[hgss].level_script_id
+headers[hgss].text_archive_id
+headers[hgss].music_day_id
+headers[hgss].music_night_id
+headers[hgss].event_file_id
+headers[hgss].location_name →PLACE
+headers[hgss].area_icon
+headers[hgss].unknown1
+headers[hgss].kanto_flag
+headers[hgss].weather_id
+headers[hgss].location_type
+headers[hgss].camera_angle_id
+headers[hgss].follow_mode
+headers[hgss].battle_background
+headers[hgss].flags
+<locked>.locked
+<locked>.raw.hex
+<locked>.raw.base_sha1
+<locked>.raw.file

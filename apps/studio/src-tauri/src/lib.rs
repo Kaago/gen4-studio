@@ -43,6 +43,7 @@ use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{project_preview_get, project_preview_set};
+use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
 use std::sync::Arc;
@@ -192,7 +193,9 @@ pub fn run() {
             original_status,
             plan_reset,
             reset_to_original,
-            changed_from_original
+            changed_from_original,
+            text_check,
+            text_export
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

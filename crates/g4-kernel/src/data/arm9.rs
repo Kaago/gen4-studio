@@ -72,14 +72,10 @@ impl Arm9Tables {
         let Ok(arm9) = std::fs::read(project.arm9_path()) else {
             return Arm9Tables::default();
         };
-        let offset = |o: Option<u64>| o.and_then(|o| usize::try_from(o).ok());
-        let items = (|| {
-            let item = ItemTable::read(&arm9, offset(layout.item_table)?, layout.item_count?)?;
-            let machine = MachineTable::read(&arm9, offset(layout.machine_table)?)?;
-            let members = project.member_count(AssetKind::Item).ok()?;
-            arm9_tables::plausible(&item, &machine, members).ok()?;
-            Some((item, machine))
-        })();
+        let items = project
+            .member_count(AssetKind::Item)
+            .ok()
+            .and_then(|members| read_items(&arm9, &layout, members));
         let palettes = (|| {
             let palettes = MonIconPalettes::read(
                 &arm9,
@@ -93,6 +89,23 @@ impl Arm9Tables {
     }
 }
 
+fn offset(o: Option<u64>) -> Option<usize> {
+    o.and_then(|o| usize::try_from(o).ok())
+}
+
+/// The item and machine table of `arm9`, when they are plausible with `members` itemData
+/// members.
+fn read_items(
+    arm9: &[u8],
+    layout: &Arm9Layout,
+    members: usize,
+) -> Option<(ItemTable, MachineTable)> {
+    let item = ItemTable::read(arm9, offset(layout.item_table)?, layout.item_count?)?;
+    let machine = MachineTable::read(arm9, offset(layout.machine_table)?)?;
+    arm9_tables::plausible(&item, &machine, members).ok()?;
+    Some((item, machine))
+}
+
 impl Project {
     fn arm9_tables(&self) -> &Arm9Tables {
         self.arm9_tables.0.get_or_init(|| Arm9Tables::read(self))
@@ -102,6 +115,24 @@ impl Project {
     /// not available.
     pub fn item_table(&self) -> Option<&ItemTable> {
         self.arm9_tables().items.as_ref().map(|(item, _)| item)
+    }
+
+    /// The item table for a writer that brings the itemData members up to the table (the
+    /// text project's import): plausible with as many members as the folder has or the table
+    /// has ids, whichever is more, so members that are missing because the writer is about
+    /// to write them do not hide the table. The cached [`Project::item_table`] when it is
+    /// available, else a fresh, uncached read of `arm9.bin`; `None` as for
+    /// [`Project::item_table`] otherwise (unverified code, short arm9, TM01/HM05 or a member
+    /// index past both counts).
+    pub(crate) fn item_table_to_write(&self) -> Option<ItemTable> {
+        if let Some(table) = self.item_table() {
+            return Some(table.clone());
+        }
+        let layout = arm9_layout(&self.game_code).filter(|l| !l.unverified)?;
+        let arm9 = std::fs::read(self.arm9_path()).ok()?;
+        let members = self.member_count(AssetKind::Item).ok()?;
+        let members = members.max(layout.item_count?);
+        read_items(&arm9, &layout, members).map(|(item, _)| item)
     }
 
     /// The moves of TM01..TM92 and HM01..HM08, or `None` when the table is not available.

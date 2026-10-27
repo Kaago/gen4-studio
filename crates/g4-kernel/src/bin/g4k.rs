@@ -114,6 +114,10 @@ enum Command {
     /// Patches of the built project against its base ROM.
     #[command(subcommand)]
     Patch(PatchCommand),
+    /// The text project: the game data as JSON under `data/` with the manifest
+    /// `g4-project.json`.
+    #[command(subcommand)]
+    Text(TextCommand),
 }
 
 #[derive(Subcommand)]
@@ -252,8 +256,15 @@ fn main() -> ExitCode {
 }
 
 fn print_problems(problems: &[Problem]) {
+    write_problems(&mut std::io::stderr().lock(), problems);
+}
+
+/// One line per problem: `<severity>: <file>:<line>:<col>: <message>`.
+fn write_problems(out: &mut impl std::io::Write, problems: &[Problem]) {
     for problem in problems {
-        eprintln!(
+        // Like `eprintln!`, a failed write has nowhere else to go; unlike it, no panic.
+        let _ = writeln!(
+            out,
             "{:?}: {}:{}:{}: {}",
             problem.severity,
             problem.file.display(),
@@ -366,6 +377,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             out,
             json,
         }) => patch_create(&project, base_rom.as_deref(), out.as_deref(), json),
+        Command::Text(command) => text(command),
     }
 }
 
@@ -1126,37 +1138,9 @@ fn patch_create(
     out: Option<&Path>,
     json: bool,
 ) -> Result<(), Failure> {
-    use g4_kernel::start::MarkState;
-
-    // The same sentences as the app and MCP; the no-mark one adds how to assign here.
-    let mark = match g4_kernel::start::mark_state(root) {
-        MarkState::Present(mark) => mark,
-        MarkState::Missing => {
-            return Err(Failure::Message(format!(
-                "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
-                g4_kernel::patch::NO_MARK
-            )));
-        }
-        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
-            return Err(Failure::Message(state.refusal().unwrap_or_default()));
-        }
-    };
+    let mark = required_mark(root)?;
     let project = Project::open(root)?;
-    let dir = g4_kernel::base::env_base_dir();
-    let located = g4_kernel::base::locate(
-        &mark,
-        &g4_kernel::base::Search {
-            explicit: base_rom,
-            root: Some(root),
-            dir: dir.as_deref(),
-            ..Default::default()
-        },
-    )?;
-    let Some(located) = located else {
-        hint_base_dir(dir.as_deref());
-        return Err(Failure::Message(g4_kernel::base::missing_text(&mark)));
-    };
-    let base = g4_kernel::base::BaseRom::open(&located.path, Some(&mark.sha1))?;
+    let base = required_base(root, &mark, base_rom)?;
     let (build, report) = g4_kernel::patch::build_and_create(&project, &base, out)?;
     print_problems(&build.problems);
     if json {
@@ -1175,6 +1159,287 @@ fn patch_create(
             "notes={} rom={}",
             report.notes.display(),
             report.rom.display()
+        );
+    }
+    Ok(())
+}
+
+/// The project's base mark, or the refusal in the app's words; the no-mark one adds how to
+/// assign one here.
+fn required_mark(root: &Path) -> Result<g4_kernel::start::BaseMark, Failure> {
+    use g4_kernel::start::MarkState;
+
+    match g4_kernel::start::mark_state(root) {
+        MarkState::Present(mark) => Ok(mark),
+        MarkState::Missing => Err(Failure::Message(format!(
+            "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
+            g4_kernel::patch::NO_MARK
+        ))),
+        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
+            Err(Failure::Message(state.refusal().unwrap_or_default()))
+        }
+    }
+}
+
+/// The base ROM of `mark`: `explicit` (another SHA-1 is refused), else the sibling `.nds`,
+/// else `G4_BASE_ROM_DIR`; `None` (after the hint at a base folder that is none) when it is
+/// nowhere.
+fn located_base(
+    root: &Path,
+    mark: &g4_kernel::start::BaseMark,
+    explicit: Option<&Path>,
+) -> Result<Option<g4_kernel::base::BaseRom>, Failure> {
+    let dir = g4_kernel::base::env_base_dir();
+    let located = g4_kernel::base::locate(
+        mark,
+        &g4_kernel::base::Search {
+            explicit,
+            root: Some(root),
+            dir: dir.as_deref(),
+            ..Default::default()
+        },
+    )?;
+    let Some(located) = located else {
+        hint_base_dir(dir.as_deref());
+        return Ok(None);
+    };
+    Ok(Some(g4_kernel::base::BaseRom::open(
+        &located.path,
+        Some(&mark.sha1),
+    )?))
+}
+
+/// [`located_base`], a missing base refused with [`g4_kernel::base::missing_text`].
+fn required_base(
+    root: &Path,
+    mark: &g4_kernel::start::BaseMark,
+    explicit: Option<&Path>,
+) -> Result<g4_kernel::base::BaseRom, Failure> {
+    located_base(root, mark, explicit)?
+        .ok_or_else(|| Failure::Message(g4_kernel::base::missing_text(mark)))
+}
+
+#[derive(Subcommand)]
+enum TextCommand {
+    /// Write the project's members as the text project (manifest, `data/`), adopting the
+    /// scripts first when they are not. Needs the base mark and the base ROM: `--base-rom`,
+    /// else the sibling `.nds`, else `G4_BASE_ROM_DIR`. Prints `adopted scripts=N` when it
+    /// adopted, one line per art, then the totals; exit 1 on an error.
+    Export {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the export report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Write the text project back into the members after checking every file; an error
+    /// names file, line and column and nothing is written (exit 1). The base ROM (found like
+    /// `export`) is needed only for parts that reference it.
+    Import {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the import report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// What an import would find and write, without writing: `schema=…`, one line per
+    /// problem, `differs=N` and the first 20 paths. Exit 1 on an error or another schema
+    /// version.
+    Check {
+        project: PathBuf,
+        /// Print the check report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// The files of the text project, one path per line.
+    Sources { project: PathBuf },
+    /// Lift an older text project to the current schema version, with a snapshot of the
+    /// files it changes; a newer version is refused (exit 1).
+    Migrate {
+        project: PathBuf,
+        /// Print the migration report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// The paths `g4k text check` lists after `differs=N`.
+const CHECK_PATHS: usize = 20;
+
+fn text(command: TextCommand) -> Result<(), Failure> {
+    match command {
+        TextCommand::Export {
+            project,
+            base_rom,
+            json,
+        } => text_export(&project, base_rom.as_deref(), json),
+        TextCommand::Import {
+            project,
+            base_rom,
+            json,
+        } => text_import(&project, base_rom.as_deref(), json),
+        TextCommand::Check { project, json } => text_check(&project, json),
+        TextCommand::Sources { project } => {
+            for path in g4_kernel::textproject::sources(&Project::open(project)?)? {
+                println!("{}", path.display());
+            }
+            Ok(())
+        }
+        TextCommand::Migrate { project, json } => text_migrate(&project, json),
+    }
+}
+
+/// Exit 1 when one of `problems` is an error (they are printed already).
+fn fail_on_errors(problems: &[Problem], what: &str) -> Result<(), Failure> {
+    let errors = problems
+        .iter()
+        .filter(|p| p.severity == g4_kernel::text::Severity::Error)
+        .count();
+    if errors == 0 {
+        Ok(())
+    } else {
+        Err(Failure::Message(format!("{what}: {errors} error(s)")))
+    }
+}
+
+/// `g4k text export`: [`g4_kernel::textproject::export`], adopting the scripts.
+fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    let mark = required_mark(root)?;
+    let project = Project::open(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let report = g4_kernel::textproject::export(
+        &project,
+        &base,
+        &g4_kernel::textproject::ExportOptions {
+            adopt_scripts: true,
+        },
+    )?;
+    print_problems(&report.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        if let Some(adopted) = report.adopted {
+            println!("adopted scripts={adopted}");
+        }
+        for a in &report.arts {
+            println!(
+                "art={} entities={} json={} side={} written={} removed={} ms={}",
+                a.art, a.entities, a.json_files, a.side_files, a.written, a.removed, a.ms
+            );
+        }
+        println!(
+            "raw={} texts={} scripts={} base_layer_ms={} created={} files={} bytes={} \
+             written={} removed={} ms={}",
+            report.raw_blobs,
+            report.texts,
+            report.scripts,
+            report.base_layer_ms,
+            report.base_layer_created,
+            report.files,
+            report.bytes,
+            report.written,
+            report.removed,
+            report.ms
+        );
+    }
+    fail_on_errors(&report.problems, "text export")
+}
+
+/// `g4k text import`: [`g4_kernel::textproject::import`], with the base ROM when it is found.
+fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    use g4_kernel::start::MarkState;
+
+    // A broken or newer mark is refused like `export` and `patch create`; only without a
+    // mark does the import run without a located base.
+    let base = match g4_kernel::start::mark_state(root) {
+        MarkState::Present(mark) => located_base(root, &mark, base_rom)?,
+        MarkState::Missing => match base_rom {
+            Some(path) => Some(g4_kernel::base::BaseRom::open(path, None)?),
+            None => None,
+        },
+        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
+            return Err(Failure::Message(state.refusal().unwrap_or_default()));
+        }
+    };
+    let project = Project::open(root)?;
+    let report = g4_kernel::textproject::import(&project, base.as_ref())?;
+    print_problems(&report.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        println!(
+            "members={} raw={} quirks={} compiled={} encoded={} ms={}",
+            report.members_written,
+            report.raw_written,
+            report.quirks_seeded,
+            report.compiled.len(),
+            report.encoded.len(),
+            report.ms
+        );
+    }
+    fail_on_errors(&report.problems, "text import")
+}
+
+/// `g4k text check`: [`g4_kernel::textproject::check`]; exit 1 on an error or another schema
+/// version than the current one.
+fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
+    use g4_kernel::textproject::manifest::SchemaState;
+
+    let project = Project::open(root)?;
+    let report = g4_kernel::textproject::check(&project)?;
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        let schema = match report.schema {
+            SchemaState::Current => "current".to_owned(),
+            SchemaState::Older(v) => format!("older {v}"),
+            SchemaState::Newer(v) => format!("newer {v}"),
+            SchemaState::Missing => "missing".to_owned(),
+        };
+        println!("schema={schema}");
+        write_problems(&mut std::io::stdout().lock(), &report.problems);
+        println!("differs={}", report.differs.len());
+        for path in report.differs.iter().take(CHECK_PATHS) {
+            println!("  {}", path.display());
+        }
+        if report.differs.len() > CHECK_PATHS {
+            println!("  ... {} more", report.differs.len() - CHECK_PATHS);
+        }
+    }
+    if report.schema != SchemaState::Current {
+        // The kernel's sentence for this state (`g4k text migrate`, newer, no manifest).
+        return Err(
+            match g4_kernel::textproject::manifest::read_manifest(root) {
+                Err(e) => e.into(),
+                // Defensive: `read_manifest` refuses every state but the current one.
+                Ok(_) => Failure::Message(format!("text check: schema {:?}", report.schema)),
+            },
+        );
+    }
+    fail_on_errors(&report.problems, "text check")
+}
+
+/// `g4k text migrate`: [`g4_kernel::textproject::migrate::migrate`].
+fn text_migrate(root: &Path, json: bool) -> Result<(), Failure> {
+    let report = g4_kernel::textproject::migrate::migrate(root)?;
+    if json {
+        println!("{}", json_line(&report)?);
+    } else if report.from == report.to {
+        println!("already current");
+    } else {
+        println!(
+            "migrated {} -> {} changed={} snapshot={}",
+            report.from,
+            report.to,
+            report.changed.len(),
+            report
+                .snapshot
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), |p| p.display().to_string())
         );
     }
     Ok(())

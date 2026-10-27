@@ -171,6 +171,8 @@ pub const COMMANDS: &[&str] = &[
     "plan_reset",
     "reset_to_original",
     "changed_from_original",
+    "text_check",
+    "text_export",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -852,6 +854,8 @@ pub fn dispatch(
         "changed_from_original" => run!(json, "changed_from_original", args, {}, |_a| {
             changed_from_original_impl(state, &mut |_progress| {})
         }),
+        "text_check" => run!(json, "text_check", args, {}, |_a| text_check_impl(state)),
+        "text_export" => run!(json, "text_export", args, {}, |_a| text_export_impl(state)),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1192,6 +1196,8 @@ mod tests {
                 json!({ "target": { "kind": "header", "id": 0 }, "fields": ["music_day"] }),
             ),
             ("changed_from_original", json!({})),
+            ("text_check", json!({})),
+            ("text_export", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

@@ -177,6 +177,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("plan_reset", Kind::Read),
     ("reset_to_original", Kind::Write),
     ("changed_from_original", Kind::Read),
+    ("text_check", Kind::Read),
+    ("text_export", Kind::Irreversible("Textprojekt exportieren")),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -367,6 +369,7 @@ mod tests {
                     Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
                 ),
                 ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
+                ("text_export", Kind::Irreversible("Textprojekt exportieren")),
             ]
         );
         // The agent hub's commands: `agent_commands_are_app_only`.

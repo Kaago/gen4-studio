@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::io::Cursor;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -618,7 +618,7 @@ impl Project {
     }
 
     /// Number of headers: one per `mapname.bin` record.
-    fn mapname_count(&self) -> Result<usize, KernelError> {
+    pub(crate) fn mapname_count(&self) -> Result<usize, KernelError> {
         let names_path = self.mapname_path();
         let names_len = std::fs::metadata(&names_path)
             .map_err(io_at(&names_path))?
@@ -727,12 +727,26 @@ impl Project {
             AssetKind::DynamicHeaders => return Err(store_only(kind)),
             _ => {}
         }
-        self.require_packed(kind)?;
-        let dir = self.unpacked_dir(kind);
+        let packed = self.require_packed(kind)?.to_path_buf();
+        self.unpack_archive(&packed, self.archives.unpacked_name(kind))
+    }
+
+    /// Unpacks the NARC at `packed` (relative to the root) into `unpacked/<unpacked_name>` if
+    /// that folder is missing and returns the member count. An existing folder is never
+    /// touched. Unlike [`Project::ensure_unpacked`] it takes any archive, also the pack
+    /// entries and the Dynamic Headers NARC.
+    pub(crate) fn unpack_archive(
+        &self,
+        packed: &Path,
+        unpacked_name: &str,
+    ) -> Result<usize, KernelError> {
+        let dir = self.root.join("unpacked").join(unpacked_name);
         if dir.is_dir() {
             return Self::count_unpacked(&dir);
         }
-        let narc = self.read_packed(kind)?;
+        let path = self.root.join(packed);
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        let narc = Narc::read(&bytes)?;
         let parent = self.root.join("unpacked");
         std::fs::create_dir_all(&parent).map_err(io_at(&parent))?;
         // Write into a uniquely named sibling folder and rename, so an interrupted unpack
@@ -740,8 +754,7 @@ impl Project {
         // overlapping callers never share a temp folder.
         static UNPACK_SEQ: AtomicU64 = AtomicU64::new(0);
         let tmp = parent.join(format!(
-            ".{}.unpacking.{}.{}",
-            self.archives.unpacked_name(kind),
+            ".{unpacked_name}.unpacking.{}.{}",
             std::process::id(),
             UNPACK_SEQ.fetch_add(1, Ordering::Relaxed)
         ));
@@ -922,30 +935,28 @@ impl Project {
     /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
     /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
     pub fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
+        self.read_header_table_bytes()?
+            .as_chunks::<MAP_HEADER_SIZE>()
+            .0
+            .iter()
+            .map(|chunk| uxie::map_header::read_map_header_from_bytes(chunk, self.uxie_family()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| KernelError::Uxie(format!("{e}")))
+    }
+
+    /// The bytes of the header table as it is on disk, 24 per header: the slice of
+    /// `arm9/arm9.bin`, or the files of `unpacked/dynamicHeaders` concatenated once the
+    /// Dynamic Headers patch is applied.
+    pub(crate) fn read_header_table_bytes(&self) -> Result<Vec<u8>, KernelError> {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
-            Location::HeaderFiles { dir, count } => {
-                let bytes = dynamic_headers::read_files(&dir, count)?
-                    .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count))?;
-                bytes
-                    .as_chunks::<MAP_HEADER_SIZE>()
-                    .0
-                    .iter()
-                    .map(|chunk| {
-                        uxie::map_header::read_map_header_from_bytes(chunk, self.uxie_family())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| KernelError::Uxie(format!("{e}")))
-            }
-            Location::Slice { offset, len, .. } => {
-                let arm9_path = self.arm9_path();
-                let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
-                uxie::map_header::read_map_headers_from_arm9(
-                    &mut Cursor::new(arm9),
-                    offset,
-                    len / MAP_HEADER_SIZE,
-                    self.uxie_family(),
-                )
-                .map_err(|e| KernelError::Uxie(format!("{e}")))
+            Location::HeaderFiles { dir, count } => dynamic_headers::read_files(&dir, count)?
+                .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count)),
+            Location::Slice { path, offset, len } => {
+                let mut file = std::fs::File::open(&path).map_err(io_at(&path))?;
+                file.seek(SeekFrom::Start(offset)).map_err(io_at(&path))?;
+                let mut bytes = vec![0u8; len];
+                file.read_exact(&mut bytes).map_err(io_at(&path))?;
+                Ok(bytes)
             }
             Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
                 KernelError::InvalidProject("the header table is not a member file".to_owned()),

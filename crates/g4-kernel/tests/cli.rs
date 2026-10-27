@@ -752,6 +752,40 @@ fn cli_base_check_names_the_suggestion() {
     assert!(!root.join(".g4").exists());
 }
 
+/// Gate 4.3a: `g4k text export .` from inside the project did not find the sibling `.nds`,
+/// because `.` has no folder name; the same for `base check .`.
+#[test]
+fn cli_base_check_finds_the_suggestion_from_inside_the_project() {
+    let (_tmp, root, nds) = dspre_layout();
+    let assert = g4k()
+        .args(["base", "check", "."])
+        .current_dir(&root)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    println!("{text}");
+    let suggestion = text
+        .lines()
+        .find_map(|l| l.strip_prefix("suggestion="))
+        .unwrap_or_else(|| panic!("no suggestion: {text}"));
+    assert_eq!(
+        std::fs::canonicalize(suggestion).unwrap(),
+        std::fs::canonicalize(&nds).unwrap(),
+        "{text}"
+    );
+    // From a subfolder with `..` as well.
+    std::fs::create_dir(root.join("sub")).unwrap();
+    let assert = g4k()
+        .args(["base", "check", ".."])
+        .current_dir(root.join("sub"))
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    assert!(text.contains("suggestion="), "{text}");
+}
+
 #[test]
 fn cli_base_check_with_rom_prints_the_warnings_as_json() {
     let (_tmp, root, nds) = dspre_layout();
@@ -894,4 +928,381 @@ fn cli_patch_create_with_a_missing_base_names_it() {
         .stderr(contains(missing.as_str()));
     println!("{}", String::from_utf8_lossy(&assert.get_output().stderr));
     assert!(!root.join("build").exists());
+}
+
+/// Unpacks every archive of the project the way the base layer has them.
+fn unpack_all(root: &std::path::Path) {
+    use g4_kernel::project::{AssetKind, Project};
+    let p = Project::open(root).unwrap();
+    let kinds: Vec<AssetKind> = p.archives.kinds().collect();
+    for kind in kinds {
+        if kind == AssetKind::DynamicHeaders {
+            continue;
+        }
+        if let Some(packed) = p.archives.packed(kind)
+            && root.join(packed).is_file()
+        {
+            p.ensure_unpacked(kind).unwrap();
+        }
+    }
+}
+
+/// [`dspre_layout`] with the sibling `.nds` assigned as the base and the base layer prepared:
+/// the synthetic ROM cannot be extracted, so the layer is a copy of the project as it is
+/// (without `.g4`), its `.complete` carrying the mark's SHA-1, like `tests/textproject.rs`.
+fn text_layout() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let (tmp, root, nds) = dspre_layout();
+    g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .success();
+    unpack_all(&root);
+    let sha1 = g4_kernel::start::read_base_mark(&root).unwrap().sha1;
+    let copy = tempfile::tempdir().unwrap();
+    let copy = copy.path().join("layer");
+    common::copy_dir(&root, &copy);
+    std::fs::remove_dir_all(copy.join(".g4")).unwrap();
+    let layer = root.join(".g4/cache/base-layer").join(&sha1);
+    common::copy_dir(&copy, &layer);
+    std::fs::write(layer.join(".complete"), &sha1).unwrap();
+    (tmp, root, nds)
+}
+
+/// `g4k text <args> <root>` with no base folder in the environment.
+fn text(args: &[&str], root: &std::path::Path) -> Command {
+    let mut cmd = g4k();
+    cmd.arg("text")
+        .args(args)
+        .arg(root)
+        .env_remove("G4_BASE_ROM_DIR");
+    cmd
+}
+
+/// The export's summary line (the one after the art lines).
+fn summary_line(stdout: &str) -> &str {
+    stdout
+        .lines()
+        .find(|l| l.starts_with("raw="))
+        .unwrap_or_else(|| panic!("no summary line:\n{stdout}"))
+}
+
+#[test]
+fn cli_text_export_then_check_is_clean() {
+    let (_tmp, root, _nds) = text_layout();
+    // The base ROM is the sibling `.nds`; the scripts are adopted on the way.
+    let assert = text(&["export"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("adopted scripts=") && l.len() > "adopted scripts=".len()),
+        "{out}"
+    );
+    let moves = out
+        .lines()
+        .find(|l| l.starts_with("art=moves "))
+        .unwrap_or_else(|| panic!("no moves line:\n{out}"));
+    for key in ["entities=", "json=", "side=", "written=", "removed=", "ms="] {
+        assert!(moves.contains(&format!(" {key}")), "{key} in {moves}");
+    }
+    let summary = summary_line(&out);
+    for key in [
+        "raw=",
+        " texts=",
+        " scripts=",
+        " base_layer_ms=",
+        " created=false",
+        " files=",
+        " bytes=",
+        " written=",
+        " removed=",
+        " ms=",
+    ] {
+        assert!(summary.contains(key), "{key} in {summary}");
+    }
+    assert!(root.join("g4-project.json").is_file());
+    assert!(root.join("data/moves/0001.json").is_file());
+
+    let assert = text(&["check"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.first(), Some(&"schema=current"), "{out}");
+    assert_eq!(lines.last(), Some(&"differs=0"), "{out}");
+
+    // As JSON: the whole report.
+    let assert = text(&["check", "--json"], &root).assert().success();
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(report["schema"]["state"], "current", "{report}");
+    assert_eq!(report["differs"], serde_json::json!([]), "{report}");
+
+    // An edit shows up as a file the import would write.
+    let path = root.join("data/moves/0002.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    assert!(json.contains("\"power\": 20"), "{json}");
+    std::fs::write(&path, json.replacen("\"power\": 20", "\"power\": 99", 1)).unwrap();
+    let assert = text(&["check"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let lines: Vec<_> = out.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("differs="))
+        .unwrap();
+    assert_eq!(lines[at], "differs=1", "{out}");
+    assert!(lines[at + 1].contains("moveData"), "{out}");
+}
+
+#[test]
+fn cli_text_export_twice_writes_nothing() {
+    let (_tmp, root, sibling) = text_layout();
+    // The base ROM is no sibling any more and no search folder is set: only `--base-rom`
+    // finds it.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let nds = elsewhere.path().join("base.nds");
+    std::fs::rename(&sibling, &nds).unwrap();
+    let run = || {
+        let assert = g4k()
+            .args(["text", "export"])
+            .arg(&root)
+            .arg("--base-rom")
+            .arg(&nds)
+            .env_remove("G4_BASE_ROM_DIR")
+            .assert()
+            .success();
+        stdout_of(&assert)
+    };
+    run();
+    let out = run();
+    println!("{out}");
+    assert!(!out.contains("adopted"), "{out}");
+    let summary = summary_line(&out);
+    assert!(summary.contains(" written=0 removed=0 "), "{summary}");
+    let arts: Vec<_> = out.lines().filter(|l| l.starts_with("art=")).collect();
+    assert!(!arts.is_empty(), "{out}");
+    for line in arts {
+        assert!(line.contains(" written=0 removed=0 "), "{line}");
+    }
+
+    // As JSON: the export report.
+    let assert = g4k()
+        .args(["text", "export", "--json"])
+        .arg(&root)
+        .arg("--base-rom")
+        .arg(&nds)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(report["written"], 0, "{report}");
+    assert_eq!(report["adopted"], serde_json::Value::Null, "{report}");
+    assert!(report["arts"].as_array().is_some_and(|a| !a.is_empty()));
+}
+
+#[test]
+fn cli_text_export_without_a_mark_fails() {
+    let (_tmp, root, _nds) = dspre_layout();
+    text(&["export"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::patch::NO_MARK))
+        .stderr(contains("g4k base assign"));
+    assert!(!root.join("data").exists());
+    assert!(!root.join("g4-project.json").exists());
+}
+
+#[test]
+fn cli_text_export_with_a_missing_base_names_it() {
+    let (_tmp, root, nds) = text_layout();
+    std::fs::remove_file(&nds).unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    let mark = g4_kernel::start::read_base_mark(&root).unwrap();
+    g4k()
+        .args(["text", "export"])
+        .arg(&root)
+        .env("G4_BASE_ROM_DIR", empty.path())
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::base::missing_text(&mark)));
+    assert!(!root.join("data").exists());
+}
+
+#[test]
+fn cli_text_import_reports_problems_with_exit_1() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+
+    // A clean import writes the members back (they equal their JSON) and says what it did.
+    let assert = text(&["import"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("members="))
+        .unwrap_or_else(|| panic!("no import line:\n{out}"));
+    for key in [" raw=", " quirks=", " compiled=", " encoded=", " ms="] {
+        assert!(line.contains(key), "{key} in {line}");
+    }
+    let assert = text(&["import", "--json"], &root).assert().success();
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(report["members_written"], 0, "{report}");
+
+    // A misspelt key: file and line on stderr, exit 1.
+    let path = root.join("data/moves/0001.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    let line = json
+        .lines()
+        .position(|l| l.contains("\"power\""))
+        .expect("a power line")
+        + 1;
+    std::fs::write(&path, json.replacen("\"power\"", "\"powr\"", 1)).unwrap();
+    let assert = text(&["import"], &root).assert().code(1);
+    let err = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    println!("{err}");
+    assert!(
+        err.contains(&format!("data/moves/0001.json:{line}:")),
+        "{err}"
+    );
+    assert!(err.contains("powr"), "{err}");
+}
+
+#[test]
+fn cli_text_sources_lists_manifest_and_data() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    let assert = text(&["sources"], &root).assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    for want in [
+        "g4-project.json",
+        "data/moves/0001.json",
+        "data/ids/maps.json",
+        "data/rotom-quirks.json",
+        ".g4/base.json",
+    ] {
+        assert!(lines.contains(&want), "missing {want}:\n{out}");
+    }
+    let mut sorted = lines.clone();
+    sorted.sort();
+    assert_eq!(lines, sorted);
+    assert!(!lines.iter().any(|l| l.starts_with("unpacked/")), "{out}");
+}
+
+#[test]
+fn cli_text_migrate_v0_fixture() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    // The exported project brought down to the v0 form of the Task 1 fixture
+    // (`tests/fixtures/textproject/v0`): the manifest says `"schema": 0`, every register is
+    // `{"ids": {"NNNN": "ID"}}`. The migration must give back the exported bytes.
+    let manifest = root.join("g4-project.json");
+    let exported_manifest = std::fs::read_to_string(&manifest).unwrap();
+    assert!(exported_manifest.contains("\"schemaVersion\": 1"));
+    std::fs::write(
+        &manifest,
+        exported_manifest.replacen("\"schemaVersion\": 1", "\"schema\": 0", 1),
+    )
+    .unwrap();
+    let mut registers = Vec::new();
+    for entry in std::fs::read_dir(root.join("data/ids")).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = std::fs::read(&path).unwrap();
+        let by_id: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&bytes).unwrap();
+        let ids: serde_json::Map<String, serde_json::Value> = by_id
+            .iter()
+            .map(|(id, n)| (format!("{:04}", n.as_u64().unwrap()), id.clone().into()))
+            .collect();
+        let v0 = serde_json::json!({ "ids": ids });
+        std::fs::write(&path, serde_json::to_vec_pretty(&v0).unwrap()).unwrap();
+        registers.push((path, bytes));
+    }
+    assert!(
+        registers
+            .iter()
+            .any(|(p, _)| p.ends_with("data/ids/maps.json")),
+        "{registers:?}"
+    );
+
+    let assert = text(&["check"], &root).assert().code(1);
+    assert_eq!(stdout_of(&assert).lines().next(), Some("schema=older 0"));
+    assert!(
+        String::from_utf8_lossy(&assert.get_output().stderr).contains("g4k text migrate"),
+        "the sentence names the way out"
+    );
+
+    let assert = text(&["migrate"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let changed = format!("migrated 0 -> 1 changed={} snapshot=", registers.len() + 1);
+    assert!(out.starts_with(&changed), "{changed} in {out}");
+    let snapshot = out.trim_end().split("snapshot=").nth(1).unwrap();
+    assert!(std::path::Path::new(snapshot).is_dir(), "{snapshot}");
+    assert_eq!(
+        std::fs::read_to_string(&manifest).unwrap(),
+        exported_manifest
+    );
+    for (path, bytes) in &registers {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "{}", path.display());
+    }
+
+    text(&["migrate"], &root)
+        .assert()
+        .success()
+        .stdout("already current\n");
+    let assert = text(&["migrate", "--json"], &root).assert().success();
+    let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(
+        (report["from"].as_u64(), report["to"].as_u64()),
+        (Some(1), Some(1))
+    );
+
+    // Current again, and the import would write nothing.
+    text(&["check"], &root)
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("schema=current\n"))
+        .stdout(predicates::str::ends_with("differs=0\n"));
+
+    // A newer version is refused.
+    std::fs::write(
+        &manifest,
+        b"{\"format\": \"g4-project\", \"schemaVersion\": 99}\n",
+    )
+    .unwrap();
+    text(&["migrate"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains("neueren Fassung"));
+    let assert = text(&["check"], &root).assert().code(1);
+    assert_eq!(stdout_of(&assert).lines().next(), Some("schema=newer 99"));
+}
+
+#[test]
+fn cli_text_import_refuses_a_broken_or_newer_mark() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    // A valid edit that an import would write.
+    let path = root.join("data/moves/0002.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    assert!(json.contains("\"power\": 20"), "{json}");
+    std::fs::write(&path, json.replacen("\"power\": 20", "\"power\": 99", 1)).unwrap();
+    let member = std::fs::read(root.join("unpacked/moveData/0002")).unwrap();
+    for mark in ["{ broken", r#"{"version": 3}"#] {
+        std::fs::write(root.join(".g4/base.json"), mark).unwrap();
+        let refusal = g4_kernel::start::mark_state(&root)
+            .refusal()
+            .expect("a refusal");
+        text(&["import"], &root)
+            .assert()
+            .code(1)
+            .stderr(contains(refusal));
+        assert_eq!(
+            std::fs::read(root.join("unpacked/moveData/0002")).unwrap(),
+            member,
+            "nothing written"
+        );
+    }
 }
