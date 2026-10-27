@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-use std::io::Cursor;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -618,7 +618,7 @@ impl Project {
     }
 
     /// Number of headers: one per `mapname.bin` record.
-    fn mapname_count(&self) -> Result<usize, KernelError> {
+    pub(crate) fn mapname_count(&self) -> Result<usize, KernelError> {
         let names_path = self.mapname_path();
         let names_len = std::fs::metadata(&names_path)
             .map_err(io_at(&names_path))?
@@ -922,30 +922,28 @@ impl Project {
     /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
     /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
     pub fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
+        self.read_header_table_bytes()?
+            .as_chunks::<MAP_HEADER_SIZE>()
+            .0
+            .iter()
+            .map(|chunk| uxie::map_header::read_map_header_from_bytes(chunk, self.uxie_family()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| KernelError::Uxie(format!("{e}")))
+    }
+
+    /// The bytes of the header table as it is on disk, 24 per header: the slice of
+    /// `arm9/arm9.bin`, or the files of `unpacked/dynamicHeaders` concatenated once the
+    /// Dynamic Headers patch is applied.
+    pub(crate) fn read_header_table_bytes(&self) -> Result<Vec<u8>, KernelError> {
         match self.asset_location(AssetKind::HeaderTable, 0)? {
-            Location::HeaderFiles { dir, count } => {
-                let bytes = dynamic_headers::read_files(&dir, count)?
-                    .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count))?;
-                bytes
-                    .as_chunks::<MAP_HEADER_SIZE>()
-                    .0
-                    .iter()
-                    .map(|chunk| {
-                        uxie::map_header::read_map_header_from_bytes(chunk, self.uxie_family())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| KernelError::Uxie(format!("{e}")))
-            }
-            Location::Slice { offset, len, .. } => {
-                let arm9_path = self.arm9_path();
-                let arm9 = std::fs::read(&arm9_path).map_err(io_at(&arm9_path))?;
-                uxie::map_header::read_map_headers_from_arm9(
-                    &mut Cursor::new(arm9),
-                    offset,
-                    len / MAP_HEADER_SIZE,
-                    self.uxie_family(),
-                )
-                .map_err(|e| KernelError::Uxie(format!("{e}")))
+            Location::HeaderFiles { dir, count } => dynamic_headers::read_files(&dir, count)?
+                .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count)),
+            Location::Slice { path, offset, len } => {
+                let mut file = std::fs::File::open(&path).map_err(io_at(&path))?;
+                file.seek(SeekFrom::Start(offset)).map_err(io_at(&path))?;
+                let mut bytes = vec![0u8; len];
+                file.read_exact(&mut bytes).map_err(io_at(&path))?;
+                Ok(bytes)
             }
             Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
                 KernelError::InvalidProject("the header table is not a member file".to_owned()),

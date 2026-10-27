@@ -33,8 +33,14 @@ use super::{
     EntitySchema, ExportCtx, ImportCtx, ROOT, SymRef, check_id, entity_id, required, resolve_max,
 };
 
-/// A header count that changes without the Dynamic Headers patch, or header files with a gap.
+/// A header count that grows without the Dynamic Headers patch, or header files with a gap.
 pub(crate) const HEADER_COUNT_CODE: &str = "textproject.header-count";
+/// A member (here: a header) the import would have to delete because no JSON names it;
+/// deleting is 4.3b.
+pub(crate) const MEMBER_WITHOUT_JSON_CODE: &str = "textproject.member-without-json";
+/// A header table whose place in the project cannot be read (`arm9.bin` too short, no
+/// `mapname.bin`, …).
+pub(crate) const HEADER_TABLE_CODE: &str = "textproject.header-table";
 /// The folder of the header files under `data/`.
 pub(crate) const HEADERS_ART: &str = "headers";
 /// Bytes of one `mapname.bin` record.
@@ -504,28 +510,7 @@ fn read_table(project: &Project) -> Result<(Vec<u8>, Vec<u8>), KernelError> {
             names.len()
         )));
     }
-    let table = match project.asset_location(AssetKind::HeaderTable, 0)? {
-        Location::Slice { path, offset, len } => {
-            let arm9 = std::fs::read(&path).map_err(io_at(&path))?;
-            let at = usize::try_from(offset).unwrap_or(usize::MAX);
-            arm9.get(at..at.saturating_add(len))
-                .ok_or_else(|| {
-                    KernelError::InvalidProject(format!(
-                        "{} endet vor der Header-Tabelle.",
-                        path.display()
-                    ))
-                })?
-                .to_vec()
-        }
-        Location::HeaderFiles { dir, count } => dynamic_headers::read_files(&dir, count)?
-            .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count))?,
-        Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => {
-            return Err(KernelError::InvalidProject(
-                "the header table is not a member file".to_owned(),
-            ));
-        }
-    };
-    Ok((table, names))
+    Ok((project.read_header_table_bytes()?, names))
 }
 
 /// The base layer of the headers, which have no parts.
@@ -597,40 +582,54 @@ pub(crate) fn import_headers(
     }
 
     let count = sorted.len();
-    let names_path = project.mapname_path();
-    let names_rel = names_path
-        .strip_prefix(&project.root)
-        .unwrap_or(&names_path)
-        .to_path_buf();
-    let state = dynamic_headers::is_applied(project).and_then(|dynamic| {
-        let len = std::fs::metadata(&names_path)
-            .map_err(io_at(&names_path))?
-            .len();
-        Ok((
-            dynamic,
-            usize::try_from(len).unwrap_or(usize::MAX) / NAME_LEN,
-        ))
-    });
+    let rel = |p: &Path| p.strip_prefix(&project.root).unwrap_or(p).to_path_buf();
+    let state = dynamic_headers::is_applied(project)
+        .and_then(|dynamic| Ok((dynamic, project.mapname_count()?)));
     match state {
         Err(e) => problems.push(problem(
-            &names_rel,
-            HEADER_COUNT_CODE,
+            &rel(&project.mapname_path()),
+            HEADER_TABLE_CODE,
             format!("{ROOT}: die Zahl der Header ist nicht lesbar ({e})."),
         )),
-        Ok((false, current)) if count != current => problems.push(problem(
-            &file_of(count.min(current) as u32),
-            HEADER_COUNT_CODE,
-            format!(
-                "{ROOT}: Die Zahl der Header ändert sich nur mit dem Patch „Dynamische Header“. \
-                 mapname.bin hat {current} Einträge, data/headers {count} Dateien."
-            ),
-        )),
-        Ok((true, _)) if count > MAX_HEADERS => problems.push(problem(
-            &file_of(MAX_HEADERS as u32),
-            HEADER_COUNT_CODE,
-            format!("{ROOT}: {count} Header, höchstens {MAX_HEADERS}."),
-        )),
-        Ok(_) => {}
+        Ok((dynamic, current)) => {
+            if count < current {
+                problems.push(problem(
+                    &file_of(count as u32),
+                    MEMBER_WITHOUT_JSON_CODE,
+                    format!(
+                        "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
+                         Einträge, data/headers {count} Dateien); der Import entfernt keine \
+                         Header, Löschen ist 4.3b."
+                    ),
+                ));
+            } else if !dynamic && count > current {
+                problems.push(problem(
+                    &file_of(current as u32),
+                    HEADER_COUNT_CODE,
+                    format!(
+                        "{ROOT}: Die Zahl der Header ändert sich nur mit dem Patch „Dynamische \
+                         Header“. mapname.bin hat {current} Einträge, data/headers {count} \
+                         Dateien."
+                    ),
+                ));
+            } else if dynamic && count > MAX_HEADERS {
+                problems.push(problem(
+                    &file_of(MAX_HEADERS as u32),
+                    HEADER_COUNT_CODE,
+                    format!("{ROOT}: {count} Header, höchstens {MAX_HEADERS}."),
+                ));
+            }
+            // Without the patch the table is a slice of arm9.bin, which must hold it. With
+            // it, a missing `unpacked/dynamicHeaders` is fine: the headers own that folder
+            // and `write_headers` writes every file.
+            if !dynamic && let Err(e) = project.asset_location(AssetKind::HeaderTable, 0) {
+                problems.push(problem(
+                    &rel(&project.arm9_path()),
+                    HEADER_TABLE_CODE,
+                    format!("{ROOT}: die Header-Tabelle ist nicht lesbar ({e})."),
+                ));
+            }
+        }
     }
 
     let dir = project.root.join(&folder);
@@ -666,8 +665,9 @@ pub(crate) fn import_headers(
 }
 
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
-/// it changes; the project-relative paths it wrote (and Dynamic Headers files it removed
-/// because the table shrank).
+/// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
+/// `unpacked/dynamicHeaders` is created with every header file. A table shorter than
+/// `mapname.bin` is refused: deleting headers is 4.3b.
 pub(crate) fn write_headers(
     project: &Project,
     w: &HeaderWrite,
@@ -681,34 +681,31 @@ pub(crate) fn write_headers(
             w.mapname.len()
         )));
     }
+    let old = project.mapname_count()?;
+    if count < old {
+        return Err(KernelError::InvalidProject(format!(
+            "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import entfernt \
+             keine Header, Löschen ist 4.3b."
+        )));
+    }
     let root = &project.root;
     let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_path_buf();
     let names_rel = rel(&project.mapname_path());
     let mut wrote = Vec::new();
-    match project.asset_location(AssetKind::HeaderTable, 0)? {
-        Location::HeaderFiles { dir, count: old } => {
-            let dir_rel = rel(&dir);
-            for (i, chunk) in w.table.chunks(HEADER_LEN).enumerate() {
-                let file = dir_rel.join(format!("{i:04}"));
-                if write_if_changed(root, &file, chunk)? {
-                    wrote.push(file);
-                }
-            }
-            if write_if_changed(root, &names_rel, &w.mapname)? {
-                wrote.push(names_rel);
-            }
-            // A shorter table: the files after it go, so a later new header can take the
-            // number.
-            for i in count..old {
-                let file = dir_rel.join(format!("{i:04}"));
-                let path = root.join(&file);
-                match std::fs::remove_file(&path) {
-                    Ok(()) => wrote.push(file),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(io_at(&path)(e)),
-                }
+    if dynamic_headers::is_applied(project)? {
+        let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
+        for (i, chunk) in w.table.chunks(HEADER_LEN).enumerate() {
+            let file = dir_rel.join(format!("{i:04}"));
+            if write_if_changed(root, &file, chunk)? {
+                wrote.push(file);
             }
         }
+        if write_if_changed(root, &names_rel, &w.mapname)? {
+            wrote.push(names_rel);
+        }
+        return Ok(wrote);
+    }
+    match project.asset_location(AssetKind::HeaderTable, 0)? {
         Location::Slice { path, offset, len } => {
             if len != w.table.len() {
                 return Err(KernelError::InvalidProject(format!(
@@ -734,9 +731,12 @@ pub(crate) fn write_headers(
                 wrote.push(names_rel);
             }
         }
-        Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => {
+        Location::HeaderFiles { .. }
+        | Location::Member(_)
+        | Location::TextSource { .. }
+        | Location::MemberPair { .. } => {
             return Err(KernelError::InvalidProject(
-                "the header table is not a member file".to_owned(),
+                "the header table is not a slice of arm9.bin".to_owned(),
             ));
         }
     }
@@ -1088,19 +1088,105 @@ mod project_tests {
             arm9
         );
 
-        // And back to two: the third file goes.
+        // Back to two is refused: deleting a header is 4.3b, and nothing is written.
+        let three = import_headers(&project, &files, &sym).unwrap();
         files.pop();
+        let problems = import_headers(&project, &files, &sym).unwrap_err();
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(problems[0].file, Path::new("data/headers/0002.json"));
+        assert!(
+            problems[0]
+                .message
+                .starts_with("textproject.member-without-json: $: "),
+            "{}",
+            problems[0].message
+        );
+        assert!(
+            problems[0].message.ends_with("Löschen ist 4.3b."),
+            "{}",
+            problems[0].message
+        );
+        let two = HeaderWrite {
+            table: three.table[..2 * HEADER_LEN].to_vec(),
+            mapname: three.mapname[..2 * NAME_LEN].to_vec(),
+        };
+        let err = write_headers(&project, &two).unwrap_err().to_string();
+        assert!(err.contains("textproject.member-without-json"), "{err}");
+        assert!(dir.join("0002").exists());
+        assert_eq!(project.header_count().unwrap(), 3);
+    }
+
+    #[test]
+    fn missing_dynamic_header_folder_is_recreated() {
+        let s = synthetic_project();
+        let project = Project::open(s.dir.path()).unwrap();
+        dynamic_headers::apply(&project, &project.read_headers().unwrap()).unwrap();
+        let mut sym = symbols_of(&project);
+        let files = export_all(&project, &mut sym);
+        let dir = dynamic_headers::unpacked_dir(&project);
+        let before: Vec<Vec<u8>> = ["0000", "0001"]
+            .iter()
+            .map(|f| std::fs::read(dir.join(f)).unwrap())
+            .collect();
+        // The state after a clone: the patch is in arm9.bin, the folder is not there.
+        std::fs::remove_dir_all(&dir).unwrap();
         let w = import_headers(&project, &files, &sym).unwrap();
         let wrote = write_headers(&project, &w).unwrap();
         assert_eq!(
             wrote,
             [
-                PathBuf::from("files/fielddata/maptable/mapname.bin"),
-                PathBuf::from("unpacked/dynamicHeaders/0002")
+                PathBuf::from("unpacked/dynamicHeaders/0000"),
+                PathBuf::from("unpacked/dynamicHeaders/0001")
             ]
         );
-        assert!(!dir.join("0002").exists());
-        assert_eq!(project.header_count().unwrap(), 2);
+        for (i, bytes) in before.iter().enumerate() {
+            assert_eq!(&std::fs::read(dir.join(format!("{i:04}"))).unwrap(), bytes);
+        }
+        assert_eq!(export_all(&project, &mut sym), files);
+    }
+
+    #[test]
+    fn an_empty_header_folder_is_refused() {
+        for patched in [false, true] {
+            let s = synthetic_project();
+            let project = Project::open(s.dir.path()).unwrap();
+            if patched {
+                dynamic_headers::apply(&project, &project.read_headers().unwrap()).unwrap();
+            }
+            let problems = import_headers(&project, &[], &symbols_of(&project)).unwrap_err();
+            assert_eq!(problems.len(), 1, "{problems:?}");
+            assert_eq!(problems[0].file, Path::new("data/headers/0000.json"));
+            assert!(
+                problems[0]
+                    .message
+                    .starts_with("textproject.member-without-json: $: ")
+                    && problems[0].message.ends_with("Löschen ist 4.3b."),
+                "{}",
+                problems[0].message
+            );
+        }
+    }
+
+    #[test]
+    fn a_header_table_beyond_arm9_is_a_problem() {
+        let s = synthetic_project();
+        let project = Project::open(s.dir.path()).unwrap();
+        let mut sym = symbols_of(&project);
+        let files = export_all(&project, &mut sym);
+        let arm9 = project.root.join("arm9/arm9.bin");
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        bytes.truncate(PT_HEADER_TABLE_CPUE + HEADER_LEN);
+        std::fs::write(&arm9, &bytes).unwrap();
+        let problems = import_headers(&project, &files, &sym).unwrap_err();
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(problems[0].file, Path::new("arm9/arm9.bin"));
+        assert!(
+            problems[0]
+                .message
+                .starts_with("textproject.header-table: $: "),
+            "{}",
+            problems[0].message
+        );
     }
 
     #[test]
@@ -1148,12 +1234,15 @@ mod project_tests {
             problems[0].message
         );
 
+        // Fewer headers would delete one: that is 4.3b.
         files.truncate(1);
         let problems = import_headers(&project, &files, &sym).unwrap_err();
         assert!(
             problems[0]
                 .message
-                .starts_with("textproject.header-count: ")
+                .starts_with("textproject.member-without-json: "),
+            "{}",
+            problems[0].message
         );
 
         // A gap in the numbers is refused with the file that is missing.
