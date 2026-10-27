@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4) [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate) und [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate) und [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -761,6 +761,8 @@ Je Szenario eine frische Kopie (die Namen oben sind Beispiele; das Ziel darf nic
 | Blick | Agent + Blick | Bilder `blick-veroeffentlichen-*.png`, der Agent nennt Zustand und Texte je Bild |
 | Rom Patcher JS, xdelta UI | Hand | siehe „Was beim Nutzer bleibt“ |
 
+Aus einem Worktree lösen `-p g4-kernel` und `--test` den Download von rotom aus (siehe [dev-setup.md](dev-setup.md), „In einem Git-Worktree“): dort `cargo test --workspace --all-features --test base -- --nocapture --test-threads 1` und `cargo build --release --workspace --all-features` statt der Befehle mit `-p`.
+
 **Kopflos (2)**, aus der Wurzel des Worktrees nach `cargo build --release -p g4-kernel --bin g4k` (`K` ist `$G4_ROMS_DIR/_testkopien`, `<k>` je Spiel):
 
 ```sh
@@ -771,9 +773,10 @@ $G build $K/4-1a-<k>_DSPRE_contents --out $K/4-1a-<k>_DSPRE_contents/build/rebui
 shasum $K/4-1a-<k>_DSPRE_contents/build/rebuild.nds $K/4-1a-<k>.nds    # gleich
 $G base assign $K/4-1a-pt_DSPRE_contents $K/4-1a-hgde.nds      # Exit 1, „Falsches Spiel …“
 $G base check  $K/4-1a-pt_DSPRE_contents --rom $K/4-1a-pt-fremd.nds   # warning: Unbekannte oder veränderte ROM …, Exit 0
-$G map set-perm $K/4-1a-<k>_DSPRE_contents 3 2 0 --kind 0 --collision 0   # muss „saved 1 file(s)“ melden
+$G map set-perm $K/4-1a-<k>_DSPRE_contents 3 2 0 --kind 0 --collision 0   # Platin; HeartGold mit --collision 128; muss „saved 1 file(s)“ melden
 G4_BASE_ROM_DIR=$K $G patch create $K/4-1a-<k>_DSPRE_contents --json   # size, encode_ms, verify_ms, target_sha1
-xdelta3 -d -s $K/4-1a-<k>.nds <patch> out.nds && shasum out.nds    # gleich build/<Name>.nds
+mkdir -p target/agent/4-1a
+xdelta3 -d -f -s $K/4-1a-<k>.nds <patch> target/agent/4-1a/out-<k>.nds && shasum target/agent/4-1a/out-<k>.nds   # gleich build/<Name>.nds
 xdelta3 printhdr <patch>                                       # VCD_APPHEADER, secondary compressor: none
 ```
 
