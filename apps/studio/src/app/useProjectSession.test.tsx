@@ -33,7 +33,7 @@ vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePat
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const problem = (file: string, line: number, message: string, severity: ProblemDto["severity"] = "error", source: ProblemDto["source"] = "compile"): ProblemDto => ({ severity, file, line, col: 1, message, source });
-const report = (over: Partial<BuildReport> = {}): BuildReport => ({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], ...over });
+const report = (over: Partial<BuildReport> = {}): BuildReport => ({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0, ...over });
 
 describe("useProjectSession with open scripts", () => {
   let container: HTMLElement;

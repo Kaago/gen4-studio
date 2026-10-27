@@ -237,13 +237,15 @@ impl ResourceUri {
 /// saves, compiles, script files and the build write to disk, where a rollback does not reach,
 /// and reload the text archives a compile touched (which forgets their history); the check
 /// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`
-/// and a map part export writes a file. `apply_fix` with `create_script` is refused too (see
-/// [`not_in_batch`]).
+/// and a map part export writes a file; resolving a text conflict writes a text archive's
+/// JSON or member past the store and reloads it. `apply_fix` with `create_script` or
+/// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
     "redo",
     "reload_asset",
     "accept_disk",
+    "resolve_text_conflicts",
     "apply_header_patch",
     "repair_header_patch",
     "save",
@@ -1755,6 +1757,7 @@ mod tests {
             "redo",
             "reload_asset",
             "accept_disk",
+            "resolve_text_conflicts",
             "apply_header_patch",
             "repair_header_patch",
             "save",

@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use g4_kernel::build::{BuildReport, build_prepared, prepare_for_build};
+use g4_kernel::build::{BuildReport, StepReport, build_prepared, clear_cache, prepare_for_build};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{HistoryEntry, Origin, Store};
-use serde::Serialize;
+use g4_kernel::text::{TextKeep, resolve_conflict};
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
 use super::scripts::reload_text_archives;
@@ -62,8 +63,9 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
 
 /// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds (by
 /// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, the ROM path,
-/// the script files compiled and the text archives encoded before packing, and the warnings
-/// of the pre-build save and of those two steps (`source` tells them apart).
+/// the script files compiled and the text archives encoded before packing, the warnings
+/// of the pre-build save and of those two steps (`source` tells them apart), one row per
+/// build step in build order and the milliseconds of the build (without the save).
 #[derive(Debug, Serialize)]
 pub struct BuildDto {
     pub saved: usize,
@@ -72,6 +74,10 @@ pub struct BuildDto {
     pub compiled: Vec<u16>,
     pub encoded: Vec<u16>,
     pub problems: Vec<ProblemDto>,
+    /// See [`BuildReport::steps`]: `rotom`, `chatot`, `pack:*`, `watch:*` (not for
+    /// display), then `rom` (skipped) or `blz:arm9`, `blz:overlays`, `rom`, `crc`.
+    pub steps: Vec<StepReport>,
+    pub ms: u64,
 }
 
 /// Member count of every asset kind the project has an archive for (the header table counts
@@ -227,17 +233,24 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
     Ok(())
 }
 
-/// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. The
+/// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. With
+/// `fresh` the build state and caches (`.g4/build/`) are deleted first, so every step runs
+/// fully. The
 /// state lock is held for the save, for compiling scripts and encoding texts (they write
 /// sources, members and the compile state, which the script and text commands write too, see
 /// `g4_kernel::build::prepare`) and for the reload afterwards, not for packing and the ds-rom
 /// build. An error in the compile step is `CmdError { code: "compile" }` and nothing is
-/// packed. Text archives the compile appended messages to are loaded again in the store.
-pub fn build_rom_impl(state: &AppState, out: &str) -> Result<BuildDto, CmdError> {
+/// packed; text archives changed as JSON and as member since the last build stop it as
+/// `CmdError { code: "text_conflict" }` before anything is written. Text archives the
+/// compile appended messages to are loaded again in the store.
+pub fn build_rom_impl(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
     let out = Path::new(out);
     let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
+        if fresh {
+            clear_cache(&session.project)?;
+        }
         let (saved, problems) = if session.store.dirty().is_empty() {
             (0, Vec::new())
         } else {
@@ -321,7 +334,48 @@ fn build_dto(
         compiled: report.compiled,
         encoded: report.encoded,
         problems,
+        steps: report.steps,
+        ms: report.ms,
     })
+}
+
+/// Which version of a text archive in conflict applies (see `resolve_text_conflicts`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct TextChoice {
+    pub archive: u16,
+    pub keep: TextKeep,
+}
+
+/// Resolves text archives whose JSON and member both changed since the last build, each as
+/// `choices` says (`g4_kernel::text::resolve_conflict`: the JSON kept encodes the member, the
+/// member kept rewrites the JSON; either way the other version is overwritten), under the
+/// state lock. Archives the store holds unedited are loaded again; an edited one keeps the
+/// edit (its next save is stale, and accepting the disk saves it). Answers the archives in
+/// the order of `choices`. Stops at the first that fails; those before it stay resolved.
+pub fn resolve_text_conflicts_impl(
+    state: &AppState,
+    choices: Vec<TextChoice>,
+) -> Result<Vec<u16>, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    let project = Arc::clone(&session.project);
+    let mut resolved = Vec::with_capacity(choices.len());
+    for choice in choices {
+        resolve_conflict(&project, choice.archive, choice.keep)?;
+        let id = AssetId {
+            kind: AssetKind::TextArchive,
+            index: choice.archive,
+        };
+        if session.store.is_loaded(id) && !session.store.is_dirty(id) {
+            session.store.reload_from_disk(id)?;
+        }
+        resolved.push(choice.archive);
+    }
+    if !resolved.is_empty() {
+        // The checks read the archives the store does not hold from the disk.
+        session.files_written();
+    }
+    Ok(resolved)
 }
 
 pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
@@ -378,12 +432,26 @@ pub fn accept_disk(state: State<AppState>, kind: AssetKind, index: u16) -> Resul
 }
 
 /// The ds-rom build takes seconds, so it runs on a blocking worker, off the main thread and
-/// without holding the state lock.
+/// without holding the state lock. `fresh` (default false) deletes the build state first.
 #[tauri::command]
-pub async fn build_rom(app: tauri::AppHandle, out: String) -> Result<BuildDto, CmdError> {
-    tauri::async_runtime::spawn_blocking(move || build_rom_impl(&app.state::<AppState>(), &out))
-        .await
-        .map_err(|e| CmdError::from(e.to_string()))?
+pub async fn build_rom(
+    app: tauri::AppHandle,
+    out: String,
+    fresh: Option<bool>,
+) -> Result<BuildDto, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        build_rom_impl(&app.state::<AppState>(), &out, fresh.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn resolve_text_conflicts(
+    state: State<AppState>,
+    choices: Vec<TextChoice>,
+) -> Result<Vec<u16>, CmdError> {
+    resolve_text_conflicts_impl(&state, choices)
 }
 
 /// Quits after the user confirmed discarding unsaved edits: the flag lets the exit request
@@ -536,7 +604,7 @@ mod tests {
         set_permission_impl(&state, 0, 1, 1, 2, 0x80).unwrap();
         // The synthetic project has no real ds-rom config, so the ROM build itself fails,
         // but only after the dirty map was saved.
-        assert!(build_rom_impl(&state, out.to_str().unwrap()).is_err());
+        assert!(build_rom_impl(&state, out.to_str().unwrap(), false).is_err());
         assert!(dirty_impl(&state).unwrap().is_empty());
         let on_disk = std::fs::read(fixture.dir.path().join("unpacked/maps/0000")).unwrap();
         let map = MapFile::read(&on_disk, g4_formats::game::Family::Pt).unwrap();
@@ -555,7 +623,7 @@ mod tests {
         let last = bytes.len() - 1;
         bytes[last] ^= 0xFF;
         std::fs::write(&member, &bytes).unwrap();
-        let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
+        let err = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap_err();
         assert!(err.message.contains("changed on disk"), "{}", err.message);
         assert!(!out.exists());
     }
@@ -567,7 +635,7 @@ mod tests {
         scripts::save_script_impl(&state, 0, "script Main #1:\n    NoSuch\n    End\n".into())
             .unwrap();
         let out = fixture.dir.path().join("out/rom.nds");
-        let err = build_rom_impl(&state, out.to_str().unwrap()).unwrap_err();
+        let err = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap_err();
         assert_eq!(err.code, "compile");
         assert_eq!(err.message, "1 Fehler in Scripts oder Texten");
         assert_eq!(err.problems.len(), 1, "{:?}", err.problems);
@@ -577,6 +645,154 @@ mod tests {
             ("compile", "expanded/scripts/0000.rotom", 2)
         );
         assert!(!out.exists());
+    }
+
+    #[test]
+    fn build_rom_with_fresh_clears_the_build_folder() {
+        let (fixture, state) = open_synthetic();
+        let out = fixture.dir.path().join("out/rom.nds");
+        let marker = fixture.dir.path().join(".g4/build/blz/marker");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, b"x").unwrap();
+        // The synthetic project cannot be built into a ROM: the build fails after its
+        // first steps either way. Without `fresh` the cache stays, with it it goes first.
+        assert!(build_rom_impl(&state, out.to_str().unwrap(), false).is_err());
+        assert!(marker.exists());
+        assert!(build_rom_impl(&state, out.to_str().unwrap(), true).is_err());
+        assert!(!marker.exists());
+    }
+
+    fn text_json_path(project: &Project, archive: u16) -> std::path::PathBuf {
+        project
+            .expanded_dir(AssetKind::TextArchive)
+            .join(format!("{archive:04}.json"))
+    }
+
+    /// Writes the JSON of archive 433 from its member and records both as in sync.
+    fn sync_433(project: &Project) {
+        project.ensure_unpacked(AssetKind::TextArchive).unwrap();
+        let member = project.member_path(AssetKind::TextArchive, 433);
+        let doc =
+            g4_kernel::text::TextArchiveDoc::from_member(&std::fs::read(member).unwrap(), "en_US")
+                .unwrap();
+        let json = text_json_path(project, 433);
+        std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+        std::fs::write(&json, doc.to_json()).unwrap();
+        g4_kernel::text::record_text_sync(project, &[433]).unwrap();
+    }
+
+    /// Changes the JSON and the member of archive 433 (recorded in sync) to different texts:
+    /// a conflict.
+    fn change_both_sides_of_433(project: &Project, json_text: &str, member_text: &str) {
+        let bytes = |text: &str| g4_kernel::test_support::text_archive_bytes(&[text]);
+        let doc = g4_kernel::text::TextArchiveDoc::from_member(&bytes(json_text), "en_US").unwrap();
+        std::fs::write(text_json_path(project, 433), doc.to_json()).unwrap();
+        std::fs::write(
+            project.member_path(AssetKind::TextArchive, 433),
+            bytes(member_text),
+        )
+        .unwrap();
+        assert_eq!(
+            g4_kernel::text::TextSync::load(project)
+                .side(project, 433)
+                .unwrap(),
+            g4_kernel::text::TextSide::Conflict
+        );
+    }
+
+    #[test]
+    fn a_text_conflict_is_cmd_error_text_conflict_with_one_problem_per_archive() {
+        let (fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        sync_433(&project);
+        change_both_sides_of_433(&project, "Aus der JSON", "Aus dem Member");
+        let member = std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap();
+
+        let out = fixture.dir.path().join("out/rom.nds");
+        let err = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap_err();
+        assert_eq!(err.code, "text_conflict", "{}", err.message);
+        assert_eq!(err.problems.len(), 1, "{:?}", err.problems);
+        let problem = &err.problems[0];
+        assert_eq!(
+            (problem.severity, problem.source, problem.file.as_str()),
+            ("error", "build", "expanded/textArchives/0433.json")
+        );
+        // Nothing was overwritten.
+        assert_eq!(
+            std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
+            member
+        );
+
+        // A store save of the archive meets the same conflict and says so the same way.
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "Im Editor".into(),
+            },
+        )
+        .unwrap();
+        let err = save_impl(&state).unwrap_err();
+        assert_eq!(err.code, "text_conflict", "{}", err.message);
+        assert_eq!(
+            err.problems
+                .iter()
+                .map(|p| p.file.as_str())
+                .collect::<Vec<_>>(),
+            ["expanded/textArchives/0433.json"]
+        );
+    }
+
+    #[test]
+    fn resolve_text_conflicts_reloads_clean_archives() {
+        let (_fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        sync_433(&project);
+        // Loaded and clean.
+        assert_eq!(archive_texts(&state).len(), 3);
+        change_both_sides_of_433(&project, "Aus der JSON", "Aus dem Member");
+
+        let resolved = resolve_text_conflicts_impl(
+            &state,
+            vec![TextChoice {
+                archive: 433,
+                keep: TextKeep::Member,
+            }],
+        )
+        .unwrap();
+        assert_eq!(resolved, [433]);
+        assert_eq!(archive_texts(&state), ["Aus dem Member"]);
+        assert!(dirty_impl(&state).unwrap().is_empty());
+        assert_eq!(
+            g4_kernel::text::TextSync::load(&project)
+                .side(&project, 433)
+                .unwrap(),
+            g4_kernel::text::TextSide::InSync
+        );
+
+        // An archive edited in the store keeps the edit: it is not reloaded.
+        edit_text_archive_impl(
+            &state,
+            433,
+            TextEdit::Set {
+                index: 0,
+                text: "Meine Änderung".into(),
+            },
+        )
+        .unwrap();
+        change_both_sides_of_433(&project, "JSON zwei", "Member zwei");
+        let resolved = resolve_text_conflicts_impl(
+            &state,
+            vec![TextChoice {
+                archive: 433,
+                keep: TextKeep::Json,
+            }],
+        )
+        .unwrap();
+        assert_eq!(resolved, [433]);
+        assert_eq!(archive_texts(&state), ["Meine Änderung"]);
+        assert_eq!(dirty_impl(&state).unwrap().len(), 1);
     }
 
     /// Rewrites `expanded/textArchives/0433.json` with one more message, as a compile that
@@ -861,7 +1077,7 @@ mod tests {
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);
 
         let out = tmp.path().join("out.nds");
-        let report = build_rom_impl(&state, out.to_str().unwrap()).unwrap();
+        let report = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap();
         assert_eq!(report.saved, 1);
         assert!(report.packed.iter().any(|(k, n)| k == "maps" && *n > 0));
         assert!(std::fs::metadata(&out).unwrap().len() > 1_000_000);

@@ -13,7 +13,7 @@ import { useSectionFolds } from "../inspector/foldState";
 import { TERMS, id4 } from "../terms";
 import type { NavTarget } from "../navigation";
 import { FixDialog } from "./FixDialog";
-import { countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
+import { NO_STATE_HINT_FILE, buildProblemText, countsText, encounterFileOf, findingId, isFinding, problemTarget, scriptFileOf, textArchiveOf, trainerOf } from "./problems";
 import type { ProblemRow, ProblemSource, ProblemsStore } from "./problems";
 import styles from "./ProblemsPanel.module.css";
 
@@ -28,11 +28,12 @@ export interface ProblemsPanelContext {
   checks: ChecksApi | null;
 }
 
-const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer", check: "Prüfung" };
+const SOURCE_LABEL: Record<ProblemSource, string> = { compile: "Compile", text: "Text", live: "live", encounter: "Begegnungen", trainer: "Trainer", check: "Prüfung", build: "Bauen" };
 const SEVERITY_LABEL: Record<ProblemRow["severity"], string> = { error: "Fehler", warning: "Warnung", info: "Hinweis" };
 
-/** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199", "Begegnungen 0012", "Trainer 0012"; any other path as it is. */
+/** "Scriptdatei 0042", "Level-Script 0042", "Textarchiv 0199", "Begegnungen 0012", "Trainer 0012", "Bauzustand"; any other path as it is. */
 export function fileLabel(path: string): string {
+  if (path === NO_STATE_HINT_FILE) return "Bauzustand";
   const script = scriptFileOf(path);
   if (script !== null) return `${path.endsWith(".rotom") ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(script)}`;
   const encounter = encounterFileOf(path);
@@ -205,7 +206,7 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
                     {row.line}:{row.col}
                   </td>
                   <td role="cell" className={styles.message}>
-                    {row.source === "trainer" ? problemText(row) : row.message}
+                    {row.source === "trainer" ? problemText(row) : row.source === "build" ? buildProblemText(row) : row.message}
                   </td>
                   <td role="cell">
                     <Badge kind="neutral">{SOURCE_LABEL[row.source]}</Badge>

@@ -124,6 +124,76 @@ fn build_on_synthetic_reports_build_error_exit_1() {
 }
 
 #[test]
+fn build_no_cache_removes_the_state_first() {
+    let s = common::synthetic_project();
+    let out = s.dir.path().join("out.nds");
+    let marker = s.dir.path().join(".g4/build/blz/marker");
+    std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    std::fs::write(&marker, b"x").unwrap();
+    // The synthetic project cannot be built into a ROM, but the cache goes before that.
+    g4k()
+        .args(["build"])
+        .arg(s.dir.path())
+        .arg("--out")
+        .arg(&out)
+        .arg("--no-cache")
+        .assert()
+        .code(1)
+        .stderr(contains("build:"));
+    assert!(!marker.exists());
+}
+
+#[test]
+fn build_timings_prints_one_json_line() {
+    // The synthetic project does not build up to the ROM: gated on a copy.
+    let Some((tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let out = tmp.path().join("out.nds");
+    let assert = g4k()
+        .args(["build"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .arg("--timings")
+        .assert()
+        .success();
+    let text = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    println!("{text}");
+    assert_eq!(text.lines().count(), 1, "{text}");
+    let json: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+    assert!(json["ms"].is_u64(), "{json}");
+    assert_eq!(json["rom"], out.display().to_string());
+    let steps = json["steps"].as_array().unwrap();
+    let ids: Vec<&str> = steps.iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"rom"), "{ids:?}");
+    assert!(ids.contains(&"chatot"), "{ids:?}");
+    let rom = steps.iter().find(|s| s["id"] == "rom").unwrap();
+    assert_eq!(rom["status"], "full", "{json}");
+    assert!(out.exists());
+
+    // Nothing changed: the second build skips the ROM step.
+    let assert = g4k()
+        .args(["build"])
+        .arg(&root)
+        .arg("--out")
+        .arg(&out)
+        .arg("--timings")
+        .assert()
+        .success();
+    let text = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+    let rom = json["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["id"] == "rom")
+        .unwrap()
+        .clone();
+    assert_eq!(rom["status"], "skipped", "{json}");
+}
+
+#[test]
 fn vanilla_info_prints_identity() {
     let Some(root) = common::vanilla_project() else {
         return;

@@ -701,7 +701,7 @@ describe("App wiring", () => {
       expect(openPath).not.toHaveBeenCalled();
       expect(openProject).not.toHaveBeenCalled();
       // Once the build is done, Cmd+O opens again.
-      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
       vi.mocked(openPath).mockResolvedValue(null);
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "o", metaKey: true, bubbles: true, cancelable: true })));
       expect(openPath).toHaveBeenCalledOnce();
@@ -825,7 +825,7 @@ describe("App wiring", () => {
     it("shows_the_age_of_the_last_build_in_the_status_line", async () => {
       expect(statusLine()).toContain("Noch nicht gebaut");
       vi.mocked(savePath).mockResolvedValue("/out.nds");
-      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
       await click("Bauen");
       expect(statusLine()).toContain("Gebaut gerade eben");
     });
@@ -1051,7 +1051,7 @@ describe("App wiring", () => {
     /** The world's mocked dock: which group is maximized (0 the view's), the heights of its groups, the heights App set. */
     const welt = () => shown.docks.welt!;
     const maximize = () => hinge().querySelector<HTMLButtonElement>('button[aria-label="Schau maximieren"]')!;
-    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] });
+    const built = () => vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
     const press = (init: KeyboardEventInit) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
     afterEach(() => {
@@ -1317,7 +1317,7 @@ describe("App wiring", () => {
 
     it("asks_for_the_output_path_on_the_first_play_only_and_builds_to_the_last_path_afterwards", async () => {
       vi.mocked(savePath).mockResolvedValue("/chosen/out.nds");
-      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [] });
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
       await pressHinge(/Hier spielen/);
       expect(savePath).toHaveBeenCalledOnce();
       expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds");
@@ -1358,7 +1358,7 @@ describe("App wiring", () => {
       expect(busy.disabled).toBe(true);
       await act(async () => busy.click());
       expect(buildRom).toHaveBeenCalledOnce();
-      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
       expect(hingeButton(/Hier spielen/)?.disabled).toBe(false);
     });
 

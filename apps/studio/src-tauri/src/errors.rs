@@ -13,12 +13,17 @@ use crate::commands::ProblemDto;
 /// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
 /// `"partial"` (a wizard or creating command failed after it had created members, which
 /// stay),
-/// `"compile"` (scripts or texts did not compile; `problems` lists them),
+/// `"compile"` (scripts or texts did not compile, or a hidden file below `files/` stops the
+/// build; `problems` lists them),
 /// `"finding_stale"` (`plan_fix` / `apply_fix`: the finding is no longer reported as it was
-/// sent; nothing was changed) or `"error"`;
+/// sent; nothing was changed),
+/// `"text_conflict"` (a build or a save met text archives whose JSON and member both changed
+/// since the last build; nothing was written; `problems` holds one error per archive, file
+/// `expanded/textArchives/NNNN.json`, source `"build"`; `resolve_text_conflicts` decides) or
+/// `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
-/// `problems` is `[]` unless `code` is `"compile"`.
+/// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`.
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
     pub code: &'static str,
@@ -57,6 +62,9 @@ impl From<KernelError> for CmdError {
                     .collect(),
             };
         }
+        if let KernelError::TextConflict(archives) = &e {
+            return CmdError::text_conflict(archives);
+        }
         let (code, asset) = match &e {
             KernelError::Stale(id) => ("stale", Some(*id)),
             KernelError::ReadOnly { asset, .. } => ("read_only", Some(*asset)),
@@ -88,6 +96,43 @@ impl From<String> for CmdError {
 }
 
 impl CmdError {
+    /// Text archives changed as JSON and as member since the last build: one error problem
+    /// per archive (source `"build"`, no position), with German sentences, as the save and the
+    /// build return them before they write anything.
+    fn text_conflict(archives: &[u16]) -> Self {
+        let message = match archives {
+            [one] => format!(
+                "Textarchiv {one:04} wurde als Text (JSON) und als Spieldatei geändert; \
+                 wähle, welche Fassung gilt."
+            ),
+            _ => format!(
+                "{} Textarchive wurden als Text (JSON) und als Spieldatei geändert; \
+                 wähle je Archiv, welche Fassung gilt.",
+                archives.len()
+            ),
+        };
+        CmdError {
+            code: "text_conflict",
+            message,
+            asset: None,
+            problems: archives
+                .iter()
+                .map(|&n| ProblemDto {
+                    severity: "error",
+                    file: format!("expanded/textArchives/{n:04}.json"),
+                    line: 0,
+                    col: 0,
+                    message: format!(
+                        "Textarchiv {n:04} wurde als Text (JSON) und als Spieldatei geändert, \
+                         seit das Studio es zuletzt gebaut hat. Wähle, welche Fassung gilt."
+                    ),
+                    source: "build",
+                    check: None,
+                })
+                .collect(),
+        }
+    }
+
     /// A wizard command failed after it had created members; `message` names them.
     pub fn partial(message: String) -> Self {
         CmdError {
@@ -228,6 +273,40 @@ mod tests {
         let empty = CmdError::from(KernelError::Compile(Vec::new()));
         assert_eq!(empty.code, "error");
         assert!(!empty.message.starts_with("0 Fehler"), "{}", empty.message);
+    }
+
+    #[test]
+    fn text_conflict_maps_to_one_build_problem_per_archive() {
+        let err = CmdError::from(KernelError::TextConflict(vec![12, 433]));
+        assert_eq!(err.code, "text_conflict");
+        assert!(err.asset.is_none());
+        assert_eq!(
+            err.message,
+            "2 Textarchive wurden als Text (JSON) und als Spieldatei geändert; wähle je Archiv, welche Fassung gilt."
+        );
+        let files: Vec<_> = err.problems.iter().map(|p| p.file.as_str()).collect();
+        assert_eq!(
+            files,
+            [
+                "expanded/textArchives/0012.json",
+                "expanded/textArchives/0433.json"
+            ]
+        );
+        for p in &err.problems {
+            assert_eq!(
+                (p.severity, p.source, p.line, p.col),
+                ("error", "build", 0, 0)
+            );
+        }
+        assert_eq!(
+            err.problems[0].message,
+            "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert, seit das Studio es zuletzt gebaut hat. Wähle, welche Fassung gilt."
+        );
+        let one = CmdError::from(KernelError::TextConflict(vec![7]));
+        assert_eq!(
+            one.message,
+            "Textarchiv 0007 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt."
+        );
     }
 
     #[test]

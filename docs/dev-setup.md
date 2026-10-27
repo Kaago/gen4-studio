@@ -439,6 +439,20 @@ G4_WORLD_DUMP="$PWD/target/agent/world-dump" \
 
 Der Pfad in `G4_WORLD_DUMP` muss absolut sein; die Ordner heißen `3e-pt` (Platin DE, `CPUD`), `3e-hgd` (HeartGold DE, `IPKD`) und `3e-hgu` (HeartGold US, `IPKE`). Geprüft wird je Projekt: die Weltkarten (Platin genau „Sinnoh“, HeartGold/SoulSilver „Johto“ und „Kanto“), mindestens 90 % der Räume einem Gebiet zugeordnet, jeder Header genau einmal im Baum, `buildWorld` unter 200 ms; dazu bei Platin Großmoor und Kampfzone unter „Weitere Gebiete“ und alle Räume des Kraterbergs unter einem Gebiet (mindestens einer unter einem anderen Ort, seinem Eingang), bei HeartGold/SoulSilver die Safari-Zone unter „Weitere Gebiete“. Gemessen (Brücke, frische Kopien): Platin 482 von 492 Räumen zugeordnet, HeartGold/SoulSilver je 427 von 448, `buildWorld` jeweils unter 5 ms.
 
+#### Build-Graph (4.2)
+
+Der Build läuft nur die Schritte, deren Eingaben sich geändert haben (`rotom`, `chatot`, je Archiv `pack:<Ordner>`, `watch:<Ordner>`, `rom`; der ROM-Schritt liefert `blz:arm9`, `blz:overlays`, `rom`, `crc`). Seinen Zustand legt er unter `<Projekt>/.g4/build/` ab: `state.json` (die Fingerabdrücke der Eingaben und Ausgaben je Schritt und der Textabgleich JSON gegen Member, Format in [docs/formats/build_state.md](formats/build_state.md)) und `blz/` (die komprimierten ARM9- und Overlay-Dateien). Der Ordner ist Cache: Ohne ihn baut der Build alles voll und byte-gleich; nur Texte, deren JSON und Member sich beide geändert haben, gelten dann ohne Rückfrage in der JSON-Fassung (der Build meldet das als Hinweis).
+
+```sh
+cargo build --workspace --all-features
+target/debug/g4k build <Kopie> --out <Kopie>/out.nds --timings    # eine JSON-Zeile: {"ms", "rom", "steps": [{id, status, ms, done, total, cached, reason}]}
+target/debug/g4k build <Kopie> --out <Kopie>/out.nds --no-cache   # löscht .g4/build/ zuerst, alle Schritte laufen voll
+```
+
+`--timings` schreibt statt der Textzeilen genau eine JSON-Zeile auf stdout (Probleme weiter auf stderr); `status` ist `skipped`, `incremental` oder `full`, `reason` nennt bei einem vollen Lauf den Grund (`no-state`, `build.cache-stale` nach einem Werkzeugwechsel, `output-changed`, `removed`; bei `crc` `no-base-mark`). In der App entspricht `--no-cache` dem Befehl `build_rom` mit `fresh: true`. Ein Textkonflikt (JSON und Member beide geändert) bricht `g4k build` mit der Meldung „text archives changed as JSON and as member since the last build: …“ ab; in der App und über MCP ist das der Fehler `text_conflict`, aufgelöst mit `resolve_text_conflicts`.
+
+Der gated Test `build_timings_prints_one_json_line` (`crates/g4-kernel/tests/cli.rs`, auf `vanilla_copy()`) baut die Kopie zweimal mit `--timings`: Die Ausgabe ist je eine JSON-Zeile mit dem Schritt `rom`, der beim ersten Mal voll läuft und beim zweiten Mal übersprungen wird. `build_no_cache_removes_the_state_first` prüft `--no-cache` ohne ROM-Daten.
+
 ## Design-System und Tokens
 
 Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.

@@ -12,6 +12,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::resolve_text_conflicts;
 use commands::split_room;
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
@@ -127,6 +128,7 @@ pub fn run() {
             run_rom,
             reload_asset,
             accept_disk,
+            resolve_text_conflicts,
             force_quit,
             data_list,
             data_get,

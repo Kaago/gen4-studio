@@ -1,11 +1,13 @@
 import type { CheckProblemDto, ProblemDto } from "../../api";
+import { findingText } from "../../checks/messages";
 import type { NavTarget } from "../navigation";
 import { id4 } from "../terms";
 
 /**
  * Where a problem comes from: the last save or build (`compile`), a text archive (`text`), the language server of the shown document
- * (`live`), a trainer's battle texts (`trainer`), the project checks (`check`); `encounter` is the source a data document gives the rules
- * of an encounter file, which the checks (`encounter.*`) report now.
+ * (`live`), a trainer's battle texts (`trainer`), the project checks (`check`), the build itself (`build`: the no-state hint, a hidden
+ * file, a text conflict); `encounter` is the source a data document gives the rules of an encounter file, which the checks
+ * (`encounter.*`) report now.
  */
 export type ProblemSource = ProblemDto["source"] | "live";
 
@@ -29,6 +31,29 @@ const SCRIPT_PATH = /^expanded\/scripts\/(\d+)\.(rotom|json)$/;
 const TEXT_PATH = /^expanded\/textArchives\/(\d+)\.json$/;
 const ENCOUNTER_PATH = /^encounters\/(\d+)$/;
 const TRAINER_PATH = /^trainers\/(\d+)$/;
+
+/** The file of the build's hint that text archives had no build state (the kernel's `NO_STATE_HINT_FILE`). */
+export const NO_STATE_HINT_FILE = ".g4/build/state.json";
+const NO_STATE_HINT = /^(\d+) text archives? without build state/;
+/** How the build's problem for a hidden file below `files/` begins (the code of the check `build.hidden-file`). */
+const HIDDEN_FILE_PREFIX = "build.hidden-file: ";
+
+/**
+ * The German sentence of a build row (source `build`): the no-state hint („3 Textarchive ohne Bauzustand: die JSON-Fassung gilt.“) and a
+ * hidden file (the sentence of the check `build.hidden-file`) from the kernel's English; any other message (a text conflict, which the
+ * backend words in German) as it is.
+ */
+export function buildProblemText(row: Pick<ProblemDto, "file" | "message">): string {
+  if (row.message.startsWith(HIDDEN_FILE_PREFIX)) {
+    return findingText({ code: "build.hidden-file", key: row.file, args: [row.file], message: row.message }, "bauen");
+  }
+  const hint = row.file === NO_STATE_HINT_FILE ? NO_STATE_HINT.exec(row.message) : null;
+  if (hint) {
+    const count = Number(hint[1]);
+    return `${count} ${count === 1 ? "Textarchiv" : "Textarchive"} ohne Bauzustand: die JSON-Fassung gilt.`;
+  }
+  return row.message;
+}
 
 /** The project-relative path of a script file's source (`.json` for a level script). */
 export function scriptPath(file: number, kind: "script" | "levelScript"): string {
@@ -131,9 +156,13 @@ export class ProblemsStore {
     return problems.map((p) => ({ severity: p.severity, file: p.file, line: p.line, col: p.col, message: p.message, source }));
   }
 
-  /** Replaces the compile problems of one file (an empty list clears it). */
+  /** Replaces the compile problems of one file (an empty list clears it); the build's own rows keep their source `build`. */
   replaceForFile(file: string, problems: readonly ProblemDto[]): void {
-    this.set(this.compile, file, ProblemsStore.rows(problems, "compile"));
+    this.set(
+      this.compile,
+      file,
+      problems.map((p) => ({ severity: p.severity, file: p.file, line: p.line, col: p.col, message: p.message, source: p.source === "build" ? "build" : "compile" })),
+    );
   }
 
   /** Replaces the warnings of one text archive (an empty list clears it). */
@@ -194,11 +223,13 @@ export class ProblemsStore {
 
   /**
    * Takes the problems of a build that succeeded. Any script that does not compile stops the build, so no compile error
-   * is left: the error rows of files the report does not name are stale and go. Warnings stay (a file that was not
+   * is left: the error rows (and the build's hints) of files the report does not name are stale and go. Warnings stay (a file that was not
    * stale is not compiled again, so its warnings are not reported again); a file the report names is replaced as a whole.
    */
   applyBuildReport(problems: readonly ProblemDto[]): void {
-    for (const [file, rows] of [...this.compile]) this.replaceForFile(file, rows.filter((r) => r.severity === "warning").map((r) => ({ ...r, source: "compile" as const })));
+    for (const [file, rows] of [...this.compile]) {
+      this.replaceForFile(file, rows.filter((r) => r.severity === "warning").map((r) => ({ ...r, source: r.source === "build" ? "build" : "compile" })));
+    }
     this.applyReport(problems);
   }
 

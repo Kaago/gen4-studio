@@ -109,6 +109,7 @@ pub const COMMANDS: &[&str] = &[
     "run_rom",
     "reload_asset",
     "accept_disk",
+    "resolve_text_conflicts",
     "force_quit",
     "data_list",
     "data_get",
@@ -456,12 +457,12 @@ pub fn dispatch(
         "history" => run!(json, "history", args, {}, |_a| history_impl(state)),
         "dirty" => run!(json, "dirty", args, {}, |_a| dirty_impl(state)),
         "save" => run!(json, "save", args, {}, |_a| save_impl(state)),
-        "build_rom" => run!(json, "build_rom", args, { out: String }, |a| {
+        "build_rom" => run!(json, "build_rom", args, { out: String, fresh: Option<bool> }, |a| {
             let out = policy.check_output(&a.out)?;
             let out = out
                 .to_str()
                 .ok_or_else(|| CmdError::from(format!("Pfad ist kein gültiger Text: {}", a.out)))?;
-            build_rom_impl(state, out)
+            build_rom_impl(state, out, a.fresh.unwrap_or(false))
         }),
         "run_rom" => run!(
             json, "run_rom", args,
@@ -485,6 +486,11 @@ pub fn dispatch(
             json, "accept_disk", args,
             { kind: AssetKind, index: u16 },
             |a| accept_disk_impl(state, a.kind, a.index)
+        ),
+        "resolve_text_conflicts" => run!(
+            json, "resolve_text_conflicts", args,
+            { choices: Vec<TextChoice> },
+            |a| resolve_text_conflicts_impl(state, a.choices)
         ),
         "force_quit" => Ok(Reply::Json(Value::Null)),
         "data_list" => run!(
@@ -905,6 +911,10 @@ mod tests {
             ("run_rom", json!({ "emulator": "emu", "rom": "rom.nds" })),
             ("reload_asset", json!({ "kind": "Event", "index": 0 })),
             ("accept_disk", json!({ "kind": "Event", "index": 0 })),
+            (
+                "resolve_text_conflicts",
+                json!({ "choices": [{ "archive": 433, "keep": "json" }] }),
+            ),
             ("force_quit", json!({})),
             (
                 "data_list",

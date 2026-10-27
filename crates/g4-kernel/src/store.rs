@@ -2444,6 +2444,11 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.locked.as_deref())
     }
 
+    /// Whether the store holds `id` (it was read, edited or created since it was opened).
+    pub fn is_loaded(&self, id: AssetId) -> bool {
+        self.assets.contains_key(&id)
+    }
+
     /// True if the serialized current value differs from the bytes last saved or loaded,
     /// or cannot be serialized. Assets that were never loaded, and locked (read-only) ones,
     /// are clean.

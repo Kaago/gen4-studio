@@ -16,6 +16,7 @@ import {
   addScript,
   adoptScripts,
   assignPlace,
+  buildRom,
   createArea,
   createPlace,
   createRoom,
@@ -37,18 +38,22 @@ import {
   lspStop,
   readScript,
   resolveScript,
+  resolveTextConflicts,
   saveLevelScript,
   saveScript,
   scriptsStatus,
   searchText,
   setHeader,
   splitRoom,
+  textConflictArchives,
   updateBuilding,
   validateText,
   worldMetaGet,
   worldMetaSet,
   type AreaReport,
   type AreaSpec,
+  type BuildReport,
+  type CmdError,
   type MapHeader,
   type MapHeaderHGSS,
   type MapHeaderPt,
@@ -72,6 +77,11 @@ describe("isCmdError", () => {
     expect(isCmdError(error)).toBe(true);
     expect(isCmdError({ ...error, problems: [] })).toBe(true);
     expect(isCmdError({ ...error, problems: "none" })).toBe(false);
+  });
+
+  it("accepts the text_conflict code with its problems", () => {
+    const problem = { severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "m", source: "build" };
+    expect(isCmdError({ code: "text_conflict", message: "m", asset: null, problems: [problem] })).toBe(true);
   });
 
   it("rejects objects of the wrong shape", () => {
@@ -405,5 +415,51 @@ describe("script commands", () => {
       ["split_room", { header: 7, name: "Haus" }],
       ["split_room", { header: 8, name: null }],
     ]);
+  });
+});
+
+describe("build commands", () => {
+  beforeEach(() => invoke.mockReset());
+
+  it("buildRom_sends_fresh", async () => {
+    const report: BuildReport = {
+      saved: 0,
+      packed: [],
+      rom: "/p/out.nds",
+      compiled: [],
+      encoded: [],
+      problems: [],
+      steps: [{ id: "rom", status: "skipped", ms: 0, done: 0, total: 0, cached: 0, reason: null }],
+      ms: 12,
+    };
+    invoke.mockResolvedValue(report);
+    await expect(buildRom("/p/out.nds")).resolves.toEqual(report);
+    await buildRom("/p/out.nds", true);
+    expect(invoke.mock.calls).toEqual([
+      ["build_rom", { out: "/p/out.nds", fresh: false }],
+      ["build_rom", { out: "/p/out.nds", fresh: true }],
+    ]);
+  });
+
+  it("resolveTextConflicts_sends_the_choices", async () => {
+    invoke.mockResolvedValue([12, 433]);
+    const choices = [
+      { archive: 12, keep: "json" as const },
+      { archive: 433, keep: "member" as const },
+    ];
+    await expect(resolveTextConflicts(choices)).resolves.toEqual([12, 433]);
+    expect(invoke).toHaveBeenCalledWith("resolve_text_conflicts", { choices });
+  });
+
+  it("textConflictArchives_reads_the_problem_files", () => {
+    const problem = (file: string) => ({ severity: "error" as const, file, line: 0, col: 0, message: "m", source: "build" as const });
+    const error: CmdError = {
+      code: "text_conflict",
+      message: "m",
+      asset: null,
+      problems: [problem("expanded/textArchives/0012.json"), problem("expanded/textArchives/0433.json"), problem("files/.DS_Store")],
+    };
+    expect(textConflictArchives(error)).toEqual([12, 433]);
+    expect(textConflictArchives({ ...error, problems: undefined })).toEqual([]);
   });
 });

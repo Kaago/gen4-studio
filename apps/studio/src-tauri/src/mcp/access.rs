@@ -106,6 +106,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
     ("reload_asset", Kind::Write),
     ("accept_disk", Kind::Write),
+    (
+        "resolve_text_conflicts",
+        Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben"),
+    ),
     ("force_quit", APP_ONLY),
     ("data_list", Kind::Read),
     ("data_get", Kind::Read),
@@ -327,6 +331,10 @@ mod tests {
                 (
                     "repair_header_patch",
                     Kind::Irreversible("Header-Patch reparieren")
+                ),
+                (
+                    "resolve_text_conflicts",
+                    Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
                 ),
                 ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
             ]
@@ -562,6 +570,33 @@ mod tests {
             ),
             Class::Read
         );
+    }
+
+    #[test]
+    fn resolve_text_conflicts_needs_a_confirmation() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let class = classify(
+            "resolve_text_conflicts",
+            &json!({ "choices": [{ "archive": 12, "keep": "json" }] }),
+            &policy,
+        );
+        assert_eq!(
+            class,
+            Class::Irreversible("Eine Fassung eines Textarchivs überschreiben".to_owned())
+        );
+        let writer = Access {
+            write: true,
+            irreversible: false,
+            expert: false,
+        };
+        let e = refused("resolve_text_conflicts", &class, writer);
+        assert_eq!(e.code, "needs_confirmation");
+        let confirmed = Access {
+            irreversible: true,
+            ..writer
+        };
+        assert!(admit("resolve_text_conflicts", &class, &confirmed).is_ok());
     }
 
     fn refused(command: &str, class: &Class, access: Access) -> CmdError {
