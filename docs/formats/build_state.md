@@ -112,14 +112,18 @@ Außer dem Build schreibt nur die Liste „geändert gegenüber Original“
 vergleicht die Member jedes Ordners unter `unpacked/` mit den Membern der Basis-ROM und nimmt dafür
 den Hash aus `steps["pack:<Ordner>"].inputs`. Je Member-Datei gilt:
 
-- `stat` gleich dem aufgezeichneten und Hash vorhanden: der aufgezeichnete Hash, die Datei wird
-  nicht gelesen.
+- `stat` gleich dem aufgezeichneten, der Eintrag nicht racy und Hash vorhanden: der aufgezeichnete
+  Hash, die Datei wird nicht gelesen.
 - `stat` gleich, kein Hash und der Eintrag nicht racy (gegen `scanned_at_ns` seines Schritts): die
   Datei wird gehasht, und der Hash wird vorgemerkt, wenn ihr `stat` nach dem Hashen noch derselbe
   ist.
 - Jeder andere Fall (anderer `stat`, eine Datei ohne Eintrag): gehasht, **nicht** vorgemerkt. Die
   Datei wurde seit dem Build geändert; ein Hash in ihrem Eintrag ließe den nächsten Build das
   Packen überspringen, wenn er den neuen `stat` per Hash als gleich ansähe.
+
+Ein racy aufgezeichneter Eintrag wird wie in `fingerprint::compare` bei jedem Vergleich gehasht,
+mit oder ohne Hash, bis der nächste Build ihn neu aufzeichnet, und bekommt nie einen
+nachgetragenen Hash.
 
 Die vorgemerkten Hashes gehen in **einem** `BuildState::update` in die Datei, jeder nur dort, wo
 der Eintrag dann noch genau den gesehenen `stat` trägt, keinen Hash hat und nicht racy ist; ist

@@ -9,6 +9,8 @@ use std::time::Instant;
 
 use g4_formats::data::encounter::Encounters;
 use g4_kernel::base::BaseRom;
+use g4_kernel::build::is_racy;
+use g4_kernel::build::state::BuildState;
 use g4_kernel::dynamic_headers;
 use g4_kernel::original::{
     ChangedReport, ResetTarget, changed_from_original, header_fields, plan_reset, reset,
@@ -515,8 +517,38 @@ fn labels(report: &ChangedReport) -> Vec<String> {
     report.entries.iter().map(|e| e.label.clone()).collect()
 }
 
+/// The member files the build recorded racy for their scan, of the `pack:<folder>` steps the
+/// list compares: those it hashes on every comparison, without filling a hash in.
+fn racy_members(project: &Project) -> u32 {
+    let skipped = dynamic_headers::is_applied(project)
+        .unwrap()
+        .then(|| project.archives.unpacked_name(AssetKind::DynamicHeaders));
+    let state = BuildState::load(&project.root);
+    let mut racy = 0;
+    for (id, step) in &state.steps {
+        let Some(folder) = id.strip_prefix("pack:") else {
+            continue;
+        };
+        if Some(folder) == skipped {
+            continue;
+        }
+        let prefix = format!("unpacked/{folder}/");
+        racy += step
+            .inputs
+            .iter()
+            .filter(|(key, fp)| {
+                key.strip_prefix(&prefix)
+                    .is_some_and(|n| n.len() == 4 && n.bytes().all(|b| b.is_ascii_digit()))
+                    && is_racy(fp, step.scanned_at_ns)
+            })
+            .count() as u32;
+    }
+    racy
+}
+
 /// After a build of a vanilla copy nothing differs; a second comparison reads no member file
-/// (the first one filled the missing hashes in) within the gate; an edited map and trainer are
+/// but those recorded racy (the first one filled the missing hashes of the others in) within
+/// the gate; an edited map and trainer are
 /// listed without another build (their `stat` differs from the build's), the map no longer
 /// once it is reset to the base and saved.
 #[test]
@@ -559,12 +591,19 @@ fn changed_list_after_edits_names_them_and_after_reset_not() {
         "a vanilla copy differs from its base: {:?}",
         first.entries.iter().take(10).collect::<Vec<_>>()
     );
+    let racy = racy_members(&project);
+    assert_eq!(
+        first.hashed,
+        first.recorded + racy,
+        "unbuilt: {:?}",
+        first.unbuilt
+    );
     let second = compare();
     println!(
-        "changed {} first_ms={} second_ms={} files={} recorded={}",
+        "changed {} first_ms={} second_ms={} files={} recorded={} racy={racy}",
         project.game_code, first.ms, second.ms, first.files, first.recorded
     );
-    assert_eq!(second.hashed, 0, "unbuilt: {:?}", second.unbuilt);
+    assert_eq!(second.hashed, racy, "unbuilt: {:?}", second.unbuilt);
     assert_eq!(second.recorded, 0);
     assert!(second.entries.is_empty());
     assert!(second.ms <= SECOND_MS, "second comparison {} ms", second.ms);

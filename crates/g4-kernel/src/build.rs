@@ -28,7 +28,7 @@ pub mod step;
 mod steps;
 
 pub use blz::{BlzCount, BlzReport};
-pub use fingerprint::Fp;
+pub use fingerprint::{Fp, is_racy};
 pub use step::{StepReport, StepStatus};
 pub use steps::NO_STATE_HINT_FILE;
 pub(crate) use steps::pack_entries;
