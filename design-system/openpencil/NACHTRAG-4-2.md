@@ -45,5 +45,6 @@ Nur diese Teile sind neu; alles andere (Rahmen, Atlas, Liste „Technik“, Stat
 
 - „Übersprungen“ offen mit allen 38 Zeilen: der Abschnitt ist im Standard zu, die drei Zeilen im Brett genügen.
 - Die Meldungen als Toast: „ROM gebaut: … in 0,33 s (…)“, „Nichts gebaut. Beim nächsten „Bauen“ fragt das Studio wieder, welche Fassung gilt.“, der zweite Konflikt nach dem Auflösen, der Konflikt beim Speichern und die versteckten Dateien. Sie nutzen den vorhandenen Baustein Meldung.
-- Die Zustände der Schritte nach „Neu bauen (ohne Cache)“ (alle Zeilen „(erster Build, voll)“) und nach einem Werkzeugwechsel („(neues Werkzeug, voll gebaut)“): Sie unterscheiden sich nur im Text.
+- Die Zustände der Schritte nach „Neu bauen (ohne Cache)“ (alle Zeilen „(ohne Cache, voll)“), ohne Bauzustand („(erster Build, voll)“) und nach einem Werkzeugwechsel („(neues Werkzeug, voll gebaut)“): Sie unterscheiden sich nur im Text.
+- Der wartende Konflikt-Dialog (Tasten und Wahl gesperrt, darunter die Info „Die gewählten Fassungen werden übernommen, danach startet der Build …“): gesperrte Tasten, gesperrtes `Segmented` und `Notice` haben ihre Zustände schon in der Datei.
 - Dunkel und Kompakt: Die Bausteine `Table`, `Section`, `Segmented` und `Dialog` haben ihre Zustände schon in der Datei.

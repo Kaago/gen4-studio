@@ -76,13 +76,14 @@ describe("FixDialog", () => {
     });
     vi.mocked(checks.planFix).mockResolvedValue({
       changes: [],
-      files: [{ path: "files/x/.DS_Store", to: ".g4/backup/hidden-20261027-101500/files/x/.DS_Store" }],
+      files: [{ path: "files/x/.DS_Store", to: ".g4/backup/hidden-<time>/files/x/.DS_Store" }],
       irreversible: true,
     });
     await show(hidden);
     expect(checks.planFix).toHaveBeenCalledWith(hidden, "remove_hidden");
     const files = [...dialog().querySelectorAll("[data-fix-file]")].map((li) => li.textContent);
-    expect(files).toEqual(["files/x/.DS_Store → .g4/backup/hidden-20261027-101500/files/x/.DS_Store"]);
+    // The folder's time is taken when the file moves (UTC): the plan names none.
+    expect(files).toEqual(["files/x/.DS_Store → .g4/backup/hidden-<UTC-Zeitpunkt>/files/x/.DS_Store"]);
     expect(dialog().textContent).toContain("Nicht rückgängig");
     await click(button("Entfernen"));
     expect(checks.applyFix).toHaveBeenCalledWith(hidden, "remove_hidden");

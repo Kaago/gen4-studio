@@ -3,8 +3,7 @@ import type { BuildStep } from "../api";
 import type { Depth } from "../ui/frame/shellState";
 import { Section, Table } from "../ui/primitives";
 import type { TableColumn, TableRow } from "../ui/primitives";
-// With its extension: on a case-insensitive disk (macOS) "./buildSteps" and "./BuildSteps" would both find buildSteps.ts first.
-import { WATCH_PREFIX, formatSeconds, stepLabel } from "./buildSteps.ts";
+import { WATCH_PREFIX, formatSeconds, stepLabel } from "./stepWords";
 import styles from "./BuildSteps.module.css";
 
 export type BuildStepsProps = {
@@ -12,6 +11,8 @@ export type BuildStepsProps = {
   steps: readonly BuildStep[];
   /** Tüfteln shows each step's identifier beside its words. */
   depth: Depth;
+  /** The build was started with „Neu bauen (ohne Cache)“: a step without state ran fully for that, not as a first build. */
+  fresh?: boolean;
 };
 
 const COLUMNS: readonly TableColumn[] = [
@@ -20,9 +21,9 @@ const COLUMNS: readonly TableColumn[] = [
   { key: "time", label: "Dauer", width: 96, align: "end" },
 ];
 
-function rowsOf(steps: readonly BuildStep[], depth: Depth): TableRow[] {
+function rowsOf(steps: readonly BuildStep[], depth: Depth, fresh: boolean): TableRow[] {
   return steps.map((step) => {
-    const { name, result } = stepLabel(step, depth);
+    const { name, result } = stepLabel(step, depth, fresh);
     return {
       key: step.id,
       attrs: { "data-step": step.id, "data-status": step.status },
@@ -44,7 +45,7 @@ function rowsOf(steps: readonly BuildStep[], depth: Depth): TableRow[] {
  * The steps of the last build (spec 4.2 „Anzeige“): the ones that ran as a table (Schritt, Ergebnis, Dauer), below them the folded
  * section „Übersprungen (N)“ with a row per skipped step. Steps that only watch a folder are not shown.
  */
-export function BuildSteps({ steps, depth }: BuildStepsProps) {
+export function BuildSteps({ steps, depth, fresh = false }: BuildStepsProps) {
   const [open, setOpen] = useState(false);
   const shown = steps.filter((s) => !s.id.startsWith(WATCH_PREFIX));
   const ran = shown.filter((s) => s.status !== "skipped");
@@ -53,7 +54,7 @@ export function BuildSteps({ steps, depth }: BuildStepsProps) {
     <div className={styles.steps} data-build-steps="">
       {ran.length > 0 ? (
         <div className={styles.table}>
-          <Table columns={COLUMNS} rows={rowsOf(ran, depth)} ariaLabel="Schritte des letzten Builds" />
+          <Table columns={COLUMNS} rows={rowsOf(ran, depth, fresh)} ariaLabel="Schritte des letzten Builds" />
         </div>
       ) : (
         <p className={styles.text}>Kein Schritt lief: alles war aktuell.</p>
@@ -61,7 +62,7 @@ export function BuildSteps({ steps, depth }: BuildStepsProps) {
       {skipped.length > 0 && (
         <div className={styles.table}>
           <Section title={`Übersprungen (${skipped.length})`} open={open} onToggle={() => setOpen((o) => !o)}>
-            <Table columns={COLUMNS} rows={rowsOf(skipped, depth)} ariaLabel="Übersprungene Schritte" />
+            <Table columns={COLUMNS} rows={rowsOf(skipped, depth, fresh)} ariaLabel="Übersprungene Schritte" />
           </Section>
         </div>
       )}

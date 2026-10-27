@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives } from "../api";
 import type { AssetId, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo, TextKeep } from "../api";
 import { staleText } from "../assets";
-import { formatSeconds } from "../technik/buildSteps.ts";
+import { formatSeconds } from "../technik/stepWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -55,8 +55,11 @@ function saveConflictText(e: CmdError): string {
 /** Ends a sentence of the backend with a full stop. */
 const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
 
-/** A build waiting for the user to choose which version of each archive in conflict applies; it then goes to `out` with the same `fresh`. */
-export type TextConflicts = { archives: number[]; out: string; fresh: boolean };
+/**
+ * A build waiting for the user to choose which version of each archive in conflict applies; it then goes to `out` with the same `fresh`.
+ * `play`: the build came from „Hier spielen“, so the ROM is started after it. `resolving`: the choice is being written (the dialog waits).
+ */
+export type TextConflicts = { archives: number[]; out: string; fresh: boolean; play: boolean; resolving: boolean };
 
 function forgetEmulator() {
   try {
@@ -95,6 +98,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
   /** The steps of the last build (null: none since this project was opened). */
   const [lastSteps, setLastSteps] = useState<BuildStep[] | null>(null);
+  /** Whether the last build was started with „Neu bauen (ohne Cache)“. */
+  const [lastBuildFresh, setLastBuildFresh] = useState(false);
+  /** The error texts the builds of this session showed: a successful build closes their toasts (errors stay until closed otherwise). */
+  const buildErrors = useRef(new Set<string>());
   /** A build stopped by text archives in conflict: the dialog asks, `resolveConflicts` builds again. */
   const [textConflicts, setTextConflicts] = useState<TextConflicts | null>(null);
   /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
@@ -231,6 +238,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setLastRom(null);
       setLastBuiltAt(null);
       setLastSteps(null);
+      setLastBuildFresh(false);
       setTextConflicts(null);
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
@@ -308,10 +316,11 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   /**
    * Builds the ROM (saving first). Without `known` the output path is asked for; with it (the path of an earlier build) no dialog opens.
-   * `fresh` („Neu bauen (ohne Cache)“) drops the build state first, so every step runs fully. Resolves to the ROM's path, or null when
-   * nothing was built (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
+   * `fresh` („Neu bauen (ohne Cache)“) drops the build state first, so every step runs fully. `play`: the build of „Hier spielen“ (kept
+   * with a text conflict, so the caller of `resolveConflicts` can start the ROM). Resolves to the ROM's path, or null when nothing was built
+   * (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
    */
-  async function onBuild(known?: string, fresh = false): Promise<string | null> {
+  async function onBuild(known?: string, fresh = false, play = false): Promise<string | null> {
     let out: string | null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
@@ -321,11 +330,23 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       return null;
     }
     if (!out) return null;
-    return buildTo(out, fresh, false);
+    return buildTo(out, fresh, play, false);
+  }
+
+  /** Shows an error of a build; the next successful build closes its toast. */
+  function buildError(shown: Message) {
+    buildErrors.current.add(shown.text);
+    setMessage(shown);
+  }
+
+  /** Closes the error toasts of earlier builds that are still open: the build they were about went through now. */
+  function closeBuildErrors() {
+    for (const shown of listToasts()) if (shown.kind === "error" && buildErrors.current.has(shown.text)) toast.dismiss(shown.id);
+    buildErrors.current.clear();
   }
 
   /** Saves and builds to `out`. `resolved`: the build after a text conflict was resolved; a conflict now asks no second time. */
-  async function buildTo(out: string, fresh: boolean, resolved: boolean): Promise<string | null> {
+  async function buildTo(out: string, fresh: boolean, play: boolean, resolved: boolean): Promise<string | null> {
     let built: string | null = null;
     try {
       setBusy(true);
@@ -341,7 +362,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setLastRom(report.rom);
       setLastBuiltAt(Date.now());
       setLastSteps(report.steps);
+      setLastBuildFresh(fresh);
       problems.applyBuildReport(report.problems);
+      closeBuildErrors();
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} in ${formatSeconds(report.ms)} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
@@ -352,7 +375,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
         const hidden = list.some((p) => p.severity === "error" && (p.source === "build" || p.message.startsWith("build.hidden-file")));
         const actions = onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined;
         // Spec 5.7: the one toast a compile problem gets. The problems themselves go to the store and its counts.
-        setMessage(
+        buildError(
           hidden
             ? { kind: "error", text: sentence(e.message), actions }
             : errors > 0
@@ -364,12 +387,14 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
         if (resolved) {
           // Changed again since the choice (or another archive): no loop of questions; the next „Bauen“ asks afresh.
           const verb = archives.length === 1 ? "ist" : "sind";
-          setMessage({ kind: "error", text: `Build abgebrochen: ${archivesText(archives)} ${verb} nach dem Auflösen wieder auf beiden Seiten geändert. Baue erneut, dann fragt das Studio noch einmal.` });
+          buildError({ kind: "error", text: `Build abgebrochen: ${archivesText(archives)} ${verb} nach dem Auflösen wieder auf beiden Seiten geändert. Baue erneut, dann fragt das Studio noch einmal.` });
         } else {
           setMessage(null);
-          setTextConflicts({ archives, out, fresh });
+          setTextConflicts({ archives, out, fresh, play, resolving: false });
         }
       } else {
+        // The plain error of a build (a stale or locked asset of the save keeps its own words and way out).
+        buildErrors.current.add(errorText(e));
         fail(e);
       }
     } finally {
@@ -381,24 +406,30 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   /**
    * „Übernehmen und bauen“ of the text conflict: resolves each archive as chosen, then builds again to the same path with the same `fresh`.
-   * A refused resolve says why and builds nothing. Resolves to the ROM's path, or null when nothing was built.
+   * While the choice is written the dialog stays open and waits (`resolving`, the session is busy); it closes when the build starts. A refused
+   * resolve says why and builds nothing. Resolves to the ROM's path, or null when nothing was built; whether to start it is `play` of the
+   * conflict.
    */
   async function resolveConflicts(choices: { archive: number; keep: TextKeep }[]): Promise<string | null> {
     const pending = textConflicts;
-    setTextConflicts(null);
-    if (pending === null) return null;
+    if (pending === null || pending.resolving) return null;
+    setTextConflicts({ ...pending, resolving: true });
+    setBusy(true);
     let archives: number[];
     try {
       archives = await resolveTextConflicts(choices);
     } catch (e) {
+      setTextConflicts(null);
+      setBusy(false);
       fail(e);
       await refreshDirty();
       return null;
     }
+    setTextConflicts(null);
     // The text panel and the language server read the overwritten archives again.
     for (const archive of archives) bus.emit({ topic: "textData", archive });
     if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
-    return buildTo(pending.out, pending.fresh, true);
+    return buildTo(pending.out, pending.fresh, pending.play, true);
   }
 
   /** „Abbrechen“ of the text conflict: nothing is built, nothing is overwritten. */
@@ -457,6 +488,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     lastRom,
     lastBuiltAt,
     lastSteps,
+    lastBuildFresh,
     textConflicts,
     emulatorPath,
     counts,

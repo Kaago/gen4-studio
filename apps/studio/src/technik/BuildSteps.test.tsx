@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BuildStep } from "../api";
 import { visibleWords } from "../ui/visibleText";
-import { BuildSteps } from "./BuildSteps.tsx";
+import { BuildSteps } from "./BuildSteps";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

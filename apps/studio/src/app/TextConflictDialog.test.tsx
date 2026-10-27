@@ -76,4 +76,16 @@ describe("TextConflictDialog", () => {
     expect(onCancel).toHaveBeenCalledOnce();
     expect(onResolve).not.toHaveBeenCalled();
   });
+
+  it("waits_while_the_choice_is_written", () => {
+    act(() => root.render(<TextConflictDialog archives={[12]} onResolve={onResolve} onCancel={onCancel} busy />));
+    expect(button("Übernehmen und bauen")?.disabled).toBe(true);
+    expect(button("Abbrechen")?.disabled).toBe(true);
+    expect(option("Fassung von Textarchiv 0012", "Spieldatei")?.disabled).toBe(true);
+    expect(dialog()?.querySelector("[role=status]")?.textContent).toBe("Die gewählten Fassungen werden übernommen, danach startet der Build …");
+    // Escape does not cancel what is being written.
+    pressKey((document.activeElement as HTMLElement) ?? dialog()!, "Escape");
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(dialog()).not.toBeNull();
+  });
 });

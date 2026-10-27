@@ -3,7 +3,7 @@
   //   'schritte'  „App: Technik, Prüfen und Bauen mit Schritten“: Tasten „Bauen“, „Neu bauen (ohne Cache)“, „Starten“, „Letzter Build“ und „Pfad“,
   //               die Überschrift „Schritte“ mit der Tabelle der gelaufenen Schritte und „Übersprungen (38)“ eingeklappt, darunter „Probleme“
   //   'konflikt'  „App: Technik, Texte auf zwei Seiten geändert“: derselbe Screen vor dem Build (noch ohne Schritte), darüber der Dialog der Rückfrage
-  // Quellen: apps/studio/src/technik/{TechnikArea,BuildSteps}.tsx und .module.css, technik/buildSteps.ts (Wörter), app/TextConflictDialog.tsx,
+  // Quellen: apps/studio/src/technik/{TechnikArea,BuildSteps}.tsx und .module.css, technik/stepWords.ts (Wörter), app/TextConflictDialog.tsx,
   // ui/primitives/{Table,Section,Segmented,Dialog}.module.css; Plan docs/superpowers/plans/2026-10-27-phase-4-2-build-graph.md (Entscheidungen
   // „Anzeige“, „Neu bauen“, „Konflikt beim Bauen“); Texte aus design-system/README.md, Abschnitt „Nachtrag 4.2“. Beispielwerte aus HeartGold DE
   // nach einer Kartenänderung: „Karten packen: 1 Member eingesetzt“, „Overlays: 127 aus dem Cache“, „ROM schreiben 0,05 s“, „Übersprungen (38)“;

@@ -74,19 +74,20 @@ function ranResult(step: BuildStep): string {
   return step.status === "incremental" ? "teilweise neu gebaut" : "voll gebaut";
 }
 
-/** The addition for a step that ran fully with a reason; Bauen names no unknown reason, Tüfteln does. */
-function reasonText(reason: string, depth: Depth): string {
+/** The addition for a step that ran fully with a reason; Bauen names no unknown reason, Tüfteln does. After „Neu bauen (ohne Cache)“ no step has a state: that is no first build. */
+function reasonText(reason: string, depth: Depth, fresh: boolean): string {
+  if (fresh && reason === "no-state") return "ohne Cache, voll";
   return REASONS[reason] ?? (depth === "bauen" ? "voll gebaut" : `voll gebaut: ${reason}`);
 }
 
-/** Name and result of a build step in the words of Bauen or Tüfteln. */
-export function stepLabel(step: BuildStep, depth: Depth): { name: string; result: string } {
+/** Name and result of a build step in the words of Bauen or Tüfteln; `fresh`: the build was started with „Neu bauen (ohne Cache)“. */
+export function stepLabel(step: BuildStep, depth: Depth, fresh = false): { name: string; result: string } {
   const name = stepName(step.id, depth);
   if (step.id.startsWith("blz:")) return { name, result: blzResult(step) };
   if (step.status === "skipped") return { name, result: step.id === "rom" ? "aktuell" : "übersprungen" };
   if (step.id === "crc") return { name, result: crcResult(step) };
   const result = ranResult(step);
-  return { name, result: step.status === "full" && step.reason !== null ? `${result} (${reasonText(step.reason, depth)})` : result };
+  return { name, result: step.status === "full" && step.reason !== null ? `${result} (${reasonText(step.reason, depth, fresh)})` : result };
 }
 
 /** A duration in seconds with a decimal comma and two places („0,33 s“); under 10 ms „< 0,01 s“. */

@@ -22,6 +22,10 @@ type Phase =
 
 const UNSAVED_ARCHIVE = /^text archive (\d+) has unsaved changes/;
 
+/** The kernel's stand-in for the time a moved file's backup folder gets (UTC, taken when it moves), in the dialog's words. */
+const BACKUP_TIME = "<time>";
+const backupPath = (to: string) => to.replace(BACKUP_TIME, "<UTC-Zeitpunkt>");
+
 /**
  * A refusal: „Befund ist nicht mehr aktuell“ for a finding whose subject changed since it was found; „Erst speichern“ with „Speichern und
  * anlegen“ when creating a script meets an unsaved text archive (the compile rewrites text archives); else a German sentence with the way
@@ -121,7 +125,7 @@ export function FixDialog({ finding, checks, depth, onClose }: { finding: CheckP
             {plan.files && plan.files.length > 0 && (
               <ul className={styles.files}>
                 {plan.files.map((file) => (
-                  <li key={file.path} data-fix-file>{`${file.path} → ${file.to}`}</li>
+                  <li key={file.path} data-fix-file>{`${file.path} → ${backupPath(file.to)}`}</li>
                 ))}
               </ul>
             )}

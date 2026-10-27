@@ -16,7 +16,7 @@ import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice,
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
-import { BuildSteps } from "./BuildSteps.tsx";
+import { BuildSteps } from "./BuildSteps";
 import styles from "./TechnikArea.module.css";
 
 /** The entries of the list, each with its surface. */
@@ -44,6 +44,8 @@ export type TechnikAreaProps = {
   lastRom: string | null;
   /** The steps of the last build in this session; null before the first. */
   lastSteps: BuildStep[] | null;
+  /** The last build was started with „Neu bauen (ohne Cache)“ (its steps say so instead of „erster Build“). */
+  lastBuildFresh?: boolean;
   /** Builds the ROM (asks where to). */
   onBuild: () => void;
   /** „Neu bauen (ohne Cache)“: drops the build state, then builds every step fully (asks where to). */
@@ -172,7 +174,7 @@ function NoProject({ why, onOpenProject }: { why: string; onOpenProject: () => v
   return <EmptyState what="Kein Projekt geöffnet." why={why} action={{ label: "Projekt öffnen", onClick: onOpenProject }} />;
 }
 
-function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
+function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, lastSteps, lastBuildFresh = false, onBuild, onBuildFresh, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {
   const rows = useSyncExternalStore(problems.subscribe, problems.list);
   const counts = useSyncExternalStore(problems.subscribe, problems.counts);
   if (project === null) {
@@ -211,7 +213,7 @@ function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltA
         )}
       </dl>
       <h2 className={styles.heading}>Schritte</h2>
-      {lastSteps === null ? <p className={styles.text}>Noch kein Build in dieser Sitzung.</p> : <BuildSteps steps={lastSteps} depth={depth} />}
+      {lastSteps === null ? <p className={styles.text}>Noch kein Build in dieser Sitzung.</p> : <BuildSteps steps={lastSteps} depth={depth} fresh={lastBuildFresh} />}
       <h2 className={styles.heading}>Probleme</h2>
       {checks !== null && <Baseline checks={checks} rows={rows} />}
       {rows.length === 0 && checks === null ? (

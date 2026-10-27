@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { BuildStep } from "../api";
-import { formatSeconds, stepLabel } from "./buildSteps.ts";
+import { formatSeconds, stepLabel } from "./stepWords";
 
 const step = (id: string, over: Partial<BuildStep> = {}): BuildStep => ({ id, status: "full", ms: 0, done: 0, total: 0, cached: 0, reason: null, ...over });
 
-describe("buildSteps", () => {
+describe("stepWords", () => {
   it("labels_each_step_kind", () => {
     expect(stepLabel(step("rotom", { status: "incremental", done: 2, total: 412 }), "bauen")).toEqual({ name: "Scripts", result: "2 von 412 neu" });
     expect(stepLabel(step("chatot", { status: "incremental", done: 3, total: 724 }), "bauen")).toEqual({ name: "Texte", result: "3 kodiert" });
@@ -71,5 +71,13 @@ describe("buildSteps", () => {
     // The reasons of blz and crc are their result, not an addition.
     expect(stepLabel(step("crc", { reason: "no-base-mark" }), "bauen").result).toBe("keine Basis-Marke");
     expect(stepLabel(step("pack:maps", { status: "incremental", done: 1, total: 666 }), "bauen").result).toBe("1 Member eingesetzt");
+  });
+
+  it("after_a_build_without_cache_says_so_instead_of_first_build", () => {
+    expect(stepLabel(step("pack:maps", { done: 666, total: 666, reason: "no-state" }), "bauen", true).result).toBe("666 Member gepackt (ohne Cache, voll)");
+    expect(stepLabel(step("rom", { reason: "no-state" }), "tuefteln", true).result).toBe("geschrieben (ohne Cache, voll)");
+    // Other reasons keep their words; a skipped step is still skipped.
+    expect(stepLabel(step("pack:maps", { done: 666, total: 666, reason: "build.cache-stale" }), "bauen", true).result).toBe("666 Member gepackt (neues Werkzeug, voll gebaut)");
+    expect(stepLabel(step("rom", { status: "skipped" }), "bauen", true).result).toBe("aktuell");
   });
 });

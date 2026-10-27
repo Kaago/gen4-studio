@@ -136,7 +136,7 @@ export interface FixChangeDto {
   after: string;
 }
 
-/** A file a fix moves (`remove_hidden`): from `path` to `to`, both relative to the project („files/x/.DS_Store“ → „.g4/backup/hidden-…/files/x/.DS_Store“). */
+/** A file a fix moves (`remove_hidden`): from `path` to `to`, both relative to the project („files/x/.DS_Store“ → „.g4/backup/hidden-<time>/files/x/.DS_Store“; `<time>` stands for the folder's UTC time, taken when the file moves). */
 export interface FixFileChangeDto {
   path: string;
   to: string;

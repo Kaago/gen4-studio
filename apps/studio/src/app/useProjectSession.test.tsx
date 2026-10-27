@@ -13,6 +13,8 @@ import { NO_SCRIPTS, useScripts } from "../workbench/script/useScripts";
 import type { ScriptBridge, ScriptsController } from "../workbench/script/useScripts";
 import { useProjectSession } from "./useProjectSession";
 import type { ProjectSession } from "./useProjectSession";
+import { useToastMirror } from "./useToastMirror";
+import { listToasts, toast } from "../ui/frame/toasts";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -57,6 +59,7 @@ describe("useProjectSession with open scripts", () => {
   function Host() {
     const bridge = useRef<ScriptBridge>(NO_SCRIPTS);
     session = useProjectSession({ bus, problems, scripts: bridge, onShowProblems: showProblems });
+    useToastMirror(session.message, session.setMessage);
     scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
     bridge.current = scripts.bridge;
     return null;
@@ -97,6 +100,9 @@ describe("useProjectSession with open scripts", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    act(() => {
+      for (const shown of listToasts()) toast.dismiss(shown.id);
+    });
     // Also when a test failed before it got there: the next test starts without a chosen emulator.
     localStorage.removeItem("g4.emulatorPath");
   });
@@ -316,6 +322,7 @@ describe("useProjectSession with open scripts", () => {
     vi.mocked(buildRom).mockResolvedValue(report({ steps: STEPS, ms: 330 }));
     await build();
     expect(session.lastSteps).toEqual(STEPS);
+    expect(session.lastBuildFresh).toBe(false);
     expect(session.message?.text).toBe("ROM gebaut: /out.nds in 0,33 s (0 Datei(en) vorher gespeichert)");
     expect(session.lastRom).toBe("/out.nds");
     expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
@@ -327,6 +334,34 @@ describe("useProjectSession with open scripts", () => {
     expect(session.lastSteps).toBeNull();
   });
 
+  it("a_build_without_cache_is_remembered_for_its_steps_until_the_next_build", async () => {
+    await act(async () => void (await session.onBuild(undefined, true)));
+    expect(buildRom).toHaveBeenLastCalledWith("/out.nds", true);
+    expect(session.lastBuildFresh).toBe(true);
+    await build();
+    expect(session.lastBuildFresh).toBe(false);
+    await act(async () => void (await session.onBuild(undefined, true)));
+    vi.mocked(openProject).mockResolvedValue({ root: "/q", game_code: "CPUE", family: "Pt", language: "English", header_count: 0 });
+    await act(async () => void (await session.openProjectAt("/q", () => {})));
+    expect(session.lastBuildFresh).toBe(false);
+  });
+
+  it("a_successful_build_closes_the_error_toast_of_an_earlier_build", async () => {
+    const hidden = "1 versteckte Datei unter files/ hält den Build an; entferne sie (in den Problemen „Entfernen“) und baue erneut";
+    const other = toast.error("Speichern fehlgeschlagen");
+    vi.mocked(buildRom).mockRejectedValueOnce({ code: "compile", message: hidden, asset: null, problems: [problem("files/.DS_Store", 0, "build.hidden-file: files/.DS_Store", "error", "build")] });
+    await build();
+    vi.mocked(buildRom).mockRejectedValueOnce({ code: "error", message: "dsrom fehlt", asset: null });
+    await build();
+    const errors = () => listToasts().filter((t) => t.kind === "error").map((t) => t.text);
+    expect(errors()).toEqual(["Speichern fehlgeschlagen", `${hidden}.`, "dsrom fehlt"]);
+    // „Entfernen“ in the fix dialog, then „Bauen“: the error of the build is over, and the screen says only that the ROM was built.
+    await build();
+    expect(errors()).toEqual(["Speichern fehlgeschlagen"]);
+    expect(listToasts().some((t) => t.id === other)).toBe(true);
+    expect(session.message?.text).toMatch(/^ROM gebaut: /);
+  });
+
   it("a_text_conflict_opens_the_dialog_and_builds_again_to_the_same_path", async () => {
     vi.mocked(buildRom).mockRejectedValueOnce(textConflict(12, 433)).mockResolvedValueOnce(report({ steps: STEPS }));
     let rom: string | null = "unset";
@@ -334,7 +369,7 @@ describe("useProjectSession with open scripts", () => {
     // Nothing was built: the session asks which version applies, for the path and the cache choice of this build.
     expect(rom).toBeNull();
     expect(buildRom).toHaveBeenCalledExactlyOnceWith("/out.nds", true);
-    expect(session.textConflicts).toEqual({ archives: [12, 433], out: "/out.nds", fresh: true });
+    expect(session.textConflicts).toEqual({ archives: [12, 433], out: "/out.nds", fresh: true, play: false, resolving: false });
     expect(session.busy).toBe(false);
     expect(session.lastRom).toBeNull();
     expect(session.message?.kind).not.toBe("error");
@@ -373,6 +408,32 @@ describe("useProjectSession with open scripts", () => {
     expect(session.textConflicts).toBeNull();
     expect(session.message?.kind).toBe("error");
     expect(session.message?.actions?.map((a) => a.label)).toEqual(["Neu laden (eigene Änderung verwerfen)", "Meine Version behalten"]);
+  });
+
+  it("a_text_conflict_of_hier_spielen_keeps_the_intent_and_the_dialog_waits_while_resolving", async () => {
+    vi.mocked(buildRom).mockRejectedValueOnce(textConflict(12)).mockResolvedValueOnce(report({ steps: STEPS }));
+    await act(async () => void (await session.onBuild(undefined, false, true)));
+    expect(session.textConflicts).toEqual({ archives: [12], out: "/out.nds", fresh: false, play: true, resolving: false });
+    let written!: (archives: number[]) => void;
+    vi.mocked(resolveTextConflicts).mockImplementationOnce(() => new Promise((resolve) => (written = resolve)));
+    let resolving!: Promise<string | null>;
+    act(() => void (resolving = session.resolveConflicts([{ archive: 12, keep: "json" }])));
+    // The dialog stays and waits; nothing else starts meanwhile.
+    expect(session.textConflicts).toMatchObject({ archives: [12], play: true, resolving: true });
+    expect(session.busy).toBe(true);
+    expect(buildRom).toHaveBeenCalledOnce();
+    // A second answer while the first is written does nothing.
+    await act(async () => void (await session.resolveConflicts([{ archive: 12, keep: "member" }])));
+    expect(resolveTextConflicts).toHaveBeenCalledOnce();
+    let rom: string | null = null;
+    await act(async () => {
+      written([12]);
+      rom = await resolving;
+    });
+    expect(session.textConflicts).toBeNull();
+    expect(rom).toBe("/out.nds");
+    expect(buildRom).toHaveBeenCalledTimes(2);
+    expect(session.busy).toBe(false);
   });
 
   it("cancelling_a_text_conflict_builds_nothing", async () => {

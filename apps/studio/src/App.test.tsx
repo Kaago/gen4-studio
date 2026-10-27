@@ -1341,6 +1341,36 @@ describe("App wiring", () => {
       expect(runRom).not.toHaveBeenCalled();
     });
 
+    it("plays_after_a_text_conflict_of_hier_spielen_is_resolved_and_not_after_one_of_bauen", async () => {
+      env.tauri = true;
+      localStorage.setItem("g4.emulatorPath", "/Applications/melonDS");
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(runRom).mockResolvedValue(4242);
+      vi.mocked(resolveTextConflicts).mockResolvedValue([12]);
+      const conflict = {
+        code: "text_conflict",
+        message: "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt.",
+        asset: null,
+        problems: [{ severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "Textarchiv 0012 …", source: "build" }],
+      };
+      const done = { saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 };
+      const resolve = () => act(async () => [...document.querySelector<HTMLElement>("[data-text-conflict]")!.querySelectorAll("button")].find((b) => b.textContent === "Übernehmen und bauen")!.click());
+      vi.mocked(buildRom).mockRejectedValueOnce(conflict).mockResolvedValueOnce(done);
+      await pressHinge(/Hier spielen/);
+      expect(runRom).not.toHaveBeenCalled();
+      await resolve();
+      expect(buildRom).toHaveBeenCalledTimes(2);
+      expect(runRom).toHaveBeenCalledExactlyOnceWith("/Applications/melonDS", "/out.nds");
+
+      // The same conflict from „Bauen“ builds only.
+      vi.mocked(runRom).mockClear();
+      vi.mocked(buildRom).mockRejectedValueOnce(conflict).mockResolvedValueOnce(done);
+      await click("Bauen");
+      await resolve();
+      expect(buildRom).toHaveBeenCalledTimes(4);
+      expect(runRom).not.toHaveBeenCalled();
+    });
+
     it("asks_for_the_output_path_on_the_first_play_only_and_builds_to_the_last_path_afterwards", async () => {
       vi.mocked(savePath).mockResolvedValue("/chosen/out.nds");
       vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
