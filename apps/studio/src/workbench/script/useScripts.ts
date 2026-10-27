@@ -41,9 +41,12 @@ export interface ScriptsApi {
   saveIfDirty(file: number): Promise<void>;
   /**
    * The backend wrote the file itself (a new trainer's battle slots, an agent's save): an open document shows the text on disk, the language server
-   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote.
+   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote. A rotom source
+   * and a level script alike; a file that now has a source of the other kind gets a document of that kind in the same place, one without a
+   * source any more (binary) is closed. With `discard` (the user confirmed that typed text is lost, „Auf Original zurücksetzen“) the
+   * document shows the file in any case, clean, without a word.
    */
-  reload(file: number): Promise<void>;
+  reload(file: number, opts?: { discard?: boolean }): Promise<void>;
   /**
    * The level-script form saved `doc` as file `file` (not the editor): the problems and archives are handled like those of a
    * save, and an open document without unsaved text shows the new JSON. Ignored when `project` is not the open one any more.
@@ -66,6 +69,8 @@ interface ScriptsParams {
   bus: EditBus;
   problems: ProblemsStore;
   onError: (e: unknown) => void;
+  /** Script files were written (a save of the editor or the level-script form, „Script anfügen“, „Übernehmen“): their members are on disk now. */
+  onSaved?: () => void;
 }
 
 const lf = (text: string) => text.replace(/\r\n?/g, "\n");
@@ -91,7 +96,7 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * not in the Script panel, because the toolbar counts unsaved scripts and a build saves them first. It does not touch the
  * editor or the language server (those, with CodeMirror, load with the panel).
  */
-export function useScripts({ info, bus, problems, onError }: ScriptsParams): ScriptsController {
+export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsParams): ScriptsController {
   // Another project: nothing of the old one stays open. Reset while rendering, so no render pairs the old documents with the new project.
   // `saving`: the saves in flight of this project, so a second one (Cmd+S reaches the editor and the app) joins the first.
   // It belongs to the project: a save of the same file number in the next project must not join the old one.
@@ -109,8 +114,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
 
-  const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError });
-  latest.current = { info, documents, saving: owned.saving, problems, bus, onError };
+  const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError, onSaved });
+  latest.current = { info, documents, saving: owned.saving, problems, bus, onError, onSaved };
   const dirtyKey = useRef("");
 
   useEffect(() => {
@@ -163,6 +168,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
       for (const archive of dto.touched_archives) latest.current.bus.emit({ topic: "textData", archive });
       // The checks read the sources from the disk: they look again.
       latest.current.bus.emit({ topic: "edited" });
+      latest.current.onSaved?.();
       bump();
     })().finally(() => saving.delete(file));
     saving.set(file, job);
@@ -186,6 +192,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     latest.current.bus.emit({ topic: "lspFilesChanged", changes: [{ path: "rotom.toml", type: 1 }] });
     // The checks read the new sources (the message check runs from now on).
     latest.current.bus.emit({ topic: "edited" });
+    latest.current.onSaved?.();
     try {
       const next = await scriptsStatus();
       if (latest.current.documents === docs) setStatus(next);
@@ -205,6 +212,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
         const n = await addScript(file);
         // Written: the checks look again.
         latest.current.bus.emit({ topic: "edited" });
+        latest.current.onSaved?.();
         // The source on disk has the new script now: show it, with the cursor at its end.
         const source = await readScript(file);
         if (latest.current.documents !== docs) return null;
@@ -236,27 +244,46 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     [save],
   );
 
-  const reload = useCallback(async (file: number): Promise<void> => {
-    const { documents: docs, bus } = latest.current;
-    bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, "script"), type: 2 }] });
-    const doc = docs.get(file);
-    if (!doc || doc.kind !== "script") return;
-    try {
-      const source = await readScript(file);
-      if (latest.current.documents !== docs || source.kind !== "script") return;
-      const text = lf(source.text);
-      if (lf(doc.text) === doc.savedText) doc.text = text;
-      else {
-        latest.current.onError(
-          refusal(`${TERMS.scriptFile.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
-        );
+  const reload = useCallback(
+    async (file: number, { discard = false }: { discard?: boolean } = {}): Promise<void> => {
+      const { documents: docs, bus } = latest.current;
+      const doc = docs.get(file);
+      const kind = doc?.kind ?? "script";
+      bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, kind), type: 2 }] });
+      if (!doc) return;
+      try {
+        const source = await readScript(file);
+        if (latest.current.documents !== docs || docs.get(file) !== doc) return;
+        const dirty = lf(doc.text) !== doc.savedText;
+        const refuse = () =>
+          latest.current.onError(
+            refusal(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
+          );
+        if (source.kind === "binary") {
+          // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.
+          if (discard || !dirty) close(file);
+          else refuse();
+          return;
+        }
+        const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
+        if (source.kind !== doc.kind) {
+          // The file has a source of the other kind now (a reset to original decompiled to it): the language server hears of both.
+          bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, source.kind), type: 2 }] });
+          if (discard || !dirty) docs.replace(file, source.kind, text);
+          else refuse();
+          bump();
+          return;
+        }
+        if (discard || !dirty) doc.text = text;
+        else refuse();
+        doc.savedText = text;
+        bump();
+      } catch (e) {
+        latest.current.onError(e);
       }
-      doc.savedText = text;
-      bump();
-    } catch (e) {
-      latest.current.onError(e);
-    }
-  }, []);
+    },
+    [close],
+  );
 
   const onLevelScriptSaved = useCallback((project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => {
     const { info: shown, documents: docs, problems, bus } = latest.current;
@@ -265,6 +292,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     problems.applyReport(dto.problems, { files: [scriptPath(file, "levelScript")] });
     for (const archive of dto.touched_archives) bus.emit({ topic: "textData", archive });
     bus.emit({ topic: "edited" });
+    latest.current.onSaved?.();
     const open = docs.get(file);
     // A document with unsaved text keeps it: the editor's own save decides then.
     if (open && open.kind === "levelScript" && lf(open.text) === open.savedText) {

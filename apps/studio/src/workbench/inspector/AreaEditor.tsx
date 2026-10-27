@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, AssetId, MemberCounts } from "../../api";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import type { Depth } from "../../ui/frame/shellState";
 import { id4, termFor } from "../terms";
 import { areaFieldSpecs, AREA_FIELDS, areaValue } from "./areaFields";
@@ -32,6 +34,7 @@ export interface AreaEditorContext {
  */
 export function AreaEditor({ id, context, depth }: { id: number; context: AreaEditorContext; depth: Depth }) {
   const { counts, dirty, revision, onChanged, onError } = context;
+  const reset = useReset();
   const [area, setArea] = useState<AreaDataDto | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -63,7 +66,21 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
 
   return (
     <div className={styles.panel}>
-      <InspectorHead kind="look" title={`Area-Data ${id4(id)}`} unsaved={isDirty(dirty, "AreaData", id)} depth={depth} />
+      <InspectorHead
+        kind="look"
+        title={`Area-Data ${id4(id)}`}
+        unsaved={isDirty(dirty, "AreaData", id)}
+        // The two textures the area data names (as edited, unsaved or not); the area data itself has no reset.
+        actions={
+          area === null
+            ? undefined
+            : [
+                resetEntry({ kind: "map_texture", index: area.map_tileset }, reset.status, reset.open, "Kartentextur auf Original zurücksetzen…"),
+                resetEntry({ kind: "building_texture", index: area.buildings_tileset }, reset.status, reset.open, "Gebäudetextur auf Original zurücksetzen…"),
+              ]
+        }
+        depth={depth}
+      />
       <div className={styles.body}>
         {area === null ? (
           <p className={styles.note}>Lade Area-Data …</p>

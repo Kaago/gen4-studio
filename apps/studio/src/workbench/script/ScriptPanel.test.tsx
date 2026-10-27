@@ -18,6 +18,7 @@ import { toolStatus } from "../../app/toolStatus";
 import { scriptDirtyStore } from "./scriptDirtyStore";
 import { useScripts } from "./useScripts";
 import type { ScriptsApi } from "./useScripts";
+import { MISSING as NO_BASE, isDisabled, readyWith, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -49,13 +50,15 @@ describe("ScriptPanel", () => {
   let api: ScriptsApi;
   let events: EditEvent[];
   const onError = vi.fn();
+  const onSaved = vi.fn();
+  let reset = resetSpy();
 
   function Host({ project, depth = "bauen" }: { project: ProjectInfo | null; depth?: Depth }) {
-    const { api: scripts } = useScripts({ info: project, bus, problems, onError });
+    const { api: scripts } = useScripts({ info: project, bus, problems, onError, onSaved });
     api = scripts;
     return <ScriptPanel context={{ project, scripts, problems, bus, depth, onError }} />;
   }
-  const render = (project: ProjectInfo | null = projectA, depth: Depth = "bauen") => act(async () => root.render(<Host project={project} depth={depth} />));
+  const render = (project: ProjectInfo | null = projectA, depth: Depth = "bauen") => act(async () => root.render(withReset(reset, <Host project={project} depth={depth} />)));
   const settle = () => act(async () => {});
 
   beforeEach(() => {
@@ -67,6 +70,7 @@ describe("ScriptPanel", () => {
     bus.subscribe(() => true, (e) => events.push(e));
     problems = new ProblemsStore();
     onError.mockReset();
+    onSaved.mockReset();
     vi.mocked(scriptsStatus).mockReset().mockResolvedValue(ADOPTED);
     vi.mocked(adoptScripts).mockReset();
     vi.mocked(readScript).mockReset().mockImplementation(async (file) => ({ kind: "script", text: file === 2 ? "script Other #1:\n" : SCRIPT }));
@@ -77,6 +81,7 @@ describe("ScriptPanel", () => {
     vi.mocked(lspSend).mockReset().mockResolvedValue(undefined);
     vi.mocked(lspStop).mockReset().mockResolvedValue(undefined);
     vi.mocked(ask).mockReset();
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -125,6 +130,63 @@ describe("ScriptPanel", () => {
     await render();
     await settle();
     expect(lspStart).not.toHaveBeenCalled();
+  });
+
+  it("menu_offers_reset_of_the_open_file_and_warns_when_unsaved", async () => {
+    // A click alone opens the menu (a mousedown would queue a second opening for the next frame, which the awaited steps here would run).
+    const openActions = async () => {
+      const trigger = container.querySelector<HTMLElement>("button[aria-label='Aktionen']")!;
+      await act(async () => trigger.click());
+      await settle();
+      return [...document.querySelectorAll<HTMLElement>("[role=menu] [role=menuitem]")];
+    };
+    const menuTexts = async () => {
+      const texts = (await openActions()).map((item) => item.textContent);
+      await closeActions();
+      return texts;
+    };
+    const closeActions = async () => {
+      const menu = document.querySelector<HTMLElement>("[role=menu]");
+      await act(async () => void (document.activeElement ?? menu)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await settle();
+    };
+    const chooseReset = async () => {
+      const item = (await openActions()).find((i) => i.textContent === "Auf Original zurücksetzen…")!;
+      await act(async () => item.click());
+      await settle();
+    };
+    await render();
+    await settle();
+    // No document: the entry is there, locked.
+    const [none] = await openActions();
+    expect(isDisabled(none)).toBe(true);
+    expect(none?.textContent).toBe("Auf Original zurücksetzen…Kein Script geöffnet");
+    await closeActions();
+    await open(42);
+    await settle();
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…"]);
+    await chooseReset();
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 }, { scriptDirty: false });
+    // Text that is not saved: the dialog is told, so it warns that the text is lost. (Changed as the editor reports a change; typing into
+    // the editor would give it the focus, which closes a menu opened then.)
+    const doc = api.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => api.onChange(42));
+    await chooseReset();
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 }, { scriptDirty: true });
+    // A script file the base does not have, and no base at all (each in a fresh panel with file 42 open).
+    const showWith = async (status: Parameters<typeof resetSpy>[0]) => {
+      await act(async () => root.render(null));
+      reset = resetSpy(status);
+      await render();
+      await settle();
+      await open(42);
+      await settle();
+    };
+    await showWith(readyWith({ script: 42 }));
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    await showWith(NO_BASE);
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 
   it("opens_a_file_into_the_editor_with_its_text_and_a_title", async () => {
@@ -325,6 +387,31 @@ describe("ScriptPanel", () => {
     expect(edited()).toBe(5);
   });
 
+  it("tells_the_app_after_every_save_of_a_script_file", async () => {
+    // Technik › Änderungen compares the saved members again: the editor's save and the level-script form's count, a refused one does not.
+    await render();
+    await open(42);
+    typeAt(0, "x");
+    await act(async () => api.save(42));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    act(() => api.onLevelScriptSaved(projectA, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    vi.mocked(saveScript).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    typeAt(0, "z");
+    await act(async () => api.save(42).catch(() => {}));
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    // Another project's form save is not this one's.
+    act(() => api.onLevelScriptSaved(projectB, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    // „Script anfügen“ and „Übernehmen“ write script files too (anfügen saves the typed „z“ first: two writes).
+    vi.mocked(addScript).mockResolvedValue(2);
+    await act(async () => void (await api.add(42)));
+    expect(onSaved).toHaveBeenCalledTimes(4);
+    vi.mocked(adoptScripts).mockResolvedValue({ decompiled: 2, skipped_empty: 0, failed: [] });
+    await act(async () => void (await api.adopt()));
+    expect(onSaved).toHaveBeenCalledTimes(5);
+  });
+
   it("editor_saves_without_lsp", async () => {
     vi.mocked(lspStart).mockRejectedValue(MISSING);
     await render();
@@ -477,6 +564,122 @@ describe("ScriptPanel", () => {
     expect(view().state.doc.toString()).toBe(`// ${SCRIPT}`);
     expect(api.documents.dirty()).toEqual([1114]);
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 1114 wurde außerhalb des Editors geändert") }));
+  });
+
+  it("a_reload_that_discards_shows_the_file_in_place_of_typed_text_without_a_refusal", async () => {
+    await render();
+    await settle();
+    await open(1114);
+    typeAt(0, "// ");
+    // „Auf Original zurücksetzen“ wrote the file after warning that the typed text is lost.
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: `script Original #1:\n` });
+    events.length = 0;
+    await act(async () => api.reload(1114, { discard: true }));
+    expect(view().state.doc.toString()).toBe(`script Original #1:\n`);
+    expect(api.documents.dirty()).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
+  });
+
+  describe("a reload after a reset to original or an outside write", () => {
+    const LEVEL_DOC = { header_entries: [{ type: "on_load", script_id: 3 }], var_conditions: [] };
+    const levelText = (doc: object) => `${JSON.stringify(doc, null, 2)}\n`;
+
+    it("a_discarding_reload_shows_the_level_script_on_disk_over_typed_text", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await render();
+      await settle();
+      await open(7);
+      typeAt(0, " ");
+      expect(api.documents.dirty()).toEqual([7]);
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      events.length = 0;
+      await act(async () => api.reload(7, { discard: true }));
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.get(7)).toMatchObject({ kind: "levelScript", text: levelText(LEVEL_DOC), savedText: levelText(LEVEL_DOC) });
+      expect(api.documents.dirty()).toEqual([]);
+      expect(onError).not.toHaveBeenCalled();
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/0007.json", type: 2 }] });
+    });
+
+    it("a_plain_reload_treats_a_level_script_like_a_rotom_source", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await render();
+      await settle();
+      await open(7);
+      // Clean: it shows the file.
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      await act(async () => api.reload(7));
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.dirty()).toEqual([]);
+      // Dirty: the typed text stays and the refusal says saving overwrites the write.
+      typeAt(0, " ");
+      const typed = view().state.doc.toString();
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await act(async () => api.reload(7));
+      expect(view().state.doc.toString()).toBe(typed);
+      expect(api.documents.dirty()).toEqual([7]);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("0007 wurde außerhalb des Editors geändert") }));
+    });
+
+    it("a_discarding_reload_follows_a_switch_from_rotom_source_to_level_script_in_its_place", async () => {
+      await render();
+      await settle();
+      await open(42);
+      await open(1114);
+      typeAt(0, "// ");
+      // The original decompiles to a level script: the document becomes one, in its place among the tabs, still shown.
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      events.length = 0;
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toMatchObject({ kind: "levelScript", text: levelText(LEVEL_DOC), savedText: levelText(LEVEL_DOC) });
+      expect(api.documents.list().map((d) => d.file)).toEqual([42, 1114]);
+      expect(api.active).toBe(1114);
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.dirty()).toEqual([]);
+      expect(onError).not.toHaveBeenCalled();
+      // The language server hears that the source went and the JSON came.
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.json", type: 2 }] });
+      // And back again.
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: SCRIPT });
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toMatchObject({ kind: "script", text: SCRIPT });
+      expect(view().state.doc.toString()).toBe(SCRIPT);
+    });
+
+    it("a_plain_reload_keeps_typed_text_over_a_kind_switch_and_says_so", async () => {
+      await render();
+      await settle();
+      await open(1114);
+      typeAt(0, "// ");
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      await act(async () => api.reload(1114));
+      expect(api.documents.get(1114)?.kind).toBe("script");
+      expect(view().state.doc.toString()).toBe(`// ${SCRIPT}`);
+      expect(api.documents.dirty()).toEqual([1114]);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 1114 wurde außerhalb des Editors geändert") }));
+    });
+
+    it("a_file_without_a_source_any_more_closes_its_document", async () => {
+      await render();
+      await settle();
+      await open(42);
+      await open(1114);
+      typeAt(0, "// ");
+      // rotom could not decompile the original: only the member is there, nothing to edit.
+      vi.mocked(readScript).mockResolvedValue({ kind: "binary", size: 120 });
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toBeUndefined();
+      expect(api.active).toBe(42);
+      expect(onError).not.toHaveBeenCalled();
+      // Without `discard` typed text stays, with the refusal; a clean document closes.
+      await open(42);
+      typeAt(0, "// ");
+      await act(async () => api.reload(42));
+      expect(api.documents.get(42)?.text).toBe(`// ${SCRIPT}`);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 0042 wurde außerhalb des Editors geändert") }));
+    });
   });
 
   it("resolves_add_to_the_new_scripts_number_and_to_null_when_it_failed", async () => {

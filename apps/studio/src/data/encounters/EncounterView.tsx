@@ -7,6 +7,9 @@ import { lockReason } from "../dataModel";
 import { useDataSnapshot } from "../dataStore";
 import { monIcon, monIconKey, useIcon } from "../icons";
 import { speciesName } from "../trainer/trainerModel";
+import { HeadActions } from "../../original/HeadActions";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { useDataArea } from "../useDataArea";
 import { TIME_COLUMNS, partialSplit, shareText, warningText } from "./encounterModel";
 import type { EncounterDoc, TimeKey } from "./encounterModel";
@@ -194,6 +197,7 @@ function Users({ doc }: { doc: EncounterDoc }) {
 export function EncounterView() {
   const { row, labelOf, names, selected, project } = useDataArea("pokemon");
   const { doc, error } = useEncounter(selected);
+  const reset = useReset();
   // A split that wrote its copy but failed later: said at the copy (or, without one named, at the file it was split from).
   const note = useSyncExternalStore(splitNotes.subscribe, splitNotes.get);
   const noted = note !== null && note.root === project?.root && note.at === selected ? note.text : null;
@@ -209,6 +213,7 @@ export function EncounterView() {
         <header className={styles.head}>
           <h2 className={styles.name}>{title}</h2>
           <span className={styles.tech}>{row.tech}</span>
+          <HeadActions items={[resetEntry({ kind: "encounter", index: selected }, reset.status, reset.open)]} />
         </header>
         {noted !== null && <Notice kind="warning">{noted}</Notice>}
         {error !== null && <Notice kind="error">{`Diese Begegnungsdatei ist nicht lesbar: ${error}`}</Notice>}

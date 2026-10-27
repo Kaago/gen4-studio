@@ -1,11 +1,13 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorText, listScriptFiles, searchScripts } from "../api";
-import type { HeaderSummary, ProjectInfo, ScriptFileDto, ScriptHitDto } from "../api";
+import type { HeaderSummary, ProjectInfo, ResetTarget, ScriptFileDto, ScriptHitDto } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { useReset } from "../original/OriginalContext";
+import { resetEntry } from "../original/resetEntry";
 import type { Depth } from "../ui/frame/shellState";
 import { Icon, Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
-import type { IconName } from "../ui/primitives";
+import type { IconName, MenuEntry } from "../ui/primitives";
 import { showsMatrix } from "./headers";
 import { placeColor } from "./places";
 import { ADOPT_HINT } from "./inspector/scriptNav";
@@ -49,6 +51,13 @@ export interface WorldTreeProps {
   onTouch: (areaKey: string) => void;
   onRename: (target: RenameTarget, name: string) => void;
   onOwner: (room: number, areaKey: string | null) => void;
+}
+
+/** The context menu of a row of the tree: „Header …“ or „Scriptdatei auf Original zurücksetzen…“ (the tree holds both). */
+function useResetMenu(target: ResetTarget): MenuEntry[] {
+  const { status, open } = useReset();
+  const label = target.kind === "script" ? "Scriptdatei auf Original zurücksetzen…" : "Header auf Original zurücksetzen…";
+  return [resetEntry(target, status, open, label)];
 }
 
 /** The roots after the world maps; their keys cannot be area or world map keys. */
@@ -163,11 +172,13 @@ const HeaderLeaf = memo(function HeaderLeaf({
   mark: MarkSeverity | undefined;
   onSelect: (h: HeaderSummary) => void;
 }) {
+  const contextMenu = useResetMenu({ kind: "header", id: h.id });
   return (
     <TreeRow
       depth={depth}
       label={label}
       icon={icon}
+      contextMenu={contextMenu}
       tech={tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined}
       selected={selected}
       onSelect={() => onSelect(h)}
@@ -212,8 +223,11 @@ const AreaRow = memo(function AreaRow({
 }) {
   const first = area.headers[0];
   const count = area.rooms.length;
+  // A click selects the area's first header: so does its reset.
+  const contextMenu = useResetMenu({ kind: "header", id: first.id });
   return (
     <TreeRow
+      contextMenu={contextMenu}
       depth={depth}
       icon="outside"
       label={area.name}
@@ -271,8 +285,10 @@ const RoomRow = memo(function RoomRow({
   const h = room.header;
   const tech = tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined;
   const plain = [room.name, labelled ? room.placeName : null].filter((part) => part !== null).join(", ");
+  const contextMenu = useResetMenu({ kind: "header", id: h.id });
   return (
     <TreeRow
+      contextMenu={contextMenu}
       depth={depth}
       icon="room"
       label={room.name}
@@ -320,8 +336,10 @@ function fileDetails(f: ScriptFileDto, depth: Depth): string {
 
 const ScriptFileRow = memo(function ScriptFileRow({ file, depth, onOpenScript }: { file: ScriptFileDto; depth: Depth; onOpenScript: (file: number, line?: number) => void }) {
   const name = `${file.kind === "levelScript" ? TERMS.levelScript.label : TERMS.scriptFile.label} ${id4(file.file)}`;
+  const contextMenu = useResetMenu({ kind: "script", file: file.file });
   return (
     <TreeRow
+      contextMenu={contextMenu}
       depth={1}
       icon="script"
       label={name}

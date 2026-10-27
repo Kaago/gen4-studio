@@ -4,8 +4,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListRow } from "./ListRow";
+import type { MenuEntry } from "./Menu";
 import { TreeRow } from "./TreeRow";
-import { pressKey } from "./testUtils";
+import { pressKey, withoutFrames } from "./testUtils";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -140,5 +141,172 @@ describe("ListRow and TreeRow", () => {
     act(() => item.click());
     pressKey(item, " ");
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  describe("context menu", () => {
+    const row = () => container.querySelector<HTMLElement>("[role=option]")!;
+    const entries = () => [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    const menu = () => document.querySelector("[role=menu]");
+    const rightClick = (el: HTMLElement) =>
+      act(() => void el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })));
+
+    it("context_menu_opens_on_right_click_and_shift_f10", () => {
+      const onReset = vi.fn();
+      const onSelect = vi.fn();
+      act(() =>
+        root.render(
+          <ListRow
+            label="Trainer 0002"
+            selected={false}
+            onSelect={onSelect}
+            dataAttrs={{ "data-trainer": 2 }}
+            contextMenu={[{ label: "Auf Original zurücksetzen…", icon: "undo", onSelect: onReset }, "separator", { label: "Gesperrt", onSelect: () => {}, disabled: true, detail: "Kein Original" }]}
+          />,
+        ),
+      );
+      // The row stays the option it was.
+      expect(row().getAttribute("aria-selected")).toBe("false");
+      expect(row().getAttribute("data-trainer")).toBe("2");
+      expect(menu()).toBeNull();
+      rightClick(row());
+      expect(menu()).not.toBeNull();
+      expect(entries().map((e) => e.textContent)).toEqual(["Auf Original zurücksetzen…", "GesperrtKein Original"]);
+      // A right click does not select the row.
+      expect(onSelect).not.toHaveBeenCalled();
+      act(() => entries()[0]!.click());
+      expect(onReset).toHaveBeenCalledTimes(1);
+
+      // Shift+F10 on the focused row opens it too, and is not passed on.
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset }]} />));
+      const pressed = pressKey(row(), "F10", { shiftKey: true });
+      expect(pressed.defaultPrevented).toBe(true);
+      expect(menu()).not.toBeNull();
+      expect(entries().map((e) => e.textContent)).toEqual(["Auf Original zurücksetzen…"]);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_key_it_focuses_the_first_entry_so_enter_picks_it", async () => {
+      const onReset = vi.fn();
+      const menuOf = (): MenuEntry[] => [{ label: "Gesperrt", onSelect: () => {}, disabled: true }, { label: "Auf Original zurücksetzen…", onSelect: onReset }, { label: "Zweiter", onSelect: () => {} }];
+      for (const open of [(el: HTMLElement) => pressKey(el, "F10", { shiftKey: true }), (el: HTMLElement) => pressKey(el, "ContextMenu")]) {
+        onReset.mockReset();
+        act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={menuOf()} />));
+        act(() => row().focus());
+        open(row());
+        await act(async () => {});
+        // WAI-ARIA menu: the first entry that can be picked holds the focus (a locked one is skipped), Enter picks it.
+        const first = entries()[1]!;
+        expect(document.activeElement).toBe(first);
+        expect(first.hasAttribute("data-highlighted")).toBe(true);
+        pressKey(first, "Enter");
+        expect(onReset).toHaveBeenCalledTimes(1);
+        act(() => root.render(<></>));
+      }
+      // A right click leaves the focus where the pointer is (no entry highlighted).
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={menuOf()} />));
+      rightClick(row());
+      await act(async () => {});
+      expect(entries().some((e) => e.hasAttribute("data-highlighted"))).toBe(false);
+    });
+
+    // A page whose frames are late or never come (busy, or hidden, as a background tab is): Base UI moves the focus only on a frame.
+    let frames = () => {};
+    afterEach(() => {
+      frames();
+      frames = () => {};
+    });
+
+    it("opened_by_key_the_menu_has_the_focus_before_the_next_frame", async () => {
+      frames = withoutFrames();
+      const onReset = vi.fn();
+      const onSelect = vi.fn();
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset }]} />));
+      act(() => row().focus());
+      pressKey(row(), "F10", { shiftKey: true });
+      await act(async () => {});
+      // Enter reaches the entry, not the row.
+      expect(document.activeElement).toBe(entries()[0]);
+      expect(entries()[0]!.hasAttribute("data-highlighted")).toBe(true);
+      pressKey(document.activeElement as HTMLElement, "Enter");
+      expect(onReset).toHaveBeenCalledTimes(1);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_key_with_every_entry_locked_the_first_one_holds_the_focus_and_its_reason", async () => {
+      const onReset = vi.fn();
+      act(() =>
+        root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset, disabled: true, detail: "Basis-ROM fehlt" }]} />),
+      );
+      act(() => row().focus());
+      pressKey(row(), "ContextMenu");
+      await act(async () => {});
+      // WAI-ARIA lets a locked entry hold the focus: a screen reader reads it with its reason, Enter does nothing.
+      const first = entries()[0]!;
+      expect(document.activeElement).toBe(first);
+      expect(first.textContent).toBe("Auf Original zurücksetzen…Basis-ROM fehlt");
+      pressKey(first, "Enter");
+      expect(onReset).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_a_right_click_the_keys_work_the_menu_and_escape_returns_to_the_row", async () => {
+      frames = withoutFrames();
+      act(() =>
+        root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }, { label: "Zweiter", onSelect: () => {} }]} />),
+      );
+      // The roving list of its host makes a row focusable.
+      act(() => {
+        row().tabIndex = 0;
+        row().focus();
+      });
+      rightClick(row());
+      await act(async () => {});
+      // The menu holds the focus (no entry yet: the pointer chooses); Arrow down goes to its first entry.
+      expect(document.activeElement).toBe(menu());
+      pressKey(menu() as HTMLElement, "ArrowDown");
+      expect(document.activeElement).toBe(entries()[0]);
+      // Closed, the focus goes back to the row (the menu had it since it opened, not the row).
+      frames();
+      act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await act(async () => await new Promise((done) => setTimeout(done, 50)));
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(row());
+    });
+
+    it("the_menu_is_named_by_its_row", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" ariaLabel="Trainer 0002, Rivale" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      rightClick(row());
+      expect(menu()?.getAttribute("aria-label")).toBe("Trainer 0002, Rivale");
+    });
+
+    it("the_context_menu_key_opens_it_as_well", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      pressKey(row(), "ContextMenu");
+      expect(menu()).not.toBeNull();
+    });
+
+    it("enter_still_selects_a_row_with_a_context_menu", () => {
+      const onSelect = vi.fn();
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      pressKey(row(), "Enter");
+      act(() => row().click());
+      expect(onSelect).toHaveBeenCalledTimes(2);
+      // F10 without Shift is no menu key.
+      pressKey(row(), "F10");
+      expect(menu()).toBeNull();
+    });
+
+    it("without_context_menu_nothing_changes", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} />));
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+      act(() => void row().dispatchEvent(event));
+      expect(menu()).toBeNull();
+      // The browser's own menu is not taken away.
+      expect(event.defaultPrevented).toBe(false);
+      const pressed = pressKey(row(), "F10", { shiftKey: true });
+      expect(pressed.defaultPrevented).toBe(false);
+      expect(menu()).toBeNull();
+      // The row is the option element itself, as before.
+      expect(container.firstElementChild?.getAttribute("role")).toBe("option");
+    });
   });
 });

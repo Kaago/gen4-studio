@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate) und [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) und [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -649,6 +649,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **4.2 (G7):** „Hier spielen“ in der gepackten App auf HeartGold spürbar schneller, die DSPRE-Gegenprobe (ein Ordner wie `pokeHeight` in DSPRE geändert, mit dem Studio gebaut, die Änderung ist im Spiel; dazu die offene Frage, ob DSPRE selbst packt) und der Blick auf die Schritte-Tabelle in Technik › Prüfen und Bauen hell, dunkel und kompakt.
 - **3g:** DSPRE öffnet den angelegten Ordner (A5) und ein mit der Vorlage angelegtes Projekt (B6), die gebündelte Tauri-App mit Dateidialog, Finder-Drop und Vorschlag (A6) sowie der Blick auf die Bilder der Szenarien (B2: `b2-pt`, `b2-hg`) und die Screens des Assistenten.
 - **4.1a:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; xdelta UI unter Windows; der Blick auf die 13 Bilder `blick-veroeffentlichen-*.png`. Liste mit Ort: [phase-4-1a-gate.md](phase-4-1a-gate.md), Abschnitte „Hand“ und „Blick“.
+- **4.1b:** das Kontextmenü in der echten App (Zwei-Finger-Klick auf dem Trackpad, Shift+F10 in WebKit, die Kontextmenü-Taste mit einer PC-Tastatur), die Fortschrittszahlen von Technik › Änderungen in der App (die Brücke hat keinen `Channel`), ein Urteil über die englischen Feldnamen in den Vorschau-Zeilen; der Blick auf die 17 Bilder `blick-*.png` (Dialog Karte, Header, Script und Technik › Änderungen in Hell, Dunkel, Kompakt). Liste mit Ort: [phase-4-1b-gate.md](phase-4-1b-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -821,3 +822,50 @@ Der Pfad `nds` ist relativ zum Projekt; die Nachbar-`.nds` liegt außerhalb des 
 | (G5) Szenarien | Agent + Blick | `pt-treppe-warp.yaml` auf `4-2-szenario-pt` und `hg-neuheim.yaml` auf `4-2-szenario-hg` (Aufruf wie unter Phase 3f), je Kopie vorher einmal `g4k build`; Bilder ansehen und mit Pfad, Ort und Inhalt beschreiben |
 | (G6) Browser | Agent | auf `4-2-browser-hgde` zweimal „Hier spielen“, dann Technik › Prüfen und Bauen lesen. Die Zeilen `[data-step]` stehen unter „Übersprungen“, `rom` heißt dort „ROM schreiben … aktuell“. Eine Karte ändern und „Hier spielen“: `[data-step="pack:maps"][data-status=incremental]` „1 Member eingesetzt“, Zeit im Toast. „Neu bauen (ohne Cache)“: jede Zeile `data-status=full`, die Gründe „(ohne Cache, voll)“. Text-Konflikt erzeugen, `[data-text-conflict]`, beide Wahlen je einmal: danach JSON und Member vergleichen; nach „Übernehmen und bauen“ steht `[data-step="chatot"][data-status=incremental]` (kein „erster Build“), eine behaltene JSON hat ihre Bytes behalten. Befunde `build.hidden-file` (Meldung „1 versteckte Datei unter files/ hält den Build an; …“, in den Problemen „Entfernen“) und `build.base-missing` |
 | (G7) gepackte App, DSPRE, Blick | Hand | siehe „Was beim Nutzer bleibt“: „Hier spielen“ in der gepackten App auf HeartGold, DSPRE-Gegenprobe mit einem Ordner wie `pokeHeight`, die Schritte-Tabelle hell, dunkel und kompakt |
+
+## Phase 4.1b ([phase-4-1b-gate.md](phase-4-1b-gate.md))
+
+4.1b setzt eine Entität auf den Stand der Basis-ROM zurück (Kopf, Kontextmenü, MCP) und listet in Technik › Änderungen, was vom Original abweicht. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** je Zweck ein Ordner `4-1b-<zweck>_DSPRE_contents` und die `.nds` `4-1b-<zweck>.nds` direkt nebeneinander unter `$G4_ROMS_DIR/_testkopien` (frisch aus dem Original, das nur gelesen wird; `cp -cR` bzw. `cp -c`), sonst findet `start::suggest_base` die Basis-ROM nicht. Zweck: `pt`, `hgde`, `hgus` (gated Tests, nur gelesen), `kpt`, `khgde`, `khgus` (kopflos), `web` (Browser), `mcp` (MCP über die Brücke). Die Kopien nach dem Gate löschen.
+
+**Wo was ist:** Der Eintrag „Auf Original zurücksetzen…“ (Symbol `undo`, mit der Art davor, wo der Kopf mehrere Ziele hat: „Eventdatei …“, „Header …“, „Scriptdatei …“, „Kartentextur …“, „Gebäudetextur …“, „Gebäudemodell …“, „Nachricht …“, „Ganzes Textarchiv …“) steht im Menü „Aktionen“ der Köpfe (`aria-label` „Aktionen“, Symboltaste `more`; Pokédex, Trainer, Begegnungen, Inspector-Köpfe der Welt, Hand der Texte, Script-Panel) und im Kontextmenü der Listen- und Baumzeilen (Rechtsklick, oder Fokus auf die Zeile und Shift+F10: der Eintrag hat dann den Fokus, Enter öffnet den Dialog). Karten nur im Kopf des Zellen-Inspectors. Gesperrt trägt er rechts „Wird gelesen …“, „Basis-ROM fehlt“ oder „Kein Original“. Der Dialog ist `[role=dialog][data-reset-dialog]`, Titel `h2` „<Name> auf Original zurücksetzen?“, je Änderung `[data-change]` mit Überschrift und `[role=group][data-wrap]` (Vorher, Nachher), beim Header `[data-header-field=<feld>]` mit Kästchen; Tasten „Abbrechen“ und „Zurücksetzen“, sonst nur „Schließen“. Technik › „Änderungen“ (`[data-technik=aenderungen]`): „Neu vergleichen“, je Gruppe `[data-changes-group=<Gruppe>]` (Titel wie „Karten“, „Header“), je Zeile `[data-change=<Name>]` (`aria-label` „Karte 0003, Geändert“, mit „, Ungespeichert“) und ihre Taste „Auf Original zurücksetzen…“.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) gated `--test original` und Studio-Test | Agent | je Projekt `G4_TEST_PROJECT=$G4_ROMS_DIR/_testkopien/4-1b-<k>_DSPRE_contents cargo test -p g4-kernel --all-features --test original -- --nocapture --test-threads 1` und `… cargo test -p studio --all-features --lib reset_over_the_command_path -- --nocapture --test-threads 1`, im Hintergrund (je Projekt rund 4 min Debug); die Zeilen `reset <Spielcode> <Ziel> ms=…`, `changed <Spielcode> first_ms=… second_ms=…` und `reset over the command path: …` in die Zeittabelle der Gate-Datei |
+| (1) `scripts/gate.sh` | Agent | im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die gated Tests von 4.1b laufen im Schritt der gated Tests je Projekt mit |
+| (2) Szenario kopflos | Agent | `studio mcp` über stdio, Ablauf unten |
+| (3) Browser | Agent | Test-Umgebung, Ablauf unten |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| Kontextmenü in der App, Fortschrittszahlen, Feldnamen | Hand | siehe „Was beim Nutzer bleibt“ |
+| Blick | Agent + Blick | Bilder `blick-*.png` unter `target/agent/gate-<Datum>/4-1b/`, der Agent nennt Zustand und Texte je Bild |
+
+Löst `-p g4-kernel --test original` in einem Worktree den Download von rotom aus (siehe [dev-setup.md](dev-setup.md), „In einem Git-Worktree“), dann über den ganzen Workspace mit Namensfilter: `cargo test --workspace --all-features -- reset_of_each header_reset script_texture changed_list decompile_member reset_over_the_command_path --nocapture --test-threads 1`. Im Gate 4.1b lief `-p` im Worktree ohne Download.
+
+**Kopflos (2)**, aus der Wurzel des Worktrees nach `cargo build --workspace --all-features` (`K` ist `$G4_ROMS_DIR/_testkopien`, `<k>` je Spiel):
+
+```sh
+target/debug/g4k base assign $K/4-1b-<k>_DSPRE_contents $K/4-1b-<k>.nds
+target/debug/studio mcp --project $K/4-1b-<k>_DSPRE_contents --base-rom $K/4-1b-<k>.nds
+```
+
+Den Server bedient ein kleines Skript über JSON-RPC (stdio; im Gate ein Python-Skript im Scratchpad): `changed_from_original` (leer), dann `data_edit` (Trainer 1, Level +1), `set_header` (Header 3, `weather_id`), `edit_text` (Archiv 1, Nachricht 0), `save`; `changed_from_original` (genau „Textarchiv 0001“, „Trainer 0001“, „Header 0003“); je Ziel `plan_reset` und `reset_to_original` mit `{"target":{"kind":"trainer","index":1}}`, `{"target":{"kind":"header","id":3}}`, `{"target":{"kind":"text_message","archive":1,"message":0}}`, `save`; `changed_from_original` (leer); `undo`; `reset_to_original` mit `trainer` 5000 (`no_original`); `g4_batch` mit `reset_to_original` eines Scripts (abgelehnt). Danach `target/debug/g4k extract $K/4-1b-<k>.nds <tmp>` und `cmp` von `unpacked/trainerProperties/0001`, `unpacked/trainerParty/0001` und `unpacked/textArchives/0001` gegen die extrahierte Basis. Die erste Liste auf einer ungebauten Kopie dauert 30 bis 50 s (kein App-Cache, jeder Ordner gehasht).
+
+**Browser (3)**, Test-Umgebung auf eigenen Ports (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1540 G4_BRIDGE_PORT=1541 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1540/?project=<…>/_testkopien/4-1b-web_DSPRE_contents`, Fenster 1440 × 900, Hell, Komfort. Ohne Zuordnung zuerst Technik › Änderungen lesen (Grund, Einträge „Basis-ROM fehlt“), dann in Technik › Veröffentlichen „Zuordnen…“. Je Art ändern und speichern (Karte, Eventdatei, Nachricht und ganzes Textarchiv, Trainer, Pokémon, Begegnung, Header mit einem abgewählten Feld, Script, Kartentextur, Gebäudemodell), dann zurücksetzen über Kopf „Aktionen“, Rechtsklick, Shift+F10 auf der fokussierten Zeile und die Zeilen von Technik › Änderungen (jeder Weg mindestens einmal); Dialog lesen, „Zurücksetzen“, speichern, Technik › Änderungen ohne den Eintrag. ⌘Z und ⌘⇧Z; ⌘Z eines Dateischritts schreibt die Datei zurück (Gebäudemodell); eine Kartentextur nach dem Zurücksetzen außen ändern, dann ⌘Z: Meldung „… wurde seit dem Zurücksetzen außerhalb des Studios geändert; …“, der Schritt fällt weg. Neue Begegnungsdatei: Eintrag gesperrt mit „Kein Original“, in der Liste „Neu“. Zum Schluss die `.nds` umbenennen und Technik neu zeigen: „Basis-ROM nicht gefunden: …“, Einträge „Basis-ROM fehlt“. Im Browser-Modus zeigt der Vergleich nur „Vergleiche …“ ohne Zahlen (kein `Channel` in der Brücke).
+
+**MCP (3)** über die Brücke (siehe „MCP über die Brücke“), Kopie `4-1b-mcp` mit zugeordneter Basis-ROM in der Seite geöffnet, Trainer 1 vorher geändert und gespeichert:
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                              # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call changed_from_original
+scripts/agent/mcp.sh call plan_reset '{"target":{"kind":"trainer","index":1}}'
+scripts/agent/mcp.sh call reset_to_original '{"target":{"kind":"trainer","index":1}}'  # ohne Rückfrage (Write, Undo-Schritt)
+scripts/agent/mcp.sh call history                                                    # undo_agents: ["agent-gate"]
+scripts/agent/mcp.sh call reset_to_original '{"target":{"kind":"trainer","index":5000}}'   # Rückgabe 1, code no_original
+```
+
+Die Oberfläche lädt den Trainer nach dem Reset neu; ein `g4_batch` mit `reset_to_original` eines Scripts lehnt ab („reset_to_original geht nicht in g4_batch“).
+
+**Blick-Bilder:** Die Werkzeuge des Browser-Fensters schreiben keine Datei. Die 17 Bilder unter `target/agent/gate-2026-10-27/4-1b/` entstanden mit Chrome headless über CDP (ein kleines Skript im Scratchpad, nicht im Repo; Seite der laufenden Test-Umgebung, 1440 × 900; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste). Namen `blick-<fläche>-<zustand>-<thema>.png`, Liste in der Gate-Datei, Abschnitt „Blick“.

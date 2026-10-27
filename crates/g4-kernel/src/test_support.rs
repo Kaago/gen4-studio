@@ -499,3 +499,80 @@ pub fn with_game_code(rom: &Path, code: &str) {
     bytes[0x15E..0x160].copy_from_slice(&crc.to_le_bytes());
     std::fs::write(rom, bytes).unwrap();
 }
+
+/// The base ROM of the vanilla project from `G4_TEST_PROJECT`: its sibling `.nds`
+/// ([`crate::start::suggest_base`]), only to be read. `None` (tests then skip) without the
+/// variable or the file.
+pub fn vanilla_base_rom() -> Option<PathBuf> {
+    let project = vanilla_project()?;
+    let found = crate::start::suggest_base(&project);
+    if found.is_none() {
+        eprintln!(
+            "skipped: no <Name>.nds with the same game code next to {}",
+            project.display()
+        );
+    }
+    found
+}
+
+/// The original of a project for tests of `original`: the packed archives and the header
+/// table of an untouched copy, read anew on every call (the store edits the unpacked members
+/// of the working copy, never these).
+pub struct ProjectOriginal {
+    project: crate::project::Project,
+}
+
+impl ProjectOriginal {
+    /// Opens the project at `root`; panics when it is none.
+    pub fn new(root: &Path) -> ProjectOriginal {
+        ProjectOriginal {
+            project: crate::project::Project::open(root).unwrap(),
+        }
+    }
+}
+
+impl crate::original::Original for ProjectOriginal {
+    /// No ROM: forty zeros.
+    fn sha1(&self) -> &str {
+        "0000000000000000000000000000000000000000"
+    }
+
+    fn member(
+        &self,
+        kind: crate::project::AssetKind,
+        index: u16,
+    ) -> Result<Option<Vec<u8>>, crate::error::KernelError> {
+        if !self.project.has_archive(kind) {
+            return Ok(None);
+        }
+        Ok(self
+            .project
+            .read_packed(kind)?
+            .members
+            .into_iter()
+            .nth(usize::from(index)))
+    }
+
+    fn count(
+        &self,
+        kind: crate::project::AssetKind,
+    ) -> Result<Option<usize>, crate::error::KernelError> {
+        if !self.project.has_archive(kind) {
+            return Ok(None);
+        }
+        Ok(Some(self.project.read_packed(kind)?.members.len()))
+    }
+
+    fn header_table(&self) -> Result<Vec<uxie::MapHeader>, crate::error::KernelError> {
+        self.project.read_headers()
+    }
+
+    fn narc_at(&self, packed: &Path) -> Result<Option<Narc>, crate::error::KernelError> {
+        let path = self.project.root.join(packed);
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(&path).map_err(crate::error::io_at(&path))?;
+        Ok(Some(Narc::read(&bytes)?))
+    }
+}

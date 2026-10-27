@@ -80,15 +80,31 @@ impl HeaderTable {
 /// rotom's project, but with the workspace's headers from [`HeaderTable`]. The database and
 /// the constants are loaded as rotom v0.7.0 `ProjectContext::load_inner` does for a DSPRE
 /// project; `from_parts` derives the global script index and the shared message ids.
-fn load_context(
+pub(super) fn load_context(
     project: &Project,
     config: &RotomConfig,
     db_path: &Path,
 ) -> Result<rotom::ProjectContext, KernelError> {
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(db_path).map_err(|e| rotom_error("database", e))?;
+    context_with(project, config, db, None)
+}
+
+/// [`load_context`] with the database `db` already loaded. With `global_ids` the workspace's
+/// global script table keeps only the entries that answer those script ids, so `from_parts`
+/// indexes only their source files (it prepares every file of the table, most of the time of
+/// the context). uxie 0.9.7 `GlobalScriptTable::lookup` answers an id with the entry of the
+/// largest minimum at or below it; a table with fewer entries that still holds that entry
+/// answers the same, so a decompile that resolves only those ids renders the same text.
+pub(super) fn context_with(
+    project: &Project,
+    config: &RotomConfig,
+    db: rotom::DatabaseV2,
+    global_ids: Option<&std::collections::BTreeSet<u16>>,
+) -> Result<rotom::ProjectContext, KernelError> {
     let root = &project.root;
     let headers = project.read_headers()?;
-    // rotom v0.7.0: src/database.rs DatabaseV2::load, ConstantDb::load_from_db, load_directory
-    let db = rotom::DatabaseV2::load(db_path).map_err(|e| rotom_error("database", e))?;
+    // rotom v0.7.0: src/database.rs ConstantDb::load_from_db, load_directory
     let mut constants = rotom::ConstantDb::new();
     constants.load_from_db(&db);
     let database_dir = config.database_dir(root);
@@ -97,9 +113,21 @@ fn load_context(
             .load_directory(&database_dir)
             .map_err(|e| rotom_error("constants", e))?;
     }
-    // uxie 0.9.7: src/workspace.rs Workspace::open; `provider` is a public field.
+    // uxie 0.9.7: src/workspace.rs Workspace::open; `provider` and `global_script_table` are
+    // public fields.
     let mut workspace = uxie::Workspace::open(root).map_err(io_at(root))?;
     workspace.provider = Box::new(HeaderTable(headers));
+    if let Some(ids) = global_ids {
+        let table = &workspace.global_script_table;
+        let mut entries: Vec<uxie::script_file::GlobalScriptEntry> = Vec::new();
+        for entry in ids.iter().filter_map(|&id| table.lookup(id)) {
+            if !entries.contains(entry) {
+                entries.push(entry.clone());
+            }
+        }
+        // uxie 0.9.7: src/script_file/global_script_table.rs GlobalScriptTable::from_entries
+        workspace.global_script_table = uxie::script_file::GlobalScriptTable::from_entries(entries);
+    }
     // rotom v0.7.0: src/project/context.rs load_inner, the Dspre arm
     constants.load_dspre_symbols((*workspace.symbols).clone());
     let _ = constants.load_dspre_text_archives(root, workspace.language);

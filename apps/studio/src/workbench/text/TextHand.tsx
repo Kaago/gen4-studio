@@ -1,6 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { TextHit } from "../../api";
+import { HeadActions } from "../../original/HeadActions";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
 import { id4, termFor } from "../terms";
 import { MessageEditor } from "./MessageEditor";
@@ -60,6 +63,7 @@ function LongestLine({ width }: { width: number }) {
 /** The hand of the texts: the search, the messages (or the hits) as a table and the field of the selected message. */
 export function TextHand() {
   const t = useTextArea();
+  const reset = useReset();
   const { project, archive, message, loaded, error, loading, widths, query, effectiveScope, hits, searchError, select, setQuery, setScope, append } = t;
   const field = useRef<HTMLTextAreaElement>(null);
   // The message whose field takes the focus as soon as it shows (Enter on a row: the table selected it, its archive may still load).
@@ -200,6 +204,18 @@ export function TextHand() {
         <Button kind="primary" icon="plus" disabled={!loaded} onClick={append}>
           Nachricht anlegen
         </Button>
+        {archive !== null && (
+          <HeadActions
+            push={false}
+            items={[
+              // The selected message's text (a message the base does not have is refused by the plan, which the dialog shows).
+              message === null
+                ? { label: "Nachricht auf Original zurücksetzen…", icon: "undo", disabled: true, detail: "Keine Nachricht gewählt", onSelect: () => {} }
+                : resetEntry({ kind: "text_message", archive, message }, reset.status, reset.open, "Nachricht auf Original zurücksetzen…"),
+              resetEntry({ kind: "text_archive", index: archive }, reset.status, reset.open, "Ganzes Textarchiv auf Original zurücksetzen…"),
+            ]}
+          />
+        )}
       </div>
       <div className={styles.body}>
         <div className={styles.table}>{table}</div>

@@ -115,12 +115,24 @@ fn suggestion(state: &AppState, root: &Path) -> Option<PathBuf> {
         .filter(|p| !state.base_roms.is_original(p))
 }
 
-fn base_missing(message: String) -> CmdError {
+/// The `base_missing` error: no base ROM found, `message` says why.
+pub(crate) fn base_missing(message: String) -> CmdError {
     CmdError {
         code: "base_missing",
         message,
         asset: None,
         problems: Vec::new(),
+    }
+}
+
+/// The mark and the found base ROM of the project at `root` (searched as [`base_of`]);
+/// without one `base_missing` with the reason of the status ([`NO_MARK`],
+/// `base::missing_text`, the refusal of an unreadable mark).
+pub(crate) fn found_base(state: &AppState, root: &Path) -> Result<(BaseMark, Located), CmdError> {
+    match base_of(state, root) {
+        Base::Found(mark, hit) => Ok((mark, hit)),
+        Base::Unassigned(_) => Err(base_missing(NO_MARK.to_owned())),
+        Base::Missing(_, reason) | Base::Unreadable(reason) => Err(base_missing(reason)),
     }
 }
 
@@ -207,11 +219,7 @@ pub(crate) fn create_patch_checked(
     check: &dyn Fn(&PatchTargets) -> Result<(), CmdError>,
 ) -> Result<PatchDto, CmdError> {
     let project = open_project(state)?;
-    let (mark, hit) = match base_of(state, &project.root) {
-        Base::Found(mark, hit) => (mark, hit),
-        Base::Unassigned(_) => return Err(base_missing(NO_MARK.to_owned())),
-        Base::Missing(_, reason) | Base::Unreadable(reason) => return Err(base_missing(reason)),
-    };
+    let (mark, hit) = found_base(state, &project.root)?;
     let targets = patch::default_targets(&project);
     check(&targets)?;
     let rom = targets.rom.to_str().ok_or_else(|| {

@@ -1,6 +1,8 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { createEncounterFile, errorText } from "../../api";
 import type { DataRowDto } from "../../api";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
 import type { MarkSeverity } from "../../checks/FindingMark";
 import { Badge, Button, Dialog, EmptyState, IconButton, ListRow, Notice, Picker, Segmented, TextField, useRovingList } from "../../ui/primitives";
@@ -29,8 +31,10 @@ const FileRow = memo(function FileRow({
 }) {
   const reason = row.locked === null ? null : lockReason(row.locked);
   const users = rowUsers(row).length;
+  const reset = useReset();
   return (
     <ListRow
+      contextMenu={[resetEntry({ kind: "encounter", index: row.index }, reset.status, reset.open)]}
       label={label}
       tech={row.tech}
       subtitle={reason ?? (users === 0 ? "von keinem Ort verwendet" : usedByText(users))}

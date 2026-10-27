@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DataRowDto, EventsDto, HeaderSummary, MatrixDto } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { useReset } from "../original/OriginalContext";
+import { resetEntry } from "../original/resetEntry";
+import type { BuildingModelKind } from "../original/useBuildingModelKind";
 import type { Depth, Tool } from "../ui/frame/shellState";
 import { Badge, EmptyState, Icon, IconButton, Menu, Notice, PanelHead, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import type { MenuEntry } from "../ui/primitives";
@@ -54,6 +57,8 @@ export interface SceneHierarchyProps {
   canForward: boolean;
   /** Bumping `token` opens the group (and the root), focuses its row and scrolls to it; while the events load it waits for them. */
   focusGroup?: { group: SceneGroup; token: number };
+  /** The archive the scene takes the buildings' models from (`useBuildingModelKind`); null or left out while it is not known. */
+  buildingModel?: BuildingModelKind | null;
 }
 
 /** The tools „+“ offers, in the toolbar's order. */
@@ -68,7 +73,8 @@ const FOLLOW_HINT = "Doppelklick oder Enter folgt der Tür zum Ziel";
  */
 export function SceneHierarchy(props: SceneHierarchyProps) {
   const { header, headers, matrix, events, buildings, trainers, depth, identify, selected, marks, faultyEvents, locked, loading } = props;
-  const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onNewPlace, placesBlocked = null, onBack, onForward, canBack, canForward, focusGroup } = props;
+  const { onSelect, onFollow, onOpenScript, onTool, toolsBlocked, onConnectRoom, onNewPlace, placesBlocked = null, onBack, onForward, canBack, canForward, focusGroup, buildingModel = null } = props;
+  const reset = useReset();
   const [open, setOpen] = useState<ReadonlySet<string>>(SCENE_OPEN);
   const [query, setQuery] = useState("");
   const rows = useMemo(
@@ -159,6 +165,12 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
     { label: placesBlocked ? `Neuer Ort…, ${placesBlocked}` : "Neuer Ort…", icon: "place", disabled: placesBlocked !== null, onSelect: onNewPlace },
   ];
 
+  // „… auf Original zurücksetzen…“ in the rows' context menus: the header at the root, the event file at its groups and events, a script's
+  // file, a building's model (from the archive the scene takes it from). Maps have none: they are reset in the cell's inspector.
+  const resetMenu = (target: Parameters<typeof resetEntry>[0], label: string, known = true): MenuEntry[] => [resetEntry(target, known ? reset.status : null, reset.open, label)];
+  const eventFileMenu = events === null ? undefined : resetMenu({ kind: "event_file", index: events.event_file_id }, "Eventdatei auf Original zurücksetzen…");
+  const modelOf = (ref: { map: number; index: number }) => buildings.find((b) => b.map === ref.map)?.models[ref.index];
+
   const renderRow = (row: SceneRow) => {
     const isSelected = row.ref !== undefined && sameRef(row.ref, selected);
     const common = { depth: row.depth, label: row.label, tech: row.tech, subtitle: row.second, icon: row.icon, expanded: row.expanded, onToggle: row.expanded !== undefined ? () => toggle(row.key) : undefined };
@@ -172,6 +184,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             selected={isSelected}
             onSelect={() => row.ref && onSelect(row.ref)}
             dataAttrs={{ "data-scene-group": "header", "data-header-id": header?.id }}
+            contextMenu={header === null ? undefined : resetMenu({ kind: "header", id: header.id }, "Header auf Original zurücksetzen…")}
             trailing={mark ? <FindingMark severity={mark} /> : undefined}
           />
         );
@@ -185,6 +198,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             selected={false}
             onSelect={() => toggle(row.key)}
             dataAttrs={{ "data-scene-group": row.group }}
+            contextMenu={row.group !== undefined && EVENT_GROUPS.has(row.group) ? eventFileMenu : undefined}
             trailing={
               <>
                 {locked !== null && row.group !== undefined && EVENT_GROUPS.has(row.group) && <Badge kind="locked" />}
@@ -195,12 +209,28 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
         );
       case "script": {
         const file = row.ref?.kind === "script" ? row.ref.file : -1;
-        return <TreeRow key={row.key} {...common} selected={false} onSelect={() => onOpenScript(file)} dataAttrs={{ "data-script-file": file }} />;
+        return (
+          <TreeRow
+            key={row.key}
+            {...common}
+            selected={false}
+            onSelect={() => onOpenScript(file)}
+            dataAttrs={{ "data-script-file": file }}
+            contextMenu={resetMenu({ kind: "script", file }, "Scriptdatei auf Original zurücksetzen…")}
+          />
+        );
       }
       default: {
         const ref = row.ref!;
         const dataAttrs =
           ref.kind === "event" ? { "data-event": `${ref.eventKind}:${ref.index}` } : ref.kind === "building" ? { "data-building": `${ref.map}:${ref.index}` } : undefined;
+        const model = ref.kind === "building" ? modelOf(ref) : undefined;
+        const contextMenu =
+          ref.kind === "event"
+            ? resetMenu({ kind: "event_file", index: ref.file }, "Eventdatei auf Original zurücksetzen…")
+            : model !== undefined
+              ? resetMenu({ kind: buildingModel ?? "building_model", index: model }, "Gebäudemodell auf Original zurücksetzen…", buildingModel !== null)
+              : undefined;
         const item = (
           <TreeRow
             key={row.key}
@@ -209,6 +239,7 @@ export function SceneHierarchy(props: SceneHierarchyProps) {
             onSelect={() => onSelect(ref)}
             dataAttrs={dataAttrs}
             title={typeof row.dest === "number" ? FOLLOW_HINT : undefined}
+            contextMenu={contextMenu}
             trailing={faulty(ref) ? <FindingMark severity="error" /> : undefined}
           />
         );

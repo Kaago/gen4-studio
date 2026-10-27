@@ -3,7 +3,7 @@ import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import type { RowDataAttrs } from "./ListRow";
-import { MenuEntries } from "./Menu";
+import { ContextMenuPopup, MenuEntries } from "./Menu";
 import type { MenuEntry } from "./Menu";
 import menuStyles from "./Menu.module.css";
 import styles from "./Reference.module.css";
@@ -49,16 +49,12 @@ export function Reference({ area, label, tech, onOpen, usedIn, disabled, dataAtt
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger render={<span className={styles.wrap} />}>{chip}</ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Positioner className={menuStyles.positioner}>
-          <BaseMenu.Popup className={menuStyles.popup}>
-            <BaseMenu.Group>
-              <BaseMenu.GroupLabel className={menuStyles.groupLabel}>Verwendet in</BaseMenu.GroupLabel>
-              <MenuEntries items={entries} />
-            </BaseMenu.Group>
-          </BaseMenu.Popup>
-        </ContextMenu.Positioner>
-      </ContextMenu.Portal>
+      <ContextMenuPopup>
+        <BaseMenu.Group>
+          <BaseMenu.GroupLabel className={menuStyles.groupLabel}>Verwendet in</BaseMenu.GroupLabel>
+          <MenuEntries items={entries} />
+        </BaseMenu.Group>
+      </ContextMenuPopup>
     </ContextMenu.Root>
   );
 }

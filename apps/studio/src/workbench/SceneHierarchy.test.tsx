@@ -8,6 +8,7 @@ import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { visibleWords } from "../ui/visibleText";
 import { SceneHierarchy } from "./SceneHierarchy";
 import type { SceneHierarchyProps } from "./SceneHierarchy";
+import { MISSING, chooseContext, contextTexts, resetSpy, withReset } from "../original/resetTesting";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -55,7 +56,9 @@ describe("SceneHierarchy", () => {
     onBack: vi.fn(),
     onForward: vi.fn(),
   };
+  let reset = resetSpy();
   beforeEach(() => {
+    reset = resetSpy();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -69,7 +72,9 @@ describe("SceneHierarchy", () => {
   const show = (over: Partial<SceneHierarchyProps> = {}) =>
     act(() =>
       root.render(
-        <SceneHierarchy
+        withReset(
+          reset,
+          <SceneHierarchy
           header={town}
           headers={[town, house]}
           matrix={matrix}
@@ -86,6 +91,7 @@ describe("SceneHierarchy", () => {
           {...fns}
           {...over}
         />,
+        ),
       ),
     );
   const tree = () => container.querySelector<HTMLElement>('[role=tree][aria-label="In dieser Szene"]')!;
@@ -126,6 +132,35 @@ describe("SceneHierarchy", () => {
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
     show({ depth: "tuefteln" });
     expect(group("header").textContent).toContain("Header 0003 · Matrix 0000");
+  });
+
+  it("rows_have_reset_in_their_context_menu", () => {
+    show({ buildingModel: "interior_building_model" });
+    // The root: the header with its fields.
+    expect(contextTexts(group("header"))).toEqual(["Header auf Original zurücksetzen…"]);
+    chooseContext(group("header"), "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "header", id: 3 });
+    // A group of events and an event: the event file they are in.
+    for (const r of [group("object"), group("warp"), group("coord"), group("bg"), row("Objekt 1")]) {
+      expect(contextTexts(r)).toEqual(["Eventdatei auf Original zurücksetzen…"]);
+    }
+    chooseContext(row("Objekt 1"), "Eventdatei auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "event_file", index: 7 });
+    // A script: its file.
+    chooseContext(row("Scriptdatei 0042"), "Scriptdatei auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 });
+    // A building: its model, from the archive the scene takes it from (here the interior one of HeartGold and SoulSilver).
+    pressKey(row("Karte 0006"), "ArrowRight");
+    chooseContext(row("Gebäude 2"), "Gebäudemodell auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "interior_building_model", index: 13 });
+    // Maps have no list of their own: they are reset in the cell's inspector, not here.
+    expect(contextTexts(row("Karte 0006"))).toEqual([]);
+    expect(contextTexts(group("maps"))).toEqual([]);
+    // Without a base ROM every entry says why it is locked; while the area data is read, the building's archive is not known yet.
+    reset = resetSpy(MISSING);
+    show({ buildingModel: null });
+    expect(contextTexts(group("header"))).toEqual(["Header auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(contextTexts(row("Gebäude 2"))).toEqual(["Gebäudemodell auf Original zurücksetzen…Wird gelesen …"]);
   });
 
   it("searches_by_title_and_clears_with_escape", () => {

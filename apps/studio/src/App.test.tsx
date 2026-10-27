@@ -5,9 +5,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
@@ -209,6 +209,10 @@ vi.mock("./api", async (importOriginal) => ({
   agentSettings: vi.fn(),
   baseStatus: vi.fn(),
   createPatch: vi.fn(),
+  originalStatus: vi.fn(),
+  planReset: vi.fn(),
+  resetToOriginal: vi.fn(),
+  changedFromOriginal: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -220,6 +224,27 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
   openPath: vi.fn(),
   savePath: vi.fn(),
 }));
+// The reset handler the app gives the provider of „Auf Original zurücksetzen“ (the dialog itself is tested on its own), and the api a
+// head or a row below it gets (`useReset`), as a place offering the entry would call it.
+const originalProps = vi.hoisted(() => ({
+  onReset: null as null | ((result: ResetResult, label: string) => void | Promise<void>),
+  api: null as null | { open: (target: ResetTarget, opts?: { scriptDirty?: boolean }) => void },
+}));
+vi.mock("./original/OriginalContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./original/OriginalContext")>();
+  const { createElement } = await import("react");
+  function Probe() {
+    originalProps.api = actual.useReset();
+    return null;
+  }
+  return {
+    ...actual,
+    OriginalProvider: (props: Parameters<typeof actual.OriginalProvider>[0]) => {
+      originalProps.onReset = props.onReset;
+      return createElement(actual.OriginalProvider, props, props.children, createElement(Probe));
+    },
+  };
+});
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 // The handlers listening to Tauri events by name (`agent-event`: the agent hub's events).
 const tauriEvents = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
@@ -284,6 +309,8 @@ describe("App wiring", () => {
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
+    vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+    vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -440,6 +467,39 @@ describe("App wiring", () => {
     // The scripts api opens a file without moving the focus.
     await act(async () => data().scripts.open(43));
     expect(data().scripts.active).toBe(43);
+  });
+
+  it("a_reset_to_original_shows_the_reset_script_in_place_of_unsaved_text_and_says_so", async () => {
+    await act(async () => data().scripts.open(42));
+    const doc = data().scripts.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => data().scripts.onChange(42));
+    expect(data().scripts.documents.dirty()).toEqual([42]);
+    // The dialog warned that the unsaved text is lost: after the reset the editor shows the file, clean, without a refusal.
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Original #1:\n\tEnd\n" });
+    await act(async () => originalProps.onReset!({ changed: [{ kind: "Script", index: 42 }], recorded: true, ms: 5 }, "Scriptdatei 0042"));
+    expect(doc.text).toBe("script Original #1:\n\tEnd\n");
+    expect(data().scripts.documents.dirty()).toEqual([]);
+    expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Scriptdatei 0042." });
+  });
+
+  it("a_reset_to_original_that_brings_a_level_script_replaces_the_open_rotom_source", async () => {
+    await act(async () => data().scripts.open(42));
+    const doc = data().scripts.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => data().scripts.onChange(42));
+    const level = { header_entries: [], var_conditions: [] };
+    vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: level });
+    await act(async () => originalProps.onReset!({ changed: [{ kind: "Script", index: 42 }], recorded: true, ms: 5 }, "Scriptdatei 0042"));
+    expect(data().scripts.documents.get(42)).toMatchObject({ kind: "levelScript", text: `${JSON.stringify(level, null, 2)}\n` });
+    expect(data().scripts.documents.dirty()).toEqual([]);
+    expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Scriptdatei 0042." });
+  });
+
+  it("a_failing_reload_after_a_reset_to_original_is_reported_not_left_unhandled", async () => {
+    vi.mocked(dirty).mockRejectedValueOnce({ code: "error", message: "Sitzung weg", asset: null });
+    await act(async () => originalProps.onReset!({ changed: [], recorded: true, ms: 5 }, "Karte 0003"));
+    expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("Sitzung weg") });
   });
 
   it("counts unsaved scripts in the title bar and forgets scripts and problems with the project", async () => {
@@ -1057,7 +1117,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(6);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(7);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -2347,6 +2407,25 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(0);
     });
 
+    it("an_undo_of_a_script_file_step_reads_the_open_script_again_and_keeps_typed_text_with_a_hint", async () => {
+      await act(async () => data().scripts.open(42));
+      const doc = data().scripts.documents.get(42)!;
+      // A clean document shows what the undo wrote back.
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Wieder #1:\n\tEnd\n" });
+      vi.mocked(undo).mockResolvedValue([{ kind: "Script", index: 42 }]);
+      await pressUndo();
+      expect(doc.text).toBe("script Wieder #1:\n\tEnd\n");
+      expect(data().scripts.documents.dirty()).toEqual([]);
+      // Typed text stays (⌘S would write it over the file), and the user is told.
+      doc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Original #1:\n\tEnd\n" });
+      await pressUndo();
+      expect(doc.text).toBe("script Wieder #1:\n\tEnd\n// edit\n");
+      expect(doc.savedText).toBe("script Original #1:\n\tEnd\n");
+      expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("wurde außerhalb des Editors geändert") });
+    });
+
     it("reloads what every asset of a step of several restored", async () => {
       await select(listed[0]);
       const log = record();
@@ -2359,6 +2438,28 @@ describe("App wiring", () => {
       // location bank (a text archive).
       expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1", "headerTable@1", "dataChanged@1"]);
       expect(data().history.current).toBe(1);
+    });
+  });
+
+  describe("reset to original", () => {
+    it("a_reset_reloads_what_changed_and_says_so", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(planReset).mockResolvedValue({ target: { kind: "map_texture", index: 1 }, label: "Kartentextur 0001", changes: [{ label: "Kartentextur 0001", before: "4096 Byte", after: "4000 Byte" }], fields: [], writes_files: true, same: false });
+      vi.mocked(resetToOriginal).mockResolvedValue({ changed: [{ kind: "MapTexture", index: 1 }], recorded: true, ms: 7 });
+      // A head's entry asks: the dialog shows the plan, „Zurücksetzen“ resets.
+      await act(async () => originalProps.api!.open({ kind: "map_texture", index: 1 }));
+      const dialog = () => document.querySelector<HTMLElement>("[data-reset-dialog]:not([data-closed])");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Kartentextur 0001 auf Original zurücksetzen?");
+      const confirm = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Zurücksetzen")!;
+      await act(async () => confirm.click());
+      await act(async () => {});
+      expect(resetToOriginal).toHaveBeenCalledWith({ kind: "map_texture", index: 1 });
+      // The texture file changed under unchanged tileset numbers: the scene loads its models again, as after ⌘Z of the reset.
+      expect(log).toEqual(["modelsReload@1"]);
+      expect(data().history.current).toBe(1);
+      expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Kartentextur 0001." });
+      expect(dialog()).toBeNull();
     });
   });
 
@@ -2461,6 +2562,129 @@ describe("App wiring", () => {
       await vi.waitFor(() => expect(log.map((entry) => entry.split("@")[0])).toEqual(expect.arrayContaining(["headerTable", "areaData", "buildingData", "dataChanged"])), { timeout: 4000 });
       expect(memberCounts).toHaveBeenCalled();
       expect(dirty).toHaveBeenCalled();
+    });
+
+    it("reads_what_can_be_reset_once_per_project_and_again_when_an_agent_assigns_a_base", async () => {
+      vi.mocked(originalStatus).mockClear();
+      await inTheApp();
+      expect(originalStatus).toHaveBeenCalledTimes(1);
+      // Other tools leave it alone.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(originalStatus).toHaveBeenCalledTimes(1);
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(originalStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it("an_agent_reset_to_original_reloads_like_the_other_tools", async () => {
+      await inTheApp();
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(memberCounts).mockClear();
+      await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "reset_to_original", label: "Auf Original zurückgesetzt: Matrix", assets: [{ kind: "Matrix", index: 0 }] });
+      await flush();
+      expect(memberCounts).toHaveBeenCalledTimes(1);
+      expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
+      expect(data().history.current).toBe(1);
+    });
+
+    it("technik_aenderungen_compares_when_shown_and_again_after_a_save_a_reset_and_an_agent_save", async () => {
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 600 } });
+      vi.mocked(changedFromOriginal).mockClear().mockResolvedValue({
+        entries: [{ group: "Karten", label: "Karte 0003", state: "changed", target: { kind: "map", index: 3 }, assets: [{ kind: "Map", index: 3 }], folder: "maps" }],
+        files: 4,
+        hashed: 0,
+        recorded: 0,
+        unbuilt: [],
+        ms: 1,
+      });
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", snapshot: null });
+      await inTheApp();
+      const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+      // Nothing is compared until the surface shows (the first compare may hash every member).
+      await act(async () => atlasEntry("Technik")!.click());
+      expect(changedFromOriginal).not.toHaveBeenCalled();
+      const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Änderungen"))!;
+      await act(async () => row.click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(1);
+      expect(container.querySelector("[data-technik=aenderungen] [data-change='Karte 0003']")).not.toBeNull();
+      // A save compares again.
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => {});
+      expect(save).toHaveBeenCalled();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      // So does a reset through the dialog that wrote a file; a reset of a store kind leaves the saved files as they are.
+      await act(async () => originalProps.onReset!({ changed: [{ kind: "Map", index: 3 }], recorded: true, ms: 1 }, "Karte 0003"));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      await act(async () => originalProps.onReset!({ changed: [{ kind: "MapTexture", index: 1 }], recorded: true, ms: 1 }, "Kartentextur 0001"));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      // ⌘Z in the app: a file step writes files, a store step does not.
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "Map", index: 3 }]);
+      await pressUndo();
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "BuildingModel", index: 2 }]);
+      await pressUndo();
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      // A trainer created in the app writes its members at once.
+      await act(async () => data().bus.emit({ topic: "savedFiles" }));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
+      // An agent's edit changes no saved file; its save does.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "save", label: null, assets: [] });
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(6);
+      // So does every other agent tool that writes files of the saved project.
+      let calls = 6;
+      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer"];
+      for (const [i, tool] of writers.entries()) {
+        await emit({ kind: "changed", seq: 10 + i, client: "Claude Code", tool, label: null, assets: [] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
+      }
+      // An agent's reset, undo or redo only when it wrote a file (a script, texture or model).
+      for (const [i, tool] of ["reset_to_original", "undo", "redo"].entries()) {
+        await emit({ kind: "changed", seq: 30 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Trainer", index: 1 }] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(calls);
+        await emit({ kind: "changed", seq: 31 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Script", index: 0 }] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
+      }
+      // Another base found for the project (an agent assigned it): compared against it at once, without a save.
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin US", sha1: "0".repeat(40), counts: { map: 600 } });
+      await emit({ kind: "changed", seq: 50, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
+      expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Gegenüber der Basis-ROM Platin US.");
+      // The Dynamic Headers patch applied in Technik › Patches writes the header table into files: compared when Änderungen shows again.
+      await act(async () => technikRow("Patches").click());
+      await act(async () => {});
+      await click("Patch anwenden");
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Patch anwenden")!.click());
+      await act(async () => {});
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      await act(async () => technikRow("Änderungen").click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
+      // Elsewhere a save waits until the surface shows again, then compares once.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls);
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls + 1);
     });
 
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {

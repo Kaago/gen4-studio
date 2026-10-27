@@ -8,6 +8,8 @@ import type { AreaDataDto, AssetId } from "../../api";
 import { openSelect, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { AreaEditor } from "./AreaEditor";
+import { chooseAction, headAction, headActions } from "./headTesting";
+import { READY, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getAreaData: vi.fn(), setAreaData: vi.fn() }));
 
@@ -21,6 +23,7 @@ describe("AreaEditor", () => {
   let root: Root;
   const onChanged = vi.fn();
   const onError = vi.fn();
+  let reset = resetSpy();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -29,13 +32,14 @@ describe("AreaEditor", () => {
     vi.mocked(setAreaData).mockReset().mockResolvedValue(undefined);
     onChanged.mockReset();
     onError.mockReset();
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
   async function show(counts = {}, dirty: AssetId[] = [], depth: "bauen" | "tuefteln" = "bauen") {
-    await act(async () => root.render(<AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} depth={depth} />));
+    await act(async () => root.render(withReset(reset, <AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} depth={depth} />)));
     await flush();
   }
   const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -108,5 +112,24 @@ describe("AreaEditor", () => {
     expect(hexSwitch()).toBe(true);
     await act(async () => void technical()?.click());
     expect(container.textContent).toContain("Area-Data 0007");
+  });
+
+  it("head_offers_both_textures", async () => {
+    await show();
+    // The area data names a map texture (10) and a building texture (1): each can go back to the base on its own.
+    expect(headActions(container)).toEqual(["Kartentextur auf Original zurücksetzen…", "Gebäudetextur auf Original zurücksetzen…"]);
+    chooseAction(container, "Kartentextur auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "map_texture", index: 10 });
+    chooseAction(container, "Gebäudetextur auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "building_texture", index: 1 });
+    // A texture the base does not have is new.
+    await act(async () => root.render(null));
+    reset = resetSpy({ ...READY, counts: { ...READY.counts, map_texture: 5 } });
+    await show();
+    const item = headAction(container, "Kartentextur auf Original zurücksetzen…");
+    expect(isDisabled(item)).toBe(true);
+    expect(item?.textContent).toBe("Kartentextur auf Original zurücksetzen…Kein Original");
+    expect(isDisabled(headAction(container, "Gebäudetextur auf Original zurücksetzen…"))).toBe(false);
+    closeMenu();
   });
 });

@@ -29,6 +29,16 @@ export class ScriptDocuments {
     return doc;
   }
 
+  /**
+   * Puts a fresh, clean document of `kind` with `text` in the place of `file`'s (the file now has a source of another kind): same place
+   * among the documents, no editor state, cursor at the start.
+   */
+  replace(file: number, kind: ScriptDocument["kind"], text: string): ScriptDocument {
+    const doc: ScriptDocument = { file, kind, text, savedText: text, state: null, cursor: 0 };
+    this.docs.set(file, doc);
+    return doc;
+  }
+
   get(file: number): ScriptDocument | undefined {
     return this.docs.get(file);
   }

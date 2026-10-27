@@ -105,6 +105,40 @@ und die Datei beim Hashen nicht racy war; die Werte sind dieselben, rotoms Zusta
 maßgeblich. Der Speicher fasst 16 384 Dateien (ein Projekt hat rund 3 000 Quellen, Ausgaben und
 Include-Dateien; zusammen etwa 4 MB), danach beginnt er von vorn.
 
+## Nachgetragene Hashes (4.1b)
+
+Außer dem Build schreibt nur die Liste „geändert gegenüber Original“
+(`original::changed_from_original`) in vorhandene Schritt-Einträge, und nur den Hash: Sie
+vergleicht die Member jedes Ordners unter `unpacked/` mit den Membern der Basis-ROM und nimmt dafür
+den Hash aus `steps["pack:<Ordner>"].inputs`. Je Member-Datei gilt:
+
+- `stat` gleich dem aufgezeichneten, der Eintrag nicht racy und Hash vorhanden: der aufgezeichnete
+  Hash, die Datei wird nicht gelesen.
+- `stat` gleich, kein Hash und der Eintrag nicht racy (gegen `scanned_at_ns` seines Schritts): die
+  Datei wird gehasht, und der Hash wird vorgemerkt, wenn ihr `stat` nach dem Hashen noch derselbe
+  ist.
+- Jeder andere Fall (anderer `stat`, eine Datei ohne Eintrag): gehasht, **nicht** vorgemerkt. Die
+  Datei wurde seit dem Build geändert; ein Hash in ihrem Eintrag ließe den nächsten Build das
+  Packen überspringen, wenn er den neuen `stat` per Hash als gleich ansähe.
+
+Ein racy aufgezeichneter Eintrag wird wie in `fingerprint::compare` bei jedem Vergleich gehasht,
+mit oder ohne Hash, bis der nächste Build ihn neu aufzeichnet, und bekommt nie einen
+nachgetragenen Hash.
+
+Die vorgemerkten Hashes gehen in **einem** `BuildState::update` in die Datei, jeder nur dort, wo
+der Eintrag dann noch genau den gesehenen `stat` trägt, keinen Hash hat und nicht racy ist; ist
+nichts vorgemerkt, wird die Datei nicht geschrieben. Ein Ordner ohne Eintrag `pack:<Ordner>` (nie
+gebaut, oder nach „Neu bauen (ohne Cache)“) wird ganz gehasht, und nichts wird gespeichert: Ein
+erfundener Eintrag ließe den Build den Ordner überspringen. Ein Archiv ohne Ordner unter
+`unpacked/` wird aus dem gepackten NARC im Speicher gehasht.
+
+Die Entscheidungen des Builds ändert das nicht. Ein Eintrag mit gleichem `stat`, der nicht racy
+ist, gilt ohnehin als gleich, mit oder ohne Hash; der Hash beschreibt den Inhalt, den der Build bei
+diesem `stat` angenommen hat. Er wirkt erst, wenn sich der `stat` später ohne Inhaltsänderung
+ändert (`touch`, Kopie, Checkout): Dann findet der Build die Datei über den Hash gleich, statt sie
+als geändert zu packen. Die Basis-Hashes selbst liegen nicht hier, sondern im App-Cache unter
+`base/<sha1>.json` (je gepacktem NARC-Pfad die xxh3 der Member, 16 Hex-Ziffern, `version` 1).
+
 ## Entscheidung je Schritt
 
 | Ergebnis | wann | `reason` |

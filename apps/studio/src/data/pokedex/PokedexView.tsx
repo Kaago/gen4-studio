@@ -5,6 +5,9 @@ import { Notice, Reference, Sprite, StatBar, TypeBadge } from "../../ui/primitiv
 import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
 import { monIcon, monIconKey, useIcon } from "../icons";
+import { HeadActions } from "../../original/HeadActions";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { useDataArea } from "../useDataArea";
 import { useRefs } from "../useRefs";
 import { STATS, abilityName, lockText, lockedParts, statAverages, statSum } from "./pokedexModel";
@@ -115,6 +118,7 @@ function Uses({ index }: { index: number }) {
 export function PokedexView() {
   const { row, rows, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useSpecies(selected);
+  const reset = useReset();
   const averages = useMemo(() => statAverages(rows), [rows]);
   const icon = useIcon(selected === null ? null : monIconKey(selected), () => monIcon(selected ?? 0), true);
   if (row === null || selected === null) return null;
@@ -141,6 +145,8 @@ export function PokedexView() {
             </span>
           </div>
         )}
+        {/* The species' data, learnset and evolution, in one step. */}
+        <HeadActions items={[resetEntry({ kind: "species", index: selected }, reset.status, reset.open)]} />
       </header>
       <div className={styles.viewBody}>
         {error !== null && <Notice kind="error">{`Diese Art ist nicht lesbar: ${error}`}</Notice>}

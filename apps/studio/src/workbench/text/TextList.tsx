@@ -1,4 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { ListPane } from "../../ui/frame/ListPane";
 import { Badge, EmptyState, Icon, IconButton, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { ProblemRow } from "../problems/problems";
@@ -57,11 +59,13 @@ const ArchiveItem = memo(function ArchiveItem({ row, selected, count, overlong, 
         )}
       </>
     ) : undefined;
+  const reset = useReset();
   return (
     <TreeRow
       depth={1}
       label={label}
       tech={id4(row.index)}
+      contextMenu={[resetEntry({ kind: "text_archive", index: row.index }, reset.status, reset.open)]}
       ariaLabel={[row.place !== null || row.users.length > 0 ? `${label}, ${name}` : name, messages].filter(Boolean).join(", ")}
       selected={selected}
       onSelect={() => onSelect(row.index)}

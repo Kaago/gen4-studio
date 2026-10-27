@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { BuildStep, HeaderPatchDto } from "../api";
+import type { AssetId, BuildStep, HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
 import type { ChecksApi } from "../checks/useChecks";
+import { useReset } from "../original/OriginalContext";
 import { useProjectPreview } from "../project/useProjectPreview";
 import type { ProjectPreviewState } from "../project/useProjectPreview";
 import { EmulatorRow } from "../ui/frame/EmulatorRow";
@@ -22,11 +23,13 @@ import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import { BuildSteps } from "./BuildSteps";
 import { patchBuildNote } from "./stepWords";
+import { ChangesSurface, changesSubtitle } from "./ChangesSurface";
 import styles from "./TechnikArea.module.css";
 import type { BaseApi } from "./useBase";
+import type { ChangesApi } from "./useChanges";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "projekt" | "bauen" | "veroeffentlichen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "projekt" | "bauen" | "veroeffentlichen" | "aenderungen" | "patches" | "emulator" | "werkzeuge";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -79,12 +82,17 @@ export type TechnikAreaProps = {
   startTown?: (header: number) => string | null;
   /** The base ROM and the patch (Veröffentlichen), held by the app so a running patch survives leaving Technik; null without a project. */
   base: BaseApi | null;
+  /** What of the saved project differs from the base ROM (Änderungen), held by the app; null without a project. */
+  changes: ChangesApi | null;
+  /** The store's assets with unsaved edits: Änderungen marks their rows „Ungespeichert“. */
+  dirty: readonly AssetId[];
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
   { id: "projekt", label: "Projekt", icon: "open" },
   { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
   { id: "veroeffentlichen", label: "Veröffentlichen", icon: "publish" },
+  { id: "aenderungen", label: "Änderungen", icon: "changes" },
   { id: "patches", label: "Patches", icon: "patch" },
   { id: "emulator", label: "Emulator", icon: "game" },
   { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
@@ -134,9 +142,10 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9, phase 4.0 §3.5): a list of six entries with their state, and the surface of the chosen one. Projekt,
- * Prüfen und Bauen, Veröffentlichen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The
- * patch state and the preview picture are read once per project, when the area shows; the base ROM comes from the app (`base`).
+ * The area Technik (spec 5.9, phase 4.0 §3.5): a list of seven entries with their state, and the surface of the chosen one. Projekt,
+ * Prüfen und Bauen, Veröffentlichen, Änderungen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in
+ * Werkzeuge does). The patch state and the preview picture are read once per project, when the area shows; the base ROM (`base`) and the
+ * compare against it (`changes`) come from the app, the status of the base for resetting from `useReset`.
  */
 export function TechnikArea(props: TechnikAreaProps) {
   return props.project === null ? <TechnikView {...props} patch={null} preview={null} /> : <WithProject key={props.project} {...props} />;
@@ -151,6 +160,7 @@ function WithProject(props: TechnikAreaProps) {
 function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: HeaderPatch | null; preview: ProjectPreviewState | null }) {
   const { entry, onEntry, listOpen, onToggleList, lastBuiltAt, emulatorPath, tools } = props;
   const status = useSyncExternalStore(tools.subscribe, tools.get);
+  const original = useReset().status;
   const now = useNow();
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
@@ -158,6 +168,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
     projekt: previewSubtitle(preview),
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
     veroeffentlichen: publishSubtitle(props.base),
+    aenderungen: changesSubtitle(props.changes, original),
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
@@ -177,6 +188,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (
         <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
+      ) : entry === "aenderungen" ? (
+        <ChangesSurface changes={props.changes} status={original} dirty={props.dirty} onOpenProject={props.onOpenProject} />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (

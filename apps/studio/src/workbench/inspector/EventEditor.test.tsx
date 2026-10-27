@@ -10,6 +10,7 @@ import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
+import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn() }));
 
@@ -27,6 +28,7 @@ describe("EventEditor scripts", () => {
   const onAddScript = vi.fn();
   const onError = vi.fn();
   const onChanged = vi.fn();
+  let reset = resetSpy();
   const context = (over: Partial<EventEditorContext> = {}): EventEditorContext => ({
     // Header 3 (script file 40) and 9 (script file 77) share event file 8.
     headers: [header(3, 8, 40), header(9, 8, 77), header(1, 2, 5)],
@@ -52,13 +54,14 @@ describe("EventEditor scripts", () => {
     vi.mocked(updateEvent).mockReset().mockResolvedValue(undefined);
     vi.mocked(resolveScript).mockReset();
     for (const fn of [onOpenScript, onAddScript, onError, onChanged]) fn.mockReset();
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
   async function show(ctx = context(), kind: EventKind = "object", index = 2, depth: "bauen" | "tuefteln" = "bauen") {
-    await act(async () => root.render(<EventEditor file={8} kind={kind} index={index} context={ctx} depth={depth} />));
+    await act(async () => root.render(withReset(reset, <EventEditor file={8} kind={kind} index={index} context={ctx} depth={depth} />)));
     await flush();
   }
   const field = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
@@ -186,9 +189,20 @@ describe("EventEditor scripts", () => {
     await show(context({ onDelete }));
     // „Löschen“ is no button in the form any more: it is the head's action, with its key.
     expect(button("Löschen")).toBeUndefined();
-    expect(headActions(container)).toEqual(["LöschenEntf"]);
+    expect(headActions(container)).toEqual(["LöschenEntf", "Eventdatei auf Original zurücksetzen…"]);
     chooseAction(container, "Löschen");
     expect(onDelete).toHaveBeenCalledWith(8, "object", 2);
+  });
+
+  it("head_offers_reset_of_the_event_file", async () => {
+    await show();
+    // Not the event alone: the whole event file it is in (the reset sets the file's asset).
+    chooseAction(container, "Eventdatei auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenCalledWith({ kind: "event_file", index: 8 });
+    await act(async () => root.render(null));
+    reset = resetSpy(MISSING);
+    await show();
+    expect(headActions(container)).toEqual(["LöschenEntf", "Eventdatei auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 
   it("changes_the_facing_through_a_select_and_writes_only_that_field", async () => {

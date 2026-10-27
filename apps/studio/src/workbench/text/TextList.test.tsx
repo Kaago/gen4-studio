@@ -3,6 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getTextArchive } from "../../api";
 import { archive, flush, textHarness } from "./textTesting";
+import { chooseContext, readyWith, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -55,5 +56,18 @@ describe("TextList", () => {
     await flush();
     act(() => h.problems.replaceText(6, [{ severity: "warning", file: "expanded/textArchives/0006.json", line: 1, col: 1, message: "zu lang", source: "text" }]));
     expect(h.container.textContent).toContain("1 Text zu lang, in 1 geprüften Archiv");
+  });
+
+  it("archive_rows_have_reset", async () => {
+    // The base has 434 archives (0 to 433): 434 is new.
+    h.reset.status = readyWith({ text_archive: 434 });
+    h.show(h.base());
+    await flush();
+    expect(contextTexts(h.archiveRow(433)!)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(h.archiveRow(433)!, "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenCalledWith({ kind: "text_archive", index: 433 });
+    expect(contextTexts(h.archiveRow(434)!)).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    // The right click does not open the archive.
+    expect(h.archiveRow(433)?.getAttribute("aria-selected")).toBe("false");
   });
 });

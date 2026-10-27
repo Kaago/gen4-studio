@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { DataRowDto, SpeciesRowExtra } from "../../api";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { FilterChips, pokemonTypes } from "../../ui/primitives";
 import { DataList, RowIcon } from "../DataList";
 import { monIcon, monIconKey } from "../icons";
@@ -36,8 +38,12 @@ export function PokedexList() {
     (row: DataRowDto) => (unsaved.has(row.index) ? <span className={styles.dot} role="img" aria-label="ungespeichert" /> : null),
     [unsaved],
   );
+  // A species with its data, learnset and evolution as in the base ROM.
+  const { status, open } = useReset();
+  const contextMenu = useCallback((row: DataRowDto) => [resetEntry({ kind: "species", index: row.index }, status, open)], [status, open]);
   return (
     <DataList
+      contextMenu={contextMenu}
       area="pokemon"
       label="Pokédex"
       attr="data-species"

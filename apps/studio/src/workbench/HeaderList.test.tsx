@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderSummary } from "../api";
 import type { Depth, ListSort } from "../ui/frame/shellState";
 import { HeaderList } from "./HeaderList";
+import { chooseContext, contextTexts, resetSpy, withReset } from "../original/resetTesting";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -170,5 +171,15 @@ describe("HeaderList", () => {
     act(() => root.render(<HeaderList {...base} selected={4} />));
     expect(container.querySelectorAll("[role=option]")).toHaveLength(20);
     expect(scrolled).toEqual(["4"]);
+  });
+
+  it("header_rows_have_reset", () => {
+    const reset = resetSpy();
+    const { headers } = countedHeaders(3);
+    act(() => root.render(withReset(reset, <HeaderList {...props(headers)} />)));
+    const row = container.querySelector<HTMLElement>('[data-header-id="2"]')!;
+    expect(contextTexts(row)).toEqual(["Header auf Original zurücksetzen…"]);
+    chooseContext(row, "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenCalledWith({ kind: "header", id: 2 });
   });
 });

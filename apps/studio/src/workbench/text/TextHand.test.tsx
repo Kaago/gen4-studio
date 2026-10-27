@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editTextArchive, getTextArchive, validateText } from "../../api";
+import { editTextArchive, getTextArchive, planReset, validateText } from "../../api";
 import { readCss, ruleBody } from "../../ui/cssSource";
 import type { Depth } from "../../ui/frame/shellState";
 import { archive, flush, header, textHarness } from "./textTesting";
+import { OriginalProvider } from "../../original/OriginalContext";
+import { MISSING, READY, actionItem, actionTexts, chooseItem, closeMenu, isDisabled, readyWith } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
   getTextArchive: vi.fn(),
   editTextArchive: vi.fn(),
   validateText: vi.fn(),
+  planReset: vi.fn(),
   getMatrix: vi.fn(async (index: number) => ({ index, name: "m", width: 1, height: 1, maps: [7] })),
 }));
 vi.mock("../../world/thumbnailStore", () => ({
@@ -100,5 +103,58 @@ describe("TextHand", () => {
     await flush();
     expect(editTextArchive).toHaveBeenCalledWith(433, "Append");
     expect(h.messageRow(0)).not.toBeNull();
+  });
+
+  describe("reset to original", () => {
+    // The only menu „Aktionen“ of the area is the hand's.
+    const hand = () => h.container;
+
+    it("menu_offers_message_and_archive_and_locks_a_new_message_in_the_plan", async () => {
+      await h.open433();
+      // Message 0 of archive 433 is selected: the menu „Aktionen“ of the hand offers the message and the whole archive.
+      expect(actionTexts(hand())).toEqual(["Nachricht auf Original zurücksetzen…", "Ganzes Textarchiv auf Original zurücksetzen…"]);
+      chooseItem(hand(), "Nachricht auf Original zurücksetzen…");
+      expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "text_message", archive: 433, message: 0 });
+      chooseItem(hand(), "Ganzes Textarchiv auf Original zurücksetzen…");
+      expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "text_archive", index: 433 });
+      // A new archive locks both; a message is not counted by the menu.
+      h.reset.status = readyWith({ text_archive: 433 });
+      h.show(h.base());
+      await flush();
+      expect(isDisabled(actionItem(hand(), "Nachricht auf Original zurücksetzen…"))).toBe(true);
+      expect(actionItem(hand(), "Ganzes Textarchiv auf Original zurücksetzen…")?.textContent).toBe("Ganzes Textarchiv auf Original zurücksetzen…Kein Original");
+      closeMenu();
+      h.reset.status = MISSING;
+      h.show(h.base());
+      await flush();
+      expect(actionTexts(hand())).toEqual(["Nachricht auf Original zurücksetzen…Basis-ROM fehlt", "Ganzes Textarchiv auf Original zurücksetzen…Basis-ROM fehlt"]);
+
+      // A message the base does not have (index 1 of a base archive with one message): the plan refuses it, the dialog says why.
+      h.unmount();
+      h = textHarness();
+      h.wrapWith((node) => (
+        <OriginalProvider status={READY} family="Pt" dirty={[]} onReset={() => {}}>
+          {node}
+        </OriginalProvider>
+      ));
+      vi.mocked(planReset).mockReset().mockRejectedValue({ code: "no_original", message: "Neue Nachricht, kein Original.", asset: null });
+      await h.open433();
+      h.click(h.messageRow(1));
+      await flush();
+      expect(isDisabled(actionItem(hand(), "Nachricht auf Original zurücksetzen…"))).toBe(false);
+      chooseItem(hand(), "Nachricht auf Original zurücksetzen…");
+      await flush();
+      expect(planReset).toHaveBeenCalledWith({ kind: "text_message", archive: 433, message: 1 });
+      const dialog = document.querySelector<HTMLElement>("[role=dialog]");
+      expect(dialog?.textContent).toContain("Neue Nachricht, kein Original.");
+      // Nothing to reset: no button that would.
+      expect([...dialog!.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Zurücksetzen");
+    });
+
+    it("has_no_menu_without_an_archive", async () => {
+      h.show(h.base());
+      await flush();
+      expect(actionTexts(hand())).toEqual([]);
+    });
   });
 });

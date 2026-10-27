@@ -23,6 +23,8 @@
 }
 
 .lines {
+  /* The offset parent of the lines: their `offsetTop` is measured from the column (to scroll to the first change). */
+  position: relative;
   max-height: calc(var(--g4-raum-64) * 4);
   margin: 0;
   padding: var(--g4-raum-4) 0;
@@ -77,6 +79,19 @@
   min-width: 0;
   color: inherit;
   text-decoration: none;
+}
+
+/* `wrap`: a long line breaks inside its column (no sideways scrolling); the rows after its first hang in by the indent, so a wrapped line
+   still reads as one. */
+.wrap .line {
+  width: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.wrap .text {
+  padding-left: var(--g4-raum-16);
+  text-indent: calc(-1 * var(--g4-raum-16));
 }
 
 .empty {

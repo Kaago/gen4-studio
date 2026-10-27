@@ -179,3 +179,145 @@ in Platin und HeartGold kommt das nicht vor. In den DSPRE-Ordnern von HeartGold 
 nach dem ersten Build 128 Dateien im Ordner (127 von 129 Overlays und das ARM9), in dem von
 Platin DE keine (dort ist nichts als komprimiert markiert). Alte Einträge bleiben liegen, bis der
 Ordner gelöscht wird.
+
+## Auf Original zurücksetzen
+
+Eine Entität des Projekts lässt sich auf ihren Stand in der Basis-ROM zurücksetzen
+(`crates/g4-kernel/src/original.rs`, Vorschau in `original/preview.rs`). Das Original liest der
+Kernel über den Trait `Original`: `BaseRom` (die ROM der Marke) liefert Member, Anzahl je Archiv,
+die Header-Tabelle und ein NARC nach seinem Projektpfad (`files/…`, ohne `files/` in der ROM).
+
+### Ziele und Byte-Form
+
+`ResetTarget` (JSON `{"kind": "<art>", …}`), Name im Dialog und im Verlauf:
+
+| `kind` | Felder | Name | Original |
+|---|---|---|---|
+| `map` | `index` | Karte 0003 | Member |
+| `event_file` | `index` | Eventdatei 0003 | Member |
+| `text_archive` | `index` | Textarchiv 0005 | Member dekodiert (chatot); Nachrichten und `key` der Basis, neue Nachrichten fallen weg; `id` und die anderen Sprachen der aktuellen Nachricht gleichen Index bleiben; als kanonische JSON |
+| `text_message` | `archive`, `message` | Nachricht 2 in Textarchiv 0005 | das aktuelle Archiv, nur `text` dieser Nachricht aus der Basis |
+| `trainer` | `index` | Trainer 0001 | Eigenschaften und Team (`u32 len \| props \| party`); Name und Texte in den Textbänken bleiben |
+| `species` | `index` | Pokémon 0001 | Personal, Lernset und Entwicklung desselben Index, ein Schritt |
+| `encounter` | `index` | Begegnungsdatei 0001 | Member |
+| `header` | `id` | Header 0012 | Feld für Feld über den Codec (serde auf uxies `MapHeader`) |
+| `script` | `file` | Scriptdatei 0012 | Basis-Member, im Projektkontext dekompiliert (Dateischritt) |
+| `map_texture`, `building_texture`, `building_model`, `interior_building_model` | `index` | Kartentextur 0001, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | Member ganz, binär (Dateischritt) |
+
+Die Store-Arten (die ersten sieben Zeilen) setzt `reset` mit `Tx::replace` in einer Transaktion:
+die Assets sind danach ungespeichert wie nach jeder Bearbeitung, „Speichern“ schreibt die Member
+(ein Textarchiv als JSON und Member). Nach dem Speichern ist jeder Member byte-gleich zum
+Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`).
+
+### Scripts, Texturen und Modelle als Dateischritt
+
+Sie sind keine Store-Werte (der Script-Editor speichert sofort, die 3D-Ansicht und rotom lesen die
+Dateien): `reset` schreibt ihre Dateien sofort und legt einen Dateischritt (`FileStep`) mit den
+Bytes jeder Datei vorher und nachher auf den Undo-Stapel des Stores. ⌘Z prüft jede Datei gegen
+den Stand nach dem Schritt und schreibt die alten Bytes zurück (eine fehlende Datei wird
+entfernt); wurde eine Datei inzwischen außerhalb des Studios geändert, schreibt ⌘Z nichts und der
+Schritt fällt aus dem Verlauf. Gleicht schon alles der Basis, wird nichts geschrieben und nichts
+aufgezeichnet.
+
+- **Texturen und Modelle:** das Archiv wird ausgepackt (falls nötig), der Basis-Member ersetzt
+  `unpacked/<Ordner>/NNNN` (atomar). Der Plan liest den Member ohne Auspacken (aus dem NARC,
+  solange der Ordner fehlt).
+- **Scripts** (`scripts::reset_script`): der Basis-Member ersetzt `unpacked/scripts/NNNN`. Mit
+  `rotom.toml` wird er im Projektkontext dekompiliert, genau wie rotoms `decompile_project` den
+  Member schreibt (`decompile_to_ir`, `ir_to_source` mit `DecompileContext::for_project` auf dem
+  Kontext, mit dem der Kernel kompiliert, ohne Zwischendatei; die Tabelle der globalen Scripts
+  behält nur die Einträge, über die die Aufrufe des Members auflösen, so wird nur deren Quelle
+  indiziert und `Modul::label` gleich), die Quelle
+  `expanded/scripts/NNNN.rotom` bzw. `NNNN.json` (Level-Script) geschrieben und eine Quelle der
+  anderen Art entfernt. Der Eintrag der Quelle in `.rotom/status/compile-state.json` wird wie nach
+  einer Dekompilierung gesetzt: Status `Decompiled`, `source_hash` = xxh3 der Quelle,
+  `output_hash` = xxh3 des Members (dieselbe Hashfunktion, mit der rotom „veraltet“ prüft), keine
+  Abhängigkeiten, die Quirks der Dekompilierung (Endmarken der Sprungtabelle, Polster eines
+  Level-Scripts); so übergeht der nächste Build die Datei und der Member bleibt byte-gleich.
+  Dekompiliert rotom den Member nicht, werden der Member allein geschrieben, beide Quellen und der
+  Eintrag entfernt. Ohne `rotom.toml` nur der Member. ⌘Z stellt Quellen, Member und den alten
+  Eintrag wieder her; fasst ein Batch mehrere Schritte zusammen, gilt der Eintrag vor dem ersten
+  und nach dem letzten. Der Dateischritt trägt nur den Eintrag der geschriebenen Quelle: wechselt
+  die Art (Script ↔ Level-Script), steht der Eintrag der entfernten Quelle nicht im Schritt. Der
+  Schritt lässt ihn stehen, bis rotoms nächste Kompilierung ihn verwirft (`retain_only` behält nur
+  Einträge vorhandener Quellen); ⌘Z stellt die entfernte Quelle wieder her, ihren Eintrag nicht.
+  Fehlt er dann, kompiliert der nächste Build diese Quelle neu.
+- **Gleich wie die Basis** ist eine Scriptdatei auch, wenn ihre Quelle anders geschrieben ist,
+  der Member aber dem Basis-Member gleicht und der Eintrag der Quelle in `compile-state.json` frisch
+  ist (nicht `Dirty`, `source_hash` = xxh3 der Quelle, `output_hash` = xxh3 des Members): dann
+  plant `plan_reset` `same`, und `reset` schreibt nichts und zeichnet nichts auf.
+
+### Header Feld für Feld
+
+Ein Header wird nicht als Bytes, sondern über serde verglichen und gesetzt: `header_fields`
+liefert die Felder innerhalb der Variantenhülle (`{"Pt": {…}}` ohne `Pt`) mit ihren JSON-Werten in
+der Reihenfolge, in der uxie sie deklariert (Platin: `area_data_id`, `unknown1`, `matrix_id`, …,
+`music_day_id`, …, `weather_id`, …, `flags`). Die Basis ist die Header-Tabelle der Basis-ROM (im
+ARM9), auch wenn das Projekt den Dynamic-Headers-Patch hat und seine Header in
+`unpacked/dynamicHeaders` liegen.
+
+- `plan_reset` liefert in `fields` je abweichendem Feld `{field, before, after}` (`field` der
+  serde-Name, `before` der aktuelle, `after` der Basiswert, je als JSON-Text, etwa `12` oder
+  `true`) und in `changes` eine Änderung „Header 0003“ mit den Zeilen `{field}: {wert}` dieser
+  Felder auf beiden Seiten.
+- `reset(…, fields)`: `None` setzt alle abweichenden Felder zurück, sonst nur die genannten; ein
+  Name, der nicht existiert oder nicht abweicht, ergibt `Refused("Unbekanntes oder unverändertes
+  Feld: <name>")`, nichts wird aufgezeichnet. Der neue Header ist der aktuelle mit den Basiswerten
+  der gewählten Felder, über serde zurück zu `MapHeader` und mit `Tx::edit_header` gesetzt (ein
+  Schritt, die Header-Tabelle ist danach ungespeichert). `fields` bei einem anderen Ziel ergibt
+  `Refused("Einzelne Felder gibt es nur bei einem Header.")`.
+- Eine Header-Id ab der Länge der Basis-Tabelle (ein mit Dynamic Headers neu angelegter Header)
+  ergibt „Kein Original …“; eine gesperrte Header-Tabelle `ReadOnly` mit dem Sperrgrund.
+
+Nach dem Speichern sind die 24 Byte des Datensatzes (im ARM9 oder in
+`unpacked/dynamicHeaders/NNNN`) gleich dem Basis-Datensatz (gated Test
+`header_reset_field_by_field_gives_the_base_record_back`).
+
+### Was nicht geht
+
+- **Neue Entitäten:** ein Index ab der Anzahl der Basis (beim Trainer das kleinere der beiden
+  Archive, bei Pokémon die Anzahl von Personal, beim Header die Länge der Header-Tabelle) und ein
+  Archiv, das die Basis nicht hat, ergeben „Kein Original: diesen Eintrag gibt es in der Basis-ROM
+  nicht.“; eine Nachricht ab der Nachrichtenzahl des Basis-Archivs „Neue Nachricht, kein
+  Original.“ (`availability`). `base_counts` liefert die Anzahl je `kind` (eine Nachricht zählt mit
+  `text_archive`), damit die Oberfläche solche Einträge ohne Kernel-Aufruf sperrt.
+- **Gesperrte Assets** (Länge falsch, Platzhalter-Trainer des Sicht-Scripts, nicht byte-treu
+  lesbar): Plan und Reset lehnen mit `ReadOnly` und dem Sperrgrund ab, nichts wird aufgezeichnet.
+- **ARM9-Patches, Overlays, Overlay-Tabellen** setzt nichts zurück; andere Arten (Matrix,
+  Gebietsdaten, Attacken, Items, …) haben kein Zurücksetzen („Für diese Art gibt es kein
+  Zurücksetzen.“).
+
+### Plan und Vorschau
+
+`plan_reset` ändert nichts und liefert je abweichendem Asset eine `ResetChange` mit deutschen
+Zeilen für vorher und nachher, aus derselben Funktion für beide Seiten (eine Zeile je Eintrag;
+Scripts, Texturen und Modelle siehe unter der Tabelle):
+
+| Ziel | Zeilen |
+|---|---|
+| Karte | `Bewegungsrechte <xxh3>`, `Gebäude <n>`, `Modell <n> Byte <xxh3>`, `BDHC <n> Byte <xxh3>` (xxh3: die ersten 8 Hex-Ziffern); das Label nennt die abweichenden Zellen: „Karte 0003: 37 Zellen der Bewegungsrechte anders“ |
+| Eventdatei | `Figur <i>: {…}`, `Tür <i>: {…}`, `Auslöser <i>: {…}`, `Schild <i>: {…}`, je alle Felder des uxie-Events als kompakte JSON; leer: „Keine Events“ |
+| Textarchiv | `<i>: <text>` je Nachricht |
+| Nachricht | der Text (chatot-Form, `\n` als Backslash und `n`) |
+| Trainer | `<name>: <wert>` je Feld der Eigenschaften, dann je Teammitglied `Team <n> level: …` usw. |
+| Begegnung, Personal | `<name>: <wert>` je Feld der Feldkarte, `Bytes` als Hex |
+| Lernset | `Lv <level>: Attacke <id>` |
+| Entwicklung | `<methode> <parameter> → <ziel>` je nicht leerem Eintrag |
+| Kartentextur, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | `Größe: <n> Byte`, `xxh3: <16 Hex-Ziffern>` (kein Bildvergleich); ohne Datei „Keine Datei“ |
+| Scriptdatei | die Quelle als Text (Level-Script: seine JSON); ohne Quelle `Binär, <n> Byte`, `xxh3: <16 Hex-Ziffern>` des Members |
+
+Ein Pokémon ergibt bis zu drei Änderungen („Pokémon 0001: Basisdaten“, „…: Lernset“,
+„…: Entwicklung“), nur die abweichenden. `same` ist wahr, wenn alles der Basis gleicht.
+
+### Undo-Schritt
+
+Ein Reset ist ein Schritt auf dem Undo-Stapel des Stores mit dem Label „Auf Original
+zurückgesetzt: <Name>“; ⌘Z stellt den Stand davor her, auch eine ungespeicherte Bearbeitung.
+Gleicht schon alles der Basis, wird nichts aufgezeichnet (`recorded: false`).
+
+### Basis je Aufruf
+
+Die Basis-ROM wird je Aufruf gelesen, nicht im Speicher gehalten: `locate` findet sie (eine
+bekannte Datei mit gleicher Größe und mtime ohne Hash), dann `BaseRom::open_unchecked(pfad, sha1)`
+liest sie ohne zweite SHA-1 (die kostet 0,12 s). Ein Reset dauert vom Öffnen der ROM bis zum
+aufgezeichneten Schritt höchstens 0,2 s.

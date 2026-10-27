@@ -67,7 +67,7 @@ export function useHistoryReader(feed: HistoryFeed, bus: EditBus, revision: numb
       timer.current = setTimeout(read, HISTORY_DEBOUNCE_MS);
     };
     schedule();
-    const unsubscribe = bus.subscribe((event) => event.topic !== "headerReveal" && event.topic !== "sceneGroup", schedule);
+    const unsubscribe = bus.subscribe((event) => event.topic !== "headerReveal" && event.topic !== "sceneGroup" && event.topic !== "savedFiles", schedule);
     return () => {
       unsubscribe();
       if (timer.current !== null) clearTimeout(timer.current);

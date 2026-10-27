@@ -44,6 +44,11 @@ export type EditEvent =
    * says so itself, see `useScripts`): the checks run again, all of them, 300 ms after the last one (`useChecks`, ruling R12).
    */
   | { topic: "edited" }
+  /**
+   * The app wrote files of the saved project at once, outside a save (a new trainer's members and texts): Technik › Änderungen compares
+   * again. A save, a script save and a reset to original tell the app themselves.
+   */
+  | { topic: "savedFiles" }
   /** A data member (species, move, item, …) may have changed behind the data areas (see `data/dataBus.ts`). */
   | DataChangedEvent;
 

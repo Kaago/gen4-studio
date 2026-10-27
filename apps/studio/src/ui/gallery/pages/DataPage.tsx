@@ -159,6 +159,13 @@ export function DataPage() {
           after={"Hallo! Ich bin Professor Eibe und\nerforsche hier die Pokémon dieser\n\nGegend.\n\nKomm mit!"}
         />
         <BeforeAfter label="Scriptdatei 0005" before="" after={"script script_7 #7:\n\tEnd"} />
+        <p className={styles.note}>Mit „wrap“ (Auf Original zurücksetzen): lange Zeilen brechen in der Spalte um, die Folgezeilen hängen ein.</p>
+        <BeforeAfter
+          label="Karte 0003"
+          wrap
+          before={"Bewegungsrechte 1a2b3c4d\nModell 7688 Byte 334bf7a0c1d2e3f4 (geändert im Studio, Gebäude verschoben)"}
+          after={"Bewegungsrechte 1a2b3c4d\nModell 7680 Byte 0a1b2c3d4e5f6a7b (wie in der Basis-ROM)"}
+        />
       </section>
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Typen</h2>

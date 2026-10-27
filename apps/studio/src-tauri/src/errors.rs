@@ -16,8 +16,10 @@ use crate::commands::ProblemDto;
 /// `"compile"` (scripts or texts did not compile, or a hidden file below `files/` stops the
 /// build; `problems` lists them),
 /// `"finding_stale"` (`plan_fix` / `apply_fix`: the finding is no longer reported as it was
-/// sent; nothing was changed), `"base_missing"` (`create_patch`: no base ROM found; the
-/// message says why, nothing was built),
+/// sent; nothing was changed), `"base_missing"` (`create_patch`, `plan_reset`,
+/// `reset_to_original`, `changed_from_original`: no base ROM found; the message says why,
+/// nothing was built or reset), `"no_original"` (`plan_reset`,
+/// `reset_to_original`: the base ROM has no such entry or message; nothing was reset),
 /// `"text_conflict"` (a build or a save met text archives whose JSON and member both changed
 /// since the last build; nothing was written; `problems` holds one error per archive, file
 /// `expanded/textArchives/NNNN.json`, source `"build"`; `resolve_text_conflicts` decides) or

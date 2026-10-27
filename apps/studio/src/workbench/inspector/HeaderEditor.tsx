@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MatrixSummary, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import type { Created } from "../../app/useWizards";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { Badge, Button, Section, Tooltip } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
 import type { HeaderIdentity } from "../headerIdentity";
@@ -109,6 +111,7 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
   const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onError } = context;
+  const reset = useReset();
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -229,16 +232,19 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         kind={identity === null ? "room" : identity.kind === "other" ? "place" : identity.kind}
         title={identity?.name ?? headerId}
         ident={ident}
-        actions={
-          summary
+        actions={[
+          ...(summary
             ? [
                 { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
                 { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
                 ...(canSplit ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
+                "separator" as const,
               ]
-            : undefined
-        }
+            : []),
+          // The header as in the base ROM, field by field (the dialog lists the fields that differ).
+          resetEntry({ kind: "header", id }, reset.status, reset.open),
+        ]}
         badges={
           sharedRoom && (
             <Tooltip content={SHARED_HINT}>

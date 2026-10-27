@@ -10,6 +10,7 @@ import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { encounterHarness, wireApi } from "./encounterTesting";
+import { chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -130,5 +131,15 @@ describe("EncounterList", () => {
     await flush();
     expect(h.dialog()?.textContent).toContain("HeartGold kann höchstens 255 Begegnungsdateien ansprechen");
     expect(readShellState().selected.encounters).toBe(140);
+  });
+
+  it("rows_offer_reset_and_lock_a_new_file", async () => {
+    // The base has 180 files (0 to 179): 182 is new.
+    await h.open(140);
+    const row = (index: number) => h.list().querySelector<HTMLElement>(`[data-encounter="${index}"]`)!;
+    chooseContext(row(0), "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenCalledWith({ kind: "encounter", index: 0 });
+    expect(contextTexts(row(182))).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    expect(row(182).getAttribute("aria-selected")).toBe("false");
   });
 });

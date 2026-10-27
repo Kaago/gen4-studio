@@ -55,7 +55,8 @@ pub struct ServeConfig {
     pub origin: String,
     pub roots: Roots,
     /// Folder the agent settings (`agents.json`) and the base ROMs (`base-roms.json`) are
-    /// kept in; `None` keeps them in memory.
+    /// kept in, the member hashes of the base ROMs below `cache/`; `None` keeps them in
+    /// memory.
     pub app_data: Option<PathBuf>,
 }
 
@@ -93,6 +94,11 @@ impl BridgeServer {
             state.agents.configure(Some(dir.clone()));
         }
         // Without an app data folder too: `G4_BASE_ROM_DIR` and the originals of `G4_ROMS_DIR`.
+        // The member hashes of the base ROMs are cached in `<app_data>/cache` (the app's
+        // cache folder stands in); without one they are computed in memory.
+        state
+            .base_roms
+            .configure_cache(config.app_data.as_ref().map(|dir| dir.join("cache")));
         state.base_roms.configure(config.app_data);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(MCP_THREADS)
@@ -1003,6 +1009,29 @@ mod tests {
         })
         .unwrap();
         assert_eq!(server.shared.state.base_roms.settings(), remembered);
+        server.stop();
+    }
+
+    #[test]
+    fn app_data_configures_the_base_hash_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("app-data");
+        let config = |app_data: Option<PathBuf>| ServeConfig {
+            port: 0,
+            token: TOKEN.into(),
+            origin: ORIGIN.into(),
+            roots: Roots::new(&[dir.path().to_path_buf()]).unwrap(),
+            app_data,
+        };
+        let server = BridgeServer::start(config(Some(data.clone()))).unwrap();
+        assert_eq!(
+            server.shared.state.base_roms.cache_dir(),
+            Some(data.join("cache"))
+        );
+        server.stop();
+        // Without an app data folder the hashes stay in memory.
+        let server = BridgeServer::start(config(None)).unwrap();
+        assert_eq!(server.shared.state.base_roms.cache_dir(), None);
         server.stop();
     }
 

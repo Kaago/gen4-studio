@@ -29,6 +29,7 @@ import {
   FolderOpen,
   GameController,
   Gear,
+  GitDiff,
   Globe,
   GridFour,
   Hammer,
@@ -136,6 +137,8 @@ export const icons = {
   patch: Bandaids,
   /** Technik › Veröffentlichen (the patch against the base ROM). */
   publish: UploadSimple,
+  /** Technik › Änderungen (what differs from the base ROM). */
+  changes: GitDiff,
   tools: Toolbox,
   density: Rows,
   agent: Robot,

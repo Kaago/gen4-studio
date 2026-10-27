@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
 import type { MenuEntry, PickerItem } from "../../ui/primitives";
@@ -157,6 +159,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const { dirty, headers, identify, headerCount, goTo, counts, revision, onEdited, onCountsChanged, onError, onMapImported, checks } = context;
   const matrix = useMatrix(index, revision, onError);
   const { world } = useWorld();
+  const reset = useReset();
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
@@ -227,7 +230,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       await setMatrixCell(index, x, y, copy, null, null);
     }, true);
 
-  // The map's actions: its parts in and out (only when the cell has a map), and a copy of it in this cell.
+  // The map's actions: its parts in and out (only when the cell has a map), a copy of it in this cell, and the map as in the base ROM (maps
+  // have no list: this head is the one place to reset one).
   const actions: MenuEntry[] = [
     ...(map === null
       ? []
@@ -236,6 +240,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           { label: "Teile exportieren…", onSelect: () => setPartsDialog("export") },
         ]),
     { label: "Duplizieren", disabled: map === null || working, onSelect: () => map !== null && void duplicate(map) },
+    ...(map === null ? [] : ["separator" as const, resetEntry({ kind: "map", index: map }, reset.status, reset.open)]),
   ];
 
   return (

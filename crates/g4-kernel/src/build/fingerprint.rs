@@ -83,10 +83,10 @@ pub(crate) fn now_ns() -> i128 {
 }
 
 /// Whether `fp`, recorded by a scan at `scanned_at_ns`, is racy: the later of its mtime and
-/// its ctime is not at least [`RACY_NS`] before the scan. The ctime counts too, so a file
+/// its ctime is not at least `RACY_NS` (2 s) before the scan. The ctime counts too, so a file
 /// written just now with an older mtime set back (`text::keep_not_newer`) is racy as well;
 /// under Windows the ctime is 0 and the mtime alone decides.
-pub(crate) fn is_racy(fp: &Fp, scanned_at_ns: i128) -> bool {
+pub fn is_racy(fp: &Fp, scanned_at_ns: i128) -> bool {
     fp.mtime_ns.max(fp.ctime_ns) + RACY_NS > scanned_at_ns
 }
 
@@ -201,7 +201,8 @@ pub(crate) fn hash_remembered(path: &Path) -> std::io::Result<u64> {
     Ok(hash)
 }
 
-fn same_stat(a: &Fp, b: &Fp) -> bool {
+/// Size, mtime, ctime and inode equal (the hash aside).
+pub(crate) fn same_stat(a: &Fp, b: &Fp) -> bool {
     (a.size, a.mtime_ns, a.ctime_ns, a.ino) == (b.size, b.mtime_ns, b.ctime_ns, b.ino)
 }
 

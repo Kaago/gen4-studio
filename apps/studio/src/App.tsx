@@ -30,6 +30,9 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
+import { useChanges } from "./technik/useChanges";
+import { OriginalProvider } from "./original/OriginalContext";
+import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
@@ -49,7 +52,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ScriptFileDto } from "./api";
+import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -63,6 +66,7 @@ import { startTownName } from "./app/startTown";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { writesFiles } from "./reload";
 import { AgentQuestion } from "./app/AgentQuestion";
 import { TextConflictDialog } from "./app/TextConflictDialog";
 import type { TextConflictChoice } from "./app/TextConflictDialog";
@@ -126,6 +130,29 @@ const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(S
 
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
+
+/**
+ * The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again): saves and builds and
+ * the commands that write files at once (scripts, the header patch, text conflicts, a new trainer's script). A reset to original, undo and
+ * redo count only when they wrote a file (`AGENT_FILE_STEPS`).
+ */
+const AGENT_SAVES: ReadonlySet<string> = new Set([
+  "save",
+  "save_script",
+  "save_level_script",
+  "build_rom",
+  "create_patch",
+  "apply_header_patch",
+  "repair_header_patch",
+  "resolve_text_conflicts",
+  "adopt_scripts",
+  "add_script",
+  "new_script_file",
+  "create_trainer",
+]);
+
+/** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
+const AGENT_FILE_STEPS: ReadonlySet<string> = new Set(["reset_to_original", "undo", "redo"]);
 
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
@@ -215,10 +242,16 @@ function AppBody() {
   });
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
-  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
+  // Writes to the saved project the session does not count (a script file written, an original reset, the header patch, an agent's
+  // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
+  const [changedRevision, setChangedRevision] = useState(0);
+  const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
+  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
+  // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
+  const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
   // Unsaved edits of the store and of the open scripts, for the window guards (read when asked).
   const unsavedRef = useRef(0);
@@ -317,12 +350,21 @@ function AppBody() {
     // A failed load reported itself (an error message), which the announcement does not wipe.
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
-  const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
-  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count.
-  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean) => {
+  // ⌘Z, ⌘⇧Z of a file step wrote files: an open script document reads its file again (typed text stays, with a hint: ⌘S would write it
+  // over the restored file), and Technik › Änderungen compares again.
+  const onFilesRestored = useStableCallback(async (assets: AssetId[]) => {
+    bumpChanged();
+    for (const asset of assets) if (asset.kind === "Script") await scripts.api.reload(asset.index);
+  });
+  const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins, onFilesRestored });
+  // A new trainer made in the app wrote its members at once (`savedFiles`): Technik › Änderungen compares again.
+  useEffect(() => bus.subscribe("savedFiles", bumpChanged), [bus, bumpChanged]);
+  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count. With
+  // `discardScripts` an open script file shows the file even over typed text (the user was told it is lost).
+  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean, { discardScripts = false }: { discardScripts?: boolean } = {}) => {
     try {
       await reloadAfterHistory(changed);
-      for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index);
+      for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index, { discard: discardScripts });
     } catch (e) {
       session.fail(e);
     }
@@ -349,6 +391,10 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
+    // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
+    if (session.info !== null && event.tool === "assign_base") void original.refresh();
+    // What the saved project holds may differ now: Technik › Änderungen compares again.
+    if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
@@ -362,6 +408,20 @@ function AppBody() {
         await session.staleRefresh.current();
       })
       .catch(session.fail);
+  });
+  // „Auf Original zurücksetzen“ went in (one undo step; a script, texture or model was written at once): the message names the entity, then
+  // the changed assets are read again as after ⌘Z (a failure there replaces the message). An open script file shows the reset file even over
+  // typed text: the dialog said that text is lost. An agent's reset comes as an agent event, on the path above (typed text stays there).
+  const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
+    session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
+    // Only a reset that wrote a file changed the saved project; a store kind's waits for the save (which compares again).
+    if (writesFiles(result.changed)) bumpChanged();
+    try {
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true, { discardScripts: true });
+    } catch (e) {
+      session.fail(e);
+    }
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
   const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
@@ -567,8 +627,17 @@ function AppBody() {
   useF6Ring(() => !paletteOpen && !helpOpen);
   // The entry Technik shows; kept while another area shows.
   const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
+  // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
+  const changes = useChanges({
+    project: session.info?.root ?? null,
+    shown: area === "technik" && technikEntry === "aenderungen",
+    base: original.status?.state === "ready" ? original.status.sha1 : null,
+    revision: session.savedRevision + changedRevision,
+  });
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
   const onHeaderPatch = useStableCallback(async () => {
+    bumpChanged();
     bus.emit({ topic: "headerTable" });
     await scene.syncHeaders();
   });
@@ -920,6 +989,8 @@ function AppBody() {
         }}
         startTown={startTown}
         base={info ? base : null}
+        changes={info ? changes : null}
+        dirty={session.dirtyAssets}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -969,7 +1040,7 @@ function AppBody() {
   );
 
   return (
-    <>
+    <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <Workbench data={data} live={live}>
         {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
         <TextAreaHost onShown={setTextShown}>
@@ -1073,6 +1144,6 @@ function AppBody() {
       )}
       <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
       {!inTauri() && <WebDialogHost />}
-    </>
+    </OriginalProvider>
   );
 }

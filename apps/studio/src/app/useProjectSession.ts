@@ -111,6 +111,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [counts, setCounts] = useState<MemberCounts>({});
   /** Bumped whenever the dirty count was read again, i.e. after every write the app makes: the hinge reads the undo history then. */
   const [dirtyRevision, setDirtyRevision] = useState(0);
+  /** Bumped after every save of the store and every build (a build saves first): the saved state may differ now (Technik › Änderungen). */
+  const [savedRevision, setSavedRevision] = useState(0);
 
   // The close guard is registered once, so it reads the dirty count through a ref.
   const dirtyRef = useRef(0);
@@ -314,6 +316,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     } catch (e) {
       fail(e);
     }
+    setSavedRevision((r) => r + 1);
     await refreshDirty();
   }
 
@@ -351,6 +354,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       throw e;
     } finally {
       setBusy(false);
+      setSavedRevision((r) => r + 1);
       await refreshDirty();
     }
   }
@@ -530,6 +534,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     emulatorPath,
     counts,
     dirtyRevision,
+    savedRevision,
     staleRefresh,
     refreshDirty,
     onEdited,

@@ -13,6 +13,7 @@ import type { World } from "../worldModel";
 import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
+import { MISSING, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -83,6 +84,7 @@ describe("HeaderEditor scripts", () => {
   const onError = vi.fn();
   const onLevelScriptSaved = vi.fn();
   const onRoomSplit = vi.fn();
+  let reset = resetSpy();
   const context = (over: Partial<HeaderEditorContext> = {}): HeaderEditorContext => ({
     headers: [summary],
     identify: (h) => headerIdentity(buildPlaces([summary, house], matrices), h),
@@ -107,7 +109,7 @@ describe("HeaderEditor scripts", () => {
     ...over,
   });
   async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
-    await act(async () => root.render(<HeaderEditor id={411} context={ctx} depth={depth} />));
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={411} context={ctx} depth={depth} />)));
     await flush();
   }
   beforeEach(() => {
@@ -126,6 +128,7 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(assignPlace).mockReset().mockResolvedValue(undefined);
     for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved, onRoomSplit]) fn.mockReset();
     vi.mocked(splitRoom).mockReset().mockResolvedValue({ matrix: 700, maps: [601] });
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -158,11 +161,11 @@ describe("HeaderEditor scripts", () => {
     await show(context(), "tuefteln");
     expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["area", "Header", "Zweiblattdorf", "Header 0411 · T01"]);
     // A room has the clear name its code suggests, not "Raum" and its number.
-    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="bauen" />));
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="bauen" />)));
     await flush();
     expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Raum", "Haus 1", "Zweiblattdorf · T01R0101"]);
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
-    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="tuefteln" />));
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house] })} depth="tuefteln" />)));
     await flush();
     expect([kind(), eyebrow(), container.querySelector("h2")?.textContent, ident()]).toEqual(["room", "Header", "Haus 1", "Header 0412 · T01R0101"]);
   });
@@ -172,7 +175,7 @@ describe("HeaderEditor scripts", () => {
     // A room renamed in the project file, and a header the world tree lists under „Sonstige“.
     const names = { 412: { kind: "room", name: "Omas Haus", place: "Zweiblattdorf" }, 411: { kind: "other", name: "Zweiblattdorf", place: "Zweiblattdorf" } } as const;
     const identify = (h: HeaderSummary) => names[h.id as 411 | 412];
-    await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], identify })} depth="bauen" />));
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house], identify })} depth="bauen" />)));
     await flush();
     expect([eyebrow(), container.querySelector("h2")?.textContent]).toEqual(["Raum", "Omas Haus"]);
     await show(context({ identify }));
@@ -211,14 +214,34 @@ describe("HeaderEditor scripts", () => {
   it("binds_a_room_here_from_the_head_menu", async () => {
     const onOpenWizard = vi.fn();
     await show(context({ onOpenWizard }));
-    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
   });
 
+  it("head_offers_reset_of_the_header_and_locks_a_new_one", async () => {
+    await show();
+    // The header with its fields (the dialog lists the fields that differ from the base).
+    chooseAction(container, "Auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenCalledWith({ kind: "header", id: 411 });
+    // A header from the count of the base on is new: there is no original to go back to.
+    await act(async () => root.render(null));
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={500} context={context({ headers: [summary, { ...summary, id: 500 }] })} depth="bauen" />)));
+    await flush();
+    const item = headAction(container, "Auf Original zurücksetzen…");
+    expect(isDisabled(item)).toBe(true);
+    expect(item?.textContent).toBe("Auf Original zurücksetzen…Kein Original");
+    // Without a base ROM the reason is the missing base, also for a header the head has no other actions for.
+    await act(async () => root.render(null));
+    reset = resetSpy(MISSING);
+    await act(async () => root.render(withReset(reset, <HeaderEditor id={411} context={context({ headers: [] })} depth="bauen" />)));
+    await flush();
+    expect(headActions(container)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+  });
+
   describe("a shared room", () => {
     const showHouse = async (world: World | null, depth: "bauen" | "tuefteln" = "bauen") => {
-      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth={depth} />));
+      await act(async () => root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth={depth} />)));
       await flush();
     };
     const badge = () => container.querySelector<HTMLElement>("header[data-inspector-kind] [data-shared]");
@@ -250,14 +273,14 @@ describe("HeaderEditor scripts", () => {
 
     it("offers_split_only_for_a_shared_room", async () => {
       await showHouse(houseWorld(0));
-      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
       // An area is no room, whatever shares its world map.
       await show(context({ world: houseWorld(3) }));
       expect(headActions(container)).not.toContain("Für diesen Raum abspalten…");
       // Another header: a fresh editor, as the inspector mounts one per header (`key={id}`).
       await act(async () => root.render(null));
       await showHouse(houseWorld(3));
-      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Für diesen Raum abspalten…"]);
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Für diesen Raum abspalten…", "Auf Original zurücksetzen…"]);
       chooseAction(container, "Für diesen Raum abspalten…");
       await flush();
       const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
@@ -275,7 +298,7 @@ describe("HeaderEditor scripts", () => {
 
   describe("splitting by the matrix", () => {
     const showHouse = async (world: World) => {
-      await act(async () => root.render(<HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth="bauen" />));
+      await act(async () => root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house], world })} depth="bauen" />)));
       await flush();
     };
     const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
@@ -286,7 +309,7 @@ describe("HeaderEditor scripts", () => {
         await act(async () => root.render(null));
         await showHouse(houseWorld(3, matrixId));
         expect(container.querySelector("header[data-inspector-kind] [data-shared]")?.textContent).toBe("Geteilt mit 3 Räumen");
-        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…"]);
+        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
       }
     });
 

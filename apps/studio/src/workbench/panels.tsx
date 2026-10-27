@@ -4,6 +4,7 @@ import type { DataRowDto, ProjectInfo } from "../api";
 import type { EditBus } from "../bus/editBus";
 import { headerMarks } from "../checks/FindingMark";
 import { useStableCallback } from "../app/useStable";
+import { useBuildingModelKind } from "../original/useBuildingModelKind";
 import { useBusEvent, useBusRevision } from "../bus/useBusEvent";
 import { ItemsArea, ItemsAreaList, ItemsHand, ItemsStatus, ItemsView } from "../data/ItemsArea";
 import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "../data/PokemonArea";
@@ -99,6 +100,9 @@ export function ExplorerPane() {
   // The events of the shown scene, read again when events moved (an edit, a drag, undo and redo). The scene and the inspector report a
   // failed read already; here it only ends the "Lade …".
   const eventsRevision = useBusRevision(d.bus, ["eventData", "eventsRefetch"]);
+  // The archive the scene takes its buildings' models from (the area type of HeartGold's and SoulSilver's area data), for their reset.
+  const areaRevision = useBusRevision(d.bus, "areaData");
+  const buildingModel = useBuildingModelKind(d.areaDataId, areaRevision);
   const [failedFile, setFailedFile] = useState<number | null>(null);
   const events = useEvents(d.eventFileId, () => setFailedFile(d.eventFileId), eventsRevision);
   const loading = d.eventFileId !== null && events === null && failedFile !== d.eventFileId;
@@ -187,6 +191,7 @@ export function ExplorerPane() {
           canBack: d.canBack,
           canForward: d.canForward,
           focusGroup,
+          buildingModel,
         }}
       />
       {header !== null && (
@@ -462,6 +467,7 @@ export function InspectorPanel() {
       areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
       buildingEditor={{
         areaDataId: d.areaDataId,
+        areaRevision,
         counts: d.memberCounts,
         dirty: d.dirtyAssets,
         revision: buildingRevision,
