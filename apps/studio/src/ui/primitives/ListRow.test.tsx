@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListRow } from "./ListRow";
+import type { MenuEntry } from "./Menu";
 import { TreeRow } from "./TreeRow";
 import { pressKey } from "./testUtils";
 
@@ -182,6 +183,30 @@ describe("ListRow and TreeRow", () => {
       expect(menu()).not.toBeNull();
       expect(entries().map((e) => e.textContent)).toEqual(["Auf Original zurücksetzen…"]);
       expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_key_it_focuses_the_first_entry_so_enter_picks_it", async () => {
+      const onReset = vi.fn();
+      const menuOf = (): MenuEntry[] => [{ label: "Gesperrt", onSelect: () => {}, disabled: true }, { label: "Auf Original zurücksetzen…", onSelect: onReset }, { label: "Zweiter", onSelect: () => {} }];
+      for (const open of [(el: HTMLElement) => pressKey(el, "F10", { shiftKey: true }), (el: HTMLElement) => pressKey(el, "ContextMenu")]) {
+        onReset.mockReset();
+        act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={menuOf()} />));
+        act(() => row().focus());
+        open(row());
+        await act(async () => {});
+        // WAI-ARIA menu: the first entry that can be picked holds the focus (a locked one is skipped), Enter picks it.
+        const first = entries()[1]!;
+        expect(document.activeElement).toBe(first);
+        expect(first.hasAttribute("data-highlighted")).toBe(true);
+        pressKey(first, "Enter");
+        expect(onReset).toHaveBeenCalledTimes(1);
+        act(() => root.render(<></>));
+      }
+      // A right click leaves the focus where the pointer is (no entry highlighted).
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={menuOf()} />));
+      rightClick(row());
+      await act(async () => {});
+      expect(entries().some((e) => e.hasAttribute("data-highlighted"))).toBe(false);
     });
 
     it("the_context_menu_key_opens_it_as_well", () => {

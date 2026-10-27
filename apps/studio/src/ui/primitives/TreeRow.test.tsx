@@ -61,6 +61,19 @@ describe("TreeRow context menu", () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  it("opened_by_shift_f10_it_focuses_the_first_entry_so_enter_picks_it", async () => {
+    const onReset = vi.fn();
+    act(() =>
+      root.render(<TreeRow label="Scriptdatei 0040" depth={1} selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", icon: "undo", onSelect: onReset }]} />),
+    );
+    act(() => item().focus());
+    pressKey(item(), "F10", { shiftKey: true });
+    await act(async () => {});
+    expect(document.activeElement).toBe(entries()[0]);
+    pressKey(entries()[0]!, "Enter");
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
   it("without_context_menu_nothing_changes", () => {
     act(() => root.render(<TreeRow label="Ort" depth={0} selected={false} onSelect={() => {}} />));
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });

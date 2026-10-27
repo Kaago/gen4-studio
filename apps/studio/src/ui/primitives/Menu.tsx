@@ -1,6 +1,6 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode, Ref } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import styles from "./Menu.module.css";
@@ -100,14 +100,22 @@ export function Menu({ trigger, label, items, onOpenChange }: MenuProps) {
 }
 
 /** The popup of a context menu, inside a `ContextMenu.Root` whose trigger is the right-clicked thing (`Reference`, `ListRow`, `TreeRow`). */
-export function ContextMenuPopup({ children }: { children: ReactNode }) {
+export function ContextMenuPopup({ children, popupRef }: { children: ReactNode; popupRef?: Ref<HTMLDivElement> }) {
   return (
     <ContextMenu.Portal>
       <ContextMenu.Positioner className={styles.positioner}>
-        <BaseMenu.Popup className={styles.popup}>{children}</BaseMenu.Popup>
+        <BaseMenu.Popup ref={popupRef} className={styles.popup}>
+          {children}
+        </BaseMenu.Popup>
       </ContextMenu.Positioner>
     </ContextMenu.Portal>
   );
+}
+
+/** Focuses (and so highlights) the first entry of the menu `popup` that can be picked: a context menu opened by key starts there. */
+export function focusFirstItem(popup: HTMLElement | null): void {
+  const first = popup?.querySelector<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"]):not([data-disabled])');
+  first?.focus();
 }
 
 /**

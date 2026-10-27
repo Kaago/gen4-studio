@@ -1,9 +1,9 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
-import { useId } from "react";
+import { useId, useRef } from "react";
 import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
-import { ContextMenuPopup, MenuEntries, openContextMenuByKey } from "./Menu";
+import { ContextMenuPopup, MenuEntries, focusFirstItem, openContextMenuByKey } from "./Menu";
 import type { MenuEntry } from "./Menu";
 import styles from "./ListRow.module.css";
 
@@ -57,14 +57,25 @@ export type RowElementProps = Omit<HTMLAttributes<HTMLDivElement>, "contextMenu"
  * by a right click and by Shift+F10 or the context menu key at the row's lower edge.
  */
 export function RowElement({ menu, children, ...attrs }: RowElementProps & { menu: readonly MenuEntry[] | undefined; children: ReactNode }) {
+  // Whether the menu opening now was opened by key: then its first entry takes the focus (WAI-ARIA menu), as a menu button does.
+  const byKey = useRef(false);
+  const popup = useRef<HTMLDivElement>(null);
   if (menu === undefined) return <div {...attrs}>{children}</div>;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!openContextMenuByKey(event)) attrs.onKeyDown?.(event);
+    byKey.current = true;
+    if (!openContextMenuByKey(event)) {
+      byKey.current = false;
+      attrs.onKeyDown?.(event);
+    }
+  };
+  const onOpenChangeComplete = (open: boolean) => {
+    if (open && byKey.current) focusFirstItem(popup.current);
+    byKey.current = false;
   };
   return (
-    <ContextMenu.Root>
+    <ContextMenu.Root onOpenChangeComplete={onOpenChangeComplete}>
       <ContextMenu.Trigger render={<div {...attrs} onKeyDown={onKeyDown} />}>{children}</ContextMenu.Trigger>
-      <ContextMenuPopup>
+      <ContextMenuPopup popupRef={popup}>
         <MenuEntries items={menu} />
       </ContextMenuPopup>
     </ContextMenu.Root>
