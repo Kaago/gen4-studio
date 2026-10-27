@@ -4,8 +4,9 @@
 //!
 //! Store kinds (map, event file, text archive, trainer, species, encounter) are reset with
 //! [`crate::store::Tx::replace`] in one transaction labelled [`step_label`]; the asset is then
-//! dirty until the next save, like any edit. Format: `docs/formats/project_base.md`, section
-//! „Auf Original zurücksetzen“.
+//! dirty until the next save, like any edit. A map header is reset field by field through the
+//! codec (serde on uxie's `MapHeader`) with [`crate::store::Tx::edit_header`]. Format:
+//! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“.
 
 mod preview;
 
@@ -16,6 +17,7 @@ use std::time::Instant;
 use g4_formats::map::MapFile;
 use g4_formats::narc::Narc;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
@@ -30,6 +32,31 @@ pub const NEW_MESSAGE: &str = "Neue Nachricht, kein Original.";
 pub const NOT_RESETTABLE: &str = "Für diese Art gibt es kein Zurücksetzen.";
 /// The answer for the targets later tasks implement (header, script, textures, models).
 const NOT_YET: &str = "noch nicht";
+/// Why [`reset`] refuses `fields` for a target other than a header.
+pub const FIELDS_ONLY_FOR_HEADERS: &str = "Einzelne Felder gibt es nur bei einem Header.";
+
+/// The fields of `header` as serde names them inside its family variant, with their JSON values.
+/// They come in the order the struct declares them (serde_json keeps the order).
+pub fn header_fields(header: &MapHeader) -> Vec<(String, Value)> {
+    header_object(header)
+        .map(|(_, fields)| fields.into_iter().collect())
+        .unwrap_or_default()
+}
+
+/// `header` as serde writes it: the name of its family variant (`"Pt"`) and its fields.
+fn header_object(header: &MapHeader) -> Result<(String, Map<String, Value>), KernelError> {
+    let not_an_object =
+        || KernelError::Uxie("a map header is no JSON object of one variant".into());
+    let value = serde_json::to_value(header).map_err(|e| KernelError::Uxie(e.to_string()))?;
+    let Value::Object(outer) = value else {
+        return Err(not_an_object());
+    };
+    let mut entries = outer.into_iter();
+    match (entries.next(), entries.next()) {
+        (Some((variant, Value::Object(fields))), None) => Ok((variant, fields)),
+        _ => Err(not_an_object()),
+    }
+}
 
 /// One entity that can be reset to the base ROM. JSON: `{"kind": "text_message", "archive":
 /// 5, "message": 2}`.
@@ -244,7 +271,8 @@ pub struct ResetChange {
     pub after: String,
 }
 
-/// One field of a map header that differs from the base (Task 3).
+/// One field of a map header that differs from the base: its serde name ([`header_fields`]),
+/// the current value (`before`) and the base value (`after`), each as JSON text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HeaderFieldDiff {
     pub field: String,
@@ -486,8 +514,9 @@ fn original_bytes(
                 doc.to_json(),
             )])
         }
-        ResetTarget::Header { .. }
-        | ResetTarget::Script { .. }
+        // A header is reset field by field (`plan_header`, `reset_header`), not as bytes.
+        ResetTarget::Header { .. } => Err(KernelError::NotEditable(AssetKind::HeaderTable)),
+        ResetTarget::Script { .. }
         | ResetTarget::MapTexture { .. }
         | ResetTarget::BuildingTexture { .. }
         | ResetTarget::BuildingModel { .. }
@@ -577,14 +606,162 @@ fn change_label(
     }
 }
 
+/// Header `id` of the store and of the base. Refuses an id at or past the headers of the base
+/// ([`NO_ORIGINAL`], the base table is read once) and a locked header table
+/// ([`KernelError::ReadOnly`] with its reason).
+fn header_pair(
+    store: &mut Store,
+    original: &dyn Original,
+    id: u16,
+) -> Result<(MapHeader, MapHeader), KernelError> {
+    let base = original
+        .header_table()?
+        .into_iter()
+        .nth(usize::from(id))
+        .ok_or_else(|| KernelError::Refused(NO_ORIGINAL.to_owned()))?;
+    let current = store
+        .header_table()?
+        .get(usize::from(id))
+        .cloned()
+        .ok_or_else(|| KernelError::Refused(format!("Header {id:04} gibt es im Projekt nicht.")))?;
+    if let Some(reason) = store.locked(HEADER_TABLE) {
+        return Err(KernelError::ReadOnly {
+            asset: HEADER_TABLE,
+            reason: reason.to_owned(),
+        });
+    }
+    Ok((current, base))
+}
+
+/// The fields in which `current` differs from `base`, in the order of [`header_fields`]:
+/// `before` the current value, `after` the base value, each as JSON text.
+fn header_diffs(
+    current: &MapHeader,
+    base: &MapHeader,
+) -> Result<Vec<HeaderFieldDiff>, KernelError> {
+    let (variant, now) = header_object(current)?;
+    let (base_variant, was) = header_object(base)?;
+    if variant != base_variant {
+        return Err(KernelError::Uxie(format!(
+            "a {variant} header against a {base_variant} header of the base"
+        )));
+    }
+    Ok(now
+        .into_iter()
+        .filter_map(|(field, value)| {
+            let base_value = was.get(&field)?;
+            (value != *base_value).then(|| HeaderFieldDiff {
+                before: value.to_string(),
+                after: base_value.to_string(),
+                field,
+            })
+        })
+        .collect())
+}
+
+/// [`plan_reset`] of header `id`: the differing fields, and one change whose lines are
+/// `{field}: {value}` of those fields on both sides.
+fn plan_header(
+    store: &mut Store,
+    original: &dyn Original,
+    target: &ResetTarget,
+    id: u16,
+) -> Result<ResetPlan, KernelError> {
+    let (current, base) = header_pair(store, original, id)?;
+    let fields = header_diffs(&current, &base)?;
+    let lines = |side: fn(&HeaderFieldDiff) -> &str| {
+        fields
+            .iter()
+            .map(|d| format!("{}: {}", d.field, side(d)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let changes = if fields.is_empty() {
+        Vec::new()
+    } else {
+        vec![ResetChange {
+            label: target.label(),
+            before: lines(|d| &d.before),
+            after: lines(|d| &d.after),
+        }]
+    };
+    Ok(ResetPlan {
+        target: *target,
+        label: target.label(),
+        same: changes.is_empty(),
+        changes,
+        fields,
+        writes_files: false,
+    })
+}
+
+/// [`reset`] of header `id`: the current header with the chosen fields (`None`: every differing
+/// one) set to their base values, back through serde, as one step. A name that does not
+/// differ or does not exist is refused before anything changes.
+fn reset_header(
+    store: &mut Store,
+    original: &dyn Original,
+    target: &ResetTarget,
+    id: u16,
+    fields: Option<&[String]>,
+    started: Instant,
+) -> Result<ResetResult, KernelError> {
+    let (current, base) = header_pair(store, original, id)?;
+    let diffs = header_diffs(&current, &base)?;
+    let chosen: Vec<&str> = match fields {
+        None => diffs.iter().map(|d| d.field.as_str()).collect(),
+        Some(names) => {
+            if let Some(name) = names
+                .iter()
+                .find(|name| !diffs.iter().any(|d| d.field == **name))
+            {
+                return Err(KernelError::Refused(format!(
+                    "Unbekanntes oder unverändertes Feld: {name}"
+                )));
+            }
+            names.iter().map(String::as_str).collect()
+        }
+    };
+    let (variant, mut object) = header_object(&current)?;
+    let (_, base_object) = header_object(&base)?;
+    for name in chosen {
+        if let Some(value) = base_object.get(name) {
+            object.insert(name.to_owned(), value.clone());
+        }
+    }
+    let mut outer = Map::new();
+    outer.insert(variant, Value::Object(object));
+    let header: MapHeader = serde_json::from_value(Value::Object(outer))
+        .map_err(|e| KernelError::Uxie(format!("header {id}: {e}")))?;
+    let ((), change) = store.transaction(&step_label(target), |tx| {
+        tx.edit_header(id, |h| {
+            *h = header;
+            Ok(())
+        })
+    })?;
+    Ok(ResetResult {
+        changed: if change.is_some() {
+            vec![HEADER_TABLE]
+        } else {
+            Vec::new()
+        },
+        recorded: change.is_some(),
+        ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    })
+}
+
 /// What a reset of `target` would change: one [`ResetChange`] per asset that differs from the
-/// base, with German lines of both sides. Refuses like [`reset`] (unavailable, locked, a kind
-/// of a later task) and changes nothing.
+/// base, with German lines of both sides; for a header also the differing fields
+/// ([`ResetPlan::fields`]). Refuses like [`reset`] (unavailable, locked, a kind of a later
+/// task) and changes nothing.
 pub fn plan_reset(
     store: &mut Store,
     original: &dyn Original,
     target: &ResetTarget,
 ) -> Result<ResetPlan, KernelError> {
+    if let ResetTarget::Header { id } = *target {
+        return plan_header(store, original, target, id);
+    }
     refuse_unavailable(target, original, store.project())?;
     let originals = original_bytes(store, original, target)?;
     let family = store.project().family;
@@ -614,7 +791,11 @@ pub fn plan_reset(
 /// [`step_label`] (the assets are dirty until the next save). Refused with the reason of
 /// [`availability`], with [`KernelError::ReadOnly`] for a locked asset, and nothing is
 /// recorded then; nothing is recorded either when everything already equals the base.
-/// `fields` picks the header fields to reset (header only; other targets ignore it).
+///
+/// `fields` picks the header fields to reset by their serde names ([`header_fields`]); `None`
+/// resets every differing field. A name that does not differ or does not exist is refused
+/// (`Unbekanntes oder unverändertes Feld: {name}`). For any other target `fields` must be
+/// `None`, else the reset is refused with [`FIELDS_ONLY_FOR_HEADERS`].
 pub fn reset(
     store: &mut Store,
     original: &dyn Original,
@@ -622,8 +803,12 @@ pub fn reset(
     fields: Option<&[String]>,
 ) -> Result<ResetResult, KernelError> {
     let started = Instant::now();
-    // Only a header resets field by field (Task 3).
-    let _ = fields;
+    if let ResetTarget::Header { id } = *target {
+        return reset_header(store, original, target, id, fields, started);
+    }
+    if fields.is_some() {
+        return Err(KernelError::Refused(FIELDS_ONLY_FOR_HEADERS.to_owned()));
+    }
     refuse_unavailable(target, original, store.project())?;
     let originals = original_bytes(store, original, target)?;
     let mut before = Vec::with_capacity(originals.len());
@@ -1158,7 +1343,6 @@ mod tests {
     fn kinds_of_later_tasks_are_refused_for_now() {
         let mut f = fixture();
         for target in [
-            ResetTarget::Header { id: 0 },
             ResetTarget::Script { file: 0 },
             ResetTarget::MapTexture { index: 0 },
             ResetTarget::BuildingModel { index: 0 },
@@ -1169,6 +1353,234 @@ mod tests {
                 "{target:?}: {err}"
             );
         }
+    }
+
+    /// Changes `music_day_id` and `weather_id` of Platinum header `id`, one step.
+    fn edit_header(store: &mut Store, id: u16) {
+        store
+            .edit_header(id, "Musik und Wetter", |h| {
+                let MapHeader::Pt(h) = h else {
+                    unreachable!("the fixture is Platinum")
+                };
+                h.music_day_id ^= 0x100;
+                h.weather_id ^= 1;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    fn header(store: &mut Store, id: u16) -> MapHeader {
+        store.header_table().unwrap()[usize::from(id)].clone()
+    }
+
+    fn fields_of(names: &[&str]) -> Vec<String> {
+        names.iter().map(|&n| n.to_owned()).collect()
+    }
+
+    #[test]
+    fn header_fields_follow_serde_names() {
+        let header = MapHeader::Pt(crate::store::MapHeaderPt {
+            music_day_id: 1000,
+            weather_id: 3,
+            ..Default::default()
+        });
+        let fields = header_fields(&header);
+        let names: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "area_data_id",
+                "unknown1",
+                "matrix_id",
+                "script_file_id",
+                "level_script_id",
+                "text_archive_id",
+                "music_day_id",
+                "music_night_id",
+                "wild_pokemon",
+                "event_file_id",
+                "location_name",
+                "area_icon",
+                "weather_id",
+                "camera_angle_id",
+                "location_specifier",
+                "battle_background",
+                "flags",
+            ]
+        );
+        assert!(fields.contains(&("music_day_id".to_owned(), serde_json::json!(1000))));
+        assert!(fields.contains(&("weather_id".to_owned(), serde_json::json!(3))));
+        let hgss = MapHeader::HGSS(crate::store::MapHeaderHGSS {
+            kanto_flag: true,
+            ..Default::default()
+        });
+        assert!(header_fields(&hgss).contains(&("kanto_flag".to_owned(), serde_json::json!(true))));
+    }
+
+    #[test]
+    fn header_plan_lists_only_the_differing_fields() {
+        let mut f = fixture();
+        let base = f.original.header_table().unwrap()[1].clone();
+        let MapHeader::Pt(was) = &base else {
+            unreachable!()
+        };
+        edit_header(&mut f.store, 1);
+        let target = ResetTarget::Header { id: 1 };
+        let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
+        let music = was.music_day_id ^ 0x100;
+        let weather = was.weather_id ^ 1;
+        assert_eq!(
+            plan.fields,
+            [
+                HeaderFieldDiff {
+                    field: "music_day_id".into(),
+                    before: music.to_string(),
+                    after: was.music_day_id.to_string(),
+                },
+                HeaderFieldDiff {
+                    field: "weather_id".into(),
+                    before: weather.to_string(),
+                    after: was.weather_id.to_string(),
+                },
+            ]
+        );
+        assert_eq!(
+            plan.changes,
+            [ResetChange {
+                label: "Header 0001".into(),
+                before: format!("music_day_id: {music}\nweather_id: {weather}"),
+                after: format!(
+                    "music_day_id: {}\nweather_id: {}",
+                    was.music_day_id, was.weather_id
+                ),
+            }]
+        );
+        assert!(!plan.same);
+        assert!(!plan.writes_files);
+        assert_eq!(plan.label, "Header 0001");
+
+        // An untouched header is the same as in the base.
+        let plan = plan_reset(&mut f.store, &f.original, &ResetTarget::Header { id: 0 }).unwrap();
+        assert!(plan.same);
+        assert!(plan.fields.is_empty());
+        assert!(plan.changes.is_empty());
+    }
+
+    #[test]
+    fn header_reset_of_chosen_fields_keeps_the_others() {
+        let mut f = fixture();
+        let base = f.original.header_table().unwrap()[1].clone();
+        edit_header(&mut f.store, 1);
+        let edited = header(&mut f.store, 1);
+        let target = ResetTarget::Header { id: 1 };
+        let result = reset(
+            &mut f.store,
+            &f.original,
+            &target,
+            Some(&fields_of(&["weather_id"])),
+        )
+        .unwrap();
+        assert!(result.recorded);
+        assert_eq!(result.changed, [HEADER_TABLE]);
+        assert_eq!(
+            f.store.history().0.last(),
+            Some(&"Auf Original zurückgesetzt: Header 0001".to_owned())
+        );
+        let (MapHeader::Pt(now), MapHeader::Pt(was), MapHeader::Pt(changed)) =
+            (header(&mut f.store, 1), &base, &edited)
+        else {
+            unreachable!()
+        };
+        assert_eq!(now.weather_id, was.weather_id);
+        assert_eq!(now.music_day_id, changed.music_day_id);
+        let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
+        let left: Vec<&str> = plan.fields.iter().map(|d| d.field.as_str()).collect();
+        assert_eq!(left, ["music_day_id"]);
+
+        f.store.undo().unwrap();
+        assert_eq!(header(&mut f.store, 1), edited);
+    }
+
+    #[test]
+    fn header_reset_without_fields_takes_all() {
+        let mut f = fixture();
+        let base = f.original.header_table().unwrap();
+        edit_header(&mut f.store, 1);
+        f.store.save().unwrap();
+        let target = ResetTarget::Header { id: 1 };
+        let result = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(result.recorded);
+        assert_eq!(header(&mut f.store, 1), base[1]);
+        assert!(plan_reset(&mut f.store, &f.original, &target).unwrap().same);
+        f.store.save().unwrap();
+        assert_eq!(f.store.project().read_headers().unwrap(), base);
+        // Nothing differs any more: nothing to record.
+        let again = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(!again.recorded);
+        assert!(again.changed.is_empty());
+    }
+
+    #[test]
+    fn header_reset_refuses_an_unknown_field() {
+        let mut f = fixture();
+        edit_header(&mut f.store, 1);
+        let edited = header(&mut f.store, 1);
+        let depth = f.store.undo_depth();
+        let target = ResetTarget::Header { id: 1 };
+        for name in ["gibt_es_nicht", "matrix_id"] {
+            let err = reset(
+                &mut f.store,
+                &f.original,
+                &target,
+                Some(&fields_of(&["weather_id", name])),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&err, KernelError::Refused(why)
+                    if *why == format!("Unbekanntes oder unverändertes Feld: {name}")),
+                "{err}"
+            );
+        }
+        assert_eq!(f.store.undo_depth(), depth);
+        assert_eq!(header(&mut f.store, 1), edited);
+    }
+
+    #[test]
+    fn header_beyond_the_base_has_no_original() {
+        let mut f = fixture();
+        f.store.apply_dynamic_headers().unwrap();
+        let new = f.store.create_header(0, "NEU").unwrap();
+        assert_eq!(new, 2);
+        let target = ResetTarget::Header { id: new };
+        assert_eq!(
+            availability(&target, &f.original, f.store.project()).unwrap(),
+            Some(NO_ORIGINAL.to_owned())
+        );
+        let depth = f.store.undo_depth();
+        for err in [
+            plan_reset(&mut f.store, &f.original, &target).unwrap_err(),
+            reset(&mut f.store, &f.original, &target, None).unwrap_err(),
+        ] {
+            assert!(
+                matches!(&err, KernelError::Refused(why) if why == NO_ORIGINAL),
+                "{err}"
+            );
+        }
+        assert_eq!(f.store.undo_depth(), depth);
+    }
+
+    #[test]
+    fn fields_are_refused_for_a_target_other_than_a_header() {
+        let mut f = fixture();
+        let target = ResetTarget::Map { index: 0 };
+        edit(&mut f.store, &target);
+        let depth = f.store.undo_depth();
+        let err = reset(&mut f.store, &f.original, &target, Some(&[])).unwrap_err();
+        assert!(
+            matches!(&err, KernelError::Refused(why) if why == FIELDS_ONLY_FOR_HEADERS),
+            "{err}"
+        );
+        assert_eq!(f.store.undo_depth(), depth);
     }
 
     #[test]

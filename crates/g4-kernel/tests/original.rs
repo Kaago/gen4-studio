@@ -8,9 +8,11 @@ use std::time::Instant;
 
 use g4_formats::data::encounter::Encounters;
 use g4_kernel::base::BaseRom;
-use g4_kernel::original::{ResetTarget, plan_reset, reset};
-use g4_kernel::project::{AssetId, AssetKind, Project};
-use g4_kernel::store::Store;
+use g4_kernel::dynamic_headers;
+use g4_kernel::original::{ResetTarget, header_fields, plan_reset, reset};
+use g4_kernel::project::{AssetId, AssetKind, Location, Project};
+use g4_kernel::store::{MapHeader, Store};
+use uxie::map_header::write_map_header_to_bytes;
 
 /// Longest a reset may take, from opening the base ROM to the recorded step (the gate of 4.1b).
 const RESET_MS: u128 = 200;
@@ -164,4 +166,165 @@ fn reset_of_each_store_kind_gives_the_base_member_back() {
         }
     }
     assert!(slow.is_empty(), "over {RESET_MS} ms: {slow:?}");
+}
+
+/// The header the gated header test resets.
+const HEADER: u16 = 3;
+
+/// Changes `music_day_id` and `weather_id` of header `id` (the lowest bit, which fits every
+/// layout), one step.
+fn edit_header(store: &mut Store, id: u16) {
+    store
+        .edit_header(id, "Musik und Wetter", |h| {
+            match h {
+                MapHeader::DP(h) => {
+                    h.music_day_id ^= 1;
+                    h.weather_id ^= 1;
+                }
+                MapHeader::Pt(h) => {
+                    h.music_day_id ^= 1;
+                    h.weather_id ^= 1;
+                }
+                MapHeader::HGSS(h) => {
+                    h.music_day_id ^= 1;
+                    h.weather_id ^= 1;
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+}
+
+/// The names of the fields in which `a` and `b` differ.
+fn differing(a: &MapHeader, b: &MapHeader) -> Vec<String> {
+    header_fields(a)
+        .into_iter()
+        .zip(header_fields(b))
+        .filter(|(x, y)| x != y)
+        .map(|((name, _), _)| name)
+        .collect()
+}
+
+/// The saved 24-byte record of header `id`: its slice of `arm9.bin`, or its file once the
+/// Dynamic Headers patch is applied.
+fn saved_record(project: &Project, id: u16) -> Vec<u8> {
+    let at = usize::from(id) * 24;
+    match project.asset_location(AssetKind::HeaderTable, 0).unwrap() {
+        Location::Slice { path, offset, .. } => {
+            let arm9 = std::fs::read(path).unwrap();
+            let start = usize::try_from(offset).unwrap() + at;
+            arm9[start..start + 24].to_vec()
+        }
+        Location::HeaderFiles { dir, .. } => std::fs::read(dir.join(format!("{id:04}"))).unwrap(),
+        other => panic!("header table at {other:?}"),
+    }
+}
+
+/// Opens the base ROM without a SHA-1 and resets header [`HEADER`] (only `fields`, or every
+/// differing one); prints and returns the time from the opening to the recorded step.
+fn timed_reset(
+    store: &mut Store,
+    nds: &std::path::Path,
+    sha1: &str,
+    fields: Option<&[String]>,
+    what: &str,
+) -> u128 {
+    let started = Instant::now();
+    let original = BaseRom::open_unchecked(nds, sha1).unwrap();
+    let result = reset(
+        store,
+        &original,
+        &ResetTarget::Header { id: HEADER },
+        fields,
+    )
+    .unwrap();
+    let ms = started.elapsed().as_millis();
+    println!(
+        "reset {} header ms={ms} (kernel {} ms, {what})",
+        store.project().game_code,
+        result.ms
+    );
+    assert!(result.recorded, "{what}");
+    ms
+}
+
+#[test]
+fn header_reset_field_by_field_gives_the_base_record_back() {
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let base_header = base.header_table().unwrap()[usize::from(HEADER)].clone();
+    let base_record = write_map_header_to_bytes(&base_header);
+    let project = Arc::new(Project::open(&copy).unwrap());
+    let mut store = Store::new(Arc::clone(&project));
+    let target = ResetTarget::Header { id: HEADER };
+    let mut times = Vec::new();
+
+    edit_header(&mut store, HEADER);
+    store.save().unwrap();
+    let plan = plan_reset(&mut store, &base, &target).unwrap();
+    let names: Vec<&str> = plan.fields.iter().map(|d| d.field.as_str()).collect();
+    assert_eq!(names, ["music_day_id", "weather_id"]);
+
+    let weather = ["weather_id".to_owned()];
+    times.push(timed_reset(
+        &mut store,
+        &nds,
+        base.sha1(),
+        Some(&weather),
+        "weather_id",
+    ));
+    store.save().unwrap();
+    let saved = Project::open(&copy).unwrap().read_headers().unwrap()[usize::from(HEADER)].clone();
+    assert_eq!(differing(&saved, &base_header), ["music_day_id"]);
+    let half = store.header_table().unwrap()[usize::from(HEADER)].clone();
+
+    times.push(timed_reset(&mut store, &nds, base.sha1(), None, "Rest"));
+    store.save().unwrap();
+    assert_eq!(saved_record(&project, HEADER), base_record);
+    assert!(plan_reset(&mut store, &base, &target).unwrap().same);
+    store.undo().unwrap();
+    assert_eq!(store.header_table().unwrap()[usize::from(HEADER)], half);
+
+    // With the Dynamic Headers patch the base stays in the ARM9, the project's header in its
+    // file.
+    let Some((_tmp2, copy2)) = common::vanilla_copy() else {
+        return;
+    };
+    let project2 = Arc::new(Project::open(&copy2).unwrap());
+    let mut store2 = Store::new(Arc::clone(&project2));
+    if store2.dynamic_headers_applied().unwrap() {
+        println!(
+            "skipped dynamic headers: {} has the patch already",
+            project2.game_code
+        );
+    } else if dynamic_headers::plan(&project2).unwrap().is_none() {
+        println!(
+            "skipped dynamic headers: {} has no dynamic headers patch",
+            project2.game_code
+        );
+    } else {
+        store2.apply_dynamic_headers().unwrap();
+        edit_header(&mut store2, HEADER);
+        store2.save().unwrap();
+        let file = dynamic_headers::unpacked_dir(&project2).join(format!("{HEADER:04}"));
+        assert_ne!(std::fs::read(&file).unwrap(), base_record);
+        times.push(timed_reset(
+            &mut store2,
+            &nds,
+            base.sha1(),
+            None,
+            "Dynamic Headers",
+        ));
+        store2.save().unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), base_record);
+    }
+    assert!(
+        times.iter().all(|&ms| ms <= RESET_MS),
+        "over {RESET_MS} ms: {times:?}"
+    );
 }

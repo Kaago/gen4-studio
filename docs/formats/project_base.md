@@ -200,15 +200,41 @@ die Header-Tabelle und ein NARC nach seinem Projektpfad (`files/…`, ohne `file
 | `trainer` | `index` | Trainer 0001 | Eigenschaften und Team (`u32 len \| props \| party`); Name und Texte in den Textbänken bleiben |
 | `species` | `index` | Pokémon 0001 | Personal, Lernset und Entwicklung desselben Index, ein Schritt |
 | `encounter` | `index` | Begegnungsdatei 0001 | Member |
-| `header` | `id` | Header 0012 | Feld für Feld (noch nicht) |
+| `header` | `id` | Header 0012 | Feld für Feld über den Codec (serde auf uxies `MapHeader`) |
 | `script` | `file` | Scriptdatei 0012 | Basis-Member, dekompiliert (noch nicht) |
 | `map_texture`, `building_texture`, `building_model`, `interior_building_model` | `index` | Kartentextur 0001, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | ganz (noch nicht) |
 
 Die Store-Arten (die ersten sieben Zeilen) setzt `reset` mit `Tx::replace` in einer Transaktion:
 die Assets sind danach ungespeichert wie nach jeder Bearbeitung, „Speichern“ schreibt die Member
 (ein Textarchiv als JSON und Member). Nach dem Speichern ist jeder Member byte-gleich zum
-Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`). Header, Scripts,
+Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`). Scripts,
 Texturen und Modelle antworten vorerst mit `Refused("noch nicht")`.
+
+### Header Feld für Feld
+
+Ein Header wird nicht als Bytes, sondern über serde verglichen und gesetzt: `header_fields`
+liefert die Felder innerhalb der Variantenhülle (`{"Pt": {…}}` ohne `Pt`) mit ihren JSON-Werten in
+der Reihenfolge, in der uxie sie deklariert (Platin: `area_data_id`, `unknown1`, `matrix_id`, …,
+`music_day_id`, …, `weather_id`, …, `flags`). Die Basis ist die Header-Tabelle der Basis-ROM (im
+ARM9), auch wenn das Projekt den Dynamic-Headers-Patch hat und seine Header in
+`unpacked/dynamicHeaders` liegen.
+
+- `plan_reset` liefert in `fields` je abweichendem Feld `{field, before, after}` (`field` der
+  serde-Name, `before` der aktuelle, `after` der Basiswert, je als JSON-Text, etwa `12` oder
+  `true`) und in `changes` eine Änderung „Header 0003“ mit den Zeilen `{field}: {wert}` dieser
+  Felder auf beiden Seiten.
+- `reset(…, fields)`: `None` setzt alle abweichenden Felder zurück, sonst nur die genannten; ein
+  Name, der nicht existiert oder nicht abweicht, ergibt `Refused("Unbekanntes oder unverändertes
+  Feld: <name>")`, nichts wird aufgezeichnet. Der neue Header ist der aktuelle mit den Basiswerten
+  der gewählten Felder, über serde zurück zu `MapHeader` und mit `Tx::edit_header` gesetzt (ein
+  Schritt, die Header-Tabelle ist danach ungespeichert). `fields` bei einem anderen Ziel ergibt
+  `Refused("Einzelne Felder gibt es nur bei einem Header.")`.
+- Eine Header-Id ab der Länge der Basis-Tabelle (ein mit Dynamic Headers neu angelegter Header)
+  ergibt „Kein Original …“; eine gesperrte Header-Tabelle `ReadOnly` mit dem Sperrgrund.
+
+Nach dem Speichern sind die 24 Byte des Datensatzes (im ARM9 oder in
+`unpacked/dynamicHeaders/NNNN`) gleich dem Basis-Datensatz (gated Test
+`header_reset_field_by_field_gives_the_base_record_back`).
 
 ### Was nicht geht
 
