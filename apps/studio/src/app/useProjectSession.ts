@@ -275,11 +275,16 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
    * The one build path of the session: `busy` while it runs (the app's open, save and build guards read it), the open scripts saved first
    * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
    * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or `create_patch`, which builds before it writes the
-   * patch). After it the last ROM, its time and the build's problems are the session's, and the unsaved edits are read again. A compile
+   * patch). After it the build's time and problems are the session's, its ROM becomes the last ROM only with `ownsRom` (a patch's ROM is
+   * not „Hier spielen“'s target: building there would change the ROM its notes name), and the unsaved edits are read again. A compile
    * failure puts its problems into the store; every failure is thrown on. Answers what `run` answered and how many store files were saved
    * ahead of the scripts.
    */
-  async function guardedBuild<R>(run: () => Promise<R>, reportOf: (result: R) => BuildReport): Promise<{ result: R; storeSaved: number }> {
+  async function guardedBuild<R>(
+    run: () => Promise<R>,
+    reportOf: (result: R) => BuildReport,
+    ownsRom: boolean,
+  ): Promise<{ result: R; storeSaved: number }> {
     setBusy(true);
     try {
       const dirtyScripts = scripts.current.dirtyFiles();
@@ -287,7 +292,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       for (const file of dirtyScripts) await scripts.current.save(file);
       const result = await run();
       const report = reportOf(result);
-      setLastRom(report.rom);
+      if (ownsRom) setLastRom(report.rom);
       setLastBuiltAt(Date.now());
       problems.applyBuildReport(report.problems);
       return { result, storeSaved };
@@ -310,7 +315,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       const out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
       if (!out) return null;
       setMessage({ kind: "info", text: "Baue ROM ..." });
-      const { result: report, storeSaved } = await guardedBuild(() => buildRom(out), (r) => r);
+      const { result: report, storeSaved } = await guardedBuild(() => buildRom(out), (r) => r, true);
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
       return report.rom;
     } catch (e) {
@@ -330,11 +335,12 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   }
 
   /**
-   * „Patch erstellen“ (Technik › Veröffentlichen) on the session's build path: saving, Bauen and opening wait for it, and the ROM it built
-   * (`build/<Name>.nds`) becomes the last ROM like a build's. A failure is thrown on: the patch card says why.
+   * „Patch erstellen“ (Technik › Veröffentlichen) on the session's build path: saving, Bauen and opening wait for it, and its build counts
+   * as the last build (time, problems), but the ROM it built (`build/<Name>.nds`, named with its SHA-1 in the notes) does not become the
+   * last ROM, so „Hier spielen“ never builds over it. A failure is thrown on: the patch card says why.
    */
   async function buildPatch(): Promise<PatchDto> {
-    return (await guardedBuild(createPatch, (dto) => dto.build)).result;
+    return (await guardedBuild(createPatch, (dto) => dto.build, false)).result;
   }
 
   async function pickEmulator(): Promise<string | null> {

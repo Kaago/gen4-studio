@@ -997,7 +997,8 @@ describe("App wiring", () => {
       expect(buildRom).not.toHaveBeenCalled();
       expect([...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…")?.disabled).toBe(true);
 
-      // Leaving Technik does not lose the patch: it finishes elsewhere, and its build is the session's last build.
+      // Leaving Technik does not lose the patch: it finishes elsewhere, and its build is the session's last build, but its ROM (named in the
+      // notes) does not become the ROM „Hier spielen“ builds to.
       await act(async () => atlasEntry("Welt")!.click());
       await act(async () =>
         finish({
@@ -1019,7 +1020,8 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-patch-card]")?.textContent).toContain("Patch erstellt: 812 Byte");
       expect(row("Prüfen und Bauen").textContent).toContain("gebaut");
       await act(async () => row("Prüfen und Bauen").click());
-      expect(container.querySelector("[data-technik]")?.textContent).toContain(rom);
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("gerade eben");
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
       expect(createPatch).toHaveBeenCalledOnce();
     });
 
