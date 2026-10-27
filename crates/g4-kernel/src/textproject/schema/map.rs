@@ -20,7 +20,7 @@ use super::{
 /// The source of every map manifest in this phase: the map file's own bytes.
 pub(crate) const MAP_SOURCE_BINARY: &str = "binary";
 /// A map manifest whose `source` is not [`MAP_SOURCE_BINARY`].
-pub(crate) const MAP_SOURCE_CODE: &str = "textproject.map-source";
+pub(crate) use super::super::codes::MAP_SOURCE_CODE;
 
 /// One map member, or `{locked, raw}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -516,8 +516,8 @@ fn missing_text_archive(error: &rotom::CompileError) -> Option<u16> {
 
 /// Writes `expanded/textArchives/<n>.json` from the member when the JSON is missing (a
 /// project DSPRE has not expanded yet) and records its hash in `known`; false when there is
-/// nothing to write it from.
-fn materialize_text_json(
+/// nothing to write it from. The text project's export calls it for every text member.
+pub(crate) fn materialize_text_json(
     project: &Project,
     n: u16,
     known: &mut BTreeMap<u16, u64>,
@@ -550,12 +550,16 @@ fn materialize_text_json(
 /// rule, so it would number and append messages against a stale file and the later encode
 /// would overwrite the member's newer content. The member stays untouched. Archives whose
 /// sides both changed consistently are recorded too. Returns the archives in
-/// [`TextSide::Conflict`]: [`compile`] does not encode them, the build asks.
-fn refresh_stale_text_json(project: &Project) -> Result<BTreeSet<u16>, KernelError> {
+/// [`TextSide::Conflict`]: [`compile`] does not encode them, the build asks; and the number
+/// of JSON files rewritten. The text project's export calls it too.
+pub(crate) fn refresh_stale_text_json(
+    project: &Project,
+) -> Result<(BTreeSet<u16>, u32), KernelError> {
     let lang = project.language.locale_key();
     let sync = TextSync::load(project);
     let mut conflicts = BTreeSet::new();
     let mut synced = Vec::new();
+    let mut rewritten = 0;
     for n in numbered_files(&project.expanded_dir(AssetKind::TextArchive), Some("json"))? {
         match sync.check(project, n)? {
             (TextSide::MemberNewer, _) => {}
@@ -579,10 +583,11 @@ fn refresh_stale_text_json(project: &Project) -> Result<BTreeSet<u16>, KernelErr
                 &doc.to_json(),
             )?;
             synced.push(n);
+            rewritten += 1;
         }
     }
     record_text_sync(project, &synced)?;
-    Ok(conflicts)
+    Ok((conflicts, rewritten))
 }
 
 /// Makes the rotom sources of script files `files` stale in rotom's compile state, so the
@@ -635,7 +640,7 @@ pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
 pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
     let config = load_config(project)?;
     let root = &project.root;
-    let conflicts = refresh_stale_text_json(project)?;
+    let (conflicts, _) = refresh_stale_text_json(project)?;
     let mut before = text_json_hashes(project)?;
     let state_path = config.status_dir(root).join("compile-state.json");
     let quirks = saved_quirks(&state_path);

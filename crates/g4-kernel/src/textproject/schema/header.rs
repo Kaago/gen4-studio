@@ -34,13 +34,13 @@ use super::{
 };
 
 /// A header count that grows without the Dynamic Headers patch, or header files with a gap.
-pub(crate) const HEADER_COUNT_CODE: &str = "textproject.header-count";
-/// A member (here: a header) the import would have to delete because no JSON names it;
-/// deleting is 4.3b.
-pub(crate) const MEMBER_WITHOUT_JSON_CODE: &str = "textproject.member-without-json";
+pub(crate) use super::super::codes::HEADER_COUNT_CODE;
 /// A header table whose place in the project cannot be read (`arm9.bin` too short, no
 /// `mapname.bin`, …).
-pub(crate) const HEADER_TABLE_CODE: &str = "textproject.header-table";
+pub(crate) use super::super::codes::HEADER_TABLE_CODE;
+/// A member (here: a header) the import would have to delete because no JSON names it;
+/// deleting is 4.3b.
+pub(crate) use super::super::codes::MEMBER_WITHOUT_JSON_CODE;
 /// The folder of the header files under `data/`.
 pub(crate) const HEADERS_ART: &str = "headers";
 /// Bytes of one `mapname.bin` record.
@@ -48,7 +48,7 @@ const NAME_LEN: usize = 16;
 /// Bytes of one header.
 const HEADER_LEN: usize = uxie::map_header::MAP_HEADER_SIZE;
 /// The refusal for Diamond/Pearl.
-const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
+pub(crate) const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
 
 /// A Platinum header (uxie `MapHeaderPt`, same fields in the same order).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

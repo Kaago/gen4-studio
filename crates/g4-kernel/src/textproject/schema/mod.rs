@@ -51,7 +51,7 @@ pub(crate) fn join(path: &str, key: &str) -> String {
 }
 
 /// The code of an `id` that does not name the entity's number.
-pub(crate) const ID_MISMATCH_CODE: &str = "textproject.id-mismatch";
+pub(crate) use super::codes::ID_MISMATCH_CODE;
 
 /// Every schema type exports and imports through this, `members` in the kind's member order.
 pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
@@ -59,6 +59,10 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     const ART: &'static str;
     /// Whether a member of the kind can be locked; false only where every member decodes and
     /// writes back byte for byte (headers), and then [`EntitySchema::locked_samples`] is empty.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the schema snapshot test is the caller")
+    )]
     const LOCKABLE: bool = true;
     /// The entity `index` from its members (`None`: the archive has no such member).
     fn export(
@@ -70,9 +74,17 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     /// starts with its code (`textproject.schema`, `textproject.unknown-id`, …).
     fn import(&self, index: u32, ctx: &ImportCtx<'_>) -> Result<Vec<Option<Vec<u8>>>, String>;
     /// For the snapshot: every option set, one element per list.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the schema snapshot test is the caller")
+    )]
     fn sample() -> Self;
     /// The samples the snapshot lists, each under its label; more than one when the shape
     /// depends on the family.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the schema snapshot test is the caller")
+    )]
     fn samples() -> Vec<(String, Self)> {
         vec![(Self::ART.to_owned(), Self::sample())]
     }
@@ -84,9 +96,17 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     /// A new option (a key the export can leave out) must be set in the full sample and left
     /// out here, or the snapshot shows it as required and a later change of its
     /// optionality slips past the schema version.
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the schema snapshot test is the caller")
+    )]
     fn minimal_samples() -> Vec<(String, Self)>;
     /// For the snapshot: the samples with every member that can be locked locked, under the
     /// labels of [`EntitySchema::samples`].
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "the schema snapshot test is the caller")
+    )]
     fn locked_samples() -> Vec<(String, Self)>;
 }
 

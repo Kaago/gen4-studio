@@ -115,8 +115,8 @@ fn load_state(project: &Project) -> Result<(PathBuf, rotom::CompileState), Kerne
 }
 
 /// The quirks file of the project as it stands: every entry of the compile state with quirks
-/// other than rotom's default, plus the entries of [`QUIRKS_FILE`] whose source has no entry
-/// in the compile state and still exists. Without the second part an export before the first
+/// other than rotom's default, plus the entries of [`QUIRKS_FILE`] with quirks other than the
+/// default whose source has no entry in the compile state and still exists. Without the second part an export before the first
 /// compile of a fresh clone (no compile state) would empty the file and lose the quirks; for
 /// a source in the compile state the state is current (seeded before every compile). A
 /// broken [`QUIRKS_FILE`] is the error of [`load_quirks`].
@@ -130,7 +130,8 @@ pub fn quirks_from_state(project: &Project) -> Result<QuirksFile, KernelError> {
         .map(|(p, e)| (key_of(p), QuirkJson::from(e.quirks)))
         .collect();
     for (key, quirk) in load_quirks(&project.root)?.quirks {
-        if !in_state.contains(&key) && project.root.join(path_of(&key)).is_file() {
+        let unusual = rotom::BinaryQuirk::from(&quirk) != rotom::BinaryQuirk::default();
+        if unusual && !in_state.contains(&key) && project.root.join(path_of(&key)).is_file() {
             quirks.insert(key, quirk);
         }
     }
@@ -360,12 +361,13 @@ mod tests {
         let (_s, p) = adopted();
         let file = file_of(&[
             (KEY_0, quirk(Some(0))),
+            ("expanded/scripts/0001.json", quirk(None)),
             ("expanded/scripts/0099.rotom", quirk(Some(2))),
         ]);
         write_quirks(&p.root, &file).unwrap();
         std::fs::remove_file(state_path(&p)).unwrap();
         // An export before the first compile of a fresh clone keeps the quirks of the
-        // sources that still exist.
+        // sources that still exist; an entry with rotom's default quirks says nothing.
         assert_eq!(
             quirks_from_state(&p).unwrap(),
             file_of(&[(KEY_0, quirk(Some(0)))])

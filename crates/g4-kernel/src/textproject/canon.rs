@@ -39,7 +39,6 @@ pub(crate) fn write_if_changed(root: &Path, rel: &Path, bytes: &[u8]) -> Result<
 }
 
 /// `bytes` as lowercase hex without separators.
-#[allow(dead_code, reason = "used by the entity codecs of later tasks")]
 pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut text = String::with_capacity(bytes.len() * 2);
@@ -51,7 +50,6 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 
 /// The bytes of a hex string (either case, no separators); the error is a German sentence
 /// for a [`problem`].
-#[allow(dead_code, reason = "used by the entity codecs of later tasks")]
 pub(crate) fn unhex(text: &str) -> Result<Vec<u8>, String> {
     if let Some(bad) = text.chars().find(|c| !c.is_ascii_hexdigit()) {
         return Err(format!("`{bad}` ist keine Hex-Ziffer."));

@@ -1,0 +1,204 @@
+//! The check (what an import would find and write, without writing) and the source list of
+//! the text project, plus the hints export and check share: unknown folders under `data/`,
+//! reserved manifest keys in use, register entries whose number is gone.
+
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+
+use crate::data::names::Bank;
+use crate::error::KernelError;
+use crate::places::location_bank;
+use crate::project::{AssetKind, Project};
+use crate::scripts;
+use crate::text::{Problem, Severity};
+
+use super::arts::{Art, archive_texts, bank_texts, is_known_folder, numbered, slash};
+use super::base_layer::walk;
+use super::canon::problem;
+use super::codes::{ID_DANGLING_CODE, RESERVED_CODE, UNKNOWN_ART_CODE};
+use super::import::{LazyBase, plan_import};
+use super::locate::key_position;
+use super::manifest::{Manifest, SchemaState, read_manifest, schema_state};
+use super::registry::{IDS_DIR, Registry, registry_file};
+use super::symbols::SymbolKind;
+use super::{DATA_DIR, MANIFEST_FILE};
+
+/// What [`check`] found: the schema state of the manifest, every problem and hint, and the
+/// files an import would write (relative, sorted). With another schema version than the
+/// current one there is nothing else.
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckReport {
+    pub schema: SchemaState,
+    pub problems: Vec<Problem>,
+    pub differs: Vec<PathBuf>,
+}
+
+/// Checks the text project like an import and writes nothing (not even the base layer: parts
+/// that need it read an existing layer only).
+pub fn check(project: &Project) -> Result<CheckReport, KernelError> {
+    let schema = schema_state(&project.root)?;
+    if schema != SchemaState::Current {
+        return Ok(CheckReport {
+            schema,
+            problems: Vec::new(),
+            differs: Vec::new(),
+        });
+    }
+    let base = LazyBase::new(project, None, false);
+    let plan = plan_import(project, &base, None)?;
+    let mut problems = plan.problems.clone();
+    if let Ok(manifest) = read_manifest(&project.root) {
+        problems.extend(hints(project, &manifest)?);
+    }
+    Ok(CheckReport {
+        schema,
+        problems,
+        differs: plan.paths(),
+    })
+}
+
+/// The files of the text project (relative to the root, `/`-separated, sorted), each when it
+/// exists: `g4-project.json`, everything under `data/`, `expanded/textArchives/*.json`,
+/// `expanded/scripts/**`, `rotom.toml`, `.rotom/command_database/**`, `g4-world.json`,
+/// `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`. Hidden entries inside the folders are
+/// left out.
+pub fn sources(project: &Project) -> Result<Vec<PathBuf>, KernelError> {
+    let root = &project.root;
+    let mut list = Vec::new();
+    for file in [
+        MANIFEST_FILE,
+        scripts::ROTOM_TOML,
+        "g4-world.json",
+        "g4-checks.json",
+        ".g4/base.json",
+        ".g4/preview.png",
+    ] {
+        if root.join(file).is_file() {
+            list.push(PathBuf::from(file));
+        }
+    }
+    for dir in [
+        Path::new(DATA_DIR),
+        Path::new(scripts::SOURCE_ROOT),
+        Path::new(".rotom/command_database"),
+    ] {
+        walk(root, dir, &mut list, &|_| false)?;
+    }
+    let texts = project.expanded_dir(AssetKind::TextArchive);
+    let texts_rel = texts.strip_prefix(root).unwrap_or(&texts).to_path_buf();
+    for name in super::arts::file_names(&texts)? {
+        if name.ends_with(".json") {
+            list.push(texts_rel.join(name));
+        }
+    }
+    let mut list: Vec<PathBuf> = list.iter().map(|p| slash(p)).collect();
+    list.sort();
+    list.dedup();
+    Ok(list)
+}
+
+/// The hints of the text project: folders under `data/` no art knows, reserved manifest keys
+/// in use, register entries whose number is gone.
+pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Problem>, KernelError> {
+    let mut hints = Vec::new();
+    let data = project.root.join(DATA_DIR);
+    if let Ok(entries) = std::fs::read_dir(&data) {
+        let mut unknown: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| !name.starts_with('.') && !is_known_folder(name))
+            .collect();
+        unknown.sort();
+        for name in unknown {
+            hints.push(hint(
+                &Path::new(DATA_DIR).join(&name),
+                UNKNOWN_ART_CODE,
+                Severity::Warning,
+                format!("data/{name}/ ist keine bekannte Art; Export und Import lassen den Ordner, wie er ist."),
+            ));
+        }
+    }
+    for (key, used) in [
+        ("schemas", !manifest.schemas.is_empty()),
+        ("plugins", !manifest.plugins.is_empty()),
+    ] {
+        if used {
+            let bytes = std::fs::read(project.root.join(MANIFEST_FILE)).unwrap_or_default();
+            let (line, col) = key_position(&bytes, key, 0);
+            hints.push(Problem {
+                line,
+                col,
+                ..hint(
+                    Path::new(MANIFEST_FILE),
+                    RESERVED_CODE,
+                    Severity::Info,
+                    format!(
+                        "`{key}` ist reserviert; Phase 4 hält den Inhalt, liest ihn aber nicht."
+                    ),
+                )
+            });
+        }
+    }
+    for kind in [
+        SymbolKind::Map,
+        SymbolKind::Trainer,
+        SymbolKind::TrainerClass,
+        SymbolKind::Place,
+    ] {
+        dangling(project, kind, &mut hints)?;
+    }
+    Ok(hints)
+}
+
+/// A hint of `severity` with `code` for `file`.
+fn hint(file: &Path, code: &str, severity: Severity, message: String) -> Problem {
+    Problem {
+        severity,
+        ..problem(file, code, message)
+    }
+}
+
+/// The entries of the register of `kind` whose number the project no longer has: maps and
+/// trainers by their files under `data/`, classes and places by their name banks.
+fn dangling(
+    project: &Project,
+    kind: SymbolKind,
+    hints: &mut Vec<Problem>,
+) -> Result<(), KernelError> {
+    let Some(file) = registry_file(kind) else {
+        return Ok(());
+    };
+    let rel = Path::new(IDS_DIR).join(file);
+    let Ok(bytes) = std::fs::read(project.root.join(&rel)) else {
+        return Ok(());
+    };
+    let Ok(registry) = Registry::load(&project.root, kind) else {
+        return Ok(());
+    };
+    let count = match kind {
+        SymbolKind::Map => numbered(&project.root.join(Art::Headers.dir()), "json")?.len(),
+        SymbolKind::Trainer => numbered(&project.root.join(Art::Trainers.dir()), "json")?.len(),
+        SymbolKind::TrainerClass => bank_texts(project, Bank::TrainerClasses).len(),
+        _ => archive_texts(project, location_bank(project))
+            .unwrap_or_default()
+            .len(),
+    };
+    for (id, &n) in &registry.ids {
+        if usize::try_from(n).is_ok_and(|n| n >= count) {
+            let (line, col) = key_position(&bytes, id, 0);
+            hints.push(Problem {
+                line,
+                col,
+                ..hint(
+                    &rel,
+                    ID_DANGLING_CODE,
+                    Severity::Warning,
+                    format!("`{id}` nennt Nummer {n}, die es nicht mehr gibt; die ID bleibt eingefroren."),
+                )
+            });
+        }
+    }
+    Ok(())
+}

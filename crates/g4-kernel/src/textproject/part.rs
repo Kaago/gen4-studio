@@ -22,12 +22,12 @@ use super::canon::{hex, unhex};
 use super::manifest::SCHEMA_CODE;
 use crate::error::KernelError;
 
-/// A side file that is missing or unreadable.
-pub(crate) const SIDE_FILE_CODE: &str = "textproject.side-file";
-/// A `base_sha1` part whose bytes neither the current member nor the base layer has.
-pub(crate) const BASE_MISSING_CODE: &str = "textproject.base-missing";
 /// A `base_sha1` part whose base layer part has other bytes.
-pub(crate) const BASE_MISMATCH_CODE: &str = "textproject.base-mismatch";
+pub(crate) use super::codes::BASE_MISMATCH_CODE;
+/// A `base_sha1` part whose bytes neither the current member nor the base layer has.
+pub(crate) use super::codes::BASE_MISSING_CODE;
+/// A side file that is missing or unreadable.
+pub(crate) use super::codes::SIDE_FILE_CODE;
 
 /// The most bytes a part is written as `{"hex"}`.
 pub(crate) const HEX_MAX: usize = 64;
@@ -108,6 +108,7 @@ pub(crate) fn part_out(
 /// error is `<code>: <key>: <sentence>` with code `textproject.side-file`,
 /// `textproject.base-missing`, `textproject.base-mismatch` or `textproject.schema`;
 /// [`part_in_at`] names the part's JSON path instead of the key.
+#[cfg(test)]
 pub(crate) fn part_in(
     part: &Part,
     dir: &Path,

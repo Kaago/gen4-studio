@@ -13,6 +13,7 @@ use crate::error::{KernelError, io_at};
 use crate::text::Problem;
 
 use super::canon::{json_problem, problem, to_canonical, write_if_changed};
+use super::locate::key_position;
 use super::manifest::SCHEMA_CODE;
 use super::symbols::{SymbolKind, fallback_id, normalize, parse_fallback, table};
 
@@ -82,8 +83,9 @@ impl Registry {
         };
         let ids: BTreeMap<String, u32> = serde_json::from_slice(&bytes)
             .map_err(|e| KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)]))?;
+        let mut problems = duplicate_keys(&rel, &bytes);
         let registry = Registry { kind, ids };
-        let problems = registry.check(&rel);
+        problems.extend(registry.check(&rel, &bytes));
         if problems.is_empty() {
             Ok(registry)
         } else {
@@ -91,32 +93,41 @@ impl Registry {
         }
     }
 
-    /// The rule breaks of a loaded register `rel`, one problem each.
-    fn check(&self, rel: &Path) -> Vec<Problem> {
+    /// The rule breaks of a loaded register `rel` (its text `bytes`), one problem each, at
+    /// the id's key.
+    fn check(&self, rel: &Path, bytes: &[u8]) -> Vec<Problem> {
         let prefix = self.kind.prefix();
         let mut problems = Vec::new();
         let mut owners: BTreeMap<u32, &str> = BTreeMap::new();
+        let at_key = |id: &str, code: &str, message: String| {
+            let (line, col) = key_position(bytes, id, 0);
+            Problem {
+                line,
+                col,
+                ..problem(rel, code, message)
+            }
+        };
         for (id, &n) in &self.ids {
             let under_prefix = id
                 .strip_prefix(prefix)
                 .is_some_and(|rest| rest.len() > 1 && rest.starts_with('_'));
             if !under_prefix {
-                problems.push(problem(
-                    rel,
+                problems.push(at_key(
+                    id,
                     SCHEMA_CODE,
                     format!("Die ID `{id}` beginnt nicht mit `{prefix}_`."),
                 ));
             } else if let Some(own) = parse_fallback(self.kind, id).filter(|&own| own != n) {
-                problems.push(problem(
-                    rel,
+                problems.push(at_key(
+                    id,
                     SCHEMA_CODE,
                     format!("Die ID `{id}` gehört der Nummer {own}, nicht {n}."),
                 ));
             } else if let Some(first) = owners.insert(n, id) {
                 // Restore the first owner, so a third id names the first again.
                 owners.insert(n, first);
-                problems.push(problem(
-                    rel,
+                problems.push(at_key(
+                    id,
                     SCHEMA_CODE,
                     format!("Die Nummer {n} hat die IDs `{first}` und `{id}`."),
                 ));
@@ -175,6 +186,54 @@ impl Registry {
             self.ids.insert(id, n);
         }
     }
+}
+
+/// A key that appears twice in the JSON object `bytes` (serde keeps the last one silently),
+/// one problem per repetition at its key.
+fn duplicate_keys(rel: &Path, bytes: &[u8]) -> Vec<Problem> {
+    struct Keys(Vec<String>);
+    struct KeysVisitor;
+    impl<'de> serde::de::Visitor<'de> for KeysVisitor {
+        type Value = Keys;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a JSON object")
+        }
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Keys, A::Error> {
+            let mut keys = Vec::new();
+            while let Some(key) = map.next_key::<String>()? {
+                map.next_value::<serde::de::IgnoredAny>()?;
+                keys.push(key);
+            }
+            Ok(Keys(keys))
+        }
+    }
+    impl<'de> serde::Deserialize<'de> for Keys {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Keys, D::Error> {
+            d.deserialize_map(KeysVisitor)
+        }
+    }
+    let Ok(Keys(keys)) = serde_json::from_slice::<Keys>(bytes) else {
+        return Vec::new();
+    };
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    let mut problems = Vec::new();
+    for key in &keys {
+        let count = seen.entry(key.as_str()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            let (line, col) = key_position(bytes, key, *count - 1);
+            problems.push(Problem {
+                line,
+                col,
+                ..problem(
+                    rel,
+                    SCHEMA_CODE,
+                    format!("Die ID `{key}` steht mehrfach in der Datei."),
+                )
+            });
+        }
+    }
+    problems
 }
 
 /// Resolves ids for every kind: the fixed tables of species, moves, items, abilities and types,
@@ -438,7 +497,27 @@ mod tests {
             );
         }
 
+        // A rule break points at its id; an id given twice (serde would keep the last) is
+        // refused at its second key.
+        std::fs::write(
+            root.join("data/ids/trainers.json"),
+            "{\n  \"TRAINER_KAI\": 0,\n  \"MAP_T01\": 1\n}\n",
+        )
+        .unwrap();
+        let problems = compile_problems(Registry::load(root, SymbolKind::Trainer).unwrap_err());
+        assert_eq!((problems[0].line, problems[0].col), (3, 3));
+        std::fs::write(
+            root.join("data/ids/trainers.json"),
+            "{\n  \"TRAINER_KAI\": 0,\n  \"TRAINER_KAI\": 1\n}\n",
+        )
+        .unwrap();
+        let problems = compile_problems(Registry::load(root, SymbolKind::Trainer).unwrap_err());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message.contains("mehrfach"));
+        assert_eq!((problems[0].line, problems[0].col), (3, 3));
+
         // Symbols::load collects the problems of every register.
+        std::fs::write(root.join("data/ids/trainers.json"), "{\"TRAINER_KAI\": -1}").unwrap();
         std::fs::write(root.join("data/ids/maps.json"), "[").unwrap();
         let problems = compile_problems(Symbols::load(root).err().unwrap());
         let files: Vec<_> = problems.iter().map(|p| p.file.clone()).collect();

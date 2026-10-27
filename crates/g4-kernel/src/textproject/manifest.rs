@@ -18,7 +18,7 @@ use crate::text::Problem;
 /// The value of `format` in every manifest.
 pub const FORMAT: &str = "g4-project";
 /// The code of a file that does not match its schema (no JSON, unknown key, wrong type).
-pub(crate) const SCHEMA_CODE: &str = "textproject.schema";
+pub(crate) use super::codes::SCHEMA_CODE;
 
 /// `g4-project.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

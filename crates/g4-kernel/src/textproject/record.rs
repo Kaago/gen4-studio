@@ -23,7 +23,7 @@ use super::registry::Symbols;
 use super::symbols::{SymbolKind, fallback_id};
 
 /// The code of a problem with an id that no table or register knows.
-pub(crate) const UNKNOWN_ID_CODE: &str = "textproject.unknown-id";
+pub(crate) use super::codes::UNKNOWN_ID_CODE;
 
 /// A fixed record as a JSON object, keys in `FIELDS` order (see the module docs). Its own
 /// `Serialize`/`Deserialize` keep the order; reading rejects a key that appears twice.

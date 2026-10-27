@@ -63,7 +63,7 @@ const ROM_EXTS: [&str; 3] = ["nds", "srl", "xdelta"];
 /// [`owned_paths`]) and the binary kinds (`map_textures`, `building_textures`,
 /// `building_models`, `interior_building_models`), which the export writes as
 /// `data/<art>/NNNN.<ext>` where they differ from the base layer.
-const ENTITY_KINDS: [AssetKind; 17] = [
+pub(crate) const ENTITY_KINDS: [AssetKind; 17] = [
     AssetKind::Map,
     AssetKind::Matrix,
     AssetKind::AreaData,
@@ -85,8 +85,17 @@ const ENTITY_KINDS: [AssetKind; 17] = [
 
 /// The member behind each whole-member part of the schemas (art, part, archive), see
 /// [`PartKey`]; the file number is the member index. Map sections (`model`, `bdhc`, `bgs`)
-/// and items (by item id) are answered apart.
-const MEMBER_PARTS: [(&str, &str, AssetKind); 13] = [
+/// and items (by item id) are answered apart. The binary kinds are whole members too
+/// (art = their folder, part = their extension).
+const MEMBER_PARTS: [(&str, &str, AssetKind); 17] = [
+    ("map_textures", "nsbtx", AssetKind::MapTexture),
+    ("building_textures", "nsbtx", AssetKind::BuildingTexture),
+    ("building_models", "nsbmd", AssetKind::BuildingModel),
+    (
+        "interior_building_models",
+        "nsbmd",
+        AssetKind::InteriorBuildingModel,
+    ),
     (MapEntity::ART, "map", AssetKind::Map),
     (SpeciesEntity::ART, "personal", AssetKind::Personal),
     (SpeciesEntity::ART, "learnset", AssetKind::Learnset),
@@ -438,7 +447,7 @@ pub(crate) fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, Kernel
 
 /// Every file below `root.join(rel)` as a path relative to `root`, in name order; hidden
 /// entries and the folders `skip_dir` names (relative paths) are left out.
-fn walk(
+pub(crate) fn walk(
     root: &Path,
     rel: &Path,
     out: &mut Vec<PathBuf>,
@@ -677,24 +686,86 @@ fn packed_of(project: &Project, name: &str) -> Option<PathBuf> {
         })
 }
 
+/// Whether `rel` is a plain relative path in the range of the blobs by its name (see the
+/// module docs); the error is the sentence for the user.
+pub(crate) fn check_raw_path(rel: &Path) -> Result<(), String> {
+    let plain = rel.components().all(|c| matches!(c, Component::Normal(_)));
+    if !plain || rel.as_os_str().is_empty() || outside_range(rel, false) {
+        return Err(format!(
+            "`{}` liegt nicht im Bereich der Blobs (data/raw).",
+            rel.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Whether blob `bytes` may go to `rel` (relative to the root): a path in the range of the
+/// blobs ([`check_raw_path`]), not a file the text project owns ([`owned_paths`], passed in
+/// as `owned`), not the packed NARC of a kind whose members are entities (the export
+/// writes their members, never their NARC), and a NARC that reads where it replaces an
+/// unpacked folder. The error is the sentence for the user.
+pub(crate) fn check_raw_blob(
+    project: &Project,
+    owned: &BTreeSet<PathBuf>,
+    rel: &Path,
+    bytes: &[u8],
+) -> Result<(), String> {
+    check_raw_path(rel)?;
+    let entity_narc = ENTITY_KINDS
+        .iter()
+        .chain([&AssetKind::Item])
+        .any(|&k| project.archives.packed(k) == Some(rel));
+    if owned.contains(rel) || entity_narc {
+        return Err(format!(
+            "`{}` gehört einer Entität; ihre JSON unter data/ gilt, nicht ein Blob.",
+            rel.display()
+        ));
+    }
+    if unpacked_folder_of(project, rel).is_some()
+        && let Err(e) = Narc::read(bytes)
+    {
+        return Err(format!("`{}` ist kein lesbares NARC ({e}).", rel.display()));
+    }
+    Ok(())
+}
+
+/// The folder (absolute) of the packed NARC `rel` when that folder exists: [`place_raw`]
+/// replaces its members too.
+fn unpacked_folder_of(project: &Project, rel: &Path) -> Option<PathBuf> {
+    archive_folders(project)
+        .into_iter()
+        .find(|(packed, dir)| packed == rel && dir.is_dir())
+        .map(|(_, dir)| dir)
+}
+
+/// Whether [`place_raw`] of `bytes` at `rel` would write anything: the file differs (or is
+/// missing), or `rel` is a packed NARC whose folder does not hold exactly its members.
+/// Writes nothing; a NARC that does not read counts as differing (`place_raw` reports it).
+pub(crate) fn raw_differs(
+    project: &Project,
+    rel: &Path,
+    bytes: &[u8],
+) -> Result<bool, KernelError> {
+    if read_optional(&project.root.join(rel))?.as_deref() != Some(bytes) {
+        return Ok(true);
+    }
+    let Some(dir) = unpacked_folder_of(project, rel) else {
+        return Ok(false);
+    };
+    let Ok(narc) = Narc::read(bytes) else {
+        return Ok(true);
+    };
+    Ok(!holds_members(&dir, &narc.members)?)
+}
+
 /// Writes blob `bytes` at `rel` (relative to the root) if it differs; `true` when anything
 /// was written. `rel` must be a plain relative path in the range of the blobs (see the
 /// module docs). For a member `unpacked/<folder>/NNNN` whose folder is missing, the folder's
 /// archive is unpacked first, so the other members stay. A packed NARC whose folder exists
 /// replaces that folder's members as well, or the build would pack the folder over it.
-#[cfg_attr(not(test), expect(dead_code, reason = "import (Task 9) is the caller"))]
 pub(crate) fn place_raw(project: &Project, rel: &Path, bytes: &[u8]) -> Result<bool, KernelError> {
-    let plain = rel.components().all(|c| matches!(c, Component::Normal(_)));
-    if !plain || rel.as_os_str().is_empty() || outside_range(rel, false) {
-        return Err(KernelError::InvalidProject(format!(
-            "`{}` liegt nicht im Bereich der Blobs (data/raw).",
-            rel.display()
-        )));
-    }
-    if let Some((_, dir)) = archive_folders(project)
-        .into_iter()
-        .find(|(packed, dir)| packed == rel && dir.is_dir())
-    {
+    check_raw_path(rel).map_err(KernelError::InvalidProject)?;
+    if let Some(dir) = unpacked_folder_of(project, rel) {
         let narc = Narc::read(bytes)?;
         let wrote = write_if_changed(&project.root, rel, bytes)?;
         let replaced = replace_members(&dir, &narc.members)?;
@@ -712,10 +783,8 @@ pub(crate) fn place_raw(project: &Project, rel: &Path, bytes: &[u8]) -> Result<b
     write_if_changed(&project.root, rel, bytes)
 }
 
-/// Makes folder `dir` hold exactly `members` (`0000`, `0001`, …; hidden entries aside):
-/// `false` when it does already; else the members are written into a temp folder of their
-/// own next to it, which then takes the folder's place. `true` when replaced.
-fn replace_members(dir: &Path, members: &[Vec<u8>]) -> Result<bool, KernelError> {
+/// Whether folder `dir` holds exactly `members` (`0000`, `0001`, …; hidden entries aside).
+fn holds_members(dir: &Path, members: &[Vec<u8>]) -> Result<bool, KernelError> {
     let mut names = Vec::new();
     for entry in std::fs::read_dir(dir).map_err(io_at(dir))? {
         let name = entry.map_err(io_at(dir))?.file_name();
@@ -725,19 +794,26 @@ fn replace_members(dir: &Path, members: &[Vec<u8>]) -> Result<bool, KernelError>
     }
     names.sort();
     let wanted: Vec<String> = (0..members.len()).map(|i| format!("{i:04}")).collect();
-    if names == wanted {
-        let mut same = true;
-        for (name, bytes) in wanted.iter().zip(members) {
-            let path = dir.join(name);
-            if std::fs::read(&path).map_err(io_at(&path))? != *bytes {
-                same = false;
-                break;
-            }
-        }
-        if same {
+    if names != wanted {
+        return Ok(false);
+    }
+    for (name, bytes) in wanted.iter().zip(members) {
+        let path = dir.join(name);
+        if std::fs::read(&path).map_err(io_at(&path))? != *bytes {
             return Ok(false);
         }
     }
+    Ok(true)
+}
+
+/// Makes folder `dir` hold exactly `members` (`0000`, `0001`, …; hidden entries aside):
+/// `false` when it does already; else the members are written into a temp folder of their
+/// own next to it, which then takes the folder's place. `true` when replaced.
+fn replace_members(dir: &Path, members: &[Vec<u8>]) -> Result<bool, KernelError> {
+    if holds_members(dir, members)? {
+        return Ok(false);
+    }
+    let wanted: Vec<String> = (0..members.len()).map(|i| format!("{i:04}")).collect();
     let parent = dir.parent().unwrap_or(dir);
     let name = dir
         .file_name()

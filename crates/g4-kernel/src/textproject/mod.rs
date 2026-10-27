@@ -9,32 +9,38 @@
 //! base layer every "differs" is measured against, with the blobs of `data/raw/`
 //! ([`base_layer`]), and rotom's binary quirks, kept in `data/rotom-quirks.json` instead of
 //! the compile-state cache ([`quirks`]).
+//!
+//! On top of them: [`export`] writes the project's members as the text project, [`import`]
+//! writes the text project back into the members after checking every file, [`check`] tells
+//! what an import would find and write without writing, and [`sources`] lists the files of
+//! the text project. The orchestration lives in `export.rs`, `import.rs` (with the plan the
+//! build step reuses) and `check.rs`; `arts.rs` holds what they share about the folders
+//! under `data/`, `locate.rs` turns the JSON path of an import error into line and column,
+//! and `codes.rs` gathers every `textproject.*` code. The format is documented in
+//! `docs/formats/text_project.md`.
 
 use std::path::Path;
 
+mod arts;
 pub mod base_layer;
 pub(crate) mod canon;
+mod check;
+pub(crate) mod codes;
+mod export;
+mod import;
+mod locate;
 pub mod manifest;
 pub mod migrate;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "export and import (Task 9) are the callers")
-)]
 pub(crate) mod part;
 pub mod quirks;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "export and import (Task 9) are the callers")
-)]
 pub(crate) mod record;
 pub mod registry;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "export and import (Task 9) are the callers")
-)]
 pub(crate) mod schema;
 pub mod symbols;
 
+pub use check::{CheckReport, check, sources};
+pub use export::{ArtStats, ExportOptions, ExportReport, export};
+pub use import::{ImportReport, import};
 pub use schema::data::item_owners;
 
 /// The manifest at the project root; its presence makes a folder a text project.
