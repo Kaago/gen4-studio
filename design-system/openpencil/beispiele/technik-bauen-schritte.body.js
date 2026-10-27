@@ -3,6 +3,7 @@
   //   'schritte'  „App: Technik, Prüfen und Bauen mit Schritten“: Tasten „Bauen“, „Neu bauen (ohne Cache)“, „Starten“, „Letzter Build“ und „Pfad“,
   //               die Überschrift „Schritte“ mit der Tabelle der gelaufenen Schritte und „Übersprungen (38)“ eingeklappt, darunter „Probleme“
   //   'konflikt'  „App: Technik, Texte auf zwei Seiten geändert“: derselbe Screen vor dem Build (noch ohne Schritte), darüber der Dialog der Rückfrage
+  //   'brett'     „Komponenten (App): Build-Schritte“ (Seite „Komponenten“): gelaufen, übersprungen zu und offen, ROM aktuell, kein Build, eine Zeile in Tüfteln
   // Quellen: apps/studio/src/technik/{TechnikArea,BuildSteps}.tsx und .module.css, technik/stepWords.ts (Wörter), app/TextConflictDialog.tsx,
   // ui/primitives/{Table,Section,Segmented,Dialog}.module.css; Plan docs/superpowers/plans/2026-10-27-phase-4-2-build-graph.md (Entscheidungen
   // „Anzeige“, „Neu bauen“, „Konflikt beim Bauen“); Texte aus design-system/README.md, Abschnitt „Nachtrag 4.2“. Beispielwerte aus HeartGold DE
@@ -46,6 +47,26 @@
     {Rahmen('Schritte des letzten Builds', [KopfZeile, ...GELAUFEN.map(Zeile)])}
     {Rahmen('Übersprungen', <Frame flex="row" items="center" gap={6} px={8} h={DI.steuer} w="fill">{I('ph:caret-right', 18)}{T('Übersprungen (38)', { w: 600 })}</Frame>)}
   </Frame>;
+
+  // ----- 'brett': „Komponenten (App): Build-Schritte“ auf der Seite „Komponenten“, die vier Zustände und eine Zeile in Tüfteln -----
+  if (MODE === 'brett') {
+    const Zustand = (titel, inhalt) => <Frame name={titel} flex="col" gap={8}>{T(titel, { s: 12, w: 600, c: 'text/sekundaer' })}{inhalt}</Frame>;
+    const UEBERSPRUNGEN = [['Texte', 'übersprungen', '< 0,01 s'], ['Texte packen', 'übersprungen', '< 0,01 s'], ['Spieldaten packen', 'übersprungen', '< 0,01 s']];
+    const tuefteln = <Frame name="pokeHeight packen" flex="row" w="fill" h={DI.zeile}>
+      <Frame flex="row" items="center" gap={8} px={8} w={SW} h="fill">{T('pokeHeight packen', { s: 13, one: true })}{T('pack:pokeHeight', { f: M, s: 12, c: 'text/sekundaer', one: true })}</Frame>
+      {Zelle('2964 Member gepackt', SW)}{Zelle('0,31 s', 96, { end: true })}
+    </Frame>;
+    return <Frame name="Komponenten (App): Build-Schritte" flex="col" gap={24} p={32} w={BW + 64} rounded={16} bg={v('flaeche/deck')}>
+      {T('Build-Schritte', { f: Z, s: 24, lh: 30, w: 700 })}
+      {T('Technik › Prüfen und Bauen, unter „Schritte“. Bauen zeigt Wörter, Tüfteln setzt die Kennung grau dahinter.', { c: 'text/sekundaer', width: BW })}
+      {Zustand('gelaufen', Rahmen('Schritte des letzten Builds', [KopfZeile, ...GELAUFEN.map(Zeile)]))}
+      {Zustand('übersprungen, eingeklappt', Rahmen('Übersprungen', <Frame flex="row" items="center" gap={6} px={8} h={DI.steuer} w="fill">{I('ph:caret-right', 18)}{T('Übersprungen (38)', { w: 600 })}</Frame>))}
+      {Zustand('übersprungen, offen', Rahmen('Übersprungene Schritte', [<Frame flex="row" items="center" gap={6} px={8} h={DI.steuer} w="fill">{I('ph:caret-down', 18)}{T('Übersprungen (38)', { w: 600 })}</Frame>, ...UEBERSPRUNGEN.map(Zeile)]))}
+      {Zustand('ROM nicht neu entstanden', Rahmen('ROM aktuell', [Zeile(['ROM schreiben', 'aktuell', '0,01 s'])]))}
+      {Zustand('kein Build', T('Noch kein Build in dieser Sitzung.'))}
+      {Zustand('Tüfteln: Kennung grau hinter den Wörtern', Rahmen('Tüfteln', [tuefteln]))}
+    </Frame>;
+  }
 
   const Fakt = (label, wert, mono) => <Frame flex="col" gap={2}>{T(label, { s: 12, c: 'text/sekundaer' })}{T(wert, { f: mono ? M : F, s: 13 })}</Frame>;
   const flaeche = <Frame name="Prüfen und Bauen" flex="col" gap={16} pt={32} px={24} grow={1} h="fill" bg={v('flaeche/deck')} overflow="hidden">
