@@ -246,8 +246,10 @@ impl BasePart for BaseLayer {
             });
         }
         if which.art == ItemEntity::ART && which.part == "item" {
+            // As the import reads the table: members missing from the layer do not hide it.
             let member = project
-                .item_table()
+                .item_table_to_write()
+                .as_ref()
                 .and_then(|t| t.entries.get(usize::from(index)))
                 .map(|e| e.data);
             return match member {
@@ -386,7 +388,10 @@ fn relative(project: &Project, path: &Path) -> PathBuf {
 /// table names (the others are blobs where they differ); the text members with a JSON source
 /// in `expanded/textArchives`; once the scripts are adopted, the script members with a
 /// source (`.rotom` or level script `.json`) in `expanded/scripts`; `mapname.bin`; and the
-/// files of `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
+/// files of `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied. The item
+/// members follow the table even when some are missing (the import is about to write them).
+/// Public for the gated round trip, which deletes exactly these files, and as the list a later
+/// `.gitignore` template of the text project can be made from.
 pub fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, KernelError> {
     let mut owned = BTreeSet::new();
     let mut add_members = |kind: AssetKind, keep: &dyn Fn(&str) -> bool| {

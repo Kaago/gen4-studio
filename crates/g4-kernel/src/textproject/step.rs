@@ -42,6 +42,7 @@ use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use g4_formats::data::arm9_tables::ItemTable;
 use serde::{Deserialize, Serialize};
 
 use crate::build::step::{Dirty, Step, StepRun};
@@ -202,8 +203,9 @@ fn src_key(path: &Path) -> PathBuf {
 
 /// The source files (relative, as [`plan_import`]'s `only` takes them) of the unit member
 /// `member` belongs to: the entity, item or binary file of a mapped member, the header files
-/// for the header table's files, and always the blob at its path.
-fn member_sources(p: &Project, member: &Path) -> Vec<PathBuf> {
+/// for the header table's files, and always the blob at its path. `items` holds the item table
+/// ([`Project::item_table_to_write`]), read on the first itemData member only.
+fn member_sources(p: &Project, member: &Path, items: &OnceCell<Option<ItemTable>>) -> Vec<PathBuf> {
     let mut out = vec![Path::new(RAW_DIR).join(member)];
     let parts: Vec<&str> = member
         .components()
@@ -221,8 +223,11 @@ fn member_sources(p: &Project, member: &Path) -> Vec<PathBuf> {
                 let dir = art.dir();
                 match art {
                     Art::Items => {
-                        let table = p.item_table_to_write();
-                        let ids = table.as_ref().map(|t| t.entries.as_slice()).unwrap_or(&[]);
+                        let ids = items
+                            .get_or_init(|| p.item_table_to_write())
+                            .as_ref()
+                            .map(|t| t.entries.as_slice())
+                            .unwrap_or(&[]);
                         out.extend(
                             ids.iter()
                                 .enumerate()
@@ -472,8 +477,9 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
         }
     }
     let mut member_keys: BTreeMap<&PathBuf, BTreeSet<PathBuf>> = BTreeMap::new();
+    let items = OnceCell::new();
     for member in &touched {
-        let sources = member_sources(p, member);
+        let sources = member_sources(p, member, &items);
         member_keys.insert(member, sources.iter().map(|s| src_key(s)).collect());
         only.extend(sources);
     }

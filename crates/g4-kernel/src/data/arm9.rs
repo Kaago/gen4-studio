@@ -120,9 +120,10 @@ impl Project {
     /// The item table for a writer that brings the itemData members up to the table (the
     /// text project's import): plausible with as many members as the folder has or the table
     /// has ids, whichever is more, so members that are missing because the writer is about
-    /// to write them do not hide the table. Read anew on every call, never cached; `None` as
-    /// for [`Project::item_table`] otherwise (unverified code, short arm9, TM01/HM05 or a
-    /// member index past both counts).
+    /// to write them do not hide the table. The cached [`Project::item_table`] when it is
+    /// available, else a fresh, uncached read of `arm9.bin`; `None` as for
+    /// [`Project::item_table`] otherwise (unverified code, short arm9, TM01/HM05 or a member
+    /// index past both counts).
     pub(crate) fn item_table_to_write(&self) -> Option<ItemTable> {
         if let Some(table) = self.item_table() {
             return Some(table.clone());

@@ -97,7 +97,8 @@ fn ms_since(start: Instant) -> u64 {
 
 /// Exports `project` as a text project against base ROM `base`. Refuses (before writing
 /// anything) Diamond/Pearl, a project without base mark or with another base, an older or
-/// newer schema version, text archives in conflict ([`KernelError::TextConflict`]) and
+/// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), item
+/// members the ARM9 item table names but the project lacks (run the import first) and
 /// scripts that are not adopted unless `opts.adopt_scripts`. The base layer is made only when
 /// it is not there.
 pub fn export(
@@ -131,6 +132,9 @@ pub fn export(
     if !conflicts.is_empty() {
         return Err(KernelError::TextConflict(conflicts));
     }
+    if let Some(refusal) = missing_item_members(project)? {
+        return Err(KernelError::Refused(refusal));
+    }
     let mut report = ExportReport::default();
     if !scripts::is_adopted(project) {
         if !opts.adopt_scripts {
@@ -151,6 +155,47 @@ pub fn export(
     super::step::clear_kept(&project.root)?;
     report.ms = ms_since(start);
     Ok(report)
+}
+
+/// The refusal when item members the ARM9 item table names are missing: the export reads the
+/// items from their members, so without them it would drop the items (its table checks the
+/// members on disk), while import and build still own them. `None` without item table or
+/// when every named member is there.
+fn missing_item_members(project: &Project) -> Result<Option<String>, KernelError> {
+    if !project.has_archive(AssetKind::Item) || project.item_table().is_some() {
+        return Ok(None);
+    }
+    let Some(table) = project.item_table_to_write() else {
+        return Ok(None);
+    };
+    let members = read_members(project, AssetKind::Item)?;
+    let missing: BTreeSet<u16> = table
+        .entries
+        .iter()
+        .map(|e| e.data)
+        .filter(|&m| members.get(usize::from(m)).is_none_or(Option::is_none))
+        .collect();
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    const SHOWN: usize = 10;
+    let mut list: Vec<String> = missing
+        .iter()
+        .take(SHOWN)
+        .map(|m| format!("{m:04}"))
+        .collect();
+    if missing.len() > SHOWN {
+        list.push("…".to_owned());
+    }
+    let dir = project.unpacked_dir(AssetKind::Item);
+    let dir = dir.strip_prefix(&project.root).unwrap_or(&dir);
+    Ok(Some(format!(
+        "In {} fehlen {} Item-Member, die die Item-Tabelle nennt ({}): erst `g4k text import` \
+         ausführen, dann exportieren.",
+        dir.display(),
+        missing.len(),
+        list.join(", ")
+    )))
 }
 
 /// The export after its checks, against `layer`.

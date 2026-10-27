@@ -335,7 +335,8 @@ Ein Schlüssel, der kein Pfad einer vorhandenen Quelle unter `expanded/scripts` 
 
 **Export** (`textproject::export`, `g4k text export`): lehnt ab bei Diamant/Perl, ohne Basismarke,
 bei anderer Basis-ROM, älterer oder neuerer Schema-Version, Texten im Konflikt
-(`TextConflict`) und nicht übernommenen Scripts ohne `adopt_scripts`. Dann: Basisschicht (nur wenn
+(`TextConflict`), fehlenden Item-Membern, die die Item-Tabelle nennt (erst `g4k text import`), und
+nicht übernommenen Scripts ohne `adopt_scripts`. Dann: Basisschicht (nur wenn
 sie fehlt), alle abgebildeten Archive entpackt, Text-JSON nachziehen (fehlende aus dem Member, die
 nach 4.2 der Member gilt), Taufe, je Art die Dateien, Register, Quirks, Blobs, Manifest. In seinen
 eigenen Ordnern löscht der Export Dateien, die er nicht mehr schreibt (alte Beifiles, alte Blobs);

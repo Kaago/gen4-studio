@@ -1578,4 +1578,98 @@ mod tests {
         let owned = owned_paths(&p).unwrap();
         assert!(owned.contains(Path::new("unpacked/itemData/0009")));
     }
+
+    /// Every file below `root` (hidden ones too) with its bytes.
+    fn tree(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        use std::collections::BTreeMap;
+        fn go(root: &Path, rel: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in std::fs::read_dir(root.join(rel)).unwrap() {
+                let entry = entry.unwrap();
+                let path = rel.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    go(root, &path, out);
+                } else {
+                    out.insert(path.clone(), std::fs::read(root.join(&path)).unwrap());
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        go(root, Path::new(""), &mut out);
+        out
+    }
+
+    /// An export of a project whose item members are missing would drop the items (the
+    /// export's strict table is gone) while the import still owns them: it refuses, names the
+    /// missing members and the import, and writes nothing.
+    #[test]
+    fn export_refuses_items_with_missing_members_and_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = items_project(dir.path());
+        std::fs::remove_dir_all(p.root.join("data")).unwrap();
+        for i in [0, 2] {
+            std::fs::remove_file(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap();
+        }
+        let (_rom_dir, rom) = synthetic_rom();
+        let base = BaseRom::open(&rom, None).unwrap();
+        let mark = BaseMark {
+            version: BASE_MARK_VERSION,
+            origin: ORIGIN_DSPRE.to_owned(),
+            sha1: base.sha1().to_owned(),
+            game_code: "CPUD".to_owned(),
+            title: "POKEMON PL".to_owned(),
+            revision: 0,
+            size: 0x8000,
+            template: None,
+            created: "2026-10-27T12:00:00Z".to_owned(),
+            assigned: None,
+            studio_version: "0".to_owned(),
+            secure_area_crc: 0,
+            secure_area_sha1: "0".repeat(40),
+        };
+        write_to_dir(
+            dir.path(),
+            ".g4/base.json",
+            &serde_json::to_vec(&mark).unwrap(),
+        );
+        let before = tree(dir.path());
+        let p = Project::open(dir.path()).unwrap();
+        let result = export(
+            &p,
+            &base,
+            &ExportOptions {
+                adopt_scripts: true,
+            },
+        );
+        match result {
+            Err(KernelError::Refused(text)) => {
+                assert!(
+                    text.contains("unpacked/itemData")
+                        && text.contains("0000, 0002")
+                        && text.contains("g4k text import"),
+                    "{text}"
+                );
+            }
+            other => panic!("expected Refused, got {other:?}"),
+        }
+        assert_eq!(tree(dir.path()), before, "nothing written");
+    }
+
+    /// The base layer names an item's member through its item table even when the layer's
+    /// folder lacks other item members.
+    #[test]
+    fn the_base_layer_finds_item_members_through_the_table_despite_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = items_project(dir.path());
+        let member9 = std::fs::read(p.root.join("unpacked/itemData/0009")).unwrap();
+        for i in 0..8 {
+            std::fs::remove_file(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap();
+        }
+        let layer = BaseLayer::new(dir.path(), "0".repeat(40));
+        let key = PartKey {
+            art: ItemEntity::ART,
+            index: 19,
+            part: "item",
+        };
+        assert_eq!(layer.base_bytes(key).unwrap(), Some(member9));
+    }
 }
