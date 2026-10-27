@@ -69,6 +69,21 @@ describe("OriginalProvider", () => {
     expect(document.querySelector('[role=dialog]:not([data-closed])')).toBeNull();
   });
 
+  it("final_focus_of_an_open_is_where_focus_goes_when_the_dialog_has_closed", async () => {
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    await show();
+    const finalFocus = vi.fn(() => elsewhere);
+    await act(async () => api.open({ kind: "trainer", index: 2 }, { finalFocus }));
+    expect(finalFocus).not.toHaveBeenCalled();
+    const reset = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Zurücksetzen")!;
+    await act(async () => reset.click());
+    await act(async () => {});
+    expect(finalFocus).toHaveBeenCalled();
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("a_slow_reset_closes_only_its_own_dialog", async () => {
     await show();
     await act(async () => api.open({ kind: "trainer", index: 2 }));

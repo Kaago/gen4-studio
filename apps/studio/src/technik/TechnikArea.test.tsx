@@ -163,7 +163,7 @@ describe("TechnikArea", () => {
     expect(surface()?.querySelector("[data-change='Karte 0003']")).not.toBeNull();
     // The rows reset through the app's dialog.
     await click([...surface()!.querySelectorAll("button")].find((b) => b.textContent === "Auf Original zurücksetzen…"));
-    expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "map", index: 3 });
+    expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "map", index: 3 }, { finalFocus: expect.any(Function) });
   });
 
   it("aenderungen_subtitle_counts_the_entries", async () => {

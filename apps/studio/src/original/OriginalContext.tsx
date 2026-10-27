@@ -6,8 +6,12 @@ import { ResetDialog } from "./ResetDialog";
 export interface ResetApi {
   /** The base ROM as resetting needs it (`resetEntry` greys out by it); null while it is read and without a project. */
   status: OriginalStatus | null;
-  /** Opens „… auf Original zurücksetzen?“ for `target`; `scriptDirty`: the script editor holds unsaved changes of that script file. */
-  open: (target: ResetTarget, opts?: { scriptDirty?: boolean }) => void;
+  /**
+   * Opens „… auf Original zurücksetzen?“ for `target`; `scriptDirty`: the script editor holds unsaved changes of that script file;
+   * `finalFocus`: where focus goes once the dialog has closed, asked then (the opener may be gone after a reset); without it Base UI
+   * returns focus to the element that had it.
+   */
+  open: (target: ResetTarget, opts?: { scriptDirty?: boolean; finalFocus?: () => HTMLElement | null }) => void;
 }
 
 const NONE: ResetApi = { status: null, open: () => {} };
@@ -76,7 +80,7 @@ function storeAssets(target: ResetTarget): AssetId[] {
 }
 
 /** One `open`; `serial` tells a dialog's close from that of the one before (a slow reset must not close a dialog opened meanwhile). */
-type Request = { target: ResetTarget; scriptDirty: boolean; serial: number };
+type Request = { target: ResetTarget; scriptDirty: boolean; finalFocus?: () => HTMLElement | null; serial: number };
 
 /**
  * Shares the status of the base ROM and holds the one reset dialog: `useReset().open(target)` shows it; after a reset `onReset` gets the
@@ -86,9 +90,9 @@ export function OriginalProvider({ children, onReset, status, family, dirty }: O
   const [request, setRequest] = useState<Request | null>(null);
   // Counts every `open` for as long as the provider lives, so no two dialogs share a serial.
   const serials = useRef(0);
-  const open = useCallback((target: ResetTarget, opts?: { scriptDirty?: boolean }) => {
+  const open = useCallback<ResetApi["open"]>((target, opts) => {
     serials.current += 1;
-    setRequest({ target, scriptDirty: opts?.scriptDirty ?? false, serial: serials.current });
+    setRequest({ target, scriptDirty: opts?.scriptDirty ?? false, finalFocus: opts?.finalFocus, serial: serials.current });
   }, []);
   const api = useMemo<ResetApi>(() => ({ status, open }), [status, open]);
   const unsaved = request !== null && storeAssets(request.target).some((a) => dirty.some((d) => d.kind === a.kind && d.index === a.index));
@@ -102,6 +106,7 @@ export function OriginalProvider({ children, onReset, status, family, dirty }: O
           baseLabel={status?.state === "ready" ? status.label : null}
           family={family === null ? null : headerFamilyOf(family)}
           scriptDirty={request.scriptDirty}
+          finalFocus={request.finalFocus}
           dirty={unsaved}
           onClose={() => setRequest((shown) => (shown?.serial === request.serial ? null : shown))}
           onReset={onReset}

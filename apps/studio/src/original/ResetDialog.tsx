@@ -16,6 +16,8 @@ export type ResetDialogProps = {
   scriptDirty?: boolean;
   /** An asset of the target has unsaved edits: they are replaced (⌘Z brings them back). */
   dirty?: boolean;
+  /** Where focus goes once the dialog has closed (`Dialog.finalFocus`); undefined: back to the element that had it. */
+  finalFocus?: () => HTMLElement | null;
   /** „Abbrechen“, „Schließen“, Escape, and after the reset. */
   onClose: () => void;
   /** The reset went in: its result and the entity's name („Karte 0003“). */
@@ -33,7 +35,7 @@ function fieldLabel(family: HeaderFamily | null, field: string): string {
  * replaced or lost), and resets on „Zurücksetzen“. A refused plan or reset shows the reason; after a failed reset the dialog stays open
  * and can try again.
  */
-export function ResetDialog({ target, baseLabel, family, scriptDirty = false, dirty = false, onClose, onReset }: ResetDialogProps) {
+export function ResetDialog({ target, baseLabel, family, scriptDirty = false, dirty = false, finalFocus, onClose, onReset }: ResetDialogProps) {
   const [plan, setPlan] = useState<ResetPlan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(() => new Set());
@@ -103,6 +105,7 @@ export function ResetDialog({ target, baseLabel, family, scriptDirty = false, di
       title={`${label} auf Original zurücksetzen?`}
       description={baseLabel === null ? undefined : `Stellt den Stand der Basis-ROM ${baseLabel} wieder her. ⌘Z nimmt es zurück.`}
       data={{ "data-reset-dialog": "" }}
+      finalFocus={finalFocus}
       actions={actions}
     >
       <div className={styles.content}>
