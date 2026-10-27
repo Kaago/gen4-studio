@@ -1093,9 +1093,11 @@ static TOOLS: &[ToolDef] = &[
         description: "Lists what of the saved project (files, not unsaved edits) differs from the \
                       base ROM (Basis-ROM), entity by entity: changed, new or missing, each with \
                       the target plan_reset and reset_to_original take (null where there is no \
-                      reset). The first run per base ROM hashes its archives and takes a few \
-                      seconds, later runs read the hashes the build recorded; without a found \
-                      base ROM it answers base_missing with the reason.",
+                      reset). The first run per base ROM hashes its archives (a few seconds) \
+                      and later runs read the hashes the build recorded, but a project never \
+                      built (folders without a build entry, named in unbuilt) is hashed on every \
+                      run; building once makes it fast. Without a found base ROM it answers \
+                      base_missing with the reason.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("changed_from_original"),
