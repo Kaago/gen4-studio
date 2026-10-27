@@ -1073,6 +1073,315 @@ pub(crate) fn append_source(
 }
 
 // ---------------------------------------------------------------------------------------
+// Reset to the base ROM
+// ---------------------------------------------------------------------------------------
+
+/// A member as rotom's project decompile writes it: the kind of its source, the text of the
+/// source file and the quirks recorded in the compile state.
+struct Decompiled {
+    kind: SourceKind,
+    text: String,
+    quirks: rotom::BinaryQuirk,
+}
+
+/// The script ids the global script calls of `output` name (rotom v0.7.0
+/// src/decompiler/ir_to_source.rs `format_command_args`: the first argument of a command the
+/// database calls a global script call, as a value that fits a `u16`). Every command of the
+/// functions and actions is looked at; more ids than needed only index more files.
+fn global_script_ids(output: &rotom::ScriptOutput, db: &rotom::DatabaseV2) -> BTreeSet<u16> {
+    use rotom::compiler::ir::{Arg, IrOpcode, TopLevelItem};
+    let rotom::ScriptOutput::Normal { items, .. } = output else {
+        return BTreeSet::new();
+    };
+    items
+        .iter()
+        .flat_map(|item| match item {
+            TopLevelItem::Function(function) => &function.instructions,
+            TopLevelItem::Action(action) => &action.instructions,
+        })
+        .filter_map(|op| match op {
+            IrOpcode::Command { name, args } if db.is_global_script_call(name) => {
+                match args.first() {
+                    Some(Arg::Value(value)) => u16::try_from(*value).ok(),
+                    _ => None,
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Decompiles `bytes` exactly as rotom v0.7.0 `decompile_project_files` does for one member
+/// (src/lib.rs `decompile_file_internal` and `decompile_file_from_ir`: `decompile_to_ir`, the
+/// quirks of the IR, `ir_to_source` with the project context), without writing. The context
+/// is the one the kernel compiles with ([`project_compile::context_with`]), its global script
+/// table cut to the entries the member's global script calls resolve through (indexing every
+/// global script source took 130 ms of a debug build); the decompiler uses the command
+/// database, the constants and that table, not the header table. `None` for an empty member
+/// (rotom leaves it without a source) and for one rotom cannot decompile.
+fn decompile_text(project: &Project, bytes: &[u8]) -> Result<Option<Decompiled>, KernelError> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let config = load_config(project)?;
+    let db_path = config
+        .database_file(&project.root)
+        .ok_or_else(|| rotom_error("decompile", "keine Befehlsdatenbank in rotom.toml"))?;
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(&db_path).map_err(|e| rotom_error("database", e))?;
+    // rotom v0.7.0: src/lib.rs decompile_to_ir
+    let Ok(output) = guard_panic("rotom", || rotom::decompile_to_ir(bytes.to_vec(), &db))? else {
+        return Ok(None);
+    };
+    let ids = global_script_ids(&output, &db);
+    let context = guard_panic("rotom", || {
+        project_compile::context_with(project, &config, db, Some(&ids))
+    })??;
+    // rotom v0.7.0: src/lib.rs decompile_file_from_ir, the quirks
+    let mut quirks = rotom::BinaryQuirk::default();
+    let kind = match &output {
+        rotom::ScriptOutput::Normal {
+            jump_table_end_marker_count,
+            ..
+        } => {
+            if *jump_table_end_marker_count != 1 {
+                quirks.jump_table_end_marker_count = Some(*jump_table_end_marker_count);
+            }
+            SourceKind::Script
+        }
+        rotom::ScriptOutput::Levelscript(level) => {
+            if level.padding > 0 {
+                quirks.levelscript_padding = Some(level.padding);
+            }
+            SourceKind::LevelScript
+        }
+    };
+    // rotom v0.7.0: src/decompiler/ir_to_source.rs ir_to_source
+    let text = guard_panic("rotom", || {
+        rotom::ir_to_source(&output, rotom::DecompileContext::for_project(&context))
+    })?;
+    Ok(Some(Decompiled { kind, text, quirks }))
+}
+
+/// Decompiles `bytes` as script file `file` in the project's context (command database,
+/// constants, global script table) without writing: the source rotom's project decompile
+/// writes for that member with the project's sources in place, and the binary quirks it
+/// records. (During [`adopt`] there are no sources yet, so a global script call stays a number
+/// there; here it is `Module::label` once the global script's source exists, the same bytes.)
+/// `None` when rotom cannot decompile it (or it is empty). Needs `rotom.toml`.
+pub fn decompile_member(
+    project: &Project,
+    file: u16,
+    bytes: &[u8],
+) -> Result<Option<(ScriptSource, rotom::BinaryQuirk)>, KernelError> {
+    let Some(decompiled) = decompile_text(project, bytes)? else {
+        return Ok(None);
+    };
+    let source = match decompiled.kind {
+        // rotom v0.7.0: src/decompiler/levelscript.rs LevelScript::from_json
+        SourceKind::LevelScript => ScriptSource::LevelScript(
+            LevelScriptDoc::from_json(&decompiled.text)
+                .map_err(|e| KernelError::InvalidProject(format!("level script {file:04}: {e}")))?,
+        ),
+        _ => ScriptSource::Rotom(decompiled.text),
+    };
+    Ok(Some((source, decompiled.quirks)))
+}
+
+/// rotom's compile state of the project (`<status_dir>/compile-state.json`).
+fn state_path(project: &Project) -> Result<PathBuf, KernelError> {
+    Ok(load_config(project)?
+        .status_dir(&project.root)
+        .join("compile-state.json"))
+}
+
+/// The key of `source` in the compile state: its path relative to the project root.
+fn state_key(project: &Project, source: &Path) -> PathBuf {
+    relative(&project.root, &project.root.join(source))
+}
+
+/// The entry of `source` (relative to the project root, or absolute) in rotom's compile state,
+/// as JSON; `None` without one, or without `rotom.toml`.
+pub(crate) fn state_entry(
+    project: &Project,
+    source: &Path,
+) -> Result<Option<serde_json::Value>, KernelError> {
+    if !is_adopted(project) {
+        return Ok(None);
+    }
+    let path = state_path(project)?;
+    // rotom v0.7.0: src/compile_state.rs CompileState::load_or_default
+    let state =
+        rotom::CompileState::load_or_default(&path).map_err(|e| rotom_error("compile state", e))?;
+    state
+        .entries
+        .get(&state_key(project, source))
+        .map(|entry| serde_json::to_value(entry).map_err(|e| rotom_error("compile state", e)))
+        .transpose()
+}
+
+/// Sets the entry of `source` in rotom's compile state to `entry` (`None` removes it), the
+/// other entries and the state's metadata untouched. Without `rotom.toml` nothing happens.
+pub(crate) fn set_state_entry(
+    project: &Project,
+    source: &Path,
+    entry: Option<&serde_json::Value>,
+) -> Result<(), KernelError> {
+    if !is_adopted(project) {
+        return Ok(());
+    }
+    let path = state_path(project)?;
+    // rotom v0.7.0: src/compile_state.rs CompileState::load_or_default, FileState, save
+    let mut state =
+        rotom::CompileState::load_or_default(&path).map_err(|e| rotom_error("compile state", e))?;
+    let key = state_key(project, source);
+    match entry {
+        Some(entry) => {
+            let entry: rotom::compile_state::FileState = serde_json::from_value(entry.clone())
+                .map_err(|e| rotom_error("compile state", e))?;
+            state.entries.insert(key, entry);
+        }
+        None => {
+            if state.entries.remove(&key).is_none() {
+                return Ok(());
+            }
+        }
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(io_at(dir))?;
+    }
+    state.save(&path).map_err(io_at(&path))
+}
+
+/// The bytes of the file at `path`; `None` when it does not exist.
+fn read_if_present(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    }
+}
+
+/// Member `file` as it is now: its file, or the member of the packed archive while the folder
+/// is not unpacked yet (so a plan writes nothing).
+fn current_member(project: &Project, file: u16) -> Result<Option<Vec<u8>>, KernelError> {
+    if member_dir(project).is_dir() {
+        return read_if_present(&member_file(project, file));
+    }
+    Ok(project
+        .read_packed(AssetKind::Script)?
+        .members
+        .into_iter()
+        .nth(usize::from(file)))
+}
+
+/// The step [`reset_script`] writes, without writing it: the sources (`NNNN.rotom`,
+/// `NNNN.json`) and the member with their bytes now and after the reset, and the compile state
+/// entry of the source (the one written, else the one removed). Without `rotom.toml` only the
+/// member.
+pub(crate) fn script_step(
+    project: &Project,
+    file: u16,
+    base_member: &[u8],
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, RotomEntryChange};
+
+    let mut files = Vec::new();
+    let mut rotom_entry = None;
+    if is_adopted(project) {
+        let decompiled = decompile_text(project, base_member)?;
+        let rotom = source_path(project, file, SourceKind::Script);
+        let json = source_path(project, file, SourceKind::LevelScript);
+        let (rotom_before, json_before) = (read_if_present(&rotom)?, read_if_present(&json)?);
+        let written = |kind: SourceKind| {
+            decompiled
+                .as_ref()
+                .filter(|d| d.kind == kind)
+                .map(|d| d.text.clone().into_bytes())
+        };
+        let source = match &decompiled {
+            Some(d) => Some(source_path(project, file, d.kind)),
+            None if rotom_before.is_some() => Some(rotom.clone()),
+            None if json_before.is_some() => Some(json.clone()),
+            None => None,
+        };
+        if let Some(source) = source {
+            let key = state_key(project, &source);
+            // rotom v0.7.0: src/project/compile.rs update_decompile_state (xxh3 of the source
+            // and of the member, the decompiled status, the quirks of the decompile); the
+            // compile skips an entry whose hashes match (`project_compile::compile_project`).
+            let after = decompiled
+                .as_ref()
+                .map(|d| {
+                    let state = rotom::compile_state::FileState::decompiled(
+                        xxh3_64(d.text.as_bytes()),
+                        xxh3_64(base_member),
+                    )
+                    .with_quirks(d.quirks);
+                    serde_json::to_value(state).map_err(|e| rotom_error("compile state", e))
+                })
+                .transpose()?;
+            rotom_entry = Some(RotomEntryChange {
+                before: state_entry(project, &key)?,
+                source: key,
+                after,
+            });
+        }
+        files.push(FileChange {
+            after: written(SourceKind::Script),
+            path: rotom,
+            before: rotom_before,
+        });
+        files.push(FileChange {
+            after: written(SourceKind::LevelScript),
+            path: json,
+            before: json_before,
+        });
+    }
+    files.push(FileChange {
+        path: member_file(project, file),
+        before: current_member(project, file)?,
+        after: Some(base_member.to_vec()),
+    });
+    Ok(FileStep {
+        asset: crate::project::AssetId {
+            kind: AssetKind::Script,
+            index: file,
+        },
+        files,
+        rotom_entry,
+    })
+}
+
+/// Writes `step` (from [`script_step`]): the member folder unpacked and the source folder
+/// created first, then the files and the compile state entry.
+pub(crate) fn write_script_step(
+    project: &Project,
+    step: &crate::store::FileStep,
+) -> Result<(), KernelError> {
+    ensure_members(project)?;
+    if step.rotom_entry.is_some() {
+        let dir = project.expanded_dir(AssetKind::Script);
+        std::fs::create_dir_all(&dir).map_err(io_at(&dir))?;
+    }
+    crate::store::write_file_step(project, step)
+}
+
+/// Writes `base_member` as member `file`, its decompiled source (removing a source of the
+/// other kind, or every source when it does not decompile) and the compile state entry
+/// ("decompiled", quirks), so the next compile leaves the member as it is; without
+/// `rotom.toml` only the member. Returns the step for `Store::record_file_step`.
+pub fn reset_script(
+    project: &Project,
+    file: u16,
+    base_member: &[u8],
+) -> Result<crate::store::FileStep, KernelError> {
+    let step = script_step(project, file, base_member)?;
+    write_script_step(project, &step)?;
+    Ok(step)
+}
+
+// ---------------------------------------------------------------------------------------
 // Trainer battle script
 // ---------------------------------------------------------------------------------------
 
@@ -1689,7 +1998,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::project::AssetKind;
+    use crate::project::{AssetId, AssetKind};
     use crate::test_support::{Synthetic, synthetic_project};
 
     fn open() -> (Synthetic, Project) {
@@ -2717,6 +3026,221 @@ AlreadyGiven:
             add_battle_slots(stacked, &span, &[5]).unwrap(),
             stacked.replace("#[1, 3]", "#[1, 3, 5]")
         );
+    }
+
+    fn level_path(p: &Project, n: u16) -> PathBuf {
+        source_path(p, n, SourceKind::LevelScript)
+    }
+
+    fn read_opt(path: &Path) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+
+    /// Bytes rotom does not decompile: the jump table end marker at byte 2, a table of half
+    /// an entry.
+    const UNDECOMPILABLE: [u8; 4] = [0x00, 0x00, 0x13, 0xFD];
+
+    #[test]
+    fn decompile_member_gives_the_text_adopt_wrote() {
+        let (_s, p) = adopted();
+        let (source, quirks) = decompile_member(&p, 0, &member(&p, 0)).unwrap().unwrap();
+        assert_eq!(
+            source,
+            ScriptSource::Rotom(std::fs::read_to_string(rotom_path(&p, 0)).unwrap())
+        );
+        assert_eq!(quirks, rotom::BinaryQuirk::default());
+        let (level, _) = decompile_member(&p, 1, &member(&p, 1)).unwrap().unwrap();
+        assert_eq!(level, read_source(&p, 1).unwrap());
+        assert_eq!(decompile_member(&p, 0, &UNDECOMPILABLE).unwrap(), None);
+        assert_eq!(decompile_member(&p, 2, &[]).unwrap(), None);
+    }
+
+    #[test]
+    fn decompile_member_resolves_global_script_calls_like_rotom() {
+        let (s, p) = adopted();
+        // Platinum's global table (uxie `platinum_western_hardcoded`) names script file 0
+        // `CommunicationClub` (9100 = file 0, script 1).
+        write_source(
+            &p,
+            0,
+            &ScriptSource::Rotom("script Main #1:\n    End\nscript Second #2:\n    End\n".into()),
+        )
+        .unwrap();
+        let caller = "script Caller #1:\n    CallCommonScript CommunicationClub::Second\n    End\n";
+        std::fs::write(s.dir.path().join("expanded/scripts/0003.rotom"), caller).unwrap();
+        assert!(compile(&p).unwrap().problems.is_empty());
+        let bytes = member(&p, 3);
+        let (mine, _) = decompile_member(&p, 3, &bytes).unwrap().unwrap();
+
+        // rotom v0.7.0: src/project/compile.rs decompile_project_files (writes the source)
+        let config = load_config(&p).unwrap();
+        let path = p.member_path(AssetKind::Script, 3);
+        let result =
+            rotom::project::compile::decompile_project_files(&p.root, &config, &[path]).unwrap();
+        assert_eq!(result.successes.len(), 1);
+        let theirs = std::fs::read_to_string(rotom_path(&p, 3)).unwrap();
+        assert!(theirs.contains("CommunicationClub::Second"), "{theirs}");
+        assert_eq!(mine, ScriptSource::Rotom(theirs));
+    }
+
+    #[test]
+    fn reset_script_writes_member_source_and_a_fresh_state_entry() {
+        let (_s, p) = adopted();
+        let base = member(&p, 0);
+        let source = std::fs::read(rotom_path(&p, 0)).unwrap();
+        add_script(&p, 0).unwrap();
+        let edited_member = member(&p, 0);
+        let edited_source = std::fs::read(rotom_path(&p, 0)).unwrap();
+        assert_ne!(edited_member, base);
+        let key = Path::new("expanded/scripts/0000.rotom");
+        let old_entry = state_entry(&p, key).unwrap();
+        assert!(old_entry.is_some());
+
+        let step = reset_script(&p, 0, &base).unwrap();
+        assert_eq!(member(&p, 0), base);
+        assert_eq!(std::fs::read(rotom_path(&p, 0)).unwrap(), source);
+        assert!(!level_path(&p, 0).exists());
+        assert_eq!(
+            step.asset,
+            AssetId {
+                kind: AssetKind::Script,
+                index: 0
+            }
+        );
+        type Sides = (Option<Vec<u8>>, Option<Vec<u8>>);
+        let files: Vec<Sides> = step
+            .files
+            .iter()
+            .map(|f| (f.before.clone(), f.after.clone()))
+            .collect();
+        assert_eq!(
+            files,
+            [
+                (Some(edited_source), Some(source)),
+                (None, None),
+                (Some(edited_member), Some(base.clone())),
+            ]
+        );
+        let entry = state_entry(&p, key).unwrap().unwrap();
+        assert_eq!(entry["status"], "Decompiled");
+        let rotom_entry = step.rotom_entry.unwrap();
+        assert_eq!(rotom_entry.source, key);
+        assert_eq!(rotom_entry.before, old_entry);
+        assert_eq!(rotom_entry.after, Some(entry));
+
+        let report = compile(&p).unwrap();
+        assert!(!report.compiled.contains(&0), "{report:?}");
+        assert_eq!(member(&p, 0), base);
+    }
+
+    #[test]
+    fn reset_script_of_a_level_script_writes_its_json() {
+        let (_s, p) = adopted();
+        let base = member(&p, 1);
+        let json = std::fs::read(level_path(&p, 1)).unwrap();
+        let ScriptSource::LevelScript(mut level) = read_source(&p, 1).unwrap() else {
+            panic!("member 1 is a level script");
+        };
+        level
+            .header_entries
+            .push(rotom::LevelScriptHeaderEntry::OnLoad { script_id: 1 });
+        write_source(&p, 1, &ScriptSource::LevelScript(level)).unwrap();
+        assert_eq!(compile(&p).unwrap().compiled, [1]);
+        assert_ne!(member(&p, 1), base);
+
+        reset_script(&p, 1, &base).unwrap();
+        assert_eq!(member(&p, 1), base);
+        assert_eq!(std::fs::read(level_path(&p, 1)).unwrap(), json);
+        let report = compile(&p).unwrap();
+        assert!(!report.compiled.contains(&1), "{report:?}");
+        assert_eq!(member(&p, 1), base);
+    }
+
+    #[test]
+    fn reset_script_of_an_undecompilable_member_removes_the_source() {
+        let (_s, p) = adopted();
+        let key = Path::new("expanded/scripts/0000.rotom");
+        let step = reset_script(&p, 0, &UNDECOMPILABLE).unwrap();
+        assert_eq!(member(&p, 0), UNDECOMPILABLE);
+        assert!(!rotom_path(&p, 0).exists());
+        assert!(!level_path(&p, 0).exists());
+        assert_eq!(source_kind(&p, 0), SourceKind::Binary);
+        assert_eq!(state_entry(&p, key).unwrap(), None);
+        let rotom_entry = step.rotom_entry.unwrap();
+        assert_eq!(rotom_entry.source, key);
+        assert!(rotom_entry.before.is_some());
+        assert_eq!(rotom_entry.after, None);
+        // The binary stays as it is.
+        compile(&p).unwrap();
+        assert_eq!(member(&p, 0), UNDECOMPILABLE);
+    }
+
+    #[test]
+    fn reset_script_without_rotom_toml_writes_only_the_member() {
+        let (_s, p) = open();
+        p.ensure_unpacked(AssetKind::Script).unwrap();
+        let step = reset_script(&p, 0, &[1, 2, 3, 4]).unwrap();
+        assert_eq!(member(&p, 0), [1, 2, 3, 4]);
+        assert_eq!(step.files.len(), 1);
+        assert_eq!(step.rotom_entry, None);
+        assert!(!p.expanded_dir(AssetKind::Script).exists());
+    }
+
+    #[test]
+    fn undo_of_a_script_reset_restores_source_member_and_entry() {
+        let (_s, p) = adopted();
+        let base = member(&p, 0);
+        add_script(&p, 0).unwrap();
+        let key = Path::new("expanded/scripts/0000.rotom");
+        let (edited_member, edited_source) = (member(&p, 0), read_opt(&rotom_path(&p, 0)));
+        let edited_entry = state_entry(&p, key).unwrap();
+        let p = std::sync::Arc::new(p);
+        let mut store = crate::store::Store::new(std::sync::Arc::clone(&p));
+        let step = reset_script(&p, 0, &base).unwrap();
+        let reset_entry = state_entry(&p, key).unwrap();
+        store.record_file_step("Auf Original zurückgesetzt: Scriptdatei 0000", step);
+
+        let asset = AssetId {
+            kind: AssetKind::Script,
+            index: 0,
+        };
+        assert_eq!(store.undo().unwrap(), [asset]);
+        assert_eq!(member(&p, 0), edited_member);
+        assert_eq!(read_opt(&rotom_path(&p, 0)), edited_source);
+        assert_eq!(state_entry(&p, key).unwrap(), edited_entry);
+        assert!(compile(&p).unwrap().compiled.is_empty());
+        assert_eq!(member(&p, 0), edited_member);
+
+        assert_eq!(store.redo().unwrap(), [asset]);
+        assert_eq!(member(&p, 0), base);
+        assert_eq!(state_entry(&p, key).unwrap(), reset_entry);
+        assert!(compile(&p).unwrap().compiled.is_empty());
+        assert_eq!(member(&p, 0), base);
+    }
+
+    #[test]
+    fn squashed_script_resets_undo_to_the_first_entry() {
+        let (_s, p) = adopted();
+        let base = member(&p, 0);
+        add_script(&p, 0).unwrap();
+        let key = Path::new("expanded/scripts/0000.rotom");
+        let (edited_member, edited_entry) = (member(&p, 0), state_entry(&p, key).unwrap());
+        let p = std::sync::Arc::new(p);
+        let mut store = crate::store::Store::new(std::sync::Arc::clone(&p));
+        let mark = store.undo_depth();
+        let step = reset_script(&p, 0, &UNDECOMPILABLE).unwrap();
+        store.record_file_step("eins", step);
+        let step = reset_script(&p, 0, &base).unwrap();
+        let last_entry = state_entry(&p, key).unwrap();
+        store.record_file_step("zwei", step);
+        store.squash_since(mark, "beide");
+
+        store.undo().unwrap();
+        assert_eq!(member(&p, 0), edited_member);
+        assert_eq!(state_entry(&p, key).unwrap(), edited_entry);
+        store.redo().unwrap();
+        assert_eq!(member(&p, 0), base);
+        assert_eq!(state_entry(&p, key).unwrap(), last_entry);
     }
 
     #[test]

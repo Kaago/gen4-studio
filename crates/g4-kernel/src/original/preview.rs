@@ -58,6 +58,30 @@ pub(crate) fn lines(
     }
 }
 
+/// The member of a texture or model, which has no preview of its own: `Größe: {n} Byte` and
+/// `xxh3: {16 hex digits}`; `Keine Datei` without one.
+pub(crate) fn member_lines(bytes: Option<&[u8]>) -> String {
+    match bytes {
+        Some(bytes) => format!("Größe: {} Byte\nxxh3: {:016x}", bytes.len(), xxh3_64(bytes)),
+        None => "Keine Datei".to_owned(),
+    }
+}
+
+/// A script file: its source as text (a level script: its JSON), else its member as
+/// `Binär, {n} Byte` with `xxh3: {16 hex digits}` (two members of one size differ there);
+/// `Keine Datei` without either.
+pub(crate) fn script_lines(source: Option<&[u8]>, member: Option<&[u8]>) -> String {
+    match (source, member) {
+        (Some(source), _) => String::from_utf8_lossy(source).into_owned(),
+        (None, Some(member)) => format!(
+            "Binär, {} Byte\nxxh3: {:016x}",
+            member.len(),
+            xxh3_64(member)
+        ),
+        (None, None) => "Keine Datei".to_owned(),
+    }
+}
+
 /// The first eight hex digits of the xxh3 of `bytes`.
 fn short_hash(bytes: &[u8]) -> String {
     let mut hex = format!("{:016x}", xxh3_64(bytes));

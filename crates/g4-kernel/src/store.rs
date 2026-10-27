@@ -2303,7 +2303,8 @@ impl Store {
 
     /// Records a step labelled `label` whose files the caller has already written (every
     /// file's `after` is on disk). Undo checks every file against `after`, then writes
-    /// `before` (`None` removes the file); redo the other way (see [`Store::undo`]). Clears the
+    /// `before` (`None` removes the file) and sets the rotom entry's `before` in the compile
+    /// state; redo the other way (see [`Store::undo`]). Clears the
     /// redo stack and reports a change of `step.asset` (see [`Store::changes_since`]).
     pub fn record_file_step(&mut self, label: &str, step: FileStep) -> ChangeId {
         let change = ChangeId(self.next_change);
@@ -2360,6 +2361,7 @@ impl Store {
     fn apply_change(&mut self, change: &Changeset, side: Side) -> Result<Vec<AssetId>, StepError> {
         let values = self.decode_parts(change, side).map_err(StepError::Keep)?;
         let files = net_files(&self.project.root, &change.files);
+        let entries = net_entries(&self.project.root, &change.files);
         for (asset, file) in &files {
             let (expected, _) = side.file(file);
             if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
@@ -2370,7 +2372,7 @@ impl Store {
                 ))));
             }
         }
-        write_files(&self.project.root, &files, side).map_err(StepError::Keep)?;
+        write_files_and_entries(&self.project, &files, &entries, side).map_err(StepError::Keep)?;
         for (id, value) in values.into_iter().rev() {
             // Checked by `decode_parts`: every asset is loaded.
             if let Some(asset) = self.assets.get_mut(&id) {
@@ -2771,6 +2773,24 @@ impl Side {
             Side::After => (file.before.as_deref(), file.after.as_deref()),
         }
     }
+
+    /// The rotom entry of the other side and the one this side sets.
+    fn entry(
+        self,
+        entry: &RotomEntryChange,
+    ) -> (Option<&serde_json::Value>, Option<&serde_json::Value>) {
+        match self {
+            Side::Before => (entry.after.as_ref(), entry.before.as_ref()),
+            Side::After => (entry.before.as_ref(), entry.after.as_ref()),
+        }
+    }
+
+    fn other(self) -> Side {
+        match self {
+            Side::Before => Side::After,
+            Side::After => Side::Before,
+        }
+    }
 }
 
 /// Why undo, redo or rollback of a changeset failed, and what becomes of the changeset.
@@ -2807,6 +2827,57 @@ fn net_files(root: &Path, steps: &[FileStep]) -> Vec<(AssetId, FileChange)> {
         }
     }
     net
+}
+
+/// The rotom entries of `steps`, one per source, as one change from the `before` of the first
+/// step that set it to the `after` of the last, in the order they were first set (the rule of
+/// [`net_files`]); sources compared resolved against `root`.
+fn net_entries(root: &Path, steps: &[FileStep]) -> Vec<RotomEntryChange> {
+    let mut net: Vec<RotomEntryChange> = Vec::new();
+    for entry in steps.iter().filter_map(|s| s.rotom_entry.as_ref()) {
+        let path = root.join(&entry.source);
+        match net.iter_mut().find(|e| root.join(&e.source) == path) {
+            Some(merged) => merged.after.clone_from(&entry.after),
+            None => net.push(entry.clone()),
+        }
+    }
+    net
+}
+
+/// [`write_files`], then the `side` of every rotom entry in the compile state
+/// ([`crate::scripts::set_state_entry`]). When an entry cannot be set, the entries set before
+/// and the files get their other side back (best effort) and the error is returned.
+fn write_files_and_entries(
+    project: &Project,
+    files: &[(AssetId, FileChange)],
+    entries: &[RotomEntryChange],
+    side: Side,
+) -> Result<(), KernelError> {
+    write_files(&project.root, files, side)?;
+    for (done, entry) in entries.iter().enumerate() {
+        if let Err(e) = crate::scripts::set_state_entry(project, &entry.source, side.entry(entry).1)
+        {
+            for set in entries[..done].iter().rev() {
+                let _ = crate::scripts::set_state_entry(project, &set.source, side.entry(set).0);
+            }
+            let _ = write_files(&project.root, files, side.other());
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// Writes the `after` side of `step` (its files, then its rotom entry), for the caller of
+/// [`Store::record_file_step`] that has not written them yet. On a failure what was written
+/// gets its `before` back (best effort).
+pub(crate) fn write_file_step(project: &Project, step: &FileStep) -> Result<(), KernelError> {
+    let steps = std::slice::from_ref(step);
+    write_files_and_entries(
+        project,
+        &net_files(&project.root, steps),
+        &net_entries(&project.root, steps),
+        Side::After,
+    )
 }
 
 /// Writes the `side` of every file (`None` removes it). When a write fails, the files written

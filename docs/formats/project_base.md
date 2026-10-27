@@ -201,14 +201,43 @@ die Header-Tabelle und ein NARC nach seinem Projektpfad (`files/…`, ohne `file
 | `species` | `index` | Pokémon 0001 | Personal, Lernset und Entwicklung desselben Index, ein Schritt |
 | `encounter` | `index` | Begegnungsdatei 0001 | Member |
 | `header` | `id` | Header 0012 | Feld für Feld über den Codec (serde auf uxies `MapHeader`) |
-| `script` | `file` | Scriptdatei 0012 | Basis-Member, dekompiliert (noch nicht) |
-| `map_texture`, `building_texture`, `building_model`, `interior_building_model` | `index` | Kartentextur 0001, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | ganz (noch nicht) |
+| `script` | `file` | Scriptdatei 0012 | Basis-Member, im Projektkontext dekompiliert (Dateischritt) |
+| `map_texture`, `building_texture`, `building_model`, `interior_building_model` | `index` | Kartentextur 0001, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | Member ganz, binär (Dateischritt) |
 
 Die Store-Arten (die ersten sieben Zeilen) setzt `reset` mit `Tx::replace` in einer Transaktion:
 die Assets sind danach ungespeichert wie nach jeder Bearbeitung, „Speichern“ schreibt die Member
 (ein Textarchiv als JSON und Member). Nach dem Speichern ist jeder Member byte-gleich zum
-Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`). Scripts,
-Texturen und Modelle antworten vorerst mit `Refused("noch nicht")`.
+Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`).
+
+### Scripts, Texturen und Modelle als Dateischritt
+
+Sie sind keine Store-Werte (der Script-Editor speichert sofort, die 3D-Ansicht und rotom lesen die
+Dateien): `reset` schreibt ihre Dateien sofort und legt einen Dateischritt (`FileStep`) mit den
+Bytes jeder Datei vorher und nachher auf den Undo-Stapel des Stores. ⌘Z prüft jede Datei gegen
+den Stand nach dem Schritt und schreibt die alten Bytes zurück (eine fehlende Datei wird
+entfernt); wurde eine Datei inzwischen außerhalb des Studios geändert, schreibt ⌘Z nichts und der
+Schritt fällt aus dem Verlauf. Gleicht schon alles der Basis, wird nichts geschrieben und nichts
+aufgezeichnet.
+
+- **Texturen und Modelle:** das Archiv wird ausgepackt (falls nötig), der Basis-Member ersetzt
+  `unpacked/<Ordner>/NNNN` (atomar). Der Plan liest den Member ohne Auspacken (aus dem NARC,
+  solange der Ordner fehlt).
+- **Scripts** (`scripts::reset_script`): der Basis-Member ersetzt `unpacked/scripts/NNNN`. Mit
+  `rotom.toml` wird er im Projektkontext dekompiliert, genau wie rotoms `decompile_project` den
+  Member schreibt (`decompile_to_ir`, `ir_to_source` mit `DecompileContext::for_project` auf dem
+  Kontext, mit dem der Kernel kompiliert, ohne Zwischendatei; die Tabelle der globalen Scripts
+  behält nur die Einträge, über die die Aufrufe des Members auflösen, so wird nur deren Quelle
+  indiziert und `Modul::label` gleich), die Quelle
+  `expanded/scripts/NNNN.rotom` bzw. `NNNN.json` (Level-Script) geschrieben und eine Quelle der
+  anderen Art entfernt. Der Eintrag der Quelle in `.rotom/status/compile-state.json` wird wie nach
+  einer Dekompilierung gesetzt: Status `Decompiled`, `source_hash` = xxh3 der Quelle,
+  `output_hash` = xxh3 des Members (dieselbe Hashfunktion, mit der rotom „veraltet“ prüft), keine
+  Abhängigkeiten, die Quirks der Dekompilierung (Endmarken der Sprungtabelle, Polster eines
+  Level-Scripts); so übergeht der nächste Build die Datei und der Member bleibt byte-gleich.
+  Dekompiliert rotom den Member nicht, werden der Member allein geschrieben, beide Quellen und der
+  Eintrag entfernt. Ohne `rotom.toml` nur der Member. ⌘Z stellt Quellen, Member und den alten
+  Eintrag wieder her; fasst ein Batch mehrere Schritte zusammen, gilt der Eintrag vor dem ersten
+  und nach dem letzten.
 
 ### Header Feld für Feld
 
@@ -253,7 +282,8 @@ Nach dem Speichern sind die 24 Byte des Datensatzes (im ARM9 oder in
 ### Plan und Vorschau
 
 `plan_reset` ändert nichts und liefert je abweichendem Asset eine `ResetChange` mit deutschen
-Zeilen für vorher und nachher, aus derselben Funktion für beide Seiten (eine Zeile je Eintrag):
+Zeilen für vorher und nachher, aus derselben Funktion für beide Seiten (eine Zeile je Eintrag;
+Scripts, Texturen und Modelle siehe unter der Tabelle):
 
 | Ziel | Zeilen |
 |---|---|
@@ -265,6 +295,8 @@ Zeilen für vorher und nachher, aus derselben Funktion für beide Seiten (eine Z
 | Begegnung, Personal | `<name>: <wert>` je Feld der Feldkarte, `Bytes` als Hex |
 | Lernset | `Lv <level>: Attacke <id>` |
 | Entwicklung | `<methode> <parameter> → <ziel>` je nicht leerem Eintrag |
+| Kartentextur, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | `Größe: <n> Byte`, `xxh3: <16 Hex-Ziffern>` (kein Bildvergleich); ohne Datei „Keine Datei“ |
+| Scriptdatei | die Quelle als Text (Level-Script: seine JSON); ohne Quelle `Binär, <n> Byte`, `xxh3: <16 Hex-Ziffern>` des Members |
 
 Ein Pokémon ergibt bis zu drei Änderungen („Pokémon 0001: Basisdaten“, „…: Lernset“,
 „…: Entwicklung“), nur die abweichenden. `same` ist wahr, wenn alles der Basis gleicht.

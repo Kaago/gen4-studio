@@ -1,6 +1,7 @@
 #![cfg(feature = "test-support")]
-//! Gated (`G4_TEST_PROJECT`): resetting each store kind of a vanilla copy to its base ROM gives
-//! the base member back byte for byte, within the time of the gate, as one undo step.
+//! Gated (`G4_TEST_PROJECT`): resetting each store kind, a header, a script, a texture and a
+//! model of a vanilla copy to its base ROM gives the base member back byte for byte, within the
+//! time of the gate, as one undo step.
 mod common;
 
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use g4_kernel::base::BaseRom;
 use g4_kernel::dynamic_headers;
 use g4_kernel::original::{ResetTarget, header_fields, plan_reset, reset};
 use g4_kernel::project::{AssetId, AssetKind, Location, Project};
+use g4_kernel::scripts::{self, ScriptSource, SourceKind};
 use g4_kernel::store::{MapHeader, Store};
 use uxie::map_header::write_map_header_to_bytes;
 
@@ -326,5 +328,180 @@ fn header_reset_field_by_field_gives_the_base_record_back() {
     assert!(
         times.iter().all(|&ms| ms <= RESET_MS),
         "over {RESET_MS} ms: {times:?}"
+    );
+}
+
+/// Opens the base ROM without a SHA-1 and resets `target`; prints and returns the time from
+/// the opening to the recorded step.
+fn timed_file_reset(
+    store: &mut Store,
+    nds: &std::path::Path,
+    sha1: &str,
+    target: ResetTarget,
+) -> u128 {
+    let started = Instant::now();
+    let original = BaseRom::open_unchecked(nds, sha1).unwrap();
+    let result = reset(store, &original, &target, None).unwrap();
+    let ms = started.elapsed().as_millis();
+    println!(
+        "reset {} {} ms={ms} (kernel {} ms)",
+        store.project().game_code,
+        target.label(),
+        result.ms
+    );
+    assert!(result.recorded, "{}", target.label());
+    ms
+}
+
+#[test]
+fn script_texture_and_model_reset_give_the_base_member_back() {
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let project = Arc::new(Project::open(&copy).unwrap());
+    let mut store = Store::new(Arc::clone(&project));
+    let mut times = Vec::new();
+
+    // A script: adopted here when the copy is not, edited and compiled, then reset.
+    if !scripts::is_adopted(&project) {
+        let started = Instant::now();
+        let report = scripts::adopt(&project, &mut |_| {}).unwrap();
+        println!(
+            "adopt {} ms={} ({} decompiled, {} failed)",
+            project.game_code,
+            started.elapsed().as_millis(),
+            report.decompiled,
+            report.failed.len()
+        );
+    }
+    let file = scripts::list_files(&project)
+        .unwrap()
+        .into_iter()
+        .find(|f| f.kind == SourceKind::Script)
+        .expect("a script file with a rotom source")
+        .file;
+    let source_path = scripts::source_path(&project, file, SourceKind::Script);
+    let member_path = project.member_path(AssetKind::Script, file);
+    let source = std::fs::read_to_string(&source_path).unwrap();
+    let base_member = base.member(AssetKind::Script, file).unwrap().unwrap();
+    scripts::write_source(
+        &project,
+        file,
+        &ScriptSource::Rotom(format!("{source}\nscript Studio #99:\n\tEnd\n")),
+    )
+    .unwrap();
+    let report = scripts::compile(&project).unwrap();
+    assert!(report.compiled.contains(&file), "{report:?}");
+    let edited_source = std::fs::read(&source_path).unwrap();
+    let edited_member = std::fs::read(&member_path).unwrap();
+    assert_ne!(
+        edited_member, base_member,
+        "the edit left the member as in the base"
+    );
+
+    let target = ResetTarget::Script { file };
+    assert!(!plan_reset(&mut store, &base, &target).unwrap().same);
+    times.push(timed_file_reset(&mut store, &nds, base.sha1(), target));
+    assert!(
+        std::fs::read(&member_path).unwrap() == base_member,
+        "script file {file:04} differs from the base member after the reset"
+    );
+    let report = scripts::compile(&project).unwrap();
+    assert!(
+        !report.compiled.contains(&file),
+        "compiled again: {report:?}"
+    );
+    assert!(
+        std::fs::read(&member_path).unwrap() == base_member,
+        "the compile after the reset changed script file {file:04}"
+    );
+    store.undo().unwrap();
+    assert!(std::fs::read(&source_path).unwrap() == edited_source);
+    assert!(std::fs::read(&member_path).unwrap() == edited_member);
+
+    // A map texture and a building model: one byte in the middle flipped.
+    for (target, kind) in [
+        (ResetTarget::MapTexture { index: 0 }, AssetKind::MapTexture),
+        (
+            ResetTarget::BuildingModel { index: 0 },
+            AssetKind::BuildingModel,
+        ),
+    ] {
+        project.ensure_unpacked(kind).unwrap();
+        let path = project.member_path(kind, 0);
+        let mut flipped = std::fs::read(&path).unwrap();
+        let middle = flipped.len() / 2;
+        flipped[middle] ^= 0xFF;
+        std::fs::write(&path, &flipped).unwrap();
+        let base_member = base.member(kind, 0).unwrap().unwrap();
+        assert_ne!(flipped, base_member);
+        times.push(timed_file_reset(&mut store, &nds, base.sha1(), target));
+        assert!(
+            std::fs::read(&path).unwrap() == base_member,
+            "{}: differs from the base member after the reset",
+            target.label()
+        );
+        store.undo().unwrap();
+        assert!(
+            std::fs::read(&path).unwrap() == flipped,
+            "{}",
+            target.label()
+        );
+    }
+    assert!(
+        times.iter().all(|&ms| ms <= RESET_MS),
+        "over {RESET_MS} ms: {times:?}"
+    );
+}
+
+/// The source the reset writes is the one rotom's project decompile writes: for every script
+/// file of the copy, `decompile_member` of its member gives the text and the kind of the source
+/// rotom v0.7.0 `decompile_project` writes once the sources exist. (During `adopt` there are no
+/// sources yet, so rotom's global script index is empty and a global script call stays a
+/// number; with the sources it becomes `Module::label`, the same command bytes.)
+#[test]
+fn decompile_member_gives_the_source_rotom_writes_for_every_script_file() {
+    let Some((_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Project::open(&copy).unwrap();
+    if scripts::is_adopted(&project) {
+        println!("skipped: {} was adopted before the test", project.game_code);
+        return;
+    }
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    // rotom v0.7.0: src/project/config.rs load_config, src/project/compile.rs decompile_project
+    let config = rotom::project_config::load_config(&copy).unwrap();
+    let again = rotom::project::compile::decompile_project(&copy, &config).unwrap();
+    assert!(again.failures.is_empty());
+    let started = Instant::now();
+    let (mut checked, mut global) = (0, 0);
+    for info in scripts::list_files(&project).unwrap() {
+        let member = std::fs::read(project.member_path(AssetKind::Script, info.file)).unwrap();
+        let decompiled = scripts::decompile_member(&project, info.file, &member).unwrap();
+        match info.kind {
+            SourceKind::Binary => assert!(decompiled.is_none(), "file {:04}", info.file),
+            _ => {
+                let (source, _) = decompiled.expect("a source");
+                let written = scripts::read_source(&project, info.file).unwrap();
+                if let ScriptSource::Rotom(text) = &written
+                    && text.contains("::")
+                {
+                    global += 1;
+                }
+                assert!(source == written, "file {:04}", info.file);
+            }
+        }
+        checked += 1;
+    }
+    assert!(global > 0, "no file with a resolved global script call");
+    println!(
+        "decompile {} {checked} files ({global} with global calls) ms={}",
+        project.game_code,
+        started.elapsed().as_millis()
     );
 }

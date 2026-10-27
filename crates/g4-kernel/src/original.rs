@@ -5,7 +5,9 @@
 //! Store kinds (map, event file, text archive, trainer, species, encounter) are reset with
 //! [`crate::store::Tx::replace`] in one transaction labelled [`step_label`]; the asset is then
 //! dirty until the next save, like any edit. A map header is reset field by field through the
-//! codec (serde on uxie's `MapHeader`) with [`crate::store::Tx::edit_header`]. Format:
+//! codec (serde on uxie's `MapHeader`) with [`crate::store::Tx::edit_header`]. Scripts,
+//! textures and models are no store values: their files are written at once and the step goes
+//! on the store's undo stack as a file step ([`crate::store::Store::record_file_step`]). Format:
 //! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“.
 
 mod preview;
@@ -21,7 +23,7 @@ use serde_json::{Map, Value};
 
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
-use crate::store::{HEADER_TABLE, MapHeader, Store, trainer_pair_bytes};
+use crate::store::{FileChange, FileStep, HEADER_TABLE, MapHeader, Store, trainer_pair_bytes};
 use crate::text::TextArchiveDoc;
 
 /// Why an entity cannot be reset: the base ROM has no such entry (a new entity).
@@ -30,8 +32,6 @@ pub const NO_ORIGINAL: &str = "Kein Original: diesen Eintrag gibt es in der Basi
 pub const NEW_MESSAGE: &str = "Neue Nachricht, kein Original.";
 /// Why a changed asset of another kind (matrix, area data, moves, ...) has no reset.
 pub const NOT_RESETTABLE: &str = "Für diese Art gibt es kein Zurücksetzen.";
-/// The answer for the targets later tasks implement (header, script, textures, models).
-const NOT_YET: &str = "noch nicht";
 /// Why [`reset`] refuses `fields` for a target other than a header.
 pub const FIELDS_ONLY_FOR_HEADERS: &str = "Einzelne Felder gibt es nur bei einem Header.";
 
@@ -381,7 +381,7 @@ pub fn base_counts(
 
 /// Why `target` cannot be reset, `None` when it can: [`NO_ORIGINAL`] for an entry at or past
 /// the count of the base, [`NEW_MESSAGE`] for a message at or past the messages of the base
-/// archive. Locks and kinds a later task resets are not checked here.
+/// archive. Locks are not checked here.
 pub fn availability(
     target: &ResetTarget,
     original: &dyn Original,
@@ -516,14 +516,150 @@ fn original_bytes(
         }
         // A header is reset field by field (`plan_header`, `reset_header`), not as bytes.
         ResetTarget::Header { .. } => Err(KernelError::NotEditable(AssetKind::HeaderTable)),
+        // Scripts, textures and models are reset as file steps (`file_step`).
         ResetTarget::Script { .. }
         | ResetTarget::MapTexture { .. }
         | ResetTarget::BuildingTexture { .. }
         | ResetTarget::BuildingModel { .. }
         | ResetTarget::InteriorBuildingModel { .. } => {
-            Err(KernelError::Refused(NOT_YET.to_owned()))
+            Err(KernelError::NotEditable(target.assets()[0].kind))
         }
     }
+}
+
+/// Member `index` of `kind` as it is now: its file, or the member of the packed archive while
+/// the folder is not unpacked yet (a plan writes nothing). `None`: no such member.
+fn current_member(
+    project: &Project,
+    kind: AssetKind,
+    index: u16,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    if project.unpacked_dir(kind).is_dir() {
+        let path = project.member_path(kind, index);
+        return match std::fs::read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(crate::error::io_at(&path)(e)),
+        };
+    }
+    Ok(project
+        .read_packed(kind)?
+        .members
+        .into_iter()
+        .nth(usize::from(index)))
+}
+
+/// The file step of a target that [`ResetTarget::writes_files`], not yet written: a script's
+/// member, sources and compile state entry ([`crate::scripts::script_step`]); a texture's or
+/// model's member file.
+fn file_step(
+    store: &Store,
+    original: &dyn Original,
+    target: &ResetTarget,
+) -> Result<FileStep, KernelError> {
+    let project = store.project();
+    let id = target.assets()[0];
+    let base = base_member(original, id.kind, id.index)?;
+    if let ResetTarget::Script { file } = *target {
+        return crate::scripts::script_step(project, file, &base);
+    }
+    Ok(FileStep {
+        asset: id,
+        files: vec![FileChange {
+            path: project.member_path(id.kind, id.index),
+            before: current_member(project, id.kind, id.index)?,
+            after: Some(base),
+        }],
+        rotom_entry: None,
+    })
+}
+
+/// Whether `step` leaves every file as it is (its compile state entry aside).
+fn writes_nothing(step: &FileStep) -> bool {
+    step.files.iter().all(|f| f.before == f.after)
+}
+
+/// The lines of one side of a file step: a script's source (the sources come before the
+/// member in the step), else its member as binary; a texture's or model's member.
+fn file_lines(target: &ResetTarget, step: &FileStep, after: bool) -> String {
+    fn side(file: &FileChange, after: bool) -> Option<&[u8]> {
+        if after {
+            file.after.as_deref()
+        } else {
+            file.before.as_deref()
+        }
+    }
+    let Some((member, sources)) = step.files.split_last() else {
+        return String::new();
+    };
+    match target {
+        ResetTarget::Script { .. } => preview::script_lines(
+            sources.iter().find_map(|f| side(f, after)),
+            side(member, after),
+        ),
+        _ => preview::member_lines(side(member, after)),
+    }
+}
+
+/// [`plan_reset`] of a target that writes files: one change when any file differs.
+fn plan_files(
+    store: &Store,
+    original: &dyn Original,
+    target: &ResetTarget,
+) -> Result<ResetPlan, KernelError> {
+    let step = file_step(store, original, target)?;
+    let changes = if writes_nothing(&step) {
+        Vec::new()
+    } else {
+        vec![ResetChange {
+            label: target.label(),
+            before: file_lines(target, &step, false),
+            after: file_lines(target, &step, true),
+        }]
+    };
+    Ok(ResetPlan {
+        target: *target,
+        label: target.label(),
+        same: changes.is_empty(),
+        changes,
+        fields: Vec::new(),
+        writes_files: true,
+    })
+}
+
+/// [`reset`] of a target that writes files: writes the step at once (a texture's or model's
+/// archive unpacked first) and records it with [`Store::record_file_step`]; nothing is
+/// written or recorded when every file already holds the base.
+fn reset_files(
+    store: &mut Store,
+    original: &dyn Original,
+    target: &ResetTarget,
+    started: Instant,
+) -> Result<ResetResult, KernelError> {
+    let step = file_step(store, original, target)?;
+    let ms = |started: Instant| u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    if writes_nothing(&step) {
+        return Ok(ResetResult {
+            changed: Vec::new(),
+            recorded: false,
+            ms: ms(started),
+        });
+    }
+    let project = store.project();
+    match target {
+        ResetTarget::Script { .. } => crate::scripts::write_script_step(project, &step)?,
+        _ => {
+            project.ensure_unpacked(step.asset.kind)?;
+            crate::store::write_file_step(project, &step)?;
+        }
+    }
+    let asset = step.asset;
+    store.record_file_step(&step_label(target), step);
+    Ok(ResetResult {
+        changed: vec![asset],
+        recorded: true,
+        ms: ms(started),
+    })
 }
 
 /// The bytes of asset `id` as the store holds them, loaded on first use. A locked asset
@@ -752,8 +888,8 @@ fn reset_header(
 
 /// What a reset of `target` would change: one [`ResetChange`] per asset that differs from the
 /// base, with German lines of both sides; for a header also the differing fields
-/// ([`ResetPlan::fields`]). Refuses like [`reset`] (unavailable, locked, a kind of a later
-/// task) and changes nothing.
+/// ([`ResetPlan::fields`]); for a script, texture or model one change with its source or its
+/// size and xxh3. Refuses like [`reset`] (unavailable, locked) and changes nothing.
 pub fn plan_reset(
     store: &mut Store,
     original: &dyn Original,
@@ -763,6 +899,9 @@ pub fn plan_reset(
         return plan_header(store, original, target, id);
     }
     refuse_unavailable(target, original, store.project())?;
+    if target.writes_files() {
+        return plan_files(store, original, target);
+    }
     let originals = original_bytes(store, original, target)?;
     let family = store.project().family;
     let lang = store.project().language.locale_key();
@@ -788,7 +927,9 @@ pub fn plan_reset(
 }
 
 /// Sets every asset of `target` to its value in the base as one undo step labelled
-/// [`step_label`] (the assets are dirty until the next save). Refused with the reason of
+/// [`step_label`] (the assets are dirty until the next save). A script, texture or model is
+/// written at once and recorded as a file step, which undo writes back
+/// ([`crate::scripts::reset_script`] for a script). Refused with the reason of
 /// [`availability`], with [`KernelError::ReadOnly`] for a locked asset, and nothing is
 /// recorded then; nothing is recorded either when everything already equals the base.
 ///
@@ -810,6 +951,9 @@ pub fn reset(
         return Err(KernelError::Refused(FIELDS_ONLY_FOR_HEADERS.to_owned()));
     }
     refuse_unavailable(target, original, store.project())?;
+    if target.writes_files() {
+        return reset_files(store, original, target, started);
+    }
     let originals = original_bytes(store, original, target)?;
     let mut before = Vec::with_capacity(originals.len());
     for (id, _) in &originals {
@@ -1339,20 +1483,162 @@ mod tests {
         );
     }
 
-    #[test]
-    fn kinds_of_later_tasks_are_refused_for_now() {
+    /// Flips the byte in the middle of member `index` of `kind` (unpacking its archive first)
+    /// and returns the flipped bytes.
+    fn flip_member(store: &Store, kind: AssetKind, index: u16) -> Vec<u8> {
+        let project = store.project();
+        project.ensure_unpacked(kind).unwrap();
+        let path = project.member_path(kind, index);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let middle = bytes.len() / 2;
+        bytes[middle] ^= 0xFF;
+        std::fs::write(&path, &bytes).unwrap();
+        bytes
+    }
+
+    /// `Größe` and `xxh3` of a file target's member, as a plan shows them.
+    fn file_lines(bytes: &[u8]) -> String {
+        format!(
+            "Größe: {} Byte\nxxh3: {:016x}",
+            bytes.len(),
+            xxhash_rust::xxh3::xxh3_64(bytes)
+        )
+    }
+
+    /// A file target with a flipped byte: plan, reset to the base member as a file step,
+    /// undo to the flipped bytes, redo to the base again.
+    fn file_target_resets_and_undoes(target: ResetTarget, kind: AssetKind) {
         let mut f = fixture();
-        for target in [
-            ResetTarget::Script { file: 0 },
-            ResetTarget::MapTexture { index: 0 },
+        let flipped = flip_member(&f.store, kind, 0);
+        let base = f.original.member(kind, 0).unwrap().unwrap();
+        assert_ne!(flipped, base);
+        let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
+        assert!(!plan.same);
+        assert!(plan.writes_files);
+        assert_eq!(
+            plan.changes,
+            [ResetChange {
+                label: target.label(),
+                before: file_lines(&flipped),
+                after: file_lines(&base),
+            }]
+        );
+
+        let result = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(result.recorded);
+        assert_eq!(result.changed, [id(kind, 0)]);
+        assert_eq!(member_file(&f.store, kind, 0), base);
+        assert_eq!(f.store.history().0.last(), Some(&step_label(&target)));
+        assert!(plan_reset(&mut f.store, &f.original, &target).unwrap().same);
+
+        assert_eq!(f.store.undo().unwrap(), [id(kind, 0)]);
+        assert_eq!(member_file(&f.store, kind, 0), flipped);
+        assert_eq!(f.store.redo().unwrap(), [id(kind, 0)]);
+        assert_eq!(member_file(&f.store, kind, 0), base);
+    }
+
+    #[test]
+    fn texture_reset_writes_the_member_and_undo_restores_it() {
+        file_target_resets_and_undoes(ResetTarget::MapTexture { index: 0 }, AssetKind::MapTexture);
+        file_target_resets_and_undoes(
+            ResetTarget::BuildingTexture { index: 0 },
+            AssetKind::BuildingTexture,
+        );
+    }
+
+    #[test]
+    fn model_reset_writes_the_member_and_undo_restores_it() {
+        file_target_resets_and_undoes(
             ResetTarget::BuildingModel { index: 0 },
-        ] {
-            let err = reset(&mut f.store, &f.original, &target, None).unwrap_err();
-            assert!(
-                matches!(&err, KernelError::Refused(why) if why == "noch nicht"),
-                "{target:?}: {err}"
-            );
-        }
+            AssetKind::BuildingModel,
+        );
+    }
+
+    #[test]
+    fn an_unchanged_texture_writes_nothing() {
+        let mut f = fixture();
+        let target = ResetTarget::MapTexture { index: 0 };
+        // Packed only: neither the plan nor the reset unpacks the archive.
+        assert!(plan_reset(&mut f.store, &f.original, &target).unwrap().same);
+        let result = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(!result.recorded);
+        assert!(result.changed.is_empty());
+        let dir = f.store.project().unpacked_dir(AssetKind::MapTexture);
+        assert!(!dir.exists());
+
+        f.store
+            .project()
+            .ensure_unpacked(AssetKind::MapTexture)
+            .unwrap();
+        let path = f.store.project().member_path(AssetKind::MapTexture, 0);
+        let written = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let result = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(!result.recorded);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            written
+        );
+        assert_eq!(f.store.undo_depth(), 0);
+    }
+
+    #[test]
+    fn script_reset_plans_the_source_and_records_one_file_step() {
+        let mut f = fixture();
+        let project = f.store.project();
+        crate::scripts::adopt(project, &mut |_| {}).unwrap();
+        let source_path =
+            crate::scripts::source_path(project, 0, crate::scripts::SourceKind::Script);
+        let source = std::fs::read_to_string(&source_path).unwrap();
+        crate::scripts::add_script(project, 0).unwrap();
+        let edited = std::fs::read_to_string(&source_path).unwrap();
+        let target = ResetTarget::Script { file: 0 };
+
+        let plan = plan_reset(&mut f.store, &f.original, &target).unwrap();
+        assert!(!plan.same);
+        assert!(plan.writes_files);
+        assert_eq!(
+            plan.changes,
+            [ResetChange {
+                label: target.label(),
+                before: edited.clone(),
+                after: source.clone(),
+            }]
+        );
+        let result = reset(&mut f.store, &f.original, &target, None).unwrap();
+        assert!(result.recorded);
+        assert_eq!(result.changed, [id(AssetKind::Script, 0)]);
+        assert_eq!(std::fs::read_to_string(&source_path).unwrap(), source);
+        assert_eq!(
+            member_file(&f.store, AssetKind::Script, 0),
+            f.original.member(AssetKind::Script, 0).unwrap().unwrap()
+        );
+        assert!(plan_reset(&mut f.store, &f.original, &target).unwrap().same);
+        assert!(
+            !reset(&mut f.store, &f.original, &target, None)
+                .unwrap()
+                .recorded
+        );
+        f.store.undo().unwrap();
+        assert_eq!(std::fs::read_to_string(&source_path).unwrap(), edited);
+    }
+
+    #[test]
+    fn a_binary_script_plans_its_size() {
+        let mut f = fixture();
+        // Not adopted: no source, the member alone.
+        let flipped = flip_member(&f.store, AssetKind::Script, 0);
+        let base = f.original.member(AssetKind::Script, 0).unwrap().unwrap();
+        let plan = plan_reset(&mut f.store, &f.original, &ResetTarget::Script { file: 0 }).unwrap();
+        let binary = |b: &[u8]| {
+            format!(
+                "Binär, {} Byte\nxxh3: {:016x}",
+                b.len(),
+                xxhash_rust::xxh3::xxh3_64(b)
+            )
+        };
+        assert_eq!(plan.changes[0].before, binary(&flipped));
+        assert_eq!(plan.changes[0].after, binary(&base));
     }
 
     /// Changes `music_day_id` and `weather_id` of Platinum header `id`, one step.
