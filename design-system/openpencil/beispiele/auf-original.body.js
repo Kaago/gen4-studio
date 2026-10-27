@@ -76,7 +76,7 @@
     const gruppen = <Frame name="Gruppen" flex="col" w={880} rounded={12} bg={v('flaeche/blatt')} stroke={v('linie/standard')} strokeWidth={1} overflow="hidden">
       {Gruppe('Karten', [Eintrag('Karte 0003')])}
       {Gruppe('Trainer', [Eintrag('Trainer 0001', { unsaved: true })])}
-      {Gruppe('Matrizen', [Eintrag('Matrizen 0000', { gesperrt: true })])}
+      {Gruppe('Matrizen', [Eintrag('Matrix 0000', { gesperrt: true })])}
     </Frame>;
 
     const kopf = <Frame name="Kopf" flex="row" items="start" justify="between" gap={16} w={880}>

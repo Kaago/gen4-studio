@@ -201,7 +201,8 @@ pub(crate) fn hash_remembered(path: &Path) -> std::io::Result<u64> {
     Ok(hash)
 }
 
-fn same_stat(a: &Fp, b: &Fp) -> bool {
+/// Size, mtime, ctime and inode equal (the hash aside).
+pub(crate) fn same_stat(a: &Fp, b: &Fp) -> bool {
     (a.size, a.mtime_ns, a.ctime_ns, a.ino) == (b.size, b.mtime_ns, b.ctime_ns, b.ino)
 }
 

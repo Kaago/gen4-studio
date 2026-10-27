@@ -16,7 +16,7 @@ const ENTRIES = [
   entry(),
   entry({ label: "Karte 0700", state: "new", target: { kind: "map", index: 700 }, assets: [{ kind: "Map", index: 700 }] }),
   entry({ group: "Trainer", label: "Trainer 0001", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties" }),
-  entry({ group: "Matrizen", label: "Matrizen 0000", target: null, assets: [], folder: "matrices" }),
+  entry({ group: "Matrizen", label: "Matrix 0000", target: null, assets: [], folder: "matrices" }),
 ];
 
 describe("ChangesSurface", () => {
@@ -122,10 +122,10 @@ describe("ChangesSurface", () => {
 
   it("a_row_without_target_has_a_locked_button_with_its_reason", async () => {
     await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
-    const locked = resetButton("Matrizen 0000")!;
+    const locked = resetButton("Matrix 0000")!;
     expect(locked.disabled).toBe(true);
     expect(locked.title).toBe("Für diese Art gibt es kein Zurücksetzen.");
-    expect(badges(change("Matrizen 0000"))).toEqual(["Geändert"]);
+    expect(badges(change("Matrix 0000"))).toEqual(["Geändert"]);
   });
 
   it("an_unsaved_asset_is_marked", async () => {
@@ -140,7 +140,7 @@ describe("ChangesSurface", () => {
     await act(async () => resetButton("Trainer 0001")!.click());
     expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "trainer", index: 1 });
     // A locked button opens nothing.
-    await act(async () => resetButton("Matrizen 0000")!.click());
+    await act(async () => resetButton("Matrix 0000")!.click());
     expect(reset.open).toHaveBeenCalledOnce();
   });
 

@@ -15,7 +15,7 @@ use serde::Serialize;
 use xxhash_rust::xxh3::xxh3_64;
 
 use super::base_hashes::{base_hashes, hex};
-use super::{Original, ResetTarget};
+use super::{Original, ResetTarget, asset_label};
 use crate::build::fingerprint::{self, Fp};
 use crate::build::pack_entries;
 use crate::build::state::BuildState;
@@ -44,7 +44,8 @@ pub enum ChangeState {
 pub struct ChangedEntry {
     /// „Karten“, „Trainer“, „Header“, …; a folder of no group goes under its own name.
     pub group: String,
-    /// „Karte 0003“ ([`ResetTarget::label`]); without a target kind „{group} {NNNN}“.
+    /// „Karte 0003“ ([`ResetTarget::label`]); a kind without reset by [`asset_label`]
+    /// („Matrix 0003“); a folder of no asset kind „{folder} {NNNN}“.
     pub label: String,
     pub state: ChangeState,
     /// What „Auf Original zurücksetzen“ resets; `None` for a new or missing entry and for a
@@ -148,11 +149,6 @@ fn target_of(kind: AssetKind, index: u16) -> Option<ResetTarget> {
     })
 }
 
-/// Size, mtime, ctime and inode equal (the hash aside).
-fn same_stat(a: &Fp, b: &Fp) -> bool {
-    (a.size, a.mtime_ns, a.ctime_ns, a.ino) == (b.size, b.mtime_ns, b.ctime_ns, b.ino)
-}
-
 /// One pack entry being compared, with its members' hashes on the project side.
 struct Folder {
     name: String,
@@ -215,11 +211,12 @@ fn narc_members(project: &Project, packed: &Path) -> Result<BTreeMap<u16, u64>, 
 /// 1. no `unpacked/<folder>/`: the project's NARC is read and its members hashed in memory;
 /// 2. no step entry `pack:<folder>`: every file `NNNN` is hashed, the folder goes into
 ///    `unbuilt`, nothing is recorded (an entry made up here would let the build skip it);
-/// 3. else per file its `stat`: equal to the recorded one with a hash, that hash; equal
-///    without a hash and the entry not racy for its scan, hashed and noted to be filled in
-///    (when the `stat` is still the same after hashing); any other case (another `stat`, a
-///    new file) hashed, not noted: the file changed since the build, and a hash in its entry
-///    would let the next build skip packing it.
+/// 3. else per file its `stat`: equal to the recorded one and the entry not racy for its
+///    scan, the recorded hash, or without one hashed and noted to be filled in (when the
+///    `stat` is still the same after hashing); any other case (a racy entry, as
+///    `fingerprint::compare` treats it; another `stat`; a new file) hashed, not noted: the
+///    file may have changed since the build, and a hash in its entry would let the next
+///    build skip packing it.
 ///
 /// The noted hashes go into the build state in one [`BuildState::update`], each only where
 /// the entry still holds exactly the `stat` seen, without a hash and not racy. Progress
@@ -285,20 +282,21 @@ pub fn changed_from_original(
             if let Some(step) = step {
                 let file_key = key(&file);
                 let now = fingerprint::stat(&path)?;
+                // A racy entry cannot vouch for the content, its hash or not (as
+                // `fingerprint::compare`): the file is hashed and nothing noted.
                 if let (Some(recorded), Some(now)) = (step.inputs.get(&file_key), now)
-                    && same_stat(recorded, &now)
+                    && fingerprint::same_stat(recorded, &now)
+                    && !fingerprint::is_racy(recorded, step.scanned_at_ns)
                 {
                     if let Some(hash) = recorded.xxh3 {
                         members.insert(number, hash);
                         continue;
                     }
-                    if !fingerprint::is_racy(recorded, step.scanned_at_ns) {
-                        fill = Some(Fill {
-                            step: id.clone(),
-                            key: file_key,
-                            seen: now,
-                        });
-                    }
+                    fill = Some(Fill {
+                        step: id.clone(),
+                        key: file_key,
+                        seen: now,
+                    });
                 }
             }
             jobs.push(Job {
@@ -327,7 +325,7 @@ pub fn changed_from_original(
                 // Filled in only when nothing wrote the file since its `stat` was taken.
                 if let Some(fill) = job.fill
                     && fingerprint::stat(&job.path)?
-                        .is_some_and(|after| same_stat(&after, &fill.seen))
+                        .is_some_and(|after| fingerprint::same_stat(&after, &fill.seen))
                 {
                     fills.push((fill, hash));
                 }
@@ -355,7 +353,7 @@ pub fn changed_from_original(
                 let Some(fp) = step.inputs.get_mut(&fill.key) else {
                     continue;
                 };
-                if same_stat(fp, &fill.seen)
+                if fingerprint::same_stat(fp, &fill.seen)
                     && fp.xxh3.is_none()
                     && !fingerprint::is_racy(fp, scanned)
                 {
@@ -443,7 +441,11 @@ fn entities(
                 return None;
             };
             let target = entity.kind.and_then(|kind| target_of(kind, n));
-            let label = target.map_or_else(|| format!("{} {n:04}", entity.group), |t| t.label());
+            let label = match (target, entity.kind) {
+                (Some(target), _) => target.label(),
+                (None, Some(kind)) => asset_label(AssetId { kind, index: n }),
+                (None, None) => format!("{} {n:04}", entity.group),
+            };
             let assets = match (target, entity.kind) {
                 (Some(target), _) => target.assets(),
                 (None, Some(kind)) => vec![AssetId { kind, index: n }],
@@ -799,7 +801,7 @@ mod tests {
             fx.run().entries,
             vec![ChangedEntry {
                 group: "Matrizen".to_owned(),
-                label: "Matrizen 0000".to_owned(),
+                label: "Matrix 0000".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
                 assets: vec![id(AssetKind::Matrix, 0)],
@@ -822,7 +824,7 @@ mod tests {
             report.entries,
             vec![ChangedEntry {
                 group: "Attacken".to_owned(),
-                label: "Attacken 0001".to_owned(),
+                label: "Attacke 0001".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
                 assets: vec![id(AssetKind::Move, 1)],
@@ -846,7 +848,7 @@ mod tests {
             fx.run().entries,
             vec![ChangedEntry {
                 group: name.clone(),
-                label: format!("{name} 0000"),
+                label: "Dynamische Header 0000".to_owned(),
                 state: ChangeState::Changed,
                 target: None,
                 assets: vec![id(AssetKind::DynamicHeaders, 0)],
@@ -876,7 +878,7 @@ mod tests {
                 "Karte 0000",
                 "Karte 0002",
                 "Begegnungsdatei 0001",
-                "Matrizen 0000"
+                "Matrix 0000"
             ]
         );
     }
@@ -949,6 +951,43 @@ mod tests {
         let report = fx.run();
         assert_eq!((report.hashed, report.recorded), (3, 0));
         assert_eq!(fx.recorded(AssetKind::Map, 0).unwrap().xxh3, None);
+    }
+
+    #[test]
+    fn a_racy_entry_with_a_hash_is_hashed_again_not_trusted() {
+        let fx = fixture(&[AssetKind::Map]);
+        fx.record_builds(&[AssetKind::Map]);
+        // The build hashed member 1 as racy and the file was written again within the same
+        // timestamp: the stat is equal, the recorded hash (the base's) is stale.
+        let path = fx.member(AssetKind::Map, 1);
+        let stale = fingerprint::hash(&path).unwrap();
+        let recorded = fx.recorded(AssetKind::Map, 1).unwrap();
+        flip(&path);
+        let stat = fingerprint::stat(&path).unwrap().unwrap();
+        let step = format!("pack:{}", fx.folder(AssetKind::Map));
+        let key = fx.key(AssetKind::Map, 1);
+        BuildState::update(fx.root(), |state| {
+            let step = state.steps.get_mut(&step).unwrap();
+            step.scanned_at_ns = stat.mtime_ns.max(stat.ctime_ns);
+            step.inputs.insert(
+                key.clone(),
+                Fp {
+                    xxh3: Some(stale),
+                    ..stat
+                },
+            );
+        })
+        .unwrap();
+        assert_ne!(recorded, stat);
+        let report = fx.run();
+        let listed: Vec<_> = report.entries.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(listed, ["Karte 0001"]);
+        assert_eq!((report.hashed, report.recorded), (3, 0));
+        assert_eq!(
+            fx.recorded(AssetKind::Map, 1).unwrap().xxh3,
+            Some(stale),
+            "a racy entry is not written"
+        );
     }
 
     #[test]
