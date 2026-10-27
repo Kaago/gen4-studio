@@ -32,6 +32,11 @@ const REASONS: Readonly<Record<string, string>> = {
   removed: "Datei entfernt, voll gebaut",
 };
 
+/** Reasons that read differently for the `rom` step: a removed output there is also a ROM built to another path than last time. */
+const ROM_REASONS: Readonly<Record<string, string>> = {
+  removed: "anderes Ziel oder ROM gelöscht, voll gebaut",
+};
+
 /** The prefix of the steps that only watch a folder (no row in the list). */
 export const WATCH_PREFIX = "watch:";
 
@@ -75,8 +80,10 @@ function ranResult(step: BuildStep): string {
 }
 
 /** The addition for a step that ran fully with a reason; Bauen names no unknown reason, Tüfteln does. After „Neu bauen (ohne Cache)“ no step has a state: that is no first build. */
-function reasonText(reason: string, depth: Depth, fresh: boolean): string {
+function reasonText(step: BuildStep, reason: string, depth: Depth, fresh: boolean): string {
   if (fresh && reason === "no-state") return "ohne Cache, voll";
+  const own = step.id === "rom" ? ROM_REASONS[reason] : undefined;
+  if (own !== undefined) return own;
   return REASONS[reason] ?? (depth === "bauen" ? "voll gebaut" : `voll gebaut: ${reason}`);
 }
 
@@ -87,7 +94,13 @@ export function stepLabel(step: BuildStep, depth: Depth, fresh = false): { name:
   if (step.status === "skipped") return { name, result: step.id === "rom" ? "aktuell" : "übersprungen" };
   if (step.id === "crc") return { name, result: crcResult(step) };
   const result = ranResult(step);
-  return { name, result: step.status === "full" && step.reason !== null ? `${result} (${reasonText(step.reason, depth, fresh)})` : result };
+  return { name, result: step.status === "full" && step.reason !== null ? `${result} (${reasonText(step, step.reason, depth, fresh)})` : result };
+}
+
+/** The line under „Schritte“ when they are those of „Patch erstellen“: which build, and where its ROM went (relative to the project when inside it). */
+export function patchBuildNote(rom: string, project: string): string {
+  const root = project.endsWith("/") ? project : `${project}/`;
+  return `Build von „Patch erstellen“ nach ${rom.startsWith(root) ? rom.slice(root.length) : rom}`;
 }
 
 /** A duration in seconds with a decimal comma and two places („0,33 s“); under 10 ms „< 0,01 s“. */

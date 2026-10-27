@@ -21,17 +21,18 @@
 .name {
   display: inline-flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--g4-raum-8);
+  gap: 0 var(--g4-raum-8);
 }
 
-/* Tüfteln: the step's identifier, grey in mono beside its words. */
+/* Tüfteln: the step's identifier, grey in mono beside its words. It is the point of the depth, so it is never cut: a long one wraps
+   (onto a line of its own when it does not fit beside the name). */
 .id {
-  overflow: hidden;
+  min-width: 0;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-code-s);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .text {

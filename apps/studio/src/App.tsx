@@ -904,6 +904,7 @@ function AppBody() {
         lastRom={session.lastRom}
         lastSteps={session.lastSteps}
         lastBuildFresh={session.lastBuildFresh}
+        lastPatchRom={session.lastPatchRom}
         onBuild={() => void session.onBuild()}
         onBuildFresh={() => void session.onBuild(undefined, true)}
         onRun={() => void session.onRun()}

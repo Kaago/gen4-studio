@@ -204,7 +204,19 @@ describe("TechnikArea", () => {
 
     // While a build runs, neither button starts another.
     await render({ busy: true, lastRom: "/roms/out.nds" });
-    expect(button("Bauen")?.disabled).toBe(true);
+    // Busy blocks with aria-disabled and a guard (the button that started the build keeps keyboard focus), not with `disabled`.
+    handlers.onBuild.mockClear();
+    handlers.onRun.mockClear();
+    for (const name of ["Bauen", "Starten"]) {
+      expect(button(name)?.getAttribute("aria-disabled")).toBe("true");
+      await click(button(name));
+    }
+    expect(handlers.onBuild).not.toHaveBeenCalled();
+    expect(handlers.onRun).not.toHaveBeenCalled();
+    button("Bauen")!.focus();
+    expect(document.activeElement).toBe(button("Bauen"));
+    // „Starten“ without a ROM stays `disabled`, busy or not.
+    await render({ busy: true });
     expect(button("Starten")?.disabled).toBe(true);
 
     // The browser mode starts no emulator (the bridge refuses, and the refusal would forget the chosen one).
@@ -222,7 +234,9 @@ describe("TechnikArea", () => {
     expect(handlers.onBuild).not.toHaveBeenCalled();
     // While a build runs, it starts none.
     await render({ busy: true });
-    expect(button("Neu bauen (ohne Cache)")?.disabled).toBe(true);
+    expect(button("Neu bauen (ohne Cache)")?.getAttribute("aria-disabled")).toBe("true");
+    await click(button("Neu bauen (ohne Cache)"));
+    expect(handlers.onBuildFresh).toHaveBeenCalledOnce();
   });
 
   it("shows_the_steps_of_the_last_build", async () => {
@@ -248,6 +262,26 @@ describe("TechnikArea", () => {
     // The steps come after the last build's facts and before the problems.
     const headings = [...(surface()?.querySelectorAll("h2") ?? [])].map((h) => h.textContent);
     expect(headings.slice(0, 2)).toEqual(["Schritte", "Probleme"]);
+  });
+
+  it("names_the_patch_build_under_schritte_when_the_last_steps_are_its_and_keeps_the_path_of_the_last_rom", async () => {
+    const step = { status: "full" as const, ms: 50, done: 0, total: 0, cached: 0, reason: null };
+    const built = { lastBuiltAt: Date.now(), lastRom: "/roms/out.nds", lastSteps: [{ ...step, id: "rom" }] };
+    const line = () => surface()?.querySelector("[data-steps-source]");
+    await render(built);
+    expect(line()).toBeNull();
+    await render({ ...built, lastPatchRom: "/p/build/4-2-abn-patch-IPKD.nds" });
+    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds");
+    // Directly under the heading, before the table; the fact „Pfad“ still names the ROM of Bauen.
+    const heading = [...(surface()?.querySelectorAll("h2") ?? [])].find((h) => h.textContent === "Schritte")!;
+    expect(heading.nextElementSibling).toBe(line());
+    expect(line()?.nextElementSibling?.querySelector("table")).not.toBeNull();
+    expect(surface()?.querySelector("dd[title]")?.textContent).toBe("/roms/out.nds");
+    // A ROM outside the project shows whole; without steps there is nothing to name.
+    await render({ ...built, lastPatchRom: "/elsewhere/x.nds" });
+    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach /elsewhere/x.nds");
+    await render({ lastPatchRom: "/p/build/x.nds" });
+    expect(line()).toBeNull();
   });
 
   it("pruefen_und_bauen_shows_the_findings_in_the_same_table_as_the_problems_panel", async () => {

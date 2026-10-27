@@ -23,11 +23,12 @@ use g4_kernel::patch;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::start::{BaseCheck, BaseWarningKind};
 use g4_kernel::store::{Origin, with_origin};
+use g4_kernel::text::TextKeep;
 use serde_json::{Map, Value, json};
 
 use crate::commands::dispatch::{DispatchError, Reply, check_assign_base, dispatch};
 use crate::commands::policy::UserPolicy;
-use crate::commands::{ProjectInfo, history_of, open_project_impl, project_info_of};
+use crate::commands::{ProjectInfo, TextChoice, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
 use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
@@ -824,6 +825,7 @@ impl<'a> Call<'a> {
     /// `assign_base` is checked first as it would check itself (the `.nds` under the policy,
     /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
     /// and the question names the file and the ROM. `create_patch` names the patch file.
+    /// `resolve_text_conflicts` names every archive and the version that applies.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -841,6 +843,7 @@ impl<'a> Call<'a> {
                 "{why}: build/{}.xdelta",
                 patch::patch_name(shared.project)
             )),
+            ("resolve_text_conflicts", _) => Ok(resolve_question(why, args)),
             _ => Ok(why.to_owned()),
         }
     }
@@ -1325,6 +1328,33 @@ fn assign_question(file: &str, check: &BaseCheck) -> String {
         [first @ .., last] => format!("; {} und {last} weichen vom Projekt ab", first.join(", ")),
     };
     format!("Basis-ROM zuordnen: {file} ({label}, SHA-1 {sha1}{differs})")
+}
+
+/// The question before `resolve_text_conflicts` overwrites a version of each archive in
+/// `args`: „<why>: Textarchiv 0012 (die Spieldatei gilt, die JSON wird überschrieben)“, several
+/// joined with „; “. The version that applies is the one `keep` names: the JSON is the
+/// editor's text, the member the game file. Args that cannot be read leave the generic `why`
+/// (the command refuses them itself).
+fn resolve_question(why: &str, args: &Value) -> String {
+    let choices = args
+        .get("choices")
+        .cloned()
+        .and_then(|choices| serde_json::from_value::<Vec<TextChoice>>(choices).ok())
+        .filter(|choices| !choices.is_empty());
+    let Some(choices) = choices else {
+        return why.to_owned();
+    };
+    let named: Vec<String> = choices
+        .iter()
+        .map(|choice| {
+            let rule = match choice.keep {
+                TextKeep::Json => "der Text (JSON) gilt, die Spieldatei wird überschrieben",
+                TextKeep::Member => "die Spieldatei gilt, die JSON wird überschrieben",
+            };
+            format!("Textarchiv {:04} ({rule})", choice.archive)
+        })
+        .collect();
+    format!("{why}: {}", named.join("; "))
 }
 
 /// A refusal of call `index` (`tool`) of a batch, before anything ran: its code, the message
@@ -3225,6 +3255,62 @@ mod tests {
                 g4_kernel::patch::patch_name(&project)
             ))
         );
+    }
+
+    #[test]
+    fn resolve_question_names_each_archive_and_the_version_that_applies() {
+        let why = "Eine Fassung eines Textarchivs überschreiben";
+        assert_eq!(
+            resolve_question(
+                why,
+                &json!({ "choices": [{ "archive": 12, "keep": "member" }] })
+            ),
+            "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0012 (die Spieldatei \
+             gilt, die JSON wird überschrieben)"
+        );
+        assert_eq!(
+            resolve_question(
+                why,
+                &json!({ "choices": [
+                    { "archive": 3, "keep": "json" },
+                    { "archive": 411, "keep": "member" },
+                ] })
+            ),
+            "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0003 (der Text (JSON) \
+             gilt, die Spieldatei wird überschrieben); Textarchiv 0411 (die Spieldatei gilt, \
+             die JSON wird überschrieben)"
+        );
+        // Unreadable args leave the generic question; the command refuses them itself.
+        for args in [
+            json!({}),
+            json!({ "choices": [] }),
+            json!({ "choices": "all" }),
+            json!({ "choices": [{ "archive": 1, "keep": "both" }] }),
+            json!({ "choices": [{ "archive": -1, "keep": "json" }] }),
+        ] {
+            assert_eq!(resolve_question(why, &args), why, "{args}");
+        }
+    }
+
+    #[test]
+    fn shared_resolve_text_conflicts_asks_naming_archive_and_version() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        let user = answer_next(&state, "deny");
+        let (code, message, _) = failed(toolbox.call(
+            "resolve_text_conflicts",
+            json!({ "choices": [{ "archive": 12, "keep": "member" }] }),
+            AGENT,
+        ));
+        let what = "Eine Fassung eines Textarchivs überschreiben: Textarchiv 0012 (die \
+                    Spieldatei gilt, die JSON wird überschrieben)";
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.starts_with("resolve_text_conflicts lässt sich nicht rückgängig machen (Eine"),
+            "{message}"
+        );
+        assert!(message.contains(what), "{message}");
+        assert_eq!(user.join().unwrap().what.as_deref(), Some(what));
     }
 
     #[test]
