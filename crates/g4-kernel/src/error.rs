@@ -50,8 +50,9 @@ pub enum KernelError {
     /// the asset is not loaded); nothing was changed.
     #[error("{asset} cannot be restored: {reason}")]
     Restore { asset: AssetId, reason: String },
-    /// Scripts or texts did not compile; the problems carry file, line and column.
-    #[error("{} problem(s) in scripts or texts", .0.len())]
+    /// Scripts or texts did not compile, or files of the text project do not import (since
+    /// 4.3a); the problems carry file, line and column.
+    #[error("{} problem(s) in scripts, texts or the text project", .0.len())]
     Compile(Vec<Problem>),
     /// A precondition of a command does not hold; nothing was changed. The text is shown to
     /// the user as it is.
@@ -160,7 +161,7 @@ mod tests {
         };
         assert_eq!(
             KernelError::Compile(vec![problem("a"), problem("b")]).to_string(),
-            "2 problem(s) in scripts or texts"
+            "2 problem(s) in scripts, texts or the text project"
         );
         assert_eq!(
             KernelError::InvalidProject("header.yaml: missing gamecode".into()).to_string(),
