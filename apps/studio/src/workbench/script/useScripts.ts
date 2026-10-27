@@ -69,6 +69,8 @@ interface ScriptsParams {
   bus: EditBus;
   problems: ProblemsStore;
   onError: (e: unknown) => void;
+  /** A script file was saved (the editor's save or the level-script form's): its member is on disk now. */
+  onSaved?: () => void;
 }
 
 const lf = (text: string) => text.replace(/\r\n?/g, "\n");
@@ -94,7 +96,7 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * not in the Script panel, because the toolbar counts unsaved scripts and a build saves them first. It does not touch the
  * editor or the language server (those, with CodeMirror, load with the panel).
  */
-export function useScripts({ info, bus, problems, onError }: ScriptsParams): ScriptsController {
+export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsParams): ScriptsController {
   // Another project: nothing of the old one stays open. Reset while rendering, so no render pairs the old documents with the new project.
   // `saving`: the saves in flight of this project, so a second one (Cmd+S reaches the editor and the app) joins the first.
   // It belongs to the project: a save of the same file number in the next project must not join the old one.
@@ -112,8 +114,8 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
 
-  const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError });
-  latest.current = { info, documents, saving: owned.saving, problems, bus, onError };
+  const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError, onSaved });
+  latest.current = { info, documents, saving: owned.saving, problems, bus, onError, onSaved };
   const dirtyKey = useRef("");
 
   useEffect(() => {
@@ -166,6 +168,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
       for (const archive of dto.touched_archives) latest.current.bus.emit({ topic: "textData", archive });
       // The checks read the sources from the disk: they look again.
       latest.current.bus.emit({ topic: "edited" });
+      latest.current.onSaved?.();
       bump();
     })().finally(() => saving.delete(file));
     saving.set(file, job);
@@ -287,6 +290,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     problems.applyReport(dto.problems, { files: [scriptPath(file, "levelScript")] });
     for (const archive of dto.touched_archives) bus.emit({ topic: "textData", archive });
     bus.emit({ topic: "edited" });
+    latest.current.onSaved?.();
     const open = docs.get(file);
     // A document with unsaved text keeps it: the editor's own save decides then.
     if (open && open.kind === "levelScript" && lf(open.text) === open.savedText) {

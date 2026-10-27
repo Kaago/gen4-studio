@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget } from "./api";
 import App from "./App";
@@ -212,6 +212,7 @@ vi.mock("./api", async (importOriginal) => ({
   originalStatus: vi.fn(),
   planReset: vi.fn(),
   resetToOriginal: vi.fn(),
+  changedFromOriginal: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -309,6 +310,7 @@ describe("App wiring", () => {
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+    vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -1115,7 +1117,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(6);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(7);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -2486,6 +2488,52 @@ describe("App wiring", () => {
       expect(memberCounts).toHaveBeenCalledTimes(1);
       expect(log).toEqual(["matrixData@1", "getMatrix@1"]);
       expect(data().history.current).toBe(1);
+    });
+
+    it("technik_aenderungen_compares_when_shown_and_again_after_a_save_a_reset_and_an_agent_save", async () => {
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 600 } });
+      vi.mocked(changedFromOriginal).mockClear().mockResolvedValue({
+        entries: [{ group: "Karten", label: "Karte 0003", state: "changed", target: { kind: "map", index: 3 }, assets: [{ kind: "Map", index: 3 }], folder: "maps" }],
+        files: 4,
+        hashed: 0,
+        recorded: 0,
+        unbuilt: [],
+        ms: 1,
+      });
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await inTheApp();
+      // Nothing is compared until the surface shows (the first compare may hash every member).
+      await act(async () => atlasEntry("Technik")!.click());
+      expect(changedFromOriginal).not.toHaveBeenCalled();
+      const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Änderungen"))!;
+      await act(async () => row.click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(1);
+      expect(container.querySelector("[data-technik=aenderungen] [data-change='Karte 0003']")).not.toBeNull();
+      // A save compares again.
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => {});
+      expect(save).toHaveBeenCalled();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      // So does a reset through the dialog.
+      await act(async () => originalProps.onReset!({ changed: [], recorded: true, ms: 1 }, "Karte 0003"));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      // An agent's edit changes no saved file; its save does.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "save", label: null, assets: [] });
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      // Elsewhere a save waits until the surface shows again, then compares once.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
     });
 
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {

@@ -13,7 +13,10 @@ import { openPath } from "../platform/dialogs";
 import { previewWritten } from "../project/previewMessages";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
+import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
+import type { OriginalStatus } from "../api";
 import { found, missing, patchDto } from "./baseTesting";
+import { changesWith, entry, report } from "./changesTesting";
 import { useBase } from "./useBase";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
@@ -91,6 +94,8 @@ describe("TechnikArea", () => {
         lastSteps={null}
         emulatorPath={null}
         tools={tools}
+        changes={null}
+        dirty={[]}
         {...handlers}
         base={project === null ? null : base}
         {...over}
@@ -109,11 +114,11 @@ describe("TechnikArea", () => {
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 
-  it("lists_six_entries_with_symbol_and_status_veroeffentlichen_after_pruefen_and_the_list_switches_the_surface", async () => {
+  it("lists_the_entries_with_symbol_and_status_veroeffentlichen_after_pruefen_and_the_list_switches_the_surface", async () => {
     await render({ lastBuiltAt: Date.now() - 4 * 60_000, lastRom: "/out.nds" });
     await settle();
     expect(container.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Technik");
-    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Veröffentlichen", "Patches", "Emulator", "Werkzeuge"]);
+    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Veröffentlichen", "Änderungen", "Patches", "Emulator", "Werkzeuge"]);
     for (const r of rows()) expect(r.querySelector("svg")).not.toBeNull();
     expect(subtitle("Prüfen und Bauen")).toBe("gebaut vor 4 Minuten");
     expect(subtitle("Veröffentlichen")).toBe("Keine Basis-ROM zugeordnet");
@@ -141,6 +146,44 @@ describe("TechnikArea", () => {
     await click(row("Projekt"));
     expect(surface()?.getAttribute("data-technik")).toBe("projekt");
     expect(surface()?.querySelector("h1")?.textContent).toBe("Projekt");
+  });
+
+  it("lists_seven_entries_with_aenderungen_after_veroeffentlichen", async () => {
+    const reset = resetSpy();
+    const changes = changesWith({ report: report({ entries: [entry()] }) });
+    await act(async () => root.render(withReset(reset, <Host changes={changes} />)));
+    const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
+    expect(labels).toHaveLength(7);
+    expect(labels.indexOf("Änderungen")).toBe(labels.indexOf("Veröffentlichen") + 1);
+    expect(row("Änderungen")?.querySelector("svg")).not.toBeNull();
+    await click(row("Änderungen"));
+    expect(row("Änderungen")?.getAttribute("aria-selected")).toBe("true");
+    expect(surface()?.getAttribute("data-technik")).toBe("aenderungen");
+    expect(surface()?.querySelector("h1")?.textContent).toBe("Änderungen");
+    expect(surface()?.querySelector("[data-change='Karte 0003']")).not.toBeNull();
+    // The rows reset through the app's dialog.
+    await click([...surface()!.querySelectorAll("button")].find((b) => b.textContent === "Auf Original zurücksetzen…"));
+    expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "map", index: 3 });
+  });
+
+  it("aenderungen_subtitle_counts_the_entries", async () => {
+    const show = (changes: TechnikAreaProps["changes"], status: OriginalStatus | null = READY, project?: string | null) =>
+      act(async () => root.render(withReset(resetSpy(status), <Host changes={changes} {...(project === undefined ? {} : { project })} />)));
+    await show(null, null, null);
+    expect(subtitle("Änderungen")).toBe("Kein Projekt geöffnet");
+    await show(changesWith({ report: null }), MISSING);
+    expect(subtitle("Änderungen")).toBe("Basis-ROM fehlt");
+    await show(changesWith({ report: null, busy: true }));
+    expect(subtitle("Änderungen")).toBe("Vergleiche …");
+    // A later compare runs over the report before: still „Vergleiche …“.
+    await show(changesWith({ report: report({ entries: [entry()] }), busy: true }));
+    expect(subtitle("Änderungen")).toBe("Vergleiche …");
+    await show(changesWith({ report: report() }));
+    expect(subtitle("Änderungen")).toBe("Keine Abweichung");
+    await show(changesWith({ report: report({ entries: [entry()] }) }));
+    expect(subtitle("Änderungen")).toBe("1 Eintrag weicht ab");
+    await show(changesWith({ report: report({ entries: [entry(), entry({ label: "Karte 0004" }), entry({ label: "Karte 0005" })] }) }));
+    expect(subtitle("Änderungen")).toBe("3 Einträge weichen ab");
   });
 
   it("veroeffentlichen_subtitle_follows_the_base_state", async () => {

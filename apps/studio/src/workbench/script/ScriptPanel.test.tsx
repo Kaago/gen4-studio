@@ -50,10 +50,11 @@ describe("ScriptPanel", () => {
   let api: ScriptsApi;
   let events: EditEvent[];
   const onError = vi.fn();
+  const onSaved = vi.fn();
   let reset = resetSpy();
 
   function Host({ project, depth = "bauen" }: { project: ProjectInfo | null; depth?: Depth }) {
-    const { api: scripts } = useScripts({ info: project, bus, problems, onError });
+    const { api: scripts } = useScripts({ info: project, bus, problems, onError, onSaved });
     api = scripts;
     return <ScriptPanel context={{ project, scripts, problems, bus, depth, onError }} />;
   }
@@ -69,6 +70,7 @@ describe("ScriptPanel", () => {
     bus.subscribe(() => true, (e) => events.push(e));
     problems = new ProblemsStore();
     onError.mockReset();
+    onSaved.mockReset();
     vi.mocked(scriptsStatus).mockReset().mockResolvedValue(ADOPTED);
     vi.mocked(adoptScripts).mockReset();
     vi.mocked(readScript).mockReset().mockImplementation(async (file) => ({ kind: "script", text: file === 2 ? "script Other #1:\n" : SCRIPT }));
@@ -383,6 +385,24 @@ describe("ScriptPanel", () => {
     typeAt(0, "z");
     await act(async () => api.save(42).catch(() => {}));
     expect(edited()).toBe(5);
+  });
+
+  it("tells_the_app_after_every_save_of_a_script_file", async () => {
+    // Technik › Änderungen compares the saved members again: the editor's save and the level-script form's count, a refused one does not.
+    await render();
+    await open(42);
+    typeAt(0, "x");
+    await act(async () => api.save(42));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    act(() => api.onLevelScriptSaved(projectA, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    vi.mocked(saveScript).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
+    typeAt(0, "z");
+    await act(async () => api.save(42).catch(() => {}));
+    expect(onSaved).toHaveBeenCalledTimes(2);
+    // Another project's form save is not this one's.
+    act(() => api.onLevelScriptSaved(projectB, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
+    expect(onSaved).toHaveBeenCalledTimes(2);
   });
 
   it("editor_saves_without_lsp", async () => {

@@ -30,6 +30,7 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
+import { useChanges } from "./technik/useChanges";
 import { OriginalProvider } from "./original/OriginalContext";
 import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
@@ -129,6 +130,9 @@ const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(S
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
 
+/** The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again). */
+const AGENT_SAVES: ReadonlySet<string> = new Set(["save", "save_script", "save_level_script", "build_rom", "create_patch", "reset_to_original"]);
+
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
 
@@ -217,7 +221,11 @@ function AppBody() {
   });
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
-  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail });
+  // Saves and resets the session does not count (a script saved, an original reset, an agent's save or reset): Technik › Änderungen
+  // compares again after each, with the session's own saves and builds (`savedRevision`).
+  const [changedRevision, setChangedRevision] = useState(0);
+  const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
+  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
@@ -356,6 +364,8 @@ function AppBody() {
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
     // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
     if (session.info !== null && event.tool === "assign_base") void original.refresh();
+    // What the saved project holds may differ now: Technik › Änderungen compares again.
+    if (AGENT_SAVES.has(event.tool)) bumpChanged();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
@@ -375,6 +385,7 @@ function AppBody() {
   // typed text: the dialog said that text is lost. An agent's reset comes as an agent event, on the path above (typed text stays there).
   const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
     session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
+    bumpChanged();
     try {
       if (result.changed.length > 0) scene.noteHistoryMoved();
       await reloadChanged(result.changed, true, { discardScripts: true });
@@ -586,6 +597,14 @@ function AppBody() {
   useF6Ring(() => !paletteOpen && !helpOpen);
   // The entry Technik shows; kept while another area shows.
   const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
+  // project, and after a save or a reset since the last compare).
+  const changes = useChanges({
+    project: session.info?.root ?? null,
+    shown: area === "technik" && technikEntry === "aenderungen",
+    ready: original.status?.state === "ready",
+    revision: session.savedRevision + changedRevision,
+  });
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
   const onHeaderPatch = useStableCallback(async () => {
     bus.emit({ topic: "headerTable" });
@@ -938,6 +957,8 @@ function AppBody() {
         }}
         startTown={startTown}
         base={info ? base : null}
+        changes={info ? changes : null}
+        dirty={session.dirtyAssets}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
