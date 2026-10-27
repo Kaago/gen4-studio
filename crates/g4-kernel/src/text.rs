@@ -445,7 +445,7 @@ pub enum TextKeep {
 }
 
 /// Resolves text archive `archive` to one version and records the sync: `Json` encodes the
-/// member from the JSON (like a save), `Member` writes the JSON from the member (like
+/// member from the JSON (its bytes stay as they are), `Member` writes the JSON from the member (like
 /// DSPRE's expand: the editor's language only, message ids `msg_NNNNN`). Either file may be
 /// overwritten, which is the point; the other one is left as it is. Works whatever the
 /// archive's side is. With `Member` in an adopted project, the script files whose headers
@@ -479,8 +479,8 @@ pub fn resolve_conflict(
         TextKeep::Json => {
             let bytes = std::fs::read(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
-            // The warnings come back with the next save or check run.
-            write_archive(&project.root, &json, &member, &doc)?;
+            // The JSON stays as it is. The warnings come back with the next save or check run.
+            encode_member(&project.root, &json, &member, &doc)?;
         }
         TextKeep::Member => {
             let bytes = std::fs::read(&member).map_err(io_at(&member))?;
@@ -556,12 +556,36 @@ fn tmp_path(root: &Path, name: &str) -> PathBuf {
 /// `--newer` rule sees a member that is up to date. Returns the warnings of every message
 /// whose text differs from the member this replaces (every message, when there is none):
 /// a text the archive already had, like a vanilla one, is not reported again. The warnings
-/// never block the save.
+/// never block the save. For the studio as the author of the texts (a store save); where
+/// the JSON is the source, [`encode_member`] leaves it as it is.
 pub fn write_archive(
     root: &Path,
     json_path: &Path,
     member_path: &Path,
     doc: &TextArchiveDoc,
+) -> Result<Vec<Problem>, KernelError> {
+    encode(root, json_path, member_path, doc, true)
+}
+
+/// [`write_archive`] for an archive whose JSON at `json_path` is the source (`doc` read from
+/// it): only the member is written, the JSON's bytes stay as they are (another formatting,
+/// a trailing newline, from Git or an editor). The member gets the JSON's mtime when it would
+/// be newer, so the JSON stays not older than the member, as with [`write_archive`].
+pub fn encode_member(
+    root: &Path,
+    json_path: &Path,
+    member_path: &Path,
+    doc: &TextArchiveDoc,
+) -> Result<Vec<Problem>, KernelError> {
+    encode(root, json_path, member_path, doc, false)
+}
+
+fn encode(
+    root: &Path,
+    json_path: &Path,
+    member_path: &Path,
+    doc: &TextArchiveDoc,
+    write_json: bool,
 ) -> Result<Vec<Problem>, KernelError> {
     let json = doc.to_json();
     let name = member_path
@@ -623,7 +647,11 @@ pub fn write_archive(
                 std::fs::create_dir_all(dir).map_err(io_at(dir))?;
             }
         }
-        write_atomic(root, json_path, &json)?;
+        if write_json {
+            write_atomic(root, json_path, &json)?;
+        } else {
+            keep_not_newer(&tmp_member, json_path)?;
+        }
         std::fs::rename(&tmp_member, member_path).map_err(io_at(member_path))
     })();
     if let Err(e) = published {
@@ -646,6 +674,26 @@ pub fn write_archive(
         }
     }
     Ok(problems)
+}
+
+/// Sets the mtime of the encoded `member` to the one of `json` when it is newer (it was just
+/// written): a JSON left as it is stays not older than its member.
+fn keep_not_newer(member: &Path, json: &Path) -> Result<(), KernelError> {
+    let json_mtime = std::fs::metadata(json)
+        .and_then(|meta| meta.modified())
+        .map_err(io_at(json))?;
+    let file = std::fs::File::options()
+        .write(true)
+        .open(member)
+        .map_err(io_at(member))?;
+    let member_mtime = file
+        .metadata()
+        .and_then(|meta| meta.modified())
+        .map_err(io_at(member))?;
+    if member_mtime > json_mtime {
+        file.set_modified(json_mtime).map_err(io_at(member))?;
+    }
+    Ok(())
 }
 
 /// Whether `member` already holds what `doc` encodes to: same key and same texts. Encoding
@@ -760,7 +808,8 @@ pub(crate) fn encode_archives(project: &Project, archives: &[u16]) -> Result<Enc
         project.ensure_unpacked(AssetKind::TextArchive)?;
     }
     for (n, json, member, doc) in stale {
-        match write_archive(&project.root, &json, &member, &doc) {
+        // The JSON is the source: only the member is written (a JSON from Git keeps its bytes).
+        match encode_member(&project.root, &json, &member, &doc) {
             Ok(warnings) => {
                 for mut problem in warnings {
                     problem.file = relative(&json);

@@ -19,12 +19,13 @@ pub(crate) fn write_atomic(
 
 /// [`write_atomic`], returning the metadata of the file written, taken after the rename
 /// through the handle it was written with (on Unix): it describes that file even when the
-/// path was replaced again right after.
+/// path was replaced again right after. The bytes are in place once this returns `Ok`; a
+/// failure to read the metadata afterwards is no failure of the write and gives `None`.
 pub(crate) fn write_atomic_meta(
     project_root: &Path,
     path: &Path,
     bytes: &[u8],
-) -> Result<std::fs::Metadata, KernelError> {
+) -> Result<Option<std::fs::Metadata>, KernelError> {
     use std::io::Write;
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -61,5 +62,5 @@ pub(crate) fn write_atomic_meta(
     let meta = file.metadata();
     #[cfg(not(unix))]
     let meta = std::fs::metadata(path);
-    meta.map_err(io_at(path))
+    Ok(meta.ok())
 }

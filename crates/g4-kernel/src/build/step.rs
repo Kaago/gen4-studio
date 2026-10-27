@@ -14,7 +14,8 @@
 //! rotom's compile state, chatot's members), which are fingerprinted after it; an input
 //! someone else changes while the step runs is therefore seen as changed by the next build.
 //! Outputs are fingerprinted after the run. A failing step loses its old entry, so the next
-//! build runs it fully. Steps run in order and each is decided right before it runs,
+//! build runs it fully; a step stopped by a text conflict ([`KernelError::TextConflict`],
+//! raised before anything is written) keeps it. Steps run in order and each is decided right before it runs,
 //! so it sees what the steps before it wrote; a step that writes only changed bytes keeps
 //! the steps after it skipped (early cutoff).
 
@@ -469,7 +470,12 @@ pub(crate) fn run_steps_into(
                 }
             }
             Err(e) => {
-                changes.push((id, None));
+                // A text conflict stops a step before it writes anything (rotom, chatot):
+                // its entry still describes the files, so the run after the conflict is
+                // resolved is incremental, not a first build.
+                if !matches!(e, KernelError::TextConflict(_)) {
+                    changes.push((id, None));
+                }
                 match e {
                     KernelError::Compile(found) => problems.extend(found),
                     e => {
@@ -639,6 +645,8 @@ mod tests {
         runs: Cell<u32>,
         last: std::cell::RefCell<Dirty>,
         fail: Cell<bool>,
+        /// Stops with a text conflict before it writes anything.
+        conflict: Cell<bool>,
         external: Cell<Option<&'static [u8]>>,
         own: Cell<bool>,
         slow: Cell<bool>,
@@ -653,6 +661,7 @@ mod tests {
                 runs: Cell::new(0),
                 last: Default::default(),
                 fail: Cell::new(false),
+                conflict: Cell::new(false),
                 external: Cell::new(None),
                 own: Cell::new(false),
                 slow: Cell::new(false),
@@ -679,6 +688,9 @@ mod tests {
             *self.last.borrow_mut() = dirty.clone();
             if self.fail.get() {
                 return Err(KernelError::Build("broken".into()));
+            }
+            if self.conflict.get() {
+                return Err(KernelError::TextConflict(vec![12]));
             }
             std::fs::create_dir_all(p.root.join("out")).unwrap();
             std::fs::copy(p.root.join("in/a"), p.root.join("out/a")).unwrap();
@@ -889,5 +901,32 @@ mod tests {
         step.fail.set(false);
         let rows = run_steps(&p, &[&step]).unwrap();
         assert_eq!(rows[0].reason, Some(NO_STATE));
+    }
+
+    #[test]
+    fn a_step_stopped_by_a_text_conflict_keeps_its_entry() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+        run_steps(&p, &[&step]).unwrap();
+        let entry = BuildState::load(root).steps["copy"].clone();
+        std::fs::write(root.join("in/a"), b"2").unwrap();
+        step.conflict.set(true);
+        assert!(matches!(
+            run_steps(&p, &[&step]).unwrap_err(),
+            KernelError::TextConflict(_)
+        ));
+        assert_eq!(BuildState::load(root).steps["copy"], entry);
+        // Resolved: the step runs on what changed, not as a first build.
+        step.conflict.set(false);
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(
+            (rows[0].status, rows[0].reason),
+            (StepStatus::Incremental, None)
+        );
+        assert_eq!(step.last.borrow().changed, [PathBuf::from("in/a")]);
     }
 }

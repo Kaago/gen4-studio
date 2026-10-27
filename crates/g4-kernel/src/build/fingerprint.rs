@@ -155,8 +155,10 @@ pub(crate) fn hash(path: &Path) -> Result<u64, KernelError> {
 /// (with the hash) and when that `stat` was taken.
 static REMEMBERED: Mutex<Option<HashMap<PathBuf, (Fp, i128)>>> = Mutex::new(None);
 
-/// More files than any project has; past it the memory starts over.
-const REMEMBERED_MAX: usize = 200_000;
+/// Room for one project's sources, outputs and include files several times over (Platinum
+/// has about 3 000) at roughly 250 bytes each, so about 4 MB at most in the long-lived app;
+/// past it the memory starts over (a project switched to fills it again in one compile).
+const REMEMBERED_MAX: usize = 16_384;
 
 /// The xxh3 of the file at `path` like [`hash`], taken from memory when this process hashed
 /// it before and its `stat` has not changed since; by the racy rule only a hash whose file
@@ -438,6 +440,20 @@ mod tests {
         std::fs::write(&path, b"xyz").unwrap();
         set_mtime(&path, old);
         assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"xyz"));
+
+        // Unchanged and not racy: served from memory, the file is not read. A sentinel in
+        // the memory shows it.
+        set_mtime(&path, old);
+        assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"xyz"));
+        if let Some((fp, _)) = REMEMBERED
+            .lock()
+            .unwrap()
+            .as_mut()
+            .and_then(|map| map.get_mut(&path))
+        {
+            fp.xxh3 = Some(7);
+        }
+        assert_eq!(hash_remembered(&path).unwrap(), 7, "from memory");
 
         // A file written just now (racy) is hashed again every time.
         let fresh = dir.path().join("g");

@@ -280,35 +280,31 @@ impl SourceCheck for BuildBaseMissing {
     }
 }
 
+/// The stand-in for the time stamp in the planned path of fix `remove_hidden`
+/// ([`planned_hidden_backup`]): the folder is named when the file is moved, not when the
+/// fix is planned.
+pub(crate) const BACKUP_TIME: &str = "<time>";
+
+/// Where fix `remove_hidden` will move `path` (project-relative, `/`), as its plan shows it:
+/// `.g4/backup/hidden-<time>/<path>`, the time (UTC) taken when the file is moved.
+pub(crate) fn planned_hidden_backup(path: &str) -> String {
+    format!(".g4/backup/hidden-{BACKUP_TIME}/{path}")
+}
+
 /// Where fix `remove_hidden` moves `path` (project-relative, `/`): below
-/// `<root>/.g4/backup/hidden-<stamp>/` (the first of `-2`, `-3` … that does not exist yet).
-/// With `claim` the folder is created (an existing one is never written into); without, it
-/// is only named (the plan).
-pub(crate) fn hidden_backup(
-    root: &Path,
-    stamp: &str,
-    path: &str,
-    claim: bool,
-) -> Result<PathBuf, KernelError> {
+/// `<root>/.g4/backup/hidden-<stamp>/` (the first of `-2`, `-3` … that does not exist yet),
+/// which is created (an existing one is never written into).
+pub(crate) fn hidden_backup(root: &Path, stamp: &str, path: &str) -> Result<PathBuf, KernelError> {
     let backup = root.join(".g4").join("backup");
-    if claim {
-        std::fs::create_dir_all(&backup).map_err(io_at(&backup))?;
-    }
+    std::fs::create_dir_all(&backup).map_err(io_at(&backup))?;
     let base = format!("hidden-{stamp}");
     let mut folder = backup.join(&base);
     let mut n = 2;
     loop {
-        let taken = if claim {
-            match std::fs::create_dir(&folder) {
-                Ok(()) => false,
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => true,
-                Err(e) => return Err(io_at(&folder)(e)),
-            }
-        } else {
-            folder.exists()
-        };
-        if !taken {
-            return Ok(folder.join(path));
+        match std::fs::create_dir(&folder) {
+            Ok(()) => return Ok(folder.join(path)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(io_at(&folder)(e)),
         }
         folder = backup.join(format!("{base}-{n}"));
         n += 1;
@@ -319,7 +315,7 @@ pub(crate) fn hidden_backup(
 /// nothing is deleted. The folder made for it is removed again when the move fails.
 pub(crate) fn remove_hidden(root: &Path, stamp: &str, path: &str) -> Result<PathBuf, KernelError> {
     let from = root.join(path);
-    let to = hidden_backup(root, stamp, path, true)?;
+    let to = hidden_backup(root, stamp, path)?;
     let moved = to
         .parent()
         .map_or(Ok(()), |parent| {

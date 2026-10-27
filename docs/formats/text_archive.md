@@ -116,6 +116,13 @@ Weil `rename` den Zeitstempel der Temp-Datei behält, ist die mtime der JSON dan
 älter als die des Members (ohne Zeitstempel zu setzen). Das hält DSPREs Regel `--newer` ruhig;
 welche Fassung im Studio gilt, entscheidet die Zeit nicht mehr (nächster Abschnitt).
 
+`write_archive` gilt, wo das Studio die Texte verfasst (Speichern im Store). Ist die JSON die
+Quelle (der Build kodiert eine neuere JSON, das Auflösen behält die JSON), schreibt
+`encode_member` nur den Member: Die JSON behält ihre Bytes, auch eine andere Formatierung oder
+ein Zeilenende am Schluss, so bleibt `git status` nach `git switch` und Bauen sauber. Damit die
+JSON nicht älter als der Member ist, bekommt der Member dann die mtime der JSON, wenn seine
+neuer wäre.
+
 ## Welche Fassung gilt
 
 Seit Phase 4.2 entscheiden Fingerabdrücke, nicht die mtime (`text::TextSync`, Implementierung
@@ -162,7 +169,7 @@ Hinweis an (Datei `.g4/build/state.json`, ohne Position): „N text archives wit
 the JSON version applies.“
 
 **Auflösen:** `text::resolve_conflict(project, n, TextKeep)`. `Json` kodiert den Member aus
-der JSON (wie Speichern), `Member` schreibt die JSON aus dem Member (nur die Editorsprache, IDs
+der JSON (die JSON behält ihre Bytes), `Member` schreibt die JSON aus dem Member (nur die Editorsprache, IDs
 `msg_NNNNN`). Beides zeichnet auf; der nächste Build läuft durch. Mit `Member` werden in einem
 übernommenen Projekt die Scriptdateien der Header, die das Archiv verwenden, als veraltet markiert
 (`scripts::mark_stale`): Ein Textliteral, das rotom an die verworfene JSON angehängt hatte, hängt

@@ -869,13 +869,11 @@ fn hidden_file_below_files_is_a_finding_with_remove() {
     assert!(plan.changes.is_empty());
     assert_eq!(plan.files.len(), 1);
     assert_eq!(plan.files[0].path, "files/x/.DS_Store");
-    let to = &plan.files[0].to;
-    let folder = to
-        .strip_prefix(".g4/backup/hidden-")
-        .and_then(|rest| rest.strip_suffix("/files/x/.DS_Store"))
-        .unwrap_or_else(|| panic!("{to}"));
-    // YYYYMMDD-HHMMSS
-    assert_eq!(folder.len(), 15, "{to}");
+    // The folder's time is taken when the file is moved, so the plan names none.
+    assert_eq!(
+        plan.files[0].to,
+        ".g4/backup/hidden-<time>/files/x/.DS_Store"
+    );
     assert!(hidden.exists());
 
     let result = apply_fix(&mut st, &project, &key_of(f), FixId::RemoveHidden).unwrap();

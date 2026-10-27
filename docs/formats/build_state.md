@@ -67,7 +67,9 @@ Schreiber ersetzt die Datei, also ändert jedes Schreiben den `stat`; darauf bau
 der seine Textstände neu lädt, sobald sich der `stat` ändert. Ein Build schreibt die Datei je
 Hälfte einmal: `prepare_for_build` am Ende (dazu die Textstände, die `rotom` und `chatot` aufnehmen),
 `build_prepared` am Ende für alle Pack-, Beobachtungs- und den ROM-Schritt, auch wenn ein Schritt
-scheitert.
+scheitert. Kann der Kernel nach dem Schreiben den `stat` der geschriebenen Datei nicht lesen, merkt
+er sich nichts; das nächste Lesen liest die Datei (`fsutil::write_atomic` scheitert daran nie, die
+Bytes liegen schon).
 
 ## Vergleich
 
@@ -97,7 +99,8 @@ rotoms Übersetzung liest bei jedem Lauf alle Quellen und Ausgaben, um ihre Hash
 `compile-state.json` zu vergleichen. Der Kernel merkt sich diese Hashes im Prozess mit dem `stat`
 der Datei (`fingerprint::hash_remembered`) und nimmt sie nur wieder, wenn der `stat` gleich ist
 und die Datei beim Hashen nicht racy war; die Werte sind dieselben, rotoms Zustand bleibt
-maßgeblich.
+maßgeblich. Der Speicher fasst 16 384 Dateien (ein Projekt hat rund 3 000 Quellen, Ausgaben und
+Include-Dateien; zusammen etwa 4 MB), danach beginnt er von vorn.
 
 ## Entscheidung je Schritt
 
@@ -112,10 +115,12 @@ maßgeblich.
 
 Ein Schritt bekommt seinen Eintrag erst nach Erfolg. Die Eingaben stehen darin so, wie sie vor
 dem Lauf waren (was der Schritt gelesen hat), außer denen, die er selbst schrieb (`StepRun.wrote`:
-rotoms `compile-state.json`, die JSON und Member der kodierten Textarchive); die werden nach dem
+rotoms `compile-state.json`, die Member der kodierten Textarchive); die werden nach dem
 Lauf aufgenommen, ebenso die Ausgaben. Ändert jemand anderes eine Eingabe, während der Schritt
 läuft, sieht der nächste Build sie als geändert. Scheitert ein Schritt, wird sein alter Eintrag
-gelöscht. `prepare_for_build` schreibt die Einträge von `rotom` und
+gelöscht. Ausnahme ist ein Textkonflikt (`KernelError::TextConflict`): `rotom` und `chatot` melden
+ihn, bevor sie etwas schreiben, also behalten sie ihren Eintrag, und der Build nach dem Auflösen
+läuft inkrementell statt mit `no-state` („erster Build“). `prepare_for_build` schreibt die Einträge von `rotom` und
 `chatot`, `build_prepared` die der Pack- und Beobachtungs-Schritte und von `rom`.
 
 ## Werkzeug-Salz
@@ -141,7 +146,9 @@ Schritt einmal voll laufen.
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
 `scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,
 `JsonNewer`, `Unknown`) und deren Texte der Member noch nicht hält; inkrementell dieselbe Regel nur
-für die Archive, deren JSON oder Member sich gegen den Eintrag geändert hat. Ein Archiv mit
+für die Archive, deren JSON oder Member sich gegen den Eintrag geändert hat. Kodiert wird nur der
+Member (`text::encode_member`); die JSON ist die Quelle und behält ihre Bytes (Formatierung, Zeilenende
+am Schluss, wie Git sie auscheckt), der Member bekommt höchstens ihre mtime. Ein Archiv mit
 `Conflict` lässt den Schritt scheitern (`KernelError::TextConflict`), bevor er schreibt. `rom` liefert vier Zeilen: `blz:arm9`, `blz:overlays`, `rom`, `crc`
 (`no-base-mark` ohne Basismarke, `secure-area-changed`, wenn die Secure Area nicht mehr passt).
 

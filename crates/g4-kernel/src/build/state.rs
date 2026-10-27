@@ -193,13 +193,15 @@ impl BuildState {
         std::fs::create_dir_all(&dir).map_err(io_at(&dir))?;
         let bytes = serde_json::to_vec(&state)
             .map_err(|e| KernelError::Build(format!("{}: {e}", path.display())))?;
-        let meta = write_atomic_meta(root, &path, &bytes)?;
-        remember(
-            cache,
-            root,
-            fingerprint::of_metadata(&meta),
-            Arc::new(state),
-        );
+        // Without the written file's metadata nothing is cached: the next load reads it.
+        if let Some(meta) = write_atomic_meta(root, &path, &bytes)? {
+            remember(
+                cache,
+                root,
+                fingerprint::of_metadata(&meta),
+                Arc::new(state),
+            );
+        }
         Ok(())
     }
 

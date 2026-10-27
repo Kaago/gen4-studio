@@ -10,7 +10,7 @@
 //! | `script.message-missing` | `append_message` | empty messages appended up to the missing one, in every readable text archive of the script's headers that lacks it |
 //! | `encounter.min-max` | `swap_min_max` | min and max level of the water slot swapped |
 //! | `event.script-missing` | `create_script` | the empty script `#n` appended to the script file of the event file's first header |
-//! | `build.hidden-file` | `remove_hidden` | the hidden entry moved to `.g4/backup/hidden-<YYYYMMDD-HHMMSS>/<path>` (UTC; `-2`, `-3` … when that folder exists) |
+//! | `build.hidden-file` | `remove_hidden` | the hidden entry moved to `.g4/backup/hidden-<YYYYMMDD-HHMMSS>/<path>` (UTC, the time of the move; `-2`, `-3` … when that folder exists); the plan shows `hidden-<time>` |
 //!
 //! Both first check the finding again on the current state: its check runs on the finding's
 //! subject alone (the other subjects of that kind are hidden from it, so it reads one file).
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
-use super::build::{BuildHiddenFile, hidden_backup, remove_hidden};
+use super::build::{BuildHiddenFile, planned_hidden_backup, remove_hidden};
 use super::data::EncounterMinMax;
 use super::scripts::{EventScriptMissing, ScriptFacts, ScriptMessageMissing};
 use super::text::{End, TextTooWide, lines};
@@ -62,6 +62,7 @@ pub struct FixChange {
 }
 
 /// A file a fix moves (`remove_hidden`): from `path` to `to`, both project-relative with `/`.
+/// In a plan, `to` holds `<time>` where the folder's time (UTC) goes: it is taken at the move.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FixFileChange {
     pub path: String,
@@ -100,13 +101,9 @@ pub fn plan_fix(snap: &Snapshot, finding: &IgnoreKey, fix: FixId) -> Result<FixP
     for edit in edits(snap, finding, fix)? {
         match edit {
             Edit::Hidden { path } => {
-                let root = &snap.project().root;
-                let to = hidden_backup(root, &backup_stamp(), &path, false)?;
-                let to = to.strip_prefix(root).unwrap_or(&to);
-                plan.files.push(FixFileChange {
-                    path,
-                    to: to.to_string_lossy().replace('\\', "/"),
-                });
+                // The folder's time is taken when the file is moved.
+                let to = planned_hidden_backup(&path);
+                plan.files.push(FixFileChange { path, to });
             }
             edit => plan.changes.extend(edit.change()),
         }

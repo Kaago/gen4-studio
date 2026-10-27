@@ -178,20 +178,11 @@ impl Step for ChatotStep {
             problems.push(no_state_hint(unknown));
         }
         let total = numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json"))?.len();
-        // The JSON and member of every encoded archive; all members when this run unpacked
-        // the folder.
+        // The member of every encoded archive (its JSON stays as it is); all members when
+        // this run unpacked the folder.
         let mut wrote: Vec<PathBuf> = encoded
             .iter()
-            .flat_map(|&n| {
-                [
-                    relative(
-                        p,
-                        &p.expanded_dir(AssetKind::TextArchive)
-                            .join(format!("{n:04}.json")),
-                    ),
-                    relative(p, &p.member_path(AssetKind::TextArchive, n)),
-                ]
-            })
+            .map(|&n| relative(p, &p.member_path(AssetKind::TextArchive, n)))
             .collect();
         if !unpacked_before && members.is_dir() {
             wrote.push(relative(p, &members));
@@ -604,6 +595,31 @@ fn written_hash(out: &Path, data: &[u8]) -> Result<u64, KernelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_written_hash_is_the_files_hash_with_its_head_patched() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out.nds");
+        for len in [
+            0x40usize,
+            REWRITTEN_HEAD - 1,
+            REWRITTEN_HEAD,
+            3 * REWRITTEN_HEAD + 5,
+        ] {
+            let data: Vec<u8> = (0..len).map(|i| (i * 7 % 253) as u8).collect();
+            std::fs::write(&out, &data).unwrap();
+            // What `restore_header_crcs` does after ds-rom saved the file.
+            let mut file = std::fs::read(&out).unwrap();
+            file[0x10] ^= 0xff;
+            file[0x3f] ^= 0x5a;
+            std::fs::write(&out, &file).unwrap();
+            assert_eq!(
+                written_hash(&out, &data).unwrap(),
+                xxhash_rust::xxh3::xxh3_64(&file),
+                "{len} bytes"
+            );
+        }
+    }
 
     #[test]
     fn archive_numbers_of_members_and_json() {

@@ -241,7 +241,7 @@ fn both_changed_is_a_conflict_and_the_build_stops_before_writing() {
     );
     assert_eq!(std::fs::read(json_path(&p, 0)).unwrap(), json);
     assert_eq!(std::fs::read(member_path(&p, 0)).unwrap(), member);
-    // Asked again, not skipped: the failed step has no entry.
+    // Asked again, not skipped: the step kept its entry, and both files differ from it.
     assert!(matches!(
         prepare_for_build(&p, &out(&p)).unwrap_err(),
         KernelError::TextConflict(_)
@@ -286,6 +286,61 @@ fn a_branch_switch_changing_the_json_lets_the_json_win() {
     assert_eq!(side(&p, 0), TextSide::InSync);
 }
 
+/// The JSON of archive `n` with `texts`, as another tool writes it: four spaces, a trailing
+/// newline.
+fn write_foreign_json(p: &Project, n: u16, texts: &[&str]) -> Vec<u8> {
+    let doc = TextArchiveDoc::from_member(&common::text_archive_bytes(texts), "en_US").unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&doc.to_json()).unwrap();
+    let mut bytes = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(&mut bytes, formatter);
+    serde::Serialize::serialize(&value, &mut ser).unwrap();
+    bytes.push(b'\n');
+    assert_ne!(bytes, doc.to_json());
+    std::fs::write(json_path(p, n), &bytes).unwrap();
+    bytes
+}
+
+/// What chatot encodes from the JSON at `json` (in a scratch folder).
+fn chatot_member(json: &[u8]) -> Vec<u8> {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = TextArchiveDoc::from_json(json, "en_US").unwrap();
+    let (json_out, member_out) = (dir.path().join("a.json"), dir.path().join("a"));
+    text::write_archive(dir.path(), &json_out, &member_out, &doc).unwrap();
+    std::fs::read(member_out).unwrap()
+}
+
+#[test]
+fn the_build_leaves_the_bytes_of_a_json_it_encodes() {
+    let (_s, p) = synced();
+    prepare_for_build(&p, &out(&p)).unwrap();
+    // `git switch` writes the branch's JSON, formatted by another tool.
+    let json = write_foreign_json(&p, 0, &["Aus Git"]);
+    age(&json_path(&p, 0), 2 * HOUR);
+    assert_eq!(side(&p, 0), TextSide::JsonNewer);
+
+    let prepared = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(prepared.encoded, [0]);
+    assert_eq!(
+        std::fs::read(json_path(&p, 0)).unwrap(),
+        json,
+        "JSON untouched"
+    );
+    assert_eq!(
+        std::fs::read(member_path(&p, 0)).unwrap(),
+        chatot_member(&json)
+    );
+    // The JSON stays not older than its member (DSPRE's `--newer`).
+    let mtime = |path: PathBuf| std::fs::metadata(path).unwrap().modified().unwrap();
+    assert!(mtime(json_path(&p, 0)) >= mtime(member_path(&p, 0)));
+    // The sync holds the JSON as it is: the next build has nothing to do for the texts.
+    assert_eq!(side(&p, 0), TextSide::InSync);
+    let prepared = prepare_for_build(&p, &out(&p)).unwrap();
+    assert!(prepared.encoded.is_empty(), "{prepared:?}");
+    assert_eq!(row(&prepared.steps, "chatot").status, StepStatus::Skipped);
+    assert_eq!(std::fs::read(json_path(&p, 0)).unwrap(), json);
+}
+
 /// [`synced`] after one build, with archive 0 changed on both sides.
 fn conflicted() -> (common::Synthetic, Project) {
     let (s, p) = synced();
@@ -302,13 +357,25 @@ fn conflicted() -> (common::Synthetic, Project) {
 #[test]
 fn resolve_keeps_the_json() {
     let (_s, p) = conflicted();
+    let json = write_foreign_json(&p, 0, &["JSON-Fassung"]);
     resolve_conflict(&p, 0, TextKeep::Json).unwrap();
     assert_eq!(side(&p, 0), TextSide::InSync);
     assert_eq!(member_texts(&p, 0), ["JSON-Fassung"]);
-    assert_eq!(json_texts(&p, 0), ["JSON-Fassung"]);
+    assert_eq!(
+        std::fs::read(json_path(&p, 0)).unwrap(),
+        json,
+        "JSON untouched"
+    );
     let prepared = prepare_for_build(&p, &out(&p)).unwrap();
     assert!(prepared.encoded.is_empty(), "{prepared:?}");
     assert_eq!(member_texts(&p, 0), ["JSON-Fassung"]);
+    // The conflict stopped `chatot` before it wrote anything: it kept its entry and now
+    // runs on the resolved archive, not as a first build.
+    let chatot = row(&prepared.steps, "chatot");
+    assert_eq!(
+        (chatot.status, chatot.reason),
+        (StepStatus::Incremental, None)
+    );
 }
 
 #[test]
