@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BuildStep } from "../api";
 import { visibleWords } from "../ui/visibleText";
@@ -80,6 +81,18 @@ describe("BuildSteps", () => {
     // Tüfteln keeps the folder name and shows the step's identifier beside the words.
     expect(rows().find((r) => r.dataset.step === "pack:pokeHeight")?.querySelector("td")?.textContent).toBe("pokeHeight packenpack:pokeHeight");
     expect(container.textContent).not.toContain("dynamicHeaders");
+  });
+
+  it("tuefteln_shows_a_long_identifier_whole_and_lets_it_wrap_instead_of_cutting_it", () => {
+    const long = "pack:exteriorBuildingModelsAndTheirAreaData";
+    act(() => root.render(<BuildSteps steps={[step(long, { status: "full", total: 3 })]} depth="tuefteln" />));
+    const id = container.querySelector<HTMLElement>("tr[data-step] td span span");
+    expect(id?.textContent).toBe(long);
+    // jsdom lays nothing out: the stylesheet itself must not cut the identifier (no ellipsis, no nowrap) and must let it break anywhere.
+    const css = readFileSync("src/technik/BuildSteps.module.css", "utf8");
+    const rule = /\.id\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("overflow-wrap: anywhere");
+    expect(rule).not.toMatch(/text-overflow|white-space\s*:\s*nowrap|overflow\s*:\s*hidden/);
   });
 
   it("without_skipped_steps_has_no_fold", () => {
