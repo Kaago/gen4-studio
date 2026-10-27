@@ -1,6 +1,6 @@
 # Phase 4.1a: Gate prüfen
 
-Stand: 2026-10-27. Branch `phase-4-1a-basis-rom-patch` (Worktree `.claude/worktrees/phase-4-1a`, Basis `d25f61d`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik (der volle Lauf von `scripts/gate.sh` gegen alle drei Projekte: wird nachgetragen), (2) Szenario kopflos und (3) Browser-Teil mit MCP auf dem Stand `24bea52` (16 Commits `bf2921f` bis `24bea52`); die drei Befunde der Gate-Runde (B1, B2, U1) sind behoben, je mit eigenem Commit. Beim Nutzer offen: Rom Patcher JS mit der eigenen Basis-ROM (Hand), xdelta UI unter Windows (Hand, kein Windows) und der Blick auf Technik › Veröffentlichen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
+Stand: 2026-10-27. Branch `phase-4-1a-basis-rom-patch` (Worktree `.claude/worktrees/phase-4-1a`, Basis `d25f61d`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik (der volle Lauf von `scripts/gate.sh` gegen alle drei Projekte, grün auf `bd383f8` in 4 091 s), (2) Szenario kopflos und (3) Browser-Teil mit MCP auf dem Stand `24bea52` (16 Commits `bf2921f` bis `24bea52`); die drei Befunde der Gate-Runde (B1, B2, U1) sind behoben, je mit eigenem Commit. Beim Nutzer offen: Rom Patcher JS mit der eigenen Basis-ROM (Hand), xdelta UI unter Windows (Hand, kein Windows) und der Blick auf Technik › Veröffentlichen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
 
 Phase 4.1a bringt Basis-ROM und Patch: Ein DSPRE-Ordner bekommt über „Basis-ROM zuordnen…“ (App, MCP, `g4k base assign`) die Basismarke v2 mit `origin: "dspre"` und baut danach byte-gleich zu seiner `.nds`. Das Studio findet die Basis-ROM über die SHA-1 (App-Einstellung `base-roms.json`, kopflos `--base-rom` und `G4_BASE_ROM_DIR`), liest sie mit dem Kernel-Modul `base` und schreibt in Technik › Veröffentlichen › „Patch erstellen…“ einen selbstgeprüften xdelta-Patch `build/<Projekt>-<Spielcode>.xdelta` mit Begleitdatei `.xdelta.txt` (xdelta3 3.0.12 im Crate `g4-xdelta`, ohne Zweitkompression, mit Adler32, Basis-SHA-1 im App-Header). `cargo deny check licenses advisories` ist ein Schritt von `scripts/gate.sh`. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 4“, Punkt „4.1a Basis-ROM und Patch“. Entscheidungen: [entscheidungen.md](research/2026-10-27-phase-4/entscheidungen.md), Abschnitt „Basis-ROM und Patch (Gutachten B, 4.1)“. Plan: [2026-10-27-phase-4-1a-basis-rom-patch.md](superpowers/plans/2026-10-27-phase-4-1a-basis-rom-patch.md).
 
@@ -38,8 +38,8 @@ So durchgeführt am 2026-10-27:
    - `base_rom_members_equal_the_vanilla_folders`: die Archive aus der ROM gleich den Ordnern;
    - `base_rom_header_table_equals_the_vanilla_project`: die Header-Tabelle aus dem ARM9 der ROM gleich der des Projekts;
    - `patch_after_map_and_after_map_script_text_is_small_and_applies`: Patch nach einer Kartenänderung ≤ 1 KiB, nach Karte, Script und Text ≤ 16 KiB, Erzeugen ≤ 1 s, angewandt mit dem eigenen Decoder und mit `xdelta3 -d` gleich; dazu die Stresszeile Textarchiv 0 ohne Grenze.
-- [x] 2. `cargo deny (licenses, advisories)` als Schritt von `scripts/gate.sh` (nach clippy); `deny.toml` mit sieben Ausnahmen je RUSTSEC-ID, jede mit Grund. Grün im Lauf von `scripts/gate.sh` auf `85cb37f` („advisories ok, licenses ok“, nach `cargo fmt --check` und `cargo clippy -D warnings`; der Lauf wurde danach für die letzte Fix-Runde angehalten); voller Lauf: wird nachgetragen.
-- [ ] 3. `scripts/gate.sh` grün gegen alle drei Projekte: **wird nachgetragen** (Ergebnis und Dauer, Log `target/agent/gate-2026-10-27/4-1a/gate-sh.log`).
+- [x] 2. `cargo deny (licenses, advisories)` als Schritt von `scripts/gate.sh` (nach clippy); `deny.toml` mit sieben Ausnahmen je RUSTSEC-ID, jede mit Grund. Grün im Lauf von `scripts/gate.sh` auf `85cb37f` („advisories ok, licenses ok“, nach `cargo fmt --check` und `cargo clippy -D warnings`; der Lauf wurde danach für die letzte Fix-Runde angehalten); im vollen Lauf auf `bd383f8` grün in 4 s.
+- [x] 3. `scripts/gate.sh` grün gegen alle drei Projekte: grün auf `bd383f8` in 4 091 s (Log `target/agent/gate-2026-10-27/4-1a/gate-sh.log`). Lauf 2 auf demselben Stand war rot, nur im gated `tests/build.rs` von HeartGold US (3 Tests: die Kopie im Temp-Ordner hatte `config.yaml` und `header.yaml` verloren, daher `NotAProject` und „dsrom build failed“); einzeln wiederholt 3/3 grün in 103 s, Lauf 3 grün. Der Fehler ließ sich nicht nachstellen; er berührt keinen Code von 4.1a (Log `gate-sh-lauf2-hgus-rot.log`).
 
 Einzeln, je Projekt, aus der Wurzel des Worktrees (so gelaufen am 2026-10-27 auf `24bea52`, Log `gated-base.log`):
 
@@ -118,8 +118,8 @@ Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): Rom Patcher JS im Bro
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
 | (1) 1 gated `--test base` | Agent | bestanden: je 4/4 auf Platin DE, HeartGold DE, HeartGold US; Rebuild byte-gleich, Patch Karte 551 bis 552 B, Karte + Script + Text 3 026 bis 8 227 B, Erzeugen ≤ 197 ms, `xdelta3 -d` gleich (Tabelle oben) | 2026-10-27 |
-| (1) 2 `cargo deny` | Agent | grün im Lauf von `scripts/gate.sh` auf `85cb37f` („advisories ok, licenses ok“), sieben Ausnahmen mit Grund in `deny.toml`; voller Lauf: wird nachgetragen | 2026-10-27 |
-| (1) 3 `scripts/gate.sh` | Agent | wird nachgetragen | – |
+| (1) 2 `cargo deny` | Agent | grün im Lauf von `scripts/gate.sh` auf `85cb37f` („advisories ok, licenses ok“), sieben Ausnahmen mit Grund in `deny.toml`; im vollen Lauf auf `bd383f8` grün | 2026-10-27 |
+| (1) 3 `scripts/gate.sh` | Agent | bestanden auf `bd383f8`, 4 091 s; Lauf 2 rot nur in HeartGold US `tests/build.rs` (Temp-Kopie ohne `config.yaml`), einzeln und in Lauf 3 grün | 2026-10-27 |
 | (2) 1 bis 3 Zuordnen und Rebuild | Agent | bestanden: Vorschlag, Zuordnen ohne Warnung, Rebuild-SHA-1 gleich der `.nds` auf allen drei Kopien | 2026-10-27 |
 | (2) 4 fremder Spielcode | Agent | bestanden: „Falsches Spiel: die ROM ist IPKD, das Projekt CPUD.“, Exit 1 | 2026-10-27 |
 | (2) 5 unbekannte SHA-1 | Agent | bestanden: Warnung „Unbekannte oder veränderte ROM …“, Exit 0 | 2026-10-27 |
@@ -140,7 +140,7 @@ Patch-Größen je Spiel (gated Lauf (1), `patch_after_map_and_after_map_script_t
 | HeartGold DE | ja (`13b6853a…`) | 552 B | 3 043 B | 142 / 197 | 136 / 135 | ja |
 | HeartGold US | ja (`4fcded0e…`) | 552 B | 3 026 B | 140 / 195 | 136 / 135 | ja |
 
-`scripts/gate.sh`: **wird nachgetragen** (Ergebnis und Dauer).
+`scripts/gate.sh` auf `bd383f8`: grün in 4 091 s. Schritte in Sekunden: fmt 2, clippy 6, deny 4, `cargo test` ohne ROM 79, mcp 23, `pnpm test` 247, tokens 1, styles 6, `pnpm build` 41, g4emu 17 + 9, gated `cargo test` HeartGold DE 969, HeartGold US 1 450, Platin DE 1 120, gated Projektstart 44 / 37 / 36.
 
 ## Befunde
 

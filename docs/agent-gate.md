@@ -761,7 +761,7 @@ Je Szenario eine frische Kopie (die Namen oben sind Beispiele; das Ziel darf nic
 | Blick | Agent + Blick | Bilder `blick-veroeffentlichen-*.png`, der Agent nennt Zustand und Texte je Bild |
 | Rom Patcher JS, xdelta UI | Hand | siehe „Was beim Nutzer bleibt“ |
 
-Aus einem Worktree lösen `-p g4-kernel` und `--test` den Download von rotom aus (siehe [dev-setup.md](dev-setup.md), „In einem Git-Worktree“): dort `cargo test --workspace --all-features --test base -- --nocapture --test-threads 1` und `cargo build --release --workspace --all-features` statt der Befehle mit `-p`.
+Löst `-p g4-kernel` in einem Worktree den Download von rotom aus (siehe [dev-setup.md](dev-setup.md), „In einem Git-Worktree“), dann über den ganzen Workspace mit Namensfilter: `cargo test --workspace --all-features -- base_assign base_rom patch_after_map --nocapture --test-threads 1` und `cargo build --release --workspace --all-features`. Im Gate 4.1a lief `-p g4-kernel` im Worktree ohne Download.
 
 **Kopflos (2)**, aus der Wurzel des Worktrees nach `cargo build --release -p g4-kernel --bin g4k` (`K` ist `$G4_ROMS_DIR/_testkopien`, `<k>` je Spiel):
 
