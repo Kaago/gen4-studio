@@ -173,6 +173,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
     ("register_base_rom", APP_ONLY),
     ("create_patch", Kind::Irreversible("Patch erstellen")),
+    ("text_check", Kind::Read),
+    ("text_export", Kind::Irreversible("Textprojekt exportieren")),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -363,6 +365,7 @@ mod tests {
                     Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
                 ),
                 ("run_rom", Kind::Irreversible("ROM im Emulator starten")),
+                ("text_export", Kind::Irreversible("Textprojekt exportieren")),
             ]
         );
         // The agent hub's commands: `agent_commands_are_app_only`.

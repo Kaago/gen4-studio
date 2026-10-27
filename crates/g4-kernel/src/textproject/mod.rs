@@ -42,7 +42,7 @@ pub(crate) mod step;
 pub mod symbols;
 
 pub use check::{CheckReport, check, sources};
-pub use export::{ArtStats, ExportOptions, ExportReport, export};
+pub use export::{ArtStats, ExportOptions, ExportReport, NOT_ADOPTED, export};
 pub use import::{ImportReport, import};
 pub use schema::data::item_owners;
 

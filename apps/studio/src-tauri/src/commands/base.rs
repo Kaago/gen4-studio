@@ -124,6 +124,16 @@ fn base_missing(message: String) -> CmdError {
     }
 }
 
+/// The mark of the project at `root` and where its base ROM is; without a found base ROM
+/// `base_missing` with the status's reason (or [`NO_MARK`]).
+pub(crate) fn found_base(state: &AppState, root: &Path) -> Result<(BaseMark, Located), CmdError> {
+    match base_of(state, root) {
+        Base::Found(mark, hit) => Ok((mark, hit)),
+        Base::Unassigned(_) => Err(base_missing(NO_MARK.to_owned())),
+        Base::Missing(_, reason) | Base::Unreadable(reason) => Err(base_missing(reason)),
+    }
+}
+
 /// The base ROM of the open project; searches it like the patch does.
 pub fn base_status_impl(state: &AppState) -> Result<BaseStatusDto, CmdError> {
     let project = open_project(state)?;
@@ -207,11 +217,7 @@ pub(crate) fn create_patch_checked(
     check: &dyn Fn(&PatchTargets) -> Result<(), CmdError>,
 ) -> Result<PatchDto, CmdError> {
     let project = open_project(state)?;
-    let (mark, hit) = match base_of(state, &project.root) {
-        Base::Found(mark, hit) => (mark, hit),
-        Base::Unassigned(_) => return Err(base_missing(NO_MARK.to_owned())),
-        Base::Missing(_, reason) | Base::Unreadable(reason) => return Err(base_missing(reason)),
-    };
+    let (mark, hit) = found_base(state, &project.root)?;
     let targets = patch::default_targets(&project);
     check(&targets)?;
     let rom = targets.rom.to_str().ok_or_else(|| {

@@ -265,6 +265,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "project_preview_set",
     "assign_base",
     "create_patch",
+    "text_export",
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -3429,5 +3430,59 @@ mod tests {
         let refused = Err(ToolError::error("nein"));
         assert!(scripts_written("save_script", &json!({ "file": 0 }), &refused).is_empty());
         assert!(scripts_written("data_edit", &json!({}), &ok(json!([]))).is_empty());
+    }
+
+    #[test]
+    fn batch_refuses_text_export() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for call in [
+            json!({ "tool": "text_export", "arguments": {} }),
+            json!({ "tool": "g4_call", "arguments": { "command": "text_export", "args": {} } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("text_export geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+    }
+
+    #[test]
+    fn text_export_needs_confirmation_and_text_check_only_reads() {
+        let (fixture, toolbox) = open_toolbox(WRITE);
+        let (code, message, _) = failed(toolbox.call("text_export", json!({}), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.starts_with(
+                "text_export lässt sich nicht rückgängig machen (Textprojekt exportieren)"
+            ),
+            "{message}"
+        );
+        assert!(!fixture.dir.path().join("g4-project.json").exists());
+
+        let (_fixture, toolbox) = open_toolbox(READ);
+        let report = toolbox.call("text_check", json!({}), AGENT).unwrap();
+        assert_eq!(report["schema"], json!({ "state": "missing" }), "{report}");
+    }
+
+    #[test]
+    fn shared_text_export_asks_then_refuses_unadopted_scripts() {
+        let d = shared_dspre();
+        crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
+        let user = answer_next(&d.state, "allow");
+        let (code, message, _) = failed(d.toolbox.call("text_export", json!({}), AGENT));
+        let question = user.join().unwrap();
+        assert_eq!(question.what.as_deref(), Some("Textprojekt exportieren"));
+        assert_eq!(code, "not_adopted", "{message}");
+        assert_eq!(message, g4_kernel::textproject::NOT_ADOPTED);
+        assert!(!d.root.join("g4-project.json").exists());
     }
 }

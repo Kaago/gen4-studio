@@ -1086,6 +1086,29 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("create_patch"),
     },
+    // Text project (4.3a).
+    ToolDef {
+        name: "text_check",
+        title: "Check text project",
+        description: "Checks the text project (g4-project.json, data/) without writing: schema \
+                      version, problems with file and line, and the members an import would \
+                      write.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("text_check"),
+    },
+    ToolDef {
+        name: "text_export",
+        title: "Export text project",
+        description: "Writes the project as a text project: g4-project.json and one JSON per \
+                      entity under data/ with symbolic ids, binary parts only where they differ \
+                      from the base ROM; needs a saved project, adopted scripts and the base \
+                      ROM; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("text_export"),
+    },
 ];
 
 /// The argument of `check_base` and `assign_base`.
@@ -1240,6 +1263,7 @@ mod tests {
                 "project_preview_get",
                 "base_status",
                 "check_base",
+                "text_check",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1283,6 +1307,7 @@ mod tests {
             "assign_base",
             "create_patch",
             "resolve_text_conflicts",
+            "text_export",
         ]
         .into_iter()
         .collect();
@@ -1414,6 +1439,7 @@ mod tests {
             "assign_base",
             "create_patch",
             "resolve_text_conflicts",
+            "text_export",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1562,6 +1588,8 @@ mod tests {
                 "resolve_text_conflicts",
                 json!({ "choices": [{ "archive": 433, "keep": "json" }] }),
             ),
+            ("text_check", json!({})),
+            ("text_export", json!({})),
         ]
     }
 

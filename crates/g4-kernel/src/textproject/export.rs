@@ -44,8 +44,9 @@ use super::symbols::SymbolKind;
 /// The refusal of a project without base mark.
 const NO_MARK: &str =
     "Das Projekt kennt seine Basis-ROM nicht (.g4/base.json fehlt): erst eine Basis-ROM zuordnen.";
-/// The refusal of a project whose scripts are not adopted, without `adopt_scripts`.
-const NOT_ADOPTED: &str = "Die Scripts sind noch nicht übernommen (adopt_scripts).";
+/// The refusal of a project whose scripts are not adopted, without `adopt_scripts` (the app
+/// answers it with its own code).
+pub const NOT_ADOPTED: &str = "Die Scripts sind noch nicht übernommen (adopt_scripts).";
 
 pub struct ExportOptions {
     /// Adopt the scripts first when they are not (`scripts::adopt`), else refuse.

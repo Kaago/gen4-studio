@@ -166,6 +166,8 @@ pub const COMMANDS: &[&str] = &[
     "assign_base",
     "register_base_rom",
     "create_patch",
+    "text_check",
+    "text_export",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -832,6 +834,8 @@ pub fn dispatch(
                 Ok(())
             })
         }),
+        "text_check" => run!(json, "text_check", args, {}, |_a| text_check_impl(state)),
+        "text_export" => run!(json, "text_export", args, {}, |_a| text_export_impl(state)),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1162,6 +1166,8 @@ mod tests {
             ("assign_base", json!({ "nds": per_in })),
             ("register_base_rom", json!({ "path": per_in })),
             ("create_patch", json!({})),
+            ("text_check", json!({})),
+            ("text_export", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

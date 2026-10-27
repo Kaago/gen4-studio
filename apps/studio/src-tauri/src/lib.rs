@@ -42,6 +42,7 @@ use commands::{assign_base, base_status, check_base, create_patch, register_base
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{project_preview_get, project_preview_set};
+use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
 use std::sync::Arc;
@@ -187,7 +188,9 @@ pub fn run() {
             check_base,
             assign_base,
             register_base_rom,
-            create_patch
+            create_patch,
+            text_check,
+            text_export
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

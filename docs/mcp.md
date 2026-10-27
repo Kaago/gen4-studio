@@ -163,6 +163,7 @@ Unumkehrbar sind diese Gruppen:
 - **Patch erstellen:** `create_patch` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit Begleitdatei `build/<Name>.xdelta.txt` (ein alter Patch wird ersetzt; scheitert die Selbstprüfung, bleibt er);
 - **Textkonflikt auflösen:** `resolve_text_conflicts` (überschreibt je Textarchiv die JSON oder den Member, siehe „Textkonflikt beim Bauen“);
 - **Welt leeren** (seit 3g.2, nur über `g4_call`): `apply_empty_region` legt die Vorlage „Leere Region mit Startstadt“ an; der Store-Schritt lässt sich zurücknehmen, die neuen Dateien (Rand-Karte, Level-Script, Start-Script) bleiben auf der Platte.
+- **Textprojekt exportieren** (seit 4.3a): `text_export` schreibt `g4-project.json` und `data/` (und löscht dort, was der Export nicht mehr schreibt), am Verlauf vorbei; in der App fragt der Aufruf mit „Textprojekt exportieren“. `text_import` gibt es über MCP erst mit 4.3b (bis dahin `g4k text import`).
 
 ## Werkzeuge
 
@@ -216,6 +217,8 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `resolve_text_conflicts` | unumkehrbar | entscheidet je Textarchiv, dessen JSON und Member sich seit dem letzten Bauen beide geändert haben, welche Fassung gilt (`keep`: `json` oder `member`); die andere wird überschrieben |
 | `g4_call` | nur mit `--expert` | führt einen Editor-Befehl beim Namen aus (siehe „Expertenmodus“) |
 | `g4_commands` | nur mit `--expert` | listet die Befehle, die `g4_call` ausführen kann, mit ihrer Art |
+| `text_check` | lesend | prüft das Textprojekt (`g4-project.json`, `data/`) wie ein Import, ohne etwas zu schreiben: `schema` (`state` `missing`, `current`, `older` oder `newer` mit `version`), `problems` mit Datei, Zeile und Spalte, `differs` mit den Membern, die ein Import schreiben würde |
+| `text_export` | unumkehrbar | schreibt das Projekt als Textprojekt: `g4-project.json` und je Entität eine JSON unter `data/` mit symbolischen IDs, Binäres nur, wo es von der Basis-ROM abweicht; antwortet mit dem Bericht des Exports (je Art, Blobs, Texte, Dateien). Lehnt ab mit `unsaved` bei ungespeicherten Änderungen, `base_missing` ohne gefundene Basis-ROM (mit dem Grund wie bei `create_patch`) und `not_adopted`, solange die Scripts nicht übernommen sind (`adopt_scripts` ist ein eigener Schritt in der App); dabei wird nichts geschrieben |
 
 Die Antworten sind JSON. Jedes Werkzeug antwortet mit `structuredContent = {"result": …}` und einem Textblock mit demselben JSON (`project_preview_get` und `project_preview_set` legen das Bild zusätzlich als Bild-Inhaltsblock `image/png` daneben, nicht ins JSON); die Schemas stehen in `tools/list` (`inputSchema` und `outputSchema`). Eingaben sind geschlossen: Ein unbekannter Schlüssel ist ein Fehler („Unbekanntes Argument für get_header: foo“). Jedes Werkzeug trägt Hinweise, damit ein Client erkennt, was er ohne Rückfrage ausführen darf: `readOnlyHint` und `idempotentHint` (beide wahr bei lesenden Werkzeugen, sonst falsch) und `openWorldHint` (überall falsch). Nur nicht lesende Werkzeuge tragen zusätzlich `destructiveHint`: wahr bei unumkehrbaren und bei denen, die es je nach Argument sind (`build_rom`, `apply_fix`), falsch bei den übrigen schreibenden. `g4_batch` und `g4_call` gelten mit `--read-only` als lesend, sonst als schreibend; `destructiveHint` tragen sie nur mit `--allow-irreversible`.
 
@@ -225,6 +228,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 
 - Ein Befehl, der fehlschlägt, ist ein **Werkzeug-Fehler** (`isError: true`) mit `structuredContent = {code, message, details}`; die Meldung ist deutsch und kommt aus dem Kern (etwa bei einem Header, den es nicht gibt). Codes: `error` (allgemein), `unavailable` (Befehl für Agenten nicht verfügbar), `read_only` („Nur lesen: … ändert das Projekt“; in der App die Sätze unter „Fehler in der App“), `needs_confirmation` (unumkehrbar: kopflos nur mit `--allow-irreversible`, in der App nur nach „Zulassen“), `text_conflict` (siehe „Textkonflikt beim Bauen“), `no_project` und `not_permitted` (nur in der App, siehe „Fehler in der App“), `base_missing` (`create_patch` ohne gefundene Basis-ROM; die Meldung nennt den Grund, etwa „Diesem Projekt ist keine Basis-ROM zugeordnet.“ oder „Basis-ROM nicht gefunden: …“), `batch_failed` (ein Aufruf im Batch schlug beim Ausführen fehl; `details` nennt `index`, `tool`, `error` und `rolled_back`).
 - `g4_batch` prüft alle Aufrufe, bevor der erste läuft. Ein Aufruf eines unbekannten Werkzeugs, mit einem unbekannten Schlüssel oder eines Befehls, der nicht in einen Batch darf (siehe „Batch“), lehnt den ganzen Batch vorab mit Code `error` ab („Aufruf 0 (…): …“, `details` mit `index` und `tool`); ein Aufruf, den der Zugang nicht erlaubt, mit dessen Code (`read_only`, `needs_confirmation`). Dabei läuft nichts. `batch_failed` gibt es nur, wenn ein Aufruf erst beim Ausführen scheitert.
+- `text_export` hat drei eigene Codes, bevor es etwas schreibt: `unsaved` („Erst speichern: N ungespeicherte Änderungen.“), `base_missing` (wie bei `create_patch`) und `not_adopted` („Die Scripts sind noch nicht übernommen (adopt_scripts).“); andere Ablehnungen des Exports (etwa Diamant/Perl, eine andere Schemaversion oder ein Textkonflikt mit `text_conflict`) kommen mit der Meldung des Kerns.
 - Ein unbekanntes Werkzeug oder eine unbekannte Ressource ist ein **Protokollfehler**: JSON-RPC -32602 für ein unbekanntes Tool („Unbekanntes Tool: set_header“), -32002 für eine unbekannte Ressource („Unbekannte Ressource: …“). Das gilt auch für ein schreibendes Werkzeug mit `--read-only` und für `g4_call` ohne `--expert` (in der App: ohne „Expertenwerkzeuge (g4_call)“). Scheitert das Lesen einer bekannten Ressource (etwa ein Script vor dem Übernehmen), ist das -32602 mit `code` und `details` in den Daten.
 
 ### Textkonflikt beim Bauen
@@ -244,6 +248,7 @@ Ein Textarchiv liegt zweimal im Projekt: als JSON unter `expanded/textArchives/`
 - Bauen und Exportieren: `build_rom`, `export_map_part`;
 - Vorschaubild: `project_preview_set`;
 - Basis-ROM und Patch: `assign_base`, `create_patch`;
+- Textprojekt: `text_export`;
 - Prüf-Einstellungen in `g4-checks.json`: `accept_baseline`, `ignore_finding`, `unignore_finding`, `set_check_enabled`;
 - `g4_batch` selbst („g4_batch kann sich nicht selbst enthalten“).
 
