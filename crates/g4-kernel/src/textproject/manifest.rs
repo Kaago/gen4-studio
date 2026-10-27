@@ -81,8 +81,9 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
     if let Some(text) = refusal(state) {
         return Err(KernelError::Refused(text));
     }
-    let manifest: Manifest = serde_json::from_slice(&bytes)
-        .map_err(|e| KernelError::Compile(vec![json_problem(manifest_rel(), &e, SCHEMA_CODE)]))?;
+    let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| {
+        KernelError::Compile(vec![json_problem(manifest_rel(), &bytes, &e, SCHEMA_CODE)])
+    })?;
     if manifest.format != FORMAT {
         return Err(KernelError::Compile(vec![problem(
             manifest_rel(),
@@ -139,15 +140,15 @@ pub(crate) fn state_of(bytes: &[u8]) -> Result<SchemaState, KernelError> {
 
 /// `schemaVersion`, or `schema` (v0), of a manifest's bytes.
 fn version_of(bytes: &[u8]) -> Result<u32, Problem> {
-    let value: Value =
-        serde_json::from_slice(bytes).map_err(|e| json_problem(manifest_rel(), &e, SCHEMA_CODE))?;
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|e| json_problem(manifest_rel(), bytes, &e, SCHEMA_CODE))?;
     let found = ["schemaVersion", "schema"]
         .into_iter()
         .find_map(|key| value.get(key).map(|v| (key, v)));
     let Some((key, version)) = found else {
         // serde names the misspelt or missing key with its position.
         return Err(match serde_json::from_slice::<Manifest>(bytes) {
-            Err(e) => json_problem(manifest_rel(), &e, SCHEMA_CODE),
+            Err(e) => json_problem(manifest_rel(), bytes, &e, SCHEMA_CODE),
             Ok(_) => problem(
                 manifest_rel(),
                 SCHEMA_CODE,

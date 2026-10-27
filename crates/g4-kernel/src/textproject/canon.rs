@@ -72,9 +72,16 @@ pub(crate) fn unhex(text: &str) -> Result<Vec<u8>, String> {
 }
 
 /// A JSON error of `file` (relative to the project root) as an error [`Problem`] with serde's
-/// line and column and the message `<code>: <serde's message>`. Errors without a position
-/// (from `serde_json::from_value`) get line 1, column 1.
-pub(crate) fn json_problem(file: &Path, err: &serde_json::Error, code: &str) -> Problem {
+/// line, the column in UTF-16 code units like every [`Problem`] (serde counts bytes; `source`
+/// is the text that was parsed, used to convert) and the message
+/// `<code>: <serde's message>`. Errors without a position (from `serde_json::from_value`) get
+/// line 1, column 1.
+pub(crate) fn json_problem(
+    file: &Path,
+    source: &[u8],
+    err: &serde_json::Error,
+    code: &str,
+) -> Problem {
     let full = err.to_string();
     let suffix = format!(" at line {} column {}", err.line(), err.column());
     let message = full.strip_suffix(&suffix).unwrap_or(&full);
@@ -82,8 +89,27 @@ pub(crate) fn json_problem(file: &Path, err: &serde_json::Error, code: &str) -> 
         severity: Severity::Error,
         file: file.to_path_buf(),
         line: u32::try_from(err.line()).unwrap_or(u32::MAX).max(1),
-        col: u32::try_from(err.column()).unwrap_or(u32::MAX).max(1),
+        col: u32::try_from(utf16_column(source, err.line(), err.column()))
+            .unwrap_or(u32::MAX)
+            .max(1),
         message: format!("{code}: {message}"),
+    }
+}
+
+/// serde's 1-based byte `column` on 1-based `line` of `source` in UTF-16 code units: the
+/// bytes before the error position as UTF-8, counted in UTF-16, plus one. The byte column
+/// when that prefix is no UTF-8 or the line is not in `source`.
+fn utf16_column(source: &[u8], line: usize, column: usize) -> usize {
+    let Some(text) = line
+        .checked_sub(1)
+        .and_then(|n| source.split(|&b| b == b'\n').nth(n))
+    else {
+        return column;
+    };
+    let prefix = &text[..column.saturating_sub(1).min(text.len())];
+    match std::str::from_utf8(prefix) {
+        Ok(prefix) => prefix.encode_utf16().count() + 1,
+        Err(_) => column,
     }
 }
 
@@ -156,12 +182,23 @@ mod tests {
 
     #[test]
     fn problems_carry_file_line_column_and_code() {
-        let err = serde_json::from_str::<serde_json::Value>("{\n  \"a\": x\n}").unwrap_err();
-        let p = json_problem(Path::new("data/a.json"), &err, "textproject.schema");
+        let source = "{\n  \"a\": x\n}";
+        let err = serde_json::from_str::<serde_json::Value>(source).unwrap_err();
+        let p = json_problem(
+            Path::new("data/a.json"),
+            source.as_bytes(),
+            &err,
+            "textproject.schema",
+        );
         assert_eq!(p.severity, Severity::Error);
         assert_eq!(p.file, PathBuf::from("data/a.json"));
         assert_eq!((p.line, p.col), (2, 8));
         assert_eq!(p.message, "textproject.schema: expected value");
+
+        // An error after no position (from `from_value`): line 1, column 1.
+        let err = serde_json::from_value::<u8>(serde_json::json!("x")).unwrap_err();
+        let p = json_problem(Path::new("data/a.json"), b"", &err, "textproject.schema");
+        assert_eq!((p.line, p.col), (1, 1));
 
         let p = problem(
             Path::new("g4-project.json"),
@@ -170,5 +207,32 @@ mod tests {
         );
         assert_eq!((p.line, p.col), (1, 1));
         assert_eq!(p.message, "textproject.x: Satz.");
+    }
+
+    #[test]
+    fn json_problem_counts_columns_in_utf16_units() {
+        // `ö` is two bytes in UTF-8 and one UTF-16 unit, `😀` four bytes and two units.
+        let source = "{\n  \"name\": \"Jörg\", \"a\": x\n}";
+        let err = serde_json::from_str::<serde_json::Value>(source).unwrap_err();
+        assert_eq!((err.line(), err.column()), (2, 25), "serde counts bytes");
+        let p = json_problem(Path::new("a.json"), source.as_bytes(), &err, "c");
+        assert_eq!((p.line, p.col), (2, 24));
+
+        let source = "{\"😀\": x}";
+        let err = serde_json::from_str::<serde_json::Value>(source).unwrap_err();
+        let p = json_problem(Path::new("a.json"), source.as_bytes(), &err, "c");
+        assert_eq!((err.line(), err.column()), (1, 10));
+        assert_eq!((p.line, p.col), (1, 8));
+
+        // A line prefix that is no UTF-8 (serde rejects such JSON, so the source here is
+        // another one than the error's): the byte column stays.
+        let err = serde_json::from_str::<serde_json::Value>("{\n  \"a\": x\n}").unwrap_err();
+        let p = json_problem(
+            Path::new("a.json"),
+            b"{\n\xff\xff\xff\xff\xff\xff\xff\xff\n}",
+            &err,
+            "c",
+        );
+        assert_eq!((p.line, p.col), (2, 8));
     }
 }

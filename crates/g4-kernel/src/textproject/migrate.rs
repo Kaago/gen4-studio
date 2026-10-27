@@ -153,7 +153,7 @@ fn current_manifest(tree: &Tree) -> Result<Manifest, KernelError> {
         object.insert("schemaVersion".to_owned(), Value::from(SCHEMA_VERSION));
     }
     let mut manifest: Manifest = serde_json::from_value(value)
-        .map_err(|e| KernelError::Compile(vec![json_problem(rel, &e, SCHEMA_CODE)]))?;
+        .map_err(|e| KernelError::Compile(vec![json_problem(rel, &[], &e, SCHEMA_CODE)]))?;
     manifest.schema_version = SCHEMA_VERSION;
     Ok(manifest)
 }
@@ -175,7 +175,7 @@ fn read_tree(root: &Path) -> Result<(Tree, BTreeMap<PathBuf, Vec<u8>>), KernelEr
             Ok(value) => {
                 files.insert(rel.clone(), value);
             }
-            Err(e) => problems.push(json_problem(&rel, &e, SCHEMA_CODE)),
+            Err(e) => problems.push(json_problem(&rel, &bytes, &e, SCHEMA_CODE)),
         }
         originals.insert(rel, bytes);
     }
