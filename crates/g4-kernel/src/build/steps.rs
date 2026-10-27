@@ -603,6 +603,26 @@ fn written_hash(out: &Path, data: &[u8]) -> Result<u64, KernelError> {
     Ok(hasher.digest())
 }
 
+/// Every pack entry of the project, whether its unpacked folder exists or not: the folder
+/// name below `unpacked/` (the `<name>` of the step id `pack:<name>`) and the packed NARC
+/// (relative to the project root), from the same source as [`pack_steps`]: the archives of
+/// the project's family in `AssetKind::ALL` order, then the pack entries of `archives.yaml`.
+pub(crate) fn pack_entries(project: &Project) -> Result<Vec<(String, PathBuf)>, KernelError> {
+    let archives = &project.archives;
+    let assets = archives.kinds().filter_map(|kind| {
+        let packed = archives.packed(kind)?;
+        Some((
+            archives.unpacked_name(kind).to_owned(),
+            packed.to_path_buf(),
+        ))
+    });
+    let only = archives
+        .pack_only()
+        .iter()
+        .map(|(packed, name)| (name.clone(), packed.clone()));
+    Ok(assets.chain(only).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

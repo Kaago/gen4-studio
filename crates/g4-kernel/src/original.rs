@@ -10,7 +10,14 @@
 //! on the store's undo stack as a file step ([`crate::store::Store::record_file_step`]). Format:
 //! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“.
 
+mod base_hashes;
+mod changed;
 mod preview;
+
+pub use base_hashes::{BASE_HASHES_VERSION, BaseHashes, base_hashes};
+pub use changed::{
+    ChangeState, ChangedEntry, ChangedProgress, ChangedReport, changed_from_original,
+};
 
 use std::collections::BTreeMap;
 use std::path::Path;

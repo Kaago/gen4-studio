@@ -11,3 +11,8 @@ opt-level = 3
 
 [profile.dev.package.sha1]
 opt-level = 3
+
+# The member hashes of the build graph and of „geändert gegenüber Original“ (19 500 members on
+# HeartGold): unoptimized, xxh3 took the first comparison from seconds to most of a minute.
+[profile.dev.package.xxhash-rust]
+opt-level = 3

@@ -10,7 +10,9 @@ use std::time::Instant;
 use g4_formats::data::encounter::Encounters;
 use g4_kernel::base::BaseRom;
 use g4_kernel::dynamic_headers;
-use g4_kernel::original::{ResetTarget, header_fields, plan_reset, reset};
+use g4_kernel::original::{
+    ChangedReport, ResetTarget, changed_from_original, header_fields, plan_reset, reset,
+};
 use g4_kernel::project::{AssetId, AssetKind, Location, Project};
 use g4_kernel::scripts::{self, ScriptSource, SourceKind};
 use g4_kernel::store::{MapHeader, Store};
@@ -503,5 +505,90 @@ fn decompile_member_gives_the_source_rotom_writes_for_every_script_file() {
         "decompile {} {checked} files ({global} with global calls) ms={}",
         project.game_code,
         started.elapsed().as_millis()
+    );
+}
+
+/// Longest a comparison may take once the build state holds every member's hash (the gate of
+/// 4.1b).
+const SECOND_MS: u64 = 2000;
+
+/// The labels of a comparison's entries, in order.
+fn labels(report: &ChangedReport) -> Vec<String> {
+    report.entries.iter().map(|e| e.label.clone()).collect()
+}
+
+/// After a build of a vanilla copy nothing differs; a second comparison reads no member file
+/// (the first one filled the missing hashes in) within the gate; an edited map and trainer are
+/// listed without another build (their `stat` differs from the build's), the map no longer
+/// once it is reset to the base and saved.
+#[test]
+fn changed_list_after_edits_names_them_and_after_reset_not() {
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let base = BaseRom::open(&nds, None).unwrap();
+    let project = Arc::new(Project::open(&copy).unwrap());
+    let started = Instant::now();
+    g4_kernel::build::build(&project, &tmp.path().join("out.nds")).unwrap();
+    println!(
+        "build {} ms={}",
+        project.game_code,
+        started.elapsed().as_millis()
+    );
+    let cache = tempfile::tempdir().unwrap();
+    println!("base hashes: cached in a temp folder");
+    let compare = || {
+        let mut last = None;
+        let report = changed_from_original(&project, &base, Some(cache.path()), &mut |p| {
+            last = Some(p);
+        })
+        .unwrap();
+        let last = last.expect("progress at the end");
+        assert_eq!((last.done, last.total), (report.hashed, report.hashed));
+        report
+    };
+
+    let first = compare();
+    println!(
+        "first: files={} hashed={} recorded={} unbuilt={:?} ms={}",
+        first.files, first.hashed, first.recorded, first.unbuilt, first.ms
+    );
+    assert!(
+        first.entries.is_empty(),
+        "a vanilla copy differs from its base: {:?}",
+        first.entries.iter().take(10).collect::<Vec<_>>()
+    );
+    let second = compare();
+    println!(
+        "changed {} first_ms={} second_ms={} files={} recorded={}",
+        project.game_code, first.ms, second.ms, first.files, first.recorded
+    );
+    assert_eq!(second.hashed, 0, "unbuilt: {:?}", second.unbuilt);
+    assert_eq!(second.recorded, 0);
+    assert!(second.entries.is_empty());
+    assert!(second.ms <= SECOND_MS, "second comparison {} ms", second.ms);
+
+    let mut store = Store::new(Arc::clone(&project));
+    let map = ResetTarget::Map { index: 3 };
+    let trainer = ResetTarget::Trainer { index: 1 };
+    edit(&mut store, &map);
+    edit(&mut store, &trainer);
+    store.save().unwrap();
+    let edited = compare();
+    assert_eq!(labels(&edited), ["Karte 0003", "Trainer 0001"]);
+    let targets: Vec<_> = edited.entries.iter().map(|e| e.target).collect();
+    assert_eq!(targets, [Some(map), Some(trainer)]);
+
+    let original = BaseRom::open_unchecked(&nds, base.sha1()).unwrap();
+    assert!(reset(&mut store, &original, &map, None).unwrap().recorded);
+    store.save().unwrap();
+    let after = compare();
+    assert_eq!(labels(&after), ["Trainer 0001"]);
+    println!(
+        "after edits: hashed={} ms={}; after reset: hashed={} ms={}",
+        edited.hashed, edited.ms, after.hashed, after.ms
     );
 }
