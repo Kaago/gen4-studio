@@ -273,9 +273,13 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 /// just the units with a source file in it are imported and planned: an entity whose JSON or
 /// a side file is in it, the items when any item file is, a binary member whose file path
 /// is, a blob whose path is, the header table when any header file is, the quirks when the
-/// quirks file is. The checks of the numbering (gaps, members without JSON) look at the
-/// files on disk and always run; an entity outside `only` counts as present for the append
-/// check of the ones after it.
+/// quirks file is. The checks of the JSON numbering (gaps, members without JSON) look at the
+/// files on disk and always run. An entity outside `only` keeps its members as they are on
+/// disk, and an appended entity in `only` must follow the last member on disk (or one
+/// appended in the same plan). A requested binary member is checked like in a full plan: no
+/// file and no base member is an error (`textproject.member-without-json` when the member
+/// exists, else `textproject.schema`), and so is one that would leave a gap after the last
+/// member on disk; the scan for files and members beyond the requested ones is skipped.
 pub(crate) fn plan_import(
     project: &Project,
     base: &dyn BasePart,
@@ -455,10 +459,11 @@ fn plan_entities<E: EntitySchema>(
     let numbers = numbered(&dir, "json")?;
     check_numbering(&rel_dir, &numbers, members, plan);
     let names = file_names(&dir)?;
-    // The next member each archive can append. An entity the plan does not import (outside
-    // `only`, unreadable, or with an error) counts as appending all its parts, and a gap in
-    // the numbering (reported above) as filled: the append check judges only parts an
-    // imported entity really leaves out, so no error follows from another one.
+    // The next member each archive can append: the archive's length on disk, raised by every
+    // part an imported entity appends. An entity that fails to import counts as appending all
+    // its parts, and a gap in the numbering (reported above) as filled, so no error follows
+    // from another one. An entity outside `only` adds nothing: its members are what is on
+    // disk.
     let mut next: Vec<usize> = current.iter().map(Vec::len).collect();
     let mut prev: Option<usize> = None;
     for n in numbers {
@@ -473,12 +478,15 @@ fn plan_entities<E: EntitySchema>(
             .map(|c| c.get(n).cloned().flatten())
             .collect();
         let file = rel_dir.join(format!("{n:04}.json"));
-        let parts = if entity_wanted(only, &rel_dir, n) {
-            import_entity::<E>(project, &file, n, symbols, base, &cur, plan, stats)
-        } else {
-            None
-        };
-        let Some(parts) = parts else {
+        if !entity_wanted(only, &rel_dir, n) {
+            // Outside `only` the entity's members stay as they are on disk, where `next`
+            // already counts them.
+            continue;
+        }
+        let Some(parts) = import_entity::<E>(project, &file, n, symbols, base, &cur, plan, stats)
+        else {
+            // The plan has the entity's error; the ones after it are judged as if it were
+            // there.
             next.iter_mut().for_each(|x| *x = (*x).max(n + 1));
             continue;
         };
@@ -650,6 +658,7 @@ fn plan_items(
         base,
         current: &current,
     };
+    let names = file_names(&dir)?;
     match import_items(&items, &member_of, current.len(), &ctx) {
         Ok(members) => {
             for (m, new) in members.into_iter().enumerate() {
@@ -657,7 +666,6 @@ fn plan_items(
                     && current.get(m).cloned().flatten().as_deref() != Some(new.as_slice())
                 {
                     // Every id whose table entry names the member, with its side files.
-                    let names = file_names(&dir)?;
                     let unit = member_of
                         .iter()
                         .enumerate()
@@ -852,13 +860,47 @@ fn plan_binary(
     };
     let mut stop = false;
     if let Some(indices) = indices {
+        // The requested members alone, judged against the members on disk: one that is
+        // neither a file nor in the base, or that would leave a gap after the last member, is
+        // an error as in a full plan.
         for i in indices {
-            if let Ok(Some(want)) = want_of(i, plan, &mut stop) {
-                stats.entities += 1;
-                push(i, want, plan);
+            if files.contains(&i) {
+                stats.side_files += 1;
             }
-            if stop {
-                return Ok(());
+            match want_of(i, plan, &mut stop) {
+                _ if stop => return Ok(()),
+                Err(()) => {}
+                Ok(Some(_)) if i > current.len() => plan.problems.push(problem(
+                    &file_of(i),
+                    SCHEMA_CODE,
+                    format!(
+                        "{ROOT}: {} hat {} Member, ein neues ist nur als {:04} möglich.",
+                        project.archives.unpacked_name(kind),
+                        current.len(),
+                        current.len()
+                    ),
+                )),
+                Ok(Some(want)) => {
+                    stats.entities += 1;
+                    push(i, want, plan);
+                }
+                Ok(None) if current.get(i).is_some_and(Option::is_some) => {
+                    plan.problems.push(problem(
+                        &file_of(i),
+                        MEMBER_WITHOUT_JSON_CODE,
+                        format!(
+                            "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in der \
+                             Basisschicht; der Import löscht keine Member, Löschen ist 4.3b."
+                        ),
+                    ));
+                }
+                Ok(None) => plan.problems.push(problem(
+                    &file_of(i),
+                    SCHEMA_CODE,
+                    format!(
+                        "{ROOT}: weder die Datei noch ein Member {i:04} der Basisschicht ist da."
+                    ),
+                )),
             }
         }
     } else {
@@ -1144,6 +1186,10 @@ mod tests {
             self.calls.set(self.calls.get() + 1);
             self.inner.base_bytes(which)
         }
+
+        fn available(&self) -> Result<bool, KernelError> {
+            self.inner.available()
+        }
     }
 
     fn plan(p: &Project, only: Option<&[&str]>) -> (ImportPlan, u32) {
@@ -1242,17 +1288,47 @@ mod tests {
             paths(&["unpacked/moveData/0004", "unpacked/moveData/0005"])
         );
 
-        // Move 5 alone: move 4 is outside `only` and counts as present; no binary member
+        // Move 5 alone while member 4 is not on disk: it cannot be appended; no binary member
         // is in `only`, so the base is never asked.
-        let (only, calls) = plan(&p, Some(&["data/moves/0005.json"]));
-        assert!(only.problems.is_empty(), "{:?}", only.problems);
-        assert_eq!(
-            only.paths(),
-            paths(&["unpacked/moveData/0005"]),
-            "{:?}",
-            only.problems
-        );
+        let only_five = Some(&["data/moves/0005.json"][..]);
+        let (only, calls) = plan(&p, only_five);
         assert_eq!(calls, 0);
+        assert!(only.writes.is_empty());
+        assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
+        assert_eq!(only.problems[0].file, Path::new("data/moves/0005.json"));
+        assert!(
+            only.problems[0].message.contains("nur als 0004 möglich"),
+            "{}",
+            only.problems[0].message
+        );
+
+        // With member 4 on disk, move 5 follows it.
+        let four = all
+            .writes
+            .iter()
+            .find(|w| w.path == Path::new("unpacked/moveData/0004"))
+            .unwrap();
+        write_to(&p, "unpacked/moveData/0004", &four.bytes);
+        let (only, calls) = plan(&p, only_five);
+        assert!(only.problems.is_empty(), "{:?}", only.problems);
+        assert_eq!(only.paths(), paths(&["unpacked/moveData/0005"]));
+        assert_eq!(calls, 0);
+
+        // A requested binary member is checked like in a full plan: a file that would leave a
+        // gap after the last member, and one with neither file nor base member, are errors.
+        write_to(&p, "data/map_textures/0003.nsbtx", b"BTX0");
+        let (only, _) = plan(&p, Some(&["data/map_textures/0003.nsbtx"]));
+        assert!(only.writes.is_empty());
+        assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
+        assert!(only.problems[0].message.contains("nur als 0001 möglich"));
+        std::fs::remove_file(p.root.join("data/map_textures/0003.nsbtx")).unwrap();
+        let (only, _) = plan(&p, Some(&["data/map_textures/0005.nsbtx"]));
+        assert_eq!(only.problems.len(), 1, "{:?}", only.problems);
+        assert_eq!(
+            only.problems[0].file,
+            Path::new("data/map_textures/0005.nsbtx")
+        );
+        assert!(only.problems[0].message.starts_with("textproject.schema: "));
 
         // A binary member in `only`: the base is asked for it alone.
         std::fs::remove_file(p.root.join("unpacked/mapTextures/0000")).unwrap();
