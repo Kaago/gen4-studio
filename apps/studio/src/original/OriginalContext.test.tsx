@@ -38,6 +38,7 @@ describe("OriginalProvider", () => {
       ),
     );
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+  const openTitles = () => [...document.querySelectorAll("[role=dialog]")].filter((d) => !d.hasAttribute("data-closed")).map((d) => d.querySelector("h2")?.textContent);
 
   beforeEach(() => {
     onReset.mockReset();
@@ -66,6 +67,29 @@ describe("OriginalProvider", () => {
     await act(async () => reset.click());
     expect(onReset).toHaveBeenCalledWith(result, "Trainer 0002");
     expect(document.querySelector('[role=dialog]:not([data-closed])')).toBeNull();
+  });
+
+  it("a_slow_reset_closes_only_its_own_dialog", async () => {
+    await show();
+    await act(async () => api.open({ kind: "trainer", index: 2 }));
+    let finish: (r: ResetResult) => void = () => {};
+    vi.mocked(resetToOriginal).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+    const reset = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Zurücksetzen")!;
+    await act(async () => reset.click());
+    // Meanwhile another target is opened (a second place asked for it): the first reset finishing must not close it.
+    vi.mocked(planReset).mockResolvedValueOnce({ target: { kind: "map", index: 1 }, label: "Karte 0001", changes: [], fields: [], writes_files: false, same: true });
+    await act(async () => api.open({ kind: "map", index: 1 }));
+    expect(openTitles()).toEqual(["Karte 0001 auf Original zurücksetzen?"]);
+    // Closed and another one opened: still no dialog the first reset may close.
+    const close = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Schließen")!;
+    await act(async () => close.click());
+    vi.mocked(planReset).mockResolvedValueOnce({ target: { kind: "map", index: 2 }, label: "Karte 0002", changes: [], fields: [], writes_files: false, same: true });
+    await act(async () => api.open({ kind: "map", index: 2 }));
+    expect(openTitles()).toEqual(["Karte 0002 auf Original zurücksetzen?"]);
+    await act(async () => finish(result));
+    expect(openTitles()).toEqual(["Karte 0002 auf Original zurücksetzen?"]);
+    // The reset did go in: it is reported all the same.
+    expect(onReset).toHaveBeenCalledWith(result, "Trainer 0002");
   });
 
   it("a_clean_target_has_no_unsaved_notice", async () => {

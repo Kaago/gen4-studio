@@ -479,6 +479,21 @@ describe("ScriptPanel", () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 1114 wurde außerhalb des Editors geändert") }));
   });
 
+  it("a_reload_that_discards_shows_the_file_in_place_of_typed_text_without_a_refusal", async () => {
+    await render();
+    await settle();
+    await open(1114);
+    typeAt(0, "// ");
+    // „Auf Original zurücksetzen“ wrote the file after warning that the typed text is lost.
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: `script Original #1:\n` });
+    events.length = 0;
+    await act(async () => api.reload(1114, { discard: true }));
+    expect(view().state.doc.toString()).toBe(`script Original #1:\n`);
+    expect(api.documents.dirty()).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
+  });
+
   it("resolves_add_to_the_new_scripts_number_and_to_null_when_it_failed", async () => {
     vi.mocked(addScript).mockResolvedValueOnce(5).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
     await render();

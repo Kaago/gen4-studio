@@ -322,11 +322,12 @@ function AppBody() {
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
   const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
-  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count.
-  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean) => {
+  // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count. With
+  // `discardScripts` an open script file shows the file even over typed text (the user was told it is lost).
+  const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean, { discardScripts = false }: { discardScripts?: boolean } = {}) => {
     try {
       await reloadAfterHistory(changed);
-      for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index);
+      for (const asset of changed) if (asset.kind === "Script") await scripts.api.reload(asset.index, { discard: discardScripts });
     } catch (e) {
       session.fail(e);
     }
@@ -369,12 +370,17 @@ function AppBody() {
       })
       .catch(session.fail);
   });
-  // „Auf Original zurücksetzen“ went in (one undo step; a script, texture or model was written at once): the changed assets are read again
-  // as after ⌘Z, an open script file too, then the message names the entity. An agent's reset comes as an agent event, on the path above.
+  // „Auf Original zurücksetzen“ went in (one undo step; a script, texture or model was written at once): the message names the entity, then
+  // the changed assets are read again as after ⌘Z (a failure there replaces the message). An open script file shows the reset file even over
+  // typed text: the dialog said that text is lost. An agent's reset comes as an agent event, on the path above (typed text stays there).
   const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
-    if (result.changed.length > 0) scene.noteHistoryMoved();
-    await reloadChanged(result.changed, true);
     session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
+    try {
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true, { discardScripts: true });
+    } catch (e) {
+      session.fail(e);
+    }
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
   const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });

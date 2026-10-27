@@ -7,7 +7,7 @@ import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
@@ -221,6 +221,19 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
   openPath: vi.fn(),
   savePath: vi.fn(),
 }));
+// The reset handler the app gives the provider of „Auf Original zurücksetzen“ (the dialog itself is tested on its own).
+const originalProps = vi.hoisted(() => ({ onReset: null as null | ((result: ResetResult, label: string) => void | Promise<void>) }));
+vi.mock("./original/OriginalContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./original/OriginalContext")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    OriginalProvider: (props: Parameters<typeof actual.OriginalProvider>[0]) => {
+      originalProps.onReset = props.onReset;
+      return createElement(actual.OriginalProvider, props);
+    },
+  };
+});
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 // The handlers listening to Tauri events by name (`agent-event`: the agent hub's events).
 const tauriEvents = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
@@ -442,6 +455,26 @@ describe("App wiring", () => {
     // The scripts api opens a file without moving the focus.
     await act(async () => data().scripts.open(43));
     expect(data().scripts.active).toBe(43);
+  });
+
+  it("a_reset_to_original_shows_the_reset_script_in_place_of_unsaved_text_and_says_so", async () => {
+    await act(async () => data().scripts.open(42));
+    const doc = data().scripts.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => data().scripts.onChange(42));
+    expect(data().scripts.documents.dirty()).toEqual([42]);
+    // The dialog warned that the unsaved text is lost: after the reset the editor shows the file, clean, without a refusal.
+    vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Original #1:\n\tEnd\n" });
+    await act(async () => originalProps.onReset!({ changed: [{ kind: "Script", index: 42 }], recorded: true, ms: 5 }, "Scriptdatei 0042"));
+    expect(doc.text).toBe("script Original #1:\n\tEnd\n");
+    expect(data().scripts.documents.dirty()).toEqual([]);
+    expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Scriptdatei 0042." });
+  });
+
+  it("a_failing_reload_after_a_reset_to_original_is_reported_not_left_unhandled", async () => {
+    vi.mocked(dirty).mockRejectedValueOnce({ code: "error", message: "Sitzung weg", asset: null });
+    await act(async () => originalProps.onReset!({ changed: [], recorded: true, ms: 5 }, "Karte 0003"));
+    expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("Sitzung weg") });
   });
 
   it("counts unsaved scripts in the title bar and forgets scripts and problems with the project", async () => {

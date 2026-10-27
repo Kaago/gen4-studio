@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { AssetId, AssetKind, HeaderFamily, OriginalStatus, ResetResult, ResetTarget } from "../api";
 import { ResetDialog } from "./ResetDialog";
@@ -70,6 +70,7 @@ function storeAssets(target: ResetTarget): AssetId[] {
   }
 }
 
+/** One `open`; `serial` tells a dialog's close from that of the one before (a slow reset must not close a dialog opened meanwhile). */
 type Request = { target: ResetTarget; scriptDirty: boolean; serial: number };
 
 /**
@@ -78,11 +79,13 @@ type Request = { target: ResetTarget; scriptDirty: boolean; serial: number };
  */
 export function OriginalProvider({ children, onReset, status, family, dirty }: OriginalProviderProps) {
   const [request, setRequest] = useState<Request | null>(null);
+  // Counts every `open` for as long as the provider lives, so no two dialogs share a serial.
+  const serials = useRef(0);
   const open = useCallback((target: ResetTarget, opts?: { scriptDirty?: boolean }) => {
-    setRequest((before) => ({ target, scriptDirty: opts?.scriptDirty ?? false, serial: (before?.serial ?? 0) + 1 }));
+    serials.current += 1;
+    setRequest({ target, scriptDirty: opts?.scriptDirty ?? false, serial: serials.current });
   }, []);
   const api = useMemo<ResetApi>(() => ({ status, open }), [status, open]);
-  const close = useCallback(() => setRequest(null), []);
   const unsaved = request !== null && storeAssets(request.target).some((a) => dirty.some((d) => d.kind === a.kind && d.index === a.index));
   return (
     <ResetContext.Provider value={api}>
@@ -95,7 +98,7 @@ export function OriginalProvider({ children, onReset, status, family, dirty }: O
           family={family === null ? null : headerFamilyOf(family)}
           scriptDirty={request.scriptDirty}
           dirty={unsaved}
-          onClose={close}
+          onClose={() => setRequest((shown) => (shown?.serial === request.serial ? null : shown))}
           onReset={onReset}
         />
       )}

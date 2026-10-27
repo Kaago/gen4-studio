@@ -41,9 +41,10 @@ export interface ScriptsApi {
   saveIfDirty(file: number): Promise<void>;
   /**
    * The backend wrote the file itself (a new trainer's battle slots, an agent's save): an open document shows the text on disk, the language server
-   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote.
+   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote. With `discard`
+   * (the user confirmed that typed text is lost, „Auf Original zurücksetzen“) the document shows the file in any case, clean, without a word.
    */
-  reload(file: number): Promise<void>;
+  reload(file: number, opts?: { discard?: boolean }): Promise<void>;
   /**
    * The level-script form saved `doc` as file `file` (not the editor): the problems and archives are handled like those of a
    * save, and an open document without unsaved text shows the new JSON. Ignored when `project` is not the open one any more.
@@ -236,7 +237,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     [save],
   );
 
-  const reload = useCallback(async (file: number): Promise<void> => {
+  const reload = useCallback(async (file: number, { discard = false }: { discard?: boolean } = {}): Promise<void> => {
     const { documents: docs, bus } = latest.current;
     bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, "script"), type: 2 }] });
     const doc = docs.get(file);
@@ -245,7 +246,7 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
       const source = await readScript(file);
       if (latest.current.documents !== docs || source.kind !== "script") return;
       const text = lf(source.text);
-      if (lf(doc.text) === doc.savedText) doc.text = text;
+      if (discard || lf(doc.text) === doc.savedText) doc.text = text;
       else {
         latest.current.onError(
           refusal(`${TERMS.scriptFile.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
