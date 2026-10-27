@@ -16,6 +16,9 @@ vi.mock("../api", async (importOriginal) => ({
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** The last of `items` (the last render recorded). */
+const last = <T,>(items: readonly T[]): T | undefined => items[items.length - 1];
+
 const ready: OriginalStatus = { state: "ready", label: "Platin DE (Testprojekt)", sha1: mark().sha1, counts: { map: 4 } };
 const unavailable: OriginalStatus = { state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." };
 
@@ -88,6 +91,23 @@ describe("useOriginal", () => {
     await show({ project: "/b" });
     await act(async () => answer(ready));
     expect(shown.status).toEqual(unavailable);
+  });
+
+  it("never_shows_the_status_of_the_project_before", async () => {
+    // Every render of the hook, with the project it rendered for: the status of /a must not reach a render for /b (a consumer would act on
+    // it, e.g. Technik › Änderungen comparing /b against /a's base).
+    const seen: [string | null, OriginalStatus | null][] = [];
+    function Recorder({ project }: { project: string | null }) {
+      seen.push([project, useOriginal({ project, base: null }).status]);
+      return null;
+    }
+    await act(async () => root.render(<Recorder project="/a" />));
+    expect(last(seen)).toEqual(["/a", ready]);
+    vi.mocked(originalStatus).mockReturnValue(new Promise(() => {}));
+    await act(async () => root.render(<Recorder project="/b" />));
+    expect(seen.filter(([project, status]) => project === "/b" && status !== null)).toEqual([]);
+    await act(async () => root.render(<Recorder project={null} />));
+    expect(seen.filter(([project, status]) => project === null && status !== null)).toEqual([]);
   });
 
   it("a_failed_read_counts_as_unavailable_with_the_reason", async () => {

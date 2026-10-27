@@ -2501,7 +2501,10 @@ describe("App wiring", () => {
         ms: 1,
       });
       vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders" });
+      vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", snapshot: null });
       await inTheApp();
+      const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
       // Nothing is compared until the surface shows (the first compare may hash every member).
       await act(async () => atlasEntry("Technik")!.click());
       expect(changedFromOriginal).not.toHaveBeenCalled();
@@ -2526,14 +2529,38 @@ describe("App wiring", () => {
       await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "save", label: null, assets: [] });
       await flush();
       expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      // So does every other agent tool that writes files of the saved project (file steps of undo and redo too).
+      let calls = 4;
+      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "reset_to_original", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer", "undo", "redo"];
+      for (const [i, tool] of writers.entries()) {
+        await emit({ kind: "changed", seq: 10 + i, client: "Claude Code", tool, label: null, assets: [] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
+      }
+      // Another base found for the project (an agent assigned it): compared against it at once, without a save.
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin US", sha1: "0".repeat(40), counts: { map: 600 } });
+      await emit({ kind: "changed", seq: 50, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
+      expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Gegenüber der Basis-ROM Platin US.");
+      // The Dynamic Headers patch applied in Technik › Patches writes the header table into files: compared when Änderungen shows again.
+      await act(async () => technikRow("Patches").click());
+      await act(async () => {});
+      await click("Patch anwenden");
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Patch anwenden")!.click());
+      await act(async () => {});
+      expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      await act(async () => technikRow("Änderungen").click());
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
       // Elsewhere a save waits until the surface shows again, then compares once.
       await act(async () => atlasEntry("Welt")!.click());
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
       await act(async () => {});
-      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls);
       await act(async () => atlasEntry("Technik")!.click());
       await act(async () => {});
-      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls + 1);
     });
 
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {

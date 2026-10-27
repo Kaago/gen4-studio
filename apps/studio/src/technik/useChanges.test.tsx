@@ -16,6 +16,13 @@ vi.mock("../api", async (importOriginal) => ({
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** The last of `items` (the last render recorded). */
+const last = <T,>(items: readonly T[]): T | undefined => items[items.length - 1];
+
+/** Two base ROMs by SHA-1. */
+const SHA_X = "d40f19ac24d67c721a4ab25e1c013154443d75b4";
+const SHA_Y = "0".repeat(40);
+
 /** A compare that answers when the test says so; `progress` reports through the hook's callback. */
 function pending() {
   let answer: (r: ChangedReport) => void = () => {};
@@ -41,7 +48,7 @@ describe("useChanges", () => {
   let shown: ChangesApi;
 
   function Probe(options: Partial<UseChangesOptions>) {
-    shown = useChanges({ project: "/a", shown: true, ready: true, revision: 0, ...options });
+    shown = useChanges({ project: "/a", shown: true, base: SHA_X, revision: 0, ...options });
     return null;
   }
   const show = (options: Partial<UseChangesOptions> = {}) => act(async () => root.render(<Probe {...options} />));
@@ -58,7 +65,7 @@ describe("useChanges", () => {
   it("compares_once_when_shown_and_reports_progress", async () => {
     // Technik › Änderungen not on screen, or no base ROM: nothing is compared (it may hash every member).
     await show({ shown: false });
-    await show({ ready: false });
+    await show({ base: null });
     expect(changedFromOriginal).not.toHaveBeenCalled();
     expect(shown.report).toBeNull();
 
@@ -109,6 +116,69 @@ describe("useChanges", () => {
     // No project: nothing.
     await show({ project: null });
     expect(shown.report).toBeNull();
+  });
+
+  it("compares_again_when_the_base_changes_and_drops_the_report_of_the_old_one", async () => {
+    // Every render's report, so not even one frame shows the old base's rows under the new base.
+    const seen: [string | null, number | undefined][] = [];
+    function Recorder({ base }: { base: string | null }) {
+      const api = useChanges({ project: "/a", shown: true, base, revision: 0 });
+      seen.push([base, api.report?.files]);
+      return null;
+    }
+    vi.mocked(changedFromOriginal).mockResolvedValue(report({ files: 1 }));
+    await act(async () => root.render(<Recorder base={SHA_X} />));
+    expect(last(seen)).toEqual([SHA_X, 1]);
+    // Another base assigned to the same project (no save, no reset): compared against it, nothing of the old report shown meanwhile.
+    vi.mocked(changedFromOriginal).mockResolvedValue(report({ files: 2 }));
+    const run = pending();
+    await act(async () => root.render(<Recorder base={SHA_Y} />));
+    expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    expect(seen.filter(([base, files]) => base === SHA_Y && files === 1)).toEqual([]);
+    await run.answer(report({ files: 2 }));
+    expect(last(seen)).toEqual([SHA_Y, 2]);
+    // The base went missing: nothing to compare against, nothing shown.
+    await act(async () => root.render(<Recorder base={null} />));
+    expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    expect(last(seen)).toEqual([null, undefined]);
+    // Found again: compared again.
+    await act(async () => root.render(<Recorder base={SHA_Y} />));
+    expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+  });
+
+  it("a_project_without_base_compares_once_a_base_is_assigned", async () => {
+    // /a shows with its base; /b opens without one (its status unknown, then unavailable): no compare that could only fail.
+    await show();
+    expect(changedFromOriginal).toHaveBeenCalledTimes(1);
+    const seen: (number | undefined)[] = [];
+    function Recorder({ base }: { base: string | null }) {
+      seen.push(useChanges({ project: "/b", shown: true, base, revision: 0 }).report?.files);
+      return null;
+    }
+    vi.mocked(changedFromOriginal).mockResolvedValue(report({ files: 3 }));
+    await act(async () => root.render(<Recorder base={null} />));
+    expect(changedFromOriginal).toHaveBeenCalledTimes(1);
+    // A base assigned (no save, no reset in between): compared at once.
+    await act(async () => root.render(<Recorder base={SHA_Y} />));
+    expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    expect(last(seen)).toBe(3);
+  });
+
+  it("a_new_project_shows_nothing_of_the_one_before", async () => {
+    const seen: [string | null, number | undefined, boolean][] = [];
+    function Recorder({ project }: { project: string | null }) {
+      const api = useChanges({ project, shown: true, base: SHA_X, revision: 0 });
+      seen.push([project, api.report?.files, api.busy]);
+      return null;
+    }
+    vi.mocked(changedFromOriginal).mockResolvedValue(report({ files: 4 }));
+    await act(async () => root.render(<Recorder project="/a" />));
+    expect(last(seen)).toEqual(["/a", 4, false]);
+    pending();
+    await act(async () => root.render(<Recorder project="/b" />));
+    // Not one render for /b carries /a's report.
+    expect(seen.filter(([project, files]) => project === "/b" && files === 4)).toEqual([]);
+    expect(last(seen)).toEqual(["/b", undefined, true]);
   });
 
   it("compares_again_after_save_and_reset", async () => {

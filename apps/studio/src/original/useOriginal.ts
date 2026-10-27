@@ -35,7 +35,9 @@ function baseKey(base: BaseStatus | null): string | null {
  * (Technik opened) is no change. An answer for the project before is dropped.
  */
 export function useOriginal({ project, base }: UseOriginalOptions): OriginalApi {
-  const [status, setStatus] = useState<OriginalStatus | null>(null);
+  // The status with the project it was read for: a render for another project gets null, not the status of the one before (the reset
+  // below runs in an effect, after the first render for the new project).
+  const [held, setHeld] = useState<{ project: string | null; status: OriginalStatus | null }>({ project, status: null });
   const current = useRef(project);
   const reads = useRef(0);
   // The base status last seen for this project; null until one is known.
@@ -51,14 +53,14 @@ export function useOriginal({ project, base }: UseOriginalOptions): OriginalApi 
     } catch (e) {
       next = { state: "unavailable", reason: errorText(e) };
     }
-    if (current.current === forProject && reads.current === mine) setStatus(next);
+    if (current.current === forProject && reads.current === mine) setHeld({ project: forProject, status: next });
   }, []);
 
   useEffect(() => {
     current.current = project;
     reads.current += 1;
     seen.current = null;
-    setStatus(null);
+    setHeld({ project, status: null });
     if (project !== null) void read();
   }, [project, read]);
 
@@ -69,5 +71,5 @@ export function useOriginal({ project, base }: UseOriginalOptions): OriginalApi 
     if (key !== null && before !== null && key !== before) void read();
   }, [key, read]);
 
-  return { status, refresh: read };
+  return { status: held.project === project ? held.status : null, refresh: read };
 }

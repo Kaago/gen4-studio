@@ -403,6 +403,13 @@ describe("ScriptPanel", () => {
     // Another project's form save is not this one's.
     act(() => api.onLevelScriptSaved(projectB, 7, { header_entries: [], var_conditions: [] }, { problems: [], touched_archives: [] }));
     expect(onSaved).toHaveBeenCalledTimes(2);
+    // „Script anfügen“ and „Übernehmen“ write script files too (anfügen saves the typed „z“ first: two writes).
+    vi.mocked(addScript).mockResolvedValue(2);
+    await act(async () => void (await api.add(42)));
+    expect(onSaved).toHaveBeenCalledTimes(4);
+    vi.mocked(adoptScripts).mockResolvedValue({ decompiled: 2, skipped_empty: 0, failed: [] });
+    await act(async () => void (await api.adopt()));
+    expect(onSaved).toHaveBeenCalledTimes(5);
   });
 
   it("editor_saves_without_lsp", async () => {

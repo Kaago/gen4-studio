@@ -21,25 +21,40 @@ export type UseChangesOptions = {
   project: string | null;
   /** Technik › Änderungen is on screen: only then is compared (the first compare of a project may hash every member). */
   shown: boolean;
-  /** The base ROM is found (`OriginalStatus` ready); without it there is nothing to compare against. */
-  ready: boolean;
+  /**
+   * The SHA-1 of the found base ROM (`OriginalStatus` ready, read for this project); null without one, then nothing is compared. Another
+   * base is compared against at once, and the report of the old one is dropped.
+   */
+  base: string | null;
   /** Bumped by the app after every save and every reset: the saved state may differ now. */
   revision: number;
 };
 
 /**
- * Held by the app above the areas, so the report survives leaving Technik. Compares when the surface first shows for a project and again
- * when it shows after a save or a reset (`revision` moved since the last compare), at once when that happens while it shows. Never two
- * compares side by side: a reason to compare that comes while one runs makes one more run after it. Everything starts over when another
- * project opens; an answer for the project before is dropped.
+ * Held by the app above the areas, so the report survives leaving Technik. Compares when the surface first shows for a project and its base,
+ * and again when it shows after a save or a reset (`revision` moved since the last compare), at once when that happens while it shows. Never
+ * two compares side by side: a reason to compare that comes while one runs makes one more run after it. Everything starts over when another
+ * project opens or another base is found (already in the render that sees it, so no frame shows the report before); an answer for the
+ * project and base before is dropped.
  */
-export function useChanges({ project, shown, ready, revision }: UseChangesOptions): ChangesApi {
+export function useChanges({ project, shown, base, revision }: UseChangesOptions): ChangesApi {
   const [report, setReport] = useState<ChangedReport | null>(null);
   const [progress, setProgress] = useState<ChangedProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const current = useRef(project);
-  // The compare in flight for the current project, whether another should follow it, and the revision the last compare started at.
+  // What the state belongs to: another project or base resets it while rendering (as `useScripts` does), the refs below in the effect.
+  const key = project === null || base === null ? null : `${project}\u0000${base}`;
+  const [owner, setOwner] = useState(key);
+  const stale = owner !== key;
+  if (stale) {
+    setOwner(key);
+    setReport(null);
+    setProgress(null);
+    setError(null);
+    setBusy(false);
+  }
+  const current = useRef(key);
+  // The compare in flight for the current project and base, whether another should follow it, and the revision the last compare started at.
   const running = useRef<Promise<void> | null>(null);
   const again = useRef(false);
   const compared = useRef<number | null>(null);
@@ -47,24 +62,20 @@ export function useChanges({ project, shown, ready, revision }: UseChangesOption
   latest.current = revision;
 
   useEffect(() => {
-    current.current = project;
+    current.current = key;
     running.current = null;
     again.current = false;
     compared.current = null;
-    setReport(null);
-    setProgress(null);
-    setError(null);
-    setBusy(false);
-  }, [project]);
+  }, [key]);
 
   const compare = useCallback((): Promise<void> => {
-    const forProject = current.current;
-    if (forProject === null) return Promise.resolve();
+    const forKey = current.current;
+    if (forKey === null) return Promise.resolve();
     if (running.current !== null) {
       again.current = true;
       return running.current;
     }
-    const mine = () => current.current === forProject;
+    const mine = () => current.current === forKey;
     const job = (async () => {
       setBusy(true);
       do {
@@ -91,8 +102,10 @@ export function useChanges({ project, shown, ready, revision }: UseChangesOption
   }, []);
 
   useEffect(() => {
-    if (project !== null && shown && ready && compared.current !== revision) void compare();
-  }, [project, shown, ready, revision, compare]);
+    if (key !== null && shown && compared.current !== revision) void compare();
+  }, [key, shown, revision, compare]);
 
+  // React renders again at once after the reset above; this pass already shows nothing of the state before.
+  if (stale) return { report: null, progress: null, error: null, busy: false, compare };
   return { report, progress, error, busy, compare };
 }

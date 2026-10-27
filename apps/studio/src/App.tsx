@@ -130,8 +130,28 @@ const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(S
 /** For a read whose failure someone else reports. */
 const ignoreError = () => {};
 
-/** The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again). */
-const AGENT_SAVES: ReadonlySet<string> = new Set(["save", "save_script", "save_level_script", "build_rom", "create_patch", "reset_to_original"]);
+/**
+ * The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again): saves and builds, the
+ * commands that write files at once (scripts, the header patch, text conflicts, a new trainer's script) and undo and redo, which may take
+ * back a file step of „Auf Original zurücksetzen“.
+ */
+const AGENT_SAVES: ReadonlySet<string> = new Set([
+  "save",
+  "save_script",
+  "save_level_script",
+  "build_rom",
+  "create_patch",
+  "reset_to_original",
+  "apply_header_patch",
+  "repair_header_patch",
+  "resolve_text_conflicts",
+  "adopt_scripts",
+  "add_script",
+  "new_script_file",
+  "create_trainer",
+  "undo",
+  "redo",
+]);
 
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
@@ -221,8 +241,8 @@ function AppBody() {
   });
   const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
   useToastMirror(session.message, session.setMessage);
-  // Saves and resets the session does not count (a script saved, an original reset, an agent's save or reset): Technik › Änderungen
-  // compares again after each, with the session's own saves and builds (`savedRevision`).
+  // Writes to the saved project the session does not count (a script file written, an original reset, the header patch, an agent's
+  // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
   const [changedRevision, setChangedRevision] = useState(0);
   const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged });
@@ -598,15 +618,16 @@ function AppBody() {
   // The entry Technik shows; kept while another area shows.
   const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
-  // project, and after a save or a reset since the last compare).
+  // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({
     project: session.info?.root ?? null,
     shown: area === "technik" && technikEntry === "aenderungen",
-    ready: original.status?.state === "ready",
+    base: original.status?.state === "ready" ? original.status.sha1 : null,
     revision: session.savedRevision + changedRevision,
   });
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
   const onHeaderPatch = useStableCallback(async () => {
+    bumpChanged();
     bus.emit({ topic: "headerTable" });
     await scene.syncHeaders();
   });

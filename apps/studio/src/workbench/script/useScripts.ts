@@ -69,7 +69,7 @@ interface ScriptsParams {
   bus: EditBus;
   problems: ProblemsStore;
   onError: (e: unknown) => void;
-  /** A script file was saved (the editor's save or the level-script form's): its member is on disk now. */
+  /** Script files were written (a save of the editor or the level-script form, „Script anfügen“, „Übernehmen“): their members are on disk now. */
   onSaved?: () => void;
 }
 
@@ -192,6 +192,7 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
     latest.current.bus.emit({ topic: "lspFilesChanged", changes: [{ path: "rotom.toml", type: 1 }] });
     // The checks read the new sources (the message check runs from now on).
     latest.current.bus.emit({ topic: "edited" });
+    latest.current.onSaved?.();
     try {
       const next = await scriptsStatus();
       if (latest.current.documents === docs) setStatus(next);
@@ -211,6 +212,7 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
         const n = await addScript(file);
         // Written: the checks look again.
         latest.current.bus.emit({ topic: "edited" });
+        latest.current.onSaved?.();
         // The source on disk has the new script now: show it, with the cursor at its end.
         const source = await readScript(file);
         if (latest.current.documents !== docs) return null;
