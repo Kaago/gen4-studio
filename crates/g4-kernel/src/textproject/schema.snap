@@ -1,64 +1,67 @@
 schemaVersion 1
 species.id →SPECIES
-species.personal.hp
-species.personal.attack
-species.personal.defense
-species.personal.speed
-species.personal.sp_attack
-species.personal.sp_defense
-species.personal.type1 →TYPE
-species.personal.type2 →TYPE
-species.personal.catch_rate
-species.personal.base_exp
-species.personal.ev_yield_hp
-species.personal.ev_yield_attack
-species.personal.ev_yield_defense
-species.personal.ev_yield_speed
-species.personal.ev_yield_sp_attack
-species.personal.ev_yield_sp_defense
-species.personal.ev_yield_rest
-species.personal.item1 →ITEM
-species.personal.item2 →ITEM
-species.personal.gender_ratio
-species.personal.egg_cycles
-species.personal.base_friendship
-species.personal.growth_rate
-species.personal.egg_group1
-species.personal.egg_group2
-species.personal.ability1 →ABILITY
-species.personal.ability2 →ABILITY
-species.personal.flee_rate
-species.personal.color
-species.personal.flip
-species.personal.color_flip_rest
-species.personal.pad_1a
-species.personal.tm_bits
-species.learnset.moves[].level
-species.learnset.moves[].move →MOVE
-species.learnset.terminated
-species.learnset.tail
-species.evolution.method0
-species.evolution.param0
-species.evolution.target0 →SPECIES
-species.evolution.method1
-species.evolution.param1
-species.evolution.target1 →SPECIES
-species.evolution.method2
-species.evolution.param2
-species.evolution.target2 →SPECIES
-species.evolution.method3
-species.evolution.param3
-species.evolution.target3 →SPECIES
-species.evolution.method4
-species.evolution.param4
-species.evolution.target4 →SPECIES
-species.evolution.method5
-species.evolution.param5
-species.evolution.target5 →SPECIES
-species.evolution.method6
-species.evolution.param6
-species.evolution.target6 →SPECIES
-species.evolution.pad_2a
+species.personal?.hp
+species.personal?.attack
+species.personal?.defense
+species.personal?.speed
+species.personal?.sp_attack
+species.personal?.sp_defense
+species.personal?.type1 →TYPE
+species.personal?.type2 →TYPE
+species.personal?.catch_rate
+species.personal?.base_exp
+species.personal?.ev_yield_hp
+species.personal?.ev_yield_attack
+species.personal?.ev_yield_defense
+species.personal?.ev_yield_speed
+species.personal?.ev_yield_sp_attack
+species.personal?.ev_yield_sp_defense
+species.personal?.ev_yield_rest?
+species.personal?.item1 →ITEM
+species.personal?.item2 →ITEM
+species.personal?.gender_ratio
+species.personal?.egg_cycles
+species.personal?.base_friendship
+species.personal?.growth_rate
+species.personal?.egg_group1
+species.personal?.egg_group2
+species.personal?.ability1 →ABILITY
+species.personal?.ability2 →ABILITY
+species.personal?.flee_rate
+species.personal?.color
+species.personal?.flip
+species.personal?.color_flip_rest?
+species.personal?.pad_1a
+species.personal?.tm_bits
+species.learnset?.moves[].level
+species.learnset?.moves[].move →MOVE
+species.learnset?.terminated
+species.learnset?.tail?
+species.evolution?.method0
+species.evolution?.param0
+species.evolution?.target0 →SPECIES
+species.evolution?.method1
+species.evolution?.param1
+species.evolution?.target1 →SPECIES
+species.evolution?.method2
+species.evolution?.param2
+species.evolution?.target2 →SPECIES
+species.evolution?.method3
+species.evolution?.param3
+species.evolution?.target3 →SPECIES
+species.evolution?.method4
+species.evolution?.param4
+species.evolution?.target4 →SPECIES
+species.evolution?.method5
+species.evolution?.param5
+species.evolution?.target5 →SPECIES
+species.evolution?.method6
+species.evolution?.param6
+species.evolution?.target6 →SPECIES
+species.evolution?.pad_2a
+species.personal? <member>
+species.learnset? <member>
+species.evolution? <member>
 moves.id →MOVE
 moves.data.effect
 moves.data.category
@@ -73,74 +76,76 @@ moves.data.flags
 moves.data.contest
 moves.data.contest_type
 moves.data.pad_0e
+moves.data <member>
 items.id →ITEM
-items.data.price
-items.data.hold_effect
-items.data.hold_param
-items.data.pluck_effect
-items.data.fling_effect
-items.data.fling_power
-items.data.natural_gift_power
-items.data.natural_gift_type →TYPE
-items.data.prevent_toss
-items.data.can_register
-items.data.field_pocket
-items.data.battle_pocket
-items.data.pocket_word_rest
-items.data.field_use_func
-items.data.battle_use_func
-items.data.party_use
-items.data.pad_0d
-items.data.slp_heal
-items.data.psn_heal
-items.data.brn_heal
-items.data.frz_heal
-items.data.prlz_heal
-items.data.cfs_heal
-items.data.inf_heal
-items.data.guard_spec
-items.data.revive
-items.data.revive_all
-items.data.level_up
-items.data.evolve
-items.data.attack_stages
-items.data.defense_stages
-items.data.sp_attack_stages
-items.data.sp_defense_stages
-items.data.speed_stages
-items.data.party_flags_0e_rest
-items.data.accuracy_stages
-items.data.crit_stages
-items.data.pp_up
-items.data.pp_max
-items.data.party_flags_12_rest
-items.data.pp_restore
-items.data.pp_restore_all
-items.data.hp_restore
-items.data.hp_ev_flag
-items.data.attack_ev_flag
-items.data.defense_ev_flag
-items.data.speed_ev_flag
-items.data.sp_attack_ev_flag
-items.data.party_flags_13_rest
-items.data.sp_defense_ev_flag
-items.data.friendship_low_flag
-items.data.friendship_mid_flag
-items.data.friendship_high_flag
-items.data.party_flags_14_rest
-items.data.hp_ev
-items.data.attack_ev
-items.data.defense_ev
-items.data.speed_ev
-items.data.sp_attack_ev
-items.data.sp_defense_ev
-items.data.hp_amount
-items.data.pp_amount
-items.data.friendship_low
-items.data.friendship_mid
-items.data.friendship_high
-items.data.pad_20
-items.same_member_as →ITEM
+items.data?.price
+items.data?.hold_effect
+items.data?.hold_param
+items.data?.pluck_effect
+items.data?.fling_effect
+items.data?.fling_power
+items.data?.natural_gift_power
+items.data?.natural_gift_type →TYPE
+items.data?.prevent_toss
+items.data?.can_register
+items.data?.field_pocket
+items.data?.battle_pocket
+items.data?.pocket_word_rest?
+items.data?.field_use_func
+items.data?.battle_use_func
+items.data?.party_use
+items.data?.pad_0d
+items.data?.slp_heal
+items.data?.psn_heal
+items.data?.brn_heal
+items.data?.frz_heal
+items.data?.prlz_heal
+items.data?.cfs_heal
+items.data?.inf_heal
+items.data?.guard_spec
+items.data?.revive
+items.data?.revive_all
+items.data?.level_up
+items.data?.evolve
+items.data?.attack_stages
+items.data?.defense_stages
+items.data?.sp_attack_stages
+items.data?.sp_defense_stages
+items.data?.speed_stages
+items.data?.party_flags_0e_rest?
+items.data?.accuracy_stages
+items.data?.crit_stages
+items.data?.pp_up
+items.data?.pp_max
+items.data?.party_flags_12_rest?
+items.data?.pp_restore
+items.data?.pp_restore_all
+items.data?.hp_restore
+items.data?.hp_ev_flag
+items.data?.attack_ev_flag
+items.data?.defense_ev_flag
+items.data?.speed_ev_flag
+items.data?.sp_attack_ev_flag
+items.data?.party_flags_13_rest?
+items.data?.sp_defense_ev_flag
+items.data?.friendship_low_flag
+items.data?.friendship_mid_flag
+items.data?.friendship_high_flag
+items.data?.party_flags_14_rest?
+items.data?.hp_ev
+items.data?.attack_ev
+items.data?.defense_ev
+items.data?.speed_ev
+items.data?.sp_attack_ev
+items.data?.sp_defense_ev
+items.data?.hp_amount
+items.data?.pp_amount
+items.data?.friendship_low
+items.data?.friendship_mid
+items.data?.friendship_high
+items.data?.pad_20
+items.same_member_as? →ITEM
+items.data? <member>
 encounters[pt].data.grass_rate
 encounters[pt].data.grass_00_level
 encounters[pt].data.grass_00_species →SPECIES
@@ -406,8 +411,81 @@ encounters[hgss].data.land_swarm →SPECIES
 encounters[hgss].data.surf_swarm →SPECIES
 encounters[hgss].data.night_fish →SPECIES
 encounters[hgss].data.fish_swarm →SPECIES
+encounters[pt].data <member>
+encounters[hgss].data <member>
 trainer_text_table.entries[][]
+trainer_text_table <member>
 trainer_text_offsets.offsets[]
+trainer_text_offsets <member>
+trainers.id →TRAINER
+trainers.data.class →TRAINER_CLASS
+trainers.data.has_moves
+trainers.data.has_items
+trainers.data.flags_rest
+trainers.data.unknown
+trainers.data.items[] →ITEM
+trainers.data.ai
+trainers.data.battle_type
+trainers.data.party[].species →SPECIES
+trainers.data.party[].form
+trainers.data.party[].level
+trainers.data.party[].iv_or_difficulty
+trainers.data.party[].byte1
+trainers.data.party[].item? →ITEM
+trainers.data.party[].moves?[] →MOVE
+trainers.data.party[].ball_capsule?
+trainers.data <locked: locked, props, party>
+matrices.name
+matrices.width
+matrices.height
+matrices.maps[]
+matrices.headers?[]
+matrices.altitudes?[]
+matrices <member>
+area_data[pt].buildings_tileset
+area_data[pt].map_tileset
+area_data[pt].unknown
+area_data[pt].light_type
+area_data[hgss].buildings_tileset
+area_data[hgss].map_tileset
+area_data[hgss].dynamic_texture_type
+area_data[hgss].area_type
+area_data[hgss].light_type
+area_data[pt] <member>
+area_data[hgss] <member>
+events.bg_events[].script
+events.bg_events[].event_type
+events.bg_events[].x
+events.bg_events[].z
+events.bg_events[].y
+events.bg_events[].player_facing_dir
+events.object_events[].local_id
+events.object_events[].graphics_id
+events.object_events[].movement_type
+events.object_events[].trainer_type
+events.object_events[].hidden_flag
+events.object_events[].script
+events.object_events[].dir
+events.object_events[].data[]
+events.object_events[].movement_range_x
+events.object_events[].movement_range_z
+events.object_events[].x
+events.object_events[].z
+events.object_events[].y
+events.warp_events[].x
+events.warp_events[].z
+events.warp_events[].dest_header_id →MAP
+events.warp_events[].dest_warp_id
+events.warp_events[].height
+events.coord_events[].script
+events.coord_events[].x
+events.coord_events[].z
+events.coord_events[].width
+events.coord_events[].length
+events.coord_events[].y
+events.coord_events[].value
+events.coord_events[].var
+events <member>
 <locked>.locked
 <locked>.raw.hex
 <locked>.raw.base_sha1

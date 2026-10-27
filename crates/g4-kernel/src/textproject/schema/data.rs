@@ -19,12 +19,13 @@ use super::super::canon::{hex, unhex};
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{Member, PartKey};
 use super::super::record::{
-    record_from_json, record_from_json_at, record_to_json, resolve, sample_record, sym_ref,
+    minimal_record, record_from_json, record_from_json_at, record_to_json, resolve, sample_record,
+    sym_ref,
 };
 use super::super::symbols::{SymbolKind, fallback_id};
 use super::{
     EntitySchema, ExportCtx, ImportCtx, ROOT, RecordJson, SymRef, check_id, entity_id, lock_member,
-    member_bytes,
+    locked_sample, member, member_bytes, required,
 };
 
 /// One species: its `personalPokeData`, `learnsets` and `evolutions` members. A part is
@@ -114,21 +115,6 @@ pub struct TrainerTextOffsetsEntity(pub Member<TrainerTextOffsetsJson>);
 #[serde(deny_unknown_fields)]
 pub struct TrainerTextOffsetsJson {
     pub offsets: Vec<u16>,
-}
-
-/// `members[i]` as bytes, if there.
-fn member(members: &[Option<Vec<u8>>], i: usize) -> Option<&[u8]> {
-    members.get(i).and_then(|m| m.as_deref())
-}
-
-/// Member `i` of an art that has exactly one member per entity; missing is an error.
-fn required<'m>(
-    members: &'m [Option<Vec<u8>>],
-    art: &str,
-    index: u32,
-) -> Result<&'m [u8], KernelError> {
-    member(members, 0)
-        .ok_or_else(|| KernelError::InvalidProject(format!("{art} {index:04}: der Member fehlt.")))
 }
 
 /// A fixed record member as its JSON, or locked when it does not decode or does not write
@@ -355,6 +341,37 @@ impl EntitySchema for SpeciesEntity {
             evolution: Some(Member::Value(sample_record::<Evolution>("evolution"))),
         }
     }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        let id = fallback_id(SymbolKind::Species, 1);
+        let none = SpeciesEntity {
+            id: id.clone(),
+            personal: None,
+            learnset: None,
+            evolution: None,
+        };
+        let parts = SpeciesEntity {
+            id,
+            personal: Some(Member::Value(minimal_record::<Personal>("personal"))),
+            learnset: Some(Member::Value(LearnsetJson {
+                moves: Vec::new(),
+                terminated: true,
+                tail: None,
+            })),
+            evolution: Some(Member::Value(minimal_record::<Evolution>("evolution"))),
+        };
+        vec![(Self::ART.to_owned(), none), (Self::ART.to_owned(), parts)]
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        let e = SpeciesEntity {
+            id: fallback_id(SymbolKind::Species, 1),
+            personal: Some(locked_sample()),
+            learnset: Some(locked_sample()),
+            evolution: Some(locked_sample()),
+        };
+        vec![(Self::ART.to_owned(), e)]
+    }
 }
 
 impl EntitySchema for MoveEntity {
@@ -365,7 +382,7 @@ impl EntitySchema for MoveEntity {
         members: &[Option<Vec<u8>>],
         ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let bytes = required(members, Self::ART, index)?;
+        let bytes = required(members, 0, Self::ART, index)?;
         let key = PartKey {
             art: Self::ART,
             index,
@@ -393,6 +410,22 @@ impl EntitySchema for MoveEntity {
             id: fallback_id(SymbolKind::Move, 1),
             data: Member::Value(sample_record::<Move>("move")),
         }
+    }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        let e = MoveEntity {
+            id: fallback_id(SymbolKind::Move, 1),
+            data: Member::Value(minimal_record::<Move>("move")),
+        };
+        vec![(Self::ART.to_owned(), e)]
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        let e = MoveEntity {
+            id: fallback_id(SymbolKind::Move, 1),
+            data: locked_sample(),
+        };
+        vec![(Self::ART.to_owned(), e)]
     }
 }
 
@@ -445,6 +478,30 @@ impl EntitySchema for ItemEntity {
             data: Some(Member::Value(sample_record::<Item>("item"))),
             same_member_as: Some(fallback_id(SymbolKind::Item, 0)),
         }
+    }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        let id = fallback_id(SymbolKind::Item, 1);
+        let none = ItemEntity {
+            id: id.clone(),
+            data: None,
+            same_member_as: None,
+        };
+        let data = ItemEntity {
+            id,
+            data: Some(Member::Value(minimal_record::<Item>("item"))),
+            same_member_as: None,
+        };
+        vec![(Self::ART.to_owned(), none), (Self::ART.to_owned(), data)]
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        let e = ItemEntity {
+            id: fallback_id(SymbolKind::Item, 1),
+            data: Some(locked_sample()),
+            same_member_as: None,
+        };
+        vec![(Self::ART.to_owned(), e)]
     }
 }
 
@@ -603,7 +660,7 @@ impl EntitySchema for EncounterEntity {
         members: &[Option<Vec<u8>>],
         ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let bytes = required(members, Self::ART, index)?;
+        let bytes = required(members, 0, Self::ART, index)?;
         let key = encounter_key(index);
         let data = match ctx.family {
             Family::Hgss => record_member::<HgssEncounters>(key, true, bytes, ctx)?,
@@ -641,6 +698,35 @@ impl EntitySchema for EncounterEntity {
             ),
         ]
     }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        vec![
+            (
+                format!("{}[pt]", Self::ART),
+                EncounterEntity {
+                    data: Member::Value(minimal_record::<PtEncounters>("encounter")),
+                },
+            ),
+            (
+                format!("{}[hgss]", Self::ART),
+                EncounterEntity {
+                    data: Member::Value(minimal_record::<HgssEncounters>("encounter")),
+                },
+            ),
+        ]
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        ["pt", "hgss"]
+            .into_iter()
+            .map(|f| {
+                let e = EncounterEntity {
+                    data: locked_sample(),
+                };
+                (format!("{}[{f}]", Self::ART), e)
+            })
+            .collect()
+    }
 }
 
 /// The key of a trainer text member: the art is also the member's name.
@@ -660,7 +746,7 @@ impl EntitySchema for TrainerTextTableEntity {
         members: &[Option<Vec<u8>>],
         ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let bytes = required(members, Self::ART, index)?;
+        let bytes = required(members, 0, Self::ART, index)?;
         let reason = match TrainerTextTable::read(bytes) {
             Ok(table) if table.write() == bytes => {
                 return Ok(TrainerTextTableEntity(Member::Value(
@@ -701,6 +787,17 @@ impl EntitySchema for TrainerTextTableEntity {
             entries: vec![[0, 0]],
         }))
     }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        Self::samples()
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        vec![(
+            Self::ART.to_owned(),
+            TrainerTextTableEntity(locked_sample()),
+        )]
+    }
 }
 
 impl EntitySchema for TrainerTextOffsetsEntity {
@@ -711,7 +808,7 @@ impl EntitySchema for TrainerTextOffsetsEntity {
         members: &[Option<Vec<u8>>],
         ctx: &mut ExportCtx<'_>,
     ) -> Result<Self, KernelError> {
-        let bytes = required(members, Self::ART, index)?;
+        let bytes = required(members, 0, Self::ART, index)?;
         let reason = match TrainerTextOffsets::read(bytes) {
             Ok(offsets) if offsets.write() == bytes => {
                 return Ok(TrainerTextOffsetsEntity(Member::Value(
@@ -746,6 +843,17 @@ impl EntitySchema for TrainerTextOffsetsEntity {
     fn sample() -> Self {
         TrainerTextOffsetsEntity(Member::Value(TrainerTextOffsetsJson { offsets: vec![0] }))
     }
+
+    fn minimal_samples() -> Vec<(String, Self)> {
+        Self::samples()
+    }
+
+    fn locked_samples() -> Vec<(String, Self)> {
+        vec![(
+            Self::ART.to_owned(),
+            TrainerTextOffsetsEntity(locked_sample()),
+        )]
+    }
 }
 
 #[cfg(test)]
@@ -758,48 +866,8 @@ mod tests {
     use super::super::super::canon::to_canonical;
     use super::super::super::part::Part;
     use super::super::super::part::tests::MemBase;
-    use super::super::super::registry::Symbols;
+    use super::super::testkit::{code_and_path, export, import, symbols};
     use super::*;
-
-    fn symbols() -> Symbols {
-        Symbols::load(Path::new("/nonexistent/g4-textproject")).unwrap()
-    }
-
-    /// Exports entity `index` of `E` from `members` and reads it back through canonical JSON.
-    fn export<E: EntitySchema>(
-        family: Family,
-        index: u32,
-        members: &[Option<Vec<u8>>],
-    ) -> (E, Vec<(String, Vec<u8>)>) {
-        let mut sym = symbols();
-        let base = MemBase::default();
-        let mut ctx = ExportCtx {
-            family,
-            symbols: &mut sym,
-            base: &base,
-            side: Vec::new(),
-        };
-        let e = E::export(index, members, &mut ctx).unwrap();
-        let again: E = serde_json::from_slice(&to_canonical(&e)).unwrap();
-        (again, ctx.side)
-    }
-
-    fn import<E: EntitySchema>(
-        family: Family,
-        e: &E,
-        index: u32,
-    ) -> Result<Vec<Option<Vec<u8>>>, String> {
-        let sym = symbols();
-        let base = MemBase::default();
-        let ctx = ImportCtx {
-            family,
-            symbols: &sym,
-            dir: Path::new("/nonexistent"),
-            base: &base,
-            current: &[],
-        };
-        e.import(index, &ctx)
-    }
 
     fn learnset_bytes_of(moves: &[(u16, u8)], terminated: bool, tail: &[u8]) -> Vec<u8> {
         let entries: Vec<LearnEntry> = moves
@@ -1111,12 +1179,6 @@ mod tests {
         .unwrap_err();
         assert!(err.to_string().contains("unknown field `x`"), "{err}");
         assert_eq!(err.line(), 2);
-    }
-
-    /// The first `<code>: <path>: ` of an error.
-    fn code_and_path(err: &str) -> (&str, &str) {
-        let mut parts = err.splitn(3, ": ");
-        (parts.next().unwrap(), parts.next().unwrap())
     }
 
     fn set_key(m: &mut Member<RecordJson>, key: &str, value: serde_json::Value) {

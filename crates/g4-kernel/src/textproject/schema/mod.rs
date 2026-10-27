@@ -5,8 +5,13 @@
 //!
 //! Every import error has the form `<code>: <path>: <sentence>`: `path` is the JSON path
 //! inside the entity's file (`data.power`, `personal.type1`, `learnset.moves[3].move`,
-//! `personal.raw.hex`), [`ROOT`] for the entity's object itself, and for a missing key the
-//! path of the object that lacks it. The caller finds line and column from the path.
+//! `personal.raw.hex`, `data.party[2].species`, `maps[1]`, `warp_events[0].dest_header_id`),
+//! [`ROOT`] for the entity's object itself, and for a missing key the path of the object that
+//! lacks it. The caller finds line and column from the path.
+//!
+//! In `schema.snap` a key the export can leave out ends in `?`, a position that can be
+//! `{"locked", "raw"}` is one line `<path> <member>`, and another locked form (trainers) one
+//! line `<path> <locked: keys>`.
 
 use std::path::Path;
 
@@ -16,11 +21,17 @@ use serde::de::DeserializeOwned;
 
 use crate::error::KernelError;
 
-use super::part::{BasePart, HEX_MAX, Member, PartKey, part_in_at, part_out};
+use super::manifest::SCHEMA_CODE;
+use super::part::{BasePart, HEX_MAX, Member, Part, PartKey, part_in_at, part_out};
+use super::record::resolve;
 use super::registry::Symbols;
 use super::symbols::{SymbolKind, fallback_id};
 
 pub(crate) mod data;
+#[cfg(test)]
+mod testkit;
+pub(crate) mod trainer;
+pub(crate) mod world;
 
 pub(crate) use super::record::{RecordJson, SymRef};
 
@@ -59,6 +70,13 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
     fn samples() -> Vec<(String, Self)> {
         vec![(Self::ART.to_owned(), Self::sample())]
     }
+    /// For the snapshot: the samples with every option left out, under the labels of
+    /// [`EntitySchema::samples`]; a key the full sample has and one of these lacks (where it
+    /// has the object around it) is optional. Several per label when options nest.
+    fn minimal_samples() -> Vec<(String, Self)>;
+    /// For the snapshot: the samples with every member that can be locked locked, under the
+    /// labels of [`EntitySchema::samples`].
+    fn locked_samples() -> Vec<(String, Self)>;
 }
 
 /// What an export needs besides the members; side files of [`Part::File`] parts collect in
@@ -78,6 +96,40 @@ pub struct ImportCtx<'a> {
     pub dir: &'a Path,
     pub base: &'a dyn BasePart,
     pub current: &'a [Option<Vec<u8>>],
+}
+
+/// `members[i]` as bytes, if there.
+pub(crate) fn member(members: &[Option<Vec<u8>>], i: usize) -> Option<&[u8]> {
+    members.get(i).and_then(|m| m.as_deref())
+}
+
+/// Member `i` of entity `index` of `art`, which every entity of the art has; missing is an
+/// error.
+pub(crate) fn required<'m>(
+    members: &'m [Option<Vec<u8>>],
+    i: usize,
+    art: &str,
+    index: u32,
+) -> Result<&'m [u8], KernelError> {
+    member(members, i)
+        .ok_or_else(|| KernelError::InvalidProject(format!("{art} {index:04}: Member {i} fehlt.")))
+}
+
+/// The number of reference `r` at JSON `path`: an id of `kind` or a number, at most `max`.
+pub(crate) fn resolve_max(
+    sym: &Symbols,
+    kind: SymbolKind,
+    r: &SymRef,
+    path: &str,
+    max: u32,
+) -> Result<u32, String> {
+    let n = resolve(sym, kind, r, path)?;
+    if n > max {
+        return Err(format!(
+            "{SCHEMA_CODE}: {path}: {n} liegt nicht in 0..={max}."
+        ));
+    }
+    Ok(n)
 }
 
 /// The `id` of entity `index` of `kind`: its table or register id, else the fallback.
@@ -113,6 +165,20 @@ pub(crate) fn lock_member<T>(
     reason: String,
     ctx: &mut ExportCtx<'_>,
 ) -> Result<Member<T>, KernelError> {
+    Ok(Member::Locked {
+        locked: reason,
+        raw: raw_part(key, use_base, bytes, ctx)?,
+    })
+}
+
+/// `bytes` of part `key` as a [`Part`]; a side file is named `NNNN.<part>.bin`, and the base
+/// layer is asked only when `use_base` (and the bytes are too long for hex).
+pub(crate) fn raw_part(
+    key: PartKey,
+    use_base: bool,
+    bytes: &[u8],
+    ctx: &mut ExportCtx<'_>,
+) -> Result<Part, KernelError> {
     let base = if use_base && bytes.len() > HEX_MAX {
         ctx.base.base_bytes(key)?
     } else {
@@ -120,11 +186,15 @@ pub(crate) fn lock_member<T>(
     };
     let stem = format!("{:04}", key.index);
     let ext = format!("{}.bin", key.part);
-    let raw = part_out(bytes, base.as_deref(), &stem, &ext, &mut ctx.side);
-    Ok(Member::Locked {
-        locked: reason,
-        raw,
-    })
+    Ok(part_out(bytes, base.as_deref(), &stem, &ext, &mut ctx.side))
+}
+
+/// A locked member for the snapshot's locked samples.
+pub(crate) fn locked_sample<T>() -> Member<T> {
+    Member::Locked {
+        locked: "reason".into(),
+        raw: Part::Hex { hex: "00".into() },
+    }
 }
 
 /// The bytes of member `m` at JSON `path`: a locked member's raw part, else `value` of its
@@ -147,13 +217,16 @@ pub(crate) fn member_bytes<T>(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use serde_json::Value;
 
     use super::super::SCHEMA_VERSION;
-    use super::super::part::Part;
     use super::super::symbols::table;
     use super::data::{EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity};
     use super::data::{TrainerTextOffsetsEntity, TrainerTextTableEntity};
+    use super::trainer::TrainerEntity;
+    use super::world::{AreaDataEntity, EventEntity, MatrixEntity};
     use super::*;
 
     const SNAPSHOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/textproject/schema.snap");
@@ -180,14 +253,77 @@ mod tests {
         })
     }
 
-    fn walk(path: &str, v: &Value, out: &mut Vec<String>) {
-        match v {
-            Value::Object(map) if !map.is_empty() => {
+    /// Collects into `optional` the plain paths of keys `full` has and `min` lacks while it
+    /// has the object around them.
+    fn mark_optional(
+        path: &str,
+        full: &Value,
+        min: Option<&Value>,
+        optional: &mut HashSet<String>,
+    ) {
+        match full {
+            Value::Object(map) => {
                 for (k, x) in map {
-                    walk(&format!("{path}.{k}"), x, out);
+                    let p = format!("{path}.{k}");
+                    let m = match min {
+                        Some(Value::Object(m)) => {
+                            let child = m.get(k);
+                            if child.is_none() {
+                                optional.insert(p.clone());
+                            }
+                            child
+                        }
+                        _ => None,
+                    };
+                    mark_optional(&p, x, m, optional);
                 }
             }
-            Value::Array(items) if !items.is_empty() => walk(&format!("{path}[]"), &items[0], out),
+            Value::Array(items) if !items.is_empty() => {
+                let m = match min {
+                    Some(Value::Array(m)) => m.first(),
+                    _ => None,
+                };
+                mark_optional(&format!("{path}[]"), &items[0], m, optional);
+            }
+            _ => {}
+        }
+    }
+
+    /// The lines of `v` at `path` (`plain`: the path without `?` marks). With `locked`, an
+    /// object `{locked, raw}` is one line `<path> <member>` and any other object with a
+    /// `locked` key one line naming its keys.
+    fn walk(
+        path: &str,
+        plain: &str,
+        v: &Value,
+        optional: &HashSet<String>,
+        locked: bool,
+        out: &mut Vec<String>,
+    ) {
+        match v {
+            Value::Object(map) if locked && map.contains_key("locked") => {
+                let keys: Vec<&str> = map.keys().map(String::as_str).collect();
+                if keys == ["locked", "raw"] {
+                    out.push(format!("{path} <member>"));
+                } else {
+                    out.push(format!("{path} <locked: {}>", keys.join(", ")));
+                }
+            }
+            Value::Object(map) if !map.is_empty() => {
+                for (k, x) in map {
+                    let p = format!("{plain}.{k}");
+                    let mark = if optional.contains(&p) { "?" } else { "" };
+                    walk(&format!("{path}.{k}{mark}"), &p, x, optional, locked, out);
+                }
+            }
+            Value::Array(items) if !items.is_empty() => walk(
+                &format!("{path}[]"),
+                &format!("{plain}[]"),
+                &items[0],
+                optional,
+                locked,
+                out,
+            ),
             Value::String(s) => match id_kind(s) {
                 Some(kind) => out.push(format!("{path} →{}", kind.prefix())),
                 None => out.push(path.to_owned()),
@@ -196,9 +332,32 @@ mod tests {
         }
     }
 
+    fn json<E: EntitySchema>(samples: Vec<(String, E)>) -> Vec<(String, Value)> {
+        samples
+            .into_iter()
+            .map(|(label, e)| (label, serde_json::to_value(&e).unwrap()))
+            .collect()
+    }
+
+    /// The lines of `E`: every key path of its full samples, optional keys marked `?`, then
+    /// the positions its locked samples lock.
     fn lines_of<E: EntitySchema>(out: &mut Vec<String>) {
-        for (label, sample) in E::samples() {
-            walk(&label, &serde_json::to_value(&sample).unwrap(), out);
+        let full = json(E::samples());
+        let mut optional = HashSet::new();
+        for (label, min) in json(E::minimal_samples()) {
+            let (_, f) = full
+                .iter()
+                .find(|(l, _)| *l == label)
+                .unwrap_or_else(|| panic!("{}: minimal sample `{label}` has no full one", E::ART));
+            mark_optional(&label, f, Some(&min), &mut optional);
+        }
+        for (label, v) in &full {
+            walk(label, label, v, &optional, false, out);
+        }
+        let locked = json(E::locked_samples());
+        assert!(!locked.is_empty(), "{}: no locked sample", E::ART);
+        for (label, v) in &locked {
+            walk(label, label, v, &optional, true, out);
         }
     }
 
@@ -211,6 +370,10 @@ mod tests {
         lines_of::<EncounterEntity>(&mut lines);
         lines_of::<TrainerTextTableEntity>(&mut lines);
         lines_of::<TrainerTextOffsetsEntity>(&mut lines);
+        lines_of::<TrainerEntity>(&mut lines);
+        lines_of::<MatrixEntity>(&mut lines);
+        lines_of::<AreaDataEntity>(&mut lines);
+        lines_of::<EventEntity>(&mut lines);
         for raw in [
             Part::Hex { hex: "00".into() },
             Part::Base {
@@ -224,13 +387,17 @@ mod tests {
                 locked: "reason".into(),
                 raw,
             };
+            let v = serde_json::to_value(&locked).unwrap();
             walk(
                 "<locked>",
-                &serde_json::to_value(&locked).unwrap(),
+                "<locked>",
+                &v,
+                &HashSet::new(),
+                false,
                 &mut lines,
             );
         }
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         lines.retain(|l| seen.insert(l.clone()));
         let mut text = lines.join("\n");
         text.push('\n');
@@ -284,29 +451,71 @@ mod tests {
         assert!(text.starts_with(&format!("schemaVersion {SCHEMA_VERSION}\n")));
         for line in [
             "species.id →SPECIES",
-            "species.personal.hp",
-            "species.personal.type1 →TYPE",
-            "species.personal.ev_yield_hp",
-            "species.personal.ev_yield_rest",
-            "species.learnset.moves[].move →MOVE",
-            "species.evolution.target0 →SPECIES",
+            "species.personal?.hp",
+            "species.personal?.type1 →TYPE",
+            "species.personal?.ev_yield_hp",
+            "species.personal?.ev_yield_rest?",
+            "species.learnset?.moves[].move →MOVE",
+            "species.learnset?.terminated",
+            "species.learnset?.tail?",
+            "species.evolution?.target0 →SPECIES",
+            "species.personal? <member>",
+            "species.learnset? <member>",
             "moves.data.move_type →TYPE",
-            "items.data.natural_gift_type →TYPE",
-            "items.same_member_as →ITEM",
+            "moves.data <member>",
+            "items.data?.natural_gift_type →TYPE",
+            "items.same_member_as? →ITEM",
+            "items.data? <member>",
             "encounters[pt].data.grass_00_species →SPECIES",
             "encounters[hgss].data.grass_morning_00 →SPECIES",
+            "encounters[hgss].data <member>",
             "trainer_text_table.entries[][]",
+            "trainer_text_table <member>",
             "trainer_text_offsets.offsets[]",
+            "trainers.id →TRAINER",
+            "trainers.data.class →TRAINER_CLASS",
+            "trainers.data.items[] →ITEM",
+            "trainers.data.party[].species →SPECIES",
+            "trainers.data.party[].form",
+            "trainers.data.party[].item? →ITEM",
+            "trainers.data.party[].moves?[] →MOVE",
+            "trainers.data.party[].ball_capsule?",
+            "trainers.data <locked: locked, props, party>",
+            "matrices.maps[]",
+            "matrices.headers?[]",
+            "matrices.altitudes?[]",
+            "matrices <member>",
+            "area_data[pt].unknown",
+            "area_data[pt].light_type",
+            "area_data[hgss].area_type",
+            "area_data[hgss] <member>",
+            "events.bg_events[].player_facing_dir",
+            "events.object_events[].data[]",
+            "events.warp_events[].dest_header_id →MAP",
+            "events.coord_events[].var",
+            "events <member>",
             "<locked>.locked",
             "<locked>.raw.base_sha1",
         ] {
             assert!(text.lines().any(|l| l == line), "missing `{line}`:\n{text}");
         }
         // A container with bit fields is only its bit fields and its rest.
-        assert!(!text.lines().any(|l| l == "species.personal.color_flip"));
+        assert!(
+            !text
+                .lines()
+                .any(|l| l.starts_with("species.personal?.color_flip "))
+        );
+        assert!(!text.lines().any(|l| l == "species.personal?.color_flip"));
         assert!(
             text.lines()
-                .any(|l| l == "species.personal.color_flip_rest")
+                .any(|l| l == "species.personal?.color_flip_rest?")
+        );
+        // Required keys carry no mark.
+        assert!(!text.lines().any(|l| l.starts_with("species.id?")));
+        assert!(
+            !text
+                .lines()
+                .any(|l| l.starts_with("trainers.data.party[].species?"))
         );
         assert!(table(SymbolKind::Type).is_some());
     }

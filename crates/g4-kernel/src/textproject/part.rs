@@ -44,7 +44,9 @@ pub enum Part {
 /// folder under `data/`), the entity's file number and the part's name.
 ///
 /// Locked members use the member's name as `part`: `species` → `personal`, `learnset`,
-/// `evolution`; `moves` → `move`; `encounters` → `encounter`; `items` → `item`. For all but
+/// `evolution`; `moves` → `move`; `encounters` → `encounter`; `items` → `item`; `trainers` →
+/// `props` and `party` (a locked trainer has both); `matrices` → `matrix`; `area_data` →
+/// `area_data`; `events` → `event`; the trainer text kinds → their own art. For all but
 /// items the file number is the member index. An item's file number is its item id, not the
 /// member index, so the export never asks the base layer for an item; a hand-written
 /// `base_sha1` of an item resolves against the current member (or whatever the base layer
@@ -258,53 +260,78 @@ impl<T: Serialize> Serialize for Member<T> {
 /// name the real field and keep serde's position (no untagged trial and error).
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Member<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(MemberVisitor(PhantomData))
+        Ok(
+            match read_form::<D, T, LockedRaw>(deserializer, LOCKED_KEYS)? {
+                Form::Value(value) => Member::Value(value),
+                Form::Locked(LockedRaw { locked, raw }) => Member::Locked { locked, raw },
+            },
+        )
     }
 }
-
-struct MemberVisitor<T>(PhantomData<T>);
 
 const LOCKED_KEYS: &[&str] = &["locked", "raw"];
 
-impl<'de, T: Deserialize<'de>> Visitor<'de> for MemberVisitor<T> {
-    type Value = Member<T>;
-
-    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("an object: the member's value, or `locked` with `raw`")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Member<T>, A::Error> {
-        let first = map.next_key::<String>()?;
-        match first {
-            Some(key) if LOCKED_KEYS.contains(&key.as_str()) => locked_form(key, map),
-            first => T::deserialize(MapAccessDeserializer::new(Prepend { first, map }))
-                .map(Member::Value),
-        }
-    }
+/// The locked form of a [`Member`], as read.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockedRaw {
+    locked: String,
+    raw: Part,
 }
 
-/// The rest of a locked member whose first key `first` was already read.
-fn locked_form<'de, A: MapAccess<'de>, T>(
-    first: String,
-    mut map: A,
-) -> Result<Member<T>, A::Error> {
-    let mut locked: Option<String> = None;
-    let mut raw: Option<Part> = None;
-    let mut key = Some(first);
-    while let Some(k) = key {
-        match k.as_str() {
-            "locked" if locked.is_some() => return Err(de::Error::duplicate_field("locked")),
-            "raw" if raw.is_some() => return Err(de::Error::duplicate_field("raw")),
-            "locked" => locked = Some(map.next_value()?),
-            "raw" => raw = Some(map.next_value()?),
-            other => return Err(de::Error::unknown_field(other, LOCKED_KEYS)),
-        }
-        key = map.next_key::<String>()?;
-    }
-    Ok(Member::Locked {
-        locked: locked.ok_or_else(|| de::Error::missing_field("locked"))?,
-        raw: raw.ok_or_else(|| de::Error::missing_field("raw"))?,
+/// One of the two forms of an object that can be locked.
+pub(crate) enum Form<V, L> {
+    Value(V),
+    Locked(L),
+}
+
+/// Reads an object by its first key (ruling R1): one of `locked_keys` starts the locked form
+/// `L`, any other key (or none) the value `V`. Each form reads every key itself, so an error
+/// names the real field and keeps serde's position; a locked key after the first is an
+/// unknown field of the value.
+pub(crate) fn read_form<'de, D, V, L>(
+    deserializer: D,
+    locked_keys: &'static [&'static str],
+) -> Result<Form<V, L>, D::Error>
+where
+    D: Deserializer<'de>,
+    V: Deserialize<'de>,
+    L: Deserialize<'de>,
+{
+    deserializer.deserialize_map(FormVisitor {
+        locked_keys,
+        forms: PhantomData,
     })
+}
+
+struct FormVisitor<V, L> {
+    locked_keys: &'static [&'static str],
+    forms: PhantomData<(V, L)>,
+}
+
+impl<'de, V: Deserialize<'de>, L: Deserialize<'de>> Visitor<'de> for FormVisitor<V, L> {
+    type Value = Form<V, L>;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "an object: the value, or the locked form starting with `{}`",
+            self.locked_keys.join("` or `")
+        )
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Form<V, L>, A::Error> {
+        let first = map.next_key::<String>()?;
+        let locked = first
+            .as_deref()
+            .is_some_and(|k| self.locked_keys.contains(&k));
+        let all = MapAccessDeserializer::new(Prepend { first, map });
+        if locked {
+            L::deserialize(all).map(Form::Locked)
+        } else {
+            V::deserialize(all).map(Form::Value)
+        }
+    }
 }
 
 /// A map whose first key was already read: hands it out again, then the rest.

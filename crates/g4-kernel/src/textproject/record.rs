@@ -429,6 +429,21 @@ pub(crate) fn sample_record<R: RawRecord>(record: &str) -> RecordJson {
     RecordJson(out)
 }
 
+/// [`sample_record`] without the `<container>_rest` keys, which the export leaves out when
+/// they are 0: the snapshot's minimal sample.
+pub(crate) fn minimal_record<R: RawRecord>(record: &str) -> RecordJson {
+    let rest: Vec<String> = layout(R::FIELDS)
+        .iter()
+        .filter_map(|entry| match entry {
+            Entry::Container(c, _) => Some(rest_key(c)),
+            Entry::Plain(_) => None,
+        })
+        .collect();
+    let mut j = sample_record::<R>(record);
+    j.0.retain(|(k, _)| !rest.contains(k));
+    j
+}
+
 impl Serialize for RecordJson {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
