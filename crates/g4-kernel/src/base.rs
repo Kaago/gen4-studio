@@ -12,6 +12,7 @@ use serde::Serialize;
 use sha1::{Digest, Sha1};
 
 use crate::error::{KernelError, guard_panic, io_at};
+use crate::original::Original;
 use crate::project::{ArchiveMap, AssetKind, header_table_offset_for};
 use crate::start::{BaseMark, known_base_label, suggest_base};
 
@@ -352,6 +353,17 @@ fn find_file(data: &[u8], inside: &str) -> Result<Option<Range<usize>>, KernelEr
     Ok(None)
 }
 
+/// The path inside the ROM's file system of a packed archive path of the project
+/// (`files/a/0/2/7` → `a/0/2/7`).
+fn inside_rom(packed: &Path) -> String {
+    let packed = packed.strip_prefix("files").unwrap_or(packed);
+    packed
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// A base ROM in memory. Every read parses what it needs from the bytes again; nothing is
 /// cached.
 pub struct BaseRom {
@@ -387,6 +399,18 @@ impl BaseRom {
                 .unwrap_or_else(|| "die Basis-ROM".to_owned());
             return Err(KernelError::Refused(other_rom_text(&sha1, &label, wanted)));
         }
+        BaseRom::from_bytes(bytes, sha1)
+    }
+
+    /// Reads the ROM at `path` without hashing it: the caller found it by `sha1` just before
+    /// ([`locate`], which hashes only a file whose size or mtime changed), so a second SHA-1
+    /// (0.12 s) is spared. Fails like [`BaseRom::open`] for a game code that is no Gen-4 game.
+    pub fn open_unchecked(path: &Path, sha1: &str) -> Result<BaseRom, KernelError> {
+        let bytes = std::fs::read(path).map_err(io_at(path))?;
+        BaseRom::from_bytes(bytes, sha1.to_ascii_lowercase())
+    }
+
+    fn from_bytes(bytes: Vec<u8>, sha1: String) -> Result<BaseRom, KernelError> {
         let Some(code) = bytes.get(0x0C..0x10) else {
             return Err(KernelError::Refused(format!(
                 "too small for a DS ROM: {} bytes",
@@ -437,12 +461,7 @@ impl BaseRom {
         let Some(packed) = self.archives.packed(kind) else {
             return Ok(None);
         };
-        let packed = packed.strip_prefix("files").unwrap_or(packed);
-        let inside = packed
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy())
-            .collect::<Vec<_>>()
-            .join("/");
+        let inside = inside_rom(packed);
         let bytes = self
             .file_slice(&inside)?
             .ok_or_else(|| unreadable(format!("{inside} fehlt")))?;
@@ -502,6 +521,32 @@ impl BaseRom {
         };
         uxie::map_header::read_map_headers_from_arm9(&mut Cursor::new(arm9), offset, count, family)
             .map_err(|e| KernelError::Uxie(format!("{e}")))
+    }
+}
+
+impl Original for BaseRom {
+    fn sha1(&self) -> &str {
+        BaseRom::sha1(self)
+    }
+
+    fn member(&self, kind: AssetKind, index: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        BaseRom::member(self, kind, index)
+    }
+
+    fn count(&self, kind: AssetKind) -> Result<Option<usize>, KernelError> {
+        Ok(self.narc(kind)?.map(|narc| narc.members.len()))
+    }
+
+    fn header_table(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
+        BaseRom::header_table(self)
+    }
+
+    /// The file at `packed` without its `files/`.
+    fn narc_at(&self, packed: &Path) -> Result<Option<Narc>, KernelError> {
+        match self.file_slice(&inside_rom(packed))? {
+            Some(bytes) => Ok(Some(Narc::read(bytes)?)),
+            None => Ok(None),
+        }
     }
 }
 

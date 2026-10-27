@@ -179,3 +179,79 @@ in Platin und HeartGold kommt das nicht vor. In den DSPRE-Ordnern von HeartGold 
 nach dem ersten Build 128 Dateien im Ordner (127 von 129 Overlays und das ARM9), in dem von
 Platin DE keine (dort ist nichts als komprimiert markiert). Alte Einträge bleiben liegen, bis der
 Ordner gelöscht wird.
+
+## Auf Original zurücksetzen
+
+Eine Entität des Projekts lässt sich auf ihren Stand in der Basis-ROM zurücksetzen
+(`crates/g4-kernel/src/original.rs`, Vorschau in `original/preview.rs`). Das Original liest der
+Kernel über den Trait `Original`: `BaseRom` (die ROM der Marke) liefert Member, Anzahl je Archiv,
+die Header-Tabelle und ein NARC nach seinem Projektpfad (`files/…`, ohne `files/` in der ROM).
+
+### Ziele und Byte-Form
+
+`ResetTarget` (JSON `{"kind": "<art>", …}`), Name im Dialog und im Verlauf:
+
+| `kind` | Felder | Name | Original |
+|---|---|---|---|
+| `map` | `index` | Karte 0003 | Member |
+| `event_file` | `index` | Eventdatei 0003 | Member |
+| `text_archive` | `index` | Textarchiv 0005 | Member dekodiert (chatot); Nachrichten und `key` der Basis, neue Nachrichten fallen weg; `id` und die anderen Sprachen der aktuellen Nachricht gleichen Index bleiben; als kanonische JSON |
+| `text_message` | `archive`, `message` | Nachricht 2 in Textarchiv 0005 | das aktuelle Archiv, nur `text` dieser Nachricht aus der Basis |
+| `trainer` | `index` | Trainer 0001 | Eigenschaften und Team (`u32 len \| props \| party`); Name und Texte in den Textbänken bleiben |
+| `species` | `index` | Pokémon 0001 | Personal, Lernset und Entwicklung desselben Index, ein Schritt |
+| `encounter` | `index` | Begegnungsdatei 0001 | Member |
+| `header` | `id` | Header 0012 | Feld für Feld (noch nicht) |
+| `script` | `file` | Scriptdatei 0012 | Basis-Member, dekompiliert (noch nicht) |
+| `map_texture`, `building_texture`, `building_model`, `interior_building_model` | `index` | Kartentextur 0001, Gebäudetextur, Gebäudemodell, Innenraum-Gebäudemodell | ganz (noch nicht) |
+
+Die Store-Arten (die ersten sieben Zeilen) setzt `reset` mit `Tx::replace` in einer Transaktion:
+die Assets sind danach ungespeichert wie nach jeder Bearbeitung, „Speichern“ schreibt die Member
+(ein Textarchiv als JSON und Member). Nach dem Speichern ist jeder Member byte-gleich zum
+Basis-Member (gated Test `reset_of_each_store_kind_gives_the_base_member_back`). Header, Scripts,
+Texturen und Modelle antworten vorerst mit `Refused("noch nicht")`.
+
+### Was nicht geht
+
+- **Neue Entitäten:** ein Index ab der Anzahl der Basis (beim Trainer das kleinere der beiden
+  Archive, bei Pokémon die Anzahl von Personal, beim Header die Länge der Header-Tabelle) und ein
+  Archiv, das die Basis nicht hat, ergeben „Kein Original: diesen Eintrag gibt es in der Basis-ROM
+  nicht.“; eine Nachricht ab der Nachrichtenzahl des Basis-Archivs „Neue Nachricht, kein
+  Original.“ (`availability`). `base_counts` liefert die Anzahl je `kind` (eine Nachricht zählt mit
+  `text_archive`), damit die Oberfläche solche Einträge ohne Kernel-Aufruf sperrt.
+- **Gesperrte Assets** (Länge falsch, Platzhalter-Trainer des Sicht-Scripts, nicht byte-treu
+  lesbar): Plan und Reset lehnen mit `ReadOnly` und dem Sperrgrund ab, nichts wird aufgezeichnet.
+- **ARM9-Patches, Overlays, Overlay-Tabellen** setzt nichts zurück; andere Arten (Matrix,
+  Gebietsdaten, Attacken, Items, …) haben kein Zurücksetzen („Für diese Art gibt es kein
+  Zurücksetzen.“).
+
+### Plan und Vorschau
+
+`plan_reset` ändert nichts und liefert je abweichendem Asset eine `ResetChange` mit deutschen
+Zeilen für vorher und nachher, aus derselben Funktion für beide Seiten (eine Zeile je Eintrag):
+
+| Ziel | Zeilen |
+|---|---|
+| Karte | `Bewegungsrechte <xxh3>`, `Gebäude <n>`, `Modell <n> Byte <xxh3>`, `BDHC <n> Byte <xxh3>` (xxh3: die ersten 8 Hex-Ziffern); das Label nennt die abweichenden Zellen: „Karte 0003: 37 Zellen der Bewegungsrechte anders“ |
+| Eventdatei | `Figur <i>: {…}`, `Tür <i>: {…}`, `Auslöser <i>: {…}`, `Schild <i>: {…}`, je alle Felder des uxie-Events als kompakte JSON; leer: „Keine Events“ |
+| Textarchiv | `<i>: <text>` je Nachricht |
+| Nachricht | der Text (chatot-Form, `\n` als Backslash und `n`) |
+| Trainer | `<name>: <wert>` je Feld der Eigenschaften, dann je Teammitglied `Team <n> level: …` usw. |
+| Begegnung, Personal | `<name>: <wert>` je Feld der Feldkarte, `Bytes` als Hex |
+| Lernset | `Lv <level>: Attacke <id>` |
+| Entwicklung | `<methode> <parameter> → <ziel>` je nicht leerem Eintrag |
+
+Ein Pokémon ergibt bis zu drei Änderungen („Pokémon 0001: Basisdaten“, „…: Lernset“,
+„…: Entwicklung“), nur die abweichenden. `same` ist wahr, wenn alles der Basis gleicht.
+
+### Undo-Schritt
+
+Ein Reset ist ein Schritt auf dem Undo-Stapel des Stores mit dem Label „Auf Original
+zurückgesetzt: <Name>“; ⌘Z stellt den Stand davor her, auch eine ungespeicherte Bearbeitung.
+Gleicht schon alles der Basis, wird nichts aufgezeichnet (`recorded: false`).
+
+### Basis je Aufruf
+
+Die Basis-ROM wird je Aufruf gelesen, nicht im Speicher gehalten: `locate` findet sie (eine
+bekannte Datei mit gleicher Größe und mtime ohne Hash), dann `BaseRom::open_unchecked(pfad, sha1)`
+liest sie ohne zweite SHA-1 (die kostet 0,12 s). Ein Reset dauert vom Öffnen der ROM bis zum
+aufgezeichneten Schritt höchstens 0,2 s.
