@@ -97,8 +97,8 @@ fn ms_since(start: Instant) -> u64 {
 
 /// Exports `project` as a text project against base ROM `base`. Refuses (before writing
 /// anything) Diamond/Pearl, a project without base mark or with another base, an older or
-/// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), item
-/// members the ARM9 item table names but the project lacks (run the import first) and
+/// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), missing
+/// itemData members that hide the item table (named ones or a gap; the import first) and
 /// scripts that are not adopted unless `opts.adopt_scripts`. The base layer is made only when
 /// it is not there.
 pub fn export(
@@ -157,10 +157,12 @@ pub fn export(
     Ok(report)
 }
 
-/// The refusal when item members the ARM9 item table names are missing: the export reads the
-/// items from their members, so without them it would drop the items (its table checks the
-/// members on disk), while import and build still own them. `None` without item table or
-/// when every named member is there.
+/// The refusal when the export's item table is gone but the import's is not: the export's
+/// table ([`Project::item_table`]) counts the files of the itemData folder, so missing
+/// members hide it and the export would drop the items silently, while import, build step
+/// and the blob range ([`Project::item_table_to_write`]) still own them. The sentence names
+/// the missing members the table names, else the gap of members it does not name. `None`
+/// when both tables agree.
 fn missing_item_members(project: &Project) -> Result<Option<String>, KernelError> {
     if !project.has_archive(AssetKind::Item) || project.item_table().is_some() {
         return Ok(None);
@@ -169,33 +171,38 @@ fn missing_item_members(project: &Project) -> Result<Option<String>, KernelError
         return Ok(None);
     };
     let members = read_members(project, AssetKind::Item)?;
-    let missing: BTreeSet<u16> = table
-        .entries
-        .iter()
-        .map(|e| e.data)
-        .filter(|&m| members.get(usize::from(m)).is_none_or(Option::is_none))
-        .collect();
-    if missing.is_empty() {
-        return Ok(None);
-    }
-    const SHOWN: usize = 10;
-    let mut list: Vec<String> = missing
-        .iter()
-        .take(SHOWN)
-        .map(|m| format!("{m:04}"))
-        .collect();
-    if missing.len() > SHOWN {
-        list.push("…".to_owned());
-    }
+    let named: BTreeSet<usize> = table.entries.iter().map(|e| usize::from(e.data)).collect();
+    let absent = |m: &usize| members.get(*m).is_none_or(Option::is_none);
+    let missing: Vec<usize> = named.iter().copied().filter(absent).collect();
+    let gap: Vec<usize> = (0..members.len()).filter(absent).collect();
     let dir = project.unpacked_dir(AssetKind::Item);
-    let dir = dir.strip_prefix(&project.root).unwrap_or(&dir);
-    Ok(Some(format!(
-        "In {} fehlen {} Item-Member, die die Item-Tabelle nennt ({}): erst `g4k text import` \
-         ausführen, dann exportieren.",
-        dir.display(),
-        missing.len(),
-        list.join(", ")
-    )))
+    let dir = dir.strip_prefix(&project.root).unwrap_or(&dir).display();
+    Ok(Some(if !missing.is_empty() {
+        format!(
+            "In {dir} fehlen {} Item-Member, die die Item-Tabelle nennt ({}): erst `g4k text \
+             import` ausführen, dann exportieren.",
+            missing.len(),
+            numbers(&missing)
+        )
+    } else {
+        format!(
+            "In {dir} fehlen {} Item-Member, die keine Item-ID nennt ({}): erst die Lücke \
+             schließen (etwa mit `g4k text import`, wenn `data/raw/` die Member hat), dann \
+             exportieren.",
+            gap.len(),
+            numbers(&gap)
+        )
+    }))
+}
+
+/// Up to ten member numbers `NNNN`, comma separated, then „…“.
+fn numbers(list: &[usize]) -> String {
+    const SHOWN: usize = 10;
+    let mut out: Vec<String> = list.iter().take(SHOWN).map(|m| format!("{m:04}")).collect();
+    if list.len() > SHOWN {
+        out.push("…".to_owned());
+    }
+    out.join(", ")
 }
 
 /// The export after its checks, against `layer`.

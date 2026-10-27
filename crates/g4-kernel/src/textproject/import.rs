@@ -1598,17 +1598,9 @@ mod tests {
         out
     }
 
-    /// An export of a project whose item members are missing would drop the items (the
-    /// export's strict table is gone) while the import still owns them: it refuses, names the
-    /// missing members and the import, and writes nothing.
-    #[test]
-    fn export_refuses_items_with_missing_members_and_writes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = items_project(dir.path());
-        std::fs::remove_dir_all(p.root.join("data")).unwrap();
-        for i in [0, 2] {
-            std::fs::remove_file(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap();
-        }
+    /// Exports the folder at `dir` (with a base mark of the synthetic ROM) and returns the
+    /// refusal; asserts that nothing below `dir` changed.
+    fn export_refusal(dir: &Path) -> String {
         let (_rom_dir, rom) = synthetic_rom();
         let base = BaseRom::open(&rom, None).unwrap();
         let mark = BaseMark {
@@ -1626,13 +1618,9 @@ mod tests {
             secure_area_crc: 0,
             secure_area_sha1: "0".repeat(40),
         };
-        write_to_dir(
-            dir.path(),
-            ".g4/base.json",
-            &serde_json::to_vec(&mark).unwrap(),
-        );
-        let before = tree(dir.path());
-        let p = Project::open(dir.path()).unwrap();
+        write_to_dir(dir, ".g4/base.json", &serde_json::to_vec(&mark).unwrap());
+        let before = tree(dir);
+        let p = Project::open(dir).unwrap();
         let result = export(
             &p,
             &base,
@@ -1640,18 +1628,61 @@ mod tests {
                 adopt_scripts: true,
             },
         );
+        assert_eq!(tree(dir), before, "nothing written");
         match result {
-            Err(KernelError::Refused(text)) => {
-                assert!(
-                    text.contains("unpacked/itemData")
-                        && text.contains("0000, 0002")
-                        && text.contains("g4k text import"),
-                    "{text}"
-                );
-            }
+            Err(KernelError::Refused(text)) => text,
             other => panic!("expected Refused, got {other:?}"),
         }
-        assert_eq!(tree(dir.path()), before, "nothing written");
+    }
+
+    /// An export of a project whose item members are missing would drop the items (the
+    /// export's strict table is gone) while the import still owns them: it refuses, names the
+    /// missing members and the import, and writes nothing.
+    #[test]
+    fn export_refuses_items_with_missing_members_and_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = items_project(dir.path());
+        std::fs::remove_dir_all(p.root.join("data")).unwrap();
+        for i in [0, 2] {
+            std::fs::remove_file(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap();
+        }
+        let text = export_refusal(dir.path());
+        assert!(
+            text.contains("unpacked/itemData")
+                && text.contains("0000, 0002")
+                && text.contains("g4k text import"),
+            "{text}"
+        );
+    }
+
+    /// Every member the table names is there, but one it does not name is missing: the folder
+    /// has a gap, the strict table is gone all the same (it counts files), so the export
+    /// refuses and names the gap.
+    #[test]
+    fn export_refuses_a_gap_of_unnamed_item_members_and_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = items_project(dir.path());
+        std::fs::remove_dir_all(p.root.join("data")).unwrap();
+        // The ids of member 2 name member 10 instead; member 2 is named by none and goes.
+        let arm9_path = p.root.join("arm9/arm9.bin");
+        let mut arm9 = std::fs::read(&arm9_path).unwrap();
+        for i in (2..468usize).step_by(10) {
+            let at = 0xF0D1C + 8 * i;
+            arm9[at..at + 2].copy_from_slice(&10u16.to_le_bytes());
+        }
+        std::fs::write(&arm9_path, arm9).unwrap();
+        write_to_dir(dir.path(), "unpacked/itemData/0010", &[0u8; 34]);
+        std::fs::remove_file(p.root.join("unpacked/itemData/0002")).unwrap();
+        let p = Project::open(dir.path()).unwrap();
+        assert!(p.item_table().is_none() && p.item_table_to_write().is_some());
+
+        let text = export_refusal(dir.path());
+        assert!(
+            text.contains("unpacked/itemData")
+                && text.contains("(0002)")
+                && text.contains("g4k text import"),
+            "{text}"
+        );
     }
 
     /// The base layer names an item's member through its item table even when the layer's
