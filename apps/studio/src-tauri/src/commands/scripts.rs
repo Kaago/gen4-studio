@@ -107,8 +107,10 @@ pub fn adopt_scripts_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let adopted = scripts::adopt(&session.project, &mut |p| progress(p.into()));
-    // Also a failed adoption may have written sources.
+    // Also a failed adoption may have written sources: past the history, so the file steps
+    // of the scripts (resets to the original) could no longer be undone.
     session.files_written();
+    session.store.forget_kind_history(AssetKind::Script);
     let report = adopted?;
     Ok(AdoptReportDto {
         decompiled: report.decompiled,
@@ -270,6 +272,11 @@ pub fn add_script_impl(state: &AppState, file: u16) -> Result<u16, CmdError> {
     refuse_dirty_text(&session.store)?;
     let added = scripts::add_script_reported(&session.project, file);
     session.files_written();
+    // Written past the history, as a save (`save_source`).
+    session.store.forget_asset_history(AssetId {
+        kind: AssetKind::Script,
+        index: file,
+    });
     let (n, touched) = added?;
     reload_text_archives(&mut session.store, &touched)?;
     Ok(n)

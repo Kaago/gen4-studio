@@ -2285,10 +2285,15 @@ impl Store {
     /// stacks and drops the changesets left empty, except a barrier: what it stands for stays
     /// on disk.
     fn forget_history(&mut self, id: AssetId) {
+        self.forget_history_of(|asset| asset == id);
+    }
+
+    /// Drops every part and file step whose asset `forget` picks, see [`Store::forget_history`].
+    fn forget_history_of(&mut self, forget: impl Fn(AssetId) -> bool) {
         for stack in [&mut self.undo, &mut self.redo] {
             stack.retain_mut(|change| {
-                change.parts.retain(|p| p.asset != id);
-                change.files.retain(|f| f.asset != id);
+                change.parts.retain(|p| !forget(p.asset));
+                change.files.retain(|f| !forget(f.asset));
                 !change.parts.is_empty() || !change.files.is_empty() || change.barrier.is_some()
             });
         }
@@ -2299,6 +2304,12 @@ impl Store {
     /// history (a saved script file), whose file steps undo would refuse from then on.
     pub fn forget_asset_history(&mut self, id: AssetId) {
         self.forget_history(id);
+    }
+
+    /// [`Store::forget_asset_history`] of every asset of `kind`: for files of the whole kind
+    /// written outside the history (the adoption of the scripts).
+    pub fn forget_kind_history(&mut self, kind: AssetKind) {
+        self.forget_history_of(|asset| asset.kind == kind);
     }
 
     /// Records a step labelled `label` whose files the caller has already written (every
@@ -4047,6 +4058,22 @@ mod tests {
             st.forget_asset_history(script(1));
             assert_eq!(st.history(), (owned(&["B", "C und E"]), vec![]));
             assert_eq!(st.undo().unwrap(), [MAP]);
+        }
+
+        #[test]
+        fn forget_kind_history_drops_the_file_steps_of_every_asset_of_the_kind() {
+            let (_s, mut st) = store();
+            let dir = files_dir(&st);
+            file_step(&mut st, "A", script(0), &dir.join("0000"), b"a");
+            st.edit_map(0, "B", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            file_step(&mut st, "C", script(1), &dir.join("0001"), b"b");
+            st.undo().unwrap();
+            st.forget_kind_history(AssetKind::Script);
+            assert_eq!(st.history(), (owned(&["B"]), vec![]));
         }
 
         #[test]

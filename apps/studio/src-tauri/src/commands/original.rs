@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::error::KernelError;
@@ -118,12 +119,16 @@ pub fn plan_reset_impl(state: &AppState, target: ResetTarget) -> Result<ResetPla
 /// Resets `target` to the base ROM as one undo step (`fields`: the header fields to reset,
 /// default every differing one). Store values stay unsaved until `save`; scripts, textures
 /// and models are written at once (a file step undo writes back). Refused like
-/// [`plan_reset_impl`], and nothing is recorded then.
+/// [`plan_reset_impl`], and nothing is recorded then. `ms` counts from entering this
+/// function, finding and opening the base ROM included.
 pub fn reset_to_original_impl(
     state: &AppState,
     target: ResetTarget,
     fields: Option<Vec<String>>,
 ) -> Result<ResetResult, CmdError> {
+    // The gate counts from opening the base ROM to the recorded step: `ms` starts here, not
+    // where the kernel's reset starts.
+    let started = Instant::now();
     let (project, base) = open_original(state)?;
     let mut guard = super::lock(state)?;
     let session = same_project(super::session(&mut guard)?, &project)?;
@@ -137,8 +142,9 @@ pub fn reset_to_original_impl(
     if target.writes_files() && !refused {
         session.files_written();
     }
-    let result = result.map_err(reset_error)?;
+    let mut result = result.map_err(reset_error)?;
     session.after_write();
+    result.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(result)
 }
 
@@ -405,6 +411,72 @@ mod tests {
         );
     }
 
+    /// Records empty file steps of `assets` (labelled by their index) on the open project.
+    fn record_steps(state: &AppState, assets: &[AssetId]) {
+        let mut guard = crate::commands::lock(state).unwrap();
+        let store = &mut crate::commands::session(&mut guard).unwrap().store;
+        for &asset in assets {
+            let step = FileStep {
+                asset,
+                files: Vec::new(),
+                rotom_entry: None,
+            };
+            store.record_file_step(&original::asset_label(asset), step);
+        }
+    }
+
+    fn script(index: u16) -> AssetId {
+        AssetId {
+            kind: AssetKind::Script,
+            index,
+        }
+    }
+
+    const MAP_0: AssetId = AssetId {
+        kind: AssetKind::Map,
+        index: 0,
+    };
+
+    fn disk_epoch(state: &AppState) -> u64 {
+        let mut guard = crate::commands::lock(state).unwrap();
+        crate::commands::session(&mut guard).unwrap().checks.epoch()
+    }
+
+    #[test]
+    fn undo_and_redo_of_a_file_kind_note_a_write_to_the_files() {
+        use crate::commands::{redo_impl, undo_impl};
+        let (_f, state) = open_synthetic();
+        record_steps(&state, &[MAP_0, script(0)]);
+        let epoch = disk_epoch(&state);
+        assert_eq!(undo_impl(&state).unwrap(), [script(0)]);
+        assert_eq!(disk_epoch(&state), epoch + 1);
+        assert_eq!(redo_impl(&state).unwrap(), [script(0)]);
+        assert_eq!(disk_epoch(&state), epoch + 2);
+        undo_impl(&state).unwrap();
+        // A step of a store kind writes no file.
+        let epoch = disk_epoch(&state);
+        assert_eq!(undo_impl(&state).unwrap(), [MAP_0]);
+        assert_eq!(redo_impl(&state).unwrap(), [MAP_0]);
+        assert_eq!(disk_epoch(&state), epoch);
+    }
+
+    #[test]
+    fn add_script_forgets_the_file_steps_of_that_script() {
+        let (_f, state) = open_synthetic();
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        record_steps(&state, &[script(2), script(0)]);
+        crate::commands::add_script_impl(&state, 0).unwrap();
+        assert_eq!(history_impl(&state).unwrap().undo, ["Scriptdatei 0002"]);
+    }
+
+    #[test]
+    fn adopting_the_scripts_forgets_every_script_file_step() {
+        let (_f, state) = open_synthetic();
+        record_steps(&state, &[script(2), MAP_0, script(0)]);
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        assert_eq!(history_impl(&state).unwrap().undo, ["Karte 0000"]);
+    }
+
     /// The vanilla copy with its base ROM assigned (the `.nds` next to the vanilla project,
     /// only read), a trainer changed and saved, reset over the command path, saved again:
     /// the member equals the base's, and undo brings the edit back.
@@ -539,5 +611,19 @@ mod tests {
             (err.code, err.message.as_str()),
             ("no_original", NO_ORIGINAL)
         );
+
+        // `ms` counts from entering the command (finding and opening the base included): a
+        // reset waiting 150 ms for the session lock reports at least that.
+        let barrier = std::sync::Barrier::new(2);
+        let result = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _held = crate::commands::lock(&state).unwrap();
+                barrier.wait();
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            });
+            barrier.wait();
+            reset_to_original_impl(&state, TRAINER_1, None).unwrap()
+        });
+        assert!(result.ms >= 140, "{result:?}");
     }
 }

@@ -105,7 +105,7 @@ pub fn undo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let restored = session.store.undo()?;
-    session.after_write();
+    after_step(session, &restored);
     Ok(restored)
 }
 
@@ -114,8 +114,30 @@ pub fn redo_impl(state: &AppState) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let restored = session.store.redo()?;
-    session.after_write();
+    after_step(session, &restored);
     Ok(restored)
+}
+
+/// Whether assets of `kind` are files rather than store values: their steps are file steps
+/// (a reset of a script, texture or model) that undo and redo write at once.
+fn is_file_kind(kind: AssetKind) -> bool {
+    matches!(
+        kind,
+        AssetKind::Script
+            | AssetKind::MapTexture
+            | AssetKind::BuildingTexture
+            | AssetKind::BuildingModel
+            | AssetKind::InteriorBuildingModel
+    )
+}
+
+/// After an undo or redo that restored `restored`: a file step wrote the project's files
+/// outside the store ([`crate::state::Session::files_written`]).
+fn after_step(session: &mut crate::state::Session, restored: &[AssetId]) {
+    if restored.iter().any(|a| is_file_kind(a.kind)) {
+        session.files_written();
+    }
+    session.after_write();
 }
 
 /// The labels of the undo and redo stacks: undo oldest first, redo in the order `redo` applies
