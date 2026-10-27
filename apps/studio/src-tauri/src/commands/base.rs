@@ -136,6 +136,13 @@ pub fn check_base_impl(state: &AppState, nds: &str) -> Result<BaseCheck, CmdErro
     Ok(start::check_base(&project.root, Path::new(nds))?)
 }
 
+/// Whether `assign_base_impl` would take the `.nds` at `nds` (its check, or the refusal it
+/// would answer); writes nothing.
+pub fn check_assign_impl(state: &AppState, nds: &str) -> Result<BaseCheck, CmdError> {
+    let project = open_project(state)?;
+    Ok(start::check_assign(&project.root, Path::new(nds))?)
+}
+
 /// Assigns the `.nds` at `nds` (the kernel writes the mark), moves the agent grant of the
 /// project to its new key (`<sha1>/<created>`), remembers the ROM and answers the new status.
 /// A ROM that cannot be remembered is searched for again later; a grant that cannot be moved

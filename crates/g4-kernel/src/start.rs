@@ -871,12 +871,15 @@ pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
     })
 }
 
-/// Assigns the `.nds` at `nds` as the base ROM of the project at `root` and writes a
-/// [`ORIGIN_DSPRE`] mark with its secure area. Refused, with nothing written, when the mark is
-/// unreadable or from a newer version, when [`check_base`] refuses, and when an extracted
-/// project is given another ROM. The ROM of the mark again: nothing is written and the mark
-/// is returned as it is. Another ROM for a DSPRE mark: a new mark (new `created`).
-pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), KernelError> {
+/// Whether [`assign_base`] would take the `.nds` at `nds`: its check, or the refusal
+/// [`assign_base`] would give. Writes nothing (the app asks the user only after it).
+pub fn check_assign(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
+    plan_assign(root, nds).map(|(check, _)| check)
+}
+
+/// What [`assign_base`] checks before it writes: the check of `nds` and, when the mark names
+/// this ROM already, that mark (it stays). Its refusals; writes nothing.
+fn plan_assign(root: &Path, nds: &Path) -> Result<(BaseCheck, Option<BaseMark>), KernelError> {
     let state = mark_state(root);
     if let Some(why) = state.refusal() {
         return Err(KernelError::Refused(why));
@@ -891,13 +894,26 @@ pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), Ker
     }
     if let Some(mark) = current {
         if mark.sha1 == check.info.sha1 {
-            return Ok((check, mark));
+            return Ok((check, Some(mark)));
         }
         if mark.origin != ORIGIN_DSPRE {
             return Err(KernelError::Refused(
                 "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.".into(),
             ));
         }
+    }
+    Ok((check, None))
+}
+
+/// Assigns the `.nds` at `nds` as the base ROM of the project at `root` and writes a
+/// [`ORIGIN_DSPRE`] mark with its secure area. Refused, with nothing written, when the mark is
+/// unreadable or from a newer version, when [`check_base`] refuses, and when an extracted
+/// project is given another ROM. The ROM of the mark again: nothing is written and the mark
+/// is returned as it is. Another ROM for a DSPRE mark: a new mark (new `created`).
+pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), KernelError> {
+    let (check, kept) = plan_assign(root, nds)?;
+    if let Some(mark) = kept {
+        return Ok((check, mark));
     }
     let (secure_area_crc, secure_area_sha1) = read_secure_area(nds)?;
     let now = now_rfc3339();

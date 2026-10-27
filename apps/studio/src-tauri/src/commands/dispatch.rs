@@ -192,6 +192,24 @@ fn base_nds(
     }
 }
 
+/// What `assign_base` with `args` would assign, checked as the command checks it (the `.nds`
+/// as [`base_nds`] takes it, the base check, the mark) without writing: the `.nds` and its
+/// check, or the error the command would answer.
+pub fn check_assign_base(
+    state: &AppState,
+    policy: &dyn Policy,
+    args: &Value,
+) -> Result<(std::path::PathBuf, g4_kernel::start::BaseCheck), DispatchError> {
+    #[derive(serde::Deserialize)]
+    struct Args {
+        nds: String,
+    }
+    let a: Args = parse("assign_base", args.clone())?;
+    let nds = base_nds(state, policy, &a.nds)?;
+    let check = check_assign_impl(state, &path_text(&nds)?)?;
+    Ok((nds, check))
+}
+
 fn path_text(path: &std::path::Path) -> Result<String, CmdError> {
     path.to_str()
         .map(str::to_owned)
