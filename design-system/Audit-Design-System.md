@@ -176,7 +176,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | 23 | Texte: Archiv 0412 | umgesetzt | Archivnummern echt (Zweiblattdorf ist in Platin DE 0554) |
 | 24 | Spielen: live | offen (Phase 4) | – |
 | 25 | Prüfen und Bauen | teilweise | Befundtabelle ja, Build-Schritte nein (Phase 4) |
-| 26 | Veröffentlichen | offen (Phase 4) | – |
+| 26 | Veröffentlichen | teilweise (4.1a: Technik › Veröffentlichen) | zwei Karten statt Assistent, Ziel fest `build/`, ohne Version und Änderungsnotizen; keine Taste in der Titelleiste |
 | 27 | Technik: Patches und Plugins | teilweise | nur „Dynamische Header“; Plugins Phase 5 |
 | 28 | Einstellungen | umgesetzt | Tastenkürzel nur mit ⌘ |
 | 29 | Befehlspalette | umgesetzt | – |

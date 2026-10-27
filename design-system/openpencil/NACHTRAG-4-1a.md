@@ -1,0 +1,27 @@
+# Nachtrag 4.1a für die OpenPencil-Datei
+
+Stand: 27.10.2026. Diese Anleitung sagt, was zu Phase 4.1a „Basis-ROM und Patch“ (Technik › Veröffentlichen) neu in `Editor_DesignSystem.fig` gehört. **Die Datei wurde nicht angefasst.** Gezeichnet wird später, in einer Sitzung, der die `.fig` gehört. Was die App zeigt, beschreibt `design-system/README.md`, Abschnitt „Nachtrag 4.1a“; Texte und Zustände stammen von dort und aus der Test-Umgebung (Platin DE, Projekt „Sinnoh-Remix“ wie die übrigen App-Screens). Vorlage: `beispiele/veroeffentlichen.body.js` (`MODE` für die drei Frames). Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate-2026-10-27/4-1a/` (Hell, Dunkel, Kompakt; nicht im Repo).
+
+Neue Tokens gibt es nicht. Neu ist ein Symbol: `publish` (Phosphor `UploadSimple`, in der Vorlage `ph:upload-simple`, dasselbe wie in der Titelleiste des Zielbilds in `jsx-lib.js`).
+
+## Was neu zu zeichnen ist
+
+Drei Frames auf der Seite „App: Texte, Technik, Dialoge“, je 1440 × 900. Rahmen, Atlas, Statusleiste und die Liste „Technik“ gibt es schon („App: Technik, Patches“); neu sind der fünfte Listeneintrag und die Fläche.
+
+1. **Frame „App: Technik, Veröffentlichen“** (`MODE = 'gefunden'`). Liste „Technik“ mit fünf Einträgen: „Prüfen und Bauen“ (Noch nicht gebaut), „Veröffentlichen“ (gewählt, Symbol `ph:upload-simple`, Untertitel „Patch erstellt“), „Patches“ (Dynamische Header verfügbar), „Emulator“ (Kein Emulator gewählt), „Werkzeuge“ (1 von 2 bereit). Fläche „Veröffentlichen“ (Titel `font/titel-s`, Fläche `flaeche/deck`) mit zwei Karten wie die Karte „Dynamische Header“: Karte „Basis-ROM“ mit Plakette „Gefunden“ (Erfolg), dem Satz der Karte und den Angaben „ROM“ Platin DE (Testprojekt), „SHA-1“ `d40f19ac` (Mono), „Datei“ (Pfad in Mono, gekürzt); Karte „Patch“ mit dem Satz, der primären Taste „Patch erstellen…“ und der Erfolgsmeldung „Patch erstellt: 4,7 KiB“, darunter der Pfad `…/build/Sinnoh-Remix-CPUD.xdelta` in Mono und „Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM.“
+2. **Frame „App: Technik, Basis-ROM fehlt“** (`MODE = 'fehlt'`). Wie 1, Untertitel „Basis-ROM fehlt“; Karte „Basis-ROM“ mit Plakette „Fehlt“ (Warnung), Warnmeldung „Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).“ und der primären Taste „Basis-ROM suchen…“; in der Karte „Patch“ ist „Patch erstellen…“ gesperrt, daneben als Notiz derselbe Grund.
+3. **Frame „App: Technik, Basis-ROM zuordnen“** (`MODE = 'zuordnen'`). Untertitel „Keine Basis-ROM zugeordnet“; Karte „Basis-ROM“ mit Plakette „Nicht zugeordnet“ (neutral), Info-Meldung „Neben dem Projekt liegt „Sinnoh-Remix.nds“.“, primär „Zuordnen…“, sekundär „Andere Datei wählen…“; „Patch erstellen…“ gesperrt mit „Erst eine Basis-ROM zuordnen.“. Darüber die Abdunklung und der offene Dialog „Basis-ROM zuordnen?“ mit „POKEMON PL · CPUD · SHA-1 5e1f0b7a“, einer Warnung („Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.“), dem Satz „Schreibt die Basismarke .g4/base.json ins Projekt.“ mit der Plakette „Nicht rückgängig“ und den Tasten „Abbrechen“, „Zuordnen“ (primär).
+
+## Lage und Einspielen
+
+- **Lage:** nächste freie Spalte in der Reihe der Technik-Screens, x = Spalte × 1520, y = Reihe × 1000. Vorher mit `get_page_tree` (depth 1) die belegten Positionen ablesen; nur eigene Frames anfassen. Am 27.10.2026 war Reihe 0 bis x 4560 belegt („App: Technik, Patches“), frei also x 6080, 7600 und 9120 in Reihe 0.
+- **Bauen:** aus `openpencil/beispiele/` `bash ../build-screen.sh veroeffentlichen` (für Dunkel mit `--dunkel`), in der erzeugten `veroeffentlichen.jsx` `MODE` je Frame umstellen, dann `node ../../scripts/op.mjs render '{…}' --jsx veroeffentlichen.jsx`. Vergleich per `export_image` (`node ../../scripts/op.mjs export_image '{…}' --png bild.png`) mit den Screenshots aus `target/agent/gate-2026-10-27/4-1a/`. Die erzeugten `.jsx` nicht einchecken.
+- **Danach:** speichern (der Hauptagent, `save_file`), Dokument schließen, `node design-system/scripts/fix_fig_text.mjs design-system/Editor_DesignSystem.fig --rgb555`; im README den Abschnitt „Nachtrag 4.1a“ um einen Satz ergänzen, dass die Frames in der Datei stehen; die Marke über dem Zielbild „Veröffentlichen: Patch erstellen“ von „Zielbild, noch offen“ auf „Teilweise umgesetzt“ setzen (mit Verweis auf „App: Technik, Veröffentlichen“ und der wichtigsten Abweichung: Technik › Veröffentlichen statt Assistent, Ziel fest `build/`, keine Version und keine Änderungsnotizen, keine Taste in der Titelleiste), ebenso die Zeile im Brett „Stand der App“. `check-tokens.sh` ist nicht betroffen.
+
+## Was nicht gezeichnet werden muss
+
+- Der Ladezustand (Untertitel und Notiz „Wird gelesen …“) und die laufende Erstellung (Notiz „Baue und erstelle den Patch …“, Tasten gesperrt).
+- Fehlermeldungen (Baustein Meldung, Fehler) unter einer Karte, etwa „Das ist eine andere ROM …“ nach „Basis-ROM suchen…“, und der Zustand „Nicht lesbar“ (Plakette Fehler, Fehlermeldung mit Grund).
+- „Andere Datei wählen…“ (der Dateidialog „Basis-ROM wählen“ ist der des Systems), der Dialog „Patch erstellen?“ und der Dialog bei falschem Spiel (Fehlermeldung, nur „Schließen“).
+- Die Erfolgsmeldung „Basis-ROM zugeordnet: Platin DE (Testprojekt).“ nach dem Zuordnen.
+- Die Fläche ohne Projekt (leerer Zustand „Kein Projekt geöffnet.“ wie bei Prüfen und Bauen und Patches).

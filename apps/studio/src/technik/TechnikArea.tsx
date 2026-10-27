@@ -16,10 +16,13 @@ import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice,
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
+import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import styles from "./TechnikArea.module.css";
+import { useBase } from "./useBase";
+import type { BaseApi } from "./useBase";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "bauen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "bauen" | "veroeffentlichen" | "patches" | "emulator" | "werkzeuge";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -61,6 +64,7 @@ export type TechnikAreaProps = {
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
   { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
+  { id: "veroeffentlichen", label: "Veröffentlichen", icon: "publish" },
   { id: "patches", label: "Patches", icon: "patch" },
   { id: "emulator", label: "Emulator", icon: "game" },
   { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
@@ -98,19 +102,21 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9): a list of four entries with their state, and the surface of the chosen one. Prüfen und Bauen
- * and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state is read once per project, when the area shows.
+ * The area Technik (spec 5.9): a list of five entries with their state, and the surface of the chosen one. Prüfen und Bauen,
+ * Veröffentlichen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state
+ * and the base ROM are read once per project, when the area shows.
  */
 export function TechnikArea(props: TechnikAreaProps) {
-  return props.project === null ? <TechnikView {...props} patch={null} /> : <WithPatch key={props.project} {...props} />;
+  return props.project === null ? <TechnikView {...props} patch={null} base={null} /> : <WithProject key={props.project} {...props} />;
 }
 
-function WithPatch(props: TechnikAreaProps) {
+function WithProject(props: TechnikAreaProps) {
   const patch = useHeaderPatch(props.onHeaderPatch, { repaired: props.onHeaderPatchRepaired });
-  return <TechnikView {...props} patch={patch} />;
+  const base = useBase();
+  return <TechnikView {...props} patch={patch} base={base} />;
 }
 
-function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatch | null }) {
+function TechnikView({ patch, base, ...props }: TechnikAreaProps & { patch: HeaderPatch | null; base: BaseApi | null }) {
   const { entry, onEntry, listOpen, onToggleList, lastBuiltAt, emulatorPath, tools } = props;
   const status = useSyncExternalStore(tools.subscribe, tools.get);
   const now = useNow();
@@ -118,6 +124,7 @@ function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatc
   useRovingList(list);
   const subtitles: Record<TechnikEntry, string> = {
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
+    veroeffentlichen: publishSubtitle(base),
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
@@ -133,6 +140,8 @@ function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatc
       </ListPane>
       {entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
+      ) : entry === "veroeffentlichen" ? (
+        <PublishSurface base={base} project={props.project} onOpenProject={props.onOpenProject} />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (

@@ -65,6 +65,7 @@ import {
   TextAa,
   Toolbox,
   TreeStructure,
+  UploadSimple,
   Warning,
   Wrench,
   X,
@@ -133,6 +134,8 @@ export const icons = {
   more: DotsThree,
   system: Monitor,
   patch: Bandaids,
+  /** Technik › Veröffentlichen (the patch against the base ROM). */
+  publish: UploadSimple,
   tools: Toolbox,
   density: Rows,
   agent: Robot,
