@@ -825,6 +825,7 @@ impl<'a> Call<'a> {
     /// `assign_base` is checked first as it would check itself (the `.nds` under the policy,
     /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
     /// and the question names the file and the ROM. `create_patch` names the patch file.
+    /// `text_export` answers `unsaved`, `base_missing` and `not_adopted` unasked.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -842,6 +843,10 @@ impl<'a> Call<'a> {
                 "{why}: build/{}.xdelta",
                 patch::patch_name(shared.project)
             )),
+            ("text_export", Some(_)) => {
+                crate::commands::check_text_export(self.state)?;
+                Ok(why.to_owned())
+            }
             _ => Ok(why.to_owned()),
         }
     }
@@ -3473,16 +3478,31 @@ mod tests {
         assert_eq!(report["schema"], json!({ "state": "missing" }), "{report}");
     }
 
+    /// Gate 4.3a: `text_export` asked „Textprojekt exportieren“ and refused only after
+    /// „Zulassen“ (`not_adopted`); like `assign_base` (4.1a A3), the refusals that need no
+    /// export come back to the agent unasked.
     #[test]
-    fn shared_text_export_asks_then_refuses_unadopted_scripts() {
+    fn shared_text_export_refuses_before_asking() {
         let d = shared_dspre();
+        let unasked = |want: &str| {
+            let (code, message, _) = failed(d.toolbox.call("text_export", json!({}), AGENT));
+            assert_eq!(code, want, "{message}");
+            assert_eq!(d.state.agents.status().question, None);
+            message
+        };
+        unasked("base_missing");
         crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
-        let user = answer_next(&d.state, "allow");
-        let (code, message, _) = failed(d.toolbox.call("text_export", json!({}), AGENT));
-        let question = user.join().unwrap();
-        assert_eq!(question.what.as_deref(), Some("Textprojekt exportieren"));
-        assert_eq!(code, "not_adopted", "{message}");
+        let message = unasked("not_adopted");
         assert_eq!(message, g4_kernel::textproject::NOT_ADOPTED);
+        d.toolbox
+            .call(
+                "set_matrix_cell",
+                json!({ "index": 0, "x": 0, "y": 0, "map": 1 }),
+                AGENT,
+            )
+            .unwrap();
+        let message = unasked("unsaved");
+        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderungen.");
         assert!(!d.root.join("g4-project.json").exists());
     }
 }

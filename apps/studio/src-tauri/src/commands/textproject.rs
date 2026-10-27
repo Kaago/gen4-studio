@@ -20,12 +20,14 @@ pub fn text_check_impl(state: &AppState) -> Result<CheckReport, CmdError> {
     Ok(textproject::check(&project)?)
 }
 
-/// Writes the open project as a text project (`g4-project.json`, `data/`) against its base
-/// ROM. Refuses before writing anything: unsaved changes (`unsaved`), no found base ROM
-/// (`base_missing` with the reason of `base_status`), scripts that are not adopted
-/// (`not_adopted`: adopting is its own step, the export never does it here); every other
-/// refusal of the kernel comes with its own message.
-pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
+/// The refusals of [`text_export_impl`] that need no export, in its order: unsaved changes
+/// (`unsaved`), no found base ROM (`base_missing` with the reason of `base_status`), scripts
+/// that are not adopted (`not_adopted`). Writes nothing; over MCP in the app it runs before
+/// the question „Textprojekt exportieren“, so such a refusal comes back unasked. The open
+/// project, its base mark and where its base ROM lies when nothing refuses.
+pub fn check_text_export(
+    state: &AppState,
+) -> Result<(Arc<Project>, g4_kernel::start::BaseMark, std::path::PathBuf), CmdError> {
     let (project, unsaved) = {
         let mut guard = super::lock(state)?;
         let session = super::session(&mut guard)?;
@@ -38,7 +40,19 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
         ));
     }
     let (mark, hit) = super::found_base(state, &project.root)?;
-    let base = BaseRom::open(&hit.path, Some(&mark.sha1))?;
+    if !g4_kernel::scripts::is_adopted(&project) {
+        return Err(refusal("not_adopted", NOT_ADOPTED.to_owned()));
+    }
+    Ok((project, mark, hit.path))
+}
+
+/// Writes the open project as a text project (`g4-project.json`, `data/`) against its base
+/// ROM. Refuses before writing anything: the refusals of [`check_text_export`] (adopting is
+/// its own step, the export never does it here); every other refusal of the kernel comes
+/// with its own message.
+pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
+    let (project, mark, path) = check_text_export(state)?;
+    let base = BaseRom::open(&path, Some(&mark.sha1))?;
     let opts = ExportOptions {
         adopt_scripts: false,
     };
