@@ -62,7 +62,9 @@
   gap: var(--g4-raum-4);
 }
 
+/* The card keeps its content height: `overflow: hidden` would let this flex item shrink to 0, clipping the groups instead of the surface scrolling. */
 .groups {
+  flex-shrink: 0;
   overflow: hidden;
   border: var(--g4-strich-standard) solid var(--g4-linie-standard);
   border-radius: var(--g4-radius-fenster);
