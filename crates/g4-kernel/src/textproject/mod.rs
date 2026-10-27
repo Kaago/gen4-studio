@@ -12,8 +12,25 @@ use std::path::Path;
 pub(crate) mod canon;
 pub mod manifest;
 pub mod migrate;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "export and import (Task 9) are the callers")
+)]
+pub(crate) mod part;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "export and import (Task 9) are the callers")
+)]
+pub(crate) mod record;
 pub mod registry;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "export and import (Task 9) are the callers")
+)]
+pub(crate) mod schema;
 pub mod symbols;
+
+pub use schema::data::item_owners;
 
 /// The manifest at the project root; its presence makes a folder a text project.
 pub const MANIFEST_FILE: &str = "g4-project.json";
