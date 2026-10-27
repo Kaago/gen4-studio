@@ -68,6 +68,8 @@ export interface CommandState {
   inspectorFloats: boolean;
   /** Whether a matrix cell is pinned in the inspector (the import of parts works on its map). */
   cellChosen: boolean;
+  /** Whether a place is shown in the world (else the 3D view has no scene): the 3D view's picture needs one. */
+  placeShown: boolean;
   /** A wizard of the world is open: no new game is started beside it. */
   wizard: boolean;
 }
@@ -100,6 +102,8 @@ const BUSY = "Erst Speichern oder Bauen abwarten";
 const NO_LIST = "Dieser Bereich hat keine Liste";
 const NO_CELL = "Erst eine Karte wählen (in 3D auf den Boden klicken)";
 const NO_SCENE = "Erst die 3D-Ansicht zeigen";
+/** Why the 3D view has no picture to take: no place is shown (also the reason in the tab menu of „3D“ and the toast, see App). */
+export const NO_PLACE = "Erst einen Ort zeigen";
 const WIZARD_OPEN = "Erst den Assistenten abschließen oder abbrechen";
 const WORLD_ONLY = "Nur in der Welt";
 const NO_VIEW = "Dieser Bereich hat keine Schau";
@@ -113,7 +117,7 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, wizard } = commands;
+  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, placeShown, wizard } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   // Only the world's dock has the Werkbank and an inspector; every dock has the Doppeldeck.
@@ -138,14 +142,14 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
       locked: project ?? (cellChosen ? null : NO_CELL),
     },
     // Phase 4.0 §3.5: the project's own preview picture from the scene; it changes no data of the project (no busy lock, as the wizards).
-    // In the world the command brings the 3D view to the front itself (`uncover`, as from the tab menu), so it locks only outside it.
+    // In the world the command brings the 3D view to the front itself (`uncover`, as from the tab menu), so it locks only outside it and while no place is shown (no scene then).
     {
       command: "previewFrom3d",
       label: "Als Vorschaubild: 3D-Ansicht",
       icon: "world",
       area: "welt",
       description: "Das Bild der Ansicht auf die Projektkarte",
-      locked: hasProject ? (world === null ? null : NO_SCENE) : NO_PROJECT,
+      locked: hasProject ? (world !== null ? NO_SCENE : placeShown ? null : NO_PLACE) : NO_PROJECT,
     },
     {
       command: "previewFromMap",

@@ -384,7 +384,8 @@ describe("Deck", () => {
   it("offers_als_vorschaubild_on_3d_and_weltkarte_and_says_why_it_is_locked", async () => {
     const set = vi.fn();
     let reason: string | null = "Erst eine Karte wählen";
-    preview = { set, locked: (id) => (id === "worldmap" ? reason : null) };
+    let placeReason: string | null = "Erst einen Ort zeigen";
+    preview = { set, locked: (id) => (id === "worldmap" ? reason : id === "world" ? placeReason : null) };
     await mount();
     const closeMenus = () => document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
     // Without a chosen map the world map's item is locked; its tooltip says why, and the keyboard passes it by.
@@ -405,6 +406,16 @@ describe("Deck", () => {
     await act(async () => locked[1]!.click());
     expect(set).not.toHaveBeenCalled();
     closeMenus();
+    // Without a place the 3D view has no scene: its item is locked as well, with its own reason.
+    const noPlace = await menu("3D");
+    expect(noPlace.map((i) => [i.textContent, i.getAttribute("aria-disabled"), i.getAttribute("title")])).toEqual([
+      ["Maximieren", null, null],
+      ["Als Vorschaubild", "true", "Erst einen Ort zeigen"],
+    ]);
+    await act(async () => noPlace[1]!.click());
+    expect(set).not.toHaveBeenCalled();
+    closeMenus();
+    placeReason = null;
     await choose("3D", "Als Vorschaubild");
     expect(set).toHaveBeenCalledWith("world");
     closeMenus();

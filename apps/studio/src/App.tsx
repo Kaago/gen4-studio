@@ -52,7 +52,7 @@ import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSumma
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
-import { paletteEntries } from "./app/paletteEntries";
+import { NO_PLACE, paletteEntries } from "./app/paletteEntries";
 import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
@@ -689,6 +689,8 @@ function AppBody() {
   // The palette's "Teile in die Karte importieren…" works on the pinned matrix cell; its map is read when the command runs
   // (reading it on every matrix change would render App for each edit).
   const cellChosen = pins.pinned.kind === "matrixCell";
+  // A place is shown in the world (a matrix is loaded): otherwise the 3D view shows „Noch kein Ort gewählt.“ and has no scene to take a picture of.
+  const placeShown = scene.matrix !== null;
   const [importMap, setImportMap] = useState<number | null>(null);
   const paletteItems = useMemo(
     () =>
@@ -699,14 +701,19 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, wizard: wizards.request !== null },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, placeShown, wizard: wizards.request !== null },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, wizards.request],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
   const previewFrom3d = useStableCallback(async () => {
     if (!session.info) return;
+    // Without a place the 3D view is in front but has no scene (its host is not mounted): there is nothing to bring forward.
+    if (!placeShown) {
+      toast.error(NO_PLACE);
+      return;
+    }
     if (!activeScene.shown()) {
       // The 3D view comes to the front (a maximized group that hides it is restored); its picture is taken once it has its size again.
       if (docks.welt.current) uncover(docks.welt.current, "world");
@@ -731,7 +738,14 @@ function AppBody() {
   // The tab menu of the world's views: read when it opens.
   const worldPreview: DeckPreview = {
     set: (panelId) => void (panelId === "world" ? previewFrom3d() : previewFromMap()),
-    locked: (panelId) => (session.info === null ? "Erst ein Projekt öffnen" : panelId === "worldmap" && pins.pinned.kind !== "matrixCell" ? "Erst eine Karte wählen" : null),
+    locked: (panelId) =>
+      session.info === null
+        ? "Erst ein Projekt öffnen"
+        : panelId === "world" && !placeShown
+          ? NO_PLACE
+          : panelId === "worldmap" && pins.pinned.kind !== "matrixCell"
+            ? "Erst eine Karte wählen"
+            : null,
   };
   // The start town's map picture as the standard picture, once per opened project when the computer is calm (phase 4.0 §3.4).
   useStandardPreview(session.info, renderMapPicture);
