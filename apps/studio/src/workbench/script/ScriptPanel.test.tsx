@@ -494,6 +494,107 @@ describe("ScriptPanel", () => {
     expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
   });
 
+  describe("a reload after a reset to original or an outside write", () => {
+    const LEVEL_DOC = { header_entries: [{ type: "on_load", script_id: 3 }], var_conditions: [] };
+    const levelText = (doc: object) => `${JSON.stringify(doc, null, 2)}\n`;
+
+    it("a_discarding_reload_shows_the_level_script_on_disk_over_typed_text", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await render();
+      await settle();
+      await open(7);
+      typeAt(0, " ");
+      expect(api.documents.dirty()).toEqual([7]);
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      events.length = 0;
+      await act(async () => api.reload(7, { discard: true }));
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.get(7)).toMatchObject({ kind: "levelScript", text: levelText(LEVEL_DOC), savedText: levelText(LEVEL_DOC) });
+      expect(api.documents.dirty()).toEqual([]);
+      expect(onError).not.toHaveBeenCalled();
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/0007.json", type: 2 }] });
+    });
+
+    it("a_plain_reload_treats_a_level_script_like_a_rotom_source", async () => {
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await render();
+      await settle();
+      await open(7);
+      // Clean: it shows the file.
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      await act(async () => api.reload(7));
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.dirty()).toEqual([]);
+      // Dirty: the typed text stays and the refusal says saving overwrites the write.
+      typeAt(0, " ");
+      const typed = view().state.doc.toString();
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: { header_entries: [], var_conditions: [] } });
+      await act(async () => api.reload(7));
+      expect(view().state.doc.toString()).toBe(typed);
+      expect(api.documents.dirty()).toEqual([7]);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("0007 wurde außerhalb des Editors geändert") }));
+    });
+
+    it("a_discarding_reload_follows_a_switch_from_rotom_source_to_level_script_in_its_place", async () => {
+      await render();
+      await settle();
+      await open(42);
+      await open(1114);
+      typeAt(0, "// ");
+      // The original decompiles to a level script: the document becomes one, in its place among the tabs, still shown.
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      events.length = 0;
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toMatchObject({ kind: "levelScript", text: levelText(LEVEL_DOC), savedText: levelText(LEVEL_DOC) });
+      expect(api.documents.list().map((d) => d.file)).toEqual([42, 1114]);
+      expect(api.active).toBe(1114);
+      expect(view().state.doc.toString()).toBe(levelText(LEVEL_DOC));
+      expect(api.documents.dirty()).toEqual([]);
+      expect(onError).not.toHaveBeenCalled();
+      // The language server hears that the source went and the JSON came.
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.rotom", type: 2 }] });
+      expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/1114.json", type: 2 }] });
+      // And back again.
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: SCRIPT });
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toMatchObject({ kind: "script", text: SCRIPT });
+      expect(view().state.doc.toString()).toBe(SCRIPT);
+    });
+
+    it("a_plain_reload_keeps_typed_text_over_a_kind_switch_and_says_so", async () => {
+      await render();
+      await settle();
+      await open(1114);
+      typeAt(0, "// ");
+      vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: LEVEL_DOC });
+      await act(async () => api.reload(1114));
+      expect(api.documents.get(1114)?.kind).toBe("script");
+      expect(view().state.doc.toString()).toBe(`// ${SCRIPT}`);
+      expect(api.documents.dirty()).toEqual([1114]);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 1114 wurde außerhalb des Editors geändert") }));
+    });
+
+    it("a_file_without_a_source_any_more_closes_its_document", async () => {
+      await render();
+      await settle();
+      await open(42);
+      await open(1114);
+      typeAt(0, "// ");
+      // rotom could not decompile the original: only the member is there, nothing to edit.
+      vi.mocked(readScript).mockResolvedValue({ kind: "binary", size: 120 });
+      await act(async () => api.reload(1114, { discard: true }));
+      expect(api.documents.get(1114)).toBeUndefined();
+      expect(api.active).toBe(42);
+      expect(onError).not.toHaveBeenCalled();
+      // Without `discard` typed text stays, with the refusal; a clean document closes.
+      await open(42);
+      typeAt(0, "// ");
+      await act(async () => api.reload(42));
+      expect(api.documents.get(42)?.text).toBe(`// ${SCRIPT}`);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining("Scriptdatei 0042 wurde außerhalb des Editors geändert") }));
+    });
+  });
+
   it("resolves_add_to_the_new_scripts_number_and_to_null_when_it_failed", async () => {
     vi.mocked(addScript).mockResolvedValueOnce(5).mockRejectedValueOnce({ code: "error", message: "Textarchiv 0199 erst speichern", asset: null });
     await render();

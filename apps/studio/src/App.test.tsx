@@ -471,6 +471,19 @@ describe("App wiring", () => {
     expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Scriptdatei 0042." });
   });
 
+  it("a_reset_to_original_that_brings_a_level_script_replaces_the_open_rotom_source", async () => {
+    await act(async () => data().scripts.open(42));
+    const doc = data().scripts.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => data().scripts.onChange(42));
+    const level = { header_entries: [], var_conditions: [] };
+    vi.mocked(readScript).mockResolvedValue({ kind: "levelScript", doc: level });
+    await act(async () => originalProps.onReset!({ changed: [{ kind: "Script", index: 42 }], recorded: true, ms: 5 }, "Scriptdatei 0042"));
+    expect(data().scripts.documents.get(42)).toMatchObject({ kind: "levelScript", text: `${JSON.stringify(level, null, 2)}\n` });
+    expect(data().scripts.documents.dirty()).toEqual([]);
+    expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Scriptdatei 0042." });
+  });
+
   it("a_failing_reload_after_a_reset_to_original_is_reported_not_left_unhandled", async () => {
     vi.mocked(dirty).mockRejectedValueOnce({ code: "error", message: "Sitzung weg", asset: null });
     await act(async () => originalProps.onReset!({ changed: [], recorded: true, ms: 5 }, "Karte 0003"));

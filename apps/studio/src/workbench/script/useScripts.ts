@@ -41,8 +41,10 @@ export interface ScriptsApi {
   saveIfDirty(file: number): Promise<void>;
   /**
    * The backend wrote the file itself (a new trainer's battle slots, an agent's save): an open document shows the text on disk, the language server
-   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote. With `discard`
-   * (the user confirmed that typed text is lost, „Auf Original zurücksetzen“) the document shows the file in any case, clean, without a word.
+   * hears of it. Text typed in the meantime stays, dirty, and `onError` says that saving it overwrites what the backend wrote. A rotom source
+   * and a level script alike; a file that now has a source of the other kind gets a document of that kind in the same place, one without a
+   * source any more (binary) is closed. With `discard` (the user confirmed that typed text is lost, „Auf Original zurücksetzen“) the
+   * document shows the file in any case, clean, without a word.
    */
   reload(file: number, opts?: { discard?: boolean }): Promise<void>;
   /**
@@ -237,27 +239,46 @@ export function useScripts({ info, bus, problems, onError }: ScriptsParams): Scr
     [save],
   );
 
-  const reload = useCallback(async (file: number, { discard = false }: { discard?: boolean } = {}): Promise<void> => {
-    const { documents: docs, bus } = latest.current;
-    bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, "script"), type: 2 }] });
-    const doc = docs.get(file);
-    if (!doc || doc.kind !== "script") return;
-    try {
-      const source = await readScript(file);
-      if (latest.current.documents !== docs || source.kind !== "script") return;
-      const text = lf(source.text);
-      if (discard || lf(doc.text) === doc.savedText) doc.text = text;
-      else {
-        latest.current.onError(
-          refusal(`${TERMS.scriptFile.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
-        );
+  const reload = useCallback(
+    async (file: number, { discard = false }: { discard?: boolean } = {}): Promise<void> => {
+      const { documents: docs, bus } = latest.current;
+      const doc = docs.get(file);
+      const kind = doc?.kind ?? "script";
+      bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, kind), type: 2 }] });
+      if (!doc) return;
+      try {
+        const source = await readScript(file);
+        if (latest.current.documents !== docs || docs.get(file) !== doc) return;
+        const dirty = lf(doc.text) !== doc.savedText;
+        const refuse = () =>
+          latest.current.onError(
+            refusal(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
+          );
+        if (source.kind === "binary") {
+          // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.
+          if (discard || !dirty) close(file);
+          else refuse();
+          return;
+        }
+        const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
+        if (source.kind !== doc.kind) {
+          // The file has a source of the other kind now (a reset to original decompiled to it): the language server hears of both.
+          bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, source.kind), type: 2 }] });
+          if (discard || !dirty) docs.replace(file, source.kind, text);
+          else refuse();
+          bump();
+          return;
+        }
+        if (discard || !dirty) doc.text = text;
+        else refuse();
+        doc.savedText = text;
+        bump();
+      } catch (e) {
+        latest.current.onError(e);
       }
-      doc.savedText = text;
-      bump();
-    } catch (e) {
-      latest.current.onError(e);
-    }
-  }, []);
+    },
+    [close],
+  );
 
   const onLevelScriptSaved = useCallback((project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => {
     const { info: shown, documents: docs, problems, bus } = latest.current;
