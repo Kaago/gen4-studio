@@ -752,6 +752,40 @@ fn cli_base_check_names_the_suggestion() {
     assert!(!root.join(".g4").exists());
 }
 
+/// Gate 4.3a: `g4k text export .` from inside the project did not find the sibling `.nds`,
+/// because `.` has no folder name; the same for `base check .`.
+#[test]
+fn cli_base_check_finds_the_suggestion_from_inside_the_project() {
+    let (_tmp, root, nds) = dspre_layout();
+    let assert = g4k()
+        .args(["base", "check", "."])
+        .current_dir(&root)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    println!("{text}");
+    let suggestion = text
+        .lines()
+        .find_map(|l| l.strip_prefix("suggestion="))
+        .unwrap_or_else(|| panic!("no suggestion: {text}"));
+    assert_eq!(
+        std::fs::canonicalize(suggestion).unwrap(),
+        std::fs::canonicalize(&nds).unwrap(),
+        "{text}"
+    );
+    // From a subfolder with `..` as well.
+    std::fs::create_dir(root.join("sub")).unwrap();
+    let assert = g4k()
+        .args(["base", "check", ".."])
+        .current_dir(root.join("sub"))
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    assert!(text.contains("suggestion="), "{text}");
+}
+
 #[test]
 fn cli_base_check_with_rom_prints_the_warnings_as_json() {
     let (_tmp, root, nds) = dspre_layout();

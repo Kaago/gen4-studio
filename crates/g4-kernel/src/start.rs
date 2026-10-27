@@ -941,6 +941,15 @@ pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), Ker
 /// `<Name>_DSPRE_contents`, `<Name>.nds` lies next to it and its header carries the game
 /// code of `header.yaml`. Reads only the first 0x200 bytes; no hash.
 pub fn suggest_base(root: &Path) -> Option<PathBuf> {
+    // `.` or `…/..` (a project given from inside) has no folder name to take the stem from:
+    // resolve it first. Any other root stays as given, so the suggestion keeps its form.
+    let resolved;
+    let root = if root.file_name().is_some() {
+        root
+    } else {
+        resolved = std::fs::canonicalize(root).ok()?;
+        resolved.as_path()
+    };
     let name = root.file_name()?.to_str()?;
     let stem = name.strip_suffix(DSPRE_SUFFIX).filter(|s| !s.is_empty())?;
     let nds = root.parent()?.join(format!("{stem}.nds"));
@@ -1859,6 +1868,19 @@ mod create_tests {
     fn suggest_base_finds_the_sibling_nds_with_the_same_game_code() {
         let (_tmp, root, nds) = dspre_layout();
         assert_eq!(suggest_base(&root), Some(nds));
+    }
+
+    /// A root without a final name (`.`, `…/..`) is resolved first (Gate 4.3a: `g4k text
+    /// export .` from inside the project found no base ROM).
+    #[test]
+    fn suggest_base_resolves_a_root_without_a_folder_name() {
+        let (_tmp, root, nds) = dspre_layout();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        let found = suggest_base(&root.join("sub").join("..")).expect("sibling found");
+        assert_eq!(
+            std::fs::canonicalize(found).unwrap(),
+            std::fs::canonicalize(nds).unwrap()
+        );
     }
 
     #[test]
