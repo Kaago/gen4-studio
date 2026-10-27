@@ -1,6 +1,6 @@
 # Phase 4.1b: Gate prüfen
 
-Stand: 2026-10-27. Branch `phase-4-1b-auf-original` (Worktree `.claude/worktrees/phase-4-1b`, Basis main `df7d6bf`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik mit den gated Tests auf Platin DE, HeartGold DE und HeartGold US (Stand `9c2b421`, HeartGold DE nach der Testanpassung `80b010b`), (2) Szenario kopflos über `studio mcp` und (3) Browser-Teil mit MCP über die Brücke; die sechs Befunde des UI-Tests (U1 bis U6) und die Punkte des abschließenden Reviews sind in einer Fix-Welle behoben (`bda7a27` bis `9c2b421`, Abschnitt „Befunde“). Der volle Lauf von `scripts/gate.sh` läuft. Beim Nutzer offen: das Kontextmenü mit Trackpad und Tastatur in der echten App und der Blick auf Dialog und Technik › Änderungen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
+Stand: 2026-10-27. Branch `phase-4-1b-auf-original` (Worktree `.claude/worktrees/phase-4-1b`, Basis main `df7d6bf`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik mit den gated Tests auf Platin DE, HeartGold DE und HeartGold US (Stand `9c2b421`, HeartGold DE nach der Testanpassung `80b010b`), (2) Szenario kopflos über `studio mcp` und (3) Browser-Teil mit MCP über die Brücke; die sechs Befunde des UI-Tests (U1 bis U6) und die Punkte des abschließenden Reviews sind in einer Fix-Welle behoben (`bda7a27` bis `9c2b421`, Abschnitt „Befunde“). Der volle Lauf von `scripts/gate.sh` ist grün auf `cc0a185` in 6 710 s (Abschnitt „Ergebnis“). Beim Nutzer offen: das Kontextmenü mit Trackpad und Tastatur in der echten App und der Blick auf Dialog und Technik › Änderungen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
 
 Phase 4.1b bringt „Auf Original zurücksetzen“: Jede Entität der entschiedenen Arten (Karte, Eventdatei, Textarchiv je Nachricht und ganz, Trainer, Pokémon-Daten, Begegnungen, Header Feld für Feld, Scripts, Kartentexturen, Gebäudetexturen und Gebäudemodelle) lässt sich über „Auf Original zurücksetzen…“ im Menü „Aktionen“ ihres Kopfs, im Kontextmenü ihrer Liste und über MCP nach einer Rückfrage mit Vorher und Nachher als ein Undo-Schritt auf den Stand der Basis-ROM bringen; ihr Member ist danach byte-gleich zum Basis-Member. Store-Arten laufen über `Tx::replace` (Header über `Tx::edit_header` Feld für Feld), Scripts, Texturen und Modelle werden sofort geschrieben und liegen als Dateischritt auf demselben Undo-Stapel. Technik › Änderungen listet aus den Hashes des Build-Graphs (xxh3 je Basis-Member im App-Cache gegen die Member-Fingerabdrücke aus `.g4/build/state.json`), was im gespeicherten Projekt von der Basis-ROM abweicht. Neue Entitäten, ARM9-Patches, Overlays und Overlay-Tabellen lassen sich nicht zurücksetzen. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 4“, Punkt „4.1b Auf Original zurücksetzen“. Entscheidungen: [entscheidungen.md](research/2026-10-27-phase-4/entscheidungen.md), Abschnitt „Basis-ROM und Patch (Gutachten B, 4.1)“, Zeilen „Auf Original zurücksetzen (4.1b)“ und „Liste „geändert gegenüber Original““. Plan: [2026-10-27-phase-4-1b-auf-original-zuruecksetzen.md](superpowers/plans/2026-10-27-phase-4-1b-auf-original-zuruecksetzen.md). Formate: [project_base.md](formats/project_base.md), Abschnitt „Auf Original zurücksetzen“; Werkzeuge: [mcp.md](mcp.md) (`changed_from_original`, `plan_reset`, `reset_to_original`).
 
@@ -14,7 +14,7 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 
 - **Menü „Aktionen“:** im Inspector-Kopf das vorhandene Menü (Symboltaste `more`); in Pokédex, Trainer und Begegnungen ein neues Menü „Aktionen“ am Ende der Kopfzeile (`HeadActions`), in der Hand der Texte hinter „Nachricht anlegen“ und im Kopf des Script-Panels. Einträge (Symbol `undo`): „Auf Original zurücksetzen…“, wo Kopf oder Zeile genau das Ziel nennt, sonst mit der Art: „Eventdatei auf Original zurücksetzen…“, „Header …“, „Scriptdatei …“, „Kartentextur …“, „Gebäudetextur …“, „Gebäudemodell …“, „Nachricht …“, „Ganzes Textarchiv auf Original zurücksetzen…“. Gesperrt mit leiser Notiz rechts: „Wird gelesen …“, „Basis-ROM fehlt“, „Kein Original“ (dazu „Keine Nachricht gewählt“, „Kein Script geöffnet“).
 - **Kontextmenü** an `ListRow` und `TreeRow` (`contextMenu`): Rechtsklick, Shift+F10 oder Kontextmenü-Taste auf der fokussierten Zeile; über die Tastatur hat der erste wählbare Eintrag den Fokus. Karten haben keine Liste, sie gehen nur über den Kopf des Zellen-Inspectors.
-- **Dialog** `[data-reset-dialog]`, Titel „<Name> auf Original zurücksetzen?“ (etwa „Karte 0003 auf Original zurücksetzen?“, „Nachricht 0 in Textarchiv 0001 …“, „Pokémon 0397 …“), Beschreibung „Stellt den Stand der Basis-ROM <Name> wieder her. ⌘Z nimmt es zurück.“; je Änderung `[data-change]` mit sichtbarer Überschrift (Name vom Kern) und Vorher und Nachher (`BeforeAfter` mit `[data-wrap]`); beim Header statt dessen je Feld ein Kästchen `[data-header-field=<feld>]` mit „vorher → nachher“. Tasten „Abbrechen“ und „Zurücksetzen“ (primär); „Schon im Stand der Basis-ROM.“ und ein abgelehnter Plan nur mit „Schließen“. Danach die Meldung „Auf Original zurückgesetzt: <Name>.“ und im Verlauf „Auf Original zurückgesetzt: <Name>“.
+- **Dialog** `[data-reset-dialog]`, Titel „<Name> auf Original zurücksetzen?“ (etwa „Karte 0003 auf Original zurücksetzen?“, „Nachricht 0 in Textarchiv 0001 …“, „Pokémon 0397 …“), Beschreibung „Stellt den Stand der Basis-ROM <Name> wieder her. ⌘Z nimmt es zurück.“; je Änderung `[data-change]` mit sichtbarer Überschrift (Name vom Kern) und Vorher und Nachher (`BeforeAfter` mit `[data-wrap]`); beim Header stattdessen je Feld ein Kästchen `[data-header-field=<feld>]` mit „vorher → nachher“. Tasten „Abbrechen“ und „Zurücksetzen“ (primär); „Schon im Stand der Basis-ROM.“ und ein abgelehnter Plan nur mit „Schließen“. Danach die Meldung „Auf Original zurückgesetzt: <Name>.“ und im Verlauf „Auf Original zurückgesetzt: <Name>“.
 - **Technik › Änderungen:** Listeneintrag „Änderungen“ nach „Veröffentlichen“ (Symbol `changes`), Untertitel „Basis-ROM fehlt“, „Vergleiche …“, „Noch nicht verglichen“, „Keine Abweichung“, „1 Eintrag weicht ab“, „<n> Einträge weichen ab“; die Fläche `[data-technik=aenderungen]` mit „Neu vergleichen“, je Gruppe ein Abschnitt `[data-changes-group=<Gruppe>]` („Karten“, „Trainer“, „Header“ …) und je Abweichung eine Zeile `[data-change=<Name>]` mit Plakette „Geändert“, „Neu“ oder „Fehlt“ (dazu „Ungespeichert“) und der kleinen Taste „Auf Original zurücksetzen…“, gesperrt mit Tooltip „Kein Original“ oder „Für diese Art gibt es kein Zurücksetzen.“
 
 ## Vorbereitung
@@ -40,9 +40,24 @@ So durchgeführt am 2026-10-27:
    - `changed_list_after_edits_names_them_and_after_reset_not`: nach einem Build die Liste leer (erster Lauf rechnet die Basis-Hashes und trägt fehlende Hashes nach, der zweite hasht nur racy Einträge, ≤ 2 s), nach den Änderungen genau „Karte 0003“ und „Trainer 0001“, nach dem Zurücksetzen der Karte nur noch „Trainer 0001“;
    - `decompile_member_gives_the_source_rotom_writes_for_every_script_file`: der Sweep (auf Dateien mit globalen Aufrufen beschränkt) vergleicht `decompile_member` mit rotoms eigenem Text: Platin DE 202 Dateien in 15,9 s, HeartGold DE und US je 234 Dateien in 15,1 bzw. 15,5 s.
 
-   Platin DE 5/5 (205 s), HeartGold US 5/5 (236 s). HeartGold DE im ersten Lauf 4/5: `changed_list…` erwartete im zweiten Lauf `hashed == 0`, gehasht wurden 244 racy Einträge des frischen Builds (Folge der Regel „racy wird immer gehasht“ aus `3d5d7f1`); die Testannahme ist in `80b010b` korrigiert (racy Einträge gezählt), danach grün: `changed IPKD first_ms=10133 second_ms=344 files=19497 recorded=19209 racy=288`.
+   Platin DE 5/5 (205 s), HeartGold US 5/5 (236 s). HeartGold DE im ersten Lauf 4/5 (210 s): `changed_list…` erwartete im zweiten Lauf `hashed == 0`, gehasht wurden 244 racy Einträge des frischen Builds (Folge der Regel „racy wird immer gehasht“ aus `3d5d7f1`); die Testannahme ist in `80b010b` korrigiert (racy Einträge gezählt). Danach lief nur `changed_list…` noch einmal und war grün: `changed IPKD first_ms=10133 second_ms=344 files=19497 recorded=19209 racy=288` (aus der Konsole, ohne eigenes Log; `gated-original-hgde.log` ist der rote erste Lauf). Alle fünf Tests auf HeartGold DE deckt der Lauf von `scripts/gate.sh` auf `cc0a185` ab (gated Tests auf dem Original, 1 532 s, grün).
 - [x] 2. Gated Studio-Test `reset_over_the_command_path_on_the_vanilla_copy` (`apps/studio/src-tauri/src/commands/original.rs`): Liste, Plan und Reset über den Befehlsweg der App auf `vanilla_copy()`, dazu die Prüfung aus U6, dass `ms` das Öffnen der Basis-ROM mitzählt (bei gehaltenem Schloss `ms >= 140`). 1/1 auf allen drei: Reset Platin DE 10 ms, HeartGold DE 11 ms, HeartGold US 31 ms; Liste erst 12,8 / 17,0 / 13,8 s (ungebautes Projekt, alle Dateien gehasht).
-- [ ] 3. `scripts/gate.sh` gegen alle drei Projekte: läuft.
+- [x] 3. `scripts/gate.sh` gegen alle drei Projekte: grün auf `cc0a185` in 6 710 s (Log `target/agent/gate-4-1b.log`, mit `G4_ROMS_DIR=<Roms>` und `UV_NATIVE_TLS=1`, Exit 0). Unter Last (weitere Sitzungen liefen) wiederholte sich der Schritt „build graph (timings)“ auf HeartGold DE und Platin DE einmal, wie `scripts/gate.sh` es vorsieht, und war dann grün („ok (2nd run)“). Lauf 1 davor scheiterte nur an der Umgebung: im Schritt „g4emu unit“ konnte `uv` das Paket `hatchling` nicht laden (TLS `UnknownIssuer`, kein `.venv` im Worktree), behoben mit `cd scripts/g4emu && UV_NATIVE_TLS=1 uv sync`; alle Schritte mit Code waren dort schon grün.
+
+   | Schritt | Sekunden |
+   |---|---|
+   | `cargo fmt --check` | 2 |
+   | `cargo clippy -D warnings` | 4 |
+   | `cargo deny` (licenses, advisories) | 3 |
+   | `cargo test` ohne ROM | 242 |
+   | mcp | 44 |
+   | `pnpm test` | 200 |
+   | tokens, styles | 0, 5 |
+   | `pnpm build`, dist ohne Brücke | 32, 0 |
+   | g4emu unit, integration | 19, 8 |
+   | gated `cargo test` HeartGold DE, HeartGold US, Platin DE | 1 532, 1 911, 1 337 |
+   | build graph (timings) HeartGold DE, HeartGold US, Platin DE | 563 („ok (2nd run)“), 222, 397 („ok (2nd run)“) |
+   | gated Projektstart HeartGold DE, HeartGold US, Platin DE | 74, 62, 53 |
 
 Einzeln, je Projekt, aus der Wurzel des Worktrees (so gelaufen am 2026-10-27, Logs `gated-original-<k>.log`, `gated-studio-<k>.log`):
 
@@ -61,10 +76,10 @@ Zeiten je Reset in ms (gated, Debug-Build; vom Öffnen der Basis-ROM mit `BaseRo
 | Spiel | Karte | Eventdatei | Textarchiv | Nachricht | Trainer | Pokémon | Begegnung | Header | Script | Textur | Modell | Liste erst / warm (ms) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Platin DE | 22 | 16 | 61 | 10 | 9 | 11 | 9 | 25 / 20 / 93 | 96 | 21 | 12 | 15 090 / 101 |
-| HeartGold DE | 34 | 18 | 11 | 14 | 10 | 10 | 9 | 31 / 25 / 68 | 91 | 21 | 19 | 16 560 / 566 (grüne Wiederholung 10 133 / 344) |
+| HeartGold DE | 34 | 18 | 11 | 14 | 10 | 10 | 9 | 31 / 25 / 68 | 91 | 21 | 19 | 16 560 / 566 (erster Lauf); 10 133 / 344 (Wiederholung) |
 | HeartGold US | 29 | 16 | 10 | 13 | 10 | 12 | 10 | 30 / 25 / 68 | 108 | 20 | 12 | 16 502 / 120 |
 
-Grenze 0,2 s je Reset: eingehalten, 9 bis 108 ms im Debug-Build (die App läuft im Release-Profil). Das Textarchiv 0000 von Platin (1404 Nachrichten) kostet 51 ms im Kernel für das Kodieren; das Script 62 bis 79 ms für Dekompilieren und Zustand von rotom. Die HeartGold-DE-Zeiten der Resets stammen aus dem ersten Lauf (die Reset-Tests waren dort grün), die Liste aus der Wiederholung.
+Grenze 0,2 s je Reset: eingehalten, 9 bis 108 ms im Debug-Build (die App läuft im Release-Profil). Das Textarchiv 0000 von Platin (1404 Nachrichten) kostet 51 ms im Kernel für das Kodieren; das Script 62 bis 79 ms für Dekompilieren und Zustand von rotom. Bei HeartGold DE stammen alle Zeiten der Resets aus dem ersten Lauf (die Reset-Tests waren dort grün, rot war nur der Listentest); für die Liste stehen beide Läufe da: der erste, rote, und die grüne Wiederholung nur von `changed_list…`.
 
 ## (2) Szenario kopflos
 
@@ -89,7 +104,7 @@ target/debug/g4k extract $K/4-1b-<k>.nds <tmp>              # Basis zum Vergleic
 - [x] 4. `reset_to_original` je Ziel `recorded: true`, Wand-Zeit über MCP 117 bis 155 ms (mit dem Prozessweg des Skripts; der gemeldete `ms` zählte damals das Öffnen der Basis-ROM nicht mit, U6, seitdem behoben), `save`; danach ist die Liste leer.
 - [x] 5. `cmp` gegen die mit `g4k extract` ausgepackte Basis-ROM: `trainerProperties/0001`, `trainerParty/0001` und `textArchives/0001` byte-gleich, auf allen drei.
 - [x] 6. `undo` stellt die letzte Änderung wieder her (die Nachricht, danach plant `plan_reset` wieder `same: false`).
-- [x] 7. Trainer 5000 (Index hinter der Anzahl der Basis) → `no_original`, „Kein Original: diesen Eintrag gibt es in der Basis-ROM nicht.“
+- [x] 7. Trainer 5000 (Index weit hinter der Anzahl der Basis) → `no_original`, „Kein Original: diesen Eintrag gibt es in der Basis-ROM nicht.“ Den Randfall Index = Anzahl der Basis prüfte der Browser-Teil über MCP an der Brücke (`trainer` 928 auf Platin → `no_original`, siehe (3) 7); dazu der Unit-Test `a_new_entity_has_no_original` (`crates/g4-kernel/src/original.rs`: eine duplizierte Karte mit Index = Anzahl ist gesperrt, `plan_reset` und `reset` lehnen ab, nichts aufgezeichnet).
 - [x] 8. `g4_batch` mit `reset_to_original` eines Scripts → abgelehnt: „Aufruf 0 (reset_to_original): reset_to_original geht nicht in g4_batch“.
 
 | Spiel | Liste unberührt, erst / zweiter Lauf (s) | nach den Änderungen (s) | nach dem Zurücksetzen (s) | Reset Trainer / Header / Nachricht, Wand-Zeit (ms) | Member gleich |
@@ -110,7 +125,7 @@ Test-Umgebung auf 1540/1541, Kopie `4-1b-web` (Platin DE, Basis-ROM zugeordnet),
 - [x] 4. ⌘Z und ⌘⇧Z beim Header stellen die Änderung wieder her und nehmen sie wieder zurück; ⌘Z eines Dateischritts (Gebäudemodell) schreibt die Datei zurück. Eine außen geänderte Kartentextur: ⌘Z meldet „Kartentextur 0000 wurde seit dem Zurücksetzen außerhalb des Studios geändert; …“, der Schritt fällt weg, das nächste ⌘Z nimmt den älteren Schritt.
 - [x] 5. Neue Entität: eine neue Begegnungsdatei 0183 → Eintrag gesperrt mit „Kein Original“, in Technik › Änderungen mit „Neu“.
 - [x] 6. `.nds` umbenannt: `original_status` `unavailable`, Technik › Änderungen „Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).“, die Einträge gesperrt mit „Basis-ROM fehlt“.
-- [x] 7. MCP über die Brücke (Kopie `4-1b-mcp`, Freigabe „Lesen und bearbeiten“): `mcp.sh call reset_to_original '{"target":{"kind":"trainer","index":1}}'` ohne Rückfrage; `history` zeigt `undo_agents: ["agent-gate"]`, die Oberfläche lädt den Trainer neu (Lv. 9 → 5); `no_original` und die Ablehnung im Batch auch über die Brücke.
+- [x] 7. MCP über die Brücke (Kopie `4-1b-mcp`, Freigabe „Lesen und bearbeiten“): `mcp.sh call reset_to_original '{"target":{"kind":"trainer","index":1}}'` ohne Rückfrage; `history` zeigt `undo_agents: ["agent-gate"]`, die Oberfläche lädt den Trainer neu (Lv. 9 → 5); `no_original` (Randfall Index = Anzahl der Basis: `trainer` 928) und die Ablehnung im Batch auch über die Brücke.
 
 Im Browser-Modus zeigt die Liste während des Vergleichs nur „Vergleiche …“: die Brücke hat keinen `Channel` für die Zahlen „Vergleiche {done} von {total} Dateien …“ (so dokumentiert in `api.original.ts`); in der App kommen sie über `Channel` (Hand-Punkt).
 
@@ -124,7 +139,7 @@ Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): das Kontextmenü mit 
 |---|---|---|---|
 | (1) 1 gated `--test original` | Agent | bestanden: je 5/5 auf Platin DE, HeartGold DE (nach `80b010b`), HeartGold US; jeder Member byte-gleich zur Basis, ⌘Z stellt wieder her, Reset 9 bis 108 ms (Tabelle oben) | 2026-10-27 |
 | (1) 2 gated Studio-Test | Agent | bestanden: 1/1 auf allen drei, Befehlsweg 10 / 11 / 31 ms, `ms` mit dem Öffnen der Basis-ROM (U6) | 2026-10-27 |
-| (1) 3 `scripts/gate.sh` | Agent | läuft | – |
+| (1) 3 `scripts/gate.sh` | Agent | bestanden auf `cc0a185`, 6 710 s; „build graph (timings)“ unter Last auf HeartGold DE und Platin DE im zweiten Versuch grün; Lauf 1 nur an der Umgebung gescheitert (`uv`, TLS) | 2026-10-27 |
 | (2) 1 bis 4 Liste, Plan, Reset kopflos | Agent | bestanden auf allen drei: Liste leer, nach den Änderungen genau drei Einträge, nach dem Zurücksetzen leer; Wand-Zeit 117 bis 155 ms | 2026-10-27 |
 | (2) 5 Member gegen die extrahierte Basis | Agent | bestanden: drei Member byte-gleich auf allen drei | 2026-10-27 |
 | (2) 6 bis 8 `undo`, `no_original`, Batch | Agent | bestanden | 2026-10-27 |
