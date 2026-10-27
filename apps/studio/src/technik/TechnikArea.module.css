@@ -128,6 +128,12 @@
   background: var(--g4-flaeche-blatt);
 }
 
+/* The preview picture at its own size: the DS screen measures its scale from this width (256, so 1). */
+.preview {
+  width: 256px;
+  flex-shrink: 0;
+}
+
 .cardHead,
 .toolHead {
   display: flex;

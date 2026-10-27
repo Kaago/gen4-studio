@@ -20,6 +20,11 @@ export type DSScreenProps = {
   scale?: number;
   /** Map picture or similar, drawn on the ground behind the box. */
   background?: ReactNode;
+  /**
+   * Only decoration: whoever shows the screen names what it shows beside it (a project card's button). The screen is then hidden from
+   * assistive technology instead of being a group „DS-Bildschirm, …“.
+   */
+  decorative?: boolean;
 };
 
 function useScale(given: number | undefined) {
@@ -51,7 +56,7 @@ function Part({ segment }: { segment: Segment }) {
   return <>{segment.text.replace(/\\\\/g, "\\")}</>;
 }
 
-export function DSScreen({ variant, pages, page, scale: given, background }: DSScreenProps) {
+export function DSScreen({ variant, pages, page, scale: given, background, decorative = false }: DSScreenProps) {
   const { frame, scale } = useScale(given);
   // No pages count as one empty page; a page index outside the list is clamped.
   const total = Math.max(1, pages.length);
@@ -59,8 +64,8 @@ export function DSScreen({ variant, pages, page, scale: given, background }: DSS
   const shown = pages[index];
   const label = variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`;
   return (
-    <div ref={frame} className={styles.frame}>
-      <div role="group" aria-label={label} className={styles.screen} style={{ "--ds-scale": scale } /* dyn */}>
+    <div ref={frame} className={styles.frame} aria-hidden={decorative || undefined}>
+      <div role={decorative ? undefined : "group"} aria-label={decorative ? undefined : label} className={styles.screen} style={{ "--ds-scale": scale } /* dyn */}>
         {background !== undefined && <div className={styles.background}>{background}</div>}
         {variant !== "empty" && shown && (
           <div className={`${styles.box} ${variant === "sign" ? styles.sign : styles.textbox}`}>

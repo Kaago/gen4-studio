@@ -1,0 +1,24 @@
+/* The picture fills the screen; the screen's scale is a whole number, so each DS pixel stays a sharp square. */
+.picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  user-select: none;
+}
+
+/* Without a picture: the name in the game's voice on the empty screen. */
+.name {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 0 calc(12px * var(--ds-scale));
+  overflow: hidden;
+  color: var(--g4-szene-ds-textbox-flaeche);
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(16px * var(--ds-scale));
+  line-height: calc(20px * var(--ds-scale));
+  text-align: center;
+  overflow-wrap: anywhere;
+}

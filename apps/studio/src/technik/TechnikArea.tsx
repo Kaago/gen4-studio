@@ -1,12 +1,15 @@
-import { useId, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
 import type { ChecksApi } from "../checks/useChecks";
+import { useProjectPreview } from "../project/useProjectPreview";
+import type { ProjectPreviewState } from "../project/useProjectPreview";
 import { EmulatorRow } from "../ui/frame/EmulatorRow";
 import { ListPane } from "../ui/frame/ListPane";
+import { ProjectPreview } from "../ui/frame/ProjectPreview";
 import type { Depth } from "../ui/frame/shellState";
 import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, Dialog, EmptyState, ListRow, Notice, Section, Switch, useRovingList } from "../ui/primitives";
@@ -19,7 +22,7 @@ import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
 import styles from "./TechnikArea.module.css";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "bauen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "projekt" | "bauen" | "patches" | "emulator" | "werkzeuge";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -57,14 +60,32 @@ export type TechnikAreaProps = {
   onHeaderPatchRepaired?: () => void;
   /** "Welt leeren…" (Werkzeuge): opens the wizard that makes the world an empty region with the start town. */
   onClearWorld: () => void;
+  /**
+   * The name the world gives the header of the start town (the area's name in Bauen), for the hint below the preview picture; null when
+   * it has none. Without it the hint names no town.
+   */
+  startTown?: (header: number) => string | null;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
+  { id: "projekt", label: "Projekt", icon: "open" },
   { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
   { id: "patches", label: "Patches", icon: "patch" },
   { id: "emulator", label: "Emulator", icon: "game" },
   { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
 ];
+
+const PREVIEW_SUBTITLE = { eigen: "Eigenes Vorschaubild", standard: "Kartenbild der Startstadt" } as const;
+
+function previewSubtitle(state: ProjectPreviewState | null): string {
+  if (state === null) return "Kein Projekt geöffnet";
+  if (state.preview === null) return "Wird gelesen …";
+  const { source } = state.preview;
+  return source === null ? "Kein Vorschaubild" : PREVIEW_SUBTITLE[source];
+}
+
+/** The last part of a folder path: the project's name. */
+const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 /** The Dynamic Headers patch as the area works on it; null without a project. */
 type HeaderPatch = ReturnType<typeof useHeaderPatch>;
@@ -98,25 +119,28 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9): a list of four entries with their state, and the surface of the chosen one. Prüfen und Bauen
- * and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state is read once per project, when the area shows.
+ * The area Technik (spec 5.9, phase 4.0 §3.5): a list of five entries with their state, and the surface of the chosen one. Projekt,
+ * Prüfen und Bauen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state and
+ * the preview picture are read once per project, when the area shows.
  */
 export function TechnikArea(props: TechnikAreaProps) {
-  return props.project === null ? <TechnikView {...props} patch={null} /> : <WithPatch key={props.project} {...props} />;
+  return props.project === null ? <TechnikView {...props} patch={null} preview={null} /> : <WithProject key={props.project} {...props} />;
 }
 
-function WithPatch(props: TechnikAreaProps) {
+function WithProject(props: TechnikAreaProps) {
   const patch = useHeaderPatch(props.onHeaderPatch, { repaired: props.onHeaderPatchRepaired });
-  return <TechnikView {...props} patch={patch} />;
+  const preview = useProjectPreview();
+  return <TechnikView {...props} patch={patch} preview={preview} />;
 }
 
-function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatch | null }) {
+function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: HeaderPatch | null; preview: ProjectPreviewState | null }) {
   const { entry, onEntry, listOpen, onToggleList, lastBuiltAt, emulatorPath, tools } = props;
   const status = useSyncExternalStore(tools.subscribe, tools.get);
   const now = useNow();
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   const subtitles: Record<TechnikEntry, string> = {
+    projekt: previewSubtitle(preview),
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
@@ -131,7 +155,9 @@ function TechnikView({ patch, ...props }: TechnikAreaProps & { patch: HeaderPatc
           ))}
         </div>
       </ListPane>
-      {entry === "bauen" ? (
+      {entry === "projekt" ? (
+        <ProjectSurface project={props.project} preview={preview} startTown={props.startTown} onOpenProject={props.onOpenProject} />
+      ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
@@ -165,6 +191,79 @@ function Surface({ entry, title, subtitle, children }: { entry: TechnikEntry; ti
 
 function NoProject({ why, onOpenProject }: { why: string; onOpenProject: () => void }) {
   return <EmptyState what="Kein Projekt geöffnet." why={why} action={{ label: "Projekt öffnen", onClick: onOpenProject }} />;
+}
+
+type ProjectSurfaceProps = { project: string | null; preview: ProjectPreviewState | null; startTown?: (header: number) => string | null; onOpenProject: () => void };
+
+/**
+ * Projekt (phase 4.0 §3.5): the section „Vorschaubild“ with the picture Start shows on the project's card, on a DS screen of 256 × 192 (the
+ * project's name on the empty screen while there is none), „Vorschaubild wählen…“ and, with an own picture, „Entfernen“; below them the
+ * hint which picture Start shows without an own one, naming the start town when the world knows its name.
+ */
+function ProjectSurface({ project, preview, startTown, onOpenProject }: ProjectSurfaceProps) {
+  if (project === null || preview === null) {
+    return (
+      <Surface entry="projekt" title="Projekt">
+        <NoProject why="Öffne ein Projekt, dann zeigt Technik hier sein Vorschaubild." onOpenProject={onOpenProject} />
+      </Surface>
+    );
+  }
+  const name = folderName(project);
+  const header = preview.preview?.standardMap?.header;
+  const town = header === undefined ? null : (startTown?.(header) ?? null);
+  return (
+    <Surface entry="projekt" title="Projekt" subtitle={name}>
+      <PreviewSection name={name} preview={preview} town={town} />
+    </Surface>
+  );
+}
+
+/**
+ * The section „Vorschaubild“ of Technik › Projekt (also in the gallery, with example pictures): the picture on a DS screen of 256 × 192
+ * (`name` on the empty screen while there is none), „Vorschaubild wählen…“, „Entfernen“ with an own picture, and the hint naming `town`.
+ */
+export function PreviewSection({ name, preview, town }: { name: string; preview: ProjectPreviewState; town: string | null }) {
+  const headingId = useId();
+  const dto = preview.preview;
+  const choose = useRef<HTMLButtonElement>(null);
+  const running = useRef<"choose" | "remove" | null>(null);
+  // Busy blocks the actions with aria-disabled, so the focused button keeps focus while the write runs. When it ends, focus rests on
+  // „Vorschaubild wählen…“: after choosing (set, cancelled or failed) and after „Entfernen“, whose button is gone then (focus fell to the body).
+  useEffect(() => {
+    const how = running.current;
+    if (preview.busy || how === null) return;
+    running.current = null;
+    const active = document.activeElement;
+    if (how === "choose" || active === null || active === document.body) choose.current?.focus();
+  }, [preview.busy]);
+  const change = (how: "choose" | "remove") => {
+    if (preview.busy) return;
+    running.current = how;
+    preview.change(how);
+  };
+  return (
+    <section className={styles.card} data-section="vorschaubild" aria-labelledby={headingId}>
+      <h2 id={headingId} className={styles.heading}>
+        Vorschaubild
+      </h2>
+      <div className={styles.preview}>
+        <ProjectPreview name={name} png={dto?.png ?? null} />
+      </div>
+      <div className={styles.actions}>
+        <Button ref={choose} kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("choose")}>
+          Vorschaubild wählen…
+        </Button>
+        {dto?.source === "eigen" && (
+          <Button kind="secondary" aria-disabled={preview.busy || undefined} onClick={() => change("remove")}>
+            Entfernen
+          </Button>
+        )}
+      </div>
+      <p className={styles.note} data-hint="">
+        Ohne eigenes Bild zeigt Start das Kartenbild {town === null ? "der Startstadt" : `von ${town}`}.
+      </p>
+    </section>
+  );
 }
 
 function BuildSurface({ project, problems, checks, depth, goTo, busy, lastBuiltAt, lastRom, onBuild, onRun, canRun, onOpenProject, now }: TechnikAreaProps & { now: number }) {

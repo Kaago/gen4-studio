@@ -10,6 +10,7 @@ import { disposeMarkers } from "../markers";
 import type { MarkerSet } from "../markers";
 import { disposeTree } from "../sceneUtil";
 import { focusHeight, topDownFrame } from "./camera";
+import { snapshot } from "./snapshot";
 import type { Loaded } from "./types";
 
 /** The top-down camera stands this far above the height it looks at; its depth range reaches far below that height. */
@@ -122,6 +123,16 @@ export class SceneHost {
   }
 
   render = () => this.renderer.render(this.scene, this.camera);
+
+  /**
+   * Renders one frame now and returns it cropped to 4 : 3 at 512 × 384 as a PNG data URL („Als Vorschaubild“, phase 4.0 §3.5; see
+   * `snapshot`: the full canvas is never encoded). Drawn in the same tick as the render: the renderer does not keep its drawing buffer, so a
+   * later read could find it cleared. The DOM bars lie outside the canvas.
+   */
+  capture(): string {
+    this.render();
+    return snapshot(this.renderer.domElement);
+  }
 
   /** The top-down view is on. */
   get topDown(): boolean {

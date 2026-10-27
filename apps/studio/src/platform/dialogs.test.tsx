@@ -177,6 +177,18 @@ describe("in-page dialogs (browser mode)", () => {
     expect(dialog()).toBeNull();
   });
 
+  it("enter_in_the_path_field_is_used_up_so_the_button_that_opened_the_dialog_is_not_pressed_again", async () => {
+    // After the dialog closes, focus returns to the button that opened it; an Enter left unhandled would press that button again.
+    const answer = openPath({ directory: false });
+    await act(async () => {});
+    await type("/Users/x/bild.png");
+    field().focus();
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => void field().dispatchEvent(enter));
+    await expect(answer).resolves.toBe("/Users/x/bild.png");
+    expect(enter.defaultPrevented).toBe(true);
+  });
+
   it("blocks_shortcuts_behind_it_with_a_modal_dialog", async () => {
     void ask("Verwerfen?");
     await act(async () => {});

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
+import { activeScene } from "./activeScene";
 import { createBuildingDrag } from "./buildingDrag";
 import { attachCanvasClicks } from "./canvasClicks";
 import { createEventDrag } from "./eventDrag";
@@ -20,6 +21,7 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
     if (!parent) return;
     const h = new SceneHost(parent);
     refs.handle.current = h;
+    activeScene.set(h);
 
     const picker = createPicker(h);
     const surface = { host: parent, canvas: h.canvas, keys: window };
@@ -41,6 +43,7 @@ export function useSceneSetup(el: RefObject<HTMLDivElement | null>, refs: SceneR
       refs.callbacks.current.onInspect({ kind: "none" });
       refs.callbacks.current.onStatus(null);
       refs.handle.current = null;
+      activeScene.clear(h);
       h.dispose();
     };
   }, []);

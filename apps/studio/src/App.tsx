@@ -20,6 +20,7 @@ import type { DeckArea } from "./workbench/layout";
 import { EmptyState } from "./ui/primitives";
 import { Atlas } from "./ui/frame/Atlas";
 import { Deck, resetLayout } from "./ui/frame/Deck";
+import type { DeckPreview } from "./ui/frame/Deck";
 import { dockPanel, floatPanel, toggleSchauMaximized } from "./ui/frame/dockRules";
 import { HelpDialog } from "./ui/frame/HelpDialog";
 import { Palette } from "./ui/frame/Palette";
@@ -51,12 +52,13 @@ import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSumma
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
-import { paletteEntries } from "./app/paletteEntries";
+import { NO_PLACE, paletteEntries } from "./app/paletteEntries";
 import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { ToolHints } from "./app/ToolHints";
+import { startTownName } from "./app/startTown";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
@@ -83,6 +85,11 @@ import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
 import { ProjectStart } from "./project/ProjectStart";
 import type { StartWizardRequest } from "./project/ProjectStart";
+import { applyScenePreview, mapOfCell, renderMapPicture, setPreviewFrom3d, setPreviewFromMap } from "./project/previewFromScene";
+import { changePreview } from "./project/previewMessages";
+import { useStandardPreview } from "./project/useStandardPreview";
+import { activeScene } from "./world/scene/activeScene";
+import { usePreviews } from "./project/usePreviews";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
@@ -528,6 +535,16 @@ function AppBody() {
     forget(path);
     setMissing((before) => new Set([...before].filter((p) => p !== path)));
   }
+  // The preview pictures of the recent projects, read each time Start (not its wizard) shows; set and removed through each card's menu.
+  const { previews, reload: reloadPreview } = usePreviews(
+    shell.state.recent.map((p) => p.path),
+    missing,
+    area === "start" && !startOpen,
+  );
+  /** Chooses (a file) or removes the own preview picture of the project at `path` (says so in a toast); the card reads it again after a write. */
+  async function onChangePreview(how: "choose" | "remove", path: string) {
+    if ((await changePreview(how, path)) !== null) reloadPreview(path);
+  }
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
   useF6Ring(() => !paletteOpen && !helpOpen);
@@ -672,6 +689,8 @@ function AppBody() {
   // The palette's "Teile in die Karte importieren…" works on the pinned matrix cell; its map is read when the command runs
   // (reading it on every matrix change would render App for each edit).
   const cellChosen = pins.pinned.kind === "matrixCell";
+  // A place is shown in the world (a matrix is loaded): otherwise the 3D view shows „Noch kein Ort gewählt.“ and has no scene to take a picture of.
+  const placeShown = scene.matrix !== null;
   const [importMap, setImportMap] = useState<number | null>(null);
   const paletteItems = useMemo(
     () =>
@@ -682,10 +701,55 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, wizard: wizards.request !== null },
+        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, placeShown, wizard: wizards.request !== null },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, wizards.request],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request],
   );
+  // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
+  // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
+  const previewFrom3d = useStableCallback(async () => {
+    if (!session.info) return;
+    // Without a place the 3D view is in front but has no scene (its host is not mounted): there is nothing to bring forward.
+    if (!placeShown) {
+      toast.error(NO_PLACE);
+      return;
+    }
+    if (!activeScene.shown()) {
+      // The 3D view comes to the front (a maximized group that hides it is restored); its picture is taken once it has its size again.
+      if (docks.welt.current) uncover(docks.welt.current, "world");
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }
+    const host = activeScene.get();
+    if (host === null || !activeScene.shown()) {
+      toast.error("Erst die 3D-Ansicht zeigen");
+      return;
+    }
+    await applyScenePreview(() => setPreviewFrom3d(host));
+  });
+  const previewFromMap = useStableCallback(async () => {
+    if (!session.info || pins.pinned.kind !== "matrixCell") return;
+    const { matrix, x, y } = pins.pinned;
+    await applyScenePreview(async () => {
+      const cell = mapOfCell(await getMatrix(matrix), x, y, scene.headers, scene.sceneArea);
+      if (cell === null) throw new Error("An dieser Stelle liegt keine Karte.");
+      return setPreviewFromMap(cell.map, cell.areaDataId);
+    });
+  });
+  // The tab menu of the world's views: read when it opens.
+  const worldPreview: DeckPreview = {
+    set: (panelId) => void (panelId === "world" ? previewFrom3d() : previewFromMap()),
+    locked: (panelId) =>
+      session.info === null
+        ? "Erst ein Projekt öffnen"
+        : panelId === "world" && !placeShown
+          ? NO_PLACE
+          : panelId === "worldmap" && pins.pinned.kind !== "matrixCell"
+            ? "Erst eine Karte wählen"
+            : null,
+  };
+  // The start town's map picture as the standard picture, once per opened project when the computer is calm (phase 4.0 §3.4).
+  useStandardPreview(session.info, renderMapPicture);
+
   /** Carries out what the palette picked (after it closed): follows the link or runs the command, with the guards of its button. */
   const runPalette = useStableCallback((entry: PaletteEntry) => {
     const { run } = entry;
@@ -772,9 +836,23 @@ function AppBody() {
         shell.setPokemonSub(run.command);
         showArea("pokemon");
         break;
+      case "previewFrom3d":
+        void previewFrom3d();
+        break;
+      case "previewFromMap":
+        void previewFromMap();
+        break;
     }
   });
 
+  // The start town as the world names it in Bauen, for Technik's hint below the preview picture (see `startTownName`).
+  const startTown = useCallback(
+    (id: number) => {
+      const header = scene.headers.find((h) => h.id === id);
+      return header === undefined ? null : startTownName(header, live.world.identify(header));
+    },
+    [scene.headers, live.world.identify],
+  );
   const { info } = session;
   const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth, cellMap);
   const pane =
@@ -785,6 +863,9 @@ function AppBody() {
         onOpen={openProject}
         onOpenRecent={(path) => void onOpenRecent(path)}
         onForget={onForget}
+        previews={previews}
+        onChoosePreview={(path) => void onChangePreview("choose", path)}
+        onRemovePreview={(path) => void onChangePreview("remove", path)}
         wizard={startWizard}
         onWizard={setStartWizard}
         onOpenCreated={(created) => void onOpenCreated(created)}
@@ -816,6 +897,7 @@ function AppBody() {
         onClearWorld={() => {
           if (session.info) wizards.open({ kind: "clearWorld" });
         }}
+        startTown={startTown}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -840,6 +922,7 @@ function AppBody() {
       area={target}
       depth={shell.state.depth}
       wizard={target === "welt" ? showsWizard : undefined}
+      preview={target === "welt" ? worldPreview : undefined}
       components={DECK_COMPONENTS[target]}
       dockRef={docks[target]}
       hinge={

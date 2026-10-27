@@ -7,6 +7,7 @@ import type { Arrangement, DeckArea } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { messages } from "./dockMessages";
 import { tabMenuItems } from "./dockMenu";
+import type { TabMenuItem } from "./dockMenu";
 import { workMenuByKeyboard } from "./dockMenuKeys";
 import { applyArrangement, dockPanel, fillWhileMaximized, floatPanel, isSchauGroup, keepViewGroupClosed, keepViewGroupInPlace, keepViewPanelsInPlace, restoreLimits, syncDepthPanels } from "./dockRules";
 import type { Depth } from "./shellState";
@@ -36,7 +37,39 @@ export type DeckProps = {
    * portal). True while a wizard is open: the strip shows and the dock above it shrinks. Undefined: no strip.
    */
   wizard?: boolean;
+  /** „Als Vorschaubild“ in the tab menu of the views „3D“ and „Weltkarte“ (the world's deck). Undefined: the menu has none. */
+  preview?: DeckPreview;
 };
+
+/** What the tab menu's „Als Vorschaubild“ does for a view panel, and why it is locked (null: it is not). */
+export type DeckPreview = { set: (panelId: string) => void; locked: (panelId: string) => string | null };
+
+/** Numbers the hidden reasons of locked lines (their ids). */
+let reasons = 0;
+
+/**
+ * A locked line that says why (`hint`): as its tooltip for the mouse, and for a screen reader as its description, a hidden text that follows
+ * it in the menu (`aria-describedby`). dockview builds a line from a label without either, so this one is built here as dockview builds its
+ * locked lines (same classes and roles: the keyboard reaches it, Enter does nothing, a click does nothing).
+ */
+function lockedLine(label: string, hint: string): HTMLElement[] {
+  const reason = document.createElement("span");
+  reason.id = `dock-menu-reason-${++reasons}`;
+  reason.hidden = true;
+  reason.textContent = hint;
+  const el = document.createElement("div");
+  el.className = "dv-context-menu-item dv-context-menu-item--disabled";
+  el.setAttribute("role", "menuitem");
+  el.setAttribute("aria-disabled", "true");
+  el.setAttribute("aria-describedby", reason.id);
+  el.title = hint;
+  el.textContent = label;
+  return [el, reason];
+}
+
+/** The tab menu's items as dockview takes them: a locked line with a reason as elements of its own (the line and its hidden reason). */
+const dockviewItems = (items: TabMenuItem[]): (TabMenuItem | { element: HTMLElement })[] =>
+  items.flatMap((item): (TabMenuItem | { element: HTMLElement })[] => (item !== "separator" && item.disabled && item.hint !== undefined ? lockedLine(item.label, item.hint).map((element) => ({ element })) : [item]));
 
 /**
  * Panels cannot be closed (there is no way to bring one back), only moved. A double click maximizes the tab's group or restores it (only a
@@ -137,7 +170,20 @@ function initLayout(api: DockviewApi, area: DeckArea, depth: Depth) {
 }
 
 /** The dock, memoised: the providers above it change with every hover, the dock itself must not. */
-const DeckDock = memo(function DeckDock({ area, depth, components, apiRef }: { area: DeckArea; depth: Depth; components: DockComponents; apiRef: MutableRefObject<DockviewApi | null> }) {
+const DeckDock = memo(function DeckDock({
+  area,
+  depth,
+  components,
+  apiRef,
+  previewRef,
+}: {
+  area: DeckArea;
+  depth: Depth;
+  components: DockComponents;
+  apiRef: MutableRefObject<DockviewApi | null>;
+  /** The deck's `preview`, read when the menu opens (a ref, so the memoised dock does not render for it). */
+  previewRef: MutableRefObject<DeckPreview | undefined>;
+}) {
   const panels = useMemo(() => withPanelAttrs(components), [components]);
   // The depth when the dock gets ready (dockview calls `onReady` once, from its first render) and when its tab menu resets it.
   const depthRef = useRef(depth);
@@ -149,13 +195,18 @@ const DeckDock = memo(function DeckDock({ area, depth, components, apiRef }: { a
   }, [apiRef, area, depth]);
   // The tab menu works on this dock; it is asked for its items on every right click.
   const menuItems = useMemo(
-    () => (params: GetTabContextMenuItemsParams) =>
-      tabMenuItems(params, {
-        float: (id) => void floatPanel(params.api, id),
-        dock: (id) => void dockPanel(params.api, area, id),
-        reset: () => resetLayout(area, apiRef, loadArrangement(area), depthRef.current),
-      }),
-    [area, apiRef],
+    () => (params: GetTabContextMenuItemsParams) => {
+      const preview = previewRef.current;
+      return dockviewItems(
+        tabMenuItems(params, {
+          float: (id) => void floatPanel(params.api, id),
+          dock: (id) => void dockPanel(params.api, area, id),
+          reset: () => resetLayout(area, apiRef, loadArrangement(area), depthRef.current),
+          ...(preview === undefined ? {} : { setPreview: preview.set, previewLocked: preview.locked }),
+        }),
+      );
+    },
+    [area, apiRef, previewRef],
   );
   function onReady(event: DockviewReadyEvent) {
     const api = event.api;
@@ -230,12 +281,14 @@ function keepViewDocked(event: PointerEvent<HTMLElement>) {
  * Every area with a deck has its own `Deck` (the shell keeps them all mounted). While a wizard is open (world only), its step shows in a
  * strip under the dock (as high as the old hand, `HAND_DEFAULT`), which stays mounted and shrinks.
  */
-export function Deck({ area, depth, components, dockRef, hinge, wizard }: DeckProps) {
+export function Deck({ area, depth, components, dockRef, hinge, wizard, preview }: DeckProps) {
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
   return (
     <div className={styles.deck}>
       {hinge}
       <div className={styles.dock} id={`dock-${area}`} data-dock={area} onKeyDown={openTabMenu} onPointerDownCapture={keepViewDocked}>
-        <DeckDock key={area} area={area} depth={depth} components={components} apiRef={dockRef} />
+        <DeckDock key={area} area={area} depth={depth} components={components} apiRef={dockRef} previewRef={previewRef} />
       </div>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-hand="" hidden={!wizard} />}
     </div>

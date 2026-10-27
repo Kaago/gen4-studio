@@ -990,6 +990,79 @@ async fn structured_content_matches_output_schema() {
     client.cancel().await.unwrap();
 }
 
+/// The image blocks of an answer: `(mime type, base64 data)`.
+fn images(answer: &CallToolResult) -> Vec<(String, String)> {
+    answer
+        .content
+        .iter()
+        .filter_map(|block| block.as_image())
+        .map(|image| (image.mime_type.clone(), image.data.clone()))
+        .collect()
+}
+
+/// The text of every text block of an answer.
+fn texts(answer: &CallToolResult) -> String {
+    answer
+        .content
+        .iter()
+        .filter_map(|block| block.as_text())
+        .map(|text| text.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The project preview tools carry the picture as an image block (`image/png`), the rest as
+/// structured content and a short text: no base64 of the picture in a text block, which
+/// would put some 100 000 tokens into the agent's context per call.
+#[tokio::test]
+async fn preview_picture_is_an_image_block() {
+    use base64::Engine;
+    let fixture = synthetic_project();
+    std::fs::write(
+        fixture.dir.path().join("titel.png"),
+        g4_kernel::data::icons::png(&[0x40; 8 * 6 * 4], 8, 6).unwrap(),
+    )
+    .unwrap();
+    let client = connect(fixture.dir.path(), &["--allow-irreversible"]).await;
+    // Without a picture: no image block, source null.
+    let answer = call_tool(&client, "project_preview_get", json!({})).await;
+    assert!(images(&answer).is_empty(), "{answer:?}");
+    let got = result(answer);
+    assert_eq!(got["source"], Value::Null, "{got}");
+    assert!(got.get("png").is_none(), "{got}");
+
+    let set = call_tool(
+        &client,
+        "project_preview_set",
+        json!({ "file": "titel.png" }),
+    )
+    .await;
+    let get = call_tool(&client, "project_preview_get", json!({})).await;
+    for answer in [set, get] {
+        let images = images(&answer);
+        assert_eq!(images.len(), 1, "{:?}", answer.content);
+        let (mime, data) = &images[0];
+        assert_eq!(mime, "image/png");
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .unwrap();
+        assert_eq!(&png[1..4], b"PNG");
+        // IHDR: width and height, big-endian, after the signature and the chunk head.
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 256);
+        assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 192);
+        let text = texts(&answer);
+        assert!(!text.contains(data.as_str()), "{text}");
+        assert!(text.len() < 2000, "{} characters of text", text.len());
+        let structured = answer.structured_content.clone().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), structured);
+        let result = result(answer);
+        assert_eq!(result["source"], "eigen", "{result}");
+        assert!(result.get("png").is_none(), "{result}");
+        assert!(result.get("standardMap").is_some(), "{result}");
+    }
+    client.cancel().await.unwrap();
+}
+
 // The two closing-stdin tests below rely on `G4_MCP_TEST_DELAY_MS`, a hook that exists only in
 // debug builds of the server (like `G4_MCP_TEST_NOISE`). In a `--release` run the call would be
 // fast and the test would pass without proving anything, so there the tests and their helpers

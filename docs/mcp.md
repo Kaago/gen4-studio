@@ -150,6 +150,7 @@ Unumkehrbar sind diese Gruppen:
 - **Bauen und Exportieren außerhalb von `build/`:** `build_rom` und `export_map_part` (nur über `g4_call`) mit einem Ziel außerhalb von `build/`, also in einem `--allow-dir`-Ordner (nach `build/` im Projekt zählt es als schreibend);
 - **Emulator:** `run_rom`, zusätzlich nur mit `--emulator`;
 - **Ausgangslage der Prüfungen:** `accept_baseline`;
+- **Vorschaubild** (seit 4.0): `project_preview_set` ersetzt oder entfernt das Bild des Projekts in der Startliste (`.g4/preview.png` bzw. `.g4/cache/preview-standard.png`); es liegt neben dem Verlauf, also ohne Undo;
 - **Welt leeren** (seit 3g.2, nur über `g4_call`): `apply_empty_region` legt die Vorlage „Leere Region mit Startstadt“ an; der Store-Schritt lässt sich zurücknehmen, die neuen Dateien (Rand-Karte, Level-Script, Start-Script) bleiben auf der Platte.
 
 ## Werkzeuge
@@ -176,6 +177,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `refs` | lesend | wo eine Art, Attacke, ein Item, Trainer, eine Trainerklasse oder Begegnungsdatei benutzt wird |
 | `run_checks` | lesend | die Projektprüfungen (kaputte Warps, zu breite Texte, fehlende Scripts …) mit allen Befunden |
 | `plan_fix` | lesend | was ein Fix für einen Befund ändern würde (vorher, nachher), ohne ihn anzuwenden |
+| `project_preview_get` | lesend | das Vorschaubild des Projekts für die Startliste als Bild-Inhaltsblock (`type: image`, `mimeType: image/png`, PNG 256 × 192, ohne Bild kein Block); `result` (strukturiert und als kurzer Text) trägt `source` (`eigen`, `standard` oder `null`) und `standardMap` (Header, Karte und AreaData der Startstadt, `null` ohne Rezept), kein Base64 im Text |
 | `g4_batch` | je nach Aufrufen | mehrere Werkzeug-Aufrufe der Reihe nach als **ein** Undo-Schritt; ein Fehler nimmt alles zurück |
 | `save` | schreibend | schreibt alle ungespeicherten Änderungen in die Projektdateien |
 | `undo`, `redo` | schreibend | nimmt den neuesten Schritt des Verlaufs zurück bzw. stellt ihn wieder her |
@@ -193,12 +195,13 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `set_trainer_texts` | schreibend | setzt die Kampftexte eines Trainers |
 | `create_trainer` | unumkehrbar | legt einen neuen Trainer einer Klasse mit Namen und Kampf-Script an |
 | `apply_header_patch` | unumkehrbar | spielt den Patch „Dynamische Header“ in den Spielcode ein, den neue Header brauchen |
+| `project_preview_set` | unumkehrbar | setzt das Vorschaubild aus `png` (Base64) oder `file` (PNG oder JPEG im Projekt oder einem `--allow-dir`-Ordner), auf 4 : 3 beschnitten und auf 256 × 192 eingepasst; ohne beides entfernt es das Bild des Slots; `slot` ist `eigen` (Standard) oder `standard`. Die Antwort ist wie bei `project_preview_get` (Bild-Inhaltsblock plus `result`). Ein `path` wird abgelehnt, auch über `g4_call` (`unavailable`): der Server ist an sein Projekt gebunden |
 | `apply_fix` | schreibend; `create_script` unumkehrbar | wendet einen Fix an, wie `plan_fix` ihn beschreibt |
 | `build_rom` | schreibend in `build/`, sonst unumkehrbar | speichert und baut eine spielbare ROM, Standard `build/<Spielcode>.nds` im Projekt |
 | `g4_call` | nur mit `--expert` | führt einen Editor-Befehl beim Namen aus (siehe „Expertenmodus“) |
 | `g4_commands` | nur mit `--expert` | listet die Befehle, die `g4_call` ausführen kann, mit ihrer Art |
 
-Die Antworten sind JSON. Jedes Werkzeug antwortet mit `structuredContent = {"result": …}` und einem Textblock mit demselben JSON; die Schemas stehen in `tools/list` (`inputSchema` und `outputSchema`). Eingaben sind geschlossen: Ein unbekannter Schlüssel ist ein Fehler („Unbekanntes Argument für get_header: foo“). Jedes Werkzeug trägt Hinweise, damit ein Client erkennt, was er ohne Rückfrage ausführen darf: `readOnlyHint` und `idempotentHint` (beide wahr bei lesenden Werkzeugen, sonst falsch) und `openWorldHint` (überall falsch). Nur nicht lesende Werkzeuge tragen zusätzlich `destructiveHint`: wahr bei unumkehrbaren und bei denen, die es je nach Argument sind (`build_rom`, `apply_fix`), falsch bei den übrigen schreibenden. `g4_batch` und `g4_call` gelten mit `--read-only` als lesend, sonst als schreibend; `destructiveHint` tragen sie nur mit `--allow-irreversible`.
+Die Antworten sind JSON. Jedes Werkzeug antwortet mit `structuredContent = {"result": …}` und einem Textblock mit demselben JSON (`project_preview_get` und `project_preview_set` legen das Bild zusätzlich als Bild-Inhaltsblock `image/png` daneben, nicht ins JSON); die Schemas stehen in `tools/list` (`inputSchema` und `outputSchema`). Eingaben sind geschlossen: Ein unbekannter Schlüssel ist ein Fehler („Unbekanntes Argument für get_header: foo“). Jedes Werkzeug trägt Hinweise, damit ein Client erkennt, was er ohne Rückfrage ausführen darf: `readOnlyHint` und `idempotentHint` (beide wahr bei lesenden Werkzeugen, sonst falsch) und `openWorldHint` (überall falsch). Nur nicht lesende Werkzeuge tragen zusätzlich `destructiveHint`: wahr bei unumkehrbaren und bei denen, die es je nach Argument sind (`build_rom`, `apply_fix`), falsch bei den übrigen schreibenden. `g4_batch` und `g4_call` gelten mit `--read-only` als lesend, sonst als schreibend; `destructiveHint` tragen sie nur mit `--allow-irreversible`.
 
 Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 
@@ -218,6 +221,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 - Speichern und Übersetzen: `save`, `save_script`, `save_level_script`;
 - Scriptdateien: `new_script_file`, `add_script`, `adopt_scripts`, `apply_fix` mit `create_script`;
 - Bauen und Exportieren: `build_rom`, `export_map_part`;
+- Vorschaubild: `project_preview_set`;
 - Prüf-Einstellungen in `g4-checks.json`: `accept_baseline`, `ignore_finding`, `unignore_finding`, `set_check_enabled`;
 - `g4_batch` selbst („g4_batch kann sich nicht selbst enthalten“).
 

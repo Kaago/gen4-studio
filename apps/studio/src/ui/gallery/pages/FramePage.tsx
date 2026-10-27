@@ -163,16 +163,19 @@ function DockGroupDemo({ name, tabs, visible, focused, className, children }: { 
 const demoPanel = (id: string, location: "grid" | "floating") =>
   ({ id, api: { isMaximized: () => false, location: { type: location }, maximize: noop, exitMaximized: noop } }) as unknown as IDockviewPanel;
 
-/** The tab menu of `panel` as the app builds it (`tabMenuItems`), shown open: dockview's menu classes, a disabled line dimmed. */
+/**
+ * The tab menu of `panel` as the app builds it (`tabMenuItems`, with the world's „Als Vorschaubild“, locked on the world map as without a
+ * chosen map), shown open: dockview's menu classes, a disabled line dimmed, its reason as the tooltip.
+ */
 function TabMenuDemo({ title, panel }: { title: string; panel: IDockviewPanel }) {
-  const items = tabMenuItems({ panel }, { float: noop, dock: noop, reset: noop });
+  const items = tabMenuItems({ panel }, { float: noop, dock: noop, reset: noop, setPreview: noop, previewLocked: (id) => (id === "worldmap" ? "Erst eine Karte wählen" : null) });
   return (
     <ul className={`dv-context-menu ${styles.dockMenu}`} aria-label={`Reitermenü ${title}`} data-tab-menu={panel.id}>
       {items.map((item, i) =>
         item === "separator" ? (
           <li key={`separator-${i}`} className="dv-context-menu-separator" aria-hidden="true" />
         ) : (
-          <li key={item.label} className={item.disabled ? "dv-context-menu-item dv-context-menu-item--disabled" : "dv-context-menu-item"} aria-disabled={item.disabled || undefined}>
+          <li key={item.label} className={item.disabled ? "dv-context-menu-item dv-context-menu-item--disabled" : "dv-context-menu-item"} aria-disabled={item.disabled || undefined} title={item.hint}>
             {item.label}
           </li>
         ),
@@ -200,6 +203,7 @@ function DockTabs() {
           <span className={styles.note}>Aktiv: der sichtbare Reiter der Gruppe mit Fokus. Ruhe: Raster, Weltkarte.</span>
         </DockGroupDemo>
         <TabMenuDemo title="3D" panel={demoPanel("world", "grid")} />
+        <TabMenuDemo title="Weltkarte" panel={demoPanel("worldmap", "grid")} />
       </div>
       <div className={styles.dockDemo}>
         <DockGroupDemo name="unten" tabs={BELOW_TABS} visible="script" focused={false} className={styles.dockGroup}>
@@ -558,6 +562,9 @@ export function FramePage() {
             onOpen={noop}
             onOpenRecent={noop}
             onForget={noop}
+            previews={new Map()}
+            onChoosePreview={noop}
+            onRemovePreview={noop}
           />
         </div>
       </section>

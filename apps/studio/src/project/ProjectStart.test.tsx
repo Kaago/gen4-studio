@@ -51,6 +51,9 @@ describe("ProjectStart", () => {
         onOpen={() => {}}
         onOpenRecent={() => {}}
         onForget={() => {}}
+        previews={new Map()}
+        onChoosePreview={() => {}}
+        onRemovePreview={() => {}}
         wizard={wizard}
         onWizard={(r) => {
           requests.push(r);

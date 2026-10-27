@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, GetPromptRequestParams,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, GetPromptRequestParams,
     GetPromptResponse, GetPromptResult, Implementation, InitializeRequestParams, InitializeResult,
     ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
     PaginatedRequestParams, Prompt, PromptArgument, PromptMessage, ReadResourceRequestParams,
@@ -283,6 +283,30 @@ fn prompt(def: &PromptDef) -> Prompt {
     Prompt::new(def.name, Some(def.description), Some(arguments)).with_title(def.title)
 }
 
+/// The tools whose command answers a picture: `png`, base64 of a PNG of 256 × 192 (or
+/// `null`), beside small JSON.
+const PICTURE_TOOLS: [&str; 2] = ["project_preview_get", "project_preview_set"];
+
+/// A successful call as the agent reads it: `result` as structured content and the same
+/// JSON as text. The picture of [`PICTURE_TOOLS`] leaves the JSON and goes as an image block
+/// (`image/png`), as MCP carries images, so its base64 never lands in a text block.
+fn succeeded(tool: &str, mut result: Value) -> CallToolResult {
+    if !PICTURE_TOOLS.contains(&tool) {
+        return CallToolResult::structured(json!({ "result": result }));
+    }
+    let png = result
+        .as_object_mut()
+        .and_then(|fields| fields.remove("png"));
+    let structured = json!({ "result": result });
+    let mut content = vec![ContentBlock::text(structured.to_string())];
+    if let Some(Value::String(png)) = png {
+        content.push(ContentBlock::image(png, "image/png"));
+    }
+    let mut answer = CallToolResult::success(content);
+    answer.structured_content = Some(structured);
+    answer
+}
+
 /// A failed call as the tool error the agent reads.
 fn failed(code: String, message: String, details: Value) -> CallToolResult {
     CallToolResult::structured_error(json!({
@@ -350,11 +374,12 @@ impl ServerHandler for Server {
         let name = request.name.into_owned();
         let args = request.arguments.map_or(Value::Null, Value::Object);
         let client = client_name(&context);
+        let tool = name.clone();
         let answer = self
-            .blocking(move |toolbox| toolbox.call(&name, args, &client))
+            .blocking(move |toolbox| toolbox.call(&tool, args, &client))
             .await?;
         match answer {
-            Ok(result) => Ok(CallToolResult::structured(json!({ "result": result })).into()),
+            Ok(result) => Ok(succeeded(&name, result).into()),
             Err(ToolError::Failed {
                 code,
                 message,

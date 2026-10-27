@@ -61,7 +61,10 @@ function RequestDialog({ request }: { request: WebRequest }) {
     >
       <div
         onKeyDown={(e) => {
-          if (e.key === "Enter") answerRequest(pathRef.current);
+          if (e.key !== "Enter") return;
+          // Used up here: focus returns to the button that opened the dialog, and the browser would press it again with this Enter.
+          e.preventDefault();
+          answerRequest(pathRef.current);
         }}
       >
         <TextField label="Pfad" showLabel value={path} onChange={setPath} onCommit={setPath} />

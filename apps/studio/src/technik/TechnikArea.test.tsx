@@ -3,12 +3,15 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderPatchDto } from "../api";
-import { applyHeaderPatch, dirty, headerPatchStatus, repairHeaderPatch } from "../api";
+import type { HeaderPatchDto, PreviewDto } from "../api";
+import { applyHeaderPatch, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
 import type { ChecksApi } from "../checks/useChecks";
+import { openPath } from "../platform/dialogs";
+import { previewWritten } from "../project/previewMessages";
+import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
@@ -19,9 +22,16 @@ vi.mock("../api", async (importOriginal) => ({
   applyHeaderPatch: vi.fn(),
   repairHeaderPatch: vi.fn(),
   dirty: vi.fn(),
+  projectPreviewGet: vi.fn(),
+  projectPreviewSet: vi.fn(),
 }));
+vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** The start town of the recipe: Zweiblattdorf's header in Platin. */
+const TOWN = { header: 411, map: 3, areaDataId: 7 };
+const preview = (source: PreviewDto["source"], png: string | null = source === null ? null : `png-${source}`, standardMap: PreviewDto["standardMap"] = TOWN): PreviewDto => ({ source, png, standardMap });
 
 const patch = (over: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: false, repairable: false, narc: "unpacked/dynamicHeaders", ...over });
 
@@ -45,6 +55,10 @@ describe("TechnikArea", () => {
     vi.mocked(applyHeaderPatch).mockReset().mockResolvedValue({ ...patch({ applied: true }), snapshot: null });
     vi.mocked(repairHeaderPatch).mockReset().mockResolvedValue(patch({ applied: true }));
     vi.mocked(dirty).mockReset().mockResolvedValue([]);
+    vi.mocked(projectPreviewGet).mockReset().mockResolvedValue(preview(null));
+    vi.mocked(projectPreviewSet).mockReset();
+    vi.mocked(openPath).mockReset();
+    resetToasts();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -84,10 +98,10 @@ describe("TechnikArea", () => {
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 
-  it("lists_four_entries_with_symbol_and_status_and_the_list_switches_the_surface", async () => {
+  it("lists_five_entries_with_symbol_and_status_and_the_list_switches_the_surface", async () => {
     await render({ lastBuiltAt: Date.now() - 4 * 60_000, lastRom: "/out.nds" });
     expect(container.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Technik");
-    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Prüfen und Bauen", "Patches", "Emulator", "Werkzeuge"]);
+    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Patches", "Emulator", "Werkzeuge"]);
     for (const r of rows()) expect(r.querySelector("svg")).not.toBeNull();
     expect(subtitle("Prüfen und Bauen")).toBe("gebaut vor 4 Minuten");
     expect(subtitle("Patches")).toBe("Dynamische Header verfügbar");
@@ -104,6 +118,9 @@ describe("TechnikArea", () => {
     expect(surface()?.getAttribute("data-technik")).toBe("emulator");
     await click(row("Werkzeuge"));
     expect(surface()?.getAttribute("data-technik")).toBe("werkzeuge");
+    await click(row("Projekt"));
+    expect(surface()?.getAttribute("data-technik")).toBe("projekt");
+    expect(surface()?.querySelector("h1")?.textContent).toBe("Projekt");
   });
 
   it("says_not_built_yet_and_shows_the_chosen_emulator_and_the_ready_tools_in_the_list", async () => {
@@ -345,6 +362,12 @@ describe("TechnikArea", () => {
     expect(surface()?.textContent).toContain("Kein Projekt geöffnet.");
     expect(headerPatchStatus).not.toHaveBeenCalled();
     expect(subtitle("Patches")).toBe("Kein Projekt geöffnet");
+    // Projekt too: no picture is read.
+    await click(row("Projekt"));
+    expect(surface()?.textContent).toContain("Kein Projekt geöffnet.");
+    expect(button("Vorschaubild wählen…")).toBeUndefined();
+    expect(projectPreviewGet).not.toHaveBeenCalled();
+    expect(subtitle("Projekt")).toBe("Kein Projekt geöffnet");
     // The emulator does not need a project.
     await click(row("Emulator"));
     await click(button("Emulator wählen"));
@@ -404,5 +427,171 @@ describe("TechnikArea", () => {
     expect(button("Welt leeren…", tool!)?.disabled).toBe(false);
     await click(button("Welt leeren…", tool!));
     expect(handlers.onClearWorld).toHaveBeenCalledOnce();
+  });
+
+  describe("Projekt", () => {
+    const section = () => surface()!.querySelector<HTMLElement>("[data-section=vorschaubild]");
+    const picture = () => section()?.querySelector("img");
+    const hint = () => section()?.querySelector("[data-hint]")?.textContent;
+    const toasts = () => listToasts().map((t) => [t.kind, t.text]);
+
+    it("Projekt shows the preview and \"Vorschaubild wählen…\"", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      await render({ start: "projekt", project: "/roms/pt-a" });
+      // The open project's picture (no path), in the section „Vorschaubild“ on a DS screen of 256 × 192.
+      expect(projectPreviewGet).toHaveBeenCalledWith();
+      expect(surface()?.getAttribute("data-technik")).toBe("projekt");
+      expect(section()?.querySelector("h2")?.textContent).toBe("Vorschaubild");
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-standard");
+      expect(picture()?.getAttribute("width")).toBe("256");
+      expect(picture()?.getAttribute("height")).toBe("192");
+      expect(button("Vorschaubild wählen…", section()!)?.getAttribute("data-kind")).toBe("secondary");
+      expect(subtitle("Projekt")).toBe("Kartenbild der Startstadt");
+    });
+
+    it("without a picture shows the project's name on the empty screen", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview(null, null, null));
+      await render({ start: "projekt", project: "/roms/pt-a" });
+      expect(picture()).toBeNull();
+      expect(section()?.textContent).toContain("pt-a");
+      expect(subtitle("Projekt")).toBe("Kein Vorschaubild");
+      // A failing read is no picture too, without a message.
+      vi.mocked(projectPreviewGet).mockRejectedValue(new Error("bridge down"));
+      await render({ start: "projekt", project: "/roms/pt-b" });
+      expect(picture()).toBeNull();
+      expect(section()?.textContent).toContain("pt-b");
+      expect(toasts()).toEqual([]);
+    });
+
+    it("\"Entfernen\" only with an own picture", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      await render({ start: "projekt" });
+      expect(button("Entfernen", section()!)).toBeUndefined();
+
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("eigen"));
+      await render({ start: "projekt", project: "/q" });
+      expect(subtitle("Projekt")).toBe("Eigenes Vorschaubild");
+      const remove = button("Entfernen", section()!);
+      expect(remove?.getAttribute("data-kind")).toBe("secondary");
+      // Removing writes the open project's own slot empty; the standard picture shows again and „Entfernen“ goes.
+      vi.mocked(projectPreviewSet).mockResolvedValue(preview("standard"));
+      await click(remove);
+      await settle();
+      expect(openPath).not.toHaveBeenCalled();
+      expect(projectPreviewSet).toHaveBeenCalledWith({});
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-standard");
+      expect(button("Entfernen", section()!)).toBeUndefined();
+      expect(toasts()).toEqual([["info", "Vorschaubild entfernt"]]);
+    });
+
+    it("keeps_keyboard_focus_meaningful_while_a_write_runs_and_after_it", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("eigen"));
+      await render({ start: "projekt", project: "/q" });
+      // Busy blocks the actions with aria-disabled, not `disabled`: the focused button keeps focus while the write runs.
+      let answer: (dto: ReturnType<typeof preview>) => void = () => {};
+      vi.mocked(projectPreviewSet).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      const remove = button("Entfernen", section()!) as HTMLButtonElement;
+      remove.focus();
+      await click(remove);
+      expect(document.activeElement).toBe(remove);
+      expect(remove.disabled).toBe(false);
+      expect(remove.getAttribute("aria-disabled")).toBe("true");
+      expect(button("Vorschaubild wählen…", section()!)?.getAttribute("aria-disabled")).toBe("true");
+      // A second activation while busy does nothing.
+      await click(remove);
+      await click(button("Vorschaubild wählen…", section()!));
+      expect(projectPreviewSet).toHaveBeenCalledOnce();
+      expect(openPath).not.toHaveBeenCalled();
+      // „Entfernen“ is gone with the write: focus moves to „Vorschaubild wählen…“, not to the body.
+      await act(async () => answer(preview("standard")));
+      expect(button("Entfernen", section()!)).toBeUndefined();
+      expect(document.activeElement).toBe(button("Vorschaubild wählen…", section()!));
+      expect(button("Vorschaubild wählen…", section()!)?.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("focus_rests_on_choose_after_choosing_whether_set_cancelled_or_failed", async () => {
+      await render({ start: "projekt" });
+      const choose = () => button("Vorschaubild wählen…", section()!) as HTMLButtonElement;
+      const pick = async () => {
+        choose().focus();
+        await click(choose());
+        await settle();
+        expect(document.activeElement).toBe(choose());
+      };
+      vi.mocked(openPath).mockResolvedValueOnce("/bilder/stadt.jpg");
+      vi.mocked(projectPreviewSet).mockResolvedValueOnce(preview("eigen"));
+      await pick();
+      vi.mocked(openPath).mockResolvedValueOnce(null);
+      await pick();
+      vi.mocked(openPath).mockResolvedValueOnce("/notiz.txt");
+      vi.mocked(projectPreviewSet).mockRejectedValueOnce({ code: "error", message: "preview.format: neither PNG nor JPEG", asset: null });
+      await pick();
+      // The native dialog took focus to the body meanwhile: it comes back to the button.
+      vi.mocked(openPath).mockImplementationOnce(async () => {
+        (document.activeElement as HTMLElement).blur();
+        return null;
+      });
+      await pick();
+    });
+
+    it("the hint names the start town", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      const startTown = vi.fn((header: number) => (header === 411 ? "Zweiblattdorf" : null));
+      await render({ start: "projekt", startTown });
+      expect(startTown).toHaveBeenCalledWith(411);
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild von Zweiblattdorf.");
+      // No name for the header (the world does not know it), no start town (no recipe), no lookup at all: the general sentence.
+      await render({ start: "projekt", startTown: () => null, project: "/q" });
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild der Startstadt.");
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview(null, null, null));
+      await render({ start: "projekt", startTown, project: "/r" });
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild der Startstadt.");
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      await render({ start: "projekt", startTown: undefined, project: "/s" });
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild der Startstadt.");
+    });
+
+    it("shows_a_picture_set_from_the_scene_at_once", async () => {
+      vi.mocked(projectPreviewGet).mockResolvedValue(preview("standard"));
+      await render({ start: "projekt", startTown: () => "Zweiblattdorf" });
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-standard");
+      // „Als Vorschaubild“ in the scene wrote the own picture while Technik shows: it is there without a new read.
+      await act(async () => previewWritten.emit(preview("eigen", "png-szene", null)));
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-szene");
+      expect(button("Entfernen", section()!)).toBeDefined();
+      expect(projectPreviewGet).toHaveBeenCalledOnce();
+      expect(subtitle("Projekt")).toBe("Eigenes Vorschaubild");
+      // The start town stays known for the hint, though the write's answer had none.
+      expect(hint()).toBe("Ohne eigenes Bild zeigt Start das Kartenbild von Zweiblattdorf.");
+    });
+
+    it("choosing calls set with file and shows the toast", async () => {
+      await render({ start: "projekt" });
+      vi.mocked(openPath).mockResolvedValueOnce("/bilder/stadt.jpg");
+      vi.mocked(projectPreviewSet).mockResolvedValueOnce(preview("eigen"));
+      await click(button("Vorschaubild wählen…", section()!));
+      await settle();
+      expect(openPath).toHaveBeenCalledWith({ directory: false, title: "Vorschaubild wählen", filters: [{ name: "Bilder (PNG, JPEG)", extensions: ["png", "jpg", "jpeg"] }] });
+      expect(projectPreviewSet).toHaveBeenCalledWith({ file: "/bilder/stadt.jpg" });
+      expect(toasts()).toEqual([["info", "Vorschaubild gesetzt"]]);
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-eigen");
+      expect(button("Entfernen", section()!)).toBeDefined();
+      expect(subtitle("Projekt")).toBe("Eigenes Vorschaubild");
+
+      // Cancelled: nothing written, nothing said. Refused: the sentence of its code, the picture stays.
+      resetToasts();
+      vi.mocked(projectPreviewSet).mockClear();
+      vi.mocked(openPath).mockResolvedValueOnce(null);
+      await click(button("Vorschaubild wählen…", section()!));
+      await settle();
+      expect(projectPreviewSet).not.toHaveBeenCalled();
+      expect(toasts()).toEqual([]);
+      vi.mocked(openPath).mockResolvedValueOnce("/notiz.txt");
+      vi.mocked(projectPreviewSet).mockRejectedValueOnce({ code: "error", message: "preview.format: neither PNG nor JPEG", asset: null });
+      await click(button("Vorschaubild wählen…", section()!));
+      await settle();
+      expect(toasts()).toEqual([["error", "Das Bild ist weder PNG noch JPEG. Wähle eine PNG- oder JPEG-Datei."]]);
+      expect(picture()?.getAttribute("src")).toBe("data:image/png;base64,png-eigen");
+    });
   });
 });

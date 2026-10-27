@@ -1,6 +1,9 @@
 import { useId, useRef } from "react";
 import type { ReactNode } from "react";
-import { Badge, Button, DSScreen, Icon, Menu, useRovingList } from "../primitives";
+import type { PreviewDto } from "../../api";
+import { Badge, Button, Icon, Menu, useRovingList } from "../primitives";
+import type { MenuEntry } from "../primitives";
+import { ProjectPreview } from "./ProjectPreview";
 import { ago, useNow } from "./timeAgo";
 import type { RecentProject } from "./shellState";
 import styles from "./StartPane.module.css";
@@ -12,6 +15,12 @@ export type StartPaneProps = {
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onForget: (path: string) => void;
+  /** The preview pictures read so far, by path (see `usePreviews`); a card without an entry shows its name on the empty screen. */
+  previews: ReadonlyMap<string, PreviewDto>;
+  /** "Vorschaubild wählen…" in a card's menu. */
+  onChoosePreview: (path: string) => void;
+  /** "Vorschaubild entfernen" in a card's menu (only with an own picture). */
+  onRemovePreview: (path: string) => void;
   /** "Neues Spiel aus ROM…": with it, that is the primary button and "Projekt öffnen" the secondary one. */
   onNewGame?: () => void;
   /** A message below the actions (a refused drop). */
@@ -28,33 +37,37 @@ function newestOf(recent: readonly RecentProject[]): number {
 }
 
 /**
- * One recent project: a DS screen with its name, its game and when it was opened; a click anywhere on the card opens it, its menu takes it
- * off the list. The DS screen (block content) sits beside the open button, whose hit area is stretched over the whole card; the button is
- * named by the project and described by its game, its time and the plaque.
+ * One recent project: a DS screen with its preview picture (or its name), its game and when it was opened; a click anywhere on the card
+ * opens it, its menu chooses or removes the picture and takes it off the list. The DS screen (block content) sits beside the open button,
+ * whose hit area is stretched over the whole card; the button is named by the project and described by its game, its time and the plaque.
+ * A card that could not be opened shows no picture and offers only to leave the list.
  */
-function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
+function ProjectCard({ project, latest, missing, preview, now, onOpen, onForget, onChoosePreview, onRemovePreview }: {
   project: RecentProject;
   latest: boolean;
   missing: boolean;
+  preview: PreviewDto | undefined;
   now: number;
   onOpen: () => void;
   onForget: () => void;
+  onChoosePreview: () => void;
+  onRemovePreview: () => void;
 }) {
   const id = useId();
+  const forget: MenuEntry = { label: "Aus der Liste nehmen", onSelect: onForget };
+  const items: MenuEntry[] = missing
+    ? [forget]
+    : [
+        { label: "Vorschaubild wählen…", onSelect: onChoosePreview },
+        ...(preview?.source === "eigen" ? [{ label: "Vorschaubild entfernen", onSelect: onRemovePreview }] : []),
+        "separator",
+        forget,
+      ];
   return (
     <li className={missing ? `${styles.card} ${styles.gone}` : styles.card} data-missing={missing ? "" : undefined}>
       <div className={styles.preview}>
-        <DSScreen
-          variant="empty"
-          pages={[]}
-          page={0}
-          background={
-            // The name below the screen names the card; this one is only the picture.
-            <span className={styles.screenName} aria-hidden="true">
-              {project.name}
-            </span>
-          }
-        />
+        {/* The name below the screen names the card; this is only the picture. */}
+        <ProjectPreview name={project.name} png={missing ? null : (preview?.png ?? null)} />
       </div>
       <button
         type="button"
@@ -84,7 +97,7 @@ function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
         </span>
       </button>
       <span className={styles.more}>
-        <Menu trigger={<Icon name="more" />} label={`Weitere Aktionen für ${project.name}`} items={[{ label: "Aus der Liste nehmen", onSelect: onForget }]} />
+        <Menu trigger={<Icon name="more" />} label={`Weitere Aktionen für ${project.name}`} items={items} />
       </span>
       {missing && (
         <span className={styles.footer}>
@@ -98,7 +111,7 @@ function ProjectCard({ project, latest, missing, now, onOpen, onForget }: {
 }
 
 /** The surface of the area Start: a greeting, the recently opened projects as cards, and the way to open another one. */
-export function StartPane({ recent, missing, onOpen, onOpenRecent, onForget, onNewGame, notice }: StartPaneProps) {
+export function StartPane({ recent, missing, previews, onOpen, onOpenRecent, onForget, onChoosePreview, onRemovePreview, onNewGame, notice }: StartPaneProps) {
   const grid = useRef<HTMLUListElement>(null);
   useRovingList(grid, { orientation: "grid" });
   const now = useNow();
@@ -116,9 +129,12 @@ export function StartPane({ recent, missing, onOpen, onOpenRecent, onForget, onN
               project={p}
               latest={i === newest}
               missing={missing.has(p.path)}
+              preview={previews.get(p.path)}
               now={now}
               onOpen={() => onOpenRecent(p.path)}
               onForget={() => onForget(p.path)}
+              onChoosePreview={() => onChoosePreview(p.path)}
+              onRemovePreview={() => onRemovePreview(p.path)}
             />
           ))}
         </ul>

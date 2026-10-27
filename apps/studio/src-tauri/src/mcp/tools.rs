@@ -236,9 +236,9 @@ impl ResourceUri {
 /// the batch's mark; reloading and accepting the disk forget history; the header patch, the
 /// saves, compiles, script files and the build write to disk, where a rollback does not reach,
 /// and reload the text archives a compile touched (which forgets their history); the check
-/// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`
-/// and a map part export writes a file. `apply_fix` with `create_script` is refused too (see
-/// [`not_in_batch`]).
+/// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`,
+/// a map part export and the project preview write a file. `apply_fix` with `create_script` is
+/// refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
     "redo",
@@ -258,6 +258,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "unignore_finding",
     "set_check_enabled",
     "export_map_part",
+    "project_preview_set",
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -1580,6 +1581,96 @@ mod tests {
         );
     }
 
+    /// A 10 × 10 PNG as base64.
+    fn small_png_base64() -> String {
+        use base64::Engine;
+        let png = g4_kernel::data::icons::png(&[0x80; 10 * 10 * 4], 10, 10).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(png)
+    }
+
+    #[test]
+    fn mcp_preview_set_with_path_is_refused() {
+        let (fixture, toolbox) = open_toolbox(ALL);
+        let root = fixture.dir.path().to_str().unwrap().to_owned();
+        let png = small_png_base64();
+        // The server is bound to its project: the schemas have no path ...
+        for name in ["project_preview_get", "project_preview_set"] {
+            let tool = catalog().iter().find(|t| t.name == name).unwrap();
+            assert!(
+                (tool.input_schema)()["properties"].get("path").is_none(),
+                "{name}"
+            );
+        }
+        let (code, message, _) = failed(toolbox.call(
+            "project_preview_set",
+            json!({ "path": root, "png": png }),
+            AGENT,
+        ));
+        assert_eq!(code, "error");
+        assert_eq!(
+            message,
+            "Unbekanntes Argument für project_preview_set: path"
+        );
+        // ... and a path through g4_call is refused too, even the project's own.
+        for command in ["project_preview_get", "project_preview_set"] {
+            let (code, message, _) = failed(toolbox.call(
+                "g4_call",
+                json!({ "command": command, "args": { "path": root, "png": png } }),
+                AGENT,
+            ));
+            assert_eq!(code, "unavailable", "{command}: {message}");
+        }
+        // A file outside the project and the allowed folders is refused.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let outside = elsewhere.path().join("titel.png");
+        std::fs::write(&outside, b"not read").unwrap();
+        let (_, message, _) = failed(toolbox.call(
+            "project_preview_set",
+            json!({ "file": outside.to_str().unwrap() }),
+            AGENT,
+        ));
+        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert!(!fixture.dir.path().join(".g4/preview.png").exists());
+        // Without a path: the bound project's preview, a file relative to its folder.
+        std::fs::write(
+            fixture.dir.path().join("titel.png"),
+            g4_kernel::data::icons::png(&[0x40; 4 * 3 * 4], 4, 3).unwrap(),
+        )
+        .unwrap();
+        let set = toolbox
+            .call("project_preview_set", json!({ "file": "titel.png" }), AGENT)
+            .unwrap();
+        assert_eq!(set["source"], "eigen", "{set}");
+        let got = toolbox
+            .call("project_preview_get", json!({}), AGENT)
+            .unwrap();
+        assert_eq!(got, set);
+        assert!(fixture.dir.path().join(".g4/preview.png").is_file());
+    }
+
+    #[test]
+    fn preview_set_is_irreversible_and_read_only_refuses_it() {
+        let (fixture, toolbox) = open_toolbox(WRITE);
+        let (code, message, _) = failed(toolbox.call(
+            "project_preview_set",
+            json!({ "png": small_png_base64() }),
+            AGENT,
+        ));
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.starts_with("project_preview_set lässt sich nicht rückgängig machen"),
+            "{message}"
+        );
+        assert!(!fixture.dir.path().join(".g4").exists());
+        let (_fixture, toolbox) = open_toolbox(READ);
+        assert!(names(&toolbox).contains(&"project_preview_get"));
+        assert!(!names(&toolbox).contains(&"project_preview_set"));
+        let got = toolbox
+            .call("project_preview_get", json!({}), AGENT)
+            .unwrap();
+        assert_eq!((&got["source"], &got["png"]), (&Value::Null, &Value::Null));
+    }
+
     #[test]
     fn project_info_tells_project_history_toolset_and_access() {
         let (fixture, toolbox) = open_toolbox(WRITE);
@@ -1739,6 +1830,7 @@ mod tests {
             "save",
             "save_script",
             "build_rom",
+            "project_preview_set",
         ] {
             let message = refused(json!({ "tool": tool }));
             assert!(
@@ -1765,6 +1857,7 @@ mod tests {
             "unignore_finding",
             "set_check_enabled",
             "export_map_part",
+            "project_preview_set",
         ] {
             let message = refused(json!({ "tool": "g4_call",
                 "arguments": { "command": command, "args": { "kind": "Map", "index": 0 } } }));

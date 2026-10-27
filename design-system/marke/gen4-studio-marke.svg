@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<title>Gen4 Studio</title>
+<g id="token-scharnier-grund" fill="#42527B">
+<rect x="100" y="100" width="824" height="824" rx="184"/>
+</g>
+<g id="token-szene-ds-grund" fill="#182131">
+<rect x="220" y="220" width="584" height="252" rx="64"/>
+<rect x="220" y="552" width="584" height="252" rx="64"/>
+</g>
+<g id="token-akzent-grund" fill="#6384F7">
+<rect x="220" y="496" width="584" height="32" rx="16"/>
+<rect x="298" y="630" width="96" height="96" rx="24"/>
+</g>
+</svg>

@@ -10,6 +10,7 @@ import { AREA_PANELS, arrangementKey, layoutKey } from "../../workbench/layout";
 import type { PanelId } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { Deck, resetLayout } from "./Deck";
+import type { DeckPreview } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
 import type { ShellApi } from "./ShellContext";
 import { HAND_DEFAULT } from "./shellState";
@@ -65,6 +66,8 @@ describe("Deck", () => {
   let root: Root;
   let shell: ShellApi;
   const dockRef = { current: null as DockviewApi | null };
+  /** What App gives the world's deck for „Als Vorschaubild“ (undefined: nothing, as for the other decks). */
+  let preview: DeckPreview | undefined;
 
   function Probe() {
     shell = useShell();
@@ -76,7 +79,7 @@ describe("Deck", () => {
       root.render(
         <ShellProvider initialArea={area}>
           <Probe />
-          <Deck area={area} depth={depth} components={area === "welt" ? WELT : TEXTE} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} />
+          <Deck area={area} depth={depth} components={area === "welt" ? WELT : TEXTE} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} wizard={wizard} preview={preview} />
         </ShellProvider>,
       ),
     );
@@ -118,6 +121,7 @@ describe("Deck", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    preview = undefined;
     document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
     scriptDirtyStore.set(0);
   });
@@ -343,6 +347,30 @@ describe("Deck", () => {
     expect(items()).toHaveLength(0);
   });
 
+  it("walks_onto_a_locked_line_by_keyboard_but_never_runs_it", async () => {
+    const set = vi.fn();
+    preview = { set, locked: (id) => (id === "worldmap" ? "Erst eine Karte wählen" : null) };
+    await mount();
+    const map = tab("Weltkarte");
+    map.focus();
+    await act(async () => void map.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
+    const items = () => [...document.querySelectorAll<HTMLElement>('.dv-context-menu [role="menuitem"]')];
+    const key = (k: string) => act(async () => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true })));
+    // The focus starts on the first line that works; the arrows also reach the locked one, so its reason is read out.
+    expect(document.activeElement?.textContent).toBe("Maximieren");
+    await key("ArrowDown");
+    expect(document.activeElement?.textContent).toBe("Als Vorschaubild");
+    expect(document.activeElement?.getAttribute("aria-disabled")).toBe("true");
+    // Enter and Space on it do nothing: the menu stays open, the focus stays.
+    await key("Enter");
+    await key(" ");
+    expect(set).not.toHaveBeenCalled();
+    expect(items()).toHaveLength(2);
+    expect(document.activeElement?.textContent).toBe("Als Vorschaubild");
+    await key("ArrowDown");
+    expect(document.activeElement?.textContent).toBe("Maximieren");
+  });
+
   it("offers_the_tab_menu_in_german_also_with_shift_f10", async () => {
     await mount();
     expect((await menu("Inspector")).map((i) => i.textContent)).toEqual(["Maximieren", "Schweben lassen", "Anordnung zurücksetzen"]);
@@ -351,6 +379,52 @@ describe("Deck", () => {
     document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
     await act(async () => void tab("Script").dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true })));
     expect([...document.querySelectorAll('.dv-context-menu [role="menuitem"]')].map((i) => i.textContent)).toContain("Schweben lassen");
+  });
+
+  it("offers_als_vorschaubild_on_3d_and_weltkarte_and_says_why_it_is_locked", async () => {
+    const set = vi.fn();
+    let reason: string | null = "Erst eine Karte wählen";
+    let placeReason: string | null = "Erst einen Ort zeigen";
+    preview = { set, locked: (id) => (id === "worldmap" ? reason : id === "world" ? placeReason : null) };
+    await mount();
+    const closeMenus = () => document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
+    // Without a chosen map the world map's item is locked; its tooltip says why, and the keyboard passes it by.
+    const locked = await menu("Weltkarte");
+    expect(locked.map((i) => [i.textContent, i.getAttribute("aria-disabled"), i.getAttribute("title")])).toEqual([
+      ["Maximieren", null, null],
+      ["Als Vorschaubild", "true", "Erst eine Karte wählen"],
+    ]);
+    expect(document.querySelectorAll('.dv-context-menu [role="separator"]')).toHaveLength(1);
+    // Built like dockview's own lines (so a change of dockview's markup shows here): its item class with the locked modifier.
+    expect(locked[0]!.className).toBe("dv-context-menu-item");
+    expect(locked[1]!.className).toBe("dv-context-menu-item dv-context-menu-item--disabled");
+    // The reason also reaches a screen reader: the line is described by a hidden text in the menu.
+    const described = document.getElementById(locked[1]!.getAttribute("aria-describedby") ?? "");
+    expect(described?.textContent).toBe("Erst eine Karte wählen");
+    expect(described?.hidden).toBe(true);
+    expect(described?.closest(".dv-context-menu")).not.toBeNull();
+    await act(async () => locked[1]!.click());
+    expect(set).not.toHaveBeenCalled();
+    closeMenus();
+    // Without a place the 3D view has no scene: its item is locked as well, with its own reason.
+    const noPlace = await menu("3D");
+    expect(noPlace.map((i) => [i.textContent, i.getAttribute("aria-disabled"), i.getAttribute("title")])).toEqual([
+      ["Maximieren", null, null],
+      ["Als Vorschaubild", "true", "Erst einen Ort zeigen"],
+    ]);
+    await act(async () => noPlace[1]!.click());
+    expect(set).not.toHaveBeenCalled();
+    closeMenus();
+    placeReason = null;
+    await choose("3D", "Als Vorschaubild");
+    expect(set).toHaveBeenCalledWith("world");
+    closeMenus();
+    reason = null;
+    await choose("Weltkarte", "Als Vorschaubild");
+    expect(set).toHaveBeenLastCalledWith("worldmap");
+    closeMenus();
+    // The Raster has none.
+    expect((await menu("Raster")).map((i) => i.textContent)).toEqual(["Maximieren"]);
   });
 
   it("floats_and_docks_the_inspector", async () => {
@@ -366,6 +440,9 @@ describe("Deck", () => {
     ]);
     // The floating layout is remembered (a floating inspector is a sane layout).
     expect(JSON.parse(localStorage.getItem(layoutKey("welt"))!).floatingGroups).toHaveLength(1);
+    // dockview's own locked line: the classes the deck's locked lines copy.
+    expect((await menu("Inspector"))[0]!.className).toBe("dv-context-menu-item dv-context-menu-item--disabled");
+    document.querySelectorAll(".dv-context-menu").forEach((m) => m.remove());
     expect((await menu("Inspector")).map((i) => [i.textContent, i.getAttribute("aria-disabled")])).toEqual([
       ["Maximieren", "true"],
       ["Schweben lassen", "true"],
