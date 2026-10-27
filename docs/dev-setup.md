@@ -166,12 +166,12 @@ beschrieben.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
-| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio` |
+| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs` brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
 | `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_incremental_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
-| `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` nehmen die Nachbar-`.nds` des Originals); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
+| `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` und `tests/original.rs` nehmen die Nachbar-`.nds` des Projekts); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
 | `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
@@ -473,6 +473,31 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
 ```
 
 So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …` und `xdelta3 cross-check: map=… all=… stress=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+
+#### Auf Original zurücksetzen (4.1b)
+
+`crates/g4-kernel/src/original.rs` setzt eine Entität auf den Stand der Basis-ROM zurück (`plan_reset`, `reset`; Store-Arten über `Tx::replace`, Header Feld für Feld, Scripts, Texturen und Modelle als Dateischritt), `original/changed.rs` listet, was vom Original abweicht (xxh3 je Basis-Member gegen die Fingerabdrücke aus `.g4/build/state.json`), `original/base_hashes.rs` hält die Basis-Hashes im App-Cache; Format in [docs/formats/project_base.md](formats/project_base.md), Abschnitt „Auf Original zurücksetzen“, Werkzeuge in [docs/mcp.md](mcp.md). Einen `g4k`-Unterbefehl gibt es nicht; kopflos geht es über `target/debug/studio mcp --project <Kopie> --base-rom <nds>` und die Werkzeuge `changed_from_original`, `plan_reset`, `reset_to_original`.
+
+Die gated Tests in `crates/g4-kernel/tests/original.rs` (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Projekt, gefunden über `test_support::vanilla_base_rom()` und nur gelesen; alle schreiben auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `reset_of_each_store_kind_gives_the_base_member_back` | Karte, Eventdatei, Textarchiv ganz, Nachricht, Trainer, Pokémon (Personal, Lernset, Entwicklung), Begegnungsdatei: ändern, speichern, zurücksetzen, speichern; jeder Member byte-gleich zum Basis-Member, jeder Reset ≤ 200 ms (vom Öffnen der Basis-ROM bis zum aufgezeichneten Schritt), ⌘Z stellt die Änderung wieder her |
+| `header_reset_field_by_field_gives_the_base_record_back` | Header erst ein Feld, dann der Rest, dazu mit Dynamic-Headers-Patch (Basis im ARM9, Projekt im NARC): der gespeicherte Datensatz gleich der Basis, ⌘Z zum halben Stand |
+| `script_texture_and_model_reset_give_the_base_member_back` | nach `scripts::adopt` Scriptdatei, Kartentextur und Gebäudemodell: Member byte-gleich, ⌘Z schreibt die alten Bytes zurück |
+| `changed_list_after_edits_names_them_and_after_reset_not` | nach einem Build ist die Liste leer (zweiter Lauf ≤ 2 s, hasht nur racy Einträge), nach Änderungen an Karte und Trainer nennt sie genau diese, nach dem Zurücksetzen der Karte nur noch den Trainer |
+| `decompile_member_gives_the_source_rotom_writes_for_every_script_file` | `decompile_member` gibt für jede Scriptdatei mit globalen Aufrufen denselben Text wie rotoms eigenes Dekompilieren |
+
+Dazu der gated Studio-Test `reset_over_the_command_path_on_the_vanilla_copy` (`apps/studio/src-tauri/src/commands/original.rs`): Liste, Plan und Reset über den Befehlsweg der App; `ms` zählt das Finden und Öffnen der Basis-ROM mit.
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/4-1b-pt_DSPRE_contents" \
+  cargo test -p g4-kernel --all-features --test original -- --nocapture --test-threads 1
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/4-1b-pt_DSPRE_contents" \
+  cargo test -p studio --all-features --lib reset_over_the_command_path -- --nocapture --test-threads 1
+```
+
+So lief es im Gate von 4.1b, auf frischen Kopien mit der `.nds` daneben (`4-1b-pt.nds` usw.); in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), über `cargo test --workspace --all-features` mit Namensfilter. Auf stderr stehen `reset <Spielcode> <Ziel> ms=… (kernel … ms)`, `changed <Spielcode> first_ms=… second_ms=… files=… recorded=… racy=…` und `decompile <Spielcode> <n> files with global calls ms=…`. Gemessen am 2026-10-27 (Debug-Build): 205 s (Platin DE), 210 s (HeartGold DE), 236 s (HeartGold US) für die fünf Tests; jeder Reset 9 bis 108 ms, die Liste erst 10 bis 17 s, danach 0,1 bis 0,6 s; Werte in [docs/phase-4-1b-gate.md](phase-4-1b-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
 
 #### Weltmodell (3e.2)
 
