@@ -1,6 +1,6 @@
 # Phase 4.1a: Gate prüfen
 
-Stand: 2026-10-27. Branch `phase-4-1a-basis-rom-patch` (Worktree `.claude/worktrees/phase-4-1a`, Basis `d25f61d`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik (der volle Lauf von `scripts/gate.sh` gegen alle drei Projekte, grün auf `bd383f8` in 4 091 s), (2) Szenario kopflos und (3) Browser-Teil mit MCP auf dem Stand `24bea52` (16 Commits `bf2921f` bis `24bea52`); die drei Befunde der Gate-Runde (B1, B2, U1) sind behoben, je mit eigenem Commit. Beim Nutzer offen: Rom Patcher JS mit der eigenen Basis-ROM (Hand), xdelta UI unter Windows (Hand, kein Windows) und der Blick auf Technik › Veröffentlichen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
+Stand: 2026-10-27. Branch `phase-4-1a-basis-rom-patch` (Worktree `.claude/worktrees/phase-4-1a`, Basis `d25f61d`), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik (der volle Lauf von `scripts/gate.sh` gegen alle drei Projekte, grün auf `bd383f8` in 4 091 s), (2) Szenario kopflos und (3) Browser-Teil mit MCP auf dem Stand `24bea52` (16 Commits `bf2921f` bis `24bea52`); die drei Befunde der Gate-Runde (B1, B2, U1) sind behoben, je mit eigenem Commit. Unabhängige Abnahme am selben Tag bestanden, vier Befunde (A1 bis A4) behoben in `5a12cd7`, `693c2d4`, `5dce50e` und `c800ce7` (Abschnitt „Abnahme (2026-10-27)“). Beim Nutzer offen: Rom Patcher JS mit der eigenen Basis-ROM (Hand), xdelta UI unter Windows (Hand, kein Windows) und der Blick auf Technik › Veröffentlichen in Hell, Dunkel und Kompakt; Abschnitte „Hand“ und „Blick“.
 
 Phase 4.1a bringt Basis-ROM und Patch: Ein DSPRE-Ordner bekommt über „Basis-ROM zuordnen…“ (App, MCP, `g4k base assign`) die Basismarke v2 mit `origin: "dspre"` und baut danach byte-gleich zu seiner `.nds`. Das Studio findet die Basis-ROM über die SHA-1 (App-Einstellung `base-roms.json`, kopflos `--base-rom` und `G4_BASE_ROM_DIR`), liest sie mit dem Kernel-Modul `base` und schreibt in Technik › Veröffentlichen › „Patch erstellen…“ einen selbstgeprüften xdelta-Patch `build/<Projekt>-<Spielcode>.xdelta` mit Begleitdatei `.xdelta.txt` (xdelta3 3.0.12 im Crate `g4-xdelta`, ohne Zweitkompression, mit Adler32, Basis-SHA-1 im App-Header). `cargo deny check licenses advisories` ist ein Schritt von `scripts/gate.sh`. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 4“, Punkt „4.1a Basis-ROM und Patch“. Entscheidungen: [entscheidungen.md](research/2026-10-27-phase-4/entscheidungen.md), Abschnitt „Basis-ROM und Patch (Gutachten B, 4.1)“. Plan: [2026-10-27-phase-4-1a-basis-rom-patch.md](superpowers/plans/2026-10-27-phase-4-1a-basis-rom-patch.md).
 
@@ -129,8 +129,9 @@ Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): Rom Patcher JS im Bro
 | (3) 6 und 7 MCP | Agent | bestanden: Rückfrage „Basis-ROM zuordnen“ und „Patch erstellen“, Freigabe wandert auf die neue `base_id` | 2026-10-27 |
 | Rom Patcher JS | Hand | offen | – |
 | xdelta UI (Windows) | Hand | offen, kein Windows | – |
-| Blick Technik › Veröffentlichen | Agent + Blick | offen: 13 Bilder liegen bereit | – |
-| `.fig` | Agent | Nicht eingespielt: OpenPencil antwortete in dieser Sitzung nicht (RPC timeout); Vorlage `design-system/openpencil/beispiele/veroeffentlichen.body.js`, Anleitung `design-system/openpencil/NACHTRAG-4-1a.md` | 2026-10-27 |
+| Abnahme (unabhängig) | Agent | bestanden nach A1 bis A4 (`5a12cd7`, `693c2d4`, `5dce50e`, `c800ce7`): kopflos, Oberfläche und MCP auf frischen Kopien aller drei Spiele, siehe Abschnitt „Abnahme (2026-10-27)“ | 2026-10-27 |
+| Blick Technik › Veröffentlichen | Agent + Blick | offen: 13 Bilder des Gates und 34 der Abnahme liegen bereit, vom Agenten angesehen | – |
+| `.fig` | Agent | Nicht eingespielt: OpenPencil antwortete weder in der Sitzung des Gates noch in der Abnahme (RPC timeout, Bildschirm gesperrt, `CGSSessionScreenIsLocked = true`); Vorlage `design-system/openpencil/beispiele/veroeffentlichen.body.js`, Anleitung `design-system/openpencil/NACHTRAG-4-1a.md` | 2026-10-27 |
 
 Patch-Größen je Spiel (gated Lauf (1), `patch_after_map_and_after_map_script_text_is_small_and_applies`; Erzeugen und Selbstprüfung als Karte / Karte + Script + Text):
 
@@ -158,10 +159,70 @@ Vor dem Gate aus den Reviews der Tasks behoben: die Grenze 1 GiB für Eingaben i
 
 **Hinweis zum Skript von (2), kein Befund im Produkt:** Der erste Platin-Lauf setzte `--collision 128` auf eine Zelle, die schon 128 war: `saved 0 file(s)`, der Patch (540 B) hatte als Ziel-SHA-1 die Basis. Wiederholt mit `--collision 0` (`saved 1 file(s)`, 551 B, Ziel `e83cdb1e…`); HeartGold DE und US mit `--collision 128` änderten die Zelle beim ersten Mal.
 
+## Abnahme (2026-10-27)
+
+Unabhängige Abnahme durch eine zweite Sitzung auf dem Stand `cf7df31`, danach die Fixes unten. Test-Umgebung auf 1530/1531 (`G4_ROMS_DIR` absolut, Browser-Fenster und Chrome headless über CDP), Release-`g4k`, `xdelta3` 3.2.2. Frische Kopien unter `Roms/_testkopien/` je Zweck (`cp -cR`, `cp -c`, Ordner und `.nds` nebeneinander): `4-1a-abn-pt`, `-hgde`, `-hgus` (kopflos), `-wpt`, `-whgde`, `-whgus` (Browser, je Spiel), `-mcp` (MCP), `-ui` (Vorschlag und Dialoge, nie zugeordnet) und `4-1a-abn-pt-fremd.nds` (letztes Byte gekippt, SHA-1 `483fcaa8…`). Ausgaben unter `target/agent/gate-2026-10-27/abnahme-4-1a/` im Worktree: `kopflos.log` und `kopflos/` (Patches, Begleitdateien, JSON), `browser/` (Patches aus der Oberfläche), `mcp/` (Antworten und Patch über MCP), `shots.log` und 34 Bilder. Alle Kopien sind nach der Abnahme gelöscht.
+
+| Punkt | Ergebnis |
+|---|---|
+| Kopflos: `base check` ohne Marke | bestanden auf allen drei: `mark=none`, `suggestion=…/4-1a-abn-<k>.nds` |
+| Kopflos: `base assign` mit der Nachbar-`.nds` | bestanden: ohne Warnung, `assigned sha1=d40f19ac… / 13b6853a… / 4fcded0e…`, danach `mark=dspre`, `base=… (sibling)` |
+| Byte-gleicher Rebuild (`g4k build`) | bestanden: SHA-1 gleich der `.nds` auf Platin DE (`d40f19ac…`, 16 s), HeartGold DE (`13b6853a…`, 21 s), HeartGold US (`4fcded0e…`, 21 s) |
+| Falscher Spielcode | bestanden: kopflos `Falsches Spiel: die ROM ist IPKD, das Projekt CPUD.` und `… CPUD, das Projekt IPKE.`, je Exit 1; in der Oberfläche (Platin mit HeartGold DE, HeartGold US mit Platin) Dialog mit Fehlermeldung und nur „Schließen“ |
+| Unbekannte SHA-1 | bestanden: kopflos Warnung „Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.“, Exit 0; in der Oberfläche dieselbe Warnung im Dialog, „Zuordnen“ bleibt möglich; bei „Basis-ROM suchen…“ „Das ist eine andere ROM (SHA-1 483fcaa8…) …“ |
+| Fehlende Basis-ROM | bestanden: kopflos `base=missing`, `patch create` Exit 1 „Basis-ROM nicht gefunden: HeartGold US (Testprojekt) (4fcded0e…).“; in der Oberfläche Plakette „Fehlt“, Grund in Karte und Notiz, „Patch erstellen…“ gesperrt (Platin und HeartGold US) |
+| Zuordnen in der Oberfläche | bestanden: Platin mit Vorschlag („Zuordnen…“), HeartGold DE über „Andere Datei wählen…“ (Pfad), HeartGold US mit Vorschlag nach einem abgelehnten falschen Spiel; „Basis-ROM suchen…“ mit HeartGold-ROM und mit der veränderten Platin-ROM abgelehnt, mit der umbenannten Datei gefunden |
+| Patch erstellen mit Selbstprüfung und Begleitdatei | bestanden: kopflos 555 / 558 / 558 B (`encode_ms` 117 / 157 / 148, `verify_ms` 133 / 136 / 138), Oberfläche 545 B (Platin ohne Änderung, siehe A2) / 559 / 559 B (13 bis 19 s mit Bauen), MCP 556 B; Begleitdatei im Wortlaut des Plans |
+| `xdelta3 -d` als Gegenprobe | bestanden: alle sieben Patches angewandt gleich `build/<Name>.nds`; Ziel-SHA-1 `e83cdb1e…` (Platin), `12ec2645…` (HeartGold DE), `ddafbb81…` (HeartGold US), gleich wie im Gate; `printhdr`: `VCD_APPHEADER`, Zweitkompression `none`, `VCD_ADLER32` |
+| Umschreiben der Agenten-Freigabe | bestanden: Freigabe „Lesen und bearbeiten“ mit `base_id: null`, nach `assign_base` über MCP `base_id: d40f19ac…/2026-10-27T04:05:30Z`; ein zweites Zuordnen derselben ROM in der Oberfläche lässt Marke und Freigabe gleich |
+| MCP mit Rückfrage (`mcp.sh`) | bestanden nach A3: `base_status`, `assign_base` (Rückfrage, „Zulassen“, `state found`, `source known`), `create_patch` (Rückfrage, 556 B, `encode_ms` 137); ohne Antwort endet die Rückfrage mit `needs_confirmation` |
+| Technik › Veröffentlichen Hell, Dunkel, Kompakt, 1440 × 900 und 1100 × 720 | bestanden: Bilder unten; Pfade enden gekürzt (Konvention, voller Pfad als Tooltip) |
+| Tastatur | bestanden nach A1: Liste mit Pfeiltasten und Enter, Tab durch die Karten, Dialoge mit Tab, Enter, Escape; Fokus auf „Abbrechen“ beim Öffnen |
+| Screenreader-Namen | bestanden nach A1: Liste `listbox` „Technik“ mit Optionen (Name und Untertitel über `aria-labelledby`/`-describedby`), Fläche `section` mit `h1`, Karten mit `h2`, Meldungen `status` bzw. `alert`, Dialoge mit Titel und Beschreibung, gesperrte Taste mit Grund über `aria-describedby` |
+
+### Befunde
+
+| Nr. | Schwere | Befund | Fix |
+|---|---|---|---|
+| A1 | Mittel | Fokus fällt auf `body`: die Tasten von Veröffentlichen sind während Prüfen, Zuordnen, Suchen und Patch `disabled`; nach dem Dialog „Basis-ROM zuordnen?“ landet der Fokus auf `body` oder auf „Andere Datei wählen…“, nach Zuordnen und Suchen verschwindet die Taste, nach „Patch erstellen“ ebenfalls `body`. Der gesperrte „Patch erstellen…“ war nicht mit seinem Grund verbunden. | `5a12cd7`: busy sperrt mit `aria-disabled` statt `disabled` (Button aus `1dfcb70` übernommen, byte-gleich mit main); nach jedem Schritt Fokus auf „Patch erstellen…“, wenn frei, sonst auf die auslösende Taste; `Dialog` bekam `finalFocus`; Notiz neben „Patch erstellen…“ über `aria-describedby`. Nachgeprüft im Browser: Escape → „Zuordnen…“, Zuordnen → „Patch erstellen…“, während des Patches bleibt der Fokus dort. |
+| A2 | Gering | Ein Patch ohne Änderung (Ziel-SHA-1 = Basis-SHA-1, 545 B) hieß „Patch erstellt … Selbstprüfung bestanden“, ohne Hinweis, dass er nichts ändert. | `693c2d4`: bei Ziel-SHA-1 = Basis-SHA-1 eine Warnmeldung „Patch ohne Änderungen: 544 Byte“ mit Pfad und „Die gebaute ROM gleicht der Basis-ROM; der Patch ändert nichts.“ Nachgeprüft im Browser (Kopie `ui`). |
+| A3 | Mittel | MCP `assign_base`: die Rückfrage nannte die Datei nicht, und Pfad und Spiel wurden erst nach „Zulassen“ geprüft (`../4-1a-abn-hgde.nds`: erst Rückfrage, dann „Pfad liegt außerhalb der erlaubten Ordner“). | `5dce50e`: in der App prüft `assign_base` vor der Rückfrage Pfad, Spiel und Marke (`start::check_assign`, dieselbe Prüfung wie `assign_base`) und gibt eine Ablehnung ohne Rückfrage zurück; die Rückfrage lautet „Basis-ROM zuordnen: 4-1a-abn-mcp2.nds (Platin DE (Testprojekt), SHA-1 d40f19ac)“, die von `create_patch` „Patch erstellen: build/4-1a-abn-mcp2-CPUD.xdelta“; kopflos unverändert. Nachgeprüft über `mcp.sh`: der Pfad außerhalb kam nach 1 s ohne Rückfrage zurück. |
+| A4 | Gering | Veröffentlichen folgte keinem Agenten: nach `assign_base` bzw. `create_patch` über MCP blieb die offene Karte auf „Nicht zugeordnet“ bzw. ohne Patch, bis Technik neu gezeigt wurde. | `c800ce7`: nach einem Agenten-Ereignis `assign_base` oder `create_patch` liest die App den Zustand der Basis-ROM neu. Nachgeprüft: die offene Karte sprang nach „Zulassen“ auf „Gefunden“. Einen Agenten-Patch zeigt die Karte nicht (der Patch-Bericht reist nicht mit dem Ereignis), siehe H5. |
+
+Hinweise ohne Fix:
+
+- H1: Nach `create_patch` über MCP zeigt Prüfen und Bauen weiter „Noch nicht gebaut“ (der Agenten-Build setzt `lastRom` der Sitzung nicht); gilt ebenso für `build` über MCP seit 3h, nicht 4.1a.
+- H2: Bei 1100 px kürzt die Titelleiste den Projektnamen auf „4…“ (seit 4.0 bekannt, H2 der Abnahme 4.0).
+- H3: Fehlertexte des Betriebssystems bleiben englisch im deutschen Satz („Pfad nicht lesbar: …: Not a directory (os error 20)“), wie seit 3g.
+- H4: Das Pfadfeld des Browser-Modus merkt sich den letzten Pfad (gewollt); Tippen hängt an, statt zu ersetzen. Nur Test-Umgebung.
+- H5: Einen Patch, den ein Agent erstellt hat, zeigt die Karte „Patch“ nicht: `lastPatch` setzt nur der eigene Lauf der Oberfläche, und das Ereignis trägt keinen Patch-Bericht. Der Untertitel bleibt „Bereit für einen Patch“. Dafür müsste das Backend den letzten Patch melden; offen.
+- H6: Die Tasten im Dialog „Basis-ROM zuordnen?“ sind während des Zuordnens weiter `disabled`; der Fokus liegt so lange auf `body` und kommt mit dem Schließen zurück (`finalFocus`). Eine Option `aria-disabled` für `DialogAction` wäre der Fix; nicht gemacht, weil das Zuordnen unter einer Sekunde dauert.
+- H7: `create_patch` über MCP fragt weiter vor der Suche nach der Basis-ROM; fehlt sie, kommt `base_missing` erst nach „Zulassen“ (die Suche kann eine ROM hashen).
+- H8: Der Pfad in Angaben und Erfolgsmeldung wird am Ende gekürzt, der Dateiname des Patches ist bei 1100 px nicht zu sehen (Konvention aus Einstellungen › Agenten, voller Pfad als Tooltip).
+
+### Nach den Fixes
+
+Auf `c800ce7` mit neu gebauter Brücke nachgeprüft (Kopien `ui` und die frische `4-1a-abn-mcp2`): A1 bis A4 wie in der Tabelle beschrieben; die Freigabe von `mcp2` wanderte auf `d40f19ac…/2026-10-27T04:41:24Z`; `create_patch` über MCP ohne Änderung 546 B, Ziel = Basis. Checks auf `c800ce7` (wie `scripts/gate.sh` ohne die gated Schritte, Log `checks.log`), alle grün: `cargo fmt --check` 2 s, `cargo clippy -D warnings` 22 s, `cargo deny` 7 s („advisories ok, licenses ok“), `cargo test --workspace --all-features` ohne ROM 99 s, `mcp_stdio` 26/26 in 26 s, `pnpm test` 102 s, `check-tokens.sh`, `check-styles.sh`, `pnpm build` 51 s. Der volle Lauf von `scripts/gate.sh` mit den gated Tests lief nach den Fixes nicht erneut; die Fixes berühren weder Build noch Patch des Kernels (A3 verschiebt nur die Prüfung von `assign_base` in `start::check_assign`, die Unit-Tests von `start` und `mcp::tools` laufen ohne ROM).
+
+### Bilder
+
+34 Bilder unter `target/agent/gate-2026-10-27/abnahme-4-1a/` im Worktree, Stand `cf7df31` (vor den Fixes; die Fixes ändern das Bild nur bei einem Patch ohne Änderung), Chrome headless über CDP mit der laufenden Test-Umgebung; Hell und Dunkel über `prefers-color-scheme` (Thema „System“), Kompakt über die Taste der Statusleiste:
+
+- `vorschlag-*` (Kopie `ui`): Plakette „Nicht zugeordnet“, Info „Neben dem Projekt liegt „4-1a-abn-ui.nds“.“, „Zuordnen…“ primär, „Andere Datei wählen…“ sekundär, „Patch erstellen…“ gesperrt mit „Erst eine Basis-ROM zuordnen.“
+- `zuordnen-dialog-*`: „Basis-ROM zuordnen?“, „POKEMON PL · CPUD · SHA-1 d40f19ac“, „Bekannte Basis-ROM: Platin DE (Testprojekt)“, Plakette „Nicht rückgängig“, „Abbrechen“ und „Zuordnen“.
+- `falsches-spiel-hell-1440`, `-dunkel-1440`: derselbe Dialog mit HeartGold DE, Fehlermeldung „Falsches Spiel: die ROM ist IPKD, das Projekt CPUD.“, nur „Schließen“.
+- `unbekannte-rom-hell-1440`, `-dunkel-1440`: SHA-1 `483fcaa8`, Warnung „Unbekannte oder veränderte ROM …“, „Zuordnen“ bleibt.
+- `gefunden-*` (Kopie `whgde`): Plakette „Gefunden“, ROM „HeartGold DE (Testprojekt)“, SHA-1 `13b6853a`, Pfad in Mono.
+- `patch-erstellt-*` (Kopie `whgde`): „Patch erstellt: 559 Byte“, Pfad, Selbstprüfung; Prüfen und Bauen „gebaut gerade eben“.
+- `fehlt-*` (Kopie `whgus`, `.nds` umbenannt): Plakette „Fehlt“, Warnung „Basis-ROM nicht gefunden: HeartGold US (Testprojekt) (4fcded0e…).“, „Basis-ROM suchen…“, „Patch erstellen…“ gesperrt mit demselben Grund.
+
+Je Zustand `-hell-1440`, `-dunkel-1440`, `-kompakt-1440`, `-hell-1100`, `-dunkel-1100`, `-kompakt-1100` (1440 × 900 bzw. 1100 × 720). Bei 1100 px passen beide Karten ohne Umbruch der Tasten; im Kompakt zeigt die Leiste „Bereiche“ nur Symbole.
+
 ## Hand
 
 - [ ] **Rom Patcher JS** im Browser mit der eigenen Basis-ROM: den Patch aus (2) anwenden, etwa `target/agent/gate-2026-10-27/4-1a/kopflos/4-1a-pt-CPUD.xdelta` auf das eigene Platin DE mit SHA-1 `d40f19ac24d67c721a4ab25e1c013154443d75b4`. Die SHA-1 des Ergebnisses muss gleich der Ziel-SHA-1 in der Begleitdatei `4-1a-pt-CPUD.xdelta.txt` sein: `e83cdb1ecca5e98b077464c24e9c1b530840f76b`. Die Fassung von Rom Patcher JS notieren. (HeartGold DE: `4-1a-hgde-IPKD.xdelta`, Ziel `12ec26454e951e27c808976226974053e3d705c7`; HeartGold US: `4-1a-hgus-IPKE.xdelta`, Ziel `ddafbb8114dbab85208cd2a25cf779f0cde86d77`.)
 - [ ] **xdelta UI unter Windows:** derselbe Patch, dieselbe Prüfung; auf diesem Rechner gibt es kein Windows. Der Bau von `g4-xdelta` unter Windows (MSVC) ist ebenfalls ungeprüft.
+- Stand der Abnahme (2026-10-27): beide Punkte weiter offen, der Agent hat keinen Zugang zu Rom Patcher JS mit einer eigenen ROM des Nutzers und kein Windows. Die Patches der Abnahme sind dieselben Ziele mit anderem Namen im App-Header und taugen ebenso: `target/agent/gate-2026-10-27/abnahme-4-1a/kopflos/4-1a-abn-pt-CPUD.xdelta` (Ziel `e83cdb1e…`), `4-1a-abn-hgde-IPKD.xdelta` (`12ec2645…`), `4-1a-abn-hgus-IPKE.xdelta` (`ddafbb81…`); dazu die Patches aus der Oberfläche unter `abnahme-4-1a/browser/`. Ein Patch ohne Änderung (`browser/4-1a-abn-wpt-CPUD.xdelta`, Ziel = Basis `d40f19ac…`) prüft, dass Rom Patcher JS auch einen leeren Patch annimmt.
 
 ## Blick
 
@@ -172,6 +233,8 @@ Bilder unter `target/agent/gate-2026-10-27/4-1a/` im Worktree, je 1440 × 900, a
 - [ ] `blick-veroeffentlichen-gefunden-hell.png`, `-dunkel.png`, `-kompakt-hell.png`: Plakette „Gefunden“ (Erfolg), Angaben ROM, SHA-1 (acht Stellen in Mono), Datei (Pfad in Mono, gekürzt); „Patch erstellen…“ frei.
 - [ ] `blick-veroeffentlichen-fehlt-hell.png`, `-dunkel.png`, `-kompakt-hell.png` (Kopie `4-1a-web`): Untertitel „Basis-ROM fehlt“, Plakette „Fehlt“ (Warnung), Warnmeldung „Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).“, primär „Basis-ROM suchen…“; „Patch erstellen…“ gesperrt mit demselben Grund als Notiz.
 - [ ] `blick-veroeffentlichen-patch-erstellt-hell.png` (Kopie `4-1a-web`): Untertitel „Patch erstellt“, Prüfen und Bauen „gebaut gerade eben“, Erfolgsmeldung „Patch erstellt: 541 Byte“ mit dem Pfad `…/build/4-1a-web-CPUD.xdelta` in Mono (gekürzt) und dem Satz der Selbstprüfung. Die Datei der Basis-ROM zeigt `4-1a-mcp.nds`: `base-roms.json` hat einen Eintrag je SHA-1, und die MCP-Zuordnung von `4-1a-mcp` (gleiche SHA-1) kam danach (so entschieden).
+
+- [ ] **Abnahme (2026-10-27):** 34 Bilder unter `target/agent/gate-2026-10-27/abnahme-4-1a/` in Hell, Dunkel und Kompakt, je bei 1440 × 900 und 1100 × 720 (Liste im Abschnitt „Abnahme“, „Bilder“). Der Agent hat sie angesehen: Texte und Zustände wie oben, je Karte höchstens eine primäre Taste, keine abgeschnittenen Tasten bei 1100 px, Kompakt mit Symbolleiste. Beim Nutzer: ein Blick auf `vorschlag-kompakt-1100.png`, `zuordnen-dialog-dunkel-1440.png`, `patch-erstellt-dunkel-1440.png` und `fehlt-hell-1100.png`; neu seit A2 ist die Warnmeldung „Patch ohne Änderungen: … Byte“ (nur im Browser-Fenster gesehen, kein Bild).
 
 Vergleich mit dem Zielbild „Veröffentlichen: Patch erstellen“ und den Abweichungen: `design-system/README.md`, Abschnitt „Nachtrag 4.1a“.
 
