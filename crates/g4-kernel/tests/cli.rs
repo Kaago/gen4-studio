@@ -1023,15 +1023,19 @@ fn cli_text_export_then_check_is_clean() {
 
 #[test]
 fn cli_text_export_twice_writes_nothing() {
-    let (_tmp, root, nds) = text_layout();
-    let empty = tempfile::tempdir().unwrap();
+    let (_tmp, root, sibling) = text_layout();
+    // The base ROM is no sibling any more and no search folder is set: only `--base-rom`
+    // finds it.
+    let elsewhere = tempfile::tempdir().unwrap();
+    let nds = elsewhere.path().join("base.nds");
+    std::fs::rename(&sibling, &nds).unwrap();
     let run = || {
         let assert = g4k()
             .args(["text", "export"])
             .arg(&root)
             .arg("--base-rom")
             .arg(&nds)
-            .env("G4_BASE_ROM_DIR", empty.path())
+            .env_remove("G4_BASE_ROM_DIR")
             .assert()
             .success();
         stdout_of(&assert)
@@ -1054,6 +1058,7 @@ fn cli_text_export_twice_writes_nothing() {
         .arg(&root)
         .arg("--base-rom")
         .arg(&nds)
+        .env_remove("G4_BASE_ROM_DIR")
         .assert()
         .success();
     let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
@@ -1155,9 +1160,37 @@ fn cli_text_sources_lists_manifest_and_data() {
 fn cli_text_migrate_v0_fixture() {
     let (_tmp, root, _nds) = text_layout();
     text(&["export"], &root).assert().success();
-    // The v0 fixture of the migration over the exported project.
-    let v0 = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/textproject/v0");
-    common::copy_dir(&v0, &root);
+    // The exported project brought down to the v0 form of the Task 1 fixture
+    // (`tests/fixtures/textproject/v0`): the manifest says `"schema": 0`, every register is
+    // `{"ids": {"NNNN": "ID"}}`. The migration must give back the exported bytes.
+    let manifest = root.join("g4-project.json");
+    let exported_manifest = std::fs::read_to_string(&manifest).unwrap();
+    assert!(exported_manifest.contains("\"schemaVersion\": 1"));
+    std::fs::write(
+        &manifest,
+        exported_manifest.replacen("\"schemaVersion\": 1", "\"schema\": 0", 1),
+    )
+    .unwrap();
+    let mut registers = Vec::new();
+    for entry in std::fs::read_dir(root.join("data/ids")).unwrap() {
+        let path = entry.unwrap().path();
+        let bytes = std::fs::read(&path).unwrap();
+        let by_id: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&bytes).unwrap();
+        let ids: serde_json::Map<String, serde_json::Value> = by_id
+            .iter()
+            .map(|(id, n)| (format!("{:04}", n.as_u64().unwrap()), id.clone().into()))
+            .collect();
+        let v0 = serde_json::json!({ "ids": ids });
+        std::fs::write(&path, serde_json::to_vec_pretty(&v0).unwrap()).unwrap();
+        registers.push((path, bytes));
+    }
+    assert!(
+        registers
+            .iter()
+            .any(|(p, _)| p.ends_with("data/ids/maps.json")),
+        "{registers:?}"
+    );
 
     let assert = text(&["check"], &root).assert().code(1);
     assert_eq!(stdout_of(&assert).lines().next(), Some("schema=older 0"));
@@ -1169,12 +1202,17 @@ fn cli_text_migrate_v0_fixture() {
     let assert = text(&["migrate"], &root).assert().success();
     let out = stdout_of(&assert);
     println!("{out}");
-    assert!(
-        out.starts_with("migrated 0 -> 1 changed=2 snapshot="),
-        "{out}"
-    );
+    let changed = format!("migrated 0 -> 1 changed={} snapshot=", registers.len() + 1);
+    assert!(out.starts_with(&changed), "{changed} in {out}");
     let snapshot = out.trim_end().split("snapshot=").nth(1).unwrap();
     assert!(std::path::Path::new(snapshot).is_dir(), "{snapshot}");
+    assert_eq!(
+        std::fs::read_to_string(&manifest).unwrap(),
+        exported_manifest
+    );
+    for (path, bytes) in &registers {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "{}", path.display());
+    }
 
     text(&["migrate"], &root)
         .assert()
@@ -1187,21 +1225,16 @@ fn cli_text_migrate_v0_fixture() {
         (Some(1), Some(1))
     );
 
-    // The check reads past the schema now; the fixture's invented register does not fit the
-    // synthetic headers (`textproject.id-mismatch`), which is an error, not a refusal.
-    let assert = text(&["check"], &root).assert().code(1);
-    let out = stdout_of(&assert);
-    println!("{out}");
-    assert_eq!(out.lines().next(), Some("schema=current"), "{out}");
-    assert!(out.contains("textproject.id-mismatch"), "{out}");
-    assert!(
-        !String::from_utf8_lossy(&assert.get_output().stderr).contains("g4k text migrate"),
-        "no schema refusal any more"
-    );
+    // Current again, and the import would write nothing.
+    text(&["check"], &root)
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("schema=current\n"))
+        .stdout(predicates::str::ends_with("differs=0\n"));
 
     // A newer version is refused.
     std::fs::write(
-        root.join("g4-project.json"),
+        &manifest,
         b"{\"format\": \"g4-project\", \"schemaVersion\": 99}\n",
     )
     .unwrap();
@@ -1211,4 +1244,31 @@ fn cli_text_migrate_v0_fixture() {
         .stderr(contains("neueren Fassung"));
     let assert = text(&["check"], &root).assert().code(1);
     assert_eq!(stdout_of(&assert).lines().next(), Some("schema=newer 99"));
+}
+
+#[test]
+fn cli_text_import_refuses_a_broken_or_newer_mark() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    // A valid edit that an import would write.
+    let path = root.join("data/moves/0002.json");
+    let json = std::fs::read_to_string(&path).unwrap();
+    assert!(json.contains("\"power\": 20"), "{json}");
+    std::fs::write(&path, json.replacen("\"power\": 20", "\"power\": 99", 1)).unwrap();
+    let member = std::fs::read(root.join("unpacked/moveData/0002")).unwrap();
+    for mark in ["{ broken", r#"{"version": 3}"#] {
+        std::fs::write(root.join(".g4/base.json"), mark).unwrap();
+        let refusal = g4_kernel::start::mark_state(&root)
+            .refusal()
+            .expect("a refusal");
+        text(&["import"], &root)
+            .assert()
+            .code(1)
+            .stderr(contains(refusal));
+        assert_eq!(
+            std::fs::read(root.join("unpacked/moveData/0002")).unwrap(),
+            member,
+            "nothing written"
+        );
+    }
 }

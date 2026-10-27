@@ -256,8 +256,15 @@ fn main() -> ExitCode {
 }
 
 fn print_problems(problems: &[Problem]) {
+    write_problems(&mut std::io::stderr().lock(), problems);
+}
+
+/// One line per problem: `<severity>: <file>:<line>:<col>: <message>`.
+fn write_problems(out: &mut impl std::io::Write, problems: &[Problem]) {
     for problem in problems {
-        eprintln!(
+        // Like `eprintln!`, a failed write has nowhere else to go; unlike it, no panic.
+        let _ = writeln!(
+            out,
             "{:?}: {}:{}:{}: {}",
             problem.severity,
             problem.file.display(),
@@ -1346,14 +1353,19 @@ fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
 fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
     use g4_kernel::start::MarkState;
 
-    let project = Project::open(root)?;
+    // A broken or newer mark is refused like `export` and `patch create`; only without a
+    // mark does the import run without a located base.
     let base = match g4_kernel::start::mark_state(root) {
         MarkState::Present(mark) => located_base(root, &mark, base_rom)?,
-        _ => match base_rom {
+        MarkState::Missing => match base_rom {
             Some(path) => Some(g4_kernel::base::BaseRom::open(path, None)?),
             None => None,
         },
+        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
+            return Err(Failure::Message(state.refusal().unwrap_or_default()));
+        }
     };
+    let project = Project::open(root)?;
     let report = g4_kernel::textproject::import(&project, base.as_ref())?;
     print_problems(&report.problems);
     if json {
@@ -1389,16 +1401,7 @@ fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
             SchemaState::Missing => "missing".to_owned(),
         };
         println!("schema={schema}");
-        for p in &report.problems {
-            println!(
-                "{:?}: {}:{}:{}: {}",
-                p.severity,
-                p.file.display(),
-                p.line,
-                p.col,
-                p.message
-            );
-        }
+        write_problems(&mut std::io::stdout().lock(), &report.problems);
         println!("differs={}", report.differs.len());
         for path in report.differs.iter().take(CHECK_PATHS) {
             println!("  {}", path.display());
@@ -1412,6 +1415,7 @@ fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
         return Err(
             match g4_kernel::textproject::manifest::read_manifest(root) {
                 Err(e) => e.into(),
+                // Defensive: `read_manifest` refuses every state but the current one.
                 Ok(_) => Failure::Message(format!("text check: schema {:?}", report.schema)),
             },
         );
