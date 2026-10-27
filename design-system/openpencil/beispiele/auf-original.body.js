@@ -3,7 +3,7 @@
   //                  „Auf Original zurücksetzen…“ unter dem Zeiger), darüber die Abdunklung und der Dialog „Karte 0003 auf Original
   //                  zurücksetzen?“ mit Vorher und Nachher. Das Frame zeigt zwei Augenblicke zugleich (Menü und Dialog), damit eines reicht.
   //   'header'       „App: Welt, Header zurücksetzen“: Gebiet Jubelstadt mit ungespeicherter Bearbeitung, darüber der Dialog „Header 0003 auf
-  //                  Original zurücksetzen?“: Info zu den ungespeicherten Änderungen, Vorher und Nachher, drei Felder mit Häkchen (eines abgewählt)
+  //                  Original zurücksetzen?“: Info zu den ungespeicherten Änderungen, drei Felder mit Häkchen (eines abgewählt), kein Vorher und Nachher
   //   'aenderungen'  „App: Technik, Änderungen“: Liste „Technik“ mit sieben Einträgen, „Änderungen“ gewählt; Fläche mit drei Gruppen
   //                  „Karten“ (1), „Trainer“ (1, ungespeichert), „Matrizen“ (1, ohne Zurücksetzen)
   // Quellen: apps/studio/src/original/{ResetDialog,resetEntry,OriginalContext,HeadActions}.tsx und ResetDialog.module.css,
@@ -46,7 +46,12 @@
     <Frame flex="row" items="center" px={8} py={4} w="fill" bg={v('flaeche/deck')} strokeWeights={{ top: 0, right: 0, bottom: 1, left: 0 }} stroke={v('linie/leise')}>{T(titel, { s: 12, w: 600, c: 'text/sekundaer' })}</Frame>
     <Frame flex="col" py={4} w="fill">{zeilen.map((z) => Zeile(z, zeichen))}</Frame>
   </Frame>;
-  const VorherNachher = (vorher, nachher) => <Frame name="Vorher und Nachher" flex="row" gap={8} w="fill">{Seite('Vorher', vorher, '−')}{Seite('Nachher', nachher, '+')}</Frame>;
+  // Im Dialog bricht eine lange Zeile in der Spalte um (`wrap`); die Beispielzeilen sind kurz genug für eine Zeile. Über jedem Vergleich sein Name
+  // (text/s-betont), wie ihn der Kern liefert.
+  const VorherNachher = (name, vorher, nachher) => <Frame name="Änderung" flex="col" gap={4} w="fill">
+    {T(name, { s: 13, w: 600, width: IW })}
+    <Frame name="Vorher und Nachher" flex="row" gap={8} w="fill">{Seite('Vorher', vorher, '−')}{Seite('Nachher', nachher, '+')}</Frame>
+  </Frame>;
 
   // ----- 'aenderungen': Technik › Änderungen -----
   if (MODE === 'aenderungen') {
@@ -149,25 +154,21 @@
     children: [liste, <Frame name="Werkbank" flex="col" grow={1} h="fill">{ScharnierOben({ crumbs, depth: 'Bauen', light: { e: 0, w: 101, i: 10 }, undo: KARTE ? 0 : 3 })}{dock}</Frame>] });
 
   if (KARTE) {
-    // Karte: eine Änderung, ihr Name steht im Titel; Zeilen des Kernels (Bewegungsrechte, Gebäude, Modell, BDHC mit den ersten acht Stellen der xxh3)
-    const dialog = Dialog('Karte 0003 auf Original zurücksetzen?', VorherNachher(
+    // Karte: eine Änderung mit ihrem Namen darüber; Zeilen des Kernels (Bewegungsrechte, Gebäude, Modell, BDHC mit den ersten acht Stellen der xxh3)
+    const dialog = Dialog('Karte 0003 auf Original zurücksetzen?', VorherNachher('Karte 0003: 12 Zellen der Bewegungsrechte anders',
       [['Bewegungsrechte 5c0e71a2', true], ['Gebäude 6', true], ['Modell 38412 Byte 9d24be07', false], ['BDHC 1240 Byte 0f3a8c51', false]],
       [['Bewegungsrechte 1b7f42d9', true], ['Gebäude 5', true], ['Modell 38412 Byte 9d24be07', false], ['BDHC 1240 Byte 0f3a8c51', false]],
     ));
     return MitDialog(NAMES.karte, win, dialog);
   }
 
-  // Header: Info (ungespeichert), Vorher und Nachher mit den serde-Namen (Reihenfolge des Kernels: alphabetisch), je Feld ein Häkchen mit dem
-  // deutschen Namen aus fields.ts und rechts „vorher → nachher“ in code/s sekundär; „Kamera“ ist abgewählt, „Zurücksetzen“ bleibt frei
+  // Header: Info (ungespeichert), je Feld ein Häkchen mit dem deutschen Namen aus fields.ts und rechts „vorher → nachher“ in code/s sekundär;
+  // kein Vorher und Nachher (es nennte dieselben Felder ein zweites Mal mit den serde-Namen). „Kamera“ ist abgewählt, „Zurücksetzen“ bleibt frei
   const Feld = (on, label, werte) => <Frame name={label} flex="row" items="center" justify="between" gap={12} w="fill" minH={DI.zeile}>
     {Check(on, label)}{Mono(werte, { s: 13, lh: 20 })}
   </Frame>;
   const dialog = Dialog('Header 0003 auf Original zurücksetzen?', [
     Meldung('Auch ungespeicherte Änderungen werden ersetzt; ⌘Z stellt sie wieder her.', 'info'),
-    VorherNachher(
-      [['camera_angle_id: 4', true], ['music_day_id: 1102', true], ['weather_id: 2', true]],
-      [['camera_angle_id: 0', true], ['music_day_id: 1015', true], ['weather_id: 0', true]],
-    ),
     <Frame name="Felder" flex="col" gap={4} w="fill">
       {Feld(false, 'Kamera', '4 → 0')}
       {Feld(true, 'Musik Tag', '1102 → 1015')}

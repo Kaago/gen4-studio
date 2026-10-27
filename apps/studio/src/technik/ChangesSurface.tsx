@@ -21,6 +21,16 @@ function locked(entry: ChangedEntry): string | null {
   return null;
 }
 
+/** At most this many folders are named in „Noch nicht gebaut“; the others are counted. */
+const UNBUILT_NAMED = 5;
+
+/** The folders without a build entry: up to five by name, more as „und {n} weitere“ (a project never built has dozens). */
+export function unbuiltText(folders: readonly string[]): string {
+  const named = folders.slice(0, UNBUILT_NAMED).join(", ");
+  const more = folders.length - UNBUILT_NAMED;
+  return more > 0 ? `${named} und ${more} weitere` : named;
+}
+
 /** The line under „Änderungen“ in the list of Technik; `changes` null: no project. */
 export function changesSubtitle(changes: ChangesApi | null, status: OriginalStatus | null): string {
   if (changes === null) return "Kein Projekt geöffnet";
@@ -104,7 +114,7 @@ export function ChangesSurface({ changes, status, dirty, onOpenProject }: Change
       )}
       {error !== null && <Notice kind="error">{error}</Notice>}
       {report !== null && report.unbuilt.length > 0 && (
-        <Notice kind="info">Noch nicht gebaut: {report.unbuilt.join(", ")}. Nach dem nächsten Build geht der Vergleich schneller.</Notice>
+        <Notice kind="info">Noch nicht gebaut: {unbuiltText(report.unbuilt)}. Nach dem nächsten Build geht der Vergleich schneller.</Notice>
       )}
       {report !== null &&
         (report.entries.length === 0 ? (

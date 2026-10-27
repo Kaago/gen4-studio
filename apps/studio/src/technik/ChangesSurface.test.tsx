@@ -148,6 +148,16 @@ describe("ChangesSurface", () => {
     await render({ changes: changesWith({ report: report({ entries: ENTRIES, unbuilt: ["maps", "scripts"] }) }) });
     const notes = [...container.querySelectorAll("[role=status]")].map((n) => n.textContent);
     expect(notes).toContain("Noch nicht gebaut: maps, scripts. Nach dem nächsten Build geht der Vergleich schneller.");
+    // Five are named; more are counted (a project never built lists every folder).
+    const five = ["a", "b", "c", "d", "e"];
+    await render({ changes: changesWith({ report: report({ entries: ENTRIES, unbuilt: five }) }) });
+    expect([...container.querySelectorAll("[role=status]")].map((n) => n.textContent)).toContain(
+      "Noch nicht gebaut: a, b, c, d, e. Nach dem nächsten Build geht der Vergleich schneller.",
+    );
+    await render({ changes: changesWith({ report: report({ entries: ENTRIES, unbuilt: [...five, "f", "g", "h"] }) }) });
+    expect([...container.querySelectorAll("[role=status]")].map((n) => n.textContent)).toContain(
+      "Noch nicht gebaut: a, b, c, d, e und 3 weitere. Nach dem nächsten Build geht der Vergleich schneller.",
+    );
     await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
     expect(surface()?.textContent).not.toContain("Noch nicht gebaut");
   });
