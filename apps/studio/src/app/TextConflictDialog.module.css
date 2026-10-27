@@ -1,0 +1,24 @@
+/* One row per text archive in conflict: its name, the choice of the version beside it. */
+.rows {
+  display: flex;
+  max-height: 320px;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-4) var(--g4-raum-12);
+  min-height: var(--g4-dichte-zeile);
+}
+
+.name {
+  font: var(--g4-font-text-s-betont);
+}

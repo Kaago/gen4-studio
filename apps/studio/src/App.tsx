@@ -61,6 +61,7 @@ import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
 import { AgentQuestion } from "./app/AgentQuestion";
+import { TextConflictDialog } from "./app/TextConflictDialog";
 import { useAgents } from "./app/useAgents";
 import { useChecks } from "./checks/useChecks";
 import { useOverview } from "./app/useOverview";
@@ -804,7 +805,9 @@ function AppBody() {
         busy={session.busy}
         lastBuiltAt={session.lastBuiltAt}
         lastRom={session.lastRom}
+        lastSteps={session.lastSteps}
         onBuild={() => void session.onBuild()}
+        onBuildFresh={() => void session.onBuild(undefined, true)}
         onRun={() => void session.onRun()}
         canRun={inTauri()}
         onOpenProject={openProject}
@@ -954,6 +957,14 @@ function AppBody() {
       />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
+      {session.textConflicts !== null && (
+        <TextConflictDialog
+          key={session.textConflicts.archives.join(",")}
+          archives={session.textConflicts.archives}
+          onResolve={(choices) => void session.resolveConflicts(choices)}
+          onCancel={session.cancelConflicts}
+        />
+      )}
       {importMap !== null && (
         <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
       )}

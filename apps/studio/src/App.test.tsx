@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -171,6 +171,7 @@ vi.mock("./ui/frame/dockRules", async (importOriginal) => ({
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
   buildRom: vi.fn(),
+  resolveTextConflicts: vi.fn(),
   save: vi.fn(),
   openProject: vi.fn(),
   listHeaders: vi.fn(),
@@ -830,6 +831,31 @@ describe("App wiring", () => {
       expect(statusLine()).toContain("Gebaut gerade eben");
     });
 
+    it("a_text_conflict_of_the_build_asks_in_a_dialog_and_builds_again_after_the_choice", async () => {
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(resolveTextConflicts).mockResolvedValue([12]);
+      vi.mocked(buildRom)
+        .mockRejectedValueOnce({
+          code: "text_conflict",
+          message: "Textarchiv 0012 wurde als Text (JSON) und als Spieldatei geändert; wähle, welche Fassung gilt.",
+          asset: null,
+          problems: [{ severity: "error", file: "expanded/textArchives/0012.json", line: 0, col: 0, message: "Textarchiv 0012 …", source: "build" }],
+        })
+        .mockResolvedValueOnce({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
+      await click("Bauen");
+      const dialog = document.querySelector<HTMLElement>("[data-text-conflict]");
+      expect(dialog?.textContent).toContain("Textarchiv 0012");
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      await act(async () => [...dialog!.querySelectorAll("button")].find((b) => b.textContent === "Übernehmen und bauen")!.click());
+      expect(resolveTextConflicts).toHaveBeenCalledExactlyOnceWith([{ archive: 12, keep: "json" }]);
+      expect(vi.mocked(buildRom).mock.calls).toEqual([
+        ["/out.nds", false],
+        ["/out.nds", false],
+      ]);
+      expect(savePath).toHaveBeenCalledOnce();
+      expect(statusLine()).toContain("Gebaut gerade eben");
+    });
+
     it("switches_the_theme_and_the_density_without_touching_the_panels_data", async () => {
       await select(listed[0]);
       const before = data();
@@ -1264,7 +1290,7 @@ describe("App wiring", () => {
       vi.mocked(savePath).mockResolvedValue("/out.nds");
       built();
       await pressHinge(/Hier spielen/);
-      expect(buildRom).toHaveBeenCalledWith("/out.nds");
+      expect(buildRom).toHaveBeenCalledWith("/out.nds", false);
       expect(runRom).not.toHaveBeenCalled();
       expect(infos()).toContainEqual(expect.stringContaining("Im Browser-Modus wird nur gebaut"));
     });
@@ -1320,7 +1346,7 @@ describe("App wiring", () => {
       vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/chosen/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
       await pressHinge(/Hier spielen/);
       expect(savePath).toHaveBeenCalledOnce();
-      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds");
+      expect(buildRom).toHaveBeenLastCalledWith("/chosen/out.nds", false);
       // Button and Cmd+R now build to that path without a dialog.
       vi.mocked(savePath).mockClear();
       await pressHinge(/Hier spielen/);

@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
-import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
+import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives } from "../api";
+import type { AssetId, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo, TextKeep } from "../api";
 import { staleText } from "../assets";
+import { formatSeconds } from "../technik/buildSteps.ts";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -32,6 +33,30 @@ function storeEmulator(path: string) {
     /* the choice is simply asked again next time */
   }
 }
+
+/** „Textarchiv 0012“, „Textarchive 0012, 0045 und 0433“: the archives a conflict names. */
+function archivesText(archives: readonly number[]): string {
+  const names = archives.map((a) => String(a).padStart(4, "0"));
+  if (names.length === 1) return `Textarchiv ${names[0]}`;
+  return `Textarchive ${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
+}
+
+/**
+ * A save met text archives changed as JSON and as member: the save asks nothing itself, the next build does (a ruling of 4.2). Without
+ * archives (an error without problems) the backend's message stands.
+ */
+function saveConflictText(e: CmdError): string {
+  const archives = textConflictArchives(e);
+  if (archives.length === 0) return e.message;
+  const verb = archives.length === 1 ? "wurde" : "wurden";
+  return `${archivesText(archives)} ${verb} als Text und als Spieldatei geändert. Wähle beim nächsten „Bauen“, welche Fassung gilt.`;
+}
+
+/** Ends a sentence of the backend with a full stop. */
+const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+/** A build waiting for the user to choose which version of each archive in conflict applies; it then goes to `out` with the same `fresh`. */
+export type TextConflicts = { archives: number[]; out: string; fresh: boolean };
 
 function forgetEmulator() {
   try {
@@ -68,6 +93,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
+  /** The steps of the last build (null: none since this project was opened). */
+  const [lastSteps, setLastSteps] = useState<BuildStep[] | null>(null);
+  /** A build stopped by text archives in conflict: the dialog asks, `resolveConflicts` builds again. */
+  const [textConflicts, setTextConflicts] = useState<TextConflicts | null>(null);
   /** The emulator a ROM starts in (stored for every project); null while none is chosen. */
   const [emulatorPath, setEmulatorPath] = useState<string | null>(() => storedEmulator());
   const [counts, setCounts] = useState<MemberCounts>({});
@@ -119,6 +148,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     const locked = eventReadOnlyReason(e);
     if (locked !== null) {
       setMessage({ kind: "error", text: lockedText(locked) });
+      return;
+    }
+    if (isCmdError(e) && e.code === "text_conflict") {
+      setMessage({ kind: "error", text: saveConflictText(e) });
       return;
     }
     if (isCmdError(e) && e.code === "stale" && e.asset) {
@@ -197,6 +230,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       setInfo(opened);
       setLastRom(null);
       setLastBuiltAt(null);
+      setLastSteps(null);
+      setTextConflicts(null);
       if (listError !== null) fail(listError);
       else if (countsError !== null) fail(countsError);
       else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
@@ -273,14 +308,26 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
 
   /**
    * Builds the ROM (saving first). Without `known` the output path is asked for; with it (the path of an earlier build) no dialog opens.
-   * Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build).
+   * `fresh` („Neu bauen (ohne Cache)“) drops the build state first, so every step runs fully. Resolves to the ROM's path, or null when
+   * nothing was built (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
    */
-  async function onBuild(known?: string): Promise<string | null> {
-    let built: string | null = null;
+  async function onBuild(known?: string, fresh = false): Promise<string | null> {
+    let out: string | null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
-      const out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
-      if (!out) return null;
+      out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
+    } catch (e) {
+      fail(e);
+      return null;
+    }
+    if (!out) return null;
+    return buildTo(out, fresh, false);
+  }
+
+  /** Saves and builds to `out`. `resolved`: the build after a text conflict was resolved; a conflict now asks no second time. */
+  async function buildTo(out: string, fresh: boolean, resolved: boolean): Promise<string | null> {
+    let built: string | null = null;
+    try {
       setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
       // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
@@ -289,23 +336,39 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       const dirtyScripts = scripts.current.dirtyFiles();
       const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
       for (const file of dirtyScripts) await scripts.current.save(file);
-      const report = await buildRom(out);
+      const report = await buildRom(out, fresh);
       built = report.rom;
       setLastRom(report.rom);
       setLastBuiltAt(Date.now());
+      setLastSteps(report.steps);
       problems.applyBuildReport(report.problems);
-      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
+      setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} in ${formatSeconds(report.ms)} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
         const list = e.problems ?? [];
         problems.applyReport(list);
         const errors = list.filter((p) => p.severity === "error").length;
+        // Hidden files under files/ (source "build"): the backend's message counts them apart and says how to remove them.
+        const hidden = list.some((p) => p.severity === "error" && (p.source === "build" || p.message.startsWith("build.hidden-file")));
+        const actions = onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined;
         // Spec 5.7: the one toast a compile problem gets. The problems themselves go to the store and its counts.
         setMessage(
-          errors > 0
-            ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions: onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined }
-            : { kind: "error", text: `Build abgebrochen: ${e.message}` },
+          hidden
+            ? { kind: "error", text: sentence(e.message), actions }
+            : errors > 0
+              ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions }
+              : { kind: "error", text: `Build abgebrochen: ${e.message}` },
         );
+      } else if (isCmdError(e) && e.code === "text_conflict" && textConflictArchives(e).length > 0) {
+        const archives = textConflictArchives(e);
+        if (resolved) {
+          // Changed again since the choice (or another archive): no loop of questions; the next „Bauen“ asks afresh.
+          const verb = archives.length === 1 ? "ist" : "sind";
+          setMessage({ kind: "error", text: `Build abgebrochen: ${archivesText(archives)} ${verb} nach dem Auflösen wieder auf beiden Seiten geändert. Baue erneut, dann fragt das Studio noch einmal.` });
+        } else {
+          setMessage(null);
+          setTextConflicts({ archives, out, fresh });
+        }
       } else {
         fail(e);
       }
@@ -314,6 +377,34 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     }
     await refreshDirty();
     return built;
+  }
+
+  /**
+   * „Übernehmen und bauen“ of the text conflict: resolves each archive as chosen, then builds again to the same path with the same `fresh`.
+   * A refused resolve says why and builds nothing. Resolves to the ROM's path, or null when nothing was built.
+   */
+  async function resolveConflicts(choices: { archive: number; keep: TextKeep }[]): Promise<string | null> {
+    const pending = textConflicts;
+    setTextConflicts(null);
+    if (pending === null) return null;
+    let archives: number[];
+    try {
+      archives = await resolveTextConflicts(choices);
+    } catch (e) {
+      fail(e);
+      await refreshDirty();
+      return null;
+    }
+    // The text panel and the language server read the overwritten archives again.
+    for (const archive of archives) bus.emit({ topic: "textData", archive });
+    if (archives.length > 0) bus.emit({ topic: "lspFilesChanged", changes: archives.map((a) => ({ path: `expanded/textArchives/${String(a).padStart(4, "0")}.json`, type: 2 as const })) });
+    return buildTo(pending.out, pending.fresh, true);
+  }
+
+  /** „Abbrechen“ of the text conflict: nothing is built, nothing is overwritten. */
+  function cancelConflicts() {
+    setTextConflicts(null);
+    setMessage({ kind: "info", text: "Nichts gebaut. Beim nächsten „Bauen“ fragt das Studio wieder, welche Fassung gilt." });
   }
 
   async function pickEmulator(): Promise<string | null> {
@@ -365,6 +456,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     busy,
     lastRom,
     lastBuiltAt,
+    lastSteps,
+    textConflicts,
     emulatorPath,
     counts,
     dirtyRevision,
@@ -378,6 +471,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     openProjectAt,
     onSave,
     onBuild,
+    resolveConflicts,
+    cancelConflicts,
     onPickEmulator,
     onRun,
     patchRepaired,

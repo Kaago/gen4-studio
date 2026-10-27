@@ -515,7 +515,8 @@ export type StepStatus = "skipped" | "incremental" | "full";
 /**
  * One row of a build: `id` is `rotom`, `chatot`, `pack:<unpacked folder>`, `watch:<unpacked folder>`, `blz:arm9`, `blz:overlays`, `rom` or
  * `crc`. A skipped step has zero counters. `reason` says why a step ran fully: "no-state", "build.cache-stale" (a new tool),
- * "output-changed", "removed"; and "no-base-mark" for `crc`.
+ * "output-changed", "removed"; for `blz:*` "not-compressed" (skipped) or "fallback" (ds-rom compressed all itself); for `crc`
+ * "no-base-mark" or "secure-area-changed". `technik/buildSteps.ts` words them.
  */
 export interface BuildStep {
   id: string;

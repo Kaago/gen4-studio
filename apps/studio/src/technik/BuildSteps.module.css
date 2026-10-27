@@ -1,0 +1,40 @@
+/* The steps of the last build: the table of the steps that ran, the folded section of the skipped ones below it. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.table {
+  width: 100%;
+  overflow: auto;
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+/* A section closes with a line of its own; the frame around it already draws one. */
+.table > section {
+  border-bottom: 0;
+}
+
+.name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+/* Tüfteln: the step's identifier, grey in mono beside its words. */
+.id {
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text {
+  margin: 0;
+  font: var(--g4-font-text-s);
+}
