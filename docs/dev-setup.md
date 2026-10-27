@@ -152,7 +152,7 @@ beschrieben.
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
-| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
+| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_incremental_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
 Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
@@ -455,6 +455,25 @@ target/debug/g4k build <Kopie> --out <Kopie>/out.nds --no-cache   # löscht .g4/
 
 Der gated Test `build_timings_prints_one_json_line` (`crates/g4-kernel/tests/cli.rs`, auf `vanilla_copy()`) baut die Kopie zweimal mit `--timings`: Die Ausgabe ist je eine JSON-Zeile mit dem Schritt `rom`, der beim ersten Mal voll läuft und beim zweiten Mal übersprungen wird. `build_no_cache_removes_the_state_first` prüft `--no-cache` ohne ROM-Daten.
 
+Die gated Tests in `crates/g4-kernel/tests/build_graph.rs` (alle auf `vanilla_copy()`) prüfen, dass der inkrementelle Build dieselben Bytes liefert wie ein Build ohne Cache an einen anderen Pfad:
+
+- `incremental_equals_full_after_nothing_changed`, `a_new_out_path_runs_the_rom_step`, `map_edit_incremental_equals_full` (Karte über den Store), `text_edit_incremental_equals_full` (Text über den Store: `chatot` kodiert genau dieses Archiv, `pack:textArchives` setzt einen Member ein), `script_edit_incremental_equals_full` (nach `scripts::adopt` ein Script mehr über `write_source`: `rotom` übersetzt genau diese Datei);
+- `simulated_dspre_edit_is_detected`: ein Karten-Member an Ort und Stelle mit gleicher Größe überschrieben, die mtime zurückgesetzt (gleiche Größe, mtime und Inode, nur die ctime ändert sich); `pack:maps` läuft inkrementell, die ROM gleicht dem vollen Build;
+- `salt_change_builds_fully`: die Salze von `pack:maps` und `rom` in `state.json` ersetzt; beide laufen voll mit `build.cache-stale`, die übrigen Schritte nicht, die ROM bleibt gleich;
+- `dspre_mark_build_matches_the_base`: läuft nur, wenn die Kopie eine Basis-Marke hat (nach 4.1a `origin: "dspre"`), und vergleicht den SHA-1 der gebauten ROM mit der Marke; sonst „skipped: no base mark“;
+- `build_graph_timings`: die Zeiten von „Hier spielen“ (ein Ausgabepfad). Je Fall ein Aufwärmlauf und drei Läufe, deren Median: `full` (ohne Cache), Karte, Text und Script geändert, keine Änderung; dazu der erste Build ohne Zustand als `cold` (ohne Grenze). Die Zeile auf stderr lautet `build-timings: {"game":"CPUD","full_ms":…,"map_ms":…,"text_ms":…,"script_ms":…,"none_ms":…,"cold_ms":…}`. Mit `G4_TIMING_STRICT=1` gelten Karte, Text und Script ≤ 500 ms und keine Änderung ≤ 200 ms, sonst gibt der Test nur aus.
+
+Dazu `project_start_incremental_build_matches_the_rom` (`G4_TEST_ROM`): ein neues Projekt dreimal an denselben Pfad gebaut (frisch, ohne Änderung, nach einer Karte, die geändert und zurückgeschrieben wurde); jedes Mal ist der SHA-1 der ROM der aus `read_base_mark`.
+
+Die Zeitgrenzen gelten für die App, die im Release-Profil läuft. Im Debug-Profil braucht der Build drei- bis viermal so lange (Platin DE: Karte 1,3 s, keine Änderung 0,6 s), darum misst der Gate-Schritt mit `--release`:
+
+```sh
+env G4_TEST_PROJECT="$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany)_DSPRE_contents" G4_TIMING_STRICT=1 \
+  cargo test --release -p g4-kernel --all-features --test build_graph -- build_graph_timings --nocapture --test-threads 1
+```
+
+Gemessen (Release, 27.10.2026, Median in ms): Platin DE Karte 323, Text 379, Script 497, keine Änderung 186, ohne Cache 1657; HeartGold DE 291, 360, 471, 180, 5348; HeartGold US 305, 348, 444, 179, 5328. Die Grenzen sind knapp, vor allem Script (`rotom` übersetzt eine Datei in rund 200 ms) und keine Änderung (rund 40 Schritte prüfen ihre Fingerabdrücke). Unter Last streuen die Zeiten; das Gate wiederholt einen gescheiterten Lauf einmal und schreibt „ok (2nd run)“ in die Tabelle.
+
 ## Design-System und Tokens
 
 Das Design-System „Doppeldeck“ liegt im Repository unter `design-system/` (Beschreibung: [design-system/README.md](../design-system/README.md)). Die Werte stehen als W3C-DTCG-Tokens in `design-system/tokens/`; die App liest sie aus drei **generierten und eingecheckten** Dateien in `apps/studio/src/ui/tokens/`: `tokens.css` (CSS-Variablen `--g4-*`), `dockview-theme.css` (Thema `dockview-theme-g4`) und `tokens.ts` (Zahlen und Hex-Werte für three.js, CodeMirror und Canvas). `pnpm build` braucht deshalb kein Python.
@@ -496,7 +515,8 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 9. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
 10. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
 11. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
-12. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
+12. `build graph (timings)`: je Testprojekt `cargo test --release -p g4-kernel --all-features --test build_graph -- build_graph_timings --nocapture --test-threads 1` mit `G4_TEST_PROJECT` und `G4_TIMING_STRICT=1` (Zeitgrenzen von „Hier spielen“, siehe „Build-Graph (4.2)“); scheitert der Lauf, wiederholt das Skript ihn einmal (Zeile „ok (2nd run)“), sonst bricht es ab
+13. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
 
 ```sh
 scripts/gate.sh

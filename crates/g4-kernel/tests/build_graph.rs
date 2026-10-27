@@ -5,7 +5,7 @@
 mod common;
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use g4_kernel::build::state::BuildState;
 use g4_kernel::build::{
@@ -564,4 +564,388 @@ fn a_foreign_folder_is_watched_with_a_kept_baseline() {
             .steps
             .contains_key("watch:zForeign")
     );
+}
+
+/// A gated vanilla copy without build state (scripts adopted when `adopt`), built once from
+/// scratch into `first.nds` in its own output folder. The temp folders own the copy and the
+/// outputs.
+struct Built {
+    _copy: tempfile::TempDir,
+    p: std::sync::Arc<Project>,
+    out: tempfile::TempDir,
+}
+
+impl Built {
+    fn path(&self, name: &str) -> std::path::PathBuf {
+        self.out.path().join(name)
+    }
+}
+
+fn built_vanilla(adopt: bool) -> Option<Built> {
+    let (copy, root) = common::vanilla_copy()?;
+    let p = std::sync::Arc::new(Project::open(&root).unwrap());
+    if adopt {
+        scripts::adopt(&p, &mut |_| {}).unwrap();
+    }
+    clear_cache(&p).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let first = build(&p, &out.path().join("first.nds")).unwrap();
+    eprintln!("{}: cold {} ms", p.game_code, first.ms);
+    Some(Built {
+        _copy: copy,
+        p,
+        out,
+    })
+}
+
+/// Builds `b` to `name` without cache: every step runs fully, and the bytes equal `a`'s.
+fn assert_equals_full(b: &Built, a: &Path, name: &str) {
+    clear_cache(&b.p).unwrap();
+    let full = b.path(name);
+    let report = build(&b.p, &full).unwrap();
+    eprintln!("full {} ms", report.ms);
+    assert!(
+        report
+            .steps
+            .iter()
+            .filter(|r| r.id.starts_with("pack:") || r.id == "chatot" || r.id == "rom")
+            .all(|r| (r.status, r.reason) == (StepStatus::Full, Some("no-state"))),
+        "{:?}",
+        report.steps
+    );
+    assert!(
+        std::fs::read(a).unwrap() == std::fs::read(&full).unwrap(),
+        "incremental == full"
+    );
+}
+
+/// The steps besides `except` that did not skip (the `watch:*` and ROM rows left out).
+fn ran_besides<'a>(rows: &'a [StepReport], except: &[&str]) -> Vec<&'a StepReport> {
+    const ROM_ROWS: [&str; 4] = ["blz:arm9", "blz:overlays", "rom", "crc"];
+    rows.iter()
+        .filter(|r| !r.id.starts_with("watch:") && !ROM_ROWS.contains(&r.id.as_str()))
+        .filter(|r| !except.contains(&r.id.as_str()))
+        .filter(|r| r.status != StepStatus::Skipped)
+        .collect()
+}
+
+/// The first text archive with a message.
+fn text_archive_with_a_message(store: &mut g4_kernel::store::Store) -> u16 {
+    (0..64)
+        .find(|&n| store.text_archive(n).is_ok_and(|d| !d.messages.is_empty()))
+        .expect("a text archive with a message")
+}
+
+/// The first script file with a rotom source, and that source.
+fn rotom_source(p: &Project) -> (u16, String) {
+    let file = (0..2000)
+        .find(|&f| scripts::source_kind(p, f) == scripts::SourceKind::Script)
+        .expect("a script file with a rotom source");
+    match scripts::read_source(p, file).unwrap() {
+        ScriptSource::Rotom(text) => (file, text),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// `source` with one more script, `Message <message>`, a new member of the file once compiled.
+fn with_probe(source: &str, message: u32) -> ScriptSource {
+    ScriptSource::Rotom(format!(
+        "{source}\nscript probe #1999:\n    Message {message}\n    End\n"
+    ))
+}
+
+/// Gated: a text edited and saved through the store after a build. The store writes the
+/// JSON and the member, so `chatot` only checks that archive (nothing else, nothing left
+/// to encode) and `pack:<texts>` splices the one member into the text NARC; without cache to
+/// another path all is built fully: A and B are the same bytes.
+#[test]
+fn text_edit_incremental_equals_full() {
+    let Some(b) = built_vanilla(false) else {
+        return;
+    };
+    let mut store = g4_kernel::store::Store::new(b.p.clone());
+    let n = text_archive_with_a_message(&mut store);
+    store
+        .edit_text_archive(n, "Text", |d| d.messages[0].text.push_str(" (neu)"))
+        .unwrap();
+    store.save().unwrap();
+
+    let a = b.path("a.nds");
+    let report = build(&b.p, &a).unwrap();
+    eprintln!("A {} ms: {:?}", report.ms, report.steps);
+    assert!(
+        report.encoded.iter().all(|&e| e == n),
+        "{:?}",
+        report.encoded
+    );
+    let chatot = row(&report.steps, "chatot");
+    assert_eq!(
+        (chatot.status, chatot.total),
+        (StepStatus::Incremental, 1),
+        "{chatot:?}"
+    );
+    let texts_id = format!(
+        "pack:{}",
+        b.p.archives.unpacked_name(AssetKind::TextArchive)
+    );
+    let texts = row(&report.steps, &texts_id);
+    assert_eq!(
+        (texts.status, texts.reason, texts.done),
+        (StepStatus::Incremental, None, 1),
+        "{texts:?}"
+    );
+    let ran = ran_besides(&report.steps, &["chatot", &texts_id]);
+    assert!(ran.is_empty(), "{ran:?}");
+    assert_eq!(row(&report.steps, "rom").status, StepStatus::Full);
+
+    assert_equals_full(&b, &a, "b.nds");
+}
+
+/// Gated: after adopting the scripts and a build, one more script is written into a source
+/// with `write_source`. Build A compiles that file and packs its member into the script
+/// NARC; `chatot` may look at the text JSON the compile refreshed, but encodes nothing.
+/// Without cache to another path all is built fully: A and B are the same bytes.
+#[test]
+fn script_edit_incremental_equals_full() {
+    let Some(b) = built_vanilla(true) else {
+        return;
+    };
+    let (file, source) = rotom_source(&b.p);
+    scripts::write_source(&b.p, file, &with_probe(&source, 0)).unwrap();
+
+    let a = b.path("a.nds");
+    let report = build(&b.p, &a).unwrap();
+    eprintln!("A {} ms: {:?}", report.ms, report.steps);
+    assert_eq!(report.compiled, [file]);
+    assert!(report.encoded.is_empty(), "{:?}", report.encoded);
+    let rotom = row(&report.steps, "rotom");
+    assert_eq!(rotom.status, StepStatus::Incremental, "{rotom:?}");
+    let scripts_id = format!("pack:{}", b.p.archives.unpacked_name(AssetKind::Script));
+    let packed = row(&report.steps, &scripts_id);
+    assert_eq!(
+        (packed.status, packed.reason, packed.done),
+        (StepStatus::Incremental, None, 1),
+        "{packed:?}"
+    );
+    let ran = ran_besides(&report.steps, &["rotom", "chatot", &scripts_id]);
+    assert!(ran.is_empty(), "{ran:?}");
+
+    assert_equals_full(&b, &a, "b.nds");
+}
+
+/// Gated: DSPRE's way of saving, simulated: a map member overwritten in place with bytes of
+/// the same size, its mtime set back to what it was (`futimens`). Size, mtime and inode are
+/// the same, only the ctime tells. The member was aged before the first build, so its entry
+/// is not racy and only the ctime can wake the step: `pack:<maps>` splices it, and the ROM
+/// equals the full build.
+#[test]
+fn simulated_dspre_edit_is_detected() {
+    let Some((copy, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let member = p.member_path(AssetKind::Map, 0);
+    let aged = std::time::SystemTime::now() - Duration::from_secs(3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&member)
+        .unwrap()
+        .set_modified(aged)
+        .unwrap();
+    clear_cache(&p).unwrap();
+    let b = Built {
+        _copy: copy,
+        p: std::sync::Arc::new(p),
+        out: tempfile::tempdir().unwrap(),
+    };
+    build(&b.p, &b.path("first.nds")).unwrap();
+
+    let before = std::fs::metadata(&member).unwrap();
+    let mut bytes = std::fs::read(&member).unwrap();
+    let at = bytes.len() / 2;
+    bytes[at] ^= 0xFF;
+    {
+        use std::io::Write;
+        let mut file = std::fs::File::options().write(true).open(&member).unwrap();
+        file.write_all(&bytes).unwrap();
+        file.set_modified(before.modified().unwrap()).unwrap();
+    }
+    let after = std::fs::metadata(&member).unwrap();
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_eq!(after.ino(), before.ino(), "in place");
+    }
+
+    let a = b.path("a.nds");
+    let report = build(&b.p, &a).unwrap();
+    eprintln!("A {} ms: {:?}", report.ms, report.steps);
+    let maps_id = format!("pack:{}", b.p.archives.unpacked_name(AssetKind::Map));
+    let maps = row(&report.steps, &maps_id);
+    assert_eq!(
+        (maps.status, maps.reason, maps.done),
+        (StepStatus::Incremental, None, 1),
+        "{maps:?}"
+    );
+    let ran = ran_besides(&report.steps, &[&maps_id]);
+    assert!(ran.is_empty(), "{ran:?}");
+
+    assert_equals_full(&b, &a, "b.nds");
+}
+
+/// Gated: the salts of `pack:<maps>` and `rom` in `state.json` replaced (a tool update):
+/// both steps run fully with `build.cache-stale`, every other step skips, the salts are new
+/// again and the rebuilt ROM is the same bytes.
+#[test]
+fn salt_change_builds_fully() {
+    let Some(b) = built_vanilla(false) else {
+        return;
+    };
+    let first = b.path("first.nds");
+    let bytes = std::fs::read(&first).unwrap();
+    let maps_id = format!("pack:{}", b.p.archives.unpacked_name(AssetKind::Map));
+    BuildState::update(&b.p.root, |state| {
+        for id in [maps_id.as_str(), "rom"] {
+            state.steps.get_mut(id).unwrap().salt = "alt".into();
+        }
+    })
+    .unwrap();
+
+    let report = build(&b.p, &first).unwrap();
+    eprintln!("{} ms: {:?}", report.ms, report.steps);
+    for id in [maps_id.as_str(), "rom"] {
+        let r = row(&report.steps, id);
+        assert_eq!(
+            (r.status, r.reason),
+            (StepStatus::Full, Some("build.cache-stale")),
+            "{r:?}"
+        );
+    }
+    let ran = ran_besides(&report.steps, &[&maps_id]);
+    assert!(ran.is_empty(), "{ran:?}");
+    let state = BuildState::load(&b.p.root);
+    for id in [maps_id.as_str(), "rom"] {
+        assert_ne!(state.steps[id].salt, "alt", "{id}");
+    }
+    assert!(std::fs::read(&first).unwrap() == bytes, "the same ROM");
+}
+
+/// Gated: a project with a base mark (after 4.1a DSPRE projects get one with
+/// `origin: "dspre"`) builds to the ROM the mark names. Without a mark: skipped.
+#[test]
+fn dspre_mark_build_matches_the_base() {
+    use sha1::{Digest, Sha1};
+
+    let Some((_copy, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let Some(mark) = g4_kernel::start::read_base_mark(&root) else {
+        eprintln!("skipped: no base mark");
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let rom = out.path().join("out.nds");
+    build(&p, &rom).unwrap();
+    let sha1: String = Sha1::digest(std::fs::read(&rom).unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(sha1, mark.sha1, "origin {}", mark.origin);
+}
+
+/// The median of three runs.
+fn median(mut ms: [u64; 3]) -> u64 {
+    ms.sort_unstable();
+    ms[1]
+}
+
+/// Gated: the times of "Hier spielen" (one output path, as the app builds it). Per case a
+/// warm-up run, then three runs, their median in milliseconds: `full` (without cache), a map,
+/// a text and a script edited (map and text through the store, the script with
+/// `write_source`), and no change. The first build of the copy (no state) is `cold`. One
+/// line `build-timings: {...}` on stderr; with `G4_TIMING_STRICT=1` map, text and script
+/// must take at most 500 ms and no change at most 200 ms (the save is not timed, the build
+/// is). The limits hold for the release build of the app.
+#[test]
+fn build_graph_timings() {
+    let Some((_copy, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let p = std::sync::Arc::new(Project::open(&root).unwrap());
+    scripts::adopt(&p, &mut |_| {}).unwrap();
+    clear_cache(&p).unwrap();
+    let out_dir = tempfile::tempdir().unwrap();
+    let out = out_dir.path().join("play.nds");
+
+    let timed = |label: &str, run: usize| -> u64 {
+        let t = Instant::now();
+        let report = build(&p, &out).unwrap();
+        let ms = t.elapsed().as_millis() as u64;
+        let mut slow: Vec<&StepReport> = report.steps.iter().filter(|r| r.ms > 0).collect();
+        slow.sort_by_key(|r| std::cmp::Reverse(r.ms));
+        let slow: Vec<String> = slow
+            .iter()
+            .take(5)
+            .map(|r| format!("{} {:?} {} ms", r.id, r.status, r.ms))
+            .collect();
+        eprintln!("{label} #{run}: {ms} ms (report {} ms) {slow:?}", report.ms);
+        ms
+    };
+    // A warm-up run, then three: the median of the three.
+    let case = |label: &str, change: &mut dyn FnMut(usize)| -> u64 {
+        let mut ms = [0u64; 3];
+        for run in 0..4 {
+            change(run);
+            let t = timed(label, run);
+            if run > 0 {
+                ms[run - 1] = t;
+            }
+        }
+        median(ms)
+    };
+
+    let cold = timed("cold", 0);
+    let full = case("full", &mut |_| clear_cache(&p).unwrap());
+
+    let mut store = g4_kernel::store::Store::new(p.clone());
+    let map = case("map", &mut |_| {
+        store
+            .edit_map(0, "Kollision", |m| {
+                let mut cell = m.cell(0, 0)?;
+                cell.collision ^= 0x80;
+                m.set_cell(0, 0, cell)
+            })
+            .unwrap();
+        store.save().unwrap();
+    });
+    let n = text_archive_with_a_message(&mut store);
+    let text = case("text", &mut |_| {
+        store
+            .edit_text_archive(n, "Text", |d| d.messages[0].text.push('!'))
+            .unwrap();
+        store.save().unwrap();
+    });
+    let (file, source) = rotom_source(&p);
+    let script = case("script", &mut |run| {
+        scripts::write_source(&p, file, &with_probe(&source, run as u32)).unwrap();
+    });
+    let none = case("none", &mut |_| {});
+
+    eprintln!(
+        "build-timings: {{\"game\":\"{}\",\"full_ms\":{full},\"map_ms\":{map},\"text_ms\":{text},\"script_ms\":{script},\"none_ms\":{none},\"cold_ms\":{cold}}}",
+        p.game_code
+    );
+    if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
+        for (label, ms, limit) in [
+            ("map", map, 500),
+            ("text", text, 500),
+            ("script", script, 500),
+            ("none", none, 200),
+        ] {
+            assert!(ms <= limit, "{label}: {ms} ms > {limit} ms");
+        }
+    }
 }

@@ -172,6 +172,38 @@ if [ "$ran" -eq 0 ]; then
   exit 1
 fi
 
+# Build graph (4.2): the times of "Hier spielen" on a copy of each project, with the limits
+# (map, text, script edit <= 500 ms, no change <= 200 ms). Release build: the limits hold for
+# the app, which runs release; the debug build takes three to four times as long. Under load
+# (other builds on the machine) the times scatter, so a failed run is repeated once and the
+# row says so.
+run_timings() { # run_timings <project dir> <project label>
+  local project="$1" label="$2" start=$SECONDS attempt
+  local cmd=(env G4_TEST_PROJECT="$project" G4_TIMING_STRICT=1
+    cargo test --release -p g4-kernel --all-features --test build_graph
+    -- build_graph_timings --nocapture --test-threads 1)
+  for attempt in 1 2; do
+    echo
+    echo "==> build graph (timings) [$label] (run $attempt)"
+    if "${cmd[@]}"; then
+      if [ "$attempt" -eq 1 ]; then
+        record "build graph (timings)" "$label" "ok" "$((SECONDS - start))"
+      else
+        record "build graph (timings)" "$label" "ok (2nd run)" "$((SECONDS - start))"
+      fi
+      return 0
+    fi
+  done
+  record "build graph (timings)" "$label" "FAILED (2 runs)" "$((SECONDS - start))"
+  FAILED=1
+  exit 1
+}
+for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
+  [ -f "$project/header.yaml" ] || continue
+  label="$(basename "$project")"
+  run_timings "$project" "${label%_DSPRE_contents}"
+done
+
 # Project start (3g.1): extract each ROM, build it again, compare the SHA-1. Only the tests
 # named project_start_ run (they are the only ones that read G4_TEST_ROM for this).
 rom_ran=0
