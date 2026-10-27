@@ -221,7 +221,8 @@ fn member_sources(p: &Project, member: &Path) -> Vec<PathBuf> {
                 let dir = art.dir();
                 match art {
                     Art::Items => {
-                        let ids = p.item_table().map(|t| t.entries.as_slice()).unwrap_or(&[]);
+                        let table = p.item_table_to_write();
+                        let ids = table.as_ref().map(|t| t.entries.as_slice()).unwrap_or(&[]);
                         out.extend(
                             ids.iter()
                                 .enumerate()

@@ -642,7 +642,8 @@ fn plan_items(
     let rel_dir = Art::Items.dir();
     let dir = project.root.join(&rel_dir);
     let numbers = numbered(&dir, "json")?;
-    let Some(table) = project.item_table() else {
+    // Not `item_table()`: the members this import writes may be missing on disk.
+    let Some(table) = project.item_table_to_write() else {
         if !numbers.is_empty() {
             plan.problems.push(problem(
                 &rel_dir,
@@ -709,7 +710,14 @@ fn plan_items(
         current: &current,
     };
     let names = file_names(&dir)?;
-    match import_items(&items, &member_of, current.len(), &ctx) {
+    // Every member the table names, missing ones included, and those beyond it on disk.
+    let members = member_of
+        .iter()
+        .map(|&m| usize::from(m) + 1)
+        .max()
+        .unwrap_or(0)
+        .max(current.len());
+    match import_items(&items, &member_of, members, &ctx) {
         Ok(members) => {
             for (m, new) in members.into_iter().enumerate() {
                 if let Some(new) = new
@@ -1463,5 +1471,111 @@ mod tests {
                 .iter()
                 .any(|w| w.path == Path::new("unpacked/moveData/0005"))
         );
+    }
+
+    /// A Platinum (CPUD) folder with vanilla-shaped ARM9 tables (item id `i` uses data member
+    /// `i % 10`), ten itemData members and one item file per id, as the export writes them.
+    fn items_project(dir: &Path) -> Project {
+        write_to_dir(dir, "header.yaml", b"gamecode: CPUD\n");
+        let mut arm9 = vec![0u8; 0xF0D1C + 468 * 8];
+        for i in 0..468usize {
+            let at = 0xF0D1C + 8 * i;
+            arm9[at..at + 2].copy_from_slice(&((i % 10) as u16).to_le_bytes());
+        }
+        arm9[0xF0C54..0xF0C56].copy_from_slice(&264u16.to_le_bytes());
+        arm9[0xF0C54 + 192..0xF0C56 + 192].copy_from_slice(&432u16.to_le_bytes());
+        write_to_dir(dir, "arm9/arm9.bin", &arm9);
+        let members: Vec<Option<Vec<u8>>> = (0..10u8)
+            .map(|i| {
+                let mut b = vec![0u8; 34];
+                b[0] = i + 1;
+                Some(b)
+            })
+            .collect();
+        for (i, m) in members.iter().enumerate() {
+            write_to_dir(
+                dir,
+                &format!("unpacked/itemData/{i:04}"),
+                m.as_deref().unwrap(),
+            );
+        }
+        let p = Project::open(dir).unwrap();
+        let member_of: Vec<u16> = p
+            .item_table()
+            .unwrap()
+            .entries
+            .iter()
+            .map(|e| e.data)
+            .collect();
+        let mut symbols = Symbols::load(dir).unwrap();
+        let base = crate::textproject::part::tests::MemBase::default();
+        let mut ctx = super::super::schema::ExportCtx {
+            family: Family::Pt,
+            symbols: &mut symbols,
+            base: &base,
+            side: Vec::new(),
+        };
+        for (id, item) in super::super::schema::data::export_items(&member_of, &members, &mut ctx)
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            write_to_dir(
+                dir,
+                &format!("data/items/{id:04}.json"),
+                &super::super::canon::to_canonical(item),
+            );
+        }
+        p
+    }
+
+    fn write_to_dir(dir: &Path, rel: &str, bytes: &[u8]) {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    /// The import restores item members that are missing on disk: the ARM9 item table it
+    /// maps the item files through does not depend on the members it is about to write.
+    #[test]
+    fn items_are_planned_when_their_members_are_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = items_project(dir.path());
+        let originals: Vec<Vec<u8>> = (0..10)
+            .map(|i| std::fs::read(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap())
+            .collect();
+        // Members 0..=7 go; 8 and 9 stay, so the folder has a gap below them.
+        for i in 0..8 {
+            std::fs::remove_file(p.root.join(format!("unpacked/itemData/{i:04}"))).unwrap();
+        }
+        let p = Project::open(dir.path()).unwrap();
+        assert!(
+            p.item_table().is_none(),
+            "the cached table checks the folder"
+        );
+
+        let symbols = Symbols::load(&p.root).unwrap();
+        let base = crate::textproject::part::tests::MemBase::default();
+        let mut plan = ImportPlan::default();
+        let mut stats = ArtStats::default();
+        plan_items(&p, &symbols, &base, None, &mut plan, &mut stats).unwrap();
+        assert!(plan.problems.is_empty(), "{:?}", plan.problems);
+        let written: Vec<(PathBuf, Vec<u8>)> = plan
+            .writes
+            .iter()
+            .map(|w| (w.path.clone(), w.bytes.clone()))
+            .collect();
+        let expected: Vec<(PathBuf, Vec<u8>)> = (0..8)
+            .map(|i| {
+                (
+                    PathBuf::from(format!("unpacked/itemData/{i:04}")),
+                    originals[i].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(written, expected);
+        // Missing members are owned by the text project too, never blobs.
+        let owned = owned_paths(&p).unwrap();
+        assert!(owned.contains(Path::new("unpacked/itemData/0009")));
     }
 }

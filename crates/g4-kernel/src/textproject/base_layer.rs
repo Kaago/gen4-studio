@@ -387,7 +387,7 @@ fn relative(project: &Project, path: &Path) -> PathBuf {
 /// in `expanded/textArchives`; once the scripts are adopted, the script members with a
 /// source (`.rotom` or level script `.json`) in `expanded/scripts`; `mapname.bin`; and the
 /// files of `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
-pub(crate) fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, KernelError> {
+pub fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, KernelError> {
     let mut owned = BTreeSet::new();
     let mut add_members = |kind: AssetKind, keep: &dyn Fn(&str) -> bool| {
         let dir = project.unpacked_dir(kind);
@@ -404,11 +404,12 @@ pub(crate) fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, Kernel
         }
     }
     if project.has_archive(AssetKind::Item)
-        && let Some(table) = project.item_table()
+        && let Some(table) = project.item_table_to_write()
     {
         let member_of: Vec<u16> = table.entries.iter().map(|e| e.data).collect();
-        let members = project.member_count(AssetKind::Item)?;
-        let owners = item_owners(&member_of, members);
+        // Every member an id names, whether the folder has it or not.
+        let members = member_of.iter().map(|&m| usize::from(m) + 1).max();
+        let owners = item_owners(&member_of, members.unwrap_or(0));
         add_members(AssetKind::Item, &|name| {
             name.parse::<usize>()
                 .ok()
