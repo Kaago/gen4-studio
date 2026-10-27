@@ -1382,6 +1382,87 @@ fn locked(value: &serde_json::Value, at: &str, out: &mut Vec<(String, String)>) 
     }
 }
 
+/// A check of the deletion independent of `owned_paths`: every archive with an entity holds
+/// no member any more, and as many text and script members went as there are text JSON and
+/// script sources.
+fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
+    use AssetKind::*;
+    for kind in [
+        Map,
+        Matrix,
+        AreaData,
+        Event,
+        Encounter,
+        Personal,
+        Learnset,
+        Evolution,
+        Move,
+        TrainerProperties,
+        TrainerParty,
+        TrainerTextTable,
+        TrainerTextOffsets,
+        MapTexture,
+        BuildingTexture,
+        BuildingModel,
+        InteriorBuildingModel,
+    ] {
+        if !project.has_archive(kind) {
+            continue;
+        }
+        let dir = project.unpacked_dir(kind);
+        let left = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+            .filter(|e| {
+                let name = e.as_ref().unwrap().file_name();
+                name.to_str()
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .count();
+        assert_eq!(left, 0, "{kind:?}: members left in {}", dir.display());
+    }
+    // Numbered sources `NNNN.<ext>` with one of `exts` directly in `dir`.
+    let sources = |dir: &Path, exts: &[&str]| {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter(|e| {
+                let name = e.as_ref().unwrap().file_name();
+                let name = name.to_str().unwrap_or_default();
+                name.rsplit_once('.').is_some_and(|(stem, ext)| {
+                    exts.contains(&ext)
+                        && !stem.is_empty()
+                        && stem.bytes().all(|b| b.is_ascii_digit())
+                })
+            })
+            .count()
+    };
+    let texts = project.unpacked_dir(AssetKind::TextArchive);
+    let deleted_texts = deleted
+        .iter()
+        .filter(|p| p.parent() == Some(&*texts))
+        .count();
+    let text_sources = sources(&project.expanded_dir(AssetKind::TextArchive), &["json"]);
+    assert_eq!(
+        deleted_texts, text_sources,
+        "text members deleted vs text JSON"
+    );
+    let deleted_scripts = deleted
+        .iter()
+        .filter(|p| {
+            p.parent().is_some_and(|d| {
+                d.parent() == Some(&*project.root.join("unpacked"))
+                    && d.file_name()
+                        .is_some_and(|n| n.eq_ignore_ascii_case("scripts"))
+            })
+        })
+        .count();
+    let script_sources = sources(&project.root.join("expanded/scripts"), &["rotom", "json"]);
+    assert!(script_sources > 0, "the scripts are adopted");
+    assert_eq!(
+        deleted_scripts, script_sources,
+        "script members deleted vs script sources"
+    );
+}
+
 #[test]
 fn textproject_round_trip() {
     let Some((tmp, copy, nds, report)) = exported_copy() else {
@@ -1411,6 +1492,7 @@ fn textproject_round_trip() {
     // zeroed.
     let owned = g4_kernel::textproject::base_layer::owned_paths(&project).unwrap();
     let dynamic = project.unpacked_dir(AssetKind::DynamicHeaders);
+    let mut deleted = Vec::new();
     for rel in &owned {
         let path = copy.join(rel);
         if path == mapname || path.starts_with(&dynamic) {
@@ -1418,8 +1500,10 @@ fn textproject_round_trip() {
             std::fs::write(&path, vec![0u8; len]).unwrap();
         } else if path.is_file() {
             std::fs::remove_file(&path).unwrap();
+            deleted.push(path);
         }
     }
+    deletion_was_complete(&project, &deleted);
     use g4_kernel::project::Location;
     match project.asset_location(AssetKind::HeaderTable, 0).unwrap() {
         Location::Slice { path, offset, len } => {
