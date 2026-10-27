@@ -290,6 +290,30 @@ describe("PublishSurface", () => {
     expect(button("Patch erstellen…", patchCard()!)?.hasAttribute("aria-disabled")).toBe(false);
   });
 
+  it("a_patch_without_changes_is_a_warning_not_a_success", async () => {
+    // The built ROM equals the base ROM: the patch is valid, but it changes nothing.
+    vi.mocked(createPatch).mockResolvedValue(patchDto({ size: 545, target_sha1: SHA1 }));
+    await show(found());
+    await click(button("Patch erstellen…", patchCard()!));
+    await click(button("Patch erstellen", dialog()!));
+    await act(async () => {});
+    const notice = patchCard()!.querySelector<HTMLElement>("[role=status]")!;
+    expect(notice.textContent).toContain("Patch ohne Änderungen: 545 Byte");
+    expect(notice.textContent).toContain("/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.xdelta");
+    expect(notice.textContent).toContain("Die gebaute ROM gleicht der Basis-ROM; der Patch ändert nichts.");
+    expect(notice.textContent).not.toContain("Patch erstellt");
+    expect(notice.textContent).not.toContain("Selbstprüfung bestanden");
+    expect(notice.className).toContain("warning");
+    // A patch with changes stays a success.
+    vi.mocked(createPatch).mockResolvedValue(patchDto());
+    await click(button("Patch erstellen…", patchCard()!));
+    await click(button("Patch erstellen", dialog()!));
+    await act(async () => {});
+    const done = patchCard()!.querySelector<HTMLElement>("[role=status]")!;
+    expect(done.textContent).toContain("Patch erstellt: 4,7 KiB");
+    expect(done.className).toContain("success");
+  });
+
   it("a_failed_patch_shows_the_reason_in_the_patch_card", async () => {
     vi.mocked(createPatch).mockRejectedValue({ code: "error", message: "Die Selbstprüfung ist gescheitert; kein Patch geschrieben.", asset: null, problems: [] });
     await show(found());

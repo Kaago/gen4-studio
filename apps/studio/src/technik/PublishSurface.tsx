@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import { formatBytes } from "../api";
-import type { BaseCheck, BaseStatus } from "../api";
+import type { BaseCheck, BaseStatus, PatchDto } from "../api";
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, Dialog, EmptyState, Notice } from "../ui/primitives";
 import type { BadgeKind } from "../ui/primitives";
@@ -253,16 +253,7 @@ function Publish({ base, building }: { base: BaseApi; building: boolean }) {
             </span>
           )}
         </div>
-        {base.lastPatch !== null && busy !== "patch" && patchError === null && (
-          <Notice kind="success" title={`Patch erstellt: ${formatBytes(base.lastPatch.size)}`}>
-            <span className={styles.result}>
-              <span className={styles.path} title={base.lastPatch.patch}>
-                {base.lastPatch.patch}
-              </span>
-              <span>Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM.</span>
-            </span>
-          </Notice>
-        )}
+        {base.lastPatch !== null && busy !== "patch" && patchError === null && <PatchResult patch={base.lastPatch} />}
         {patchError !== null && <Notice kind="error">{patchError}</Notice>}
       </section>
 
@@ -279,6 +270,21 @@ function Publish({ base, building }: { base: BaseApi; building: boolean }) {
         ]}
       />
     </Surface>
+  );
+}
+
+/** What the last patch came to: written and self-checked, or (target equals base) valid but without changes, which is no success to report. */
+function PatchResult({ patch }: { patch: PatchDto }) {
+  const empty = patch.target_sha1 === patch.base_sha1;
+  return (
+    <Notice kind={empty ? "warning" : "success"} title={`${empty ? "Patch ohne Änderungen" : "Patch erstellt"}: ${formatBytes(patch.size)}`}>
+      <span className={styles.result}>
+        <span className={styles.path} title={patch.patch}>
+          {patch.patch}
+        </span>
+        <span>{empty ? "Die gebaute ROM gleicht der Basis-ROM; der Patch ändert nichts." : "Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM."}</span>
+      </span>
+    </Notice>
   );
 }
 
