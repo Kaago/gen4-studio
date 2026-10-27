@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ListRow } from "./ListRow";
 import type { MenuEntry } from "./Menu";
 import { TreeRow } from "./TreeRow";
-import { pressKey } from "./testUtils";
+import { pressKey, withoutFrames } from "./testUtils";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -207,6 +207,75 @@ describe("ListRow and TreeRow", () => {
       rightClick(row());
       await act(async () => {});
       expect(entries().some((e) => e.hasAttribute("data-highlighted"))).toBe(false);
+    });
+
+    // A page whose frames are late or never come (busy, or hidden, as a background tab is): Base UI moves the focus only on a frame.
+    let frames = () => {};
+    afterEach(() => {
+      frames();
+      frames = () => {};
+    });
+
+    it("opened_by_key_the_menu_has_the_focus_before_the_next_frame", async () => {
+      frames = withoutFrames();
+      const onReset = vi.fn();
+      const onSelect = vi.fn();
+      act(() => root.render(<ListRow label="Trainer 0002" selected={false} onSelect={onSelect} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset }]} />));
+      act(() => row().focus());
+      pressKey(row(), "F10", { shiftKey: true });
+      await act(async () => {});
+      // Enter reaches the entry, not the row.
+      expect(document.activeElement).toBe(entries()[0]);
+      expect(entries()[0]!.hasAttribute("data-highlighted")).toBe(true);
+      pressKey(document.activeElement as HTMLElement, "Enter");
+      expect(onReset).toHaveBeenCalledTimes(1);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_key_with_every_entry_locked_the_first_one_holds_the_focus_and_its_reason", async () => {
+      const onReset = vi.fn();
+      act(() =>
+        root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: onReset, disabled: true, detail: "Basis-ROM fehlt" }]} />),
+      );
+      act(() => row().focus());
+      pressKey(row(), "ContextMenu");
+      await act(async () => {});
+      // WAI-ARIA lets a locked entry hold the focus: a screen reader reads it with its reason, Enter does nothing.
+      const first = entries()[0]!;
+      expect(document.activeElement).toBe(first);
+      expect(first.textContent).toBe("Auf Original zurücksetzen…Basis-ROM fehlt");
+      pressKey(first, "Enter");
+      expect(onReset).not.toHaveBeenCalled();
+    });
+
+    it("opened_by_a_right_click_the_keys_work_the_menu_and_escape_returns_to_the_row", async () => {
+      frames = withoutFrames();
+      act(() =>
+        root.render(<ListRow label="Trainer 0002" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }, { label: "Zweiter", onSelect: () => {} }]} />),
+      );
+      // The roving list of its host makes a row focusable.
+      act(() => {
+        row().tabIndex = 0;
+        row().focus();
+      });
+      rightClick(row());
+      await act(async () => {});
+      // The menu holds the focus (no entry yet: the pointer chooses); Arrow down goes to its first entry.
+      expect(document.activeElement).toBe(menu());
+      pressKey(menu() as HTMLElement, "ArrowDown");
+      expect(document.activeElement).toBe(entries()[0]);
+      // Closed, the focus goes back to the row (the menu had it since it opened, not the row).
+      frames();
+      act(() => void document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await act(async () => await new Promise((done) => setTimeout(done, 50)));
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(row());
+    });
+
+    it("the_menu_is_named_by_its_row", () => {
+      act(() => root.render(<ListRow label="Trainer 0002" ariaLabel="Trainer 0002, Rivale" selected={false} onSelect={() => {}} contextMenu={[{ label: "Auf Original zurücksetzen…", onSelect: () => {} }]} />));
+      rightClick(row());
+      expect(menu()?.getAttribute("aria-label")).toBe("Trainer 0002, Rivale");
     });
 
     it("the_context_menu_key_opens_it_as_well", () => {

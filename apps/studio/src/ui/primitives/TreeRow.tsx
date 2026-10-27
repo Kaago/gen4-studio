@@ -37,6 +37,7 @@ export function TreeRow({ label, tech, icon, subtitle, selected, onSelect, trail
     <RowElement
       {...dataAttrs}
       menu={contextMenu}
+      menuLabel={ariaLabel ?? label}
       role="treeitem"
       aria-level={depth + 1}
       aria-selected={selected}

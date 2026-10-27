@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pressKey } from "./testUtils";
+import type { MenuEntry } from "./Menu";
+import { pressKey, withoutFrames } from "./testUtils";
 import { TreeRow } from "./TreeRow";
+import { useRovingList } from "./useRovingList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,6 +74,89 @@ describe("TreeRow context menu", () => {
     expect(document.activeElement).toBe(entries()[0]);
     pressKey(entries()[0]!, "Enter");
     expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  describe("in a tree whose frames are late or never come", () => {
+    // A busy page, or a hidden one (a background tab): Base UI moves the focus into the menu only on an animation frame.
+    let frames = () => {};
+    beforeEach(() => void (frames = withoutFrames()));
+    afterEach(() => frames());
+
+    /** A tree as the hosts build it (`WorldTree`, `SceneHierarchy`): a roving list whose arrows move between the rows. */
+    function Tree({ menu, tick = 0 }: { menu: MenuEntry[]; tick?: number }) {
+      const host = useRef<HTMLDivElement>(null);
+      useRovingList(host);
+      return (
+        <div ref={host} role="tree" aria-label="Orte" data-tick={tick}>
+          {["Jubelstadt 0003 · C01", "Zweiblattdorf 0412"].map((label) => (
+            <TreeRow key={label} label={label} depth={0} selected={false} onSelect={() => onSelect(label)} contextMenu={menu} />
+          ))}
+        </div>
+      );
+    }
+    const onSelect = vi.fn();
+    const items = () => [...container.querySelectorAll<HTMLElement>("[role=treeitem]")];
+    const twoEntries = (onReset: () => void): MenuEntry[] => [
+      { label: "Header auf Original zurücksetzen…", onSelect: onReset },
+      { label: "Zweiter", onSelect: () => {} },
+    ];
+
+    it("shift_f10_puts_the_focus_on_the_first_entry_so_the_keys_work_the_menu_not_the_tree", async () => {
+      onSelect.mockReset();
+      const onReset = vi.fn();
+      act(() => root.render(<Tree menu={twoEntries(onReset)} />));
+      act(() => items()[0]!.focus());
+      pressKey(items()[0]!, "F10", { shiftKey: true });
+      await act(async () => {});
+      expect(document.activeElement).toBe(entries()[0]);
+      // Arrow down walks the menu; the tree's tab stop stays on the row the menu belongs to.
+      pressKey(entries()[0]!, "ArrowDown");
+      expect(document.activeElement).toBe(entries()[1]);
+      expect(items()[0]!.tabIndex).toBe(0);
+      pressKey(entries()[1]!, "ArrowUp");
+      pressKey(entries()[0]!, "Enter");
+      expect(onReset).toHaveBeenCalledTimes(1);
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("a_render_of_the_tree_while_the_menu_is_open_leaves_the_focus_on_the_entry", async () => {
+      act(() => root.render(<Tree menu={twoEntries(() => {})} />));
+      act(() => items()[1]!.focus());
+      pressKey(items()[1]!, "ContextMenu");
+      await act(async () => {});
+      pressKey(entries()[0]!, "ArrowDown");
+      expect(document.activeElement).toBe(entries()[1]);
+      // The hosts render their rows anew (a new menu array each time, a status that arrives): the focus stays where the keys put it.
+      for (const tick of [1, 2]) act(() => root.render(<Tree menu={twoEntries(() => {})} tick={tick} />));
+      await act(async () => {});
+      expect(document.activeElement).toBe(entries()[1]);
+    });
+
+    it("with_every_entry_locked_the_first_one_holds_the_focus_and_enter_does_not_reach_the_row", async () => {
+      onSelect.mockReset();
+      const onReset = vi.fn();
+      act(() => root.render(<Tree menu={[{ label: "Header auf Original zurücksetzen…", onSelect: onReset, disabled: true, detail: "Kein Original" }]} />));
+      act(() => items()[0]!.focus());
+      pressKey(items()[0]!, "F10", { shiftKey: true });
+      await act(async () => {});
+      expect(document.activeElement).toBe(entries()[0]);
+      expect(entries()[0]!.getAttribute("aria-disabled")).toBe("true");
+      pressKey(entries()[0]!, "Enter");
+      expect(onReset).not.toHaveBeenCalled();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it("a_right_click_puts_the_focus_on_the_menu_named_by_its_row", async () => {
+      act(() => root.render(<Tree menu={twoEntries(() => {})} />));
+      act(() => items()[0]!.focus());
+      act(() => void items()[1]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 10, clientY: 10 })));
+      await act(async () => {});
+      expect(document.activeElement).toBe(menu());
+      expect(menu()?.getAttribute("aria-label")).toBe("Zweiblattdorf 0412");
+      pressKey(menu() as HTMLElement, "ArrowDown");
+      expect(document.activeElement).toBe(entries()[0]);
+      expect(items()[0]!.tabIndex).toBe(0);
+    });
   });
 
   it("without_context_menu_nothing_changes", () => {

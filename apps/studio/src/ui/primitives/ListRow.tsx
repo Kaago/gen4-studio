@@ -3,7 +3,7 @@ import { useId, useRef } from "react";
 import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
-import { ContextMenuPopup, MenuEntries, focusFirstItem, openContextMenuByKey } from "./Menu";
+import { ContextMenuPopup, MenuEntries, openContextMenuByKey } from "./Menu";
 import type { MenuEntry } from "./Menu";
 import styles from "./ListRow.module.css";
 
@@ -56,10 +56,14 @@ export type RowElementProps = Omit<HTMLAttributes<HTMLDivElement>, "contextMenu"
  * The element of a row: a plain `div`, or with `menu` the trigger of a context menu (the `div` keeps its role and handlers), opened
  * by a right click and by Shift+F10 or the context menu key at the row's lower edge.
  */
-export function RowElement({ menu, children, ...attrs }: RowElementProps & { menu: readonly MenuEntry[] | undefined; children: ReactNode }) {
+export function RowElement({
+  menu,
+  menuLabel,
+  children,
+  ...attrs
+}: RowElementProps & { menu: readonly MenuEntry[] | undefined; menuLabel?: string; children: ReactNode }) {
   // Whether the menu opening now was opened by key: then its first entry takes the focus (WAI-ARIA menu), as a menu button does.
   const byKey = useRef(false);
-  const popup = useRef<HTMLDivElement>(null);
   if (menu === undefined) return <div {...attrs}>{children}</div>;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     byKey.current = true;
@@ -68,14 +72,15 @@ export function RowElement({ menu, children, ...attrs }: RowElementProps & { men
       attrs.onKeyDown?.(event);
     }
   };
-  const onOpenChangeComplete = (open: boolean) => {
-    if (open && byKey.current) focusFirstItem(popup.current);
-    byKey.current = false;
-  };
   return (
-    <ContextMenu.Root onOpenChangeComplete={onOpenChangeComplete}>
+    <ContextMenu.Root
+      onOpenChange={(open) => {
+        // A key that opened no new popup (the menu was open already) is not left for the next right click.
+        if (!open) byKey.current = false;
+      }}
+    >
       <ContextMenu.Trigger render={<div {...attrs} onKeyDown={onKeyDown} />}>{children}</ContextMenu.Trigger>
-      <ContextMenuPopup popupRef={popup}>
+      <ContextMenuPopup label={menuLabel} byKey={byKey}>
         <MenuEntries items={menu} />
       </ContextMenuPopup>
     </ContextMenu.Root>
@@ -92,6 +97,7 @@ export function ListRow({ label, tech, icon, leading, subtitle, selected, onSele
     <RowElement
       {...dataAttrs}
       menu={contextMenu}
+      menuLabel={ariaLabel ?? label}
       role="option"
       aria-selected={selected}
       aria-label={ariaLabel}

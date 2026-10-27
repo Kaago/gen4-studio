@@ -1,6 +1,7 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import type { KeyboardEvent, ReactNode, Ref } from "react";
+import { useCallback, useRef } from "react";
+import type { KeyboardEvent, ReactNode, RefObject } from "react";
 import { Icon } from "./Icon";
 import type { IconName } from "./icons";
 import styles from "./Menu.module.css";
@@ -99,12 +100,53 @@ export function Menu({ trigger, label, items, onOpenChange }: MenuProps) {
   );
 }
 
-/** The popup of a context menu, inside a `ContextMenu.Root` whose trigger is the right-clicked thing (`Reference`, `ListRow`, `TreeRow`). */
-export function ContextMenuPopup({ children, popupRef }: { children: ReactNode; popupRef?: Ref<HTMLDivElement> }) {
+export type ContextMenuPopupProps = {
+  children: ReactNode;
+  /** The accessible name of the menu (the row's name); without it the menu has none, it has no trigger to be labelled by. */
+  label?: string;
+  /** True while the menu opening now was opened by key (Shift+F10, the context menu key): it then starts on its first entry. */
+  byKey?: RefObject<boolean>;
+};
+
+/**
+ * The popup of a context menu, inside a `ContextMenu.Root` whose trigger is the right-clicked thing (`Reference`, `ListRow`, `TreeRow`).
+ * The focus moves into the menu as it mounts: Base UI moves it only on the next animation frame, which a busy page delays and a hidden one
+ * never runs, and keys pressed meanwhile reach the row (Enter picks it, the arrows walk the tree). Opened by key it starts on the first
+ * entry (`firstEntry`), opened by the pointer on the menu itself, so the arrow keys walk the menu from there. Closed, the focus goes back
+ * to where it was before (the row), unless an entry moved it on (to a panel or a dialog it opened).
+ */
+export function ContextMenuPopup({ children, label, byKey }: ContextMenuPopupProps) {
+  const shown = useRef<HTMLDivElement | null>(null);
+  const before = useRef<HTMLElement | null>(null);
+  // Stable, so a render while the menu is open does not attach it again and pull the focus back.
+  const focusIn = useCallback(
+    (popup: HTMLDivElement | null) => {
+      shown.current = popup;
+      if (popup === null) return;
+      const active = popup.ownerDocument.activeElement;
+      // Attached again with the focus inside (Strict Mode does that), it keeps what it had.
+      if (popup.contains(active)) return;
+      before.current = active instanceof HTMLElement && active !== popup.ownerDocument.body ? active : null;
+      popup.focus({ preventScroll: true });
+      if (!byKey?.current) return;
+      byKey.current = false;
+      // The entries take part in the menu's list once this render is through: focused then, the entry is highlighted as well.
+      queueMicrotask(() => {
+        if (popup.contains(popup.ownerDocument.activeElement)) firstEntry(popup)?.focus({ preventScroll: true });
+      });
+    },
+    [byKey],
+  );
+  // Base UI would go back to the element focused when its focus handling started: the menu itself, by then.
+  const focusBack = useCallback(() => {
+    const active = shown.current?.ownerDocument.activeElement;
+    if (active && active !== active.ownerDocument.body && !shown.current?.contains(active)) return false;
+    return before.current?.isConnected ? before.current : true;
+  }, []);
   return (
     <ContextMenu.Portal>
       <ContextMenu.Positioner className={styles.positioner}>
-        <BaseMenu.Popup ref={popupRef} className={styles.popup}>
+        <BaseMenu.Popup ref={focusIn} className={styles.popup} aria-label={label} finalFocus={focusBack}>
           {children}
         </BaseMenu.Popup>
       </ContextMenu.Positioner>
@@ -112,10 +154,13 @@ export function ContextMenuPopup({ children, popupRef }: { children: ReactNode; 
   );
 }
 
-/** Focuses (and so highlights) the first entry of the menu `popup` that can be picked: a context menu opened by key starts there. */
-export function focusFirstItem(popup: HTMLElement | null): void {
-  const first = popup?.querySelector<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"]):not([data-disabled])');
-  first?.focus();
+/**
+ * The entry of the menu `popup` a context menu opened by key starts on: the first one that can be picked, else the first one (WAI-ARIA lets
+ * a locked entry hold the focus, so a screen reader reads it and its reason, „Kein Original“). Null for a menu without entries.
+ */
+function firstEntry(popup: HTMLElement | null): HTMLElement | null {
+  const entries = [...(popup?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])];
+  return entries.find((entry) => entry.getAttribute("aria-disabled") !== "true" && !entry.hasAttribute("data-disabled")) ?? entries[0] ?? null;
 }
 
 /**
