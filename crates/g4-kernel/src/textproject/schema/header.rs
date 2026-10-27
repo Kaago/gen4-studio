@@ -592,7 +592,17 @@ pub(crate) fn import_headers(
             format!("{ROOT}: die Zahl der Header ist nicht lesbar ({e})."),
         )),
         Ok((dynamic, current)) => {
-            if count < current {
+            if !dynamic && count != current {
+                problems.push(problem(
+                    &file_of(count.min(current) as u32),
+                    HEADER_COUNT_CODE,
+                    format!(
+                        "{ROOT}: Die Zahl der Header ändert sich nur mit dem Patch „Dynamische \
+                         Header“. mapname.bin hat {current} Einträge, data/headers {count} \
+                         Dateien."
+                    ),
+                ));
+            } else if count < current {
                 problems.push(problem(
                     &file_of(count as u32),
                     MEMBER_WITHOUT_JSON_CODE,
@@ -600,16 +610,6 @@ pub(crate) fn import_headers(
                         "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
                          Einträge, data/headers {count} Dateien); der Import entfernt keine \
                          Header, Löschen ist 4.3b."
-                    ),
-                ));
-            } else if !dynamic && count > current {
-                problems.push(problem(
-                    &file_of(current as u32),
-                    HEADER_COUNT_CODE,
-                    format!(
-                        "{ROOT}: Die Zahl der Header ändert sich nur mit dem Patch „Dynamische \
-                         Header“. mapname.bin hat {current} Einträge, data/headers {count} \
-                         Dateien."
                     ),
                 ));
             } else if dynamic && count > MAX_HEADERS {
@@ -666,8 +666,9 @@ pub(crate) fn import_headers(
 
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
 /// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
-/// `unpacked/dynamicHeaders` is created with every header file. A table shorter than
-/// `mapname.bin` is refused: deleting headers is 4.3b.
+/// `unpacked/dynamicHeaders` is created with every header file, and a table shorter than
+/// `mapname.bin` is refused (deleting headers is 4.3b); without it the table must have the
+/// length of the slice in `arm9.bin`.
 pub(crate) fn write_headers(
     project: &Project,
     w: &HeaderWrite,
@@ -681,18 +682,18 @@ pub(crate) fn write_headers(
             w.mapname.len()
         )));
     }
-    let old = project.mapname_count()?;
-    if count < old {
-        return Err(KernelError::InvalidProject(format!(
-            "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import entfernt \
-             keine Header, Löschen ist 4.3b."
-        )));
-    }
     let root = &project.root;
     let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_path_buf();
     let names_rel = rel(&project.mapname_path());
     let mut wrote = Vec::new();
     if dynamic_headers::is_applied(project)? {
+        let old = project.mapname_count()?;
+        if count < old {
+            return Err(KernelError::InvalidProject(format!(
+                "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import \
+                 entfernt keine Header, Löschen ist 4.3b."
+            )));
+        }
         let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
         for (i, chunk) in w.table.chunks(HEADER_LEN).enumerate() {
             let file = dir_rel.join(format!("{i:04}"));
@@ -1156,14 +1157,22 @@ mod project_tests {
             let problems = import_headers(&project, &[], &symbols_of(&project)).unwrap_err();
             assert_eq!(problems.len(), 1, "{problems:?}");
             assert_eq!(problems[0].file, Path::new("data/headers/0000.json"));
-            assert!(
-                problems[0]
-                    .message
-                    .starts_with("textproject.member-without-json: $: ")
-                    && problems[0].message.ends_with("Löschen ist 4.3b."),
-                "{}",
-                problems[0].message
-            );
+            let message = &problems[0].message;
+            if patched {
+                assert!(
+                    message.starts_with("textproject.member-without-json: $: ")
+                        && message.ends_with("Löschen ist 4.3b."),
+                    "{message}"
+                );
+            } else {
+                assert!(
+                    message.starts_with(
+                        "textproject.header-count: $: Die Zahl der Header ändert sich nur mit \
+                         dem Patch „Dynamische Header“."
+                    ),
+                    "{message}"
+                );
+            }
         }
     }
 
@@ -1234,16 +1243,25 @@ mod project_tests {
             problems[0].message
         );
 
-        // Fewer headers would delete one: that is 4.3b.
+        // Fewer headers are a count change too.
         files.truncate(1);
         let problems = import_headers(&project, &files, &sym).unwrap_err();
+        assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
-            problems[0]
-                .message
-                .starts_with("textproject.member-without-json: "),
+            problems[0].message.starts_with(
+                "textproject.header-count: $: Die Zahl der Header ändert sich nur mit dem Patch \
+                 „Dynamische Header“."
+            ),
             "{}",
             problems[0].message
         );
+        // The writer refuses a table of another length as well.
+        let w = HeaderWrite {
+            table: vec![0; HEADER_LEN],
+            mapname: vec![0; NAME_LEN],
+        };
+        let err = write_headers(&project, &w).unwrap_err().to_string();
+        assert!(err.contains("textproject.header-count"), "{err}");
 
         // A gap in the numbers is refused with the file that is missing.
         let mut gap = export_all(&project, &mut sym);
