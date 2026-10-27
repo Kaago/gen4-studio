@@ -673,15 +673,14 @@ fn text_edit_incremental_equals_full() {
     let a = b.path("a.nds");
     let report = build(&b.p, &a).unwrap();
     eprintln!("A {} ms: {:?}", report.ms, report.steps);
-    assert!(
-        report.encoded.iter().all(|&e| e == n),
-        "{:?}",
-        report.encoded
-    );
+    // The store encoded the member when it saved: chatot looks at archive n only and finds
+    // its member current, so it encodes nothing. `total` counts the JSON files under
+    // `expanded/textArchives/` (only this one in the vanilla copy), not archives checked.
+    assert!(report.encoded.is_empty(), "{:?}", report.encoded);
     let chatot = row(&report.steps, "chatot");
     assert_eq!(
-        (chatot.status, chatot.total),
-        (StepStatus::Incremental, 1),
+        (chatot.status, chatot.done, chatot.total),
+        (StepStatus::Incremental, 0, 1),
         "{chatot:?}"
     );
     let texts_id = format!(

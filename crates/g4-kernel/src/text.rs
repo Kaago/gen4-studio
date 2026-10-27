@@ -318,7 +318,7 @@ impl TextSync {
         // Taken before the read: a write in between makes the next check load again.
         let stamp = state_stamp(project);
         TextSync {
-            records: BuildState::load(&project.root).texts,
+            records: BuildState::load_shared(&project.root).texts.clone(),
             stamp,
         }
     }

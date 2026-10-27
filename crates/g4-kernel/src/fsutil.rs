@@ -14,6 +14,19 @@ pub(crate) fn write_atomic(
     path: &Path,
     bytes: &[u8],
 ) -> Result<(), KernelError> {
+    write_atomic_meta(project_root, path, bytes).map(|_| ())
+}
+
+/// [`write_atomic`], returning the metadata of the file written, taken after the rename
+/// through the handle it was written with (on Unix): it describes that file even when the
+/// path was replaced again right after.
+pub(crate) fn write_atomic_meta(
+    project_root: &Path,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<std::fs::Metadata, KernelError> {
+    use std::io::Write;
+
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let tmp_dir = project_root.join(".g4").join("tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(io_at(&tmp_dir))?;
@@ -26,13 +39,27 @@ pub(crate) fn write_atomic(
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
-    if let Err(e) = std::fs::write(&tmp, bytes).map_err(io_at(&tmp)) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
+    let written = std::fs::File::create(&tmp).and_then(|mut file| {
+        file.write_all(bytes)?;
+        Ok(file)
+    });
+    let file = match written.map_err(io_at(&tmp)) {
+        Ok(file) => file,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+    };
+    // Windows does not rename a file that is still open everywhere; there the path is read.
+    #[cfg(not(unix))]
+    drop(file);
     if let Err(e) = std::fs::rename(&tmp, path).map_err(io_at(path)) {
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
-    Ok(())
+    #[cfg(unix)]
+    let meta = file.metadata();
+    #[cfg(not(unix))]
+    let meta = std::fs::metadata(path);
+    meta.map_err(io_at(path))
 }

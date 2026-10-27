@@ -6,15 +6,15 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use super::BUILD_DIR;
-use super::fingerprint::Fp;
+use super::fingerprint::{self, Fp};
 use super::salt::STATE_VERSION;
 use crate::error::{KernelError, io_at};
-use crate::fsutil::write_atomic;
+use crate::fsutil::write_atomic_meta;
 
 /// The build state of one project, see the module documentation.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -86,13 +86,47 @@ mod archive_keys {
     }
 }
 
+/// The state last read or written per project root, with the `stat` of `state.json` it
+/// belongs to. Every writer replaces the file (temp file and rename: a new inode, new
+/// times), so an equal `stat` means the file holds what is cached and nothing is parsed
+/// again; another `stat` (another process wrote, the file was deleted or edited) reads it
+/// anew. Parsing the file (up to 1.5 MB) took about 10 ms per load, several loads per build.
+struct Cached {
+    stamp: Fp,
+    state: Arc<BuildState>,
+}
+
+/// At most this many projects stay cached (the app has one open, tests many).
+const CACHED_ROOTS: usize = 8;
+
 /// Serializes the loads and writes of every project's state within this process, so a
-/// store save and a build do not overwrite each other's entries.
-static LOCK: Mutex<()> = Mutex::new(());
+/// store save and a build do not overwrite each other's entries, and holds the cache.
+static LOCK: Mutex<Vec<(PathBuf, Cached)>> = Mutex::new(Vec::new());
 
 /// `<root>/.g4/build/state.json`
 pub(crate) fn state_path(root: &Path) -> PathBuf {
     root.join(BUILD_DIR).join("state.json")
+}
+
+type Cache = Vec<(PathBuf, Cached)>;
+
+fn cached<'a>(cache: &'a mut Cache, root: &Path) -> Option<&'a mut Cached> {
+    cache
+        .iter_mut()
+        .find(|(cached_root, _)| cached_root == root)
+        .map(|(_, cached)| cached)
+}
+
+fn forget(cache: &mut Cache, root: &Path) {
+    cache.retain(|(cached_root, _)| cached_root != root);
+}
+
+fn remember(cache: &mut Cache, root: &Path, stamp: Fp, state: Arc<BuildState>) {
+    forget(cache, root);
+    if cache.len() >= CACHED_ROOTS {
+        cache.remove(0);
+    }
+    cache.push((root.to_path_buf(), Cached { stamp, state }));
 }
 
 impl BuildState {
@@ -103,37 +137,70 @@ impl BuildState {
         }
     }
 
-    fn read(root: &Path) -> BuildState {
-        std::fs::read(state_path(root))
+    fn parse(bytes: &[u8]) -> BuildState {
+        serde_json::from_slice::<BuildState>(bytes)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<BuildState>(&bytes).ok())
             .filter(|state| state.version == STATE_VERSION)
             .unwrap_or_else(BuildState::empty)
     }
 
+    /// The state from the cache when `state.json` still has the cached `stat`, else read.
+    fn read(cache: &mut Cache, root: &Path) -> Arc<BuildState> {
+        let path = state_path(root);
+        let Some(stamp) = fingerprint::stat(&path).ok().flatten() else {
+            forget(cache, root);
+            return Arc::new(BuildState::empty());
+        };
+        if let Some(hit) = cached(cache, root).filter(|c| c.stamp == stamp) {
+            return Arc::clone(&hit.state);
+        }
+        // Read after the `stat`: a write in between leaves a stamp older than the file,
+        // which the next read finds different and reads again.
+        let state = Arc::new(
+            std::fs::read(&path).map_or_else(|_| BuildState::empty(), |b| BuildState::parse(&b)),
+        );
+        remember(cache, root, stamp, Arc::clone(&state));
+        state
+    }
+
     /// The project's state; empty when the file is missing, broken or of another version.
     pub fn load(root: &Path) -> BuildState {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        BuildState::read(root)
+        (*BuildState::load_shared(root)).clone()
+    }
+
+    /// [`BuildState::load`] without the copy, for the build's own reads.
+    pub(crate) fn load_shared(root: &Path) -> Arc<BuildState> {
+        let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        BuildState::read(&mut cache, root)
     }
 
     /// Loads the state, applies `f` and writes it back atomically (temp file and rename),
     /// all under a process-wide lock.
     pub fn update(root: &Path, f: impl FnOnce(&mut BuildState)) -> Result<(), KernelError> {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut state = BuildState::read(root);
+        let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let shared = BuildState::read(&mut cache, root);
+        // Without the cache's reference the state is changed in place, not copied.
+        forget(&mut cache, root);
+        let mut state = Arc::try_unwrap(shared).unwrap_or_else(|shared| (*shared).clone());
         f(&mut state);
-        BuildState::write(root, &mut state)
+        BuildState::write(&mut cache, root, state)
     }
 
-    fn write(root: &Path, state: &mut BuildState) -> Result<(), KernelError> {
+    fn write(cache: &mut Cache, root: &Path, mut state: BuildState) -> Result<(), KernelError> {
         state.version = STATE_VERSION;
         let path = state_path(root);
         let dir = root.join(BUILD_DIR);
         std::fs::create_dir_all(&dir).map_err(io_at(&dir))?;
         let bytes = serde_json::to_vec(&state)
             .map_err(|e| KernelError::Build(format!("{}: {e}", path.display())))?;
-        write_atomic(root, &path, &bytes)
+        let meta = write_atomic_meta(root, &path, &bytes)?;
+        remember(
+            cache,
+            root,
+            fingerprint::of_metadata(&meta),
+            Arc::new(state),
+        );
+        Ok(())
     }
 
     /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`): they are
@@ -143,8 +210,9 @@ impl BuildState {
     /// any (a missing, broken or empty state) the folder is just gone. Under the same lock
     /// as [`BuildState::update`], so a sync recorded meanwhile is not lost.
     pub(crate) fn clear_keeping_texts(root: &Path) -> Result<(), KernelError> {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let texts = BuildState::read(root).texts;
+        let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let texts = BuildState::read(&mut cache, root).texts.clone();
+        forget(&mut cache, root);
         let dir = root.join(BUILD_DIR);
         match std::fs::remove_dir_all(&dir) {
             Ok(()) => {}
@@ -155,8 +223,9 @@ impl BuildState {
             return Ok(());
         }
         BuildState::write(
+            &mut cache,
             root,
-            &mut BuildState {
+            BuildState {
                 texts,
                 ..BuildState::empty()
             },
@@ -196,6 +265,46 @@ mod tests {
         )
         .unwrap();
         assert_eq!(BuildState::load(root), empty, "other version");
+    }
+
+    #[test]
+    fn a_state_written_from_outside_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let record = |ms| StepRecord {
+            salt: "s".into(),
+            ms,
+            ..StepRecord::default()
+        };
+        BuildState::update(root, |s| {
+            s.steps.insert("a".into(), record(1));
+        })
+        .unwrap();
+        assert_eq!(BuildState::load(root).steps["a"].ms, 1);
+
+        // Another process replaces the file (temp file and rename), the same length.
+        let mut other = BuildState::load(root);
+        other.steps.insert("a".into(), record(2));
+        let bytes = serde_json::to_vec(&other).unwrap();
+        let tmp = root.join("other.json");
+        std::fs::write(&tmp, &bytes).unwrap();
+        std::fs::rename(&tmp, state_path(root)).unwrap();
+        assert_eq!(BuildState::load(root).steps["a"].ms, 2);
+
+        // Rewritten in place with the same length (another inode is not needed).
+        other.steps.insert("a".into(), record(3));
+        std::fs::write(state_path(root), serde_json::to_vec(&other).unwrap()).unwrap();
+        assert_eq!(BuildState::load(root).steps["a"].ms, 3);
+        // An update builds on what is there now.
+        BuildState::update(root, |s| {
+            s.steps.insert("b".into(), record(4));
+        })
+        .unwrap();
+        let loaded = BuildState::load(root);
+        assert_eq!((loaded.steps["a"].ms, loaded.steps["b"].ms), (3, 4));
+
+        std::fs::remove_file(state_path(root)).unwrap();
+        assert!(BuildState::load(root).steps.is_empty(), "deleted");
     }
 
     #[test]

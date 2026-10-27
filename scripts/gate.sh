@@ -159,10 +159,12 @@ for project in "$G4_ROMS_DIR"/*_DSPRE_contents; do
     continue
   fi
   ran=$((ran + 1))
+  # build_graph_timings runs in its own release step below (the debug run would only take
+  # time); G4_TIMING_STRICT from the calling shell must not make anything here strict.
   run_step "gated tests (cargo test)" "$label" \
-    env G4_TEST_PROJECT="$project" G4_APICULA="$G4_APICULA" G4_DSROM_CLI="$G4_DSROM_CLI" \
-    G4_ROTOM_LSP="$G4_ROTOM_LSP" \
-    cargo test --workspace --all-features
+    env -u G4_TIMING_STRICT G4_TEST_PROJECT="$project" G4_APICULA="$G4_APICULA" \
+    G4_DSROM_CLI="$G4_DSROM_CLI" G4_ROTOM_LSP="$G4_ROTOM_LSP" \
+    cargo test --workspace --all-features -- --skip build_graph_timings
 done
 
 if [ "$ran" -eq 0 ]; then

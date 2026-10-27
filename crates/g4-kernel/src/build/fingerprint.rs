@@ -13,12 +13,14 @@
 //! the kernel can set `ctime`. Unix reads `ctime` and the inode via `MetadataExt`; elsewhere
 //! both are 0 and the racy rule and the hash carry alone.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 use crate::error::{KernelError, io_at};
 
@@ -69,6 +71,9 @@ impl<'de> Deserialize<'de> for Fp {
     }
 }
 
+/// The read size of [`hash`] for a large file.
+const CHUNK: usize = 1 << 20;
+
 /// Now, in nanoseconds since the Unix epoch.
 pub(crate) fn now_ns() -> i128 {
     SystemTime::now()
@@ -92,11 +97,15 @@ fn ns(time: std::io::Result<SystemTime>) -> i128 {
 
 /// The `stat` part of a fingerprint (no hash); `None` when the file does not exist.
 pub(crate) fn stat(path: &Path) -> Result<Option<Fp>, KernelError> {
-    let meta = match std::fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(io_at(path)(e)),
-    };
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(Some(of_metadata(&meta))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    }
+}
+
+/// The `stat` part of a fingerprint from metadata already taken (no hash).
+pub(crate) fn of_metadata(meta: &std::fs::Metadata) -> Fp {
     #[cfg(unix)]
     let (ctime_ns, ino) = {
         use std::os::unix::fs::MetadataExt;
@@ -107,17 +116,83 @@ pub(crate) fn stat(path: &Path) -> Result<Option<Fp>, KernelError> {
     };
     #[cfg(not(unix))]
     let (ctime_ns, ino) = (0, 0);
-    Ok(Some(Fp {
+    Fp {
         size: meta.len(),
         mtime_ns: ns(meta.modified()),
         ctime_ns,
         ino,
         xxh3: None,
-    }))
+    }
 }
 
-fn hash(path: &Path) -> Result<u64, KernelError> {
-    Ok(xxh3_64(&std::fs::read(path).map_err(io_at(path))?))
+/// The xxh3-64 of the file at `path` (the same value as [`xxh3_64`] of its bytes). A file
+/// above [`CHUNK`] is read in chunks: a ROM of 128 MB is hashed without holding it in memory
+/// at once.
+pub(crate) fn hash(path: &Path) -> Result<u64, KernelError> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).map_err(io_at(path))?;
+    let len = file.metadata().map_err(io_at(path))?.len();
+    if len <= CHUNK as u64 {
+        let mut bytes = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut bytes).map_err(io_at(path))?;
+        return Ok(xxh3_64(&bytes));
+    }
+    let mut hasher = Xxh3::new();
+    let mut buf = vec![0u8; CHUNK];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(io_at(path)(e)),
+        }
+    }
+    Ok(hasher.digest())
+}
+
+/// Content hashes this process took with [`hash_remembered`], by path: the file's `stat`
+/// (with the hash) and when that `stat` was taken.
+static REMEMBERED: Mutex<Option<HashMap<PathBuf, (Fp, i128)>>> = Mutex::new(None);
+
+/// More files than any project has; past it the memory starts over.
+const REMEMBERED_MAX: usize = 200_000;
+
+/// The xxh3 of the file at `path` like [`hash`], taken from memory when this process hashed
+/// it before and its `stat` has not changed since; by the racy rule only a hash whose file
+/// was at least [`RACY_NS`] old when it was taken is used again (a write after that changes
+/// the `stat`). For a caller that hashes the same files on every run, rotom's compile with
+/// its thousand sources, whose content hashes are not in the build state. An error of the
+/// `stat` or the read (a missing file: `NotFound`) comes back as it is.
+pub(crate) fn hash_remembered(path: &Path) -> std::io::Result<u64> {
+    let at = now_ns();
+    let before = of_metadata(&std::fs::metadata(path)?);
+    {
+        let remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
+        let hit = remembered
+            .as_ref()
+            .and_then(|map| map.get(path))
+            .filter(|(fp, taken)| same_stat(fp, &before) && !is_racy(fp, *taken));
+        if let Some((fp, _)) = hit {
+            return Ok(fp.xxh3.unwrap_or_default());
+        }
+    }
+    let hash = xxh3_64(&std::fs::read(path)?);
+    // Kept only when nothing changed the file while it was read.
+    let after = std::fs::metadata(path).map(|meta| of_metadata(&meta));
+    if after.is_ok_and(|after| same_stat(&after, &before)) {
+        let mut remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
+        let map = remembered.get_or_insert_with(HashMap::new);
+        if map.len() >= REMEMBERED_MAX {
+            map.clear();
+        }
+        let fp = Fp {
+            xxh3: Some(hash),
+            ..before
+        };
+        map.insert(path.to_path_buf(), (fp, at));
+    }
+    Ok(hash)
 }
 
 fn same_stat(a: &Fp, b: &Fp) -> bool {
@@ -132,6 +207,25 @@ pub(crate) fn capture(path: &Path, scanned_at_ns: i128) -> Result<Option<Fp>, Ke
     };
     if is_racy(&fp, scanned_at_ns) {
         fp.xxh3 = Some(hash(path)?);
+    }
+    Ok(Some(fp))
+}
+
+/// [`capture`] of a file whose content hash the caller knows (it just wrote those bytes):
+/// a racy fingerprint takes `known` instead of reading the file again. Should someone else
+/// write the file between that write and this `stat`, the fingerprint is racy all the same
+/// (its mtime is after the scan) and the next comparison hashes the file and finds it
+/// changed.
+pub(crate) fn capture_known(
+    path: &Path,
+    scanned_at_ns: i128,
+    known: u64,
+) -> Result<Option<Fp>, KernelError> {
+    let Some(mut fp) = stat(path)? else {
+        return Ok(None);
+    };
+    if is_racy(&fp, scanned_at_ns) {
+        fp.xxh3 = Some(known);
     }
     Ok(Some(fp))
 }
@@ -308,6 +402,56 @@ mod tests {
         assert_eq!(
             compare(&path, Some(&fp), 0, now_ns()).unwrap(),
             (Seen::Removed, None)
+        );
+    }
+
+    #[test]
+    fn the_chunked_hash_is_xxh3_of_the_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        for len in [0usize, 1, (1 << 20) - 1, 1 << 20, (3 << 20) + 17] {
+            let bytes: Vec<u8> = (0..len).map(|i| (i * 31 % 251) as u8).collect();
+            std::fs::write(&path, &bytes).unwrap();
+            assert_eq!(hash(&path).unwrap(), xxh3_64(&bytes), "{len} bytes");
+        }
+    }
+
+    #[test]
+    fn a_remembered_hash_is_used_only_while_the_file_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f");
+        std::fs::write(&path, b"abc").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(3600);
+        set_mtime(&path, old);
+        assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"abc"));
+        let remembered = |path: &Path| {
+            REMEMBERED
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|map| map.get(path).copied())
+        };
+        let (fp, _) = remembered(&path).expect("remembered");
+        assert_eq!(fp.xxh3, Some(xxh3_64(b"abc")));
+
+        // Rewritten in place, same size, the old mtime restored: the ctime tells.
+        std::fs::write(&path, b"xyz").unwrap();
+        set_mtime(&path, old);
+        assert_eq!(hash_remembered(&path).unwrap(), xxh3_64(b"xyz"));
+
+        // A file written just now (racy) is hashed again every time.
+        let fresh = dir.path().join("g");
+        std::fs::write(&fresh, b"123").unwrap();
+        assert_eq!(hash_remembered(&fresh).unwrap(), xxh3_64(b"123"));
+        let (fp, taken) = remembered(&fresh).expect("remembered");
+        assert!(is_racy(&fp, taken));
+        std::fs::write(&fresh, b"456").unwrap();
+        assert_eq!(hash_remembered(&fresh).unwrap(), xxh3_64(b"456"));
+
+        let missing = dir.path().join("missing");
+        assert_eq!(
+            hash_remembered(&missing).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
         );
     }
 

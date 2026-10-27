@@ -59,6 +59,16 @@ Geschrieben wird nur über `BuildState::update` (laden, ändern, atomar über `.
 unter einer prozessweiten Sperre). Zwei Prozesse auf demselben Projekt können sich Einträge
 überschreiben; das kostet höchstens einen vollen Lauf.
 
+Der Prozess hält den zuletzt gelesenen oder geschriebenen Zustand je Projekt im Speicher, mit dem
+`stat` der Datei (Größe, mtime, ctime, Inode; nach dem Schreiben über das Handle der geschriebenen
+Datei genommen). Solange die Datei diesen `stat` hat, wird sie nicht neu gelesen; jeder andere
+`stat` (ein anderer Prozess, eine gelöschte oder von Hand geänderte Datei) liest sie neu. Jeder
+Schreiber ersetzt die Datei, also ändert jedes Schreiben den `stat`; darauf baut auch der Store,
+der seine Textstände neu lädt, sobald sich der `stat` ändert. Ein Build schreibt die Datei je
+Hälfte einmal: `prepare_for_build` am Ende (dazu die Textstände, die `rotom` und `chatot` aufnehmen),
+`build_prepared` am Ende für alle Pack-, Beobachtungs- und den ROM-Schritt, auch wenn ein Schritt
+scheitert.
+
 ## Vergleich
 
 Ein Ordner unter den Eingaben steht für seine Dateien (eine Ebene, versteckte ausgenommen).
@@ -73,6 +83,21 @@ Ein Ordner unter den Eingaben steht für seine Dateien (eine Ebene, versteckte a
 Eintrag als racy. Er wird schon beim Aufzeichnen mit Hash gespeichert und beim Vergleich über den
 Inhalt geprüft, auch wenn der `stat` gleich ist. Die 2 s decken auch FAT und exFAT ab. Ein
 übersprungener Schritt mit racy oder neu gehashten Einträgen bekommt einen erneuerten Eintrag.
+
+Eine Ausgabe, die der Schritt gerade geschrieben hat (die ROM, ein NARC), ist beim Aufzeichnen
+immer racy. Ihren Hash nimmt der Eintrag aus den Bytes, die der Schritt geschrieben hat
+(`StepRun.hashes`; bei der ROM der Kopf bis `0x8000` aus der Datei, weil `restore_header_crcs` dort
+die CRCs einträgt, der Rest aus dem Speicher), statt die Datei noch einmal zu lesen. Der nächste
+Build vergleicht sie trotzdem über den Inhalt, denn eine Änderung von außen im selben Zeitstempel
+zeigt nur der Inhalt. Weicht die Datei vom aufgezeichneten Hash ab (auch wenn der Hash selbst
+falsch wäre), läuft der Schritt voll (`output-changed`); als aktuell gilt nie eine Ausgabe, die es
+nicht ist. Gehasht wird eine große Datei in Stücken von 1 MB.
+
+rotoms Übersetzung liest bei jedem Lauf alle Quellen und Ausgaben, um ihre Hashes mit
+`compile-state.json` zu vergleichen. Der Kernel merkt sich diese Hashes im Prozess mit dem `stat`
+der Datei (`fingerprint::hash_remembered`) und nimmt sie nur wieder, wenn der `stat` gleich ist
+und die Datei beim Hashen nicht racy war; die Werte sind dieselben, rotoms Zustand bleibt
+maßgeblich.
 
 ## Entscheidung je Schritt
 

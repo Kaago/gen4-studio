@@ -80,9 +80,11 @@ impl Dirty {
 }
 
 /// What a step did: its counters, or with `rows` (the ROM step only) the report rows that
-/// replace its own, the inputs it wrote itself (project-relative files or folders), and
-/// `full` with the reason when the step ran fully although the runner asked for an
-/// incremental run (a `pack:*` step whose member was removed).
+/// replace its own, the inputs it wrote itself (project-relative files or folders), `full`
+/// with the reason when the step ran fully although the runner asked for an incremental run
+/// (a `pack:*` step whose member was removed), and the content hashes (xxh3) of outputs
+/// it wrote, from the bytes in memory (keyed like [`Step::outputs`]: the ROM, a NARC), so
+/// recording them does not read the file again.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepRun {
     pub done: u32,
@@ -91,6 +93,7 @@ pub struct StepRun {
     pub rows: Vec<StepReport>,
     pub wrote: Vec<PathBuf>,
     pub full: Option<&'static str>,
+    pub hashes: Vec<(PathBuf, u64)>,
 }
 
 /// One row of the build report. A skipped step has no counters.
@@ -148,15 +151,22 @@ fn expand(root: &Path, paths: &[PathBuf]) -> Result<BTreeSet<String>, KernelErro
     Ok(files)
 }
 
-/// Fingerprints of `files` taken now (missing files left out).
+/// Fingerprints of `files` taken now (missing files left out); a file in `known` takes its
+/// content hash from there ([`fingerprint::capture_known`]).
 fn capture_all(
     root: &Path,
     files: &BTreeSet<String>,
     scan: i128,
+    known: &BTreeMap<String, u64>,
 ) -> Result<BTreeMap<String, Fp>, KernelError> {
     let mut fps = BTreeMap::new();
     for file in files {
-        if let Some(fp) = fingerprint::capture(&root.join(file), scan)? {
+        let path = root.join(file);
+        let fp = match known.get(file) {
+            Some(&hash) => fingerprint::capture_known(&path, scan, hash)?,
+            None => fingerprint::capture(&path, scan)?,
+        };
+        if let Some(fp) = fp {
             fps.insert(file.clone(), fp);
         }
     }
@@ -274,7 +284,7 @@ fn scan_inputs(
     let files = expand(&project.root, &step.inputs(project)?)?;
     Ok(Scan {
         at,
-        inputs: capture_all(&project.root, &files, at)?,
+        inputs: capture_all(&project.root, &files, at, &BTreeMap::new())?,
     })
 }
 
@@ -282,7 +292,8 @@ fn scan_inputs(
 /// the step wrote (`run.wrote`, fingerprinted now, as long as they are still inputs), and
 /// its outputs fingerprinted now. The entry keeps the scan time from before the run, and the
 /// files taken now are fingerprinted against that same time: everything touched since is
-/// racy for the entry, so it is hashed now and compared by content later.
+/// racy for the entry, so it is hashed now (an output in `run.hashes` with the hash of the
+/// bytes the step wrote) and compared by content later.
 fn record(
     project: &Project,
     step: &dyn Step,
@@ -297,14 +308,76 @@ fn record(
     inputs.retain(|file, _| !wrote.contains(file));
     let current = expand(root, &step.inputs(project)?)?;
     let written: BTreeSet<String> = wrote.intersection(&current).cloned().collect();
-    inputs.extend(capture_all(root, &written, before.at)?);
+    inputs.extend(capture_all(root, &written, before.at, &BTreeMap::new())?);
+    let known: BTreeMap<String, u64> = run
+        .hashes
+        .iter()
+        .map(|(path, hash)| (key(path), *hash))
+        .collect();
     Ok(StepRecord {
         salt,
         scanned_at_ns: before.at,
         inputs,
-        outputs: capture_all(root, &expand(root, &step.outputs(project)?)?, before.at)?,
+        outputs: capture_all(
+            root,
+            &expand(root, &step.outputs(project)?)?,
+            before.at,
+            &known,
+        )?,
         ms,
     })
+}
+
+/// Entry changes of steps that ran, kept until [`Pending::write`] puts them into
+/// `state.json` in one write: a step's new entry, or `None` to remove it (a failed step, a
+/// watched folder gone), and the ROM record.
+#[derive(Debug, Default)]
+pub(crate) struct Pending {
+    steps: Vec<(String, Option<StepRecord>)>,
+    rom: Option<super::state::RomRecord>,
+}
+
+impl Pending {
+    /// Removes the entry of step `id`.
+    pub(crate) fn remove(&mut self, id: String) {
+        self.steps.push((id, None));
+    }
+
+    /// The new entry of step `id`, if this run recorded one.
+    pub(crate) fn entry(&self, id: &str) -> Option<&StepRecord> {
+        self.steps
+            .iter()
+            .rev()
+            .find(|(step, _)| step == id)
+            .and_then(|(_, entry)| entry.as_ref())
+    }
+
+    /// Records `rom` as the ROM written last.
+    pub(crate) fn set_rom(&mut self, rom: super::state::RomRecord) {
+        self.rom = Some(rom);
+    }
+
+    /// Writes the changes in one [`BuildState::update`]; nothing without any.
+    pub(crate) fn write(self, root: &Path) -> Result<(), KernelError> {
+        if self.steps.is_empty() && self.rom.is_none() {
+            return Ok(());
+        }
+        BuildState::update(root, |state| {
+            for (id, entry) in self.steps {
+                match entry {
+                    Some(entry) => {
+                        state.steps.insert(id, entry);
+                    }
+                    None => {
+                        state.steps.remove(&id);
+                    }
+                }
+            }
+            if let Some(rom) = self.rom {
+                state.rom = Some(rom);
+            }
+        })
+    }
 }
 
 /// Runs `steps` in order as the module documentation says and returns one row per step
@@ -316,18 +389,22 @@ pub(crate) fn run_steps(
     project: &Project,
     steps: &[&dyn Step],
 ) -> Result<Vec<StepReport>, KernelError> {
-    run_steps_and(project, steps, |_| {})
+    let mut pending = Pending::default();
+    let rows = run_steps_into(project, steps, &mut pending);
+    let written = pending.write(&project.root);
+    let rows = rows?;
+    written.map(|()| rows)
 }
 
-/// [`run_steps`], with `also` applied to the state in the same write (only when an entry
-/// changed).
-pub(crate) fn run_steps_and(
+/// [`run_steps`] with the entry changes left in `pending` (also when it fails: a failed
+/// step's removal and the entries of the steps that succeeded before it), for the caller to
+/// write together with others.
+pub(crate) fn run_steps_into(
     project: &Project,
     steps: &[&dyn Step],
-    also: impl FnOnce(&mut BuildState),
+    pending: &mut Pending,
 ) -> Result<Vec<StepReport>, KernelError> {
-    let root = &project.root;
-    let state = BuildState::load(root);
+    let state = BuildState::load_shared(&project.root);
     let mut changes: Vec<(String, Option<StepRecord>)> = Vec::new();
     let mut reports = Vec::new();
     let mut problems = Vec::new();
@@ -403,30 +480,14 @@ pub(crate) fn run_steps_and(
             }
         }
     }
-    let written = if changes.is_empty() {
-        Ok(())
-    } else {
-        BuildState::update(root, |state| {
-            for (id, entry) in changes {
-                match entry {
-                    Some(entry) => {
-                        state.steps.insert(id, entry);
-                    }
-                    None => {
-                        state.steps.remove(&id);
-                    }
-                }
-            }
-            also(state);
-        })
-    };
+    pending.steps.extend(changes);
     if let Some(e) = failure {
         return Err(e);
     }
     if !problems.is_empty() {
         return Err(KernelError::Compile(problems));
     }
-    written.map(|()| reports)
+    Ok(reports)
 }
 
 /// Records the baselines of watching steps (`watch:*`): steps that never run, whose entry
@@ -438,12 +499,14 @@ pub(crate) fn run_steps_and(
 /// not taken in. The entries of watching steps no longer in `steps` (ids starting with
 /// [`WATCH_PREFIX`]: the folder is gone or packed now) are removed, so a folder made anew
 /// gets a new baseline. Every step reports a [`StepStatus::Skipped`] row without counters.
+/// The entry changes go to `pending`.
 pub(crate) fn run_watches(
     project: &Project,
     steps: &[&dyn Step],
+    pending: &mut Pending,
 ) -> Result<Vec<StepReport>, KernelError> {
     let root = &project.root;
-    let state = BuildState::load(root);
+    let state = BuildState::load_shared(root);
     let mut changes = Vec::new();
     let mut reports = Vec::new();
     for step in steps {
@@ -474,14 +537,12 @@ pub(crate) fn run_watches(
         .filter(|id| id.starts_with(WATCH_PREFIX) && !listed.contains(id.as_str()))
         .cloned()
         .collect();
-    if !changes.is_empty() || !gone.is_empty() {
-        BuildState::update(root, |state| {
-            for id in &gone {
-                state.steps.remove(id);
-            }
-            state.steps.extend(changes);
-        })?;
+    for id in gone {
+        pending.remove(id);
     }
+    pending
+        .steps
+        .extend(changes.into_iter().map(|(id, entry)| (id, Some(entry))));
     Ok(reports)
 }
 
@@ -494,7 +555,7 @@ pub(crate) fn watch_changes(
     steps: &[&dyn Step],
 ) -> Result<Vec<(String, usize)>, KernelError> {
     let root = &project.root;
-    let state = BuildState::load(root);
+    let state = BuildState::load_shared(root);
     let now = fingerprint::now_ns();
     let mut changes = Vec::new();
     for step in steps {
@@ -581,6 +642,8 @@ mod tests {
         external: Cell<Option<&'static [u8]>>,
         own: Cell<bool>,
         slow: Cell<bool>,
+        /// The hash it reports for `out/a` (`StepRun::hashes`), `None`: none.
+        known: Cell<Option<u64>>,
     }
 
     impl Copy {
@@ -593,6 +656,7 @@ mod tests {
                 external: Cell::new(None),
                 own: Cell::new(false),
                 slow: Cell::new(false),
+                known: Cell::new(None),
             }
         }
     }
@@ -635,6 +699,12 @@ mod tests {
                 done: 1,
                 total: 1,
                 wrote,
+                hashes: self
+                    .known
+                    .get()
+                    .map(|hash| (PathBuf::from("out/a"), hash))
+                    .into_iter()
+                    .collect(),
                 ..StepRun::default()
             })
         }
@@ -767,6 +837,40 @@ mod tests {
             (StepStatus::Full, Some(REMOVED))
         );
         assert!(root.join("out/a").exists());
+    }
+
+    #[test]
+    fn a_written_output_is_recorded_with_the_hash_the_step_knows() {
+        let s = synthetic_project();
+        let p = Project::open(s.dir.path()).unwrap();
+        let root = s.dir.path();
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        std::fs::write(root.join("in/a"), b"1").unwrap();
+        let step = Copy::new();
+
+        // The hash comes from the step, not from reading the file again: a wrong one is
+        // recorded as it is.
+        step.known.set(Some(7));
+        run_steps(&p, &[&step]).unwrap();
+        let fp = BuildState::load(root).steps["copy"].outputs["out/a"];
+        assert_eq!(fp.xxh3, Some(7), "racy, so recorded with the known hash");
+        // The output is racy, so the next run compares it by content: the wrong hash shows
+        // as a changed output and the step runs fully, never a stale output kept.
+        step.known.set(Some(xxhash_rust::xxh3::xxh3_64(b"1")));
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].reason, Some(OUTPUT_CHANGED), "{rows:?}");
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(rows[0].status, StepStatus::Skipped, "{rows:?}");
+
+        // Someone else rewrites the output within the racy window, same size: found.
+        std::fs::write(root.join("out/a"), b"9").unwrap();
+        let rows = run_steps(&p, &[&step]).unwrap();
+        assert_eq!(
+            (rows[0].status, rows[0].reason),
+            (StepStatus::Full, Some(OUTPUT_CHANGED)),
+            "{rows:?}"
+        );
+        assert_eq!(std::fs::read(root.join("out/a")).unwrap(), b"1");
     }
 
     #[test]

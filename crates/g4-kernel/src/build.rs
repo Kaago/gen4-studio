@@ -406,32 +406,19 @@ pub fn prepare_for_build(project: &Project, out_rom: &Path) -> Result<Prepared, 
     prepare(project)
 }
 
-/// The second half of [`build`]: packs the unpacked folders and builds the ROM.
+/// The second half of [`build`]: packs the unpacked folders and builds the ROM. The entries
+/// of all its steps go into `state.json` in one write at the end, also when a step fails.
 pub fn build_prepared(
     project: &Project,
     out_rom: &Path,
     prepared: Prepared,
 ) -> Result<BuildReport, KernelError> {
     let t = Instant::now();
-    let (packed, mut rows) = run_pack_steps(project)?;
-    rows.extend(run_watch_steps(project)?);
-
-    // The same ROM as the reference `dsrom build` (no ARM7 BIOS, compression as configured),
-    // with the compressed ARM9 and overlays from the BLZ cache.
-    let rom = RomStep::new(out_rom)?;
-    let out_key = step::key(&rom.out_key(project));
-    rows.extend(step::run_steps_and(project, &[&rom], |state| {
-        let written = state
-            .steps
-            .get("rom")
-            .and_then(|entry| entry.outputs.get(&out_key));
-        if let Some(fp) = written {
-            state.rom = Some(state::RomRecord {
-                path: out_key.clone(),
-                fp: *fp,
-            });
-        }
-    })?);
+    let mut pending = step::Pending::default();
+    let ran = pack_and_rom(project, out_rom, &mut pending);
+    let written = pending.write(&project.root);
+    let (packed, rows) = ran?;
+    written?;
     let prepare_ms: u64 = prepared.steps.iter().map(|r| r.ms).sum();
     let mut steps = prepared.steps;
     steps.extend(rows);
@@ -450,25 +437,50 @@ pub fn build_prepared(
 /// [`BuildReport::packed`]: kinds and member counts.
 type Packed = Vec<(AssetKind, usize)>;
 
+/// The steps of [`build_prepared`]: `pack:*`, `watch:*` and `rom`, their entry changes left
+/// in `pending`.
+fn pack_and_rom(
+    project: &Project,
+    out_rom: &Path,
+    pending: &mut step::Pending,
+) -> Result<(Packed, Vec<StepReport>), KernelError> {
+    let (packed, mut rows) = run_pack_steps(project, pending)?;
+    rows.extend(run_watch_steps(project, pending)?);
+
+    // The same ROM as the reference `dsrom build` (no ARM7 BIOS, compression as configured),
+    // with the compressed ARM9 and overlays from the BLZ cache.
+    let rom = RomStep::new(out_rom)?;
+    let out_key = step::key(&rom.out_key(project));
+    rows.extend(step::run_steps_into(project, &[&rom], pending)?);
+    let written = pending
+        .entry("rom")
+        .and_then(|entry| entry.outputs.get(&out_key))
+        .copied();
+    if let Some(fp) = written {
+        pending.set_rom(state::RomRecord { path: out_key, fp });
+    }
+    Ok((packed, rows))
+}
+
 /// Runs the `pack:*` steps: the kinds whose step ran with their member counts, and the rows.
 /// `kinds()` yields `AssetKind::ALL` order, restricted to archives of this family. That
 /// includes `DynamicHeaders` (Platinum, HGSS): its folder holds the header files once the
 /// Dynamic Headers patch is applied, and in a vanilla DSPRE project the NARC's own members,
 /// which pack back byte for byte. Every folder is checked first (gaps, stray names), so a
 /// broken one stops the build before any archive is written; its step loses its entry.
-fn run_pack_steps(project: &Project) -> Result<(Packed, Vec<StepReport>), KernelError> {
+fn run_pack_steps(
+    project: &Project,
+    pending: &mut step::Pending,
+) -> Result<(Packed, Vec<StepReport>), KernelError> {
     let steps = steps::pack_steps(project);
     for pack in &steps {
         if let Err(e) = member_files(&pack.dir(project)) {
-            let id = step::Step::id(pack);
-            BuildState::update(&project.root, |state| {
-                state.steps.remove(&id);
-            })?;
+            pending.remove(step::Step::id(pack));
             return Err(e);
         }
     }
     let dyn_steps: Vec<&dyn step::Step> = steps.iter().map(|s| s as &dyn step::Step).collect();
-    let rows = step::run_steps(project, &dyn_steps)?;
+    let rows = step::run_steps_into(project, &dyn_steps, pending)?;
     let packed = steps
         .iter()
         .zip(&rows)
@@ -483,10 +495,13 @@ fn run_pack_steps(project: &Project) -> Result<(Packed, Vec<StepReport>), Kernel
 
 /// Records the baselines of the `watch:*` steps, one per folder of [`unpacked_unpacked`]
 /// (see [`step::run_watches`]), and returns their rows.
-fn run_watch_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
+fn run_watch_steps(
+    project: &Project,
+    pending: &mut step::Pending,
+) -> Result<Vec<StepReport>, KernelError> {
     let watches = steps::watch_steps(project)?;
     let dyn_steps: Vec<&dyn step::Step> = watches.iter().map(|s| s as &dyn step::Step).collect();
-    step::run_watches(project, &dyn_steps)
+    step::run_watches(project, &dyn_steps, pending)
 }
 
 /// The steps before `rom` without ds-rom, for the build graph's tests on synthetic projects
@@ -495,8 +510,15 @@ fn run_watch_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
 #[cfg(feature = "test-support")]
 pub fn run_source_and_pack_steps(project: &Project) -> Result<Vec<StepReport>, KernelError> {
     let mut rows = prepare(project)?.steps;
-    rows.extend(run_pack_steps(project)?.1);
-    rows.extend(run_watch_steps(project)?);
+    let mut pending = step::Pending::default();
+    let ran = run_pack_steps(project, &mut pending).and_then(|(_, packs)| {
+        let mut rows = packs;
+        rows.extend(run_watch_steps(project, &mut pending)?);
+        Ok(rows)
+    });
+    let written = pending.write(&project.root);
+    rows.extend(ran?);
+    written?;
     Ok(rows)
 }
 

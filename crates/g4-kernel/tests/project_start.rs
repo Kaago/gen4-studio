@@ -265,6 +265,20 @@ fn project_start_incremental_build_matches_the_rom() {
         "{}: {} / {} / {} ms, {:?}",
         mark.game_code, first.ms, second.ms, third.ms, third.steps
     );
+    // The saves reached the disk: the third build packed the maps again (fully, as the
+    // store's save created the member folder after the first build, or by splicing).
+    let maps_id = format!(
+        "pack:{}",
+        project
+            .archives
+            .unpacked_name(g4_kernel::project::AssetKind::Map)
+    );
+    let maps = third
+        .steps
+        .iter()
+        .find(|r| r.id == maps_id)
+        .unwrap_or_else(|| panic!("no row {maps_id} in {:?}", third.steps));
+    assert_ne!(maps.status, StepStatus::Skipped, "{maps:?}");
     assert_eq!(
         sha1(),
         mark.sha1,

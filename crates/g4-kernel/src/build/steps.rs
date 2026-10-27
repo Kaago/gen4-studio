@@ -16,6 +16,8 @@ use super::step::{
 use super::{
     build_err, pack_dir, read_member, replace_file, splice, unpacked_unpacked, write_if_changed,
 };
+use xxhash_rust::xxh3::{Xxh3, xxh3_64};
+
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
 use crate::scripts::{self, CompileReport, numbered_files};
@@ -334,6 +336,7 @@ impl PackStep {
         Ok(Some(StepRun {
             done: members.len() as u32,
             total: narc_member_count(&bytes),
+            hashes: vec![(self.packed.clone(), xxh3_64(&bytes))],
             ..StepRun::default()
         }))
     }
@@ -343,12 +346,14 @@ impl PackStep {
     fn pack_fully(&self, p: &Project, full: Option<&'static str>) -> Result<StepRun, KernelError> {
         let narc = pack_dir(&self.dir(p))?;
         let tmp_dir = p.root.join(".g4").join("tmp");
-        write_if_changed(&p.root.join(&self.packed), &narc.write(), &tmp_dir)?;
+        let bytes = narc.write();
+        write_if_changed(&p.root.join(&self.packed), &bytes, &tmp_dir)?;
         let total = narc.members.len() as u32;
         Ok(StepRun {
             done: total,
             total,
             full,
+            hashes: vec![(self.packed.clone(), xxh3_64(&bytes))],
             ..StepRun::default()
         })
     }
@@ -537,6 +542,7 @@ impl Step for RomStep {
         // ds-rom writes 0000 as the secure area CRC; a project from `create_project` knows it.
         let t = Instant::now();
         let restored = crate::start::restore_header_crcs(&p.root, &self.out)?;
+        let hash = written_hash(&self.out, raw_rom.data())?;
         let crc_reason = if restored {
             None
         } else if crate::start::read_base_mark(&p.root).is_none() {
@@ -566,9 +572,33 @@ impl Step for RomStep {
         ];
         Ok(StepRun {
             rows,
+            hashes: vec![(self.out_key(p), hash)],
             ..StepRun::default()
         })
     }
+}
+
+/// The ROM's head that [`crate::start::restore_header_crcs`] may have changed on disk after
+/// ds-rom wrote it (the CRCs at `0x6C` and `0x15E`), with room to spare.
+const REWRITTEN_HEAD: usize = 0x8000;
+
+/// The xxh3 of the ROM file at `out` that ds-rom wrote from `data`: its head read back from
+/// the file (the header CRCs restored there), the rest from memory, so the 128 MB are not
+/// read again. Should the file differ further, the recorded hash is wrong and the next build
+/// finds the ROM changed (its fingerprint is racy, so it is compared by content) and builds
+/// it again: never a ROM taken as current that is not.
+fn written_hash(out: &Path, data: &[u8]) -> Result<u64, KernelError> {
+    use std::io::Read;
+
+    let head_len = data.len().min(REWRITTEN_HEAD);
+    let mut head = vec![0u8; head_len];
+    std::fs::File::open(out)
+        .and_then(|mut file| file.read_exact(&mut head))
+        .map_err(io_at(out))?;
+    let mut hasher = Xxh3::new();
+    hasher.update(&head);
+    hasher.update(&data[head_len..]);
+    Ok(hasher.digest())
 }
 
 #[cfg(test)]
