@@ -1,0 +1,12 @@
+{
+  "format": "g4-project",
+  "schemaVersion": 1,
+  "game": {
+    "code": "CPUE",
+    "family": "pt",
+    "language": "en_US"
+  },
+  "studioVersion": "0.1.0",
+  "schemas": {},
+  "plugins": []
+}

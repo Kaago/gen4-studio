@@ -21,5 +21,6 @@ pub mod templates;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod text;
+pub mod textproject;
 pub mod tiles;
 pub mod world_meta;
