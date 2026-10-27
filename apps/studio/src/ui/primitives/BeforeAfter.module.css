@@ -23,6 +23,8 @@
 }
 
 .lines {
+  /* The offset parent of the lines: their `offsetTop` is measured from the column (to scroll to the first change). */
+  position: relative;
   max-height: calc(var(--g4-raum-64) * 4);
   margin: 0;
   padding: var(--g4-raum-4) 0;

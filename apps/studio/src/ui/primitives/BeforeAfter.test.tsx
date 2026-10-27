@@ -92,4 +92,131 @@ describe("BeforeAfter", () => {
     const css = readCss("./BeforeAfter.module.css", import.meta.url);
     expect(ruleBody(css, ".changed")).toMatch(/background:\s*var\(--g4-auswahl-flaeche\)/);
   });
+
+  describe("scrolls_each_column_to_its_first_changed_line", () => {
+    // jsdom has no layout: every line is 20 px high, a column shows 100 px of 50 lines.
+    const text = (n: number, changedAt: number, word: string) => Array.from({ length: n }, (_, i) => (i === changedAt ? word : `line ${i}`)).join("\n");
+    const proto = HTMLElement.prototype;
+    const saved = ["offsetTop", "offsetHeight", "clientHeight"].map((k) => [k, Object.getOwnPropertyDescriptor(proto, k)] as const);
+    const computed = window.getComputedStyle;
+    beforeEach(() => {
+      window.getComputedStyle = ((el: Element) => ({ ...computed(el), lineHeight: "18px" })) as typeof window.getComputedStyle;
+      Object.defineProperty(proto, "offsetTop", {
+        configurable: true,
+        get(this: HTMLElement) {
+          return this.hasAttribute("data-line") ? 4 + 20 * [...this.parentElement!.children].indexOf(this) : 0;
+        },
+      });
+      Object.defineProperty(proto, "offsetHeight", { configurable: true, get: () => 20 });
+      Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 100 });
+    });
+    afterEach(() => {
+      window.getComputedStyle = computed;
+      for (const [k, d] of saved) d ? Object.defineProperty(proto, k, d) : delete (proto as unknown as Record<string, unknown>)[k];
+    });
+    const top = (name: string) => column(name).querySelector<HTMLElement>("ol")!.scrollTop;
+
+    it("the_offset_does_not_depend_on_the_height_of_the_line_before_a_wrapped_event", () => {
+      // The line before the change is a tall wrapped line (220 px): the change still starts two lines below the top.
+      const offsetTop = Object.getOwnPropertyDescriptor(proto, "offsetTop")!.get!;
+      Object.defineProperty(proto, "offsetTop", {
+        configurable: true,
+        get(this: HTMLElement) {
+          const i = this.hasAttribute("data-line") ? [...this.parentElement!.children].indexOf(this) : 0;
+          return offsetTop.call(this) + (i >= 30 ? 200 : 0);
+        },
+      });
+      act(() => root.render(<BeforeAfter before={text(50, 30, "old")} after={text(50, 30, "new")} wrap />));
+      expect(top("Vorher")).toBe(604 + 200 - 36);
+    });
+
+    it("a_change_far_down_is_brought_into_view_two_visual_lines_below_the_top", () => {
+      act(() => root.render(<BeforeAfter before={text(50, 30, "old")} after={text(50, 30, "new")} wrap />));
+      // Line 30 sits at 4 + 600; it lands two visual lines (2 * 18 px, the computed line height) below the column's top.
+      expect(top("Vorher")).toBe(604 - 36);
+      expect(top("Nachher")).toBe(604 - 36);
+    });
+
+    it("a_change_on_top_leaves_the_column_at_0", () => {
+      act(() => root.render(<BeforeAfter before={text(50, 1, "old")} after={text(50, 1, "new")} wrap />));
+      expect(top("Vorher")).toBe(0);
+      expect(top("Nachher")).toBe(0);
+    });
+
+    it("moves_again_when_the_text_changes_and_never_scrolls_the_page", () => {
+      let scrolled = 0;
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = () => void scrolled++;
+      act(() => root.render(<BeforeAfter before={text(50, 30, "old")} after={text(50, 30, "new")} />));
+      act(() => root.render(<BeforeAfter before={text(50, 10, "old")} after={text(50, 10, "new")} />));
+      expect(top("Vorher")).toBe(4 + 20 * 10 - 36);
+      act(() => root.render(<BeforeAfter before={text(50, 0, "old")} after={text(50, 0, "new")} />));
+      expect(top("Vorher")).toBe(0);
+      expect(scrolled).toBe(0);
+      Element.prototype.scrollIntoView = original;
+    });
+
+    describe("while_the_layout_settles", () => {
+      type Observer = { callback: () => void; observed: Element[]; disconnected: boolean };
+      let observers: Observer[];
+      const original = globalThis.ResizeObserver;
+      beforeEach(() => {
+        observers = [];
+        globalThis.ResizeObserver = class {
+          o: Observer;
+          constructor(callback: () => void) {
+            this.o = { callback, observed: [], disconnected: false };
+            observers.push(this.o);
+          }
+          observe(el: Element) {
+            this.o.observed.push(el);
+          }
+          disconnect() {
+            this.o.disconnected = true;
+          }
+          unobserve() {}
+        } as unknown as typeof ResizeObserver;
+      });
+      afterEach(() => {
+        globalThis.ResizeObserver = original;
+      });
+      // A later layout: every line from the 11th on is lower by `extra` px (the lines above wrapped after the dialog reached its width).
+      const settle = (extra: number) => {
+        const base = Object.getOwnPropertyDescriptor(proto, "offsetTop")!.get!;
+        Object.defineProperty(proto, "offsetTop", {
+          configurable: true,
+          get(this: HTMLElement) {
+            return base.call(this) + (this.hasAttribute("data-line") && [...this.parentElement!.children].indexOf(this) >= 10 ? extra : 0);
+          },
+        });
+      };
+
+      it("follows_a_later_resize_of_the_column", () => {
+        act(() => root.render(<BeforeAfter before={text(50, 30, "old")} after={text(50, 30, "new")} wrap />));
+        expect(top("Vorher")).toBe(568);
+        expect(observers.length).toBeGreaterThan(0);
+        settle(200);
+        act(() => observers.forEach((o) => o.callback()));
+        expect(top("Vorher")).toBe(768);
+        expect(top("Nachher")).toBe(768);
+      });
+
+      it("stops_following_after_the_user_scrolls_and_disconnects_on_unmount", () => {
+        act(() => root.render(<BeforeAfter before={text(50, 30, "old")} after={text(50, 30, "new")} wrap />));
+        const vorher = column("Vorher").querySelector<HTMLElement>("ol")!;
+        act(() => void vorher.dispatchEvent(new Event("wheel")));
+        const mine = observers.filter((o) => o.observed.includes(vorher));
+        expect(mine.every((o) => o.disconnected)).toBe(true);
+        vorher.scrollTop = 100;
+        settle(200);
+        act(() => observers.filter((o) => o.observed.includes(vorher)).forEach((o) => o.disconnected || o.callback()));
+        expect(vorher.scrollTop).toBe(100);
+        // The other column was not touched by the user: it still follows until unmount.
+        expect(observers.some((o) => !o.disconnected)).toBe(true);
+        act(() => root.unmount());
+        expect(observers.every((o) => o.disconnected)).toBe(true);
+        root = createRoot(container);
+      });
+    });
+  });
 });

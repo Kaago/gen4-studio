@@ -1,4 +1,4 @@
-import { createElement, useMemo } from "react";
+import { createElement, useLayoutEffect, useMemo, useRef } from "react";
 import styles from "./BeforeAfter.module.css";
 
 export type BeforeAfterProps = {
@@ -41,7 +41,47 @@ export function changedLines(a: readonly string[], b: readonly string[]): { befo
   return { before, after };
 }
 
+/** Used when the computed line height is not a number ("normal"). */
+const FALLBACK_LINE_HEIGHT = 16;
+
+/**
+ * Scrolls a column to its first changed line, which ends up two visual lines below the column's top (some context above it, whatever
+ * the height of the line before: with `wrap` that can be a whole wrapped event). The column's own `scrollTop` is set (no `scrollIntoView`:
+ * it would scroll the dialog and the page too). `offsetTop` measures from the column (`.lines` is positioned), so it is exact whatever
+ * transform an opening dialog still has. A change that is in view already leaves the column on top.
+ */
+function showFirstChange(list: HTMLElement) {
+  const first = list.querySelector<HTMLElement>("[data-changed]");
+  if (!first || first.offsetTop + first.offsetHeight <= list.clientHeight) {
+    list.scrollTop = 0;
+    return;
+  }
+  const lineHeight = parseFloat(getComputedStyle(first).lineHeight) || FALLBACK_LINE_HEIGHT;
+  list.scrollTop = Math.max(0, first.offsetTop - 2 * lineHeight);
+}
+
 function Side({ title, lines, changed, mark }: { title: string; lines: readonly string[]; changed: readonly boolean[]; mark: "del" | "ins" }) {
+  const list = useRef<HTMLOListElement>(null);
+  // On mount and when the text changes: the difference is the point, not the unchanged top of a long text.
+  useLayoutEffect(() => {
+    const box = list.current;
+    if (!box) return;
+    showFirstChange(box);
+    // The column may still settle (a dialog opening, fonts, the final width: wrapped lines change height and the change moves): jump
+    // again on every resize, until the user takes the scroll over. Their input, not the scroll event, stops it: our own jump fires one too.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => showFirstChange(box));
+    observer.observe(box);
+    const first = box.querySelector("[data-changed]");
+    if (first) observer.observe(first);
+    const stop = () => observer.disconnect();
+    const inputs = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const type of inputs) box.addEventListener(type, stop, { once: true, passive: true });
+    return () => {
+      stop();
+      for (const type of inputs) box.removeEventListener(type, stop);
+    };
+  }, [lines, changed]);
   return (
     <div role="group" aria-label={title} className={styles.side}>
       <div className={styles.head} aria-hidden="true">
@@ -50,7 +90,7 @@ function Side({ title, lines, changed, mark }: { title: string; lines: readonly 
       {lines.length === 0 ? (
         <p className={styles.empty}>Leer</p>
       ) : (
-        <ol className={styles.lines}>
+        <ol ref={list} className={styles.lines}>
           {lines.map((line, i) =>
             changed[i] ? (
               <li key={i} data-line="" data-changed="" className={`${styles.line} ${styles.changed} ${mark === "del" ? styles.removed : styles.added}`}>
