@@ -1155,6 +1155,53 @@ mod tests {
         assert!(!fixture.dir.path().join("build").exists());
     }
 
+    /// `<tmp>/_testkopien/X_DSPRE_contents` (the synthetic project, no `build/`) open in a
+    /// fresh state with `X.nds` beside it assigned as its base ROM.
+    fn copy_with_a_base() -> (tempfile::TempDir, std::path::PathBuf, AppState) {
+        use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+        let s = synthetic_project();
+        let (_rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let copies = tmp.path().join("_testkopien");
+        let root = copies.join("X_DSPRE_contents");
+        copy_dir(s.dir.path(), &root);
+        let nds = copies.join("X.nds");
+        std::fs::copy(&rom, &nds).unwrap();
+        assert!(!root.join("build").exists());
+        let state = AppState::default();
+        open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        crate::commands::base::assign_base_impl(&state, nds.to_str().unwrap()).unwrap();
+        (tmp, root, state)
+    }
+
+    /// `create_patch` through `policy` on a project without `build/`: the policy makes the
+    /// folder and the build runs (and fails on the synthetic project as `build_rom` does).
+    fn create_patch_makes_build(policy: &dyn Policy, root: &std::path::Path, state: &AppState) {
+        let err = match dispatch(state, policy, "create_patch", json!({})) {
+            Err(DispatchError::Cmd(e)) => e,
+            other => panic!("{other:?}"),
+        };
+        assert!(root.join("build").is_dir(), "{}", err.message);
+        let targets = crate::commands::base::patch_targets(state).unwrap();
+        let plain = build_rom_impl(state, targets.rom.to_str().unwrap()).unwrap_err();
+        assert_eq!((err.code, &err.message), (plain.code, &plain.message));
+    }
+
+    #[test]
+    fn create_patch_makes_build_through_the_user_policy() {
+        let (_tmp, root, state) = copy_with_a_base();
+        let policy = UserPolicy::new_with_roms(&root, &[], None, None).unwrap();
+        create_patch_makes_build(&policy, &root, &state);
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn create_patch_makes_build_through_the_bridge() {
+        let (tmp, root, state) = copy_with_a_base();
+        let policy = Roots::new(&[tmp.path().join("_testkopien")]).unwrap();
+        create_patch_makes_build(&policy, &root, &state);
+    }
+
     #[test]
     fn create_area_takes_the_patch_a_new_place_and_no_internal_name() {
         let (fixture, state) = open_synthetic();

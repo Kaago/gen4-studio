@@ -11,6 +11,9 @@ const LOCKED_SUFFIX: &str = "_DSPRE_contents";
 /// Folder name of the shared save games, which lives inside `_testkopien` and must stay untouched.
 const SAVES_DIR: &str = "_saves";
 
+/// Name of the folder inside a project that takes ROM builds, made when a target needs it.
+const BUILD_DIR: &str = "build";
+
 /// Whether a component of `path` names an original project (ends in `_DSPRE_contents`) with
 /// no `_testkopien` component before it: originals live in `Roms/`, copies under
 /// `Roms/_testkopien` keep DSPRE's names.
@@ -102,6 +105,27 @@ impl DevPolicy {
         }
         Ok(())
     }
+
+    /// Makes `parent` when it does not exist, is named `build` and the folder above it
+    /// exists and passes `check_canonical`: a project without `build/` takes its first build
+    /// target (`create_patch`). Nothing deeper and no other name is made.
+    fn make_build_dir(&self, parent: &Path, shown: &str) -> Result<(), CmdError> {
+        // A dangling link exists as a link and is left for the checks to refuse.
+        if parent.symlink_metadata().is_ok() || parent.file_name() != Some(BUILD_DIR.as_ref()) {
+            return Ok(());
+        }
+        let above = match parent.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        let Ok(above) = above.canonicalize() else {
+            return Ok(());
+        };
+        self.check_canonical(&above, shown)?;
+        let build = above.join(BUILD_DIR);
+        std::fs::create_dir(&build)
+            .map_err(|e| CmdError::from(format!("Ordner nicht anlegbar: {}: {e}", build.display())))
+    }
 }
 
 impl Policy for DevPolicy {
@@ -144,7 +168,8 @@ impl Policy for DevPolicy {
 
     /// `build_rom`: the out path whose canonical parent lies under a root. The file itself
     /// need not exist; when it does, it must not lead out of the roots either (a symlink to
-    /// an original would be written through).
+    /// an original would be written through). A missing parent named `build` is made when
+    /// the folder above it is allowed, as `UserPolicy` makes a fresh project's `build/`.
     fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(out);
         let name = path
@@ -154,6 +179,7 @@ impl Policy for DevPolicy {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
         };
+        self.make_build_dir(parent, out)?;
         let parent = canonicalize(parent, out)?;
         self.check_canonical(&parent, out)?;
         let full = parent.join(name);
@@ -462,6 +488,65 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("missing").join("out.nds");
         assert!(roots_in(&dir).check_output(out.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn output_in_a_missing_build_folder_makes_it() {
+        // A DSPRE copy under `_testkopien` without `build/`, as `create_patch` targets it.
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, copies) = roms_with_copies(&tmp);
+        let project = copies.join("X_DSPRE_contents");
+        fs::create_dir(&project).unwrap();
+        let roots = Roots::new(std::slice::from_ref(&copies)).unwrap();
+        let build = project.canonicalize().unwrap().join("build");
+        for name in ["X-CPUD.nds", "X-CPUD.xdelta"] {
+            let out = project.join("build").join(name);
+            assert_eq!(
+                roots.check_output(out.to_str().unwrap()).unwrap(),
+                build.join(name)
+            );
+        }
+        assert!(
+            build.is_dir(),
+            "build/ is created for a target directly in it"
+        );
+        // Only build/ itself, one level: a deeper or another missing folder is not made.
+        let deeper = project.join("build/sub/out.nds");
+        assert!(roots.check_output(deeper.to_str().unwrap()).is_err());
+        assert!(!build.join("sub").exists());
+        let missing = project.join("gone/build/out.nds");
+        assert!(roots.check_output(missing.to_str().unwrap()).is_err());
+        assert!(!project.join("gone").exists());
+    }
+
+    #[test]
+    fn build_folder_is_not_made_where_the_target_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let roots = roots_in(&root);
+        let original = root.path().join("X_DSPRE_contents");
+        let saves = root.path().join("_saves");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&saves).unwrap();
+        let link = root.path().join("link");
+        symlink(other.path(), &link).unwrap();
+        for (dir, refusal) in [
+            (
+                original.as_path(),
+                "Originale (_DSPRE_contents) sind gesperrt: ",
+            ),
+            (saves.as_path(), "Spielstände (_saves) sind gesperrt: "),
+            (other.path(), "Pfad liegt außerhalb der erlaubten Ordner: "),
+            (
+                link.as_path(),
+                "Pfad liegt außerhalb der erlaubten Ordner: ",
+            ),
+        ] {
+            let out = dir.join("build").join("out.nds");
+            let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
+            assert!(err.message.starts_with(refusal), "{}", err.message);
+            assert!(!dir.join("build").exists(), "{}", dir.display());
+        }
     }
 
     #[test]
