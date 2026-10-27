@@ -3,12 +3,14 @@
 //! extracts a `.nds` into a new ds-rom project folder.
 //!
 //! A build is a fixed list of steps ([`step::Step`]): `textproject` (text projects only),
-//! `rotom`, `chatot`, one `pack:<name>`
-//! per archive and per pack entry of `archives.yaml`, one `watch:<name>` per other folder
-//! below `unpacked/` (it never runs, see [`unpacked_unpacked`]) and `rom`. Each runs only
-//! when its inputs changed since it last succeeded, recorded in [`state::BuildState`]
-//! (`.g4/build/state.json`, see `docs/formats/build_state.md`). Without that state
-//! everything runs, with the same result.
+//! `rotom`, `chatot`, one `pack:<name>` per archive and per pack entry of `archives.yaml`,
+//! one `watch:<name>` per other folder below `unpacked/` (it never runs, see
+//! [`unpacked_unpacked`]) and `rom`. Each runs only when its inputs changed since it last
+//! succeeded, recorded in [`state::BuildState`] (`.g4/build/state.json`, see
+//! `docs/formats/build_state.md`). Without that state everything runs, with the same result;
+//! except that `textproject` then cannot tell which side of a unit changed, so a member that
+//! differs from its JSON and from the base layer stops it (`textproject.unsynced`) instead of
+//! being overwritten.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -47,7 +49,10 @@ pub const BUILD_DIR: &str = ".g4/build";
 /// the next build runs every step fully) but keeps the text archives' sync records in
 /// `state.json`, so which version of a text applies still follows the fingerprints: a member
 /// DSPRE changed since the last build is not overwritten by its JSON. Only a project without
-/// any state reads every JSON (with the build's hint). A missing folder is not an error.
+/// any state reads every JSON (with the build's hint). In a text project the next build's
+/// `textproject` runs fully: a member that differs from its entity JSON and from the base
+/// layer stops it with `textproject.unsynced` (`g4k text import` or `g4k text export`
+/// decides) instead of being overwritten. A missing folder is not an error.
 pub fn clear_cache(project: &Project) -> Result<(), KernelError> {
     BuildState::clear_keeping_texts(&project.root)
 }
@@ -105,14 +110,15 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     let rotom = RotomStep::default();
     let chatot = ChatotStep::default();
     let mut steps: Vec<&dyn step::Step> = Vec::new();
-    if textproject::is_text_project(&project.root) {
-        steps.push(&text_project);
-    }
     if scripts::is_adopted(project) {
         steps.push(&rotom);
     }
     steps.push(&chatot);
-    let rows = match step::run_steps(project, &steps) {
+    let mut pending = step::Pending::default();
+    let ran = prepare_steps(project, &text_project, &steps, &mut pending);
+    let written = pending.write(&project.root);
+    let ran = ran.and_then(|rows| written.map(|()| rows));
+    let rows = match ran {
         Ok(rows) => Some(rows),
         // The problems come from the steps themselves, in step order.
         Err(KernelError::Compile(_)) => None,
@@ -141,6 +147,43 @@ pub fn prepare(project: &Project) -> Result<Prepared, KernelError> {
     );
     prepared.steps = rows;
     Ok(prepared)
+}
+
+/// The steps of [`prepare`] with their entry changes left in `pending`: `textproject` first
+/// (text projects only), then `steps`. A skipped `textproject` has not seeded the quirks
+/// file; when rotom's compile state lost them since (deleted or reset), they are seeded here,
+/// before `rotom`. As in [`step::run_steps`], a [`KernelError::Compile`] lets the later steps
+/// run and comes back with all their problems.
+fn prepare_steps(
+    project: &Project,
+    text_project: &TextProjectStep,
+    steps: &[&dyn step::Step],
+    pending: &mut step::Pending,
+) -> Result<Vec<StepReport>, KernelError> {
+    let mut rows = Vec::new();
+    let mut problems = Vec::new();
+    if textproject::is_text_project(&project.root) {
+        match step::run_steps_into(project, &[text_project], pending) {
+            Ok(own) => {
+                if own.iter().all(|r| r.status == StepStatus::Skipped) {
+                    textproject::step::reseed_quirks(project)?;
+                }
+                rows.extend(own);
+            }
+            Err(KernelError::Compile(found)) => problems.extend(found),
+            Err(e) => return Err(e),
+        }
+    }
+    match step::run_steps_into(project, steps, pending) {
+        Ok(own) => rows.extend(own),
+        Err(KernelError::Compile(found)) => problems.extend(found),
+        Err(e) => return Err(e),
+    }
+    if problems.is_empty() {
+        Ok(rows)
+    } else {
+        Err(KernelError::Compile(problems))
+    }
 }
 
 fn build_err(e: impl std::fmt::Display) -> KernelError {

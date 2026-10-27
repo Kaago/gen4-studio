@@ -385,7 +385,15 @@ impl Pending {
 /// (the ROM step: its rows). The entries change in one write at the end. An error stops
 /// the run, except [`KernelError::Compile`] (problems in sources): the steps after it still
 /// run, so every problem is reported, and the problems of all failed steps come back
-/// together.
+/// together. `build::prepare` runs its steps through [`run_steps_into`] in two parts (it
+/// seeds the quirks between `textproject` and `rotom`); the runner's tests use this.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "prepare splits its steps; the runner's tests run them whole"
+    )
+)]
 pub(crate) fn run_steps(
     project: &Project,
     steps: &[&dyn Step],

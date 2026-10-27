@@ -1104,3 +1104,172 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 }
+
+const SYNC_FILE: &str = ".g4/build/textproject.json";
+
+/// The textproject warnings and errors of `problems`.
+fn step_problems(problems: &[Problem]) -> Vec<&Problem> {
+    problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject."))
+        .collect()
+}
+
+#[test]
+fn a_lost_sync_file_makes_the_run_full_and_never_overwrites() {
+    let fx = built();
+    assert_eq!(fx.text(SYNC_FILE), r#"{"version":1,"member_newer":[]}"#);
+
+    // Without the file the step cannot know which members it kept: it runs fully, and a
+    // member equal to the base layer takes its JSON.
+    std::fs::remove_file(fx.root().join(SYNC_FILE)).unwrap();
+    fx.edit("data/moves/0002.json", "\"power\": 20", "\"power\": 21");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    let row = &prepared.steps[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.reason, row.done),
+        (
+            "textproject",
+            StepStatus::Full,
+            Some("textproject.sync-lost"),
+            1
+        ),
+        "{row:?}"
+    );
+    assert_eq!(fx.read("unpacked/moveData/0002")[3], 21);
+    assert!(fx.exists(SYNC_FILE));
+
+    // A member kept as newer, then the file lost and the JSON edited: unsynced, not
+    // overwritten.
+    std::thread::sleep(Duration::from_millis(20));
+    let mut dspre = fx.read(MOVE_1);
+    dspre[3] = 77;
+    fx.write(MOVE_1, &dspre);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(
+        codes(&prepared.problems),
+        ["textproject.member-newer"],
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(
+        fx.text(SYNC_FILE),
+        r#"{"version":1,"member_newer":["unpacked/moveData/0001"]}"#
+    );
+    std::fs::remove_file(fx.root().join(SYNC_FILE)).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1), dspre);
+}
+
+#[test]
+fn export_forgets_the_members_kept_as_newer() {
+    let fx = built();
+    let mut dspre = fx.read(MOVE_1);
+    dspre[3] = 77;
+    fx.write(MOVE_1, &dspre);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+
+    // The export takes the member into the JSON; then the JSON is edited.
+    fx.export();
+    assert_eq!(fx.text(SYNC_FILE), r#"{"version":1,"member_newer":[]}"#);
+    std::thread::sleep(Duration::from_millis(20));
+    fx.edit(MOVE_1_JSON, "\"power\": 77", "\"power\": 99");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    let row = &prepared.steps[0];
+    assert_eq!(
+        (row.id.as_str(), row.status, row.done),
+        ("textproject", StepStatus::Incremental, 1),
+        "{row:?}"
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+}
+
+#[test]
+fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
+    let fx = built();
+    let appended = fx.read("unpacked/moveData/0003");
+    fx.write("unpacked/moveData/0004", &appended);
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    let found = step_problems(&prepared.problems);
+    assert_eq!(found.len(), 1, "{:?}", prepared.problems);
+    assert_eq!(found[0].severity, Severity::Warning);
+    assert_eq!(
+        found[0].message,
+        "textproject.member-newer: unpacked/moveData/0004 ist neuer als data/moves/0004.json; \
+         g4k text export übernimmt ihn, g4k text import verwirft ihn."
+    );
+    assert_eq!(fx.read("unpacked/moveData/0004"), appended);
+
+    // A full run cannot tell where it came from.
+    build::clear_cache(&fx.p()).unwrap();
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
+    assert_eq!(
+        problems[0].message,
+        "textproject.unsynced: unpacked/moveData/0004 weicht von data/moves/0004.json und von \
+         der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt)."
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // The import keeps its own rule.
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+}
+
+#[test]
+fn a_reset_compile_state_gets_the_quirks_again() {
+    use g4_kernel::textproject::quirks::{load_quirks, seed_changes};
+    let fx = built();
+    fx.write(
+        "data/rotom-quirks.json",
+        b"{\n  \"quirks\": {\n    \"expanded/scripts/0000.rotom\": {\n      \"jump_table_end_marker_count\": 2\n    }\n  }\n}\n",
+    );
+    build::prepare(&fx.p()).unwrap();
+    let quirks = load_quirks(fx.root()).unwrap();
+    assert_eq!(seed_changes(&fx.p(), &quirks).unwrap(), 0);
+
+    // rotom's compile state goes; the quirks file stays, so the step is skipped.
+    std::fs::remove_file(fx.root().join(".rotom/status/compile-state.json")).unwrap();
+    assert!(seed_changes(&fx.p(), &quirks).unwrap() > 0);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(prepared.steps[0].id, "textproject");
+    assert_eq!(prepared.steps[0].status, StepStatus::Skipped);
+    assert_eq!(seed_changes(&fx.p(), &quirks).unwrap(), 0);
+}
+
+#[test]
+fn a_packed_member_without_its_folder_is_judged_by_the_base() {
+    let fx = built();
+    let mut dspre = fx.read(MOVE_1);
+    dspre[3] = 77;
+    fx.write(MOVE_1, &dspre);
+    run_source_and_pack_steps(&fx.p()).unwrap();
+    std::fs::remove_dir_all(fx.root().join("unpacked/moveData")).unwrap();
+    build::clear_cache(&fx.p()).unwrap();
+
+    let before = fx.mtimes();
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
+    assert!(
+        problems[0]
+            .message
+            .starts_with("textproject.unsynced: unpacked/moveData/0001 weicht"),
+        "{}",
+        problems[0].message
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert!(!fx.exists("unpacked/moveData"));
+}

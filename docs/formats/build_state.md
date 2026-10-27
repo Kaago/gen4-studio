@@ -8,7 +8,8 @@ Schritten, `salt.rs`).
 
 **Die Datei ist nie Quelle.** Sie darf gelöscht werden, ebenso der ganze Ordner `.g4/build/`. Fehlt
 sie, ist sie kaputt oder hat sie eine andere `version`, gilt ein leerer Zustand: Der nächste Build
-lässt jeden Schritt voll laufen, ohne Fehler, und das Ergebnis ist byte-gleich. Die Einträge unter
+lässt jeden Schritt voll laufen, ohne Fehler, und das Ergebnis ist byte-gleich; nur in einem
+Textprojekt kann `textproject` dann mit `textproject.unsynced` anhalten (siehe „Neu bauen“). Die Einträge unter
 `texts` sind dabei mehr als Cache: Sie entscheiden, ob die JSON oder der Member eines Textarchivs
 gilt. Ohne sie gilt für jedes Archiv die JSON, auch wenn DSPRE den Member seitdem geändert hat (der
 Build meldet das als Hinweis).
@@ -19,7 +20,10 @@ aber die `texts`-Einträge: Zuerst ersetzt es `state.json` atomar durch einen Zu
 ihnen, erst danach löscht es den Rest des Ordners, sodass ein Absturz dazwischen den Textabgleich
 nicht verliert. Alle Schritte laufen danach
 voll (`no-state`), die Seiten der Textarchive folgen weiter den Fingerabdrücken. Fehlt `state.json`
-oder ist sie kaputt, verschwindet nur der Ordner.
+oder ist sie kaputt, verschwindet nur der Ordner. In einem Textprojekt weiß `textproject` danach
+nicht mehr, welche Seite einer Entität sich geändert hat: Ein Member, der von seiner JSON und von
+der Basisschicht abweicht, hält den Build mit `textproject.unsynced` an (`g4k text import` oder
+`g4k text export` entscheidet), statt überschrieben zu werden.
 
 ## Felder
 
@@ -113,6 +117,7 @@ Include-Dateien; zusammen etwa 4 MB), danach beginnt er von vorn.
 | voll | Salz weicht ab | `build.cache-stale` |
 | voll | eine Ausgabe fehlt (gelöschte ROM, neuer Ausgabepfad, eine aufgezeichnete Datei fehlt im Ausgabeordner) | `removed` |
 | voll | eine Ausgabe weicht vom Eintrag ab oder steht nicht darin | `output-changed` |
+| voll | nur `textproject`: `.g4/build/textproject.json` fehlt, ist kaputt oder hat eine andere Version | `textproject.sync-lost` |
 | übersprungen | keine Eingabe weicht ab | – |
 | inkrementell | sonst; der Schritt bekommt die geänderten, neuen und entfernten Eingaben | – |
 
@@ -154,10 +159,16 @@ wenn sich inkrementell nur die JSON-Seite geändert hat; ist nur der Member neue
 sonst `textproject.unsynced`. Die Regeltabelle steht in [text_project.md](text_project.md) unter
 „Build“. Die Member sind Eingaben, keine Ausgaben (wie bei `chatot`); die geschriebenen stehen in
 `StepRun.wrote`. Die als neuer behaltenen Member merkt er sich in `.g4/build/textproject.json`
-(`{"version": 1, "member_newer": ["unpacked/…/NNNN", …]}`, fehlt, wenn es keine gibt), damit eine
-spätere Änderung ihrer JSON ein Konflikt wird; „ohne Cache“ löscht die Datei mit, der volle Lauf
-danach urteilt über die Basisschicht. Salz: `textproject#<TEXTPROJECT_REV>+schema<SCHEMA_VERSION>+`
-und die uxie-Zeile.
+(`{"version":1,"member_newer":["unpacked/…/NNNN", …]}`, nach jedem erfolgreichen Lauf geschrieben,
+auch leer; Export und Import schreiben sie leer), damit eine spätere Änderung ihrer JSON ein
+Konflikt wird. Fehlt die Datei, ist sie kaputt oder hat sie eine andere Version, läuft der Schritt
+voll statt inkrementell (`reason` `textproject.sync-lost`): Ein Member, der von seiner JSON und von
+der Basisschicht abweicht, ergibt dann `textproject.unsynced`, nie ein Überschreiben. „Ohne Cache“
+löscht die Datei mit; der volle Lauf danach urteilt ebenso über die Basisschicht. Ein Member ohne
+JSON gilt inkrementell als neuer (wenn er geändert oder schon behalten ist), voll als `unsynced`.
+Ist der Schritt übersprungen, hat der Compile-Zustand aber die Quirks der Quirks-Datei verloren
+(gelöscht, zurückgesetzt), legt `prepare` sie vor `rotom` wieder hinein. Salz:
+`textproject#<TEXTPROJECT_REV>+schema<SCHEMA_VERSION>+sync<Version der Datei>+` und die uxie-Zeile.
 
 `rotom`: rotoms eigener `compile-state.json` bleibt maßgeblich; das Tor entscheidet nur, ob
 `scripts::compile` läuft. `chatot` voll: jede JSON, die nach `TextSync` gilt (`OnlyJson`,

@@ -48,6 +48,7 @@ use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ImportCtx, ROOT};
+use super::step::clear_kept;
 
 /// What [`import`] did: per art the entities read and the members written, the blobs and
 /// members written, the compile state entries the quirks changed, what `prepare` compiled and
@@ -93,6 +94,32 @@ pub(crate) struct ImportPlan {
     pub quirks_path: Option<PathBuf>,
     pub problems: Vec<Problem>,
     pub arts: Vec<ArtStats>,
+    /// The members without JSON the checks found, each with its error in `problems`.
+    pub orphans: Vec<Orphan>,
+}
+
+/// Members on disk without their JSON (or without their part in it, or a binary member with
+/// neither file nor base member): `problem` is the index of their
+/// `textproject.member-without-json` error in [`ImportPlan::problems`], `file` the source
+/// file they lack, `members` the members (relative to the root). The build step judges them
+/// by its own rules instead (a member appended on the member side is newer than its JSON).
+#[derive(Debug, Clone)]
+pub(crate) struct Orphan {
+    pub problem: usize,
+    pub file: PathBuf,
+    pub members: Vec<PathBuf>,
+}
+
+impl ImportPlan {
+    /// Pushes `problem`, the error of the members without JSON `members` of `file`.
+    fn push_orphan(&mut self, problem: Problem, file: PathBuf, members: Vec<PathBuf>) {
+        self.orphans.push(Orphan {
+            problem: self.problems.len(),
+            file,
+            members,
+        });
+        self.problems.push(problem);
+    }
 }
 
 impl ImportPlan {
@@ -227,6 +254,8 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
         return Err(KernelError::Compile(plan.problems));
     }
     let applied = apply_import(project, &plan)?;
+    // Every JSON equals its member now: nothing is newer than its JSON.
+    clear_kept(&project.root)?;
     let prepared = build::prepare(project)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
@@ -382,40 +411,49 @@ fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
 }
 
 /// The JSON numbers of `dir` checked for gaps: a missing number below the member count is a
-/// member without JSON, one above it a gap.
-fn check_numbering(dir: &Path, numbers: &[usize], members: usize, plan: &mut ImportPlan) {
+/// member without JSON (its members on disk from `members_of`), one above it a gap.
+fn check_numbering(
+    dir: &Path,
+    numbers: &[usize],
+    members: usize,
+    members_of: &dyn Fn(usize) -> Vec<PathBuf>,
+    plan: &mut ImportPlan,
+) {
     let mut next = 0;
     for &n in numbers {
         for gap in next..n {
             let file = dir.join(format!("{gap:04}.json"));
-            plan.problems.push(if gap < members {
-                problem(
+            if gap < members {
+                let found = problem(
                     &file,
                     MEMBER_WITHOUT_JSON_CODE,
                     format!(
                         "{ROOT}: die Datei fehlt, das Member {gap:04} ist da; der Import löscht \
                          keine Member, Löschen ist 4.3b."
                     ),
-                )
+                );
+                plan.push_orphan(found, file, members_of(gap));
             } else {
-                problem(
+                plan.problems.push(problem(
                     &file,
                     SCHEMA_CODE,
                     format!("{ROOT}: die Datei fehlt; die Dateien sind lückenlos von 0000 an nummeriert."),
-                )
-            });
+                ));
+            }
         }
         next = n + 1;
     }
     if next < members {
-        plan.problems.push(problem(
-            &dir.join(format!("{next:04}.json")),
+        let file = dir.join(format!("{next:04}.json"));
+        let found = problem(
+            &file,
             MEMBER_WITHOUT_JSON_CODE,
             format!(
                 "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor {next:04}; der \
                  Import löscht keine Member, Löschen ist 4.3b."
             ),
-        ));
+        );
+        plan.push_orphan(found, file, (next..members).flat_map(members_of).collect());
     }
 }
 
@@ -457,7 +495,15 @@ fn plan_entities<E: EntitySchema>(
         lens.max().unwrap_or(0)
     };
     let numbers = numbered(&dir, "json")?;
-    check_numbering(&rel_dir, &numbers, members, plan);
+    let members_of = |n: usize| -> Vec<PathBuf> {
+        kinds
+            .iter()
+            .zip(&current)
+            .filter(|(_, c)| c.get(n).is_some_and(Option::is_some))
+            .map(|(&kind, _)| member_rel(project, kind, n))
+            .collect()
+    };
+    check_numbering(&rel_dir, &numbers, members, &members_of, plan);
     let names = file_names(&dir)?;
     // The next member each archive can append: the archive's length on disk, raised by every
     // part an imported entity appends. An entity that fails to import counts as appending all
@@ -517,15 +563,19 @@ fn plan_entities<E: EntitySchema>(
                         });
                     }
                 }
-                None if cur[k].is_some() => plan.problems.push(problem(
-                    &file,
-                    MEMBER_WITHOUT_JSON_CODE,
-                    format!(
-                        "{ROOT}: das Member {n:04} von {} fehlt in der Datei; der Import löscht \
-                         keine Member, Löschen ist 4.3b.",
-                        project.archives.unpacked_name(kind)
+                None if cur[k].is_some() => plan.push_orphan(
+                    problem(
+                        &file,
+                        MEMBER_WITHOUT_JSON_CODE,
+                        format!(
+                            "{ROOT}: das Member {n:04} von {} fehlt in der Datei; der Import \
+                             löscht keine Member, Löschen ist 4.3b.",
+                            project.archives.unpacked_name(kind)
+                        ),
                     ),
-                )),
+                    file.clone(),
+                    vec![member_rel(project, kind, n)],
+                ),
                 None => {}
             }
         }
@@ -885,14 +935,19 @@ fn plan_binary(
                     next = next.max(i + 1);
                 }
                 Ok(None) if current.get(i).is_some_and(Option::is_some) => {
-                    plan.problems.push(problem(
-                        &file_of(i),
-                        MEMBER_WITHOUT_JSON_CODE,
-                        format!(
-                            "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in der \
-                             Basisschicht; der Import löscht keine Member, Löschen ist 4.3b."
+                    plan.push_orphan(
+                        problem(
+                            &file_of(i),
+                            MEMBER_WITHOUT_JSON_CODE,
+                            format!(
+                                "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
+                                 der Basisschicht; der Import löscht keine Member, Löschen ist \
+                                 4.3b."
+                            ),
                         ),
-                    ));
+                        file_of(i),
+                        vec![member_rel(project, kind, i)],
+                    );
                 }
                 Ok(None) => plan.problems.push(problem(
                     &file_of(i),
@@ -917,14 +972,19 @@ fn plan_binary(
                 }
                 Ok(None) if i >= end => break,
                 Ok(None) if current.get(i).is_some_and(Option::is_some) => {
-                    plan.problems.push(problem(
-                        &file_of(i),
-                        MEMBER_WITHOUT_JSON_CODE,
-                        format!(
-                            "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in der \
-                             Basisschicht; der Import löscht keine Member, Löschen ist 4.3b."
+                    plan.push_orphan(
+                        problem(
+                            &file_of(i),
+                            MEMBER_WITHOUT_JSON_CODE,
+                            format!(
+                                "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
+                                 der Basisschicht; der Import löscht keine Member, Löschen ist \
+                                 4.3b."
+                            ),
                         ),
-                    ));
+                        file_of(i),
+                        vec![member_rel(project, kind, i)],
+                    );
                 }
                 Ok(None) => plan.problems.push(problem(
                     &file_of(i),
@@ -1053,6 +1113,17 @@ fn plan_quirks(
     }
     plan.quirks = quirks;
     Ok(())
+}
+
+/// The quirks file when it is valid and seeding it would change rotom's compile state (adopted
+/// projects only); `None` otherwise, also when it is broken (the build step reports that).
+pub(crate) fn quirks_to_seed(project: &Project) -> Result<Option<QuirksFile>, KernelError> {
+    if !scripts::is_adopted(project) {
+        return Ok(None);
+    }
+    let mut plan = ImportPlan::default();
+    plan_quirks(project, None, &mut plan)?;
+    Ok((plan.problems.is_empty() && plan.quirks_path.is_some()).then_some(plan.quirks))
 }
 
 /// What [`apply_import`] wrote: `paths` every file written (relative to the root; rotom's

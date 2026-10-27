@@ -15,16 +15,25 @@
 //! | incremental | yes | no | the members are written |
 //! | incremental | no | yes | the members stay; warning `textproject.member-newer` |
 //! | incremental | yes | yes | error `textproject.conflict`, nothing written |
-//! | full (no entry, another salt) | – | – | a member missing or equal to the base layer's is written; else error `textproject.unsynced` |
+//! | full | – | – | members missing or equal to the base layer's: written; else `textproject.unsynced` |
 //!
-//! A unit whose bytes equal its members is left alone. An incremental run plans only the
-//! units of the changed inputs (and of the members kept as newer before); a change of the
-//! manifest or a register plans every unit, and counts as a JSON side change of each that
-//! differs. A unit planned without a change on either side (one the plan takes in as a whole,
-//! the items) counts as member-newer: the step never writes what no JSON change asked for. The
-//! members kept as newer are remembered in [`SYNC_FILE`], so a later JSON edit of the same
-//! unit is a conflict and not a silent overwrite; a full run forgets them (it judges by the
-//! base layer). The quirks always go into the compile state, which is rotom's cache.
+//! A run is full without an entry or with another salt, and also when [`SYNC_FILE`] is
+//! missing, unreadable or of another version (reason [`SYNC_LOST`]). A unit whose bytes equal
+//! its members is left alone. An incremental run plans only the units of the changed inputs
+//! (and of the members kept as newer before); a change of the manifest or a register plans
+//! every unit, and counts as a JSON side change of each that differs. A unit planned without a
+//! change on either side (one the plan takes in as a whole, the items) counts as member-newer:
+//! the step never writes what no JSON change asked for. A member without JSON (appended by
+//! Studio or DSPRE, or a part the JSON lacks) is member-newer when its member changed or was
+//! kept before, `textproject.unsynced` in a full run, and otherwise the import's
+//! `textproject.member-without-json`.
+//!
+//! The members kept as newer are remembered in [`SYNC_FILE`], written after every successful
+//! run (also empty), so a later JSON edit of the same unit is a conflict and not a silent
+//! overwrite; a full run forgets them (it judges by the base layer), and so do a successful
+//! export and import (every JSON equals its member then). The quirks always go into the
+//! compile state, which is rotom's cache; when the step is skipped, `prepare` seeds them again
+//! if the compile state lost them ([`reseed_quirks`]).
 //!
 //! Every unit is decided before the first write; one error and the step fails with
 //! [`KernelError::Compile`] and writes nothing.
@@ -43,13 +52,16 @@ use crate::project::{AssetKind, Project};
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity};
 
+use super::arts::read_members;
 use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
 use super::base_layer::{BaseLayer, RAW_DIR, walk};
 use super::canon::{problem, write_if_changed};
 use super::codes::{CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE, UNSYNCED_CODE};
-use super::import::{ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import};
+use super::import::{
+    ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import, quirks_to_seed,
+};
 use super::manifest::{refusal, schema_state};
-use super::quirks::QUIRKS_FILE;
+use super::quirks::{QUIRKS_FILE, seed_quirks};
 use super::registry::IDS_DIR;
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 
@@ -60,8 +72,15 @@ pub(crate) const TEXTPROJECT_REV: u32 = 1;
 /// it, which makes the next run full anyway).
 pub(crate) const SYNC_FILE: &str = ".g4/build/textproject.json";
 
-/// The format version of [`SYNC_FILE`]; another version reads as empty.
+/// The format version of [`SYNC_FILE`]; part of the salt, and another version in the file
+/// makes the run full ([`SYNC_LOST`]).
 const SYNC_VERSION: u32 = 1;
+
+/// The reason of a run that was to be incremental but ran fully because [`SYNC_FILE`] is
+/// missing, unreadable or of another version: the members kept as newer are unknown, so the
+/// step judges every unit by the base layer (`textproject.unsynced`) rather than let a JSON
+/// overwrite one of them.
+pub(crate) const SYNC_LOST: &str = "textproject.sync-lost";
 
 /// The step, see the module documentation. The problems of its last run (warnings when it
 /// succeeded, everything when it failed with [`KernelError::Compile`]) are in `problems`.
@@ -78,7 +97,7 @@ impl Step for TextProjectStep {
     fn salt(&self) -> String {
         // uxie's codecs turn the entities into members.
         format!(
-            "textproject#{TEXTPROJECT_REV}+schema{SCHEMA_VERSION}+{}",
+            "textproject#{TEXTPROJECT_REV}+schema{SCHEMA_VERSION}+sync{SYNC_VERSION}+{}",
             lock(Tool::Uxie)
         )
     }
@@ -236,26 +255,19 @@ struct SyncFile {
     member_newer: BTreeSet<String>,
 }
 
-/// The members kept as newer; none when the file is missing, broken or of another version.
-fn load_kept(root: &Path) -> BTreeSet<PathBuf> {
+/// The members kept as newer; `None` when the file is missing, unreadable or of another
+/// version.
+fn load_kept(root: &Path) -> Option<BTreeSet<PathBuf>> {
     std::fs::read(root.join(SYNC_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<SyncFile>(&bytes).ok())
         .filter(|file| file.version == SYNC_VERSION)
         .map(|file| file.member_newer.into_iter().map(PathBuf::from).collect())
-        .unwrap_or_default()
 }
 
-/// Writes the members kept as newer (only when they change); no file when there are none.
+/// Writes the members kept as newer, also when there are none (only when the bytes change):
+/// a missing file means they are unknown.
 fn save_kept(root: &Path, kept: &BTreeSet<PathBuf>) -> Result<(), KernelError> {
-    let path = root.join(SYNC_FILE);
-    if kept.is_empty() {
-        return match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(crate::error::io_at(&path)(e)),
-        };
-    }
     let file = SyncFile {
         version: SYNC_VERSION,
         member_newer: kept
@@ -265,6 +277,22 @@ fn save_kept(root: &Path, kept: &BTreeSet<PathBuf>) -> Result<(), KernelError> {
     };
     let bytes = serde_json::to_vec(&file).map_err(|e| KernelError::Build(e.to_string()))?;
     write_if_changed(root, Path::new(SYNC_FILE), &bytes)?;
+    Ok(())
+}
+
+/// Forgets the members kept as newer (writes [`SYNC_FILE`] empty): after an export or import,
+/// every JSON equals its member.
+pub(crate) fn clear_kept(root: &Path) -> Result<(), KernelError> {
+    save_kept(root, &BTreeSet::new())
+}
+
+/// Puts the quirks file into rotom's compile state when that would change it (a compile state
+/// deleted or reset while the quirks file stayed, so the step was skipped). `prepare` calls it
+/// before `rotom`; a broken quirks file is left to the step's report.
+pub(crate) fn reseed_quirks(p: &Project) -> Result<(), KernelError> {
+    if let Some(quirks) = quirks_to_seed(p)? {
+        seed_quirks(p, &quirks)?;
+    }
     Ok(())
 }
 
@@ -353,12 +381,12 @@ struct Base<'a> {
 
 impl Base<'_> {
     /// Whether member `rel` may be written in a full run: it is missing, or equal to the base
-    /// layer's (the header table in `arm9.bin` by the table alone).
+    /// layer's (the header table in `arm9.bin` by the table alone). A member whose folder
+    /// below `unpacked/` is not there is read from its packed NARC.
     fn may_write(&self, rel: &Path) -> Result<bool, KernelError> {
-        let path = self.project.root.join(rel);
-        if !path.exists() {
+        let Some(ours) = self.current(rel)? else {
             return Ok(true);
-        }
+        };
         let Some(layer) = &self.layer else {
             return Ok(false);
         };
@@ -371,8 +399,38 @@ impl Base<'_> {
             let ours = self.project.read_header_table_bytes().ok();
             return Ok(theirs.is_some() && *theirs == ours);
         }
-        let ours = std::fs::read(&path).map_err(crate::error::io_at(&path))?;
         Ok(layer.file(rel)?.as_deref() == Some(ours.as_slice()))
+    }
+
+    /// The bytes of `rel` in the project: the file, else for a member `unpacked/<folder>/NNNN`
+    /// whose folder is missing the member of the packed NARC; `None` when neither is there.
+    fn current(&self, rel: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+        let p = self.project;
+        let path = p.root.join(rel);
+        match std::fs::read(&path) {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(crate::error::io_at(&path)(e)),
+        }
+        let parts: Vec<&str> = rel
+            .components()
+            .filter_map(|c| c.as_os_str().to_str())
+            .collect();
+        let ["unpacked", folder, file] = parts.as_slice() else {
+            return Ok(None);
+        };
+        let Ok(n) = file.parse::<usize>() else {
+            return Ok(None);
+        };
+        let kind = AssetKind::ALL
+            .into_iter()
+            .find(|&k| p.has_archive(k) && p.archives.unpacked_name(k) == *folder);
+        match kind {
+            Some(kind) if !p.unpacked_dir(kind).is_dir() => {
+                Ok(read_members(p, kind)?.get(n).cloned().flatten())
+            }
+            _ => Ok(None),
+        }
     }
 }
 
@@ -391,18 +449,19 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
             text,
         )]));
     }
-    let full = dirty.full.is_some();
+    // The members kept as newer before count as changed members; when they are unknown, the
+    // run is full.
+    let (full, lost, mut touched) = match (dirty.full, load_kept(root)) {
+        (Some(_), _) => (true, None, BTreeSet::new()),
+        (None, Some(kept)) => (false, None, kept),
+        (None, None) => (true, Some(SYNC_LOST), BTreeSet::new()),
+    };
 
-    // The changed inputs by side; the members kept as newer before count as changed members.
+    // The changed inputs by side.
     let mut json_keys = BTreeSet::new();
     let mut global = false;
     let mut only: BTreeSet<PathBuf> = BTreeSet::new();
-    let mut touched: BTreeSet<PathBuf> = if full {
-        BTreeSet::new()
-    } else {
-        load_kept(root)
-    };
-    for path in dirty.paths() {
+    for path in dirty.paths().filter(|_| !full) {
         if is_json_side(path) {
             global |= path == Path::new(MANIFEST_FILE) || path.starts_with(IDS_DIR);
             json_keys.insert(src_key(path));
@@ -422,6 +481,8 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
 
     let lazy = LazyBase::new(p, None, false);
     let mut plan = plan_import(p, &lazy, only.as_ref())?;
+    let mut kept: BTreeSet<PathBuf> = BTreeSet::new();
+    judge_orphans(&mut plan, full, &touched, &mut kept);
     if plan.has_errors() {
         return Err(KernelError::Compile(plan.problems));
     }
@@ -436,7 +497,6 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
     let mut problems = std::mem::take(&mut plan.problems);
     let mut errors = false;
     let mut write: Vec<&Unit> = Vec::new();
-    let mut kept: BTreeSet<PathBuf> = BTreeSet::new();
     let units = units(&plan);
     for unit in &units {
         let json = shown(&unit.json());
@@ -566,10 +626,56 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
             done: u32::try_from(done).unwrap_or(u32::MAX),
             total: count_units(p)?,
             wrote,
+            full: lost,
             ..StepRun::default()
         },
         problems,
     ))
+}
+
+/// The members without JSON of `plan` judged by the step's rules instead of the import's
+/// `textproject.member-without-json`: a full run cannot tell where they came from
+/// (`textproject.unsynced`); an incremental run keeps one whose member changed or was kept
+/// before (appended by Studio or DSPRE: `textproject.member-newer`, a warning, its members go
+/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 4.3b).
+fn judge_orphans(
+    plan: &mut ImportPlan,
+    full: bool,
+    touched: &BTreeSet<PathBuf>,
+    kept: &mut BTreeSet<PathBuf>,
+) {
+    for orphan in &plan.orphans {
+        let json = shown(&orphan.file);
+        let Some(slot) = plan.problems.get_mut(orphan.problem) else {
+            continue;
+        };
+        if full {
+            let member = orphan.members.first().cloned().unwrap_or_default();
+            *slot = problem(
+                &orphan.file,
+                UNSYNCED_CODE,
+                format!(
+                    "{} weicht von {json} und von der Basis ab; g4k text import (JSON gilt) \
+                     oder g4k text export (Member gilt).",
+                    shown(&member)
+                ),
+            );
+        } else if let Some(member) = orphan.members.iter().find(|m| touched.contains(*m)) {
+            *slot = Problem {
+                severity: Severity::Warning,
+                ..problem(
+                    &orphan.file,
+                    MEMBER_NEWER_CODE,
+                    format!(
+                        "{} ist neuer als {json}; g4k text export übernimmt ihn, g4k text \
+                         import verwirft ihn.",
+                        shown(member)
+                    ),
+                )
+            };
+            kept.extend(orphan.members.iter().cloned());
+        }
+    }
 }
 
 /// Every unit of the text project, roughly as the import counts them: one per entity file

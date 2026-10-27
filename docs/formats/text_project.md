@@ -369,13 +369,22 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` |
 | voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
 
+Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
+andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
+behalten hat, also urteilt er über die Basisschicht. Ein Member ohne JSON (von Studio oder DSPRE
+angehängt, oder ein Teil, der in der JSON fehlt) ist inkrementell `member-newer`, wenn sich sein
+Member geändert hat oder schon behalten war, voll `unsynced`, sonst das
+`textproject.member-without-json` des Imports.
+
 Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
 Register plant alle Einheiten und gilt für jede abweichende als JSON-Änderung; eine abweichende
 Einheit ohne Änderung auf einer der beiden Seiten (die Items werden als Ganzes geplant) gilt als
 `member-newer`. Die als neuer behaltenen Member merkt sich der Schritt in
-`.g4/build/textproject.json`, damit eine spätere Änderung ihrer JSON ein Konflikt ist und kein
-stilles Überschreiben; ein voller Lauf vergisst sie. Die Quirks gehen immer in den Compile-Zustand
-(rotoms Cache). Erst werden alle Einheiten entschieden, dann geschrieben: ein Fehler und nichts
+`.g4/build/textproject.json` (nach jedem erfolgreichen Lauf geschrieben, auch leer), damit eine
+spätere Änderung ihrer JSON ein Konflikt ist und kein stilles Überschreiben; ein voller Lauf, ein
+erfolgreicher Export und ein erfolgreicher Import vergessen sie (danach gleicht jede JSON ihrem
+Member). Die Quirks gehen immer in den Compile-Zustand (rotoms Cache); ist der Schritt
+übersprungen und hat der Compile-Zustand sie verloren, legt `prepare` sie vor `rotom` wieder hinein. Erst werden alle Einheiten entschieden, dann geschrieben: ein Fehler und nichts
 wird geschrieben. Ohne Basismarke oder Basisschicht darf ein voller Lauf nur fehlende Member
 schreiben.
 
