@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4) und [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B) [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4) [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate) und [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -647,6 +647,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **3b.4b:** DSPRE öffnet die Szenario-Kopie nach dem Import (B8) und der native Dateidialog in der gebündelten App (B9).
 - **3f:** die Bilder der Einblendung „Neuheim“ und „Neuweg“ (G.3, 2.8, 4.2), der Zellrahmen und die Draufsicht im Bild (1.7, 1.8), ein im neuen Gebiet gefangenes Pokémon mit dem Fundort „Neuheim“ (G.4) und DSPRE mit Patch und Ortsnamen (G.5).
 - **3g:** DSPRE öffnet den angelegten Ordner (A5) und ein mit der Vorlage angelegtes Projekt (B6), die gebündelte Tauri-App mit Dateidialog, Finder-Drop und Vorschlag (A6) sowie der Blick auf die Bilder der Szenarien (B2: `b2-pt`, `b2-hg`) und die Screens des Assistenten.
+- **4.1a:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; xdelta UI unter Windows; der Blick auf die 13 Bilder `blick-veroeffentlichen-*.png`. Liste mit Ort: [phase-4-1a-gate.md](phase-4-1a-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -743,3 +744,56 @@ uv run g4emu scenario ../agent/scenarios/pt-nahtlos.yaml --project $R/_testkopie
 ```
 
 Je Szenario eine frische Kopie (die Namen oben sind Beispiele; das Ziel darf nicht existieren). `G4_BRIDGE_BIN` und `G4K_BIN` zeigen auf den Build des Worktrees: nach einer Änderung am Rust-Code erst neu bauen, sonst läuft das Szenario mit dem alten Stand (für die Brücke der Seite gilt dasselbe, siehe oben). Bestanden heißt: Rückgabe 0, `"ok": true` in der letzten Zeile von stdout, die Zeilen „Erwartung erfüllt“ auf stderr (`pt-neuheim`: Patch vorher aus, nachher an, `location_name` 126, Breite 3, Höhe 1, 0 Fehler; `hg-neuheim`: Ort 235; `pt-nahtlos`: `headers.814` = 593, 0 Fehler), und der Header-Wechsel im Spiel (`pt-neuheim` 415 → 593, `hg-neuheim` 64 → 540, `pt-nahtlos` 415 → 414 → 411 → 593 ohne Warp). Die Bilder liegen im Ausgabeordner (`einblendung.png`, bei `pt-neuheim` dazu `osten.png`); der Agent nennt dem Nutzer Pfad und was zu sehen ist (die Einblendung „Neuheim“ bzw. „Neuweg“ oben links). Bleibt ein Lauf unterwegs stehen (etwa eine Begegnung im hohen Gras), mit einer neuen Kopie wiederholen.
+
+## Phase 4.1a ([phase-4-1a-gate.md](phase-4-1a-gate.md))
+
+4.1a ordnet einem DSPRE-Ordner seine Basis-ROM zu und schreibt in Technik › Veröffentlichen einen xdelta-Patch. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** je Zweck ein Ordner `4-1a-<zweck>_DSPRE_contents` und die `.nds` `4-1a-<zweck>.nds` direkt nebeneinander unter `$G4_ROMS_DIR/_testkopien` (frisch aus dem Original, das nur gelesen wird; `cp -cR` bzw. `cp -c` auf APFS). Nur in dieser Form greift der Vorschlag (die `.nds` neben `<Name>_DSPRE_contents`). Seit `eeba3c8` öffnet die Brücke Ordner mit der Endung `_DSPRE_contents`, wenn ein früherer Bestandteil des Pfads `_testkopien` heißt; einen solchen Ordner neu anlegen lehnt sie weiter ab (3g.1 (A4)). Zweck: `pt`, `hgde`, `hgus` (kopflos), `web` (Browser), `mcp` (MCP), dazu `4-1a-pt-fremd.nds` (Kopie von `4-1a-pt.nds`, letztes Byte gekippt). Die Kopien nach dem Gate löschen.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) gated `--test base` | Agent | je Projekt `G4_TEST_PROJECT=<Original> cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1`, `xdelta3` im PATH; die Zeilen `rebuild … equal`, `patch-sizes …`, `patch-stress …`, `xdelta3 cross-check: …` in die Tabelle der Gate-Datei |
+| (1) `cargo deny`, `scripts/gate.sh` | Agent | `scripts/gate.sh` im Hintergrund, aus einem Worktree mit absolutem `G4_ROMS_DIR` und dem `tools`-Symlink; Schritt `cargo deny (licenses, advisories)` |
+| (2) Szenario kopflos | Agent | Release-`g4k`, Befehle unten |
+| (3) Veröffentlichen, Basis-ROM fehlt, suchen | Agent | Browser, Ablauf unten |
+| (3) MCP | Agent | `mcp.sh` im Hintergrund, „Zulassen“ im Browser-Fenster, Befehle unten |
+| Blick | Agent + Blick | Bilder `blick-veroeffentlichen-*.png`, der Agent nennt Zustand und Texte je Bild |
+| Rom Patcher JS, xdelta UI | Hand | siehe „Was beim Nutzer bleibt“ |
+
+**Kopflos (2)**, aus der Wurzel des Worktrees nach `cargo build --release -p g4-kernel --bin g4k` (`K` ist `$G4_ROMS_DIR/_testkopien`, `<k>` je Spiel):
+
+```sh
+G=target/release/g4k
+$G base check  $K/4-1a-<k>_DSPRE_contents                     # mark=none, suggestion=…/4-1a-<k>.nds
+$G base assign $K/4-1a-<k>_DSPRE_contents $K/4-1a-<k>.nds     # ohne warning:, assigned sha1=… label=…
+$G build $K/4-1a-<k>_DSPRE_contents --out $K/4-1a-<k>_DSPRE_contents/build/rebuild.nds
+shasum $K/4-1a-<k>_DSPRE_contents/build/rebuild.nds $K/4-1a-<k>.nds    # gleich
+$G base assign $K/4-1a-pt_DSPRE_contents $K/4-1a-hgde.nds      # Exit 1, „Falsches Spiel …“
+$G base check  $K/4-1a-pt_DSPRE_contents --rom $K/4-1a-pt-fremd.nds   # warning: Unbekannte oder veränderte ROM …, Exit 0
+$G map set-perm $K/4-1a-<k>_DSPRE_contents 3 2 0 --kind 0 --collision 0   # muss „saved 1 file(s)“ melden
+G4_BASE_ROM_DIR=$K $G patch create $K/4-1a-<k>_DSPRE_contents --json   # size, encode_ms, verify_ms, target_sha1
+xdelta3 -d -s $K/4-1a-<k>.nds <patch> out.nds && shasum out.nds    # gleich build/<Name>.nds
+xdelta3 printhdr <patch>                                       # VCD_APPHEADER, secondary compressor: none
+```
+
+Meldet `map set-perm` „saved 0 file(s)“, hatte die Zelle den Wert schon: dann ist der Patch leer (Ziel-SHA-1 = Basis), einen anderen Wert setzen (im Gate bei Platin `--collision 0` statt 128). `G4_BASE_ROM_DIR` zeigt im Gate auf `_testkopien`, nie auf die Originale.
+
+**Browser (3)**, Test-Umgebung auf eigenen Ports (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1500 G4_BRIDGE_PORT=1501 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1500/?project=<…>/_testkopien/4-1a-web_DSPRE_contents`, Fenster 1440 × 900, Hell, Komfort. Technik › „Veröffentlichen“ (`[data-technik=veroeffentlichen]`): Karte `[data-base-state=unassigned]` mit dem Vorschlag, „Zuordnen…“, Dialog „Basis-ROM zuordnen?“ ablesen, „Zuordnen“; `[data-base-state=found]`; in `[data-patch-card]` „Patch erstellen…“, Dialog „Patch erstellen?“, „Patch erstellen“, auf „Patch erstellt: …“ warten (mit Bauen rund 15 s). Dann die `.nds` umbenennen (`mv 4-1a-web.nds 4-1a-web-verschoben.nds`), Technik verlassen und neu zeigen: `[data-base-state=missing]` mit Grund, „Patch erstellen…“ gesperrt. „Basis-ROM suchen…“ öffnet im Browser-Modus das Pfadfeld: erst `4-1a-hgde.nds` (Fehler „Das ist eine andere ROM …“), dann `4-1a-web-verschoben.nds` („Gefunden“).
+
+**MCP (3)** über die Brücke (siehe „MCP über die Brücke“), Kopie `4-1a-mcp` in der Seite geöffnet:
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                 # „Lesen und bearbeiten“, base_id null
+scripts/agent/mcp.sh call assign_base '{"nds":"../4-1a-mcp.nds"}' > target/agent/mcp-assign.out 2>&1 &
+# im Browser-Fenster: Dialog „Agent möchte etwas Unumkehrbares tun“ („Basis-ROM zuordnen“), Klick auf „Zulassen“
+cat target/agent/mcp-assign.out                                         # state found, source known, patch_name
+scripts/agent/mcp.sh call base_status                                   # sofort, ohne Frage nach der Freigabe
+scripts/agent/mcp.sh call create_patch '{}' > target/agent/mcp-patch.out 2>&1 &
+# Dialog „… möchte: Patch erstellen (…)“, „Zulassen“
+```
+
+Der Pfad `nds` ist relativ zum Projekt; die Nachbar-`.nds` liegt außerhalb des Projektordners und ist nur erlaubt, weil sie genau der Vorschlag ist. Nach dem Zuordnen steht dieselbe Freigabe in `target/agent/app-data/agents.json` mit der neuen `base_id` (`<sha1>/<created>`).
+
+**Blick-Bilder (optional):** Die Werkzeuge des Browser-Fensters schreiben keine Datei. Die 13 Bilder unter `target/agent/gate-2026-10-27/4-1a/` entstanden mit Chrome headless über CDP (ein kleines Node-Skript im Scratchpad, nicht im Repo; Seite der laufenden Test-Umgebung, 1440 × 900). Wer keine Bilder braucht, beschreibt Zustand und Texte im Gate-Bericht und lässt den Nutzer ins Browser-Fenster sehen.

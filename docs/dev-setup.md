@@ -169,6 +169,8 @@ beschrieben.
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
 | `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
+| `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` nehmen die Nachbar-`.nds` des Originals); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
+| `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
 Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
@@ -440,6 +442,35 @@ G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/3g-probe/pt.nds" \
 ```
 
 `project_start_empty_region_from_the_rom` (`G4_TEST_ROM`) legt ein Projekt mit `Template::EmptyRegion` an und verlangt die Marke `empty_region`, Fortschritt bis `done = total` und 0 Fehler in allen Prüfgruppen. Gemessen: die vier Tests in `templates.rs` brauchen auf Platin DE etwa 50 s, auf HeartGold DE etwa 40 s (dreimal Scripts übernehmen); die Vorlagen-Phase von `create_project` 4 bis 7 s.
+
+#### Basis-ROM und Patch (4.1a)
+
+`crates/g4-kernel/src/start.rs` prüft und ordnet eine Basis-ROM zu (Marke v2 mit `origin: "dspre"`), `base.rs` sucht sie über die SHA-1 und liest aus ihr, `patch.rs` schreibt den xdelta-Patch (xdelta3 3.0.12 im Crate `crates/g4-xdelta`); Formate in [docs/formats/project_base.md](formats/project_base.md) und [docs/formats/xdelta_patch.md](formats/xdelta_patch.md).
+
+```sh
+target/debug/g4k base check <projekt>                    # mark=…, sha1=…, suggestion=… (ohne Marke) bzw. base=… (Herkunft, etwa sibling)
+target/debug/g4k base check <projekt> --rom <rom.nds>   # prüft die .nds als Basis-ROM, je Warnung eine Zeile warning:
+target/debug/g4k base assign <projekt> <rom.nds>        # schreibt .g4/base.json; falsches Spiel: Exit 1
+target/debug/g4k patch create <projekt> [--base-rom <rom.nds>] [--out <patch>] [--json]
+```
+
+`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. `base assign` und `patch create` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
+
+Die gated Tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Original, gefunden über `suggest_base` und nur gelesen; was schreibt, arbeitet auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `base_assign_on_the_vanilla_folder_has_no_warning_and_rebuilds_the_nds` | Zuordnen ohne Warnung; der Build der Kopie mit Marke hat die SHA-1 der `.nds` |
+| `base_rom_members_equal_the_vanilla_folders` | die Archive aus der ROM gleich den Ordnern des Projekts |
+| `base_rom_header_table_equals_the_vanilla_project` | die Header-Tabelle aus dem ARM9 der ROM gleich der des Projekts |
+| `patch_after_map_and_after_map_script_text_is_small_and_applies` | Patch nach einer Kartenänderung ≤ 1 KiB, nach Karte, Script und Text an einer Stelle ≤ 16 KiB, Erzeugen ≤ 1 s, mit dem eigenen Decoder und (wenn im `PATH`) mit `xdelta3 -d` angewandt gleich; Textarchiv 0 als Stresszeile ohne Grenze |
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1
+```
+
+So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …` und `xdelta3 cross-check: map=… all=… stress=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
 
 #### Weltmodell (3e.2)
 
