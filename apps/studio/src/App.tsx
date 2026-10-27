@@ -338,6 +338,8 @@ function AppBody() {
     await reloadChanged(assets, true);
   });
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
+    // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
+    if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a

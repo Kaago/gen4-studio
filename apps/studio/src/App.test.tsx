@@ -2226,14 +2226,49 @@ describe("App wiring", () => {
       expect(dirty).toHaveBeenCalled();
     });
 
+    it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {
+      await inTheApp();
+      await act(async () => atlasEntry("Technik")!.click());
+      const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Veröffentlichen"))!;
+      await act(async () => row.click());
+      await act(async () => {});
+      const state = () => container.querySelector("[data-base-state]")?.getAttribute("data-base-state");
+      expect(state()).toBe("unassigned");
+      // The agent assigned a base: the card follows without leaving Technik.
+      vi.mocked(baseStatus).mockClear();
+      vi.mocked(baseStatus).mockResolvedValue({
+        state: "found",
+        mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
+        label: "Platin DE (Testprojekt)",
+        path: "/roms/p.nds",
+        source: "known",
+        patch_name: "p-CPUE",
+      });
+      // Other tools leave the status alone.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(baseStatus).not.toHaveBeenCalled();
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(baseStatus).toHaveBeenCalledTimes(1);
+      expect(state()).toBe("found");
+      await emit({ kind: "changed", seq: 3, client: "Claude Code", tool: "create_patch", label: null, assets: [] });
+      await flush();
+      expect(baseStatus).toHaveBeenCalledTimes(2);
+    });
+
     it("reads_nothing_for_an_agent_change_without_a_project", async () => {
       await inTheApp(false);
       vi.mocked(memberCounts).mockClear();
       vi.mocked(getMatrix).mockClear();
+      vi.mocked(baseStatus).mockClear();
       await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
       await flush();
       expect(memberCounts).not.toHaveBeenCalled();
       expect(getMatrix).not.toHaveBeenCalled();
+      // Without a project there is no base status to read.
+      expect(baseStatus).not.toHaveBeenCalled();
     });
   });
 
