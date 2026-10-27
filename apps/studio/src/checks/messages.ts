@@ -17,6 +17,8 @@ export interface CheckMessage {
   severity: "error" | "warning" | "info";
   title: string;
   text: string;
+  /** The sentence when argument 1, a count, is „1“ (the singular: „1 Datei hat sich geändert“). */
+  one?: string;
   building?: { title?: string; text: string };
 }
 
@@ -234,6 +236,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     severity: "warning",
     title: "Ordner wird nicht gepackt",
     text: "Im Ordner unpacked/{0} haben sich {1} Dateien geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
+    one: "Im Ordner unpacked/{0} hat sich 1 Datei geändert, das Studio packt ihn aber nicht; die Änderung fehlt in der gebauten ROM. Packe das Archiv in DSPRE neu oder nimm die Änderung zurück.",
   },
   "build.base-missing": {
     group: "cheap",
@@ -412,7 +415,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
 export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth): string {
   const m = CHECK_MESSAGES[f.code];
   if (!m) return f.message;
-  const text = (depth === "bauen" ? m.building?.text : undefined) ?? m.text;
+  const text = (depth === "bauen" ? m.building?.text : undefined) ?? (f.args[1] === "1" ? m.one : undefined) ?? m.text;
   if (f.code === "asset.unreadable") {
     const [kind = "", index = "", why = ""] = f.args;
     const name = assetName(kind, index, depth);

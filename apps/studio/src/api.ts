@@ -494,7 +494,7 @@ export interface SaveReport {
 export interface BuildReport {
   /** Dirty assets that were saved before building. */
   saved: number;
-  /** Asset kinds that were packed (every kind the project has an archive for, by unpacked folder name) with their member counts. */
+  /** Asset kinds whose pack step ran (by unpacked folder name) with their member counts; kinds whose step was skipped are missing. */
   packed: [string, number][];
   rom: string;
   /** Script files compiled before packing. */
@@ -516,7 +516,7 @@ export type StepStatus = "skipped" | "incremental" | "full";
  * One row of a build: `id` is `rotom`, `chatot`, `pack:<unpacked folder>`, `watch:<unpacked folder>`, `blz:arm9`, `blz:overlays`, `rom` or
  * `crc`. A skipped step has zero counters. `reason` says why a step ran fully: "no-state", "build.cache-stale" (a new tool),
  * "output-changed", "removed"; for `blz:*` "not-compressed" (skipped) or "fallback" (ds-rom compressed all itself); for `crc`
- * "no-base-mark" or "secure-area-changed". `technik/buildSteps.ts` words them.
+ * "no-base-mark" or "secure-area-changed". `technik/stepWords.ts` words them.
  */
 export interface BuildStep {
   id: string;

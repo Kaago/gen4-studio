@@ -61,8 +61,9 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     Ok(info)
 }
 
-/// What `build_rom` did: how many dirty assets were saved first, the packed asset kinds (by
-/// unpacked folder name, e.g. `maps`, `eventFiles`) with their member counts, the ROM path,
+/// What `build_rom` did: how many dirty assets were saved first, the asset kinds whose pack
+/// step ran (by unpacked folder name, e.g. `maps`, `eventFiles`; kinds whose step was skipped
+/// are missing) with their member counts, the ROM path,
 /// the script files compiled and the text archives encoded before packing, the warnings
 /// of the pre-build save and of those two steps (`source` tells them apart), one row per
 /// build step in build order and the milliseconds of the build (without the save).
@@ -373,6 +374,7 @@ pub fn resolve_text_conflicts_impl(
             )));
         }
     }
+    let attempted = !choices.is_empty();
     let mut resolved = Vec::with_capacity(choices.len());
     let mut result = Ok(());
     for choice in choices {
@@ -382,8 +384,9 @@ pub fn resolve_text_conflicts_impl(
         }
         resolved.push(choice.archive);
     }
-    if !resolved.is_empty() {
-        // The checks read the archives the store does not hold from the disk.
+    if attempted {
+        // The checks read the archives the store does not hold from the disk. Also after a
+        // failed first choice: it may have written one of the files before it failed.
         session.files_written();
     }
     result.map(|()| resolved)

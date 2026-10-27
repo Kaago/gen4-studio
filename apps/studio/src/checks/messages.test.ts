@@ -30,6 +30,12 @@ describe("check messages", () => {
     expect(findingText(finding("text.too-wide", "warning", { args: ["433", "1", "1", "240", "216"] }), "tuefteln")).toBe("Die Zeile ist 240 px breit, das Textfenster nur 216 px. Brich sie um oder kürze den Text.");
   });
 
+  it("says_one_file_in_the_singular", () => {
+    const changed = (n: string) => findingText(finding("build.unpacked-not-packed", "warning", { args: ["zFoo", n] }), "tuefteln");
+    expect(changed("1")).toMatch(/^Im Ordner unpacked\/zFoo hat sich 1 Datei geändert, /);
+    expect(changed("3")).toMatch(/^Im Ordner unpacked\/zFoo haben sich 3 Dateien geändert, /);
+  });
+
   it("says_no_raster_matrix_or_header_in_building", () => {
     // Every argument a field name the sentence could hold, and a label that names a header and its matrix field.
     const args = ["1", "matrix_id", "2", "3", "4", "5"];

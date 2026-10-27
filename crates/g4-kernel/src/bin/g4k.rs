@@ -324,6 +324,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
                 println!("{line}");
                 return Ok(());
             }
+            // The kinds whose pack step ran; skipped ones are missing.
             let mut line = String::from("packed");
             for (kind, count) in &report.packed {
                 line.push_str(&format!(

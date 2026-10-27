@@ -196,7 +196,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `create_trainer` | unumkehrbar | legt einen neuen Trainer einer Klasse mit Namen und Kampf-Script an |
 | `apply_header_patch` | unumkehrbar | spielt den Patch „Dynamische Header“ in den Spielcode ein, den neue Header brauchen |
 | `apply_fix` | schreibend; `create_script` und `remove_hidden` unumkehrbar | wendet einen Fix an, wie `plan_fix` ihn beschreibt |
-| `build_rom` | schreibend in `build/`, sonst unumkehrbar | speichert und baut eine spielbare ROM, Standard `build/<Spielcode>.nds` im Projekt; es laufen nur die Schritte, deren Eingaben sich geändert haben (die Antwort nennt sie unter `steps`), mit `fresh: true` laufen alle Schritte voll (der Cache unter `.g4/build/` wird vorher gelöscht, der Textabgleich bleibt) |
+| `build_rom` | schreibend in `build/`, sonst unumkehrbar | speichert und baut eine spielbare ROM, Standard `build/<Spielcode>.nds` im Projekt; es laufen nur die Schritte, deren Eingaben sich geändert haben (die Antwort nennt sie unter `steps`), mit `fresh: true` laufen alle Schritte voll (der Cache unter `.g4/build/` wird vorher gelöscht, der Textabgleich bleibt); `packed` in der Antwort nennt die Arten, deren Pack-Schritt lief (übersprungene fehlen) |
 | `resolve_text_conflicts` | unumkehrbar | entscheidet je Textarchiv, dessen JSON und Member sich seit dem letzten Bauen beide geändert haben, welche Fassung gilt (`keep`: `json` oder `member`); die andere wird überschrieben |
 | `g4_call` | nur mit `--expert` | führt einen Editor-Befehl beim Namen aus (siehe „Expertenmodus“) |
 | `g4_commands` | nur mit `--expert` | listet die Befehle, die `g4_call` ausführen kann, mit ihrer Art |
