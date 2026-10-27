@@ -7,7 +7,8 @@
 //! older project to [`SCHEMA_VERSION`] ([`migrate`]), and the symbolic ids of the data
 //! ([`symbols`]) with the per-project registers of christened ids ([`registry`]), and the
 //! base layer every "differs" is measured against, with the blobs of `data/raw/`
-//! ([`base_layer`]).
+//! ([`base_layer`]), and rotom's binary quirks, kept in `data/rotom-quirks.json` instead of
+//! the compile-state cache ([`quirks`]).
 
 use std::path::Path;
 
@@ -20,6 +21,7 @@ pub mod migrate;
     expect(dead_code, reason = "export and import (Task 9) are the callers")
 )]
 pub(crate) mod part;
+pub mod quirks;
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "export and import (Task 9) are the callers")
