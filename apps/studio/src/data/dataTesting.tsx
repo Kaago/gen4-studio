@@ -7,6 +7,7 @@ import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import type { DataRowDto, ItemEntryDto, NameArchivesDto, NameTablesDto, ProjectInfo } from "../api";
 import { createEditBus } from "../bus/editBus";
+import { resetSpy, withReset } from "../original/resetTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import type { Crumb } from "../workbench/breadcrumb";
 import { DataStore } from "./dataStore";
@@ -67,7 +68,9 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
   const bus = createEditBus();
   const calls = { goTo: vi.fn(), onTrail: vi.fn((crumbs: Crumb[]) => void trails.push(crumbs)), onEdited: vi.fn() };
   const base = (over: Partial<DataAreaProps> = {}): DataAreaProps => ({ project: projectPt, store, active: true, target: null, dirty: [], bus, headers: [], ...calls, ...over });
-  const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{tree(props)}</ShellProvider>));
+  // „Auf Original zurücksetzen…“: a spy whose status a test may change before `show`.
+  const reset = resetSpy();
+  const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{withReset(reset, tree(props))}</ShellProvider>));
   const q = <E extends Element = HTMLElement>(selector: string) => container.querySelector<E>(selector);
   const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("button")];
   const button = (text: string) => buttons().find((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === text);
@@ -77,5 +80,5 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
     act(() => root.unmount());
     container.remove();
   };
-  return { container, store, bus, calls, base, show, q, button, buttons, trail, lastTrail, unmount };
+  return { container, store, bus, calls, reset, base, show, q, button, buttons, trail, lastTrail, unmount };
 }

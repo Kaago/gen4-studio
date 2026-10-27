@@ -10,6 +10,7 @@ import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { trainerHarness, trainerRow, wireApi } from "./trainerTesting";
+import { chooseContext, readyWith, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -215,5 +216,18 @@ describe("TrainerList", () => {
     expect(createTrainer).toHaveBeenCalledWith(6, "Jens");
     expect(dialog().textContent).toContain("Erst Scripts übernehmen (Bereich Welt, Panel Script)");
     expect(readShellState().selected.trainer).toBe(12);
+  });
+
+  it("rows_offer_reset_and_lock_a_new_trainer", async () => {
+    // The base has 929 trainers (0 to 928): the placeholder 929 is offered (the kernel refuses it with its reason), a trainer from 930 on is new.
+    h.reset.status = readyWith({ trainer: 930 });
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "trainer" ? [trainerRow(12, "Jens", 6, "Wanderer", 12, [{ header: 5, name: "Route 201" }]), trainerRow(930, "Neu", 6, "Wanderer", 5, [{ header: 5, name: "Route 201" }])] : []));
+    await h.open(12);
+    const row = (index: number) => tree().querySelector<HTMLElement>(`[data-trainer="${index}"]`)!;
+    chooseContext(row(12), "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenCalledWith({ kind: "trainer", index: 12 });
+    expect(contextTexts(row(930))).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    // The right click selects nothing.
+    expect(row(930).getAttribute("aria-selected")).toBe("false");
   });
 });

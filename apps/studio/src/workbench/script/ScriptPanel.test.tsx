@@ -18,6 +18,7 @@ import { toolStatus } from "../../app/toolStatus";
 import { scriptDirtyStore } from "./scriptDirtyStore";
 import { useScripts } from "./useScripts";
 import type { ScriptsApi } from "./useScripts";
+import { MISSING as NO_BASE, isDisabled, readyWith, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -49,13 +50,14 @@ describe("ScriptPanel", () => {
   let api: ScriptsApi;
   let events: EditEvent[];
   const onError = vi.fn();
+  let reset = resetSpy();
 
   function Host({ project, depth = "bauen" }: { project: ProjectInfo | null; depth?: Depth }) {
     const { api: scripts } = useScripts({ info: project, bus, problems, onError });
     api = scripts;
     return <ScriptPanel context={{ project, scripts, problems, bus, depth, onError }} />;
   }
-  const render = (project: ProjectInfo | null = projectA, depth: Depth = "bauen") => act(async () => root.render(<Host project={project} depth={depth} />));
+  const render = (project: ProjectInfo | null = projectA, depth: Depth = "bauen") => act(async () => root.render(withReset(reset, <Host project={project} depth={depth} />)));
   const settle = () => act(async () => {});
 
   beforeEach(() => {
@@ -77,6 +79,7 @@ describe("ScriptPanel", () => {
     vi.mocked(lspSend).mockReset().mockResolvedValue(undefined);
     vi.mocked(lspStop).mockReset().mockResolvedValue(undefined);
     vi.mocked(ask).mockReset();
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -125,6 +128,63 @@ describe("ScriptPanel", () => {
     await render();
     await settle();
     expect(lspStart).not.toHaveBeenCalled();
+  });
+
+  it("menu_offers_reset_of_the_open_file_and_warns_when_unsaved", async () => {
+    // A click alone opens the menu (a mousedown would queue a second opening for the next frame, which the awaited steps here would run).
+    const openActions = async () => {
+      const trigger = container.querySelector<HTMLElement>("button[aria-label='Aktionen']")!;
+      await act(async () => trigger.click());
+      await settle();
+      return [...document.querySelectorAll<HTMLElement>("[role=menu] [role=menuitem]")];
+    };
+    const menuTexts = async () => {
+      const texts = (await openActions()).map((item) => item.textContent);
+      await closeActions();
+      return texts;
+    };
+    const closeActions = async () => {
+      const menu = document.querySelector<HTMLElement>("[role=menu]");
+      await act(async () => void (document.activeElement ?? menu)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await settle();
+    };
+    const chooseReset = async () => {
+      const item = (await openActions()).find((i) => i.textContent === "Auf Original zurücksetzen…")!;
+      await act(async () => item.click());
+      await settle();
+    };
+    await render();
+    await settle();
+    // No document: the entry is there, locked.
+    const [none] = await openActions();
+    expect(isDisabled(none)).toBe(true);
+    expect(none?.textContent).toBe("Auf Original zurücksetzen…Kein Script geöffnet");
+    await closeActions();
+    await open(42);
+    await settle();
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…"]);
+    await chooseReset();
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 }, { scriptDirty: false });
+    // Text that is not saved: the dialog is told, so it warns that the text is lost. (Changed as the editor reports a change; typing into
+    // the editor would give it the focus, which closes a menu opened then.)
+    const doc = api.documents.get(42)!;
+    doc.text += "// edit\n";
+    await act(async () => api.onChange(42));
+    await chooseReset();
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 }, { scriptDirty: true });
+    // A script file the base does not have, and no base at all (each in a fresh panel with file 42 open).
+    const showWith = async (status: Parameters<typeof resetSpy>[0]) => {
+      await act(async () => root.render(null));
+      reset = resetSpy(status);
+      await render();
+      await settle();
+      await open(42);
+      await settle();
+    };
+    await showWith(readyWith({ script: 42 }));
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    await showWith(NO_BASE);
+    expect(await menuTexts()).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 
   it("opens_a_file_into_the_editor_with_its_text_and_a_title", async () => {

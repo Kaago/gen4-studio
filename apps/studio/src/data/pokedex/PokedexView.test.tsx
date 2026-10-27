@@ -5,6 +5,7 @@ import { dataGet, refs } from "../../api";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { STARAVIA, pokedexHarness, staraviaDoc, wireApi } from "./pokedexTesting";
+import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -124,5 +125,24 @@ describe("PokedexView", () => {
     vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "learnset 0397: 7 bytes, expected 44", raw_locked: [], locked_asset: { kind: "Learnset", index: 397 } }));
     await h.open();
     expect(meters()).toHaveLength(6);
+  });
+
+  it("offers_reset_in_head_and_list", async () => {
+    await h.open();
+    // The head of the view: the species' data, learnset and evolution in one step.
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    chooseItem(h.view(), "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "species", index: 397 });
+    const row = h.q<HTMLElement>('[data-species="396"]')!;
+    expect(contextTexts(row)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(row, "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "species", index: 396 });
+  });
+
+  it("without_a_base_the_entry_says_basis_rom_fehlt", async () => {
+    h.reset.status = MISSING;
+    await h.open();
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(contextTexts(h.q<HTMLElement>('[data-species="397"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 });

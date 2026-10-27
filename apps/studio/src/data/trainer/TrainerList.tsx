@@ -2,6 +2,8 @@ import { Fragment, memo, useMemo, useRef, useState } from "react";
 import { createTrainer, errorText, isCmdError } from "../../api";
 import type { CreateTrainerReport, DataRowDto } from "../../api";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import type { MarkSeverity } from "../../checks/FindingMark";
 import { Badge, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
@@ -29,8 +31,10 @@ const TrainerRow = memo(function TrainerRow({
 }) {
   const reason = row.locked === null ? null : lockReason(row.locked);
   const level = rowLevel(row);
+  const reset = useReset();
   return (
     <TreeRow
+      contextMenu={[resetEntry({ kind: "trainer", index: row.index }, reset.status, reset.open)]}
       depth={1}
       label={label}
       tech={row.tech}

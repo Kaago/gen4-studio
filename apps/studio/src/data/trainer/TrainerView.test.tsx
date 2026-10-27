@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents } from "../../api";
 import { resetIcons } from "../icons";
 import { PLACEHOLDER_DOC, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
+import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -80,5 +81,25 @@ describe("TrainerView", () => {
     expect(h.view().textContent).toContain("Platzhalter für das Sicht-Script");
     expect(h.view().textContent).not.toContain("Ohne Pokémon stürzt der Kampf ab");
     expect(button("In der Welt platzieren")).toBeUndefined();
+  });
+
+  it("offers_reset_in_head_and_list", async () => {
+    await h.open();
+    // The head of the view: the trainer's properties and team (its name and texts stay, they are text archives).
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    chooseItem(h.view(), "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "trainer", index: 12 });
+    // The row in the list: the same.
+    const row = h.list().querySelector<HTMLElement>('[data-trainer="13"]')!;
+    expect(contextTexts(row)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(row, "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "trainer", index: 13 });
+  });
+
+  it("without_a_base_the_entry_says_basis_rom_fehlt", async () => {
+    h.reset.status = MISSING;
+    await h.open();
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(contextTexts(h.list().querySelector<HTMLElement>('[data-trainer="12"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 });

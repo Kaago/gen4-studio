@@ -34,8 +34,11 @@ export type ReloadAction =
   | { kind: "events"; file: number }
   /** The area data editor re-reads its area data. */
   | { kind: "areaPanel" }
-  /** The scene compares the tilesets of its area data and reloads its models if they changed. */
-  | { kind: "models" }
+  /**
+   * The scene compares the tilesets of its area data and reloads its models if they changed; with `files` it reloads them in any case (a
+   * texture or model file was written under the same numbers: a reset to original).
+   */
+  | { kind: "models"; files?: true }
   /** The text panel re-reads this archive. */
   | { kind: "textPanel"; archive: number }
   /** The header list and editor re-read the table; the scene reloads if the selected header's matrix, area data or event file changed. */
@@ -92,6 +95,14 @@ export function reloadPlan(
     case "Script":
       // Scripts are not editable through the store, so undo never restores one.
       return [];
+    case "MapTexture":
+    case "BuildingTexture":
+      // Only a reset to original (or its ⌘Z) writes a texture: the tileset numbers stay, the pictures change.
+      return [{ kind: "models", files: true }];
+    case "BuildingModel":
+    case "InteriorBuildingModel":
+      // The same for a building model; the building editor reads its building (and its model) again.
+      return [{ kind: "buildings" }, { kind: "models", files: true }];
     case "Encounter":
     case "Personal":
     case "Learnset":

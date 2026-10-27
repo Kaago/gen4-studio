@@ -5,9 +5,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
@@ -210,6 +210,8 @@ vi.mock("./api", async (importOriginal) => ({
   baseStatus: vi.fn(),
   createPatch: vi.fn(),
   originalStatus: vi.fn(),
+  planReset: vi.fn(),
+  resetToOriginal: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -221,16 +223,24 @@ vi.mock("./platform/dialogs", async (importOriginal) => ({
   openPath: vi.fn(),
   savePath: vi.fn(),
 }));
-// The reset handler the app gives the provider of „Auf Original zurücksetzen“ (the dialog itself is tested on its own).
-const originalProps = vi.hoisted(() => ({ onReset: null as null | ((result: ResetResult, label: string) => void | Promise<void>) }));
+// The reset handler the app gives the provider of „Auf Original zurücksetzen“ (the dialog itself is tested on its own), and the api a
+// head or a row below it gets (`useReset`), as a place offering the entry would call it.
+const originalProps = vi.hoisted(() => ({
+  onReset: null as null | ((result: ResetResult, label: string) => void | Promise<void>),
+  api: null as null | { open: (target: ResetTarget, opts?: { scriptDirty?: boolean }) => void },
+}));
 vi.mock("./original/OriginalContext", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./original/OriginalContext")>();
   const { createElement } = await import("react");
+  function Probe() {
+    originalProps.api = actual.useReset();
+    return null;
+  }
   return {
     ...actual,
     OriginalProvider: (props: Parameters<typeof actual.OriginalProvider>[0]) => {
       originalProps.onReset = props.onReset;
-      return createElement(actual.OriginalProvider, props);
+      return createElement(actual.OriginalProvider, props, props.children, createElement(Probe));
     },
   };
 });
@@ -2327,6 +2337,28 @@ describe("App wiring", () => {
       // location bank (a text archive).
       expect(log).toEqual(["matrixData@1", "getMatrix@1", "textData@1", "headerTable@1", "dataChanged@1"]);
       expect(data().history.current).toBe(1);
+    });
+  });
+
+  describe("reset to original", () => {
+    it("a_reset_reloads_what_changed_and_says_so", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(planReset).mockResolvedValue({ target: { kind: "map_texture", index: 1 }, label: "Kartentextur 0001", changes: [{ label: "Kartentextur 0001", before: "4096 Byte", after: "4000 Byte" }], fields: [], writes_files: true, same: false });
+      vi.mocked(resetToOriginal).mockResolvedValue({ changed: [{ kind: "MapTexture", index: 1 }], recorded: true, ms: 7 });
+      // A head's entry asks: the dialog shows the plan, „Zurücksetzen“ resets.
+      await act(async () => originalProps.api!.open({ kind: "map_texture", index: 1 }));
+      const dialog = () => document.querySelector<HTMLElement>("[data-reset-dialog]:not([data-closed])");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Kartentextur 0001 auf Original zurücksetzen?");
+      const confirm = [...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Zurücksetzen")!;
+      await act(async () => confirm.click());
+      await act(async () => {});
+      expect(resetToOriginal).toHaveBeenCalledWith({ kind: "map_texture", index: 1 });
+      // The texture file changed under unchanged tileset numbers: the scene loads its models again, as after ⌘Z of the reset.
+      expect(log).toEqual(["modelsReload@1"]);
+      expect(data().history.current).toBe(1);
+      expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Kartentextur 0001." });
+      expect(dialog()).toBeNull();
     });
   });
 

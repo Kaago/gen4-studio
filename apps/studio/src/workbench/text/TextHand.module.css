@@ -33,7 +33,8 @@
   max-width: 420px;
 }
 
-.head > button:last-child {
+/* The primary action at the right end, the menu „Aktionen“ after it. */
+.head > button:last-of-type {
   margin-left: auto;
 }
 

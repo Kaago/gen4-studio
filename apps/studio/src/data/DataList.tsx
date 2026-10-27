@@ -2,7 +2,7 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "r
 import type { KeyboardEvent, ReactNode } from "react";
 import type { DataRowDto } from "../api";
 import { Badge, Button, EmptyState, ListRow, Sprite, TextField } from "../ui/primitives";
-import type { RowDataAttrs } from "../ui/primitives";
+import type { MenuEntry, RowDataAttrs } from "../ui/primitives";
 import { useVisible } from "../workbench/useVisible";
 import { filterText, isFiltered, lockReason } from "./dataModel";
 import type { DataArea } from "./dataModel";
@@ -16,6 +16,8 @@ export interface DataListRows {
   attr: `data-${string}`;
   leading?: (row: DataRowDto, label: string) => ReactNode;
   trailing?: (row: DataRowDto) => ReactNode;
+  /** The row's context menu (right click, Shift+F10): the Pokédex' „Auf Original zurücksetzen…“. */
+  contextMenu?: (row: DataRowDto) => MenuEntry[];
 }
 
 export interface DataListProps extends DataListRows {
@@ -55,6 +57,7 @@ const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSele
       selected={selected}
       onSelect={() => onSelect(row.index)}
       dataAttrs={attrs}
+      contextMenu={rows.contextMenu?.(row)}
       ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, gesperrt: ${reason}`}
     />
   );
@@ -64,11 +67,11 @@ const DataRow = memo(function DataRow({ row, pos, count, label, selected, onSele
  * The list of a data part (the mount point of the Pokédex, moves and items lists): a search over name and number, the part's filters, the
  * filter in words with "Filter lösen", and the rows. The selection comes into view when it is made elsewhere (a link).
  */
-export function DataList({ area, label, filters, attr, leading, trailing }: DataListProps) {
+export function DataList({ area, label, filters, attr, leading, trailing, contextMenu }: DataListProps) {
   const { selected, select, labelOf } = useDataArea(area);
   const { shown, query, setQuery, filter, clearFilter } = useDataSearch(area);
   // The callbacks of the rows; a new object only when the list's look changes, so the memoised rows keep still otherwise.
-  const rows = useRowsSpec(attr, leading, trailing);
+  const rows = useRowsSpec(attr, leading, trailing, contextMenu);
   const onSelect = useCallback((index: number) => select(index), [select]);
   const filtered = filterText(filter);
   const searching = query.trim() !== "" || isFiltered(filter);
@@ -236,9 +239,10 @@ function WindowedRows({ label, shown, selected, onSelect, labelOf, rows }: { lab
 }
 
 /** The rows' spec as one object that keeps its identity while its parts do. */
-function useRowsSpec(attr: `data-${string}`, leading: DataListRows["leading"], trailing: DataListRows["trailing"]): DataListRows {
-  const spec = useRef<DataListRows>({ attr, leading, trailing });
-  if (spec.current.attr !== attr || spec.current.leading !== leading || spec.current.trailing !== trailing) spec.current = { attr, leading, trailing };
+function useRowsSpec(attr: `data-${string}`, leading: DataListRows["leading"], trailing: DataListRows["trailing"], contextMenu: DataListRows["contextMenu"]): DataListRows {
+  const spec = useRef<DataListRows>({ attr, leading, trailing, contextMenu });
+  const now = spec.current;
+  if (now.attr !== attr || now.leading !== leading || now.trailing !== trailing || now.contextMenu !== contextMenu) spec.current = { attr, leading, trailing, contextMenu };
   return spec.current;
 }
 

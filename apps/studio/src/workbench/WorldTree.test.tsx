@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getMatrix, worldMetaGet, worldMetaSet } from "../api";
+import { getMatrix, listScriptFiles, worldMetaGet, worldMetaSet } from "../api";
 import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink, WorldMeta } from "../api";
 import { pressKey } from "../ui/primitives/testUtils";
 import { placeColor } from "./places";
@@ -12,6 +12,7 @@ import { useWorldModel } from "./useWorldModel";
 import { buildWorld } from "./worldModel";
 import { WorldTree } from "./WorldTree";
 import type { WorldTreeProps } from "./WorldTree";
+import { chooseContext, contextTexts, resetSpy, withReset } from "../original/resetTesting";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -68,7 +69,9 @@ describe("WorldTree", () => {
   let root: Root;
   const scrolled: string[] = [];
   const onError = vi.fn();
+  let reset = resetSpy();
   beforeEach(() => {
+    reset = resetSpy();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -106,7 +109,7 @@ describe("WorldTree", () => {
     onOwner: () => {},
     ...over,
   });
-  const render = (over: Partial<WorldTreeProps> = {}) => act(() => root.render(<WorldTree {...props(over)} />));
+  const render = (over: Partial<WorldTreeProps> = {}) => act(() => root.render(withReset(reset, <WorldTree {...props(over)} />)));
   const row = (id: number) => container.querySelector<HTMLElement>(`[data-header-id="${id}"][role="treeitem"]:not([data-area-key])`) ?? container.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
   const area = (key: string) => container.querySelector<HTMLElement>(`[data-area-key="${key}"]`);
   const mapRow = (key: string) => container.querySelector<HTMLElement>(`[data-world-map="${key}"]`);
@@ -149,6 +152,35 @@ describe("WorldTree", () => {
     // Building speaks of the game: no ids, no technical words.
     expect(container.textContent).not.toMatch(/Header|Matrix|Raster|0003/);
     expect([...container.querySelectorAll("[title]")].map((e) => e.getAttribute("title")).join(" ")).not.toMatch(/Header|Matrix|Raster/);
+  });
+
+  it("header_and_script_rows_have_reset", async () => {
+    render({ selected: 3 });
+    // An area (its first header), a room: the header.
+    expect(contextTexts(area("w0:2")!)).toEqual(["Header auf Original zurücksetzen…"]);
+    chooseContext(area("w0:2")!, "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "header", id: 1 });
+    chooseContext(row(3)!, "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "header", id: 3 });
+    // A header of „Sonstiges“ (Tüfteln), and every header while the world is read.
+    render({ depth: "tuefteln" });
+    act(() => group("other")!.click());
+    chooseContext(row(7)!, "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "header", id: 7 });
+    render({ world: null });
+    chooseContext(row(5)!, "Header auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "header", id: 5 });
+    // A world map is no header: nothing to reset there.
+    render();
+    expect(contextTexts(mapRow("w0")!)).toEqual([]);
+    // A script file of the node „Scripts“.
+    vi.mocked(listScriptFiles).mockResolvedValue([{ file: 42, kind: "script", size: 12, headers: [1] }]);
+    act(() => container.querySelector<HTMLElement>("[data-scripts-root]")!.click());
+    await flush();
+    const script = container.querySelector<HTMLElement>('[data-script-file="42"]')!;
+    expect(contextTexts(script)).toEqual(["Scriptdatei auf Original zurücksetzen…"]);
+    chooseContext(script, "Scriptdatei auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenLastCalledWith({ kind: "script", file: 42 });
   });
 
   it("marks_a_room_of_another_place_with_its_place_label", () => {

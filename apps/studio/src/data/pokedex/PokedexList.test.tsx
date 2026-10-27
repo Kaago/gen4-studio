@@ -7,6 +7,7 @@ import { typeInto } from "../../ui/primitives/testUtils";
 import { flush, species } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { pokedexHarness, wireApi } from "./pokedexTesting";
+import { chooseContext, readyWith, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -87,5 +88,15 @@ describe("PokedexList", () => {
     vi.mocked(dataList).mockImplementation(async (kind) => (kind === "species" ? [species(1, "Bisasam"), locked] : []));
     await h.open(null);
     expect(row(398)?.textContent).toContain("Staraptor");
+  });
+
+  it("rows_offer_reset_and_lock_a_new_species", async () => {
+    // The base has 504 species (0 to 503): 520 is new.
+    h.reset.status = readyWith({ species: 504 });
+    await h.open();
+    chooseContext(row(503)!, "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenCalledWith({ kind: "species", index: 503 });
+    expect(contextTexts(row(520)!)).toEqual(["Auf Original zurücksetzen…Kein Original"]);
+    expect(row(520)?.getAttribute("aria-selected")).toBe("false");
   });
 });

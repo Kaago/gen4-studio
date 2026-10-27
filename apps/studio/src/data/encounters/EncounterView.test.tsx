@@ -6,6 +6,7 @@ import { readShellState } from "../../ui/frame/shellState";
 import { ProblemsStore } from "../../workbench/problems/problems";
 import { resetIcons } from "../icons";
 import { FILE_ROWS, ROUTE_201, SHARED_FILE, encounterHarness, fileRow, wireApi } from "./encounterTesting";
+import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -122,5 +123,24 @@ describe("EncounterView", () => {
     expect(notices.map((n) => n.textContent)).toEqual([expect.stringContaining("Nacht Eintrag 1 ist leer: von 20 bis 3 Uhr erscheint auf Gras Platz 3 ein Glitch-Pokémon")]);
     // The rules of the file are the checks `encounter.*` now: they reach the Problems list from `run_checks`, not from the document.
     expect(problems.list()).toEqual([]);
+  });
+
+  it("offers_reset_in_head_and_list", async () => {
+    await h.open(140);
+    // The head of the view: the whole encounter file.
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    chooseItem(h.view(), "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "encounter", index: 140 });
+    const row = h.list().querySelector<HTMLElement>('[data-encounter="141"]')!;
+    expect(contextTexts(row)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(row, "Auf Original zurücksetzen…");
+    expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "encounter", index: 141 });
+  });
+
+  it("without_a_base_the_entry_says_basis_rom_fehlt", async () => {
+    h.reset.status = MISSING;
+    await h.open(140);
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(contextTexts(h.list().querySelector<HTMLElement>('[data-encounter="140"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 });

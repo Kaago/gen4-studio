@@ -11,6 +11,7 @@ import { MatrixCellEditor } from "./MatrixCellEditor";
 import type { MatrixCellContext } from "./MatrixCellEditor";
 import type { Area, World } from "../worldModel";
 import { chooseAction, headAction, headActions } from "./headTesting";
+import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
@@ -47,6 +48,7 @@ describe("MatrixCellEditor", () => {
   const onError = vi.fn();
   const onMapImported = vi.fn();
   let dirty: AssetId[] = [];
+  let reset = resetSpy();
   const context = (): MatrixCellContext => ({
     dirty,
     headers: [summary(411), summary(412)],
@@ -70,14 +72,20 @@ describe("MatrixCellEditor", () => {
     vi.mocked(duplicateMap).mockReset().mockResolvedValue(77);
     for (const fn of [goTo, onEdited, onCountsChanged, onError]) fn.mockReset();
     dirty = [];
+    reset = resetSpy();
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
   async function show(x = 1, y = 0, depth: "bauen" | "tuefteln" = "bauen") {
-    await act(async () => root.render(<MatrixCellEditor matrix={3} x={x} y={y} context={context()} depth={depth} />));
+    await act(async () => root.render(withReset(reset, <MatrixCellEditor matrix={3} x={x} y={y} context={context()} depth={depth} />)));
     await flush();
+  }
+  /** Shows the editor anew, so it reads its matrix again. */
+  async function remount() {
+    await act(async () => root.render(null));
+    await show();
   }
   const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`)!;
   const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text) as HTMLButtonElement;
@@ -332,7 +340,7 @@ describe("MatrixCellEditor", () => {
 
   it("offers_import_export_and_duplicate_in_the_head_menu_not_in_the_field_row", async () => {
     await show();
-    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren"]);
+    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren", "Auf Original zurücksetzen…"]);
     // The buttons below the field „Karte“ and at the end of the form are gone.
     for (const old of ["Teile importieren…", "Teile exportieren…", "Karte duplizieren und hier eintragen", "Duplizieren"]) expect(button(old), old).toBeUndefined();
     chooseAction(container, "Teile importieren…");
@@ -353,5 +361,28 @@ describe("MatrixCellEditor", () => {
     expect(headAction(container, "Teile exportieren…")).toBeUndefined();
     const duplicate = headAction(container, "Duplizieren");
     expect(duplicate?.getAttribute("aria-disabled") === "true" || duplicate?.hasAttribute("data-disabled")).toBe(true);
+  });
+
+  it("head_offers_reset_of_the_map", async () => {
+    await show();
+    // The cell holds map 11: the entry resets that map, as one undo step after the question.
+    chooseAction(container, "Auf Original zurücksetzen…");
+    expect(reset.open).toHaveBeenCalledWith({ kind: "map", index: 11 });
+    // A map the base does not have is new: locked, with the reason.
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, 650] }));
+    await remount();
+    const item = headAction(container, "Auf Original zurücksetzen…");
+    expect(isDisabled(item)).toBe(true);
+    expect(item?.textContent).toBe("Auf Original zurücksetzen…Kein Original");
+    closeMenu();
+    // Without a base ROM the entry says so.
+    reset = resetSpy(MISSING);
+    vi.mocked(getMatrix).mockImplementation(async () => matrix());
+    await remount();
+    expect(headActions(container)).toContain("Auf Original zurücksetzen…Basis-ROM fehlt");
+    // An empty cell has no map to reset.
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
+    await remount();
+    expect(headAction(container, "Auf Original zurücksetzen…")).toBeUndefined();
   });
 });

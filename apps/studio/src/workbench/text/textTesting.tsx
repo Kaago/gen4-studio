@@ -1,12 +1,14 @@
 // Shared by the tests of the text area: sample data, the area mounted with all its parts, and the ways a user types and clicks.
 // Each test file mocks `../../api` (and the thumbnail store) itself: `vi.mock` is hoisted per file.
 import { StrictMode, act } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import type { HeaderSummary, ProjectInfo, TextArchiveDto } from "../../api";
 import { createEditBus } from "../../bus/editBus";
 import type { EditEvent } from "../../bus/editBus";
+import { resetSpy, withReset } from "../../original/resetTesting";
 import { ProblemsStore } from "../problems/problems";
 import { TextArea, TextHints, TextStatus } from "./TextArea";
 import type { TextAreaProps } from "./TextArea";
@@ -61,7 +63,11 @@ export function textHarness() {
     ...calls,
     ...over,
   });
-  const tree = (context: TextAreaProps) => (
+  // „Auf Original zurücksetzen…“: a spy below the area, or what a test puts around it (`wrapWith`, the app's provider with its dialog).
+  const reset = resetSpy();
+  let wrapper: ((node: ReactNode) => ReactNode) | null = null;
+  const wrapWith = (wrap: (node: ReactNode) => ReactNode) => void (wrapper = wrap);
+  const area = (context: TextAreaProps) => (
     <TextArea context={context}>
       <TextList open onToggle={() => {}} />
       <TextView />
@@ -74,6 +80,7 @@ export function textHarness() {
       </p>
     </TextArea>
   );
+  const tree = (context: TextAreaProps) => (wrapper ?? ((node: ReactNode) => withReset(reset, node)))(area(context));
   const show = (context: TextAreaProps) => act(() => root.render(tree(context)));
   const showStrict = (context: TextAreaProps) => act(() => root.render(<StrictMode>{tree(context)}</StrictMode>));
 
@@ -111,5 +118,5 @@ export function textHarness() {
     container.remove();
   }
 
-  return { container, root, problems, calls, bus, events, base, show, showStrict, archiveRow, messageRow, textarea, button, searchBox, listFilter, screen, type, blur, focus, click, key, open433, unmount };
+  return { container, root, problems, calls, bus, events, reset, wrapWith, base, show, showStrict, archiveRow, messageRow, textarea, button, searchBox, listFilter, screen, type, blur, focus, click, key, open433, unmount };
 }

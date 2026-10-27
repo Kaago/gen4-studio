@@ -18,6 +18,11 @@ export function useReset(): ResetApi {
   return useContext(ResetContext);
 }
 
+/** Gives `value` to every `useReset` below: a part shown on its own (the gallery, a test) without the app's dialog. */
+export function ResetProvider({ value, children }: { value: ResetApi; children: ReactNode }) {
+  return <ResetContext.Provider value={value}>{children}</ResetContext.Provider>;
+}
+
 export type OriginalProviderProps = {
   children: ReactNode;
   /** The reset went in (the dialog has closed): its result and the entity's name („Karte 0003“). */

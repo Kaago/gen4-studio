@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { getEvents } from "../../api";
 import type { HeaderSummary, RefDto } from "../../api";
+import { HeadActions } from "../../original/HeadActions";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import { Badge, Button, Notice, PokemonCard, Reference } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
@@ -114,6 +117,7 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
 export function TrainerView() {
   const { row, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useTrainer(selected);
+  const reset = useReset();
   if (row === null || selected === null) return null;
   const title = doc && !doc.placeholder && doc.locked === null ? docTitle(doc, names.classes, selected) : labelOf(row);
   return (
@@ -123,6 +127,8 @@ export function TrainerView() {
           <h2 className={styles.name}>{title}</h2>
           <span className={styles.tech}>{row.tech}</span>
           {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
+          {/* Properties and team; the name and the texts stay (they are text archives). The placeholder is refused with its reason. */}
+          <HeadActions items={[resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open)]} />
         </header>
         {error !== null && <Notice kind="error">{`Dieser Trainer ist nicht lesbar: ${error}`}</Notice>}
         {doc?.placeholder && <Notice kind="info">{`${PLACEHOLDER_TEXT}: hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Er wird nie bearbeitet.`}</Notice>}

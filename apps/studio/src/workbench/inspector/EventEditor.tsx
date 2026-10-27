@@ -3,6 +3,8 @@ import { getEvents, updateEvent } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
 import type { EventData } from "../../world/events";
 import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
 import type { NavTarget } from "../navigation";
@@ -64,6 +66,7 @@ export interface EventEditorContext {
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
   const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
+  const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -144,7 +147,12 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
         ident={ident}
         unsaved={isDirty(dirty, "Event", file)}
         locked={readOnly}
-        actions={[{ label: "Löschen", detail: <Kbd keys="Entf" />, disabled: readOnly, onSelect: () => void onDelete(file, kind, index) }]}
+        actions={[
+          { label: "Löschen", detail: <Kbd keys="Entf" />, disabled: readOnly, onSelect: () => void onDelete(file, kind, index) },
+          "separator",
+          // Not the event alone: the event file it is in, as one undo step (a locked file is refused with its reason in the dialog).
+          resetEntry({ kind: "event_file", index: file }, reset.status, reset.open, "Eventdatei auf Original zurücksetzen…"),
+        ]}
         depth={depth}
       />
       <div className={styles.body}>

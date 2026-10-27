@@ -56,9 +56,23 @@ describe("reloadPlan", () => {
   });
 
   it("has nothing to reload for assets the editors cannot change", () => {
-    for (const kind of ["MapTexture", "BuildingTexture", "BuildingModel", "InteriorBuildingModel", "Script", "ItemIcons", "MonIcons", "DynamicHeaders"] as const) {
+    for (const kind of ["Script", "ItemIcons", "MonIcons", "DynamicHeaders"] as const) {
       expect(plan(kind, 0)).toEqual([]);
     }
+  });
+
+  it("textures_and_models_reload_scene_parts", () => {
+    // A texture or model file a reset to original wrote: the scene loads its models again although the tileset numbers stayed the same
+    // (`files`), with or without a scene; a building model also has the building editor read its building again.
+    for (const kind of ["MapTexture", "BuildingTexture"] as const) {
+      expect(plan(kind, 4)).toEqual([{ kind: "models", files: true }]);
+      expect(plan(kind, 4, null)).toEqual([{ kind: "models", files: true }]);
+    }
+    for (const kind of ["BuildingModel", "InteriorBuildingModel"] as const) {
+      expect(plan(kind, 4)).toEqual([{ kind: "buildings" }, { kind: "models", files: true }]);
+    }
+    // Two textures in one step reload the models once.
+    expect(historyPlan([{ kind: "MapTexture", index: 4 }, { kind: "BuildingTexture", index: 1 }], scene)).toEqual([{ kind: "models", files: true }]);
   });
 });
 

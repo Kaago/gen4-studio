@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, getBuildingGlb, getMap, updateBuilding } from "../../api";
 import type { AssetId, BuildingDto, MemberCounts } from "../../api";
+import { useReset } from "../../original/OriginalContext";
+import { resetEntry } from "../../original/resetEntry";
+import { useBuildingModelKind } from "../../original/useBuildingModelKind";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, Kbd, NumberField, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
@@ -21,6 +24,8 @@ export interface BuildingEditorContext {
   dirty: readonly AssetId[];
   /** Changes whenever buildings may have changed behind the editor's back (a drag, undo, redo). */
   revision: number;
+  /** Changes whenever the area data may have changed (an edit, undo, redo): its area type picks the archive a model is reset in. */
+  areaRevision?: number;
   /** A field was written: the scene reads the map's buildings again (and tries `retryModel` once more). */
   onChanged: (map: number, retryModel: number | null) => void | Promise<void>;
   /** Appends a building on the tile last hovered (or in `fallbackMap`) and selects it. */
@@ -68,7 +73,9 @@ function DecimalField({ label, value, onCommit }: { label: string; value: number
  * one building (see `EditSession`).
  */
 export function BuildingEditor({ map, index, context, depth }: { map: number; index: number; context: BuildingEditorContext; depth: Depth }) {
-  const { areaDataId, counts, dirty, revision, onChanged, onAdd, onDelete, onError } = context;
+  const { areaDataId, areaRevision = 0, counts, dirty, revision, onChanged, onAdd, onDelete, onError } = context;
+  const reset = useReset();
+  const modelKind = useBuildingModelKind(areaDataId, areaRevision);
   const [building, setBuilding] = useState<BuildingDto | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -155,7 +162,12 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
         title={title}
         ident={ident}
         unsaved={isDirty(dirty, "Map", map)}
-        actions={[{ label: "Löschen", detail: <Kbd keys="Entf" />, onSelect: () => void onDelete(map, index) }]}
+        actions={[
+          { label: "Löschen", detail: <Kbd keys="Entf" />, onSelect: () => void onDelete(map, index) },
+          "separator",
+          // The building's model, from the archive the scene takes it from; while the area data is read that is not known yet.
+          resetEntry({ kind: modelKind ?? "building_model", index: building.model_id }, modelKind === null ? null : reset.status, reset.open, "Gebäudemodell auf Original zurücksetzen…"),
+        ]}
         depth={depth}
       />
       <div className={styles.body}>

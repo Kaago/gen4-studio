@@ -99,7 +99,9 @@ export function useHistoryReload({
         bus.emit({ topic: "areaData" });
         break;
       case "models":
-        await scene.noteSceneTileset(true);
+        // Written files under the same tileset numbers: nothing to compare, the models load again (the backend caches by content).
+        if (a.files) bus.emit({ topic: "modelsReload" });
+        else await scene.noteSceneTileset(true);
         break;
       case "textPanel":
         bus.emit({ topic: "textData", archive: a.archive });

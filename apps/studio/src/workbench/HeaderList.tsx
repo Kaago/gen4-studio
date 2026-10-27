@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { useReset } from "../original/OriginalContext";
+import { resetEntry } from "../original/resetEntry";
 import type { Depth, ListSort } from "../ui/frame/shellState";
 import { ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
@@ -43,8 +45,11 @@ const HeaderRow = memo(function HeaderRow({
   onSelect: (h: HeaderSummary) => void;
 }) {
   const name = h.location_name || h.internal_name;
+  // The same entry as the world tree's rows (the list is the tree's other view).
+  const { status, open } = useReset();
   return (
     <ListRow
+      contextMenu={[resetEntry({ kind: "header", id: h.id }, status, open, "Header auf Original zurücksetzen…")]}
       label={name}
       // The number and the code tell the rows of one place apart (eight rooms of Zweiblattdorf all read "Zweiblattdorf").
       tech={`${id4(h.id)} · ${h.internal_name}`}
