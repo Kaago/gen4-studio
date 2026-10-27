@@ -2327,6 +2327,25 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(0);
     });
 
+    it("an_undo_of_a_script_file_step_reads_the_open_script_again_and_keeps_typed_text_with_a_hint", async () => {
+      await act(async () => data().scripts.open(42));
+      const doc = data().scripts.documents.get(42)!;
+      // A clean document shows what the undo wrote back.
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Wieder #1:\n\tEnd\n" });
+      vi.mocked(undo).mockResolvedValue([{ kind: "Script", index: 42 }]);
+      await pressUndo();
+      expect(doc.text).toBe("script Wieder #1:\n\tEnd\n");
+      expect(data().scripts.documents.dirty()).toEqual([]);
+      // Typed text stays (⌘S would write it over the file), and the user is told.
+      doc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      vi.mocked(readScript).mockResolvedValue({ kind: "script", text: "script Original #1:\n\tEnd\n" });
+      await pressUndo();
+      expect(doc.text).toBe("script Wieder #1:\n\tEnd\n// edit\n");
+      expect(doc.savedText).toBe("script Original #1:\n\tEnd\n");
+      expect(live().message).toMatchObject({ kind: "error", text: expect.stringContaining("wurde außerhalb des Editors geändert") });
+    });
+
     it("reloads what every asset of a step of several restored", async () => {
       await select(listed[0]);
       const log = record();
@@ -2518,22 +2537,47 @@ describe("App wiring", () => {
       await act(async () => {});
       expect(save).toHaveBeenCalled();
       expect(changedFromOriginal).toHaveBeenCalledTimes(2);
-      // So does a reset through the dialog.
-      await act(async () => originalProps.onReset!({ changed: [], recorded: true, ms: 1 }, "Karte 0003"));
+      // So does a reset through the dialog that wrote a file; a reset of a store kind leaves the saved files as they are.
+      await act(async () => originalProps.onReset!({ changed: [{ kind: "Map", index: 3 }], recorded: true, ms: 1 }, "Karte 0003"));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      await act(async () => originalProps.onReset!({ changed: [{ kind: "MapTexture", index: 1 }], recorded: true, ms: 1 }, "Kartentextur 0001"));
       await act(async () => {});
       expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      // ⌘Z in the app: a file step writes files, a store step does not.
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "Map", index: 3 }]);
+      await pressUndo();
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      vi.mocked(undo).mockResolvedValueOnce([{ kind: "BuildingModel", index: 2 }]);
+      await pressUndo();
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      // A trainer created in the app writes its members at once.
+      await act(async () => data().bus.emit({ topic: "savedFiles" }));
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
       // An agent's edit changes no saved file; its save does.
       await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
       await flush();
-      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
       await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "save", label: null, assets: [] });
       await flush();
-      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
-      // So does every other agent tool that writes files of the saved project (file steps of undo and redo too).
-      let calls = 4;
-      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "reset_to_original", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer", "undo", "redo"];
+      expect(changedFromOriginal).toHaveBeenCalledTimes(6);
+      // So does every other agent tool that writes files of the saved project.
+      let calls = 6;
+      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer"];
       for (const [i, tool] of writers.entries()) {
         await emit({ kind: "changed", seq: 10 + i, client: "Claude Code", tool, label: null, assets: [] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
+      }
+      // An agent's reset, undo or redo only when it wrote a file (a script, texture or model).
+      for (const [i, tool] of ["reset_to_original", "undo", "redo"].entries()) {
+        await emit({ kind: "changed", seq: 30 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Trainer", index: 1 }] });
+        await flush();
+        expect(changedFromOriginal, tool).toHaveBeenCalledTimes(calls);
+        await emit({ kind: "changed", seq: 31 + 2 * i, client: "Claude Code", tool, label: null, assets: [{ kind: "Script", index: 0 }] });
         await flush();
         expect(changedFromOriginal, tool).toHaveBeenCalledTimes(++calls);
       }

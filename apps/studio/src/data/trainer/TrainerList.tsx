@@ -163,6 +163,8 @@ export function TrainerList() {
       bus.emit({ topic: "textData", archive: null });
     }
     onEdited();
+    // The members are written at once: the saved project differs now (Technik › Änderungen).
+    bus.emit({ topic: "savedFiles" });
     if (id !== null) select(id);
   };
   const onCreated = (report: CreateTrainerReport) => {

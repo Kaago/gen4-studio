@@ -139,6 +139,8 @@ describe("TrainerList", () => {
     expect(heard).toContainEqual({ topic: "dataChanged", kind: "trainer", index: null });
     expect(heard).toContainEqual({ topic: "textData", archive: 618 });
     expect(h.calls.onEdited).toHaveBeenCalled();
+    // Its members are written at once: the saved project differs (Technik › Änderungen compares again).
+    expect(heard).toContainEqual({ topic: "savedFiles" });
     // The placeholder written before it is named.
     expect(h.list().textContent).toContain("Trainer 930 angelegt; 929 bleibt Platzhalter für das Sicht-Script.");
     // The extended battle script is named by its file, as the Script panel names it.
@@ -196,6 +198,7 @@ describe("TrainerList", () => {
     expect(h.list().textContent).toContain("Danach fehlgeschlagen: Name und Text-Offset setzen (disk full).");
     expect(readShellState().selected.trainer).toBe(930);
     expect(heard).toContainEqual({ topic: "dataChanged", kind: "trainer", index: null });
+    expect(heard).toContainEqual({ topic: "savedFiles" });
     expect(h.calls.onEdited).toHaveBeenCalled();
     expect(scriptFiles.reload).toHaveBeenCalledWith(1114);
   });

@@ -66,6 +66,7 @@ import { startTownName } from "./app/startTown";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
+import { writesFiles } from "./reload";
 import { AgentQuestion } from "./app/AgentQuestion";
 import { TextConflictDialog } from "./app/TextConflictDialog";
 import type { TextConflictChoice } from "./app/TextConflictDialog";
@@ -131,9 +132,9 @@ const START_WIZARD_HINTS: Partial<Record<AreaId, string>> = Object.fromEntries(S
 const ignoreError = () => {};
 
 /**
- * The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again): saves and builds, the
- * commands that write files at once (scripts, the header patch, text conflicts, a new trainer's script) and undo and redo, which may take
- * back a file step of „Auf Original zurücksetzen“.
+ * The agents' commands after which the saved project may differ from before (Technik › Änderungen compares again): saves and builds and
+ * the commands that write files at once (scripts, the header patch, text conflicts, a new trainer's script). A reset to original, undo and
+ * redo count only when they wrote a file (`AGENT_FILE_STEPS`).
  */
 const AGENT_SAVES: ReadonlySet<string> = new Set([
   "save",
@@ -141,7 +142,6 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "save_level_script",
   "build_rom",
   "create_patch",
-  "reset_to_original",
   "apply_header_patch",
   "repair_header_patch",
   "resolve_text_conflicts",
@@ -149,9 +149,10 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "add_script",
   "new_script_file",
   "create_trainer",
-  "undo",
-  "redo",
 ]);
+
+/** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
+const AGENT_FILE_STEPS: ReadonlySet<string> = new Set(["reset_to_original", "undo", "redo"]);
 
 /** A script opens in a group at least this high. */
 const SCRIPT_HEIGHT = 400;
@@ -349,7 +350,15 @@ function AppBody() {
     // A failed load reported itself (an error message), which the announcement does not wipe.
     void Promise.resolve(scene.goTo({ kind: "header", id: show.header })).then(() => session.setMessage(announce(show.announcement)));
   }, [scene.headers, syncSettled]);
-  const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins });
+  // ⌘Z, ⌘⇧Z of a file step wrote files: an open script document reads its file again (typed text stays, with a hint: ⌘S would write it
+  // over the restored file), and Technik › Änderungen compares again.
+  const onFilesRestored = useStableCallback(async (assets: AssetId[]) => {
+    bumpChanged();
+    for (const asset of assets) if (asset.kind === "Script") await scripts.api.reload(asset.index);
+  });
+  const { step, reloadAfterHistory } = useHistoryReload({ bus, session, scene, pins, onFilesRestored });
+  // A new trainer made in the app wrote its members at once (`savedFiles`): Technik › Änderungen compares again.
+  useEffect(() => bus.subscribe("savedFiles", bumpChanged), [bus, bumpChanged]);
   // Assets changed outside undo: the scene and the editors read them again (an open script file too), then the dirty count. With
   // `discardScripts` an open script file shows the file even over typed text (the user was told it is lost).
   const reloadChanged = useStableCallback(async (changed: AssetId[], edited: boolean, { discardScripts = false }: { discardScripts?: boolean } = {}) => {
@@ -385,7 +394,7 @@ function AppBody() {
     // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
     if (session.info !== null && event.tool === "assign_base") void original.refresh();
     // What the saved project holds may differ now: Technik › Änderungen compares again.
-    if (AGENT_SAVES.has(event.tool)) bumpChanged();
+    if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
@@ -405,7 +414,8 @@ function AppBody() {
   // typed text: the dialog said that text is lost. An agent's reset comes as an agent event, on the path above (typed text stays there).
   const onOriginalReset = useStableCallback(async (result: ResetResult, label: string) => {
     session.setMessage({ kind: "info", text: `Auf Original zurückgesetzt: ${label}.` });
-    bumpChanged();
+    // Only a reset that wrote a file changed the saved project; a store kind's waits for the save (which compares again).
+    if (writesFiles(result.changed)) bumpChanged();
     try {
       if (result.changed.length > 0) scene.noteHistoryMoved();
       await reloadChanged(result.changed, true, { discardScripts: true });
