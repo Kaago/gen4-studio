@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto } from "./api";
 import App from "./App";
@@ -206,6 +206,8 @@ vi.mock("./api", async (importOriginal) => ({
   checkProjectDest: vi.fn(),
   createProject: vi.fn(),
   agentSettings: vi.fn(),
+  baseStatus: vi.fn(),
+  createPatch: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -280,6 +282,7 @@ describe("App wiring", () => {
     vi.mocked(listMatrices).mockResolvedValue({ matrices: [], unreadable: [] });
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
+    vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -1028,7 +1031,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(5);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(6);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -1062,6 +1065,89 @@ describe("App wiring", () => {
       expect(projectPreviewSet).toHaveBeenCalledWith({ file: "/bilder/stadt.png" });
       expect(surface.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,RUlH");
       expect(listToasts().map((t) => [t.kind, t.text])).toEqual([["info", "Vorschaubild gesetzt"]]);
+    });
+
+    it("a_running_patch_holds_bauen_and_saving_and_survives_leaving_technik", async () => {
+      const rom = "/p/build/p-CPUE.nds";
+      vi.mocked(baseStatus).mockResolvedValue({
+        state: "found",
+        mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
+        label: "Platin DE (Testprojekt)",
+        path: "/roms/p.nds",
+        source: "known",
+        patch_name: "p-CPUE",
+      });
+      let finish: (dto: Awaited<ReturnType<typeof createPatch>>) => void = () => {};
+      vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      vi.mocked(save).mockClear();
+      vi.mocked(buildRom).mockClear();
+      await act(async () => atlasEntry("Technik")!.click());
+      const row = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+      await act(async () => row("Veröffentlichen").click());
+      await act(async () => {});
+      await click("Patch erstellen…");
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Patch erstellen")!.click());
+      expect(createPatch).toHaveBeenCalledOnce();
+      // While it builds: the title bar's Bauen and Speichern wait, ⌘S and ⌘R start nothing, another patch cannot start.
+      const titleButton = (name: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${name}"]`);
+      expect(titleButton("Bauen")?.disabled).toBe(true);
+      expect(titleButton("Speichern")?.disabled).toBe(true);
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true })));
+      expect(save).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect([...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…")?.getAttribute("aria-disabled")).toBe("true");
+
+      // Leaving Technik does not lose the patch: it finishes elsewhere, and its build is the session's last build, but its ROM (named in the
+      // notes) does not become the ROM „Hier spielen“ builds to.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () =>
+        finish({
+          patch: "/p/build/p-CPUE.xdelta",
+          notes: "/p/build/p-CPUE.xdelta.txt",
+          rom,
+          size: 812,
+          base_sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4",
+          target_sha1: "aa",
+          encode_ms: 1,
+          verify_ms: 1,
+          build: { saved: 0, packed: [], rom, compiled: [], encoded: [], problems: [] },
+        }),
+      );
+      expect(titleButton("Bauen")?.disabled).toBe(false);
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      expect(row("Veröffentlichen").textContent).toContain("Patch erstellt");
+      expect(container.querySelector("[data-patch-card]")?.textContent).toContain("Patch erstellt: 812 Byte");
+      expect(row("Prüfen und Bauen").textContent).toContain("gebaut");
+      await act(async () => row("Prüfen und Bauen").click());
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("gerade eben");
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
+      expect(createPatch).toHaveBeenCalledOnce();
+    });
+
+    it("an_app_build_holds_patch_erstellen", async () => {
+      vi.mocked(baseStatus).mockResolvedValue({
+        state: "found",
+        mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
+        label: "Platin DE (Testprojekt)",
+        path: "/roms/p.nds",
+        source: "known",
+        patch_name: "p-CPUE",
+      });
+      let finish: (report: Awaited<ReturnType<typeof buildRom>>) => void = () => {};
+      vi.mocked(buildRom).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      await act(async () => atlasEntry("Technik")!.click());
+      const row = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+      await act(async () => row("Veröffentlichen").click());
+      await act(async () => {});
+      const patchButton = () => [...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…");
+      expect(patchButton()?.disabled).toBe(false);
+      await click("Bauen");
+      expect(patchButton()?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [] }));
+      expect(patchButton()?.disabled).toBe(false);
     });
 
     it("technik_and_einstellungen_show_the_emulator_the_session_picked", async () => {
@@ -2241,14 +2327,49 @@ describe("App wiring", () => {
       expect(dirty).toHaveBeenCalled();
     });
 
+    it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {
+      await inTheApp();
+      await act(async () => atlasEntry("Technik")!.click());
+      const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Veröffentlichen"))!;
+      await act(async () => row.click());
+      await act(async () => {});
+      const state = () => container.querySelector("[data-base-state]")?.getAttribute("data-base-state");
+      expect(state()).toBe("unassigned");
+      // The agent assigned a base: the card follows without leaving Technik.
+      vi.mocked(baseStatus).mockClear();
+      vi.mocked(baseStatus).mockResolvedValue({
+        state: "found",
+        mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
+        label: "Platin DE (Testprojekt)",
+        path: "/roms/p.nds",
+        source: "known",
+        patch_name: "p-CPUE",
+      });
+      // Other tools leave the status alone.
+      await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await flush();
+      expect(baseStatus).not.toHaveBeenCalled();
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
+      await flush();
+      expect(baseStatus).toHaveBeenCalledTimes(1);
+      expect(state()).toBe("found");
+      await emit({ kind: "changed", seq: 3, client: "Claude Code", tool: "create_patch", label: null, assets: [] });
+      await flush();
+      expect(baseStatus).toHaveBeenCalledTimes(2);
+    });
+
     it("reads_nothing_for_an_agent_change_without_a_project", async () => {
       await inTheApp(false);
       vi.mocked(memberCounts).mockClear();
       vi.mocked(getMatrix).mockClear();
+      vi.mocked(baseStatus).mockClear();
       await emit(changed(1, [{ kind: "Matrix", index: 0 }]));
+      await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "assign_base", label: null, assets: [] });
       await flush();
       expect(memberCounts).not.toHaveBeenCalled();
       expect(getMatrix).not.toHaveBeenCalled();
+      // Without a project there is no base status to read.
+      expect(baseStatus).not.toHaveBeenCalled();
     });
   });
 

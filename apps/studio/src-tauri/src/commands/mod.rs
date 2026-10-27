@@ -2,6 +2,7 @@
 
 mod agents;
 mod area;
+mod base;
 mod buildings;
 mod checks;
 mod data;
@@ -30,6 +31,7 @@ mod world_meta;
 
 pub use agents::*;
 pub use area::*;
+pub use base::*;
 pub use buildings::*;
 pub use checks::*;
 pub use data::*;

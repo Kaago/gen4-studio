@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::commands::policy::Policy;
+use crate::commands::policy::{COPIES_DIR, Policy};
 use crate::errors::CmdError;
 
 /// Suffix of the folder names of the original ROM projects, which must never be touched.
@@ -11,10 +11,22 @@ const LOCKED_SUFFIX: &str = "_DSPRE_contents";
 /// Folder name of the shared save games, which lives inside `_testkopien` and must stay untouched.
 const SAVES_DIR: &str = "_saves";
 
-/// Whether any component of `path` names an original project (ends in `_DSPRE_contents`).
+/// Name of the folder inside a project that takes ROM builds, made when a target needs it.
+const BUILD_DIR: &str = "build";
+
+/// Whether a component of `path` names an original project (ends in `_DSPRE_contents`) with
+/// no `_testkopien` component before it: originals live in `Roms/`, copies under
+/// `Roms/_testkopien` keep DSPRE's names.
 fn is_locked(path: &Path) -> bool {
-    path.components()
-        .any(|c| c.as_os_str().to_string_lossy().ends_with(LOCKED_SUFFIX))
+    let mut in_copies = false;
+    for c in path.components() {
+        let name = c.as_os_str();
+        if !in_copies && name.to_string_lossy().ends_with(LOCKED_SUFFIX) {
+            return true;
+        }
+        in_copies |= name == COPIES_DIR;
+    }
+    false
 }
 
 /// Whether any component of `path` is exactly the save game folder.
@@ -38,8 +50,8 @@ pub type Roots = DevPolicy;
 pub const IMPORT_ROOT_VAR: &str = "G4_IMPORT_ROOT";
 
 impl DevPolicy {
-    /// Canonicalizes each dir; refuses an empty list, a missing dir and any dir with a
-    /// `_DSPRE_contents` component.
+    /// Canonicalizes each dir; refuses an empty list, a missing dir and any dir that is or
+    /// lies in an original (`is_locked`).
     pub fn new(dirs: &[PathBuf]) -> Result<Roots, String> {
         if dirs.is_empty() {
             return Err("Mindestens ein erlaubter Ordner (--allow-root) ist nötig".into());
@@ -93,6 +105,27 @@ impl DevPolicy {
         }
         Ok(())
     }
+
+    /// Makes `parent` when it does not exist, is named `build` and the folder above it
+    /// exists and passes `check_canonical`: a project without `build/` takes its first build
+    /// target (`create_patch`). Nothing deeper and no other name is made.
+    fn make_build_dir(&self, parent: &Path, shown: &str) -> Result<(), CmdError> {
+        // A dangling link exists as a link and is left for the checks to refuse.
+        if parent.symlink_metadata().is_ok() || parent.file_name() != Some(BUILD_DIR.as_ref()) {
+            return Ok(());
+        }
+        let above = match parent.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        let Ok(above) = above.canonicalize() else {
+            return Ok(());
+        };
+        self.check_canonical(&above, shown)?;
+        let build = above.join(BUILD_DIR);
+        std::fs::create_dir(&build)
+            .map_err(|e| CmdError::from(format!("Ordner nicht anlegbar: {}: {e}", build.display())))
+    }
 }
 
 impl Policy for DevPolicy {
@@ -135,7 +168,8 @@ impl Policy for DevPolicy {
 
     /// `build_rom`: the out path whose canonical parent lies under a root. The file itself
     /// need not exist; when it does, it must not lead out of the roots either (a symlink to
-    /// an original would be written through).
+    /// an original would be written through). A missing parent named `build` is made when
+    /// the folder above it is allowed, as `UserPolicy` makes a fresh project's `build/`.
     fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(out);
         let name = path
@@ -145,6 +179,7 @@ impl Policy for DevPolicy {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
         };
+        self.make_build_dir(parent, out)?;
         let parent = canonicalize(parent, out)?;
         self.check_canonical(&parent, out)?;
         let full = parent.join(name);
@@ -296,6 +331,105 @@ mod tests {
         );
     }
 
+    /// `<tmp>/Roms` with `_testkopien` inside, both created.
+    fn roms_with_copies(tmp: &tempfile::TempDir) -> (PathBuf, PathBuf) {
+        let roms = tmp.path().join("Roms");
+        let copies = roms.join("_testkopien");
+        fs::create_dir_all(&copies).unwrap();
+        (roms, copies)
+    }
+
+    #[test]
+    fn dspre_copy_under_testkopien_opens() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, copies) = roms_with_copies(&tmp);
+        let project = copies.join("X_DSPRE_contents");
+        fs::create_dir(&project).unwrap();
+        let roots = Roots::new(std::slice::from_ref(&copies)).unwrap();
+        assert_eq!(
+            roots.check_project(project.to_str().unwrap()).unwrap(),
+            project.canonicalize().unwrap()
+        );
+        // Build targets and part files inside the copy follow.
+        let out = project.join("out.nds");
+        assert!(roots.check_output(out.to_str().unwrap()).is_ok());
+        fs::write(project.join("m.per"), [0u8; 2048]).unwrap();
+        assert!(
+            roots
+                .read_path(project.join("m.per").to_str().unwrap())
+                .is_ok()
+        );
+        // A copy may itself be an allowed root.
+        assert!(Roots::new(&[project]).is_ok());
+    }
+
+    #[test]
+    fn original_next_to_testkopien_stays_locked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (roms, copies) = roms_with_copies(&tmp);
+        let original = roms.join("X_DSPRE_contents");
+        fs::create_dir(&original).unwrap();
+        // Links inside `_testkopien` resolve to the original.
+        let link = copies.join("link");
+        symlink(&original, &link).unwrap();
+        let named = copies.join("Y_DSPRE_contents");
+        symlink(&original, &named).unwrap();
+        let roots = Roots::new(std::slice::from_ref(&roms)).unwrap();
+        for path in [&original, &link, &named] {
+            let err = roots.check_project(path.to_str().unwrap()).unwrap_err();
+            assert!(
+                err.message
+                    .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+                "{}",
+                err.message
+            );
+            let out = path.join("out.nds");
+            let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
+            assert!(err.message.starts_with("Originale"), "{}", err.message);
+        }
+        // An original is no root either.
+        assert!(Roots::new(&[original]).is_err());
+    }
+
+    #[test]
+    fn dspre_component_before_testkopien_stays_locked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp
+            .path()
+            .join("A_DSPRE_contents")
+            .join("_testkopien")
+            .join("Y");
+        fs::create_dir_all(&project).unwrap();
+        let err = roots_in(&tmp)
+            .check_project(project.to_str().unwrap())
+            .unwrap_err();
+        assert!(
+            err.message
+                .starts_with("Originale (_DSPRE_contents) sind gesperrt: "),
+            "{}",
+            err.message
+        );
+        assert!(Roots::new(&[project]).is_err());
+    }
+
+    #[test]
+    fn saves_under_testkopien_stays_locked_with_a_copy_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, copies) = roms_with_copies(&tmp);
+        let saves = copies.join("_saves");
+        fs::create_dir(&saves).unwrap();
+        let err = Roots::new(&[copies])
+            .unwrap()
+            .check_project(saves.to_str().unwrap())
+            .unwrap_err();
+        assert!(
+            err.message
+                .starts_with("Spielstände (_saves) sind gesperrt: "),
+            "{}",
+            err.message
+        );
+    }
+
     #[test]
     fn original_outside_the_root_reports_outside_first() {
         let root = tempfile::tempdir().unwrap();
@@ -354,6 +488,65 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("missing").join("out.nds");
         assert!(roots_in(&dir).check_output(out.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn output_in_a_missing_build_folder_makes_it() {
+        // A DSPRE copy under `_testkopien` without `build/`, as `create_patch` targets it.
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, copies) = roms_with_copies(&tmp);
+        let project = copies.join("X_DSPRE_contents");
+        fs::create_dir(&project).unwrap();
+        let roots = Roots::new(std::slice::from_ref(&copies)).unwrap();
+        let build = project.canonicalize().unwrap().join("build");
+        for name in ["X-CPUD.nds", "X-CPUD.xdelta"] {
+            let out = project.join("build").join(name);
+            assert_eq!(
+                roots.check_output(out.to_str().unwrap()).unwrap(),
+                build.join(name)
+            );
+        }
+        assert!(
+            build.is_dir(),
+            "build/ is created for a target directly in it"
+        );
+        // Only build/ itself, one level: a deeper or another missing folder is not made.
+        let deeper = project.join("build/sub/out.nds");
+        assert!(roots.check_output(deeper.to_str().unwrap()).is_err());
+        assert!(!build.join("sub").exists());
+        let missing = project.join("gone/build/out.nds");
+        assert!(roots.check_output(missing.to_str().unwrap()).is_err());
+        assert!(!project.join("gone").exists());
+    }
+
+    #[test]
+    fn build_folder_is_not_made_where_the_target_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let roots = roots_in(&root);
+        let original = root.path().join("X_DSPRE_contents");
+        let saves = root.path().join("_saves");
+        fs::create_dir(&original).unwrap();
+        fs::create_dir(&saves).unwrap();
+        let link = root.path().join("link");
+        symlink(other.path(), &link).unwrap();
+        for (dir, refusal) in [
+            (
+                original.as_path(),
+                "Originale (_DSPRE_contents) sind gesperrt: ",
+            ),
+            (saves.as_path(), "Spielstände (_saves) sind gesperrt: "),
+            (other.path(), "Pfad liegt außerhalb der erlaubten Ordner: "),
+            (
+                link.as_path(),
+                "Pfad liegt außerhalb der erlaubten Ordner: ",
+            ),
+        ] {
+            let out = dir.join("build").join("out.nds");
+            let err = roots.check_output(out.to_str().unwrap()).unwrap_err();
+            assert!(err.message.starts_with(refusal), "{}", err.message);
+            assert!(!dir.join("build").exists(), "{}", dir.display());
+        }
     }
 
     #[test]

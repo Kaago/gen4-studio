@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Local gate (there is no CI): formatting, lints, the full test suite, the studio
-# frontend, then the gated tests against every test project under $G4_ROMS_DIR.
+# Local gate (there is no CI): formatting, lints, licenses and advisories of the
+# dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the full test
+# suite, the studio frontend, then the gated tests against every test project under
+# $G4_ROMS_DIR.
 #
 # Variables (all optional):
 #   G4_ROMS_DIR    folder with the *_DSPRE_contents test projects (default: ../Roms)
@@ -21,6 +23,10 @@ cd "$ROOT"
 TOOLCHAIN_BIN="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin"
 if [ -d "$TOOLCHAIN_BIN" ]; then
   export PATH="$TOOLCHAIN_BIN:$PATH"
+fi
+# cargo install puts cargo-deny there; appended, so it shadows nothing of the toolchain.
+if [ -d "$HOME/.cargo/bin" ]; then
+  export PATH="$PATH:$HOME/.cargo/bin"
 fi
 
 # Absolute paths: cargo runs the tests in the directory of each crate.
@@ -90,6 +96,13 @@ run_step() { # run_step <step label> <project label> <command...>
 run_step "cargo fmt --check" "" cargo fmt --check
 run_step "cargo clippy (-D warnings)" "" \
   cargo clippy --workspace --all-targets --all-features -- -D warnings
+if ! command -v cargo-deny >/dev/null 2>&1; then
+  record "cargo deny (licenses, advisories)" "-" "FAILED (cargo-deny fehlt)" 0
+  FAILED=1
+  echo "cargo-deny fehlt: cargo install --locked cargo-deny@0.20.2" >&2
+  exit 1
+fi
+run_step "cargo deny (licenses, advisories)" "" cargo deny --locked check licenses advisories
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \

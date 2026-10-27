@@ -116,6 +116,26 @@ describe("Dialog", () => {
     expect(onOpenChange.mock.calls.map((c) => c[0])).toEqual([false]);
   });
 
+  it("final_focus_names_where_focus_goes_when_it_has_closed", async () => {
+    const elsewhere = document.createElement("button");
+    document.body.append(elsewhere);
+    const finalFocus = vi.fn(() => elsewhere);
+    const render = (open: boolean) =>
+      act(async () =>
+        root.render(
+          <Dialog open={open} onOpenChange={() => {}} title="Frage" finalFocus={finalFocus}>
+            <p>Inhalt</p>
+          </Dialog>,
+        ),
+      );
+    await render(true);
+    expect(finalFocus).not.toHaveBeenCalled();
+    await render(false);
+    await act(async () => {});
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it("actions_are_buttons_in_the_given_order", () => {
     const remove = vi.fn();
     const keep = vi.fn();

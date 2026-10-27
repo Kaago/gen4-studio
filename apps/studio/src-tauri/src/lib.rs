@@ -1,3 +1,5 @@
+/// The remembered base ROMs of the app (`base-roms.json`).
+pub mod base_roms;
 #[cfg(feature = "dev-bridge")]
 pub mod bridge;
 mod commands;
@@ -35,6 +37,7 @@ use commands::{
     agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
 };
 use commands::{apply_empty_region, plan_empty_region};
+use commands::{assign_base, base_status, check_base, create_patch, register_base_rom};
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{project_preview_get, project_preview_set};
@@ -177,7 +180,12 @@ pub fn run() {
             rename_place,
             assign_place,
             project_preview_get,
-            project_preview_set
+            project_preview_set,
+            base_status,
+            check_base,
+            assign_base,
+            register_base_rom,
+            create_patch
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -211,6 +219,7 @@ fn setup_agents(app: &tauri::AppHandle) {
     let state = app.state::<AppState>();
     let hub = &state.agents;
     hub.configure(dir.clone());
+    state.base_roms.configure(dir.clone());
     let emitter = app.clone();
     hub.set_notifier(Arc::new(move |event| {
         // A failed emit only means the webview misses one update; `agent_poll` catches up.

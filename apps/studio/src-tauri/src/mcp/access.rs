@@ -162,6 +162,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
         "project_preview_set",
         Kind::Irreversible("Vorschaubild ändern"),
     ),
+    ("base_status", Kind::Read),
+    ("check_base", Kind::Read),
+    ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
+    ("register_base_rom", APP_ONLY),
+    ("create_patch", Kind::Irreversible("Patch erstellen")),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -331,6 +336,8 @@ mod tests {
                     "apply_header_patch",
                     Kind::Irreversible("Header-Patch einspielen")
                 ),
+                ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
+                ("create_patch", Kind::Irreversible("Patch erstellen")),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
                 (
@@ -365,6 +372,7 @@ mod tests {
                     "open_project",
                     Kind::Unavailable("Das Projekt ist fest (--project)")
                 ),
+                ("register_base_rom", Kind::Unavailable("Nur in der App")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
@@ -400,6 +408,8 @@ mod tests {
             "history",
             "dirty",
             "validate_text",
+            "base_status",
+            "check_base",
         ] {
             assert_eq!(kind(name), Kind::Read, "{name}");
         }

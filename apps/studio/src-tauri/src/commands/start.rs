@@ -10,6 +10,7 @@ use serde::Serialize;
 use tauri::{Manager, ipc::Channel};
 
 use crate::errors::CmdError;
+use crate::state::AppState;
 
 /// Folder name under Documents where the app proposes to create new projects.
 const PROJECTS_DIR: &str = "Gen4 Studio";
@@ -59,13 +60,19 @@ pub fn check_project_dest_impl(dest: &str, rom_size: u64) -> DestCheck {
     start::check_destination(Path::new(dest), rom_size)
 }
 
+/// Creates the project, then remembers its ROM as a base ROM (`base-roms.json`); a ROM that
+/// cannot be remembered does not fail the project, it is searched for again later.
 pub fn create_project_impl(
+    state: &AppState,
     rom: &str,
     dest: &str,
     template: Template,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<CreatedDto, CmdError> {
     let created = start::create_project(Path::new(rom), Path::new(dest), template, progress)?;
+    if let Err(e) = state.base_roms.register(Path::new(rom), &created.info) {
+        eprintln!("Basis-ROM nicht gemerkt: {e}");
+    }
     Ok(CreatedDto {
         root: created.root.display().to_string(),
         game_code: created.info.game_code,
@@ -103,13 +110,14 @@ pub fn check_project_dest(dest: String, rom_size: u64) -> DestCheck {
 /// Unpacks a ROM (seconds) on a blocking worker and reports each phase over `progress`.
 #[tauri::command]
 pub async fn create_project(
+    app: tauri::AppHandle,
     rom: String,
     dest: String,
     template: Template,
     progress: Channel<Progress>,
 ) -> Result<CreatedDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
-        create_project_impl(&rom, &dest, template, &mut |p| {
+        create_project_impl(&app.state::<AppState>(), &rom, &dest, template, &mut |p| {
             // A closed channel only means nobody watches the progress any more.
             let _ = progress.send(p);
         })
@@ -156,6 +164,7 @@ mod tests {
         let (tmp, rom) = synthetic_rom();
         let dest = tmp.path().join("neu");
         let err = create_project_impl(
+            &AppState::default(),
             rom.to_str().unwrap(),
             dest.to_str().unwrap(),
             Template::Original,
@@ -172,6 +181,7 @@ mod tests {
         let (tmp, rom) = synthetic_rom();
         with_game_code(&rom, "ADAD");
         let err = create_project_impl(
+            &AppState::default(),
             rom.to_str().unwrap(),
             tmp.path().join("neu").to_str().unwrap(),
             Template::DataOnly,

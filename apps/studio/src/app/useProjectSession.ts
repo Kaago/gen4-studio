@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
-import type { AssetId, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo } from "../api";
+import { acceptDisk, buildRom, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, runRom, save } from "../api";
+import type { AssetId, BuildReport, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo } from "../api";
 import { staleText } from "../assets";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
@@ -272,35 +272,56 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   }
 
   /**
+   * The one build path of the session: `busy` while it runs (the app's open, save and build guards read it), the open scripts saved first
+   * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
+   * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or `create_patch`, which builds before it writes the
+   * patch). After it the build's time and problems are the session's, its ROM becomes the last ROM only with `ownsRom` (a patch's ROM is
+   * not „Hier spielen“'s target: building there would change the ROM its notes name), and the unsaved edits are read again. A compile
+   * failure puts its problems into the store; every failure is thrown on. Answers what `run` answered and how many store files were saved
+   * ahead of the scripts.
+   */
+  async function guardedBuild<R>(
+    run: () => Promise<R>,
+    reportOf: (result: R) => BuildReport,
+    ownsRom: boolean,
+  ): Promise<{ result: R; storeSaved: number }> {
+    setBusy(true);
+    try {
+      const dirtyScripts = scripts.current.dirtyFiles();
+      const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
+      for (const file of dirtyScripts) await scripts.current.save(file);
+      const result = await run();
+      const report = reportOf(result);
+      if (ownsRom) setLastRom(report.rom);
+      setLastBuiltAt(Date.now());
+      problems.applyBuildReport(report.problems);
+      return { result, storeSaved };
+    } catch (e) {
+      if (isCmdError(e) && e.code === "compile") problems.applyReport(e.problems ?? []);
+      throw e;
+    } finally {
+      setBusy(false);
+      await refreshDirty();
+    }
+  }
+
+  /**
    * Builds the ROM (saving first). Without `known` the output path is asked for; with it (the path of an earlier build) no dialog opens.
    * Resolves to the ROM's path, or null when nothing was built (cancelled, failed to compile or to build).
    */
   async function onBuild(known?: string): Promise<string | null> {
-    let built: string | null = null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
       const out = known ?? (await savePath({ defaultPath: inTauri() || !info ? "out.nds" : `${info.root}/out.nds` }));
       if (!out) return null;
-      setBusy(true);
       setMessage({ kind: "info", text: "Baue ROM ..." });
-      // Open scripts live in the editor, not in the store: save them first, and build nothing when one cannot be saved.
-      // A script save refuses while a text archive is unsaved, and the build saves the store only after the scripts: with
-      // scripts to save, the store goes first (as in `onSave`).
-      const dirtyScripts = scripts.current.dirtyFiles();
-      const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
-      for (const file of dirtyScripts) await scripts.current.save(file);
-      const report = await buildRom(out);
-      built = report.rom;
-      setLastRom(report.rom);
-      setLastBuiltAt(Date.now());
-      problems.applyBuildReport(report.problems);
+      const { result: report, storeSaved } = await guardedBuild(() => buildRom(out), (r) => r, true);
       setMessage({ kind: "info", text: `ROM gebaut: ${report.rom} (${report.saved + storeSaved} Datei(en) vorher gespeichert)` });
+      return report.rom;
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") {
-        const list = e.problems ?? [];
-        problems.applyReport(list);
-        const errors = list.filter((p) => p.severity === "error").length;
-        // Spec 5.7: the one toast a compile problem gets. The problems themselves go to the store and its counts.
+        const errors = (e.problems ?? []).filter((p) => p.severity === "error").length;
+        // Spec 5.7: the one toast a compile problem gets. The problems themselves went to the store and its counts.
         setMessage(
           errors > 0
             ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions: onShowProblems ? [{ label: "Probleme zeigen", run: onShowProblems }] : undefined }
@@ -309,11 +330,17 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
       } else {
         fail(e);
       }
-    } finally {
-      setBusy(false);
+      return null;
     }
-    await refreshDirty();
-    return built;
+  }
+
+  /**
+   * „Patch erstellen“ (Technik › Veröffentlichen) on the session's build path: saving, Bauen and opening wait for it, and its build counts
+   * as the last build (time, problems), but the ROM it built (`build/<Name>.nds`, named with its SHA-1 in the notes) does not become the
+   * last ROM, so „Hier spielen“ never builds over it. A failure is thrown on: the patch card says why.
+   */
+  async function buildPatch(): Promise<PatchDto> {
+    return (await guardedBuild(createPatch, (dto) => dto.build, false)).result;
   }
 
   async function pickEmulator(): Promise<string | null> {
@@ -378,6 +405,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     openProjectAt,
     onSave,
     onBuild,
+    buildPatch,
     onPickEmulator,
     onRun,
     patchRepaired,

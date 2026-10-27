@@ -430,6 +430,24 @@ impl AgentHub {
         self.change_settings(|s| s.remove_grant(path))
     }
 
+    /// Moves the grant of `from` to `to` (after a base ROM was assigned) and saves; without
+    /// a grant of `from` nothing is saved and no event is sent.
+    pub fn move_grant(&self, from: &ProjectKey, to: ProjectKey) -> Result<(), String> {
+        let mut inner = self.lock();
+        let before = inner.settings.clone();
+        if !inner.settings.move_grant(from, &to) {
+            return Ok(());
+        }
+        if let Err(e) = inner.save() {
+            inner.settings = before;
+            return Err(e);
+        }
+        let emit = inner.status_event();
+        drop(inner);
+        emit.send();
+        Ok(())
+    }
+
     /// A client opened a session; answers its connection id.
     pub fn connect(&self, client: &str) -> u64 {
         let mut inner = self.lock();
@@ -803,6 +821,29 @@ mod tests {
             GrantLevel::Write
         );
         assert!(hub.answer(question.id, "read").is_err());
+    }
+
+    #[test]
+    fn move_grant_saves_the_moved_grant() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = AgentHub::default();
+        hub.configure(Some(dir.path().to_owned()));
+        let old = ProjectKey {
+            base_id: None,
+            ..key()
+        };
+        hub.set_grant(old.clone(), GrantLevel::Write).unwrap();
+        let seq = hub.poll(0).seq;
+        hub.move_grant(&old, key()).unwrap();
+        assert!(hub.poll(0).seq > seq);
+        let saved = AgentSettings::load(dir.path());
+        assert_eq!(saved.grant_for(&key()), Some(GrantLevel::Write));
+        assert_eq!(saved.grant_for(&old), None);
+        // Nothing to move: nothing saved, no event.
+        let seq = hub.poll(0).seq;
+        hub.move_grant(&old, key()).unwrap();
+        assert_eq!(hub.poll(0).seq, seq);
+        assert_eq!(AgentSettings::load(dir.path()), saved);
     }
 
     #[test]

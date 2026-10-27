@@ -19,10 +19,12 @@ import { ChecksFoot, ChecksNotes, ProblemsTable, UNCHECKED_WHY, UncheckedNotice,
 import { countsText, isFinding } from "../workbench/problems/problems";
 import type { ProblemRow, ProblemsStore } from "../workbench/problems/problems";
 import { useHeaderPatch } from "../workbench/wizards/useHeaderPatch";
+import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import styles from "./TechnikArea.module.css";
+import type { BaseApi } from "./useBase";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "projekt" | "bauen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "projekt" | "bauen" | "veroeffentlichen" | "patches" | "emulator" | "werkzeuge";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -65,11 +67,14 @@ export type TechnikAreaProps = {
    * it has none. Without it the hint names no town.
    */
   startTown?: (header: number) => string | null;
+  /** The base ROM and the patch (Veröffentlichen), held by the app so a running patch survives leaving Technik; null without a project. */
+  base: BaseApi | null;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
   { id: "projekt", label: "Projekt", icon: "open" },
   { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
+  { id: "veroeffentlichen", label: "Veröffentlichen", icon: "publish" },
   { id: "patches", label: "Patches", icon: "patch" },
   { id: "emulator", label: "Emulator", icon: "game" },
   { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
@@ -119,9 +124,9 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9, phase 4.0 §3.5): a list of five entries with their state, and the surface of the chosen one. Projekt,
- * Prüfen und Bauen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The patch state and
- * the preview picture are read once per project, when the area shows.
+ * The area Technik (spec 5.9, phase 4.0 §3.5): a list of six entries with their state, and the surface of the chosen one. Projekt,
+ * Prüfen und Bauen, Veröffentlichen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in Werkzeuge does). The
+ * patch state and the preview picture are read once per project, when the area shows; the base ROM comes from the app (`base`).
  */
 export function TechnikArea(props: TechnikAreaProps) {
   return props.project === null ? <TechnikView {...props} patch={null} preview={null} /> : <WithProject key={props.project} {...props} />;
@@ -142,6 +147,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
   const subtitles: Record<TechnikEntry, string> = {
     projekt: previewSubtitle(preview),
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
+    veroeffentlichen: publishSubtitle(props.base),
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
@@ -159,6 +165,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
         <ProjectSurface project={props.project} preview={preview} startTown={props.startTown} onOpenProject={props.onOpenProject} />
       ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
+      ) : entry === "veroeffentlichen" ? (
+        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (

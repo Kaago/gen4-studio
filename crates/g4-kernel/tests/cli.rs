@@ -577,3 +577,251 @@ fn create_accepts_the_empty_region_template() {
         .code(1);
     assert!(!dest.exists());
 }
+
+/// `<tmp>/X_DSPRE_contents` (a copy of the synthetic project) and `<tmp>/X.nds` (the synthetic
+/// ROM, game code CPUE like the project): the layout DSPRE leaves behind.
+fn dspre_layout() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let s = common::synthetic_project();
+    let (_rom_dir, rom) = common::synthetic_rom();
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("X_DSPRE_contents");
+    common::copy_dir(s.dir.path(), &root);
+    let nds = tmp.path().join("X.nds");
+    std::fs::copy(&rom, &nds).unwrap();
+    (tmp, root, nds)
+}
+
+fn stdout_of(assert: &assert_cmd::assert::Assert) -> String {
+    String::from_utf8(assert.get_output().stdout.clone()).unwrap()
+}
+
+#[test]
+fn cli_base_assign_writes_a_dspre_mark() {
+    let (_tmp, root, nds) = dspre_layout();
+    let assert = g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    println!("{text}");
+    let mark = g4_kernel::start::read_base_mark(&root).expect("a mark");
+    assert_eq!(mark.origin, "dspre");
+    assert_eq!(mark.version, 2);
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "warning: Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+            format!(
+                "assigned sha1={} label={}",
+                mark.sha1,
+                g4_kernel::base::base_label(&mark)
+            )
+            .as_str(),
+        ],
+        "{text}"
+    );
+
+    // Now `base check` names the mark and finds the sibling.
+    let assert = g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    println!("{text}");
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "mark=dspre".to_owned(),
+            format!("sha1={}", mark.sha1),
+            format!("base={} (sibling)", nds.display()),
+        ],
+        "{text}"
+    );
+}
+
+#[test]
+fn cli_base_assign_refuses_another_game_with_exit_1() {
+    let (_tmp, root, nds) = dspre_layout();
+    common::with_game_code(&nds, "IPKE");
+    g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .code(1)
+        .stderr(contains("Falsches Spiel"));
+    assert!(!root.join(".g4").exists());
+}
+
+#[test]
+fn cli_base_check_names_the_suggestion() {
+    let (_tmp, root, nds) = dspre_layout();
+    let assert = g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .success();
+    let text = stdout_of(&assert);
+    println!("{text}");
+    let lines: Vec<_> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "mark=none".to_owned(),
+            format!("suggestion={}", nds.display())
+        ],
+        "{text}"
+    );
+    assert!(!root.join(".g4").exists());
+}
+
+#[test]
+fn cli_base_check_with_rom_prints_the_warnings_as_json() {
+    let (_tmp, root, nds) = dspre_layout();
+    let out = g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .arg("--rom")
+        .arg(&nds)
+        .arg("--json")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let check: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(check["refused"], serde_json::Value::Null, "{check}");
+    assert_eq!(check["info"]["game_code"], "CPUE", "{check}");
+    assert_eq!(
+        check["warnings"],
+        serde_json::json!([{
+            "kind": "unknown_dump",
+            "message": "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+        }]),
+        "{check}"
+    );
+    // Without --json: one line per warning; nothing written either way.
+    g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .arg("--rom")
+        .arg(&nds)
+        .assert()
+        .success()
+        .stdout(contains(
+            "warning: Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.",
+        ));
+    // Another game: exit 1 with the reason, as JSON too.
+    common::with_game_code(&nds, "IPKE");
+    let assert = g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .arg("--rom")
+        .arg(&nds)
+        .arg("--json")
+        .assert()
+        .code(1)
+        .stderr(contains("Falsches Spiel"));
+    let check: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
+    assert_eq!(check["warnings"], serde_json::json!([]), "{check}");
+    assert!(
+        check["refused"]
+            .as_str()
+            .unwrap()
+            .starts_with("Falsches Spiel")
+    );
+    assert!(!root.join(".g4").exists());
+}
+
+#[test]
+fn cli_base_check_hints_at_a_base_dir_that_is_not_a_folder() {
+    let (tmp, root, nds) = dspre_layout();
+    g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .success();
+    std::fs::remove_file(&nds).unwrap();
+    let typo = tmp.path().join("romz");
+    g4k()
+        .args(["base", "check"])
+        .arg(&root)
+        .env("G4_BASE_ROM_DIR", &typo)
+        .assert()
+        .success()
+        .stdout(contains("mark=dspre"))
+        .stdout(contains("base=missing"))
+        .stderr(contains(format!(
+            "hint: G4_BASE_ROM_DIR is not a folder: {}",
+            typo.display()
+        )));
+}
+
+#[test]
+fn cli_patch_create_without_a_mark_fails() {
+    let (_tmp, root, _nds) = dspre_layout();
+    g4k()
+        .args(["patch", "create"])
+        .arg(&root)
+        .env_remove("G4_BASE_ROM_DIR")
+        .assert()
+        .code(1)
+        .stderr(contains(format!(
+            "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
+            g4_kernel::patch::NO_MARK
+        )));
+    assert!(!root.join("build").exists());
+}
+
+#[test]
+fn cli_patch_create_refuses_a_broken_or_newer_mark_in_the_app_words() {
+    let (_tmp, root, _nds) = dspre_layout();
+    std::fs::create_dir_all(root.join(".g4")).unwrap();
+    for mark in ["{ broken", r#"{"version": 3}"#] {
+        std::fs::write(root.join(".g4/base.json"), mark).unwrap();
+        let refusal = g4_kernel::start::mark_state(&root)
+            .refusal()
+            .expect("a refusal");
+        g4k()
+            .args(["patch", "create"])
+            .arg(&root)
+            .env_remove("G4_BASE_ROM_DIR")
+            .assert()
+            .code(1)
+            .stderr(contains(refusal));
+        assert!(!root.join("build").exists());
+    }
+}
+
+#[test]
+fn cli_patch_create_with_a_missing_base_names_it() {
+    let (_tmp, root, nds) = dspre_layout();
+    g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .success();
+    // No sibling any more, and an empty search folder.
+    std::fs::remove_file(&nds).unwrap();
+    let empty = tempfile::tempdir().unwrap();
+    let mark = g4_kernel::start::read_base_mark(&root).unwrap();
+    let missing = g4_kernel::base::missing_text(&mark);
+    let assert = g4k()
+        .args(["patch", "create"])
+        .arg(&root)
+        .env("G4_BASE_ROM_DIR", empty.path())
+        .assert()
+        .code(1)
+        .stderr(contains(missing.as_str()));
+    println!("{}", String::from_utf8_lossy(&assert.get_output().stderr));
+    assert!(!root.join("build").exists());
+}

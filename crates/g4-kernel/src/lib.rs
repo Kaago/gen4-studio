@@ -1,3 +1,4 @@
+pub mod base;
 pub mod build;
 pub mod checks;
 pub mod data;
@@ -7,6 +8,7 @@ pub mod error;
 pub mod export;
 mod fsutil;
 pub mod map_import;
+pub mod patch;
 pub mod places;
 pub mod preview;
 pub mod project;

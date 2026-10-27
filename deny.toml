@@ -1,0 +1,21 @@
+# Gen4 Studio: license allow list and advisory exceptions, checked by scripts/gate.sh
+[graph]
+all-features = true
+[licenses]
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+  "ISC", "Zlib", "Unicode-3.0", "MPL-2.0", "Unlicense", "BSL-1.0", "CC0-1.0", "0BSD", "MIT-0",
+  "CDLA-Permissive-2.0"]
+confidence-threshold = 0.8
+[advisories]
+version = 2
+ignore = [
+  { id = "RUSTSEC-2026-0367", reason = "zip 8.6.0 via rotom v0.7.0 (git tag, dependency and build dependency); rotom pins zip 8.6, the fix is zip 9.0 (major), so only a rotom update helps, which is a step of its own. Not reachable: rotom never calls ZipArchive::extract or ZipStreamReader, it copies entries with enclosed_name() into new files and sets no permission bits; the only archive it reads is the scrcmd command database it embeds at build time or downloads on project init, no ZIP of the user's" },
+  { id = "RUSTSEC-2026-0368", reason = "zip 8.6.0 via rotom v0.7.0 (git tag, dependency and build dependency); rotom pins zip 8.6, the fix is zip 9.0 (major), so only a rotom update helps, which is a step of its own. Not reachable: the symlink case is in ZipArchive::extract, which rotom never calls; it copies entries with enclosed_name() into regular files, and only from the scrcmd command database" },
+  { id = "RUSTSEC-2026-0369", reason = "zip 8.6.0 via rotom v0.7.0 (git tag, dependency and build dependency); rotom pins zip 8.6, the fix is zip 9.0 (major), so only a rotom update helps, which is a step of its own. Not reachable: rotom calls neither ZipStreamReader::extract nor ZipArchive::extract and applies no Unix permissions; it reads only the scrcmd command database" },
+  { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.37.5 via uxie 0.9.7 (the newest uxie; it requires quick-xml 0.37, the fix is 0.41, not semver-compatible), uxie -> g4-kernel, g4-formats (dev), rotom v0.7.0. uxie parses only the decomp's GMM message files of a project the user opened himself (c_parser/symbol_table); the worst case is CPU time on a crafted start tag, no memory corruption" },
+  { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.37.5 via uxie 0.9.7 (the newest uxie; it requires quick-xml 0.37, the fix is 0.41, not semver-compatible), uxie -> g4-kernel, g4-formats (dev), rotom v0.7.0. Not reachable: the advisory is about NsReader, uxie uses the plain Reader and quick_xml::de, and only on GMM files of the user's own project" },
+  { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml 0.2.11 via serde_yaml 0.9.34+deprecated (direct dependency of g4-kernel and of uxie 0.9.7); unmaintained, no vulnerability; there is no newer serde_yaml, replacing the YAML library across the kernel is a step of its own; it reads the bundled metadata and the user's own project files" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 via glib-macros and gtk3-macros 0.18 -> glib/gtk 0.18 -> tauri 2.12, wry, tao, muda; only the Linux target (Best-Effort), Tauri 2 stays on gtk 0.18; unmaintained, no vulnerability, and a proc macro that runs only at compile time" },
+]
+[bans]
+multiple-versions = "allow"

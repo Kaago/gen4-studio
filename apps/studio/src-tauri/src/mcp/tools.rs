@@ -19,11 +19,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use g4_kernel::patch;
 use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::start::{BaseCheck, BaseWarningKind};
 use g4_kernel::store::{Origin, with_origin};
 use serde_json::{Map, Value, json};
 
-use crate::commands::dispatch::{DispatchError, Reply, dispatch};
+use crate::commands::dispatch::{DispatchError, Reply, check_assign_base, dispatch};
 use crate::commands::policy::UserPolicy;
 use crate::commands::{ProjectInfo, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
@@ -259,6 +261,8 @@ const NOT_IN_BATCH: &[&str] = &[
     "set_check_enabled",
     "export_map_part",
     "project_preview_set",
+    "assign_base",
+    "create_patch",
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -335,7 +339,20 @@ pub struct Toolbox {
 impl Toolbox {
     /// Opens the project of `policy` in a session of its own.
     pub fn open(policy: UserPolicy, access: Access) -> Result<Toolbox, String> {
+        Toolbox::open_with_base(policy, access, None)
+    }
+
+    /// [`Toolbox::open`] with the base ROM `--base-rom` names. Headless the app's
+    /// `base-roms.json` is not read: the base ROM is that one, the sibling `.nds` or one in
+    /// `G4_BASE_ROM_DIR`.
+    pub fn open_with_base(
+        policy: UserPolicy,
+        access: Access,
+        base_rom: Option<PathBuf>,
+    ) -> Result<Toolbox, String> {
         let state = AppState::default();
+        state.base_roms.configure(None);
+        state.base_roms.set_explicit(base_rom);
         let root = policy.project();
         let path = root
             .to_str()
@@ -611,8 +628,9 @@ impl<'a> Call<'a> {
         }
         let prepared = self.prepare(def, args)?;
         let admitted = self.admit(&prepared)?;
-        if let (Some(why), Prepared::Command { command, .. }) = (&admitted.confirm, &prepared) {
-            self.confirm(command, why)?;
+        if let (Some(why), Prepared::Command { command, args }) = (&admitted.confirm, &prepared) {
+            let what = self.question(command, args, why)?;
+            self.confirm(command, &what)?;
         }
         let _turn = self.begin(admitted.changes)?;
         if admitted.changes {
@@ -794,6 +812,31 @@ impl<'a> Call<'a> {
             _ => None,
         };
         Ok(Admitted { changes, confirm })
+    }
+
+    /// What the user is asked about before `command` does the irreversible `why`.
+    /// `assign_base` is checked first as it would check itself (the `.nds` under the policy,
+    /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
+    /// and the question names the file and the ROM. `create_patch` names the patch file.
+    fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
+        match (command, &self.shared) {
+            ("assign_base", Some(_)) => {
+                let (nds, check) =
+                    check_assign_base(self.state, self.policy, args).map_err(|e| match e {
+                        DispatchError::Cmd(e) => ToolError::from(e),
+                        DispatchError::Unknown(name) => {
+                            ToolError::refused("unavailable", format!("Unbekannter Befehl: {name}"))
+                        }
+                    })?;
+                let file = nds.file_name().unwrap_or(nds.as_os_str()).to_string_lossy();
+                Ok(assign_question(&file, &check))
+            }
+            ("create_patch", Some(shared)) => Ok(format!(
+                "{why}: build/{}.xdelta",
+                patch::patch_name(shared.project)
+            )),
+            _ => Ok(why.to_owned()),
+        }
     }
 
     /// In the app: asks the user whether `command` may do the irreversible `why` (at most
@@ -1246,6 +1289,38 @@ fn check_keys(def: &ToolDef, args: &Value) -> Result<(), ToolError> {
     }
 }
 
+/// The question before `assign_base` assigns `file` with `check`: „Basis-ROM zuordnen:
+/// <file> (<label>, SHA-1 <8 digits>)“, the label from `base_roms.yaml`, else „unbekannte oder
+/// veränderte ROM <title> (<game code>)“, and what differs from the project.
+fn assign_question(file: &str, check: &BaseCheck) -> String {
+    let info = &check.info;
+    let label = match &info.known_base {
+        Some(label) => label.clone(),
+        None => format!(
+            "unbekannte oder veränderte ROM {} ({})",
+            info.title, info.game_code
+        ),
+    };
+    let sha1 = info.sha1.get(..8).unwrap_or(&info.sha1);
+    let differs: Vec<&str> = check
+        .warnings
+        .iter()
+        .filter_map(|w| match w.kind {
+            BaseWarningKind::TitleDiffers => Some("Titel"),
+            BaseWarningKind::RevisionDiffers => Some("Version"),
+            BaseWarningKind::Arm7Differs => Some("ARM7-Code"),
+            BaseWarningKind::BannerDiffers => Some("Banner"),
+            BaseWarningKind::UnknownDump => None,
+        })
+        .collect();
+    let differs = match differs.as_slice() {
+        [] => String::new(),
+        [one] => format!("; {one} weicht vom Projekt ab"),
+        [first @ .., last] => format!("; {} und {last} weichen vom Projekt ab", first.join(", ")),
+    };
+    format!("Basis-ROM zuordnen: {file} ({label}, SHA-1 {sha1}{differs})")
+}
+
 /// A refusal of call `index` (`tool`) of a batch, before anything ran: its code, the message
 /// with the call named, `index` and `tool` in the details.
 fn refused_at(index: usize, tool: &str, error: ToolError) -> ToolError {
@@ -1335,6 +1410,35 @@ mod tests {
         let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
         let toolbox = Toolbox::open(policy, access).unwrap();
         (fixture, toolbox)
+    }
+
+    #[test]
+    fn headless_toolbox_takes_the_base_rom_flag_and_remembers_nothing() {
+        let fixture = synthetic_project();
+        let (_rom_dir, rom) = g4_kernel::test_support::synthetic_rom();
+        let info = g4_kernel::start::inspect_rom(&rom).unwrap();
+        let policy = UserPolicy::new(fixture.dir.path(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, WRITE, Some(rom.clone())).unwrap();
+        let mark = g4_kernel::start::BaseMark {
+            version: g4_kernel::start::BASE_MARK_VERSION,
+            origin: g4_kernel::start::ORIGIN_DSPRE.into(),
+            sha1: info.sha1.clone(),
+            game_code: info.game_code.clone(),
+            title: info.title.clone(),
+            revision: info.revision,
+            size: info.size,
+            template: None,
+            created: "2026-10-27T10:00:00Z".into(),
+            assigned: None,
+            studio_version: "0.0.0".into(),
+            secure_area_crc: 0,
+            secure_area_sha1: String::new(),
+        };
+        let base = &toolbox.state().base_roms;
+        let found = base.locate(fixture.dir.path(), &mark).unwrap().unwrap();
+        assert_eq!(found.source, g4_kernel::base::BaseSource::Explicit);
+        assert_eq!(found.path, rom);
+        assert!(base.settings().roms.is_empty());
     }
 
     /// The code, message and details of a failed call.
@@ -1871,6 +1975,34 @@ mod tests {
             history(&toolbox),
             json!({ "undo": [], "redo": [], "undo_agents": [], "redo_agents": [] })
         );
+    }
+
+    #[test]
+    fn batch_refuses_assign_base_and_create_patch() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for (tool, args) in [
+            ("assign_base", json!({ "nds": "X.nds" })),
+            ("create_patch", json!({})),
+        ] {
+            for call in [
+                json!({ "tool": tool, "arguments": args }),
+                json!({ "tool": "g4_call", "arguments": { "command": tool, "args": args } }),
+            ] {
+                let mut calls = three_edits();
+                calls.push(call);
+                let (code, message, details) =
+                    failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+                assert_eq!(code, "error", "{message}");
+                assert_eq!(details["index"], 3);
+                assert!(
+                    message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                    "{message}"
+                );
+            }
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
     }
 
     #[test]
@@ -2863,6 +2995,257 @@ mod tests {
         );
         assert!(history_impl(&state).unwrap().undo.is_empty());
         assert_eq!(state.agents.status().question, None);
+    }
+
+    /// `<tmp>/X_DSPRE_contents` (the synthetic project) with `<tmp>/X.nds` (the synthetic
+    /// ROM) next to it, open in the "app" with the grant `write`, and a toolbox over it.
+    struct SharedDspre {
+        tmp: tempfile::TempDir,
+        root: PathBuf,
+        nds: PathBuf,
+        state: Arc<AppState>,
+        toolbox: Toolbox,
+    }
+
+    fn shared_dspre() -> SharedDspre {
+        use g4_kernel::test_support::{copy_dir, synthetic_rom};
+        let fixture = synthetic_project();
+        let (_rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("X_DSPRE_contents");
+        copy_dir(fixture.dir.path(), &root);
+        let nds = tmp.path().join("X.nds");
+        std::fs::copy(&rom, &nds).unwrap();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(&root).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        SharedDspre {
+            tmp,
+            root,
+            nds,
+            state,
+            toolbox,
+        }
+    }
+
+    /// `assign_base` in the app with `nds`: refused with `message` before the user is asked,
+    /// and nothing written.
+    fn assign_refused_unasked(d: &SharedDspre, nds: &str, message: &str) {
+        let (code, got, _) = failed(d.toolbox.call("assign_base", json!({ "nds": nds }), AGENT));
+        assert_ne!(code, "needs_confirmation", "{got}");
+        assert_eq!(got, message);
+        assert_eq!(d.state.agents.status().question, None);
+        assert!(d.state.base_roms.settings().roms.is_empty());
+    }
+
+    #[test]
+    fn shared_assign_base_outside_the_allowed_paths_is_refused_before_asking() {
+        let d = shared_dspre();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let copy = elsewhere.path().join("X.nds");
+        std::fs::copy(&d.nds, &copy).unwrap();
+        for nds in [copy.to_str().unwrap(), "../../anderswo.nds"] {
+            let (code, message, _) =
+                failed(d.toolbox.call("assign_base", json!({ "nds": nds }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+            assert_eq!(d.state.agents.status().question, None);
+        }
+        // Through g4_call as well.
+        d.state.agents.set_expert(true).unwrap();
+        let args = json!({ "command": "assign_base", "args": { "nds": copy.to_str().unwrap() } });
+        let (_, message, _) = failed(d.toolbox.call("g4_call", args, AGENT));
+        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        assert_eq!(d.state.agents.status().question, None);
+        assert!(!d.root.join(".g4").exists());
+    }
+
+    #[test]
+    fn shared_assign_base_refusals_of_the_check_come_before_asking() {
+        let d = shared_dspre();
+        // Another game inside the project folder.
+        let wrong = d.root.join("andere.nds");
+        std::fs::copy(&d.nds, &wrong).unwrap();
+        g4_kernel::test_support::with_game_code(&wrong, "IPKE");
+        assign_refused_unasked(
+            &d,
+            "andere.nds",
+            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.",
+        );
+        assert!(!d.root.join(".g4").exists());
+
+        // An unreadable mark.
+        std::fs::create_dir_all(d.root.join(".g4")).unwrap();
+        std::fs::write(d.root.join(".g4/base.json"), "{kaputt").unwrap();
+        let (_, message, _) = failed(d.toolbox.call(
+            "assign_base",
+            json!({ "nds": "../X.nds" }),
+            AGENT,
+        ));
+        assert!(
+            message.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            "{message}"
+        );
+        assert_eq!(d.state.agents.status().question, None);
+
+        // The mark of a project made from a ROM: its base ROM is fixed.
+        let info = g4_kernel::start::inspect_rom(&d.nds).unwrap();
+        let mark = json!({
+            "version": g4_kernel::start::BASE_MARK_VERSION,
+            "origin": g4_kernel::start::ORIGIN_EXTRACTED,
+            "sha1": "0".repeat(40),
+            "game_code": info.game_code,
+            "title": info.title,
+            "revision": info.revision,
+            "size": info.size,
+            "created": "2026-10-27T10:00:00Z",
+            "studio_version": "0.0.0",
+            "secure_area_crc": 0,
+            "secure_area_sha1": "",
+        });
+        std::fs::write(d.root.join(".g4/base.json"), mark.to_string()).unwrap();
+        assert!(matches!(
+            g4_kernel::start::mark_state(&d.root),
+            g4_kernel::start::MarkState::Present(_)
+        ));
+        // The mark changes the project's key: the grant follows, as assigning moves it.
+        let key = ProjectKey::of(&d.root).unwrap();
+        d.state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        assign_refused_unasked(
+            &d,
+            "../X.nds",
+            "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.",
+        );
+    }
+
+    #[test]
+    fn shared_assign_base_asks_naming_the_file_and_the_rom() {
+        let d = shared_dspre();
+        let check = g4_kernel::start::check_base(&d.root, &d.nds).unwrap();
+        let user = answer_next(&d.state, "deny");
+        let (code, _, _) = failed(d.toolbox.call(
+            "assign_base",
+            json!({ "nds": "../X.nds" }),
+            AGENT,
+        ));
+        let question = user.join().unwrap();
+        assert_eq!(code, "needs_confirmation");
+        let what = question.what.unwrap();
+        assert_eq!(what, assign_question("X.nds", &check));
+        assert!(what.starts_with("Basis-ROM zuordnen: X.nds ("), "{what}");
+        assert!(what.contains(&check.info.sha1[..8]), "{what}");
+        assert!(!what.contains(d.tmp.path().to_str().unwrap()), "{what}");
+        assert!(!d.root.join(".g4").exists());
+
+        let user = answer_next(&d.state, "allow");
+        let status = d
+            .toolbox
+            .call(
+                "assign_base",
+                json!({ "nds": d.nds.to_str().unwrap() }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(user.join().unwrap().what.as_deref(), Some(what.as_str()));
+        assert_eq!(status["state"], "found", "{status}");
+        assert!(d.root.join(".g4/base.json").is_file());
+    }
+
+    #[test]
+    fn assign_question_names_label_sha1_and_deviations() {
+        use g4_kernel::start::{BaseCheck, BaseWarning, BaseWarningKind, RomInfo, Support};
+        let warning = |kind| BaseWarning {
+            kind,
+            message: String::new(),
+        };
+        let mut check = BaseCheck {
+            info: RomInfo {
+                title: "POKEMON PL".into(),
+                game_code: "CPUD".into(),
+                family: None,
+                language: None,
+                revision: 0,
+                size: 128,
+                sha1: format!("d40f19ac{}", "0".repeat(32)),
+                known_base: Some("Platin DE (Testprojekt)".into()),
+                support: Support::Verified,
+            },
+            warnings: Vec::new(),
+            refused: None,
+        };
+        assert_eq!(
+            assign_question("p.nds", &check),
+            "Basis-ROM zuordnen: p.nds (Platin DE (Testprojekt), SHA-1 d40f19ac)"
+        );
+        check.warnings = vec![warning(BaseWarningKind::TitleDiffers)];
+        assert_eq!(
+            assign_question("p.nds", &check),
+            "Basis-ROM zuordnen: p.nds (Platin DE (Testprojekt), SHA-1 d40f19ac; Titel weicht \
+             vom Projekt ab)"
+        );
+        check.info.known_base = None;
+        check.warnings = vec![
+            warning(BaseWarningKind::RevisionDiffers),
+            warning(BaseWarningKind::UnknownDump),
+            warning(BaseWarningKind::Arm7Differs),
+            warning(BaseWarningKind::BannerDiffers),
+        ];
+        assert_eq!(
+            assign_question("p.nds", &check),
+            "Basis-ROM zuordnen: p.nds (unbekannte oder veränderte ROM POKEMON PL (CPUD), \
+             SHA-1 d40f19ac; Version, ARM7-Code und Banner weichen vom Projekt ab)"
+        );
+    }
+
+    #[test]
+    fn shared_create_patch_asks_naming_the_patch_file() {
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        let user = answer_next(&state, "deny");
+        let (code, _, _) = failed(toolbox.call("create_patch", json!({}), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
+        assert_eq!(
+            user.join().unwrap().what,
+            Some(format!(
+                "Patch erstellen: build/{}.xdelta",
+                g4_kernel::patch::patch_name(&project)
+            ))
+        );
+    }
+
+    #[test]
+    fn headless_assign_base_is_unchanged() {
+        use g4_kernel::test_support::{copy_dir, synthetic_rom};
+        let fixture = synthetic_project();
+        let (_rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("X_DSPRE_contents");
+        copy_dir(fixture.dir.path(), &root);
+        std::fs::copy(&rom, tmp.path().join("X.nds")).unwrap();
+        let open = |access| Toolbox::open(UserPolicy::new(&root, &[], None).unwrap(), access);
+
+        // Without --allow-irreversible: refused before anything is checked.
+        let toolbox = open(WRITE).unwrap();
+        let (code, message, _) =
+            failed(toolbox.call("assign_base", json!({ "nds": "../../weg.nds" }), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        assert!(message.starts_with("assign_base lässt sich nicht rückgängig machen"));
+
+        // With it: the command's own refusals, and the sibling is assigned without a question.
+        let toolbox = open(ALL).unwrap();
+        let (_, message, _) =
+            failed(toolbox.call("assign_base", json!({ "nds": "../../weg.nds" }), AGENT));
+        assert!(message.starts_with("Pfad liegt außerhalb"), "{message}");
+        let status = toolbox
+            .call("assign_base", json!({ "nds": "../X.nds" }), AGENT)
+            .unwrap();
+        assert_eq!(status["state"], "found", "{status}");
+        assert!(root.join(".g4/base.json").is_file());
     }
 
     #[test]

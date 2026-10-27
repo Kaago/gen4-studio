@@ -54,7 +54,8 @@ pub struct ServeConfig {
     /// The only `Origin` a browser request may carry (requests without one are accepted).
     pub origin: String,
     pub roots: Roots,
-    /// Folder the agent settings are kept in (`agents.json`); `None` keeps them in memory.
+    /// Folder the agent settings (`agents.json`) and the base ROMs (`base-roms.json`) are
+    /// kept in; `None` keeps them in memory.
     pub app_data: Option<PathBuf>,
 }
 
@@ -82,14 +83,17 @@ struct Shared {
 
 impl BridgeServer {
     /// Binds `127.0.0.1:<port>` and starts the worker threads, all sharing one fresh
-    /// `AppState` (its agent settings from `config.app_data`) and one MCP service over it.
+    /// `AppState` (its agent settings and base ROMs from `config.app_data`) and one MCP
+    /// service over it.
     pub fn start(config: ServeConfig) -> Result<BridgeServer, String> {
         let state = Arc::new(AppState::default());
-        if let Some(dir) = config.app_data {
-            std::fs::create_dir_all(&dir)
+        if let Some(dir) = &config.app_data {
+            std::fs::create_dir_all(dir)
                 .map_err(|e| format!("App-Datenordner {} nicht anlegbar: {e}", dir.display()))?;
-            state.agents.configure(Some(dir));
+            state.agents.configure(Some(dir.clone()));
         }
+        // Without an app data folder too: `G4_BASE_ROM_DIR` and the originals of `G4_ROMS_DIR`.
+        state.base_roms.configure(config.app_data);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(MCP_THREADS)
             .thread_name("bridge-mcp")
@@ -970,6 +974,126 @@ mod tests {
         let server = BridgeServer::start(config(&data)).unwrap();
         let status = post(&server, "/invoke/agent_status", "{}").json();
         assert_eq!(status["enabled"], true);
+        server.stop();
+    }
+
+    #[test]
+    fn app_data_configures_the_base_roms() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("app-data");
+        let remembered = crate::base_roms::BaseRomSettings {
+            version: crate::base_roms::BASE_ROMS_VERSION,
+            roms: vec![crate::base_roms::BaseRomEntry {
+                sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4".into(),
+                path: "/roms/pt.nds".into(),
+                size: 1,
+                mtime_ms: 2,
+                game_code: "CPUD".into(),
+                label: None,
+                verified: "2026-10-27T10:00:00Z".into(),
+            }],
+        };
+        remembered.save(&data).unwrap();
+        let server = BridgeServer::start(ServeConfig {
+            port: 0,
+            token: TOKEN.into(),
+            origin: ORIGIN.into(),
+            roots: Roots::new(&[dir.path().to_path_buf()]).unwrap(),
+            app_data: Some(data.clone()),
+        })
+        .unwrap();
+        assert_eq!(server.shared.state.base_roms.settings(), remembered);
+        server.stop();
+    }
+
+    /// Env variable that marks the child run of
+    /// [`bridge_without_app_data_skips_originals_and_searches_the_base_rom_dir`]; it holds the
+    /// test folder.
+    const ORIGINALS_CHILD: &str = "G4_TEST_BRIDGE_ORIGINALS_CHILD";
+
+    /// The environment is the process's: the test runs itself again as a child process with
+    /// `G4_ROMS_DIR` and `G4_BASE_ROM_DIR` set, the parent's environment stays as it is.
+    #[test]
+    fn bridge_without_app_data_skips_originals_and_searches_the_base_rom_dir() {
+        let name = "bridge::http::tests::\
+                    bridge_without_app_data_skips_originals_and_searches_the_base_rom_dir";
+        let Some(tmp) = std::env::var_os(ORIGINALS_CHILD).map(std::path::PathBuf::from) else {
+            let dir = tempfile::tempdir().unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", name, "--nocapture", "--test-threads=1"])
+                .env(ORIGINALS_CHILD, dir.path())
+                .env("G4_ROMS_DIR", dir.path().join("Roms"))
+                .env("G4_BASE_ROM_DIR", dir.path().join("basis"))
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "{stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        };
+        // `<dir>/<stem>_DSPRE_contents` (game code CPUE) and its sibling `<stem>.nds`, a
+        // header-only ROM whose last byte is `variant`; answers the folder and the mark.
+        let project = |dir: &std::path::Path, stem: &str, variant: u8| {
+            let root = dir.join(format!("{stem}_DSPRE_contents"));
+            std::fs::create_dir_all(&root).unwrap();
+            std::fs::write(root.join("header.yaml"), "gamecode: CPUE\n").unwrap();
+            let nds = dir.join(format!("{stem}.nds"));
+            let mut bytes = vec![0u8; 0x400];
+            bytes[0x00..0x0A].copy_from_slice(b"POKEMON PL");
+            bytes[0x0C..0x10].copy_from_slice(b"CPUE");
+            bytes[0x3FF] = variant;
+            std::fs::write(&nds, bytes).unwrap();
+            let info = g4_kernel::start::inspect_rom(&nds).unwrap();
+            let mark = g4_kernel::start::BaseMark {
+                version: g4_kernel::start::BASE_MARK_VERSION,
+                origin: g4_kernel::start::ORIGIN_DSPRE.into(),
+                sha1: info.sha1,
+                game_code: info.game_code,
+                title: info.title,
+                revision: info.revision,
+                size: info.size,
+                template: None,
+                created: "2026-10-27T10:00:00Z".into(),
+                assigned: None,
+                studio_version: "0.0.0".into(),
+                secure_area_crc: 0,
+                secure_area_sha1: String::new(),
+            };
+            (root, nds, mark)
+        };
+        let roms = tmp.join("Roms");
+        let (original_root, _, original_mark) = project(&roms, "Spiel", 1);
+        let (copy_root, copy_nds, copy_mark) = project(&roms.join("_testkopien"), "Spiel", 1);
+        let (elsewhere, _, _) = project(&tmp.join("woanders"), "Anderes", 2);
+        let (_, basis_nds, basis_mark) = project(&tmp.join("basis"), "Basis", 3);
+        let server = BridgeServer::start(ServeConfig {
+            port: 0,
+            token: TOKEN.into(),
+            origin: ORIGIN.into(),
+            roots: Roots::new(std::slice::from_ref(&tmp)).unwrap(),
+            app_data: None,
+        })
+        .unwrap();
+        let base = &server.shared.state.base_roms;
+        // The original next to its project is no candidate.
+        assert_eq!(base.locate(&original_root, &original_mark).unwrap(), None);
+        // The copy under `_testkopien` is.
+        let found = base.locate(&copy_root, &copy_mark).unwrap().unwrap();
+        assert_eq!(found.source, g4_kernel::base::BaseSource::Sibling);
+        assert_eq!(
+            found.path.canonicalize().unwrap(),
+            copy_nds.canonicalize().unwrap()
+        );
+        // `G4_BASE_ROM_DIR` is searched.
+        let found = base.locate(&elsewhere, &basis_mark).unwrap().unwrap();
+        assert_eq!(found.source, g4_kernel::base::BaseSource::Dir);
+        assert_eq!(
+            found.path.canonicalize().unwrap(),
+            basis_nds.canonicalize().unwrap()
+        );
         server.stop();
     }
 

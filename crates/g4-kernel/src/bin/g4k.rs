@@ -100,6 +100,12 @@ enum Command {
         #[arg(long = "expect", value_parser = parse_count)]
         expect: Vec<CountExpectation>,
     },
+    /// The base ROM of a project: check and assign it.
+    #[command(subcommand)]
+    Base(BaseCommand),
+    /// Patches of the built project against its base ROM.
+    #[command(subcommand)]
+    Patch(PatchCommand),
 }
 
 #[derive(Subcommand)]
@@ -322,6 +328,17 @@ fn run(cli: Cli) -> Result<(), Failure> {
             json,
             expect,
         } => check(&project, json, &expect),
+        Command::Base(BaseCommand::Check { project, rom, json }) => match rom {
+            Some(rom) => base_check_rom(&project, &rom, json),
+            None => base_status(&project, json),
+        },
+        Command::Base(BaseCommand::Assign { project, nds }) => base_assign(&project, &nds),
+        Command::Patch(PatchCommand::Create {
+            project,
+            base_rom,
+            out,
+            json,
+        }) => patch_create(&project, base_rom.as_deref(), out.as_deref(), json),
     }
 }
 
@@ -909,6 +926,230 @@ fn check_data(rom: &Path, expectations: &[Expectation]) -> Result<(), Failure> {
         )));
     }
     println!("{} expectation(s) met", expectations.len());
+    Ok(())
+}
+
+#[derive(Subcommand)]
+enum BaseCommand {
+    /// Without `--rom`: the project's base mark (`mark=none|extracted|dspre|unreadable|newer`),
+    /// its SHA-1, the sibling `.nds` DSPRE unpacked it from (without a mark) and where the base
+    /// ROM is (`--base-rom` aside: sibling, then `G4_BASE_ROM_DIR`). With `--rom`: checks that
+    /// `.nds` as the base ROM and prints one `warning:` line per warning; exit 1 when it is
+    /// refused (another game). Writes nothing.
+    Check {
+        project: PathBuf,
+        #[arg(long)]
+        rom: Option<PathBuf>,
+        /// Print the result as JSON (with `--rom`: the whole check).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Assign a `.nds` as the base ROM of a DSPRE folder: writes the base mark `.g4/base.json`
+    /// (`origin: dspre`). Prints the warnings, then `assigned sha1=… label=…`; a refusal (another
+    /// game, a fixed or unreadable mark) goes to stderr with exit 1.
+    Assign { project: PathBuf, nds: PathBuf },
+}
+
+#[derive(Subcommand)]
+enum PatchCommand {
+    /// Build the project to `build/<Name>.nds` and write an xdelta patch against its base ROM
+    /// (default `build/<Name>.xdelta`, with the notes `<patch>.txt`), checked before writing.
+    /// The base ROM: `--base-rom`, else the sibling `.nds`, else `G4_BASE_ROM_DIR`.
+    Create {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Where to write the patch instead of `build/<Name>.xdelta`.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print the patch report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+fn json_line(value: &impl serde::Serialize) -> Result<String, Failure> {
+    serde_json::to_string(value).map_err(|e| Failure::Message(e.to_string()))
+}
+
+/// Says so on stderr when `G4_BASE_ROM_DIR` is set but names no folder: the search then finds
+/// nothing there, and a typo should not go unnoticed.
+fn hint_base_dir(dir: Option<&Path>) {
+    if let Some(dir) = dir
+        && !dir.is_dir()
+    {
+        eprintln!(
+            "hint: {} is not a folder: {}",
+            g4_kernel::base::BASE_ROM_DIR_VAR,
+            dir.display()
+        );
+    }
+}
+
+/// `g4k base check` without `--rom`: the mark, the suggestion and where the base ROM is.
+fn base_status(root: &Path, json: bool) -> Result<(), Failure> {
+    use g4_kernel::start::MarkState;
+
+    let dir = g4_kernel::base::env_base_dir();
+    hint_base_dir(dir.as_deref());
+    let state = g4_kernel::start::mark_state(root);
+    let (kind, reason) = match &state {
+        MarkState::Missing => ("none".to_owned(), None),
+        MarkState::Unreadable(why) => ("unreadable".to_owned(), Some(why.clone())),
+        MarkState::Newer(v) => ("newer".to_owned(), Some(format!("version {v}"))),
+        MarkState::Present(mark) => (mark.origin.clone(), None),
+    };
+    let mark = match state {
+        MarkState::Present(mark) => Some(mark),
+        _ => None,
+    };
+    let suggestion = match mark {
+        Some(_) => None,
+        None => g4_kernel::start::suggest_base(root),
+    };
+    let located = match &mark {
+        Some(mark) => g4_kernel::base::locate(
+            mark,
+            &g4_kernel::base::Search {
+                root: Some(root),
+                dir: dir.as_deref(),
+                ..Default::default()
+            },
+        )?,
+        None => None,
+    };
+    if json {
+        let base = located
+            .as_ref()
+            .map(|l| serde_json::json!({ "path": l.path, "source": l.source }));
+        let value = serde_json::json!({
+            "mark": kind,
+            "reason": reason,
+            "sha1": mark.as_ref().map(|m| &m.sha1),
+            "suggestion": suggestion,
+            "base": base,
+        });
+        println!("{}", json_line(&value)?);
+        return Ok(());
+    }
+    println!("mark={kind}");
+    if let Some(reason) = reason {
+        println!("reason={reason}");
+    }
+    if let Some(mark) = &mark {
+        println!("sha1={}", mark.sha1);
+    }
+    if let Some(nds) = suggestion {
+        println!("suggestion={}", nds.display());
+    }
+    if mark.is_some() {
+        match located {
+            Some(l) => {
+                let source = serde_json::to_value(l.source)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                println!("base={} ({source})", l.path.display());
+            }
+            None => println!("base=missing"),
+        }
+    }
+    Ok(())
+}
+
+/// `g4k base check --rom`: [`g4_kernel::start::check_base`], refused → exit 1.
+fn base_check_rom(root: &Path, nds: &Path, json: bool) -> Result<(), Failure> {
+    let check = g4_kernel::start::check_base(root, nds)?;
+    if json {
+        println!("{}", json_line(&check)?);
+    } else {
+        println!(
+            "sha1={} game_code={} title={}",
+            check.info.sha1, check.info.game_code, check.info.title
+        );
+        for w in &check.warnings {
+            println!("warning: {}", w.message);
+        }
+    }
+    match check.refused {
+        Some(reason) => Err(Failure::Message(reason)),
+        None => Ok(()),
+    }
+}
+
+/// `g4k base assign`: [`g4_kernel::start::assign_base`].
+fn base_assign(root: &Path, nds: &Path) -> Result<(), Failure> {
+    let (check, mark) = g4_kernel::start::assign_base(root, nds)?;
+    for w in &check.warnings {
+        println!("warning: {}", w.message);
+    }
+    println!(
+        "assigned sha1={} label={}",
+        mark.sha1,
+        g4_kernel::base::base_label(&mark)
+    );
+    Ok(())
+}
+
+/// `g4k patch create`: finds the base ROM by the mark's SHA-1, builds and writes the patch.
+fn patch_create(
+    root: &Path,
+    base_rom: Option<&Path>,
+    out: Option<&Path>,
+    json: bool,
+) -> Result<(), Failure> {
+    use g4_kernel::start::MarkState;
+
+    // The same sentences as the app and MCP; the no-mark one adds how to assign here.
+    let mark = match g4_kernel::start::mark_state(root) {
+        MarkState::Present(mark) => mark,
+        MarkState::Missing => {
+            return Err(Failure::Message(format!(
+                "{} Ordne sie mit `g4k base assign <Projekt> <nds>` zu.",
+                g4_kernel::patch::NO_MARK
+            )));
+        }
+        state @ (MarkState::Unreadable(_) | MarkState::Newer(_)) => {
+            return Err(Failure::Message(state.refusal().unwrap_or_default()));
+        }
+    };
+    let project = Project::open(root)?;
+    let dir = g4_kernel::base::env_base_dir();
+    let located = g4_kernel::base::locate(
+        &mark,
+        &g4_kernel::base::Search {
+            explicit: base_rom,
+            root: Some(root),
+            dir: dir.as_deref(),
+            ..Default::default()
+        },
+    )?;
+    let Some(located) = located else {
+        hint_base_dir(dir.as_deref());
+        return Err(Failure::Message(g4_kernel::base::missing_text(&mark)));
+    };
+    let base = g4_kernel::base::BaseRom::open(&located.path, Some(&mark.sha1))?;
+    let (build, report) = g4_kernel::patch::build_and_create(&project, &base, out)?;
+    print_problems(&build.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        println!(
+            "patch={} size={} encode_ms={} verify_ms={} base={} target={}",
+            report.patch.display(),
+            report.size,
+            report.encode_ms,
+            report.verify_ms,
+            report.base_sha1,
+            report.target_sha1
+        );
+        println!(
+            "notes={} rom={}",
+            report.notes.display(),
+            report.rom.display()
+        );
+    }
     Ok(())
 }
 

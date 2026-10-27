@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderPatchDto, PreviewDto } from "../api";
-import { applyHeaderPatch, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
+import { applyHeaderPatch, baseStatus, createPatch, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
@@ -13,6 +13,8 @@ import { openPath } from "../platform/dialogs";
 import { previewWritten } from "../project/previewMessages";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
+import { found, missing, patchDto } from "./baseTesting";
+import { useBase } from "./useBase";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
 
@@ -24,6 +26,8 @@ vi.mock("../api", async (importOriginal) => ({
   dirty: vi.fn(),
   projectPreviewGet: vi.fn(),
   projectPreviewSet: vi.fn(),
+  baseStatus: vi.fn(),
+  createPatch: vi.fn(),
 }));
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
@@ -59,6 +63,8 @@ describe("TechnikArea", () => {
     vi.mocked(projectPreviewSet).mockReset();
     vi.mocked(openPath).mockReset();
     resetToasts();
+    vi.mocked(baseStatus).mockReset().mockResolvedValue({ state: "unassigned", suggestion: "/Sinnoh-Remix.nds" });
+    vi.mocked(createPatch).mockReset().mockResolvedValue(patchDto());
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -68,6 +74,9 @@ describe("TechnikArea", () => {
   /** The area with its entry kept like App keeps it. */
   function Host({ start = "bauen", ...over }: Partial<TechnikAreaProps> & { start?: TechnikEntry }) {
     const [entry, setEntry] = useState<TechnikEntry>(start);
+    // The app holds the base ROM above the areas (as App does).
+    const project = over.project === undefined ? "/p" : over.project;
+    const base = useBase({ project, active: true });
     return (
       <TechnikArea
         project="/p"
@@ -82,6 +91,7 @@ describe("TechnikArea", () => {
         emulatorPath={null}
         tools={tools}
         {...handlers}
+        base={project === null ? null : base}
         {...over}
         entry={entry}
         onEntry={setEntry}
@@ -98,18 +108,27 @@ describe("TechnikArea", () => {
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 
-  it("lists_five_entries_with_symbol_and_status_and_the_list_switches_the_surface", async () => {
+  it("lists_six_entries_with_symbol_and_status_veroeffentlichen_after_pruefen_and_the_list_switches_the_surface", async () => {
     await render({ lastBuiltAt: Date.now() - 4 * 60_000, lastRom: "/out.nds" });
+    await settle();
     expect(container.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Technik");
-    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Patches", "Emulator", "Werkzeuge"]);
+    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Veröffentlichen", "Patches", "Emulator", "Werkzeuge"]);
     for (const r of rows()) expect(r.querySelector("svg")).not.toBeNull();
     expect(subtitle("Prüfen und Bauen")).toBe("gebaut vor 4 Minuten");
+    expect(subtitle("Veröffentlichen")).toBe("Keine Basis-ROM zugeordnet");
     expect(subtitle("Patches")).toBe("Dynamische Header verfügbar");
     expect(subtitle("Emulator")).toBe("Kein Emulator gewählt");
     expect(subtitle("Werkzeuge")).toBe("0 von 2 bereit");
 
     expect(row("Prüfen und Bauen")?.getAttribute("aria-selected")).toBe("true");
     expect(surface()?.getAttribute("data-technik")).toBe("bauen");
+    await click(row("Veröffentlichen"));
+    expect(row("Veröffentlichen")?.getAttribute("aria-selected")).toBe("true");
+    expect(surface()?.getAttribute("data-technik")).toBe("veroeffentlichen");
+    expect(surface()?.querySelector("h1")?.textContent).toBe("Veröffentlichen");
+    expect(surface()?.querySelector("[data-base-state]")?.getAttribute("data-base-state")).toBe("unassigned");
+    // The status was read once for the list and the surface together.
+    expect(baseStatus).toHaveBeenCalledOnce();
     await click(row("Patches"));
     expect(row("Patches")?.getAttribute("aria-selected")).toBe("true");
     expect(surface()?.getAttribute("data-technik")).toBe("patches");
@@ -121,6 +140,36 @@ describe("TechnikArea", () => {
     await click(row("Projekt"));
     expect(surface()?.getAttribute("data-technik")).toBe("projekt");
     expect(surface()?.querySelector("h1")?.textContent).toBe("Projekt");
+  });
+
+  it("veroeffentlichen_subtitle_follows_the_base_state", async () => {
+    // Before the answer: reading.
+    vi.mocked(baseStatus).mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(subtitle("Veröffentlichen")).toBe("Wird gelesen …");
+    const cases: [Awaited<ReturnType<typeof baseStatus>>, string][] = [
+      [{ state: "unassigned", suggestion: null }, "Keine Basis-ROM zugeordnet"],
+      [missing(), "Basis-ROM fehlt"],
+      [{ state: "unreadable", reason: "kaputt" }, "Basismarke nicht lesbar"],
+      [found(), "Bereit für einen Patch"],
+    ];
+    for (const [status, text] of cases) {
+      act(() => root.render(<></>));
+      vi.mocked(baseStatus).mockResolvedValue(status);
+      await render();
+      await settle();
+      expect(subtitle("Veröffentlichen")).toBe(text);
+    }
+    // After a patch.
+    await click(row("Veröffentlichen"));
+    await click(button("Patch erstellen…"));
+    await click(button("Patch erstellen", dialog()!));
+    await settle();
+    expect(subtitle("Veröffentlichen")).toBe("Patch erstellt");
+    // Without a project.
+    act(() => root.render(<></>));
+    await render({ project: null });
+    expect(subtitle("Veröffentlichen")).toBe("Kein Projekt geöffnet");
   });
 
   it("says_not_built_yet_and_shows_the_chosen_emulator_and_the_ready_tools_in_the_list", async () => {
@@ -368,6 +417,9 @@ describe("TechnikArea", () => {
     expect(button("Vorschaubild wählen…")).toBeUndefined();
     expect(projectPreviewGet).not.toHaveBeenCalled();
     expect(subtitle("Projekt")).toBe("Kein Projekt geöffnet");
+    await click(row("Veröffentlichen"));
+    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
+    expect(baseStatus).not.toHaveBeenCalled();
     // The emulator does not need a project.
     await click(row("Emulator"));
     await click(button("Emulator wählen"));

@@ -14,7 +14,7 @@ const BUILD_DIR: &str = "build";
 const ROMS_DIR_VAR: &str = "G4_ROMS_DIR";
 
 /// Folder inside `G4_ROMS_DIR` with the copies that may be edited.
-const COPIES_DIR: &str = "_testkopien";
+pub(crate) const COPIES_DIR: &str = "_testkopien";
 
 /// Folder of the shared save games, inside the copies folder.
 const SAVES_DIR: &str = "_saves";
@@ -322,9 +322,18 @@ fn canonical_dir(dir: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// `G4_ROMS_DIR`, canonical (as given when it cannot be resolved), unless it is unset or
+/// empty: the folder of the originals no base ROM is taken from.
+pub(crate) fn originals_dir() -> Option<PathBuf> {
+    std::env::var_os(ROMS_DIR_VAR)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .map(|dir| dir.canonicalize().unwrap_or(dir))
+}
+
 /// Whether `dir` (a folder or a file) lies inside `roms` (canonical) but not in a copy:
 /// under `<roms>/_testkopien`, and then not under its `_saves`.
-fn is_original(dir: &Path, roms: &Path) -> bool {
+pub(crate) fn is_original(dir: &Path, roms: &Path) -> bool {
     let Ok(rest) = dir.strip_prefix(roms) else {
         return false;
     };

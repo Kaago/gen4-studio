@@ -993,7 +993,61 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_array,
         route: Route::Commands,
     },
+    // Base ROM and patch (4.1a).
+    ToolDef {
+        name: "base_status",
+        title: "Base ROM status",
+        description: "Reports the base ROM (Basis-ROM) of the project, which the patch needs: \
+                      unassigned with the suggested .nds next to a DSPRE folder, found with its \
+                      path, missing or unreadable with the reason.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("base_status"),
+    },
+    ToolDef {
+        name: "check_base",
+        title: "Check base ROM",
+        description: "Checks a .nds as the base ROM (Basis-ROM) of the project and writes \
+                      nothing: another game is refused, another title or version and an \
+                      unknown dump only warn.",
+        input_schema: base_nds_args,
+        output_schema: answers_object,
+        route: command("check_base"),
+    },
+    ToolDef {
+        name: "assign_base",
+        title: "Assign base ROM",
+        description: "Assigns a .nds as the base ROM (Basis-ROM) of the project, writes \
+                      .g4/base.json and answers the base ROM status; this cannot be undone. \
+                      Headless (studio mcp) it needs --allow-irreversible, without it the call \
+                      answers needs_confirmation.",
+        input_schema: base_nds_args,
+        output_schema: answers_object,
+        route: command("assign_base"),
+    },
+    ToolDef {
+        name: "create_patch",
+        title: "Create patch",
+        description: "Builds the ROM to build/<name>.nds and writes an xdelta patch against the \
+                      base ROM to build/<name>.xdelta with its notes, checked before it is \
+                      written; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("create_patch"),
+    },
 ];
+
+/// The argument of `check_base` and `assign_base`.
+fn base_nds_args() -> Value {
+    object(
+        json!({ "nds": text(
+            "path of the .nds; relative to the project folder; headless only inside the \
+             project, an --allow-dir folder or the .nds next to a *_DSPRE_contents folder"
+        ) }),
+        &["nds"],
+    )
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -1081,8 +1135,21 @@ mod tests {
     }
 
     #[test]
+    fn descriptions_have_no_runs_of_spaces() {
+        // A lost `\` line continuation leaves the indentation in the text.
+        for tool in catalog() {
+            assert!(
+                !tool.description.contains("  "),
+                "{}: {:?}",
+                tool.name,
+                tool.description
+            );
+        }
+    }
+
+    #[test]
     fn tool_count_is_about_thirty() {
-        assert!((30..=45).contains(&catalog().len()), "{}", catalog().len());
+        assert!((30..=50).contains(&catalog().len()), "{}", catalog().len());
     }
 
     #[test]
@@ -1121,6 +1188,8 @@ mod tests {
                 "run_checks",
                 "plan_fix",
                 "project_preview_get",
+                "base_status",
+                "check_base",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1161,6 +1230,8 @@ mod tests {
             "apply_header_patch",
             "project_preview_set",
             "build_rom",
+            "assign_base",
+            "create_patch",
         ]
         .into_iter()
         .collect();
@@ -1289,6 +1360,8 @@ mod tests {
             "apply_header_patch",
             "apply_fix",
             "project_preview_set",
+            "assign_base",
+            "create_patch",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1418,6 +1491,10 @@ mod tests {
             ("redo", json!({})),
             ("save", json!({})),
             ("build_rom", json!({ "out": "build/agent.nds" })),
+            ("base_status", json!({})),
+            ("check_base", json!({ "nds": "fehlt.nds" })),
+            ("assign_base", json!({ "nds": "fehlt.nds" })),
+            ("create_patch", json!({})),
         ]
     }
 

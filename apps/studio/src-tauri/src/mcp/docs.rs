@@ -98,6 +98,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         "trainer_text",
         include_str!("../../../../../docs/formats/trainer_text.md"),
     ),
+    (
+        "xdelta_patch",
+        include_str!("../../../../../docs/formats/xdelta_patch.md"),
+    ),
 ];
 
 /// The text of the format description `name`.

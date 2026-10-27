@@ -429,9 +429,10 @@ export interface AssetId {
  * "compile": scripts or texts did not compile; `problems` lists them (the build packed nothing).
  * "finding_stale": `planFix` / `applyFix` on a finding that is no longer reported as it was sent (its subject changed); nothing
  * was changed.
+ * "base_missing": `createPatch` without a found base ROM; nothing was built.
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale";
+  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -448,7 +449,8 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "partial" ||
       o.code === "error" ||
       o.code === "compile" ||
-      o.code === "finding_stale") &&
+      o.code === "finding_stale" ||
+      o.code === "base_missing") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -926,6 +928,7 @@ export const renamePlace = (index: number, name: string) => invoke<void>("rename
 export const assignPlace = (headers: number[], index: number) => invoke<void>("assign_place", { headers, index });
 
 export * from "./api.agents";
+export * from "./api.base";
 export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";

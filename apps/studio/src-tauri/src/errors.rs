@@ -15,7 +15,8 @@ use crate::commands::ProblemDto;
 /// stay),
 /// `"compile"` (scripts or texts did not compile; `problems` lists them),
 /// `"finding_stale"` (`plan_fix` / `apply_fix`: the finding is no longer reported as it was
-/// sent; nothing was changed) or `"error"`;
+/// sent; nothing was changed), `"base_missing"` (`create_patch`: no base ROM found; the
+/// message says why, nothing was built) or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"`.

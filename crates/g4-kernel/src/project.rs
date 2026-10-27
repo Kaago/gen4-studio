@@ -455,6 +455,17 @@ struct OverlayYaml {
     file_name: Option<String>,
 }
 
+/// Offset of the header table in the decompressed `arm9.bin` of `game_code` (`UnknownGame`
+/// without a known offset).
+pub(crate) fn header_table_offset_for(game_code: &str) -> Result<u64, KernelError> {
+    let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
+        .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
+    tables
+        .get(game_code)
+        .copied()
+        .ok_or_else(|| KernelError::UnknownGame(game_code.to_owned()))
+}
+
 #[derive(Debug)]
 pub struct Project {
     pub root: PathBuf,
@@ -583,12 +594,7 @@ impl Project {
 
     /// Offset of the header table in `arm9.bin` (`UnknownGame` without a known offset).
     pub(crate) fn header_table_offset(&self) -> Result<u64, KernelError> {
-        let tables: HashMap<String, u64> = serde_yaml::from_str(HEADER_TABLES_YAML)
-            .map_err(|e| KernelError::InvalidProject(format!("header_tables.yaml: {e}")))?;
-        tables
-            .get(&self.game_code)
-            .copied()
-            .ok_or_else(|| KernelError::UnknownGame(self.game_code.clone()))
+        header_table_offset_for(&self.game_code)
     }
 
     /// Number of headers: one per `mapname.bin` record.

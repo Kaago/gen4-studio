@@ -4,8 +4,8 @@ import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BuildReport, ProblemDto } from "../api";
-import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, runRom, save, saveScript, scriptsStatus } from "../api";
+import type { BuildReport, PatchDto, ProblemDto } from "../api";
+import { buildRom, createPatch, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, runRom, save, saveScript, scriptsStatus } from "../api";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus, EditEvent } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
@@ -17,6 +17,7 @@ import type { ProjectSession } from "./useProjectSession";
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   buildRom: vi.fn(),
+  createPatch: vi.fn(),
   save: vi.fn(),
   dirty: vi.fn(),
   openProject: vi.fn(),
@@ -329,6 +330,33 @@ describe("useProjectSession with open scripts", () => {
     vi.mocked(buildRom).mockResolvedValue(report({ problems: [problem("expanded/textArchives/0007.json", 1, "zu breit", "warning", "text")] }));
     await build();
     expect(problems.list().map((p) => [p.message, p.source])).toEqual([["zu breit", "text"]]);
+  });
+
+  it("a_patch_stamps_the_build_but_does_not_become_the_rom_of_hier_spielen", async () => {
+    // „Hier spielen“ builds to the last ROM; the ROM next to the patch must keep the SHA-1 its notes name.
+    const patch: PatchDto = {
+      patch: "/p/build/P-CPUD.xdelta",
+      notes: "/p/build/P-CPUD.xdelta.txt",
+      rom: "/p/build/P-CPUD.nds",
+      size: 541,
+      base_sha1: "a".repeat(40),
+      target_sha1: "b".repeat(40),
+      encode_ms: 100,
+      verify_ms: 20,
+      build: report({ rom: "/p/build/P-CPUD.nds", problems: [problem("expanded/textArchives/0007.json", 1, "zu breit", "warning", "text")] }),
+    };
+    vi.mocked(createPatch).mockReset().mockResolvedValue(patch);
+    const before = Date.now();
+    await act(async () => void (await session.buildPatch()));
+    expect(session.lastRom).toBeNull();
+    expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
+    expect(problems.list().map((p) => [p.message, p.source])).toEqual([["zu breit", "text"]]);
+    expect(session.busy).toBe(false);
+
+    await build();
+    expect(session.lastRom).toBe("/out.nds");
+    await act(async () => void (await session.buildPatch()));
+    expect(session.lastRom).toBe("/out.nds");
   });
 
   describe("with a project open", () => {

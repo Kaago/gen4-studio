@@ -75,6 +75,18 @@ fn base_roms() -> Result<&'static [BaseRom], KernelError> {
         .map_err(|e| KernelError::InvalidProject(e.clone()))
 }
 
+/// The label in `base_roms.yaml` of the dump with this SHA-1 (and this game code, when one is
+/// given).
+pub(crate) fn known_base_label(
+    sha1: &str,
+    game_code: Option<&str>,
+) -> Result<Option<String>, KernelError> {
+    Ok(base_roms()?
+        .iter()
+        .find(|e| e.sha1 == sha1 && game_code.is_none_or(|code| e.game_code == code))
+        .map(|e| e.label.clone()))
+}
+
 fn serialize_family<S: Serializer>(family: &Option<Family>, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_some(&family.map(|f| match f {
         Family::Dp => "dp",
@@ -160,10 +172,7 @@ pub fn inspect_rom(path: &Path) -> Result<RomInfo, KernelError> {
         .trim_end_matches('\0')
         .to_string();
     let game_code = String::from_utf8_lossy(&header[0x0C..0x10]).into_owned();
-    let known_base = base_roms()?
-        .iter()
-        .find(|e| e.sha1 == sha1 && e.game_code == game_code)
-        .map(|e| e.label.clone());
+    let known_base = known_base_label(&sha1, Some(&game_code))?;
     let family = Family::from_game_code(&game_code);
     Ok(RomInfo {
         family,
@@ -218,22 +227,36 @@ pub struct Progress {
     pub total: u32,
 }
 
-/// `.g4/base.json`: where a project came from. Written by [`create_project`]; a DSPRE folder
-/// has none.
+/// The version of [`BaseMark`] this kernel writes; it reads every version up to this one.
+pub const BASE_MARK_VERSION: u32 = 2;
+/// [`BaseMark::origin`] of a project unpacked by this editor from a `.nds`.
+pub const ORIGIN_EXTRACTED: &str = "extracted";
+/// [`BaseMark::origin`] of a DSPRE folder whose base ROM was assigned afterwards.
+pub const ORIGIN_DSPRE: &str = "dspre";
+
+/// `.g4/base.json`: where a project came from. Written by [`create_project`] and, for a DSPRE
+/// folder, by [`assign_base`]; a DSPRE folder without an assigned ROM has none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BaseMark {
+    /// 1 or [`BASE_MARK_VERSION`]; version 1 always has a `template` and no `assigned`.
     pub version: u32,
-    /// `"extracted"`: unpacked by this editor from a `.nds`.
+    /// [`ORIGIN_EXTRACTED`] or [`ORIGIN_DSPRE`].
     pub origin: String,
-    /// SHA-1 of the ROM the project was extracted from.
+    /// SHA-1 of the ROM the project was extracted from or assigned to.
     pub sha1: String,
     pub game_code: String,
     pub title: String,
     pub revision: u8,
     pub size: u64,
-    pub template: Template,
-    /// RFC 3339, UTC, for example `2026-10-25T14:50:00Z`.
+    /// The wizard's template; `None` for a DSPRE folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<Template>,
+    /// RFC 3339, UTC, for example `2026-10-25T14:50:00Z`: when the project was created or the
+    /// ROM first assigned. The agent grant keys on `<sha1>/<created>`.
     pub created: String,
+    /// RFC 3339, UTC: when the ROM was last assigned; `None` for an extracted project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned: Option<String>,
     pub studio_version: String,
     /// The secure area CRC-16 of the ROM (`0x6C`): ds-rom cannot compute it without the
     /// ARM7 BIOS key and writes `0000`; [`restore_header_crcs`] puts it back.
@@ -246,10 +269,64 @@ fn mark_path(root: &Path) -> PathBuf {
     root.join(".g4").join("base.json")
 }
 
-/// The project's base mark; `None` when it is missing or unreadable.
+/// What `.g4/base.json` holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarkState {
+    Missing,
+    /// The file is there but cannot be read or parsed; the reason, for the user.
+    Unreadable(String),
+    /// Written by a newer Gen4 Studio: its `version`.
+    Newer(u32),
+    Present(BaseMark),
+}
+
+impl MarkState {
+    /// Why no base ROM can be assigned to (or patched against) a project with this mark: the
+    /// sentence for an unreadable mark or one of a newer version, the same in app, MCP and
+    /// `g4k`; `None` for a missing or present mark.
+    pub fn refusal(&self) -> Option<String> {
+        match self {
+            MarkState::Unreadable(why) => Some(format!(
+                "Die Basismarke .g4/base.json ist nicht lesbar ({why}); entferne sie, dann ordne neu zu."
+            )),
+            MarkState::Newer(v) => Some(format!(
+                "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version {v})."
+            )),
+            MarkState::Missing | MarkState::Present(_) => None,
+        }
+    }
+}
+
+/// Reads the project's base mark. A newer `version` is recognised before the other fields
+/// are parsed, so a mark of a later format is never called broken.
+pub fn mark_state(root: &Path) -> MarkState {
+    let path = mark_path(root);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return MarkState::Missing,
+        Err(e) => return MarkState::Unreadable(e.to_string()),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => return MarkState::Unreadable(e.to_string()),
+    };
+    if let Some(v) = value.get("version").and_then(serde_json::Value::as_u64)
+        && v > u64::from(BASE_MARK_VERSION)
+    {
+        return MarkState::Newer(u32::try_from(v).unwrap_or(u32::MAX));
+    }
+    match serde_json::from_value(value) {
+        Ok(mark) => MarkState::Present(mark),
+        Err(e) => MarkState::Unreadable(e.to_string()),
+    }
+}
+
+/// The project's base mark; `None` unless [`mark_state`] is [`MarkState::Present`].
 pub fn read_base_mark(root: &Path) -> Option<BaseMark> {
-    let text = std::fs::read_to_string(mark_path(root)).ok()?;
-    serde_json::from_str(&text).ok()
+    match mark_state(root) {
+        MarkState::Present(mark) => Some(mark),
+        _ => None,
+    }
 }
 
 fn write_base_mark(root: &Path, mark: &BaseMark) -> Result<(), KernelError> {
@@ -260,7 +337,8 @@ fn write_base_mark(root: &Path, mark: &BaseMark) -> Result<(), KernelError> {
     let mut text = serde_json::to_string_pretty(mark)
         .map_err(|e| KernelError::InvalidProject(format!("base.json: {e}")))?;
     text.push('\n');
-    std::fs::write(&path, text).map_err(io_at(&path))
+    // Temp file and rename: replacing a DSPRE mark never leaves a torn one.
+    crate::fsutil::write_atomic(root, &path, text.as_bytes())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -463,19 +541,16 @@ pub(crate) fn create_project_with(
         write_base_mark(
             &staging,
             &BaseMark {
-                version: 1,
-                origin: "extracted".into(),
+                version: BASE_MARK_VERSION,
+                origin: ORIGIN_EXTRACTED.into(),
                 sha1: info.sha1.clone(),
                 game_code: info.game_code.clone(),
                 title: info.title.clone(),
                 revision: info.revision,
                 size: info.size,
-                template,
-                created: rfc3339_utc(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map_or(0, |d| d.as_secs()),
-                ),
+                template: Some(template),
+                created: now_rfc3339(),
+                assigned: None,
                 studio_version: env!("CARGO_PKG_VERSION").into(),
                 secure_area_crc,
                 secure_area_sha1,
@@ -555,8 +630,9 @@ fn secure_area_sha1(file: &mut std::fs::File, path: &Path) -> Result<String, Ker
 /// After a build: writes the secure area CRC from the project's base mark back to `0x6C` of
 /// `rom` and recomputes the header CRC at `0x15E`, but only when the built secure area has
 /// the SHA-1 of the mark (it is unchanged, so the CRC still holds). Returns whether it wrote.
-/// The ROM must also carry the game code of the mark. A project without a mark (a DSPRE
-/// folder) is left alone.
+/// The ROM must also carry the game code of the mark. Any origin works: a DSPRE folder with
+/// an assigned base ROM ([`assign_base`]) rebuilds byte for byte too. A project without a
+/// readable mark (a DSPRE folder without one) is left alone.
 pub fn restore_header_crcs(root: &Path, rom: &Path) -> Result<bool, KernelError> {
     let Some(mark) = read_base_mark(root) else {
         return Ok(false);
@@ -593,8 +669,300 @@ pub fn restore_header_crcs(root: &Path, rom: &Path) -> Result<bool, KernelError>
     Ok(true)
 }
 
+/// What [`check_base`] warns about. None of them stops [`assign_base`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BaseWarningKind {
+    TitleDiffers,
+    RevisionDiffers,
+    UnknownDump,
+    Arm7Differs,
+    BannerDiffers,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BaseWarning {
+    pub kind: BaseWarningKind,
+    /// The German sentence for the user (app, MCP and `g4k` show it as it is).
+    pub message: String,
+}
+
+impl BaseWarning {
+    fn new(kind: BaseWarningKind, message: String) -> Self {
+        Self { kind, message }
+    }
+}
+
+/// What [`check_base`] found about a `.nds` as the base ROM of a project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BaseCheck {
+    pub info: RomInfo,
+    /// In the order of [`BaseWarningKind`].
+    pub warnings: Vec<BaseWarning>,
+    /// Why the ROM cannot be assigned (only another game code); then `warnings` is empty.
+    pub refused: Option<String>,
+}
+
+/// The suffix DSPRE gives the folder it unpacks `<Name>.nds` into.
+const DSPRE_SUFFIX: &str = "_DSPRE_contents";
+
+/// The keys of `header.yaml` the check reads; ds-rom writes more.
+#[derive(Debug, Deserialize)]
+struct HeaderMeta {
+    #[serde(default)]
+    title: Option<String>,
+    gamecode: String,
+    #[serde(default)]
+    rom_version: Option<u8>,
+}
+
+fn read_header_meta(root: &Path) -> Option<HeaderMeta> {
+    let text = std::fs::read_to_string(root.join("header.yaml")).ok()?;
+    serde_yaml::from_str(&text).ok()
+}
+
+/// `banner/banner.yaml` of a ds-rom project: only the titles.
+#[derive(Deserialize)]
+struct BannerYaml {
+    title: ds_rom::rom::BannerTitle,
+}
+
+/// The banner titles in the order Japanese, English, French, German, Italian, Spanish,
+/// Chinese, Korean; the last two are `None` where the banner has none.
+type BannerTitles = [Option<String>; 8];
+
+fn project_banner_titles(root: &Path) -> Option<BannerTitles> {
+    let text = std::fs::read_to_string(root.join("banner").join("banner.yaml")).ok()?;
+    let t = serde_yaml::from_str::<BannerYaml>(&text).ok()?.title;
+    Some([
+        Some(t.japanese),
+        Some(t.english),
+        Some(t.french),
+        Some(t.german),
+        Some(t.italian),
+        Some(t.spanish),
+        t.chinese,
+        t.korean,
+    ])
+}
+
+fn rom_banner_titles(rom: &ds_rom::rom::raw::Rom<'_>) -> Option<BannerTitles> {
+    use ds_rom::rom::raw::Language;
+    let offset = usize::try_from(rom.header().ok()?.banner_offset).ok()?;
+    // `raw::Rom::banner` indexes without a check: the smallest banner must fit.
+    if offset == 0 || offset.checked_add(0x840)? > rom.data().len() {
+        return None;
+    }
+    let banner = rom.banner().ok()?;
+    let title = |language| banner.title(language).map(|t| t.to_string());
+    let main = [
+        Language::Japanese,
+        Language::English,
+        Language::French,
+        Language::German,
+        Language::Italian,
+        Language::Spanish,
+    ]
+    .map(title);
+    if main.iter().any(Option::is_none) {
+        return None;
+    }
+    let [ja, en, fr, de, it, es] = main;
+    Some([
+        ja,
+        en,
+        fr,
+        de,
+        it,
+        es,
+        title(Language::Chinese),
+        title(Language::Korean),
+    ])
+}
+
+fn rom_arm7<'a>(rom: &'a ds_rom::rom::raw::Rom<'_>) -> Option<&'a [u8]> {
+    let header = rom.header().ok()?;
+    let start = usize::try_from(header.arm7.offset).ok()?;
+    let len = usize::try_from(header.arm7.size).ok()?;
+    // `raw::Rom::arm7` slices without a check.
+    if start == 0 || len == 0 {
+        return None;
+    }
+    rom.data().get(start..start.checked_add(len)?)
+}
+
+/// Checks the `.nds` at `nds` as the base ROM of the project at `root` and writes nothing.
+/// Only another game code (against `header.yaml`) refuses; the title and `rom_version` of
+/// `header.yaml`, a dump missing from `base_roms.yaml`, and `arm7/arm7.bin` and the banner
+/// titles of `banner/banner.yaml` (each only when both sides can be read) warn.
+pub fn check_base(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
+    let info = inspect_rom(nds)?;
+    let project = Project::open(root)?;
+    if info.game_code != project.game_code {
+        let refused = format!(
+            "Falsches Spiel: die ROM ist {}, das Projekt {}.",
+            info.game_code, project.game_code
+        );
+        return Ok(BaseCheck {
+            info,
+            warnings: Vec::new(),
+            refused: Some(refused),
+        });
+    }
+    let mut warnings = Vec::new();
+    let header = read_header_meta(root);
+    if let Some(title) = header.as_ref().and_then(|h| h.title.as_deref())
+        && title != info.title
+    {
+        warnings.push(BaseWarning::new(
+            BaseWarningKind::TitleDiffers,
+            format!(
+                "Der Titel der ROM („{}“) weicht vom Projekt ab („{title}“).",
+                info.title
+            ),
+        ));
+    }
+    if let Some(version) = header.as_ref().and_then(|h| h.rom_version)
+        && version != info.revision
+    {
+        warnings.push(BaseWarning::new(
+            BaseWarningKind::RevisionDiffers,
+            format!(
+                "Die Version der ROM ({}) weicht vom Projekt ab ({version}).",
+                info.revision
+            ),
+        ));
+    }
+    if info.known_base.is_none() {
+        warnings.push(BaseWarning::new(
+            BaseWarningKind::UnknownDump,
+            "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei.".into(),
+        ));
+    }
+    let arm7 = std::fs::read(root.join("arm7").join("arm7.bin")).ok();
+    let banner = project_banner_titles(root);
+    if arm7.is_some() || banner.is_some() {
+        // Read once more, whole: ds-rom's raw view needs the bytes in memory.
+        if let Ok(rom) = ds_rom::rom::raw::Rom::from_file(nds) {
+            if let (Some(ours), Some(theirs)) = (arm7.as_deref(), rom_arm7(&rom))
+                && ours != theirs
+            {
+                warnings.push(BaseWarning::new(
+                    BaseWarningKind::Arm7Differs,
+                    "Der ARM7-Code der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+                        .into(),
+                ));
+            }
+            if let (Some(ours), Some(theirs)) = (banner, rom_banner_titles(&rom))
+                && ours != theirs
+            {
+                warnings.push(BaseWarning::new(
+                    BaseWarningKind::BannerDiffers,
+                    "Das Banner der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+                        .into(),
+                ));
+            }
+        }
+    }
+    Ok(BaseCheck {
+        info,
+        warnings,
+        refused: None,
+    })
+}
+
+/// Whether [`assign_base`] would take the `.nds` at `nds`: its check, or the refusal
+/// [`assign_base`] would give. Writes nothing (the app asks the user only after it).
+pub fn check_assign(root: &Path, nds: &Path) -> Result<BaseCheck, KernelError> {
+    plan_assign(root, nds).map(|(check, _)| check)
+}
+
+/// What [`assign_base`] checks before it writes: the check of `nds` and, when the mark names
+/// this ROM already, that mark (it stays). Its refusals; writes nothing.
+fn plan_assign(root: &Path, nds: &Path) -> Result<(BaseCheck, Option<BaseMark>), KernelError> {
+    let state = mark_state(root);
+    if let Some(why) = state.refusal() {
+        return Err(KernelError::Refused(why));
+    }
+    let current = match state {
+        MarkState::Present(mark) => Some(mark),
+        MarkState::Missing | MarkState::Unreadable(_) | MarkState::Newer(_) => None,
+    };
+    let check = check_base(root, nds)?;
+    if let Some(reason) = &check.refused {
+        return Err(KernelError::Refused(reason.clone()));
+    }
+    if let Some(mark) = current {
+        if mark.sha1 == check.info.sha1 {
+            return Ok((check, Some(mark)));
+        }
+        if mark.origin != ORIGIN_DSPRE {
+            return Err(KernelError::Refused(
+                "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest.".into(),
+            ));
+        }
+    }
+    Ok((check, None))
+}
+
+/// Assigns the `.nds` at `nds` as the base ROM of the project at `root` and writes a
+/// [`ORIGIN_DSPRE`] mark with its secure area. Refused, with nothing written, when the mark is
+/// unreadable or from a newer version, when [`check_base`] refuses, and when an extracted
+/// project is given another ROM. The ROM of the mark again: nothing is written and the mark
+/// is returned as it is. Another ROM for a DSPRE mark: a new mark (new `created`).
+pub fn assign_base(root: &Path, nds: &Path) -> Result<(BaseCheck, BaseMark), KernelError> {
+    let (check, kept) = plan_assign(root, nds)?;
+    if let Some(mark) = kept {
+        return Ok((check, mark));
+    }
+    let (secure_area_crc, secure_area_sha1) = read_secure_area(nds)?;
+    let now = now_rfc3339();
+    let info = &check.info;
+    let mark = BaseMark {
+        version: BASE_MARK_VERSION,
+        origin: ORIGIN_DSPRE.into(),
+        sha1: info.sha1.clone(),
+        game_code: info.game_code.clone(),
+        title: info.title.clone(),
+        revision: info.revision,
+        size: info.size,
+        template: None,
+        created: now.clone(),
+        assigned: Some(now),
+        studio_version: env!("CARGO_PKG_VERSION").into(),
+        secure_area_crc,
+        secure_area_sha1,
+    };
+    write_base_mark(root, &mark)?;
+    Ok((check, mark))
+}
+
+/// The `.nds` DSPRE unpacked the project at `root` from: `root` is named
+/// `<Name>_DSPRE_contents`, `<Name>.nds` lies next to it and its header carries the game
+/// code of `header.yaml`. Reads only the first 0x200 bytes; no hash.
+pub fn suggest_base(root: &Path) -> Option<PathBuf> {
+    let name = root.file_name()?.to_str()?;
+    let stem = name.strip_suffix(DSPRE_SUFFIX).filter(|s| !s.is_empty())?;
+    let nds = root.parent()?.join(format!("{stem}.nds"));
+    let game_code = read_header_meta(root)?.gamecode;
+    let mut header = [0u8; HEADER_LEN];
+    std::fs::File::open(&nds)
+        .ok()?
+        .read_exact(&mut header)
+        .ok()?;
+    (header[0x0C..0x10] == *game_code.as_bytes()).then_some(nds)
+}
+
+fn now_rfc3339() -> String {
+    rfc3339_utc(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs()),
+    )
+}
+
 /// `secs` since the Unix epoch as `YYYY-MM-DDTHH:MM:SSZ` (civil-from-days, no time crate).
-pub(crate) fn rfc3339_utc(secs: u64) -> String {
+pub fn rfc3339_utc(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rem = secs % 86_400;
     let z = days + 719_468;
@@ -692,7 +1060,7 @@ mod create_tests {
     }
 
     #[test]
-    fn create_project_writes_the_base_mark() {
+    fn create_project_writes_a_v2_mark() {
         let (tmp, rom) = synthetic_rom();
         let dest = tmp.path().join("neu");
         let created = create_fake(&rom, &dest, &mut Vec::new()).unwrap();
@@ -700,13 +1068,15 @@ mod create_tests {
         let mark = read_base_mark(&dest).expect("mark");
         let bytes = std::fs::read(&rom).unwrap();
         let info = inspect_rom(&rom).unwrap();
-        assert_eq!(mark.version, 1);
-        assert_eq!(mark.origin, "extracted");
+        assert_eq!(mark.version, 2);
+        assert_eq!(mark.version, BASE_MARK_VERSION);
+        assert_eq!(mark.origin, ORIGIN_EXTRACTED);
         assert_eq!(mark.sha1, info.sha1);
         assert_eq!(mark.game_code, "CPUE");
         assert_eq!(mark.title, "POKEMON PL");
         assert_eq!(mark.size, bytes.len() as u64);
-        assert_eq!(mark.template, Template::Original);
+        assert_eq!(mark.template, Some(Template::Original));
+        assert_eq!(mark.assigned, None);
         assert!(mark.created.ends_with('Z'), "{}", mark.created);
         assert_eq!(mark.created.len(), 20, "{}", mark.created);
         assert_eq!(mark.studio_version, env!("CARGO_PKG_VERSION"));
@@ -718,6 +1088,7 @@ mod create_tests {
         // Pretty-printed JSON with the snake_case template.
         let text = std::fs::read_to_string(dest.join(".g4/base.json")).unwrap();
         assert!(text.contains("\n  \"template\": \"original\""), "{text}");
+        assert!(!text.contains("\"assigned\""), "{text}");
     }
 
     #[test]
@@ -859,7 +1230,10 @@ mod create_tests {
         let (tmp, rom) = synthetic_rom();
         let dest = tmp.path().join("neu");
         create_project_with(&rom, &dest, Template::DataOnly, &mut |_| {}, &fake_extract).unwrap();
-        assert_eq!(read_base_mark(&dest).unwrap().template, Template::DataOnly);
+        assert_eq!(
+            read_base_mark(&dest).unwrap().template,
+            Some(Template::DataOnly)
+        );
         let text = std::fs::read_to_string(dest.join(".g4/base.json")).unwrap();
         assert!(text.contains("\"data_only\""), "{text}");
     }
@@ -926,7 +1300,7 @@ mod create_tests {
         );
         assert_eq!(
             read_base_mark(&dest).unwrap().template,
-            Template::EmptyRegion
+            Some(Template::EmptyRegion)
         );
     }
 
@@ -1001,15 +1375,16 @@ mod create_tests {
         let bytes = std::fs::read(rom).unwrap();
         let root = tempfile::tempdir().unwrap();
         let mark = BaseMark {
-            version: 1,
-            origin: "extracted".into(),
+            version: BASE_MARK_VERSION,
+            origin: ORIGIN_EXTRACTED.into(),
             sha1: String::new(),
             game_code: "CPUE".into(),
             title: String::new(),
             revision: 0,
             size: bytes.len() as u64,
-            template: Template::Original,
+            template: Some(Template::Original),
             created: "2026-10-25T14:50:00Z".into(),
+            assigned: None,
             studio_version: "0".into(),
             secure_area_crc: 0x1234,
             secure_area_sha1: hex(&Sha1::digest(&bytes[0x4000..0x8000])),
@@ -1080,6 +1455,457 @@ mod create_tests {
         assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339_utc(1_761_403_800), "2025-10-25T14:50:00Z");
         assert_eq!(rfc3339_utc(951_782_400), "2000-02-29T00:00:00Z");
+    }
+
+    // --- Base mark v2, check, assign, suggest ---
+
+    const V1_MARK: &str = r#"{
+  "version": 1,
+  "origin": "extracted",
+  "sha1": "abc",
+  "game_code": "CPUE",
+  "title": "POKEMON PL",
+  "revision": 0,
+  "size": 32768,
+  "template": "original",
+  "created": "2026-10-25T14:50:00Z",
+  "studio_version": "0.1.0",
+  "secure_area_crc": 4660,
+  "secure_area_sha1": "def"
+}
+"#;
+
+    fn put_mark(root: &Path, text: &str) {
+        std::fs::create_dir_all(root.join(".g4")).unwrap();
+        std::fs::write(root.join(".g4/base.json"), text).unwrap();
+    }
+
+    fn mark_bytes(root: &Path) -> Vec<u8> {
+        std::fs::read(root.join(".g4/base.json")).unwrap()
+    }
+
+    fn refused(result: Result<(BaseCheck, BaseMark), KernelError>) -> String {
+        match result {
+            Err(KernelError::Refused(msg)) => msg,
+            other => panic!("expected Refused, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reads_a_v1_mark_with_its_template() {
+        let dir = tempfile::tempdir().unwrap();
+        put_mark(dir.path(), V1_MARK);
+        let mark = read_base_mark(dir.path()).expect("v1 mark");
+        assert_eq!(mark.version, 1);
+        assert_eq!(mark.template, Some(Template::Original));
+        assert_eq!(mark.assigned, None);
+        assert_eq!(mark.created, "2026-10-25T14:50:00Z");
+        assert_eq!(mark.secure_area_crc, 0x1234);
+    }
+
+    #[test]
+    fn reads_a_v2_dspre_mark_without_template() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = r#"{
+  "version": 2,
+  "origin": "dspre",
+  "sha1": "abc",
+  "game_code": "CPUD",
+  "title": "POKEMON PL",
+  "revision": 0,
+  "size": 1,
+  "created": "2026-10-27T08:00:00Z",
+  "assigned": "2026-10-27T08:00:00Z",
+  "studio_version": "0.1.0",
+  "secure_area_crc": 0,
+  "secure_area_sha1": "def"
+}"#;
+        put_mark(dir.path(), text);
+        let mark = read_base_mark(dir.path()).expect("v2 mark");
+        assert_eq!(mark.version, 2);
+        assert_eq!(mark.origin, ORIGIN_DSPRE);
+        assert_eq!(mark.template, None);
+        assert_eq!(mark.assigned.as_deref(), Some("2026-10-27T08:00:00Z"));
+        assert!(matches!(mark_state(dir.path()), MarkState::Present(m) if m == mark));
+    }
+
+    #[test]
+    fn mark_state_tells_missing_broken_and_newer() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(mark_state(dir.path()), MarkState::Missing);
+
+        put_mark(dir.path(), "{kaputt");
+        match mark_state(dir.path()) {
+            MarkState::Unreadable(why) => assert!(!why.is_empty()),
+            other => panic!("expected Unreadable, got {other:?}"),
+        }
+        assert!(read_base_mark(dir.path()).is_none());
+
+        // A field missing is unreadable too.
+        put_mark(dir.path(), r#"{"version": 2, "origin": "dspre"}"#);
+        assert!(matches!(mark_state(dir.path()), MarkState::Unreadable(_)));
+
+        // A newer version is named, even when its fields are unknown.
+        put_mark(dir.path(), r#"{"version": 3, "whatever": true}"#);
+        assert_eq!(mark_state(dir.path()), MarkState::Newer(3));
+        assert!(read_base_mark(dir.path()).is_none());
+
+        put_mark(dir.path(), V1_MARK);
+        assert!(matches!(mark_state(dir.path()), MarkState::Present(_)));
+    }
+
+    #[test]
+    fn check_base_refuses_another_game_and_writes_nothing() {
+        let s = synthetic_project();
+        let (_tmp, rom) = synthetic_rom();
+        with_game_code(&rom, "IPKE");
+        let check = check_base(s.dir.path(), &rom).unwrap();
+        assert_eq!(
+            check.refused.as_deref(),
+            Some("Falsches Spiel: die ROM ist IPKE, das Projekt CPUE.")
+        );
+        assert_eq!(check.info.game_code, "IPKE");
+        assert!(!s.dir.path().join(".g4").exists());
+    }
+
+    #[test]
+    fn check_base_warns_about_an_unknown_dump_and_a_different_title() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        // Same title: only the unknown dump.
+        let check = check_base(root, &rom).unwrap();
+        assert_eq!(check.refused, None);
+        let kinds: Vec<_> = check.warnings.iter().map(|w| w.kind).collect();
+        assert_eq!(kinds, [BaseWarningKind::UnknownDump]);
+        assert_eq!(
+            check.warnings[0].message,
+            "Unbekannte oder veränderte ROM; Patches gelten nur für genau diese Datei."
+        );
+
+        std::fs::write(
+            root.join("header.yaml"),
+            "title: \"POKEMON XX\"\ngamecode: CPUE\nmakercode: \"01\"\n",
+        )
+        .unwrap();
+        let check = check_base(root, &rom).unwrap();
+        assert_eq!(check.refused, None);
+        let kinds: Vec<_> = check.warnings.iter().map(|w| w.kind).collect();
+        assert_eq!(
+            kinds,
+            [BaseWarningKind::TitleDiffers, BaseWarningKind::UnknownDump]
+        );
+        assert_eq!(
+            check.warnings[0].message,
+            "Der Titel der ROM („POKEMON PL“) weicht vom Projekt ab („POKEMON XX“)."
+        );
+        assert!(!root.join(".g4").exists());
+    }
+
+    #[test]
+    fn check_base_warns_about_another_revision() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        std::fs::write(
+            root.join("header.yaml"),
+            "title: \"POKEMON PL\"\ngamecode: CPUE\nmakercode: \"01\"\nrom_version: 1\n",
+        )
+        .unwrap();
+        let check = check_base(root, &rom).unwrap();
+        let kinds: Vec<_> = check.warnings.iter().map(|w| w.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                BaseWarningKind::RevisionDiffers,
+                BaseWarningKind::UnknownDump
+            ]
+        );
+        assert_eq!(
+            check.warnings[0].message,
+            "Die Version der ROM (0) weicht vom Projekt ab (1)."
+        );
+    }
+
+    /// Points the ROM's ARM7 at `0x7000..0x7100` and puts a version-1 banner with the German
+    /// title `german` at `0x5000`; the project gets the same ARM7 and a `banner.yaml` whose
+    /// German title is `project_german`.
+    fn with_arm7_and_banner(root: &Path, rom: &Path, german: &str, project_german: &str) {
+        let mut bytes = std::fs::read(rom).unwrap();
+        bytes[0x30..0x34].copy_from_slice(&0x7000u32.to_le_bytes());
+        bytes[0x3C..0x40].copy_from_slice(&0x100u32.to_le_bytes());
+        bytes[0x68..0x6C].copy_from_slice(&0x5000u32.to_le_bytes());
+        let banner = &mut bytes[0x5000..0x5840];
+        banner.fill(0);
+        banner[0..2].copy_from_slice(&1u16.to_le_bytes());
+        let titles = ["J", "E", "F", german, "I", "S"];
+        for (lang, title) in titles.iter().enumerate() {
+            let start = 0x240 + lang * 0x100;
+            for (k, unit) in title.encode_utf16().enumerate() {
+                banner[start + 2 * k..start + 2 * k + 2].copy_from_slice(&unit.to_le_bytes());
+            }
+        }
+        std::fs::create_dir_all(root.join("arm7")).unwrap();
+        std::fs::write(root.join("arm7/arm7.bin"), &bytes[0x7000..0x7100]).unwrap();
+        std::fs::write(rom, &bytes).unwrap();
+        std::fs::create_dir_all(root.join("banner")).unwrap();
+        std::fs::write(
+            root.join("banner/banner.yaml"),
+            format!(
+                "version: Original\ntitle:\n  japanese: J\n  english: E\n  french: F\n  \
+                 german: {project_german}\n  italian: I\n  spanish: S\nimages:\n  \
+                 bitmap_path: bitmap.png\n  palette_path: palette.png\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn check_base_compares_arm7_and_banner_when_both_sides_are_readable() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        with_arm7_and_banner(root, &rom, "Pokémon Platin", "Pokémon Platin");
+        let kinds: Vec<_> = check_base(root, &rom)
+            .unwrap()
+            .warnings
+            .iter()
+            .map(|w| w.kind)
+            .collect();
+        assert_eq!(kinds, [BaseWarningKind::UnknownDump]);
+
+        // Another ARM7 (one byte longer) and another banner title.
+        with_arm7_and_banner(root, &rom, "Pokémon Platin", "Pokémon Perl");
+        let mut arm7 = std::fs::read(root.join("arm7/arm7.bin")).unwrap();
+        arm7.push(0);
+        std::fs::write(root.join("arm7/arm7.bin"), arm7).unwrap();
+        let check = check_base(root, &rom).unwrap();
+        let kinds: Vec<_> = check.warnings.iter().map(|w| w.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                BaseWarningKind::UnknownDump,
+                BaseWarningKind::Arm7Differs,
+                BaseWarningKind::BannerDiffers
+            ]
+        );
+        assert_eq!(
+            check.warnings[1].message,
+            "Der ARM7-Code der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+        );
+        assert_eq!(
+            check.warnings[2].message,
+            "Das Banner der ROM weicht vom Projekt ab; vielleicht ist es die falsche ROM."
+        );
+
+        // An unreadable banner.yaml gives no banner warning.
+        std::fs::write(root.join("banner/banner.yaml"), "{kaputt").unwrap();
+        let kinds: Vec<_> = check_base(root, &rom)
+            .unwrap()
+            .warnings
+            .iter()
+            .map(|w| w.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [BaseWarningKind::UnknownDump, BaseWarningKind::Arm7Differs]
+        );
+    }
+
+    #[test]
+    fn assign_base_writes_a_v2_dspre_mark_with_the_secure_area() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        let (check, mark) = assign_base(root, &rom).unwrap();
+        let bytes = std::fs::read(&rom).unwrap();
+        let (crc, sha1) = read_secure_area(&rom).unwrap();
+        assert_eq!(check.refused, None);
+        assert_eq!(mark.version, 2);
+        assert_eq!(mark.origin, "dspre");
+        assert_eq!(mark.template, None);
+        assert_eq!(mark.assigned.as_deref(), Some(mark.created.as_str()));
+        assert_eq!(mark.sha1, check.info.sha1);
+        assert_eq!(mark.game_code, "CPUE");
+        assert_eq!(mark.title, "POKEMON PL");
+        assert_eq!(mark.size, bytes.len() as u64);
+        assert_eq!(mark.secure_area_crc, crc);
+        assert_eq!(mark.secure_area_crc, 0x1234);
+        assert_eq!(mark.secure_area_sha1, sha1);
+        assert_eq!(read_base_mark(root), Some(mark));
+        let text = std::fs::read_to_string(root.join(".g4/base.json")).unwrap();
+        assert!(!text.contains("\"template\""), "{text}");
+        assert!(text.contains("\n  \"origin\": \"dspre\""), "{text}");
+        assert!(text.ends_with("}\n"), "{text}");
+    }
+
+    #[test]
+    fn assign_base_again_with_the_same_rom_keeps_the_mark() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        let (_, first) = assign_base(root, &rom).unwrap();
+        let before = mark_bytes(root);
+        let (check, again) = assign_base(root, &rom).unwrap();
+        assert_eq!(again, first);
+        assert_eq!(check.refused, None);
+        assert_eq!(mark_bytes(root), before);
+    }
+
+    #[test]
+    fn assign_base_replaces_a_dspre_mark_from_another_rom() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+        let (_, first) = assign_base(root, &rom).unwrap();
+        // An older `created`, so the new mark is told apart within the same second.
+        let old = BaseMark {
+            created: "2020-01-01T00:00:00Z".into(),
+            assigned: Some("2020-01-01T00:00:00Z".into()),
+            ..first.clone()
+        };
+        write_base_mark(root, &old).unwrap();
+        let mut bytes = std::fs::read(&rom).unwrap();
+        bytes.push(0xAB);
+        std::fs::write(&rom, &bytes).unwrap();
+        let (check, second) = assign_base(root, &rom).unwrap();
+        assert_ne!(second.sha1, first.sha1);
+        assert_eq!(second.sha1, check.info.sha1);
+        assert_ne!(second.created, old.created);
+        assert_eq!(second.assigned.as_deref(), Some(second.created.as_str()));
+        assert_eq!(second.size, bytes.len() as u64);
+        assert_eq!(read_base_mark(root), Some(second));
+    }
+
+    #[test]
+    fn assign_base_refuses_another_rom_for_an_extracted_project() {
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("neu");
+        create_fake(&rom, &dest, &mut Vec::new()).unwrap();
+        let before = mark_bytes(&dest);
+        // The same ROM is fine and writes nothing.
+        let (_, mark) = assign_base(&dest, &rom).unwrap();
+        assert_eq!(mark.origin, ORIGIN_EXTRACTED);
+        assert_eq!(mark_bytes(&dest), before);
+        // Another one is refused.
+        let mut bytes = std::fs::read(&rom).unwrap();
+        bytes.push(0);
+        std::fs::write(&rom, bytes).unwrap();
+        assert_eq!(
+            refused(assign_base(&dest, &rom)),
+            "Das Projekt wurde aus einer ROM angelegt; seine Basis-ROM steht fest."
+        );
+        assert_eq!(mark_bytes(&dest), before);
+    }
+
+    #[test]
+    fn assign_base_refuses_a_newer_or_broken_mark() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (_tmp, rom) = synthetic_rom();
+
+        let newer = r#"{"version": 3, "origin": "dspre"}"#;
+        put_mark(root, newer);
+        assert_eq!(
+            refused(assign_base(root, &rom)),
+            "Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3)."
+        );
+        assert_eq!(mark_bytes(root), newer.as_bytes());
+        assert_eq!(
+            mark_state(root).refusal().as_deref(),
+            Some("Die Basismarke stammt aus einer neueren Fassung von Gen4 Studio (Version 3).")
+        );
+
+        put_mark(root, "{kaputt");
+        let msg = refused(assign_base(root, &rom));
+        assert_eq!(mark_state(root).refusal(), Some(msg.clone()));
+        assert!(
+            msg.starts_with("Die Basismarke .g4/base.json ist nicht lesbar ("),
+            "{msg}"
+        );
+        assert!(
+            msg.ends_with("); entferne sie, dann ordne neu zu."),
+            "{msg}"
+        );
+        assert_eq!(mark_bytes(root), b"{kaputt");
+    }
+
+    #[test]
+    fn assign_base_refuses_another_game_and_writes_nothing() {
+        let s = synthetic_project();
+        let (_tmp, rom) = synthetic_rom();
+        with_game_code(&rom, "IPKE");
+        assert_eq!(
+            refused(assign_base(s.dir.path(), &rom)),
+            "Falsches Spiel: die ROM ist IPKE, das Projekt CPUE."
+        );
+        assert!(!s.dir.path().join(".g4").exists());
+    }
+
+    /// `<tmp>/X_DSPRE_contents` (a copy of the synthetic project) and `<tmp>/X.nds`.
+    fn dspre_layout() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let s = synthetic_project();
+        let (rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("X_DSPRE_contents");
+        copy_dir(s.dir.path(), &root);
+        let nds = tmp.path().join("X.nds");
+        std::fs::copy(&rom, &nds).unwrap();
+        drop(rom_dir);
+        (tmp, root, nds)
+    }
+
+    #[test]
+    fn suggest_base_finds_the_sibling_nds_with_the_same_game_code() {
+        let (_tmp, root, nds) = dspre_layout();
+        assert_eq!(suggest_base(&root), Some(nds));
+    }
+
+    #[test]
+    fn suggest_base_ignores_another_game_or_a_folder_without_the_suffix() {
+        let (tmp, root, nds) = dspre_layout();
+        with_game_code(&nds, "IPKE");
+        assert_eq!(suggest_base(&root), None);
+
+        // Without the suffix there is no `<Name>.nds` to look for.
+        let (_tmp2, root2, nds2) = dspre_layout();
+        let plain = tmp.path().join("X");
+        std::fs::rename(&root2, &plain).unwrap();
+        std::fs::copy(&nds2, tmp.path().join("X.nds")).unwrap();
+        assert_eq!(suggest_base(&plain), None);
+
+        // No sibling, or a file too short for a header.
+        let (_tmp3, root3, nds3) = dspre_layout();
+        std::fs::write(&nds3, b"short").unwrap();
+        assert_eq!(suggest_base(&root3), None);
+        std::fs::remove_file(&nds3).unwrap();
+        assert_eq!(suggest_base(&root3), None);
+    }
+
+    #[test]
+    fn restore_header_crcs_works_with_a_dspre_mark() {
+        let s = synthetic_project();
+        let root = s.dir.path();
+        let (tmp, rom) = synthetic_rom();
+        assign_base(root, &rom).unwrap();
+        let original = std::fs::read(&rom).unwrap();
+        let built = tmp.path().join("built.nds");
+        std::fs::copy(&rom, &built).unwrap();
+        zero_crc(&built);
+        assert!(restore_header_crcs(root, &built).unwrap());
+        assert_eq!(std::fs::read(&built).unwrap(), original);
+    }
+
+    #[test]
+    fn base_warning_kinds_serialize_in_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&BaseWarningKind::Arm7Differs).unwrap(),
+            "\"arm7_differs\""
+        );
+        assert_eq!(
+            serde_json::to_string(&BaseWarningKind::UnknownDump).unwrap(),
+            "\"unknown_dump\""
+        );
     }
 
     fn hex(bytes: &[u8]) -> String {

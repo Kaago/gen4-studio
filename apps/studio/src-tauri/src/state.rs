@@ -9,6 +9,7 @@ use g4_kernel::project::Project;
 use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
 
+use crate::base_roms::BaseRoms;
 use crate::lsp::LspProcess;
 use crate::mcp::hub::AgentHub;
 
@@ -261,6 +262,8 @@ pub struct AppState {
     pub force_quit: AtomicBool,
     /// Agent settings, connections, the question to the user and the agent events.
     pub agents: AgentHub,
+    /// The remembered base ROMs (`base-roms.json`) and where else to search for them.
+    pub base_roms: BaseRoms,
 }
 
 impl AppState {

@@ -19,6 +19,8 @@ pub fn run_batch(file: &Path, roots: Roots, out: &mut impl Write) -> Result<(), 
         .map_err(|e| format!("Datei nicht lesbar: {}: {e}", file.display()))?;
     let calls = parse_calls(&text)?;
     let state = AppState::default();
+    // No remembered base ROMs, but `G4_BASE_ROM_DIR` and the originals of `G4_ROMS_DIR`.
+    state.base_roms.configure(None);
     for (name, args) in calls {
         let outcome = match dispatch(&state, &roots, &name, args) {
             Ok(Reply::Json(value)) => Ok(value),

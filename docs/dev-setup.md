@@ -121,8 +121,26 @@ Befehle aus der Wurzel des Repositorys, mit `export PATH="/opt/homebrew/opt/rust
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --check
+cargo deny --locked check licenses advisories
 cd apps/studio && pnpm test && pnpm build
 ```
+
+### cargo-deny (Lizenzen und Advisories)
+
+`cargo deny` prüft den Abhängigkeitsbaum mit allen Features gegen `deny.toml` in der Repo-Wurzel: Lizenzen nur aus der
+Freigabeliste, keine offene RustSec-Meldung (Schwachstelle, unmaintained, yanked). Installieren, einmal je Rechner (landet
+in `~/.cargo/bin`):
+
+```sh
+export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
+cargo install --locked cargo-deny@0.20.2
+```
+
+Der erste Lauf lädt die RustSec-Datenbank nach `~/.cargo/advisory-dbs`, jeder weitere holt sie neu; eine neue Meldung kann das
+Gate also ohne Änderung am Repo rot machen. Dann zuerst `cargo update -p <crate>@<Version>` (semver-verträglich) oder ein
+verträgliches Update des direkten Elternteils versuchen; erst wenn keins den Fix bringt, eine Ausnahme je RUSTSEC-ID unter
+`[advisories] ignore` mit Grund (Crate und Version, Kette, warum kein Update geht, warum es hinnehmbar ist). Pauschale
+Schalter wie `unmaintained = "none"` gibt es nicht.
 
 `--all-features` ist nötig, sobald `g4-kernel` allein getestet wird: die Integrationstests `store`, `cli`, `project`, `build`
 und `headers` sowie der Vanilla-Test in `export` sind mit `#![cfg(feature = "test-support")]` bzw.
@@ -151,6 +169,8 @@ beschrieben.
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
 | `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
+| `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` nehmen die Nachbar-`.nds` des Originals); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
+| `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
 `G4_TEST_PROJECT` wird nacheinander auf jedes der drei Projekte gesetzt (Platin DE, HeartGold DE, HeartGold US); die
 Tests laufen einmal pro Projekt. Die Pfade müssen absolut sein, denn `cargo test` startet die Tests im Ordner des jeweiligen Crates:
@@ -423,6 +443,35 @@ G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/3g-probe/pt.nds" \
 
 `project_start_empty_region_from_the_rom` (`G4_TEST_ROM`) legt ein Projekt mit `Template::EmptyRegion` an und verlangt die Marke `empty_region`, Fortschritt bis `done = total` und 0 Fehler in allen Prüfgruppen. Gemessen: die vier Tests in `templates.rs` brauchen auf Platin DE etwa 50 s, auf HeartGold DE etwa 40 s (dreimal Scripts übernehmen); die Vorlagen-Phase von `create_project` 4 bis 7 s.
 
+#### Basis-ROM und Patch (4.1a)
+
+`crates/g4-kernel/src/start.rs` prüft und ordnet eine Basis-ROM zu (Marke v2 mit `origin: "dspre"`), `base.rs` sucht sie über die SHA-1 und liest aus ihr, `patch.rs` schreibt den xdelta-Patch (xdelta3 3.0.12 im Crate `crates/g4-xdelta`); Formate in [docs/formats/project_base.md](formats/project_base.md) und [docs/formats/xdelta_patch.md](formats/xdelta_patch.md).
+
+```sh
+target/debug/g4k base check <projekt>                    # mark=…, sha1=…, suggestion=… (ohne Marke) bzw. base=… (Herkunft, etwa sibling)
+target/debug/g4k base check <projekt> --rom <rom.nds>   # prüft die .nds als Basis-ROM, je Warnung eine Zeile warning:
+target/debug/g4k base assign <projekt> <rom.nds>        # schreibt .g4/base.json; falsches Spiel: Exit 1
+target/debug/g4k patch create <projekt> [--base-rom <rom.nds>] [--out <patch>] [--json]
+```
+
+`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. Ohne Marke endet es mit Exit 1 und „Diesem Projekt ist keine Basis-ROM zugeordnet. Ordne sie mit `g4k base assign <Projekt> <nds>` zu.“; eine unlesbare oder neuere Marke lehnt es mit denselben Sätzen ab wie App und MCP. `base assign` und `patch create` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
+
+Die gated Tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Original, gefunden über `suggest_base` und nur gelesen; was schreibt, arbeitet auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `base_assign_on_the_vanilla_folder_has_no_warning_and_rebuilds_the_nds` | Zuordnen ohne Warnung; der Build der Kopie mit Marke hat die SHA-1 der `.nds` |
+| `base_rom_members_equal_the_vanilla_folders` | die Archive aus der ROM gleich den Ordnern des Projekts |
+| `base_rom_header_table_equals_the_vanilla_project` | die Header-Tabelle aus dem ARM9 der ROM gleich der des Projekts |
+| `patch_after_map_and_after_map_script_text_is_small_and_applies` | Patch nach einer Kartenänderung ≤ 1 KiB, nach Karte, Script und Text an einer Stelle ≤ 16 KiB, Erzeugen ≤ 1 s, mit dem eigenen Decoder und (wenn im `PATH`) mit `xdelta3 -d` angewandt gleich; Textarchiv 0 als Stresszeile ohne Grenze |
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
+  cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1
+```
+
+So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …` und `xdelta3 cross-check: map=… all=… stress=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+
 #### Weltmodell (3e.2)
 
 `apps/studio/src/workbench/worldModel.ts` (`buildWorld`) baut den Weltbaum der Werkbank aus Headern, Matrizen, Warps und der Projektdatei der Welt (Weltkarten, Gebiete, Räume). `worldModel.vanilla.test.ts` prüft das Modell an den drei Vanilla-Projekten. Der Test liest keine ROMs, sondern JSON-Dumps, die `scripts/agent/world-dump.sh` über die Brücke schreibt; ohne `G4_WORLD_DUMP` meldet er einen übersprungenen Test mit Hinweis.
@@ -471,22 +520,23 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
-4. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
-5. `pnpm test` in `apps/studio`
-6. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
-7. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
-8. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
-9. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
-10. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
-11. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
-12. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
+3. `cargo deny (licenses, advisories)`: `cargo deny --locked check licenses advisories` mit `deny.toml` (siehe „cargo-deny (Lizenzen und Advisories)“ unter „Tests“); fehlt `cargo-deny`, bricht das Skript mit der Zeile "FAILED (cargo-deny fehlt)" und dem Installationsbefehl ab
+4. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
+5. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
+6. `pnpm test` in `apps/studio`
+7. `tokens`: `scripts/check-tokens.sh` (Raster und Kontraste mit `check_tokens.py`, danach der Abgleich der eingecheckten Token-Dateien mit einem frischen Export; siehe „Design-System und Tokens“)
+8. `styles`: `scripts/check-styles.sh` (keine Inline-Styles und keine Hex-Farben außerhalb der Ausnahmen; siehe „Design-System und Tokens“)
+9. `pnpm build` in `apps/studio`, danach die Prüfung, dass `apps/studio/dist` den Text `__bridge` nicht enthält (die Dev-Brücke darf nicht ins Produktions-Bundle)
+10. `g4emu unit`: `uv run pytest -m "not integration" -q` in `scripts/g4emu`
+11. `g4emu integration`: `uv run pytest -m integration -q` in `scripts/g4emu` (Platin DE mit Spielstand bis ins Zimmer, Treppe und Header-ID im echten Emulator). Läuft nur, wenn der Kern (`tools/g4emu/core/melondsds_libretro.dylib` oder `G4EMU_CORE`, relative Pfade sind erlaubt), `$G4_ROMS_DIR/_testkopien/_saves/CPUD-zimmer.sav` (das Gate sucht Spielstände immer dort; `G4EMU_SAVES` wertet es nicht aus) und `$G4_ROMS_DIR/Pokemon - Platin-Edition (Germany).nds` existieren; sonst steht die Zeile "skipped (kein Kern)", "skipped (kein Spielstand)" bzw. "skipped (keine ROM)" in der Tabelle, ohne Abbruch
+12. je Testprojekt unter `$G4_ROMS_DIR` (Muster `*_DSPRE_contents`) `cargo test --workspace --all-features` mit `G4_TEST_PROJECT`, `G4_APICULA`, `G4_DSROM_CLI` und `G4_ROTOM_LSP` (alle absolut), also die gated Tests aus dem Abschnitt "Gated Tests" gegen Platin DE, HeartGold DE und HeartGold US
+13. je `*.nds` unter `$G4_ROMS_DIR` (nur gelesen) `cargo test --workspace --all-features -- project_start_` mit `G4_TEST_ROM` (Projekt anlegen, bauen, SHA-1 vergleichen, siehe „Projekt aus ROM anlegen (3g.1)“); ohne `.nds` eine Zeile "skipped (keine ROM)"
 
 ```sh
 scripts/gate.sh
 ```
 
-Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell), braucht also keinen `export PATH`. Variablen, alle optional:
+Das Skript findet die Rust-Toolchain selbst (`~/.rustup/toolchains/stable-aarch64-apple-darwin/bin`, falls vorhanden; sonst gilt der `PATH` der Shell) und hängt `~/.cargo/bin` (dort liegt `cargo-deny`) hinten an den `PATH`, braucht also keinen `export PATH`. Variablen, alle optional:
 
 | Variable | Standard | Bedeutung |
 |---|---|---|
@@ -504,7 +554,7 @@ Dauer (der Schritt `mcp` kommt seit 3h.2 mit rund 30 Sekunden dazu): bei warmem 
 
 Ein Claude-Agent bedient die App und das Spiel selbst; die Anleitung dafür steht in [docs/agent-gate.md](agent-gate.md). Die Bausteine:
 
-- **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Seit 3h.1 ist die Befehlsschicht `dispatch` (`commands/dispatch.rs`, 91 Befehle) Produktcode ohne Feature; die Brücke ist nur noch der HTTP-Rahmen darum. Welche Pfade ein Aufruf berühren darf, entscheidet ein `Policy` (`commands/policy.rs`): `DevPolicy` (die frühere Struktur `Roots` in `bridge/roots.rs`, Feature `dev-bridge`) für die Brücke, `UserPolicy` für `studio mcp` (siehe „MCP (`studio mcp`)“). Die Brücke nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter `*_DSPRE_contents`) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
+- **Brücke `studio-bridge`** (Cargo-Feature `dev-bridge`, nur im Dev-Build, nie im App-Bundle): ein kleiner HTTP-Server auf `127.0.0.1:1431`, der alle Tauri-Befehle der App aufruft. Seit 3h.1 ist die Befehlsschicht `dispatch` (`commands/dispatch.rs`, 91 Befehle) Produktcode ohne Feature; die Brücke ist nur noch der HTTP-Rahmen darum. Welche Pfade ein Aufruf berühren darf, entscheidet ein `Policy` (`commands/policy.rs`): `DevPolicy` (die frühere Struktur `Roots` in `bridge/roots.rs`, Feature `dev-bridge`) für die Brücke, `UserPolicy` für `studio mcp` (siehe „MCP (`studio mcp`)“). Die Brücke nimmt nur Projekte und Build-Ziele unter `$G4_ROMS_DIR/_testkopien` an (nie unter einem Original `*_DSPRE_contents`; Kopien mit der Endung unter `_testkopien` gehen) und verlangt ein Token (`X-G4-Bridge-Token`, steht in `target/agent/bridge.token`). `scripts/agent/studio-web.sh` startet Brücke und Vite (`127.0.0.1:1430`); `.claude/launch.json` kennt sie als `studio-web`. Solange die Brücke läuft, erreicht jeder lokale Nutzer sie über den Vite-Proxy auf `127.0.0.1:1430` (das Token liegt für den Proxy bereit); angenommen ist eine Entwicklungsmaschine mit einem Nutzer. Die Seite läuft dann im Browser-Fenster der Claude-Desktop-App unter `http://127.0.0.1:1430/?project=<Kopie>` und zeigt "Browser-Modus (Brücke)" in der Statusleiste.
 - **`scripts/agent/call.sh <befehl> ['<json>']`** ruft einen Befehl der laufenden Brücke auf; `studio-bridge batch <datei.json> --allow-root <dir>` führt eine Liste von Befehlen ohne Server aus.
 - **`g4emu`** (`scripts/g4emu`, Python mit `uv`): ein Emulator ohne Fenster (libretro.py mit dem melonDS-DS-Kern 1.4.0). Einrichten mit `bash scripts/g4emu/setup.sh` (lädt den Kern aus dem festen GitHub-Release, SHA-256 geprüft, nach `tools/g4emu/core/`). Aufruf: `uv run g4emu run --rom … --save … --out … <Schritte>` (`continue`, `walk-to`, `expect-map`, `where`, `shot` …), `uv run g4emu scenario <yaml> --project <Kopie> --set NAME=WERT …` (Projekt ändern, bauen, spielen; Beispiele in `scripts/agent/scenarios/`; eine Änderung kann die Antwort der Brücke an einen Namen binden, den spätere Schritte als `${name}` nutzen, und seit 3b.4a Erwartungen an die Antwort stellen, `{expect: {path, equals}}`, verfehlt mit Rückgabe 2; seit 3b.4b auch erwartete Ablehnungen `{expect: {error: …}}`, Dateihashes `${sha1-of:PFAD}` und den Abschnitt `prepare:`, siehe „Kartenteile importieren (3b.4b)“), `uv run g4emu find-u16` zum Suchen von Adressen. Seit 3b.3b kennt `g4emu` Kampfschritte (`expect-battle`, `walk-until-battle`, `end-battle`, `win-battle`, `mash`): ein Kampf wird an den BattleMon-Datensätzen im RAM erkannt, die Werte je Spielcode stehen in `scripts/g4emu/g4emu/games.yaml` (`battle`, `battle_pointer`, `home_header`; IPKE ohne gemessenen Zeiger); Beschreibung in [docs/agent-gate.md](agent-gate.md), „Kämpfe“. Die Tests: `uv run pytest -m "not integration"` (Einheit) und `-m integration` (echter Kern).
 - **Spielstände** liegen außerhalb des Repos in `$G4_ROMS_DIR/_testkopien/_saves/<SPIELCODE>-zimmer.sav` (CPUD Platin DE, IPKD HeartGold DE, IPKE HeartGold US) mit einer `.md`-Datei, die den Weg dorthin beschreibt. `g4emu` kopiert sie vor jedem Lauf und schreibt nie zurück.

@@ -1,10 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/g4-formats", "crates/g4-kernel", "apps/studio/src-tauri"]
+members = ["crates/g4-formats", "crates/g4-kernel", "crates/g4-xdelta", "apps/studio/src-tauri"]
 
 [workspace.package]
 edition = "2024"
 license = "MIT"
 
 [profile.dev.package.ds-rom]
+opt-level = 3
+
+[profile.dev.package.sha1]
 opt-level = 3
