@@ -8,6 +8,7 @@ pub mod error;
 pub mod export;
 mod fsutil;
 pub mod map_import;
+pub mod original;
 pub mod patch;
 pub mod places;
 pub mod preview;

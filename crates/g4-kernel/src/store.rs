@@ -224,7 +224,7 @@ impl Loaded {
             Loaded::TrainerTextOffsets(o) => Ok(o.write()),
             Loaded::Trainer(t) => {
                 let (props, party) = t.encode(family);
-                Ok(join_pair(&props, &party))
+                Ok(trainer_pair_bytes(&props, &party))
             }
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
@@ -278,8 +278,8 @@ fn decode_trainer(
     })
 }
 
-/// Whether the bytes of a trainer ([`join_pair`]) are what `create_trainer` writes for the
-/// placeholder of the sight script slot: properties all zero, a party of 8 zero bytes. A
+/// Whether the bytes of a trainer ([`trainer_pair_bytes`]) are what `create_trainer` writes for
+/// the placeholder of the sight script slot: properties all zero, a party of 8 zero bytes. A
 /// hack's real trainer at that ID is not, and stays editable. (Its name "-" lives in the name
 /// bank and is not checked.)
 fn placeholder_shaped(bytes: &[u8]) -> bool {
@@ -287,7 +287,7 @@ fn placeholder_shaped(bytes: &[u8]) -> bool {
 }
 
 /// The bytes of a trainer: `u32 len(props) | props | party`, see [`Location::MemberPair`].
-fn join_pair(props: &[u8], party: &[u8]) -> Vec<u8> {
+pub fn trainer_pair_bytes(props: &[u8], party: &[u8]) -> Vec<u8> {
     // A properties member is a file of the unpacked archive, far below 4 GiB.
     let mut out = (props.len() as u32).to_le_bytes().to_vec();
     out.reserve(props.len() + party.len());
@@ -296,7 +296,7 @@ fn join_pair(props: &[u8], party: &[u8]) -> Vec<u8> {
     out
 }
 
-/// The properties and the party of the bytes of a trainer ([`join_pair`]).
+/// The properties and the party of the bytes of a trainer ([`trainer_pair_bytes`]).
 fn split_pair(bytes: &[u8]) -> Result<(&[u8], &[u8]), KernelError> {
     let malformed = || {
         KernelError::InvalidProject(format!(
@@ -464,10 +464,42 @@ pub struct HistoryEntry {
     pub origin: Origin,
 }
 
+/// One file a [`FileStep`] wrote: its bytes before and after the step (`None`: no file).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    /// The file's path, absolute or relative to the project root.
+    pub path: PathBuf,
+    pub before: Option<Vec<u8>>,
+    pub after: Option<Vec<u8>>,
+}
+
+/// A script's entry in rotom's `compile-state.json` before and after a [`FileStep`] (`None`:
+/// no entry).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RotomEntryChange {
+    /// The script's source, as the entry is keyed.
+    pub source: PathBuf,
+    pub before: Option<serde_json::Value>,
+    pub after: Option<serde_json::Value>,
+}
+
+/// A change of files that are no store value (a script, a texture, a model), written at once
+/// and kept on the undo stack beside the store's parts (see [`Store::record_file_step`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileStep {
+    /// The asset the files belong to; undo and redo report it as changed.
+    pub asset: AssetId,
+    pub files: Vec<FileChange>,
+    pub rotom_entry: Option<RotomEntryChange>,
+}
+
 /// One undoable step: every asset it changed, each at most once, in the order they were
-/// edited. Never empty, except a barrier whose parts were forgotten.
+/// edited, and the file steps it wrote. Never empty, except a barrier whose parts were
+/// forgotten.
 struct Changeset {
     parts: Vec<Part>,
+    /// File steps, in the order they were recorded.
+    files: Vec<FileStep>,
     label: String,
     /// Who made the step; kept when it moves between the undo and redo stacks.
     origin: Origin,
@@ -524,6 +556,19 @@ impl Tx<'_> {
             after,
         });
         Ok(())
+    }
+
+    /// Stages asset `id` as decoded from `bytes` in the asset's own byte form (text archive: its
+    /// canonical JSON; trainer: [`trainer_pair_bytes`]). Refuses like the other edits (a locked
+    /// asset, one edited twice in this transaction); bytes that do not decode fail the
+    /// transaction with the decode error. Bytes equal to the current value record no part.
+    pub fn replace(&mut self, id: AssetId, bytes: &[u8]) -> Result<(), KernelError> {
+        let family = self.store.project.family;
+        let lang = self.store.lang();
+        self.edit(id, |loaded| {
+            *loaded = Loaded::from_bytes(id.kind, bytes, family, lang)?;
+            Ok(())
+        })
     }
 
     /// Edits matrix `index`. An error from `edit` or from `Matrix::validate` fails the
@@ -1192,6 +1237,7 @@ impl Store {
         }
         self.undo.push(Changeset {
             parts,
+            files: Vec::new(),
             label: label.to_owned(),
             origin: current_origin(),
             barrier: barrier.map(str::to_owned),
@@ -2235,28 +2281,54 @@ impl Store {
         Ok(())
     }
 
-    /// Removes the parts of `id` from every changeset of the undo and redo stacks and drops
-    /// the changesets left empty, except a barrier: what it stands for stays on disk.
+    /// Removes the parts and file steps of `id` from every changeset of the undo and redo
+    /// stacks and drops the changesets left empty, except a barrier: what it stands for stays
+    /// on disk.
     fn forget_history(&mut self, id: AssetId) {
         for stack in [&mut self.undo, &mut self.redo] {
             stack.retain_mut(|change| {
                 change.parts.retain(|p| p.asset != id);
-                !change.parts.is_empty() || change.barrier.is_some()
+                change.files.retain(|f| f.asset != id);
+                !change.parts.is_empty() || !change.files.is_empty() || change.barrier.is_some()
             });
         }
     }
 
-    /// Sets every asset of `change` to the side of its part that `side` picks and returns the
-    /// assets in the order they were edited. All parts are decoded first, then applied in
-    /// reverse order; the first part that does not decode (or whose asset is not loaded) is
-    /// [`KernelError::Restore`] naming its asset, and then no asset changes.
-    fn restore_parts(
-        &mut self,
+    /// Drops every part and file step of `id` from the undo and redo stacks; a changeset left
+    /// without both goes with them, a barrier stays. For files of `id` written outside the
+    /// history (a saved script file), whose file steps undo would refuse from then on.
+    pub fn forget_asset_history(&mut self, id: AssetId) {
+        self.forget_history(id);
+    }
+
+    /// Records a step labelled `label` whose files the caller has already written (every
+    /// file's `after` is on disk). Undo checks every file against `after`, then writes
+    /// `before` (`None` removes the file); redo the other way (see [`Store::undo`]). Clears the
+    /// redo stack and reports a change of `step.asset` (see [`Store::changes_since`]).
+    pub fn record_file_step(&mut self, label: &str, step: FileStep) -> ChangeId {
+        let change = ChangeId(self.next_change);
+        self.next_change += 1;
+        self.note_change(step.asset);
+        self.undo.push(Changeset {
+            parts: Vec::new(),
+            files: vec![step],
+            label: label.to_owned(),
+            origin: current_origin(),
+            barrier: None,
+        });
+        self.redo.clear();
+        change
+    }
+
+    /// Decodes the `side` of every part of `change`. The first part that does not decode (or
+    /// whose asset is not loaded) is [`KernelError::Restore`] naming its asset.
+    fn decode_parts(
+        &self,
         change: &Changeset,
-        side: fn(&Part) -> &[u8],
-    ) -> Result<Vec<AssetId>, KernelError> {
+        side: Side,
+    ) -> Result<Vec<(AssetId, Loaded)>, KernelError> {
         let family = self.project.family;
-        let values = change
+        change
             .parts
             .iter()
             .map(|part| {
@@ -2269,28 +2341,60 @@ impl Store {
                 }
                 // Strict on purpose: a part holds the bytes of an editable value, never a
                 // locked raw member.
-                Loaded::from_bytes(id.kind, side(part), family, self.lang())
+                Loaded::from_bytes(id.kind, side.part(part), family, self.lang())
                     .map(|value| (id, value))
                     .map_err(|e| KernelError::Restore {
                         asset: id,
                         reason: e.to_string(),
                     })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect()
+    }
+
+    /// Moves every asset and file of `change` to the side `side` picks and returns the assets
+    /// of its parts in the order they were edited, then those of its file steps, each once.
+    /// All parts are decoded first ([`Store::decode_parts`]), then every file is checked to
+    /// hold the other side; a file that does not is [`StepError::Drop`] and nothing is
+    /// written. Then the files are written (a failed write puts the files written before back
+    /// and is [`StepError::Keep`]), and last the parts are applied in reverse order.
+    fn apply_change(&mut self, change: &Changeset, side: Side) -> Result<Vec<AssetId>, StepError> {
+        let values = self.decode_parts(change, side).map_err(StepError::Keep)?;
+        let files = net_files(&self.project.root, &change.files);
+        for (asset, file) in &files {
+            let (expected, _) = side.file(file);
+            if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
+                return Err(StepError::Drop(KernelError::Refused(format!(
+                    "{} wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den \
+                     Schritt nicht zurück, er fällt aus dem Verlauf.",
+                    crate::original::asset_label(*asset)
+                ))));
+            }
+        }
+        write_files(&self.project.root, &files, side).map_err(StepError::Keep)?;
         for (id, value) in values.into_iter().rev() {
-            // Checked above: every asset is loaded.
+            // Checked by `decode_parts`: every asset is loaded.
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.current = value;
             }
             self.note_change(id);
         }
-        Ok(change.parts.iter().map(|p| p.asset).collect())
+        let mut assets: Vec<AssetId> = change.parts.iter().map(|p| p.asset).collect();
+        for step in &change.files {
+            if !assets.contains(&step.asset) {
+                self.note_change(step.asset);
+                assets.push(step.asset);
+            }
+        }
+        Ok(assets)
     }
 
     /// Reverts the most recent changeset and returns every asset it restored, in the order
-    /// they were edited, so the caller can reload exactly what changed; empty if there is
-    /// nothing to undo. A part that cannot be restored is an error naming its asset; then no
-    /// asset changes and the changeset stays on the undo stack (see `restore_parts`). A
+    /// they were edited (those of its file steps last), so the caller can reload exactly what
+    /// changed; empty if there is nothing to undo. A part that cannot be restored is an error
+    /// naming its asset; then no asset changes and the changeset stays on the undo stack (see
+    /// `decode_parts`). A file of a file step that no longer holds what the step wrote (another
+    /// tool changed it since) is [`KernelError::Refused`] saying so: nothing is written or
+    /// changed and the changeset leaves the history, so the steps before it stay undoable. A
     /// barrier (see [`Store::barrier_transaction`]) is [`KernelError::Refused`] with its
     /// reason, and nothing changes.
     pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
@@ -2300,34 +2404,37 @@ impl Store {
         let Some(change) = self.undo.pop() else {
             return Ok(Vec::new());
         };
-        match self.restore_parts(&change, |p| &p.before) {
+        match self.apply_change(&change, Side::Before) {
             Ok(assets) => {
                 self.redo.push(change);
                 Ok(assets)
             }
-            Err(e) => {
+            Err(StepError::Keep(e)) => {
                 self.undo.push(change);
                 Err(e)
             }
+            Err(StepError::Drop(e)) => Err(e),
         }
     }
 
     /// Re-applies the most recently undone changeset and returns every asset it restored, in
-    /// the order they were edited; empty if there is nothing to redo. On an error nothing
-    /// changes, as with [`Store::undo`].
+    /// the order they were edited (those of its file steps last); empty if there is nothing
+    /// to redo. Errors as with [`Store::undo`]: a file changed since the undo drops the
+    /// changeset, any other error keeps it on the redo stack.
     pub fn redo(&mut self) -> Result<Vec<AssetId>, KernelError> {
         let Some(change) = self.redo.pop() else {
             return Ok(Vec::new());
         };
-        match self.restore_parts(&change, |p| &p.after) {
+        match self.apply_change(&change, Side::After) {
             Ok(assets) => {
                 self.undo.push(change);
                 Ok(assets)
             }
-            Err(e) => {
+            Err(StepError::Keep(e)) => {
                 self.redo.push(change);
                 Err(e)
             }
+            Err(StepError::Drop(e)) => Err(e),
         }
     }
 
@@ -2341,17 +2448,19 @@ impl Store {
     /// step labelled `label`, so a batch of edits is undone and redone at once. The merged
     /// step has one part per asset, in the order the steps first touched them, from the
     /// bytes before the first of its parts to the bytes after the last. A part that ends
-    /// where it began falls away. The step is a barrier when any merged step was one, with
-    /// the reason of the first; without parts and without a barrier nothing is recorded. A
-    /// `mark` at or past the end of the stack does nothing. The merged step keeps the origin of
-    /// the first merged step. The redo stack is untouched (the first recorded step of the batch
-    /// has already cleared it).
+    /// where it began falls away. The file steps of the merged steps follow in the order they
+    /// were recorded. The step is a barrier when any merged step was one, with the reason of
+    /// the first; without parts, file steps and a barrier nothing is recorded. A `mark` at or
+    /// past the end of the stack does nothing. The merged step keeps the origin of the first
+    /// merged step. The redo stack is untouched (the first recorded step of the batch has
+    /// already cleared it).
     pub fn squash_since(&mut self, mark: usize, label: &str) {
         if mark >= self.undo.len() {
             return;
         }
         let mut barrier = None;
         let mut parts: Vec<Part> = Vec::new();
+        let mut files: Vec<FileStep> = Vec::new();
         let mut origin = None;
         for step in self.undo.split_off(mark) {
             origin.get_or_insert(step.origin);
@@ -2364,13 +2473,15 @@ impl Store {
                     None => parts.push(part),
                 }
             }
+            files.extend(step.files);
         }
         parts.retain(|p| p.before != p.after);
-        if parts.is_empty() && barrier.is_none() {
+        if parts.is_empty() && files.is_empty() && barrier.is_none() {
             return;
         }
         self.undo.push(Changeset {
             parts,
+            files,
             label: label.to_owned(),
             // `mark < len`, so at least one step was merged.
             origin: origin.unwrap_or_else(current_origin),
@@ -2384,8 +2495,9 @@ impl Store {
     /// batch recorded nothing (the first recorded step cleared it). Stops at a barrier,
     /// which and what lies behind it stay. Returns the number of steps reverted; every
     /// restored asset is reported through `changes_since`, as with undo. A part that cannot
-    /// be restored is an error naming its asset (see `restore_parts`); the steps reverted
-    /// before stay reverted and the failing step stays on the undo stack.
+    /// be restored is an error naming its asset (see `decode_parts`); the steps reverted
+    /// before stay reverted and the failing step stays on the undo stack. A file step whose
+    /// file changed since is an error as with undo, and its step is dropped.
     pub fn rollback_to(&mut self, mark: usize) -> Result<usize, KernelError> {
         let mut reverted = 0;
         while self.undo.len() > mark {
@@ -2395,11 +2507,14 @@ impl Store {
             let Some(change) = self.undo.pop() else {
                 break;
             };
-            if let Err(e) = self.restore_parts(&change, |p| &p.before) {
-                self.undo.push(change);
-                return Err(e);
+            match self.apply_change(&change, Side::Before) {
+                Ok(_) => reverted += 1,
+                Err(StepError::Keep(e)) => {
+                    self.undo.push(change);
+                    return Err(e);
+                }
+                Err(StepError::Drop(e)) => return Err(e),
             }
-            reverted += 1;
         }
         Ok(reverted)
     }
@@ -2620,7 +2735,7 @@ fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>
         // Both files or nothing: a pair with a missing file is absent.
         Location::MemberPair { props, party } => {
             return Ok(match (read_file(props)?, read_file(party)?) {
-                (Some(props), Some(party)) => Some(join_pair(&props, &party)),
+                (Some(props), Some(party)) => Some(trainer_pair_bytes(&props, &party)),
                 _ => None,
             });
         }
@@ -2634,6 +2749,96 @@ fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>
     })
 }
 
+/// The side of a changeset undo (`Before`) or redo (`After`) moves to.
+#[derive(Clone, Copy)]
+enum Side {
+    Before,
+    After,
+}
+
+impl Side {
+    fn part(self, part: &Part) -> &[u8] {
+        match self {
+            Side::Before => &part.before,
+            Side::After => &part.after,
+        }
+    }
+
+    /// What `file` holds now (the other side) and what this side writes.
+    fn file(self, file: &FileChange) -> (Option<&[u8]>, Option<&[u8]>) {
+        match self {
+            Side::Before => (file.after.as_deref(), file.before.as_deref()),
+            Side::After => (file.before.as_deref(), file.after.as_deref()),
+        }
+    }
+}
+
+/// Why undo, redo or rollback of a changeset failed, and what becomes of the changeset.
+enum StepError {
+    /// Nothing changed; the changeset stays on its stack.
+    Keep(KernelError),
+    /// A file of a file step changed since the step; nothing was written, and the changeset
+    /// leaves the history.
+    Drop(KernelError),
+}
+
+/// The files of `steps`, each once, as one change from the `before` of the first step that
+/// wrote it to the `after` of the last, with the asset of that last step, in the order they
+/// were first written; paths resolved against `root`.
+fn net_files(root: &Path, steps: &[FileStep]) -> Vec<(AssetId, FileChange)> {
+    let mut net: Vec<(AssetId, FileChange)> = Vec::new();
+    for step in steps {
+        for file in &step.files {
+            let path = root.join(&file.path);
+            match net.iter_mut().find(|(_, f)| f.path == path) {
+                Some((asset, merged)) => {
+                    *asset = step.asset;
+                    merged.after.clone_from(&file.after);
+                }
+                None => net.push((
+                    step.asset,
+                    FileChange {
+                        path,
+                        before: file.before.clone(),
+                        after: file.after.clone(),
+                    },
+                )),
+            }
+        }
+    }
+    net
+}
+
+/// Writes the `side` of every file (`None` removes it). When a write fails, the files written
+/// before get their other side back (best effort) and the error is returned.
+fn write_files(
+    root: &Path,
+    files: &[(AssetId, FileChange)],
+    side: Side,
+) -> Result<(), KernelError> {
+    for (done, (_, file)) in files.iter().enumerate() {
+        if let Err(e) = put_file(root, &file.path, side.file(file).1) {
+            for (_, written) in files[..done].iter().rev() {
+                let _ = put_file(root, &written.path, side.file(written).0);
+            }
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// Writes `bytes` to `path` atomically, or removes the file for `None` (a missing file is
+/// fine).
+fn put_file(root: &Path, path: &Path, bytes: Option<&[u8]>) -> Result<(), KernelError> {
+    match bytes {
+        Some(bytes) => write_atomic(root, path, bytes),
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_at(path)(e)),
+            _ => Ok(()),
+        },
+    }
+}
+
 /// The bytes of the file at `path`; `None` when it does not exist.
 fn read_file(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     match std::fs::read(path) {
@@ -2643,12 +2848,12 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     }
 }
 
-/// Writes the bytes of a trainer ([`join_pair`]) to its two member files, each atomically:
-/// first the properties, then the party. When the party cannot be written, the properties
-/// file gets back the bytes it had before (read right before the write; without a file
-/// there, the new one is removed), so the two files never stay half saved. The store's base
-/// is not used for that: after [`Store::accept_disk_as_base`] adopted a deleted pair it is
-/// "absent" while the user may have put a properties file back meanwhile.
+/// Writes the bytes of a trainer ([`trainer_pair_bytes`]) to its two member files, each
+/// atomically: first the properties, then the party. When the party cannot be written, the
+/// properties file gets back the bytes it had before (read right before the write; without a
+/// file there, the new one is removed), so the two files never stay half saved. The store's
+/// base is not used for that: after [`Store::accept_disk_as_base`] adopted a deleted pair it
+/// is "absent" while the user may have put a properties file back meanwhile.
 fn write_pair(
     project_root: &Path,
     props_path: &Path,
@@ -2866,7 +3071,7 @@ mod tests {
         // A non-empty folder where the party file goes: the rename onto it fails.
         std::fs::create_dir(&party).unwrap();
         std::fs::write(party.join("x"), b"x").unwrap();
-        let bytes = join_pair(&[1; 20], &[2; 8]);
+        let bytes = trainer_pair_bytes(&[1; 20], &[2; 8]);
         std::fs::write(&props, [9; 20]).unwrap();
         assert!(write_pair(root, &props, &party, &bytes).is_err());
         assert_eq!(std::fs::read(&props).unwrap(), [9; 20]);
@@ -3466,6 +3671,368 @@ mod tests {
             .unwrap();
             assert_eq!(st.text_archive_users(433).unwrap(), vec![0, 1]);
             assert_eq!(st.text_archive_users(5).unwrap(), Vec::<u16>::new());
+        }
+    }
+
+    /// `Tx::replace` (a whole asset from its bytes) and file steps on the undo stack.
+    #[cfg(feature = "test-support")]
+    #[allow(clippy::unwrap_used)]
+    mod replace_and_file_steps {
+        use super::*;
+        use crate::test_support::{LONG_ITEM, synthetic_map_bytes, synthetic_project};
+
+        const MAP: AssetId = AssetId {
+            kind: AssetKind::Map,
+            index: 0,
+        };
+
+        fn script(index: u16) -> AssetId {
+            AssetId {
+                kind: AssetKind::Script,
+                index,
+            }
+        }
+
+        fn store() -> (crate::test_support::Synthetic, Store) {
+            let s = synthetic_project();
+            let st = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+            (s, st)
+        }
+
+        fn owned(labels: &[&str]) -> Vec<String> {
+            labels.iter().map(|l| (*l).to_owned()).collect()
+        }
+
+        fn map_bytes(st: &mut Store) -> Vec<u8> {
+            st.map(0).unwrap();
+            st.current_bytes(MAP).unwrap().unwrap()
+        }
+
+        /// A folder of the project for the files of the file steps.
+        fn files_dir(st: &Store) -> PathBuf {
+            let dir = st.project().root.join("unpacked/test_files");
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        /// Writes `after` (the caller's write) and records the step of `asset` over `path`.
+        fn file_step(
+            st: &mut Store,
+            label: &str,
+            asset: AssetId,
+            path: &Path,
+            after: &[u8],
+        ) -> ChangeId {
+            let before = std::fs::read(path).ok();
+            std::fs::write(path, after).unwrap();
+            st.record_file_step(
+                label,
+                FileStep {
+                    asset,
+                    files: vec![FileChange {
+                        path: path.to_path_buf(),
+                        before,
+                        after: Some(after.to_vec()),
+                    }],
+                    rotom_entry: None,
+                },
+            )
+        }
+
+        #[test]
+        fn replace_sets_the_asset_from_bytes_as_one_undoable_step() {
+            let (_s, mut st) = store();
+            let old = map_bytes(&mut st);
+            let new = synthetic_map_bytes(7);
+            assert_ne!(old, new);
+            let ((), change) = st.transaction("Test", |tx| tx.replace(MAP, &new)).unwrap();
+            assert!(change.is_some());
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(new.clone()));
+            assert_eq!(st.history().0.last().map(String::as_str), Some("Test"));
+            assert!(st.is_dirty(MAP));
+            assert_eq!(st.undo().unwrap(), [MAP]);
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(old));
+            assert_eq!(st.redo().unwrap(), [MAP]);
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(new));
+        }
+
+        #[test]
+        fn replace_with_the_same_bytes_records_no_step() {
+            let (_s, mut st) = store();
+            let old = map_bytes(&mut st);
+            let ((), change) = st.transaction("Test", |tx| tx.replace(MAP, &old)).unwrap();
+            assert_eq!(change, None);
+            assert_eq!(st.history(), (vec![], vec![]));
+            assert_eq!(st.undo_depth(), 0);
+        }
+
+        #[test]
+        fn replace_with_bytes_that_do_not_decode_fails_and_records_nothing() {
+            let (_s, mut st) = store();
+            let old = map_bytes(&mut st);
+            assert!(
+                st.transaction("Test", |tx| tx.replace(MAP, &[1, 2, 3]))
+                    .is_err()
+            );
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(old));
+            assert_eq!(st.history(), (vec![], vec![]));
+        }
+
+        #[test]
+        fn replace_over_an_unsaved_edit_undoes_to_the_unsaved_value() {
+            let (_s, mut st) = store();
+            let saved = map_bytes(&mut st);
+            st.edit_map(0, "Bearbeiten", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            let edited = st.current_bytes(MAP).unwrap().unwrap();
+            assert_ne!(edited, saved);
+            st.transaction("Zurücksetzen", |tx| tx.replace(MAP, &saved))
+                .unwrap();
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(saved.clone()));
+            assert!(!st.is_dirty(MAP));
+            assert_eq!(st.history().0, owned(&["Bearbeiten", "Zurücksetzen"]));
+            st.undo().unwrap();
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(edited));
+            st.undo().unwrap();
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(saved));
+        }
+
+        #[test]
+        fn replace_of_a_locked_asset_is_refused_and_records_nothing() {
+            let (_s, mut st) = store();
+            let id = AssetId {
+                kind: AssetKind::Item,
+                index: LONG_ITEM,
+            };
+            assert!(st.item(LONG_ITEM).is_err());
+            let good = st.item(1).unwrap().write();
+            let err = st
+                .transaction("Test", |tx| tx.replace(id, &good))
+                .unwrap_err();
+            assert!(
+                matches!(&err, KernelError::ReadOnly { asset, reason }
+                    if *asset == id && reason == "item 0017: 36 bytes, expected 34"),
+                "{err}"
+            );
+            assert_eq!(st.history(), (vec![], vec![]));
+            assert_eq!(st.undo_depth(), 0);
+        }
+
+        #[test]
+        fn replace_of_a_trainer_takes_the_pair_bytes() {
+            let (_s, mut st) = store();
+            let id = AssetId {
+                kind: AssetKind::Trainer,
+                index: 0,
+            };
+            st.trainer(2).unwrap();
+            st.trainer(0).unwrap();
+            let files = |st: &Store, index: u16| {
+                (
+                    st.project()
+                        .member_path(AssetKind::TrainerProperties, index),
+                    st.project().member_path(AssetKind::TrainerParty, index),
+                )
+            };
+            let (props, party) = files(&st, 2);
+            let (props, party) = (std::fs::read(props).unwrap(), std::fs::read(party).unwrap());
+            let bytes = trainer_pair_bytes(&props, &party);
+            st.transaction("Test", |tx| tx.replace(id, &bytes)).unwrap();
+            assert_eq!(st.current_bytes(id).unwrap(), Some(bytes));
+            assert_eq!(st.save().unwrap().written, [id]);
+            let (props0, party0) = files(&st, 0);
+            assert_eq!(std::fs::read(props0).unwrap(), props);
+            assert_eq!(std::fs::read(party0).unwrap(), party);
+        }
+
+        #[test]
+        fn file_step_undo_writes_before_and_redo_writes_after() {
+            let (_s, mut st) = store();
+            let dir = files_dir(&st);
+            let (a, b) = (dir.join("0000"), dir.join("0001"));
+            std::fs::write(&a, b"alt").unwrap();
+            st.record_file_step(
+                "Datei",
+                FileStep {
+                    asset: script(0),
+                    files: vec![
+                        FileChange {
+                            path: a.clone(),
+                            before: Some(b"alt".to_vec()),
+                            after: Some(b"neu".to_vec()),
+                        },
+                        FileChange {
+                            path: b.clone(),
+                            before: None,
+                            after: Some(b"neu1".to_vec()),
+                        },
+                    ],
+                    rotom_entry: None,
+                },
+            );
+            std::fs::write(&a, b"neu").unwrap();
+            std::fs::write(&b, b"neu1").unwrap();
+            assert_eq!(st.history(), (owned(&["Datei"]), vec![]));
+            assert_eq!(st.undo().unwrap(), [script(0)]);
+            assert_eq!(std::fs::read(&a).unwrap(), b"alt");
+            assert!(!b.exists());
+            assert_eq!(st.history(), (vec![], owned(&["Datei"])));
+            assert_eq!(st.redo().unwrap(), [script(0)]);
+            assert_eq!(std::fs::read(&a).unwrap(), b"neu");
+            assert_eq!(std::fs::read(&b).unwrap(), b"neu1");
+            assert_eq!(st.history(), (owned(&["Datei"]), vec![]));
+        }
+
+        #[test]
+        fn file_step_undo_of_a_changed_file_writes_nothing_and_drops_the_step() {
+            let (_s, mut st) = store();
+            let saved = map_bytes(&mut st);
+            st.edit_map(0, "Karte", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            let path = files_dir(&st).join("0000");
+            std::fs::write(&path, b"alt").unwrap();
+            file_step(&mut st, "Datei", script(0), &path, b"neu");
+            // DSPRE writes the file after the step.
+            std::fs::write(&path, b"von DSPRE").unwrap();
+            let err = st.undo().unwrap_err();
+            assert!(
+                matches!(&err, KernelError::Refused(r)
+                    if r.contains("außerhalb des Studios geändert")
+                        && r.starts_with("Scriptdatei 0000 ")),
+                "{err}"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
+            assert_eq!(st.history(), (owned(&["Karte"]), vec![]));
+            assert_eq!(st.undo().unwrap(), [MAP]);
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(saved));
+            assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
+        }
+
+        #[test]
+        fn file_step_redo_of_a_changed_file_writes_nothing_and_drops_the_step() {
+            let (_s, mut st) = store();
+            let path = files_dir(&st).join("0000");
+            std::fs::write(&path, b"alt").unwrap();
+            file_step(&mut st, "Datei", script(0), &path, b"neu");
+            st.undo().unwrap();
+            std::fs::write(&path, b"von DSPRE").unwrap();
+            assert!(matches!(st.redo(), Err(KernelError::Refused(_))));
+            assert_eq!(std::fs::read(&path).unwrap(), b"von DSPRE");
+            assert_eq!(st.history(), (vec![], vec![]));
+        }
+
+        #[test]
+        fn forget_asset_history_drops_its_file_steps() {
+            let (_s, mut st) = store();
+            let dir = files_dir(&st);
+            let (a, b) = (dir.join("0000"), dir.join("0001"));
+            file_step(&mut st, "A", script(0), &a, b"a");
+            st.edit_map(0, "B", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            file_step(&mut st, "C", script(1), &b, b"b");
+            file_step(&mut st, "D", script(0), &a, b"aa");
+            st.undo().unwrap();
+            assert_eq!(st.history(), (owned(&["A", "B", "C"]), owned(&["D"])));
+            st.forget_asset_history(script(0));
+            assert_eq!(st.history(), (owned(&["B", "C"]), vec![]));
+            // A step with parts keeps them when its file steps go.
+            let mark = st.undo_depth() - 1;
+            st.squash_since(mark, "C allein");
+            st.edit_map(0, "E", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(9), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            let mark = st.undo_depth() - 2;
+            st.squash_since(mark, "C und E");
+            st.forget_asset_history(script(1));
+            assert_eq!(st.history(), (owned(&["B", "C und E"]), vec![]));
+            assert_eq!(st.undo().unwrap(), [MAP]);
+        }
+
+        #[test]
+        fn squash_since_keeps_file_steps_in_order() {
+            let (_s, mut st) = store();
+            let saved = map_bytes(&mut st);
+            let dir = files_dir(&st);
+            let (a, b) = (dir.join("0000"), dir.join("0001"));
+            std::fs::write(&a, b"alt").unwrap();
+            let mark = st.undo_depth();
+            st.edit_map(0, "A", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            file_step(&mut st, "B", script(1), &b, b"b");
+            file_step(&mut st, "C", script(0), &a, b"neu");
+            // The same file twice: undo goes back to before the first, redo to after the last.
+            file_step(&mut st, "D", script(0), &a, b"neuer");
+            st.squash_since(mark, "Batch");
+            assert_eq!(st.history(), (owned(&["Batch"]), vec![]));
+            assert_eq!(st.undo().unwrap(), [MAP, script(1), script(0)]);
+            assert_eq!(st.current_bytes(MAP).unwrap(), Some(saved));
+            assert_eq!(std::fs::read(&a).unwrap(), b"alt");
+            assert!(!b.exists());
+            assert_eq!(st.redo().unwrap(), [MAP, script(1), script(0)]);
+            assert_eq!(std::fs::read(&a).unwrap(), b"neuer");
+            assert_eq!(std::fs::read(&b).unwrap(), b"b");
+        }
+
+        #[test]
+        fn file_step_counts_as_a_change_for_changes_since() {
+            let (_s, mut st) = store();
+            let path = files_dir(&st).join("0000");
+            let generation = st.change_generation();
+            file_step(&mut st, "Datei", script(0), &path, b"neu");
+            let (now, changed) = st.changes_since(generation);
+            assert_eq!(changed, [script(0)]);
+            assert!(st.redo().unwrap().is_empty());
+            st.undo().unwrap();
+            assert_eq!(st.changes_since(now).1, [script(0)]);
+            assert!(!path.exists());
+        }
+
+        #[test]
+        fn a_file_step_clears_the_redo_stack() {
+            let (_s, mut st) = store();
+            st.map(0).unwrap();
+            st.edit_map(0, "Karte", |m| {
+                *m = MapFile::read(&synthetic_map_bytes(7), Family::Pt)?;
+                Ok(())
+            })
+            .unwrap();
+            st.undo().unwrap();
+            let path = files_dir(&st).join("0000");
+            file_step(&mut st, "Datei", script(0), &path, b"neu");
+            assert_eq!(st.history(), (owned(&["Datei"]), vec![]));
+        }
+
+        #[test]
+        fn asset_label_names_the_kind_in_german_with_four_digits() {
+            assert_eq!(crate::original::asset_label(MAP), "Karte 0000");
+            assert_eq!(
+                crate::original::asset_label(AssetId {
+                    kind: AssetKind::InteriorBuildingModel,
+                    index: 12,
+                }),
+                "Innenraum-Gebäudemodell 0012"
+            );
+            assert_eq!(
+                crate::original::asset_label(AssetId {
+                    kind: AssetKind::Learnset,
+                    index: 3,
+                }),
+                "Pokémon 0003"
+            );
         }
     }
 }
