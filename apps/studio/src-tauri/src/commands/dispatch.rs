@@ -15,6 +15,7 @@ use crate::errors::CmdError;
 use crate::state::AppState;
 use g4_kernel::checks::{FixId, Subject};
 use g4_kernel::map_import::{Part, Source};
+use g4_kernel::original::ResetTarget;
 use g4_kernel::preview::PreviewSlot;
 use g4_kernel::project::AssetKind;
 use g4_kernel::scripts::LevelScriptDoc;
@@ -166,6 +167,10 @@ pub const COMMANDS: &[&str] = &[
     "assign_base",
     "register_base_rom",
     "create_patch",
+    "original_status",
+    "plan_reset",
+    "reset_to_original",
+    "changed_from_original",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -832,6 +837,21 @@ pub fn dispatch(
                 Ok(())
             })
         }),
+        "original_status" => run!(json, "original_status", args, {}, |_a| {
+            original_status_impl(state)
+        }),
+        "plan_reset" => run!(json, "plan_reset", args, { target: ResetTarget }, |a| {
+            plan_reset_impl(state, a.target)
+        }),
+        "reset_to_original" => run!(
+            json, "reset_to_original", args,
+            { target: ResetTarget, fields: Option<Vec<String>> },
+            |a| reset_to_original_impl(state, a.target, a.fields)
+        ),
+        // No live progress over HTTP: the report carries the counts and the time.
+        "changed_from_original" => run!(json, "changed_from_original", args, {}, |_a| {
+            changed_from_original_impl(state, &mut |_progress| {})
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1162,6 +1182,16 @@ mod tests {
             ("assign_base", json!({ "nds": per_in })),
             ("register_base_rom", json!({ "path": per_in })),
             ("create_patch", json!({})),
+            ("original_status", json!({})),
+            (
+                "plan_reset",
+                json!({ "target": { "kind": "text_message", "archive": 433, "message": 0 } }),
+            ),
+            (
+                "reset_to_original",
+                json!({ "target": { "kind": "header", "id": 0 }, "fields": ["music_day"] }),
+            ),
+            ("changed_from_original", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

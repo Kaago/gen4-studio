@@ -1086,7 +1086,95 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("create_patch"),
     },
+    // Reset to original (4.1b).
+    ToolDef {
+        name: "changed_from_original",
+        title: "List what differs from the base ROM",
+        description: "Lists what of the saved project (files, not unsaved edits) differs from the \
+                      base ROM (Basis-ROM), entity by entity: changed, new or missing, each with \
+                      the target plan_reset and reset_to_original take (null where there is no \
+                      reset). The first run per base ROM hashes its archives and takes a few \
+                      seconds, later runs read the hashes the build recorded; without a found \
+                      base ROM it answers base_missing with the reason.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("changed_from_original"),
+    },
+    ToolDef {
+        name: "plan_reset",
+        title: "Plan reset to original",
+        description: concat!(
+            "Shows what reset_to_original would change and changes nothing: per asset that \
+             differs the current and the base value as German lines, for a header the differing \
+             fields (field, before, after), same: true when nothing differs; a new entity \
+             answers no_original, a locked asset read_only, no base ROM base_missing. ",
+            data_note!()
+        ),
+        input_schema: target_args,
+        output_schema: answers_object,
+        route: command("plan_reset"),
+    },
+    ToolDef {
+        name: "reset_to_original",
+        title: "Reset to original",
+        description: "Sets an entity to its state in the base ROM (Basis-ROM) as one undo step: \
+                      maps, event files, text archives, trainers, species, encounters and header \
+                      fields stay unsaved until save, scripts, textures and models are written at \
+                      once (undo writes them back), and those are not allowed in g4_batch. Refused \
+                      like plan_reset, and then nothing is recorded.",
+        input_schema: || {
+            object(
+                json!({
+                    "target": reset_target(),
+                    "fields": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "header only: the fields to reset, by the names \
+                                        plan_reset returns in fields[].field (default every \
+                                        differing one); refused for any other target",
+                    },
+                }),
+                &["target"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("reset_to_original"),
+    },
 ];
+
+/// The argument of `plan_reset`.
+fn target_args() -> Value {
+    object(json!({ "target": reset_target() }), &["target"])
+}
+
+/// What `plan_reset` and `reset_to_original` reset (`g4_kernel::original::ResetTarget`).
+fn reset_target() -> Value {
+    let mut target = object(
+        json!({
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "map", "event_file", "text_archive", "text_message", "trainer", "species",
+                    "encounter", "header", "script", "map_texture", "building_texture",
+                    "building_model", "interior_building_model",
+                ],
+                "description": "what to reset: text_archive the whole archive, text_message \
+                                one message's text, trainer properties and party (not its \
+                                name), species personal data, learnset and evolution",
+            },
+            "index": uint("member index; required for every kind but text_message, header and \
+                           script"),
+            "archive": uint("text_message only: the text archive"),
+            "message": uint("text_message only: the message index in the archive"),
+            "id": uint("header only: the header id"),
+            "file": uint("script only: the script file"),
+        }),
+        &["kind"],
+    );
+    target["description"] =
+        json!("the entity, as changed_from_original returns it in entries[].target");
+    target
+}
 
 /// The argument of `check_base` and `assign_base`.
 fn base_nds_args() -> Value {
@@ -1240,6 +1328,8 @@ mod tests {
                 "project_preview_get",
                 "base_status",
                 "check_base",
+                "changed_from_original",
+                "plan_reset",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1283,6 +1373,7 @@ mod tests {
             "assign_base",
             "create_patch",
             "resolve_text_conflicts",
+            "reset_to_original",
         ]
         .into_iter()
         .collect();
@@ -1396,6 +1487,7 @@ mod tests {
             "refs",
             "run_checks",
             "plan_fix",
+            "plan_reset",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -1562,6 +1654,15 @@ mod tests {
                 "resolve_text_conflicts",
                 json!({ "choices": [{ "archive": 433, "keep": "json" }] }),
             ),
+            ("changed_from_original", json!({})),
+            (
+                "plan_reset",
+                json!({ "target": { "kind": "trainer", "index": 1 } }),
+            ),
+            (
+                "reset_to_original",
+                json!({ "target": { "kind": "header", "id": 0 }, "fields": ["music_day"] }),
+            ),
         ]
     }
 
@@ -1617,5 +1718,67 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn reset_target_schema_names_every_kind() {
+        use g4_kernel::original::ResetTarget;
+        let every = [
+            ResetTarget::Map { index: 0 },
+            ResetTarget::EventFile { index: 0 },
+            ResetTarget::TextArchive { index: 0 },
+            ResetTarget::TextMessage {
+                archive: 0,
+                message: 0,
+            },
+            ResetTarget::Trainer { index: 0 },
+            ResetTarget::Species { index: 0 },
+            ResetTarget::Encounter { index: 0 },
+            ResetTarget::Header { id: 0 },
+            ResetTarget::Script { file: 0 },
+            ResetTarget::MapTexture { index: 0 },
+            ResetTarget::BuildingTexture { index: 0 },
+            ResetTarget::BuildingModel { index: 0 },
+            ResetTarget::InteriorBuildingModel { index: 0 },
+        ];
+        for name in ["plan_reset", "reset_to_original"] {
+            let schema = (tool(name).input_schema)();
+            let target = &schema["properties"]["target"];
+            let kinds: Vec<&str> = target["properties"]["kind"]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|k| k.as_str().unwrap())
+                .collect();
+            assert_eq!(
+                kinds,
+                every.iter().map(ResetTarget::kind).collect::<Vec<_>>(),
+                "{name}"
+            );
+            assert_eq!(target["required"], json!(["kind"]), "{name}");
+            // Every variant as JSON fits the schema's properties.
+            for t in every {
+                let value = serde_json::to_value(t).unwrap();
+                for key in value.as_object().unwrap().keys() {
+                    assert!(
+                        target["properties"].get(key).is_some(),
+                        "{name}: {key} of {value}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            (tool("plan_reset").input_schema)()["required"],
+            json!(["target"])
+        );
+        let reset = (tool("reset_to_original").input_schema)();
+        assert_eq!(reset["required"], json!(["target"]));
+        assert_eq!(reset["properties"]["fields"]["type"], "array");
+        // The first run of the list is slow; the description says so.
+        assert!(
+            tool("changed_from_original").description.contains("first"),
+            "{}",
+            tool("changed_from_original").description
+        );
     }
 }

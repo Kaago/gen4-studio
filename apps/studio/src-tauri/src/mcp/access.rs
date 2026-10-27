@@ -173,6 +173,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
     ("register_base_rom", APP_ONLY),
     ("create_patch", Kind::Irreversible("Patch erstellen")),
+    ("original_status", Kind::Read),
+    ("plan_reset", Kind::Read),
+    ("reset_to_original", Kind::Write),
+    ("changed_from_original", Kind::Read),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -720,5 +724,15 @@ mod tests {
             ..writer
         };
         assert!(admit("create_trainer", &class, &confirmed).is_ok());
+    }
+
+    #[test]
+    fn original_commands_read_except_the_reset() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["original_status", "plan_reset", "changed_from_original"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step, like any edit.
+        assert_eq!(kind("reset_to_original"), Kind::Write);
     }
 }

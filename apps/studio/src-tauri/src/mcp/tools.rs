@@ -271,7 +271,9 @@ const NOT_IN_BATCH: &[&str] = &[
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
 /// compiles a script file and reloads text archives like `new_script_file`, `apply_fix` with
 /// `remove_hidden`, which moves a file past the store, and
-/// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch.
+/// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch,
+/// and `reset_to_original` of a script, texture or model, which writes its files at once (a
+/// file step the batch's squash and rollback do not cover).
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
@@ -281,6 +283,17 @@ fn not_in_batch(command: &str, args: &Value) -> bool {
             ))
         || (matches!(command, "create_area" | "create_room")
             && args.pointer("/spec/header/allow_patch") == Some(&Value::Bool(true)))
+        || (command == "reset_to_original"
+            && matches!(
+                args.pointer("/target/kind").and_then(Value::as_str),
+                Some(
+                    "script"
+                        | "map_texture"
+                        | "building_texture"
+                        | "building_model"
+                        | "interior_building_model"
+                )
+            ))
 }
 
 /// Runs call `index` of a batch (the call's own `run`; tests wrap it).
@@ -2009,6 +2022,56 @@ mod tests {
             }
         }
         // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+    }
+
+    #[test]
+    fn batch_refuses_reset_to_original_of_a_script_and_takes_one_of_a_map() {
+        // A file target writes at once, a store target is an edit like any other.
+        for kind in [
+            "script",
+            "map_texture",
+            "building_texture",
+            "building_model",
+            "interior_building_model",
+        ] {
+            let key = if kind == "script" { "file" } else { "index" };
+            let args = json!({ "target": { "kind": kind, key: 0 } });
+            assert!(not_in_batch("reset_to_original", &args), "{kind}");
+        }
+        for target in [
+            json!({ "kind": "map", "index": 0 }),
+            json!({ "kind": "header", "id": 0 }),
+            json!({ "kind": "text_message", "archive": 433, "message": 0 }),
+        ] {
+            let args = json!({ "target": target });
+            assert!(!not_in_batch("reset_to_original", &args), "{target}");
+        }
+        assert!(!not_in_batch(
+            "plan_reset",
+            &json!({ "target": { "kind": "script", "file": 0 } })
+        ));
+
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        let reset = |target: Value| {
+            let mut calls = three_edits();
+            calls.push(json!({ "tool": "reset_to_original", "arguments": { "target": target } }));
+            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT))
+        };
+        let (code, message, details) = reset(json!({ "kind": "script", "file": 0 }));
+        assert_eq!(code, "error", "{message}");
+        assert_eq!(details["index"], 3);
+        assert!(
+            message.ends_with("reset_to_original geht nicht in g4_batch"),
+            "{message}"
+        );
+        assert_eq!(data(&toolbox, "species", 1), species);
+        // A map is taken: it runs, and fails only for want of a base ROM (rolled back).
+        let (code, message, details) = reset(json!({ "kind": "map", "index": 0 }));
+        assert_eq!(code, "batch_failed", "{message}");
+        assert_eq!(details["index"], 3);
+        assert_eq!(details["error"]["code"], "base_missing", "{details}");
         assert_eq!(data(&toolbox, "species", 1), species);
     }
 

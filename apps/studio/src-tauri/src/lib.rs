@@ -40,6 +40,7 @@ use commands::{
 use commands::{apply_empty_region, plan_empty_region};
 use commands::{assign_base, base_status, check_base, create_patch, register_base_rom};
 use commands::{assign_place, create_place, place_slots, rename_place};
+use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{project_preview_get, project_preview_set};
 use lsp::{lsp_send, lsp_start, lsp_stop};
@@ -187,7 +188,11 @@ pub fn run() {
             check_base,
             assign_base,
             register_base_rom,
-            create_patch
+            create_patch,
+            original_status,
+            plan_reset,
+            reset_to_original,
+            changed_from_original
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -222,6 +227,11 @@ fn setup_agents(app: &tauri::AppHandle) {
     let hub = &state.agents;
     hub.configure(dir.clone());
     state.base_roms.configure(dir.clone());
+    // The member hashes of each base ROM (`<cache>/base/<sha1>.json`); without a cache folder
+    // they are computed in memory.
+    state
+        .base_roms
+        .configure_cache(app.path().app_cache_dir().ok());
     let emitter = app.clone();
     hub.set_notifier(Arc::new(move |event| {
         // A failed emit only means the webview misses one update; `agent_poll` catches up.

@@ -234,6 +234,12 @@ fn save_source(
     refuse_dirty_text(&session.store)?;
     let written = scripts::write_source(&session.project, file, &source);
     session.files_written();
+    // The file is written past the history: a file step of it (a reset to the original)
+    // could no longer be undone, and would block every older step.
+    session.store.forget_asset_history(AssetId {
+        kind: AssetKind::Script,
+        index: file,
+    });
     written?;
     let report = scripts::compile(&session.project)?;
     save_script_dto(&mut session.store, &session.project, report)

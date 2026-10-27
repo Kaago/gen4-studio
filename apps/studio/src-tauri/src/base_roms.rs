@@ -111,6 +111,9 @@ struct Inner {
     search_dir: Option<PathBuf>,
     /// `G4_ROMS_DIR`, canonical: no ROM under it is a candidate (see [`is_original`]).
     originals: Option<PathBuf>,
+    /// The app cache folder, where the member hashes of each base ROM are kept
+    /// (`<cache>/base/<sha1>.json`); `None` computes them in memory (headless).
+    cache: Option<PathBuf>,
 }
 
 impl Inner {
@@ -159,6 +162,18 @@ impl BaseRoms {
         inner.dir = dir;
         inner.search_dir = search_dir;
         inner.originals = originals.map(|o| o.canonicalize().unwrap_or(o));
+    }
+
+    /// The folder the member hashes of the base ROMs are cached in (the app cache folder;
+    /// in the bridge `<app_data>/cache`); `None`: in memory only. [`BaseRoms::configure`]
+    /// leaves it as it is.
+    pub fn configure_cache(&self, dir: Option<PathBuf>) {
+        self.lock().cache = dir;
+    }
+
+    /// The folder of [`BaseRoms::configure_cache`].
+    pub fn cache_dir(&self) -> Option<PathBuf> {
+        self.lock().cache.clone()
     }
 
     /// The ROM `--base-rom` names: searched before anything else.
