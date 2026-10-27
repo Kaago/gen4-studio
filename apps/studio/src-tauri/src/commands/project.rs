@@ -8,7 +8,7 @@ use g4_kernel::build::{BuildReport, StepReport, build_prepared, clear_cache, pre
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{HistoryEntry, Origin, Store};
-use g4_kernel::text::{TextKeep, resolve_conflict};
+use g4_kernel::text::{TextKeep, TextSide, TextSync, resolve_conflict};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
@@ -234,7 +234,8 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 }
 
 /// Saves dirty assets (a stale file aborts with nothing built), then builds the ROM. With
-/// `fresh` the build state and caches (`.g4/build/`) are deleted first, so every step runs
+/// `fresh` the build cache (`.g4/build/`, all but the text sync, see `build::clear_cache`)
+/// is deleted first, so every step runs
 /// fully. The
 /// state lock is held for the save, for compiling scripts and encoding texts (they write
 /// sources, members and the compile state, which the script and text commands write too, see
@@ -349,9 +350,11 @@ pub struct TextChoice {
 /// Resolves text archives whose JSON and member both changed since the last build, each as
 /// `choices` says (`g4_kernel::text::resolve_conflict`: the JSON kept encodes the member, the
 /// member kept rewrites the JSON; either way the other version is overwritten), under the
-/// state lock. Archives the store holds unedited are loaded again; an edited one keeps the
-/// edit (its next save is stale, and accepting the disk saves it). Answers the archives in
-/// the order of `choices`. Stops at the first that fails; those before it stay resolved.
+/// state lock. Every archive must be in conflict (`TextSide::Conflict`), else nothing is
+/// written for any of them: an archive whose member alone changed (DSPRE) would lose that
+/// change. Archives the store holds unedited are loaded again; an edited one keeps the edit
+/// (its next save is stale, and accepting the disk saves it). Answers the archives in the
+/// order of `choices`. A write that fails stops it; those before it stay resolved.
 pub fn resolve_text_conflicts_impl(
     state: &AppState,
     choices: Vec<TextChoice>,
@@ -359,15 +362,23 @@ pub fn resolve_text_conflicts_impl(
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let project = Arc::clone(&session.project);
+    let sync = TextSync::load(&project);
+    for choice in &choices {
+        if sync.side(&project, choice.archive)? != TextSide::Conflict {
+            return Err(CmdError::from(format!(
+                "Textarchiv {:04} ist nicht in Konflikt: Text (JSON) und Spieldatei wurden \
+                 seit dem letzten Bauen nicht beide geändert. Es wurde nichts überschrieben; \
+                 baue erneut, dann nennt der Build die Archive, die noch in Konflikt sind.",
+                choice.archive
+            )));
+        }
+    }
     let mut resolved = Vec::with_capacity(choices.len());
+    let mut result = Ok(());
     for choice in choices {
-        resolve_conflict(&project, choice.archive, choice.keep)?;
-        let id = AssetId {
-            kind: AssetKind::TextArchive,
-            index: choice.archive,
-        };
-        if session.store.is_loaded(id) && !session.store.is_dirty(id) {
-            session.store.reload_from_disk(id)?;
+        result = resolve_one(&mut session.store, &project, choice);
+        if result.is_err() {
+            break;
         }
         resolved.push(choice.archive);
     }
@@ -375,7 +386,21 @@ pub fn resolve_text_conflicts_impl(
         // The checks read the archives the store does not hold from the disk.
         session.files_written();
     }
-    Ok(resolved)
+    result.map(|()| resolved)
+}
+
+/// One choice of [`resolve_text_conflicts_impl`]: resolves, then reloads the archive when the
+/// store holds it unedited.
+fn resolve_one(store: &mut Store, project: &Project, choice: TextChoice) -> Result<(), CmdError> {
+    resolve_conflict(project, choice.archive, choice.keep)?;
+    let id = AssetId {
+        kind: AssetKind::TextArchive,
+        index: choice.archive,
+    };
+    if store.is_loaded(id) && !store.is_dirty(id) {
+        store.reload_from_disk(id)?;
+    }
+    Ok(())
 }
 
 pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
@@ -432,7 +457,7 @@ pub fn accept_disk(state: State<AppState>, kind: AssetKind, index: u16) -> Resul
 }
 
 /// The ds-rom build takes seconds, so it runs on a blocking worker, off the main thread and
-/// without holding the state lock. `fresh` (default false) deletes the build state first.
+/// without holding the state lock. `fresh` (default false) drops the build cache first.
 #[tauri::command]
 pub async fn build_rom(
     app: tauri::AppHandle,
@@ -654,12 +679,16 @@ mod tests {
         let marker = fixture.dir.path().join(".g4/build/blz/marker");
         std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
         std::fs::write(&marker, b"x").unwrap();
+        let base = fixture.dir.path().join(".g4/base.json");
+        std::fs::write(&base, b"{}").unwrap();
         // The synthetic project cannot be built into a ROM: the build fails after its
         // first steps either way. Without `fresh` the cache stays, with it it goes first.
         assert!(build_rom_impl(&state, out.to_str().unwrap(), false).is_err());
         assert!(marker.exists());
         assert!(build_rom_impl(&state, out.to_str().unwrap(), true).is_err());
         assert!(!marker.exists());
+        // The project's own metadata at the top of .g4/ stays.
+        assert_eq!(std::fs::read(&base).unwrap(), b"{}");
     }
 
     fn text_json_path(project: &Project, archive: u16) -> std::path::PathBuf {
@@ -793,6 +822,75 @@ mod tests {
         assert_eq!(resolved, [433]);
         assert_eq!(archive_texts(&state), ["Meine Änderung"]);
         assert_eq!(dirty_impl(&state).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn resolve_text_conflicts_refuses_an_archive_that_is_not_in_conflict() {
+        let (_fixture, state) = open_synthetic();
+        let project = session_project(&state);
+        sync_433(&project);
+        change_both_sides_of_433(&project, "Aus der JSON", "Aus dem Member");
+        // Archive 7 has no recorded sync: not in conflict.
+        let json = std::fs::read(text_json_path(&project, 433)).unwrap();
+        let member = std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap();
+        let err = resolve_text_conflicts_impl(
+            &state,
+            vec![
+                TextChoice {
+                    archive: 433,
+                    keep: TextKeep::Json,
+                },
+                TextChoice {
+                    archive: 7,
+                    keep: TextKeep::Json,
+                },
+            ],
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "error");
+        assert!(
+            err.message
+                .starts_with("Textarchiv 0007 ist nicht in Konflikt"),
+            "{}",
+            err.message
+        );
+        // Nothing was written, not even for the archive in conflict.
+        assert_eq!(std::fs::read(text_json_path(&project, 433)).unwrap(), json);
+        assert_eq!(
+            std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
+            member
+        );
+
+        // A member changed alone (DSPRE) is not in conflict either: keeping the JSON would
+        // throw that change away.
+        resolve_text_conflicts_impl(
+            &state,
+            vec![TextChoice {
+                archive: 433,
+                keep: TextKeep::Member,
+            }],
+        )
+        .unwrap();
+        std::fs::write(
+            project.member_path(AssetKind::TextArchive, 433),
+            g4_kernel::test_support::text_archive_bytes(&["Aus DSPRE"]),
+        )
+        .unwrap();
+        let err = resolve_text_conflicts_impl(
+            &state,
+            vec![TextChoice {
+                archive: 433,
+                keep: TextKeep::Json,
+            }],
+        )
+        .unwrap_err();
+        assert!(err.message.contains("0433"), "{}", err.message);
+        let on_disk = g4_kernel::text::TextArchiveDoc::from_member(
+            &std::fs::read(project.member_path(AssetKind::TextArchive, 433)).unwrap(),
+            "en_US",
+        )
+        .unwrap();
+        assert_eq!(on_disk.messages[0].text, "Aus DSPRE");
     }
 
     /// Rewrites `expanded/textArchives/0433.json` with one more message, as a compile that

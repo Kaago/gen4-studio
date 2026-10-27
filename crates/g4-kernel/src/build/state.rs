@@ -123,6 +123,10 @@ impl BuildState {
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut state = BuildState::read(root);
         f(&mut state);
+        BuildState::write(root, &mut state)
+    }
+
+    fn write(root: &Path, state: &mut BuildState) -> Result<(), KernelError> {
         state.version = STATE_VERSION;
         let path = state_path(root);
         let dir = root.join(BUILD_DIR);
@@ -130,6 +134,33 @@ impl BuildState {
         let bytes = serde_json::to_vec(&state)
             .map_err(|e| KernelError::Build(format!("{}: {e}", path.display())))?;
         write_atomic(root, &path, &bytes)
+    }
+
+    /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`): they are
+    /// not build cache but what decides whether a text's JSON or its member applies (a member
+    /// DSPRE changed since the last sync stays `MemberNewer`), and they are checked by
+    /// content. The state is written again with them alone (no step entries, no ROM); without
+    /// any (a missing, broken or empty state) the folder is just gone. Under the same lock
+    /// as [`BuildState::update`], so a sync recorded meanwhile is not lost.
+    pub(crate) fn clear_keeping_texts(root: &Path) -> Result<(), KernelError> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let texts = BuildState::read(root).texts;
+        let dir = root.join(BUILD_DIR);
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_at(&dir)(e)),
+        }
+        if texts.is_empty() {
+            return Ok(());
+        }
+        BuildState::write(
+            root,
+            &mut BuildState {
+                texts,
+                ..BuildState::empty()
+            },
+        )
     }
 }
 

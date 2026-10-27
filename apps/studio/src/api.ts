@@ -544,7 +544,7 @@ export interface HistoryDto {
 export const history = () => invoke<HistoryDto>("history");
 export const dirty = () => invoke<AssetId[]>("dirty");
 export const save = () => invoke<SaveReport>("save");
-/** Saves dirty assets, then builds the ROM at `out`; `fresh` deletes the build state first, so every step runs fully. */
+/** Saves dirty assets, then builds the ROM at `out`; `fresh` drops the build cache first (the text sync stays), so every step runs fully. */
 export const buildRom = (out: string, fresh = false) => invoke<BuildReport>("build_rom", { out, fresh });
 /** Which version of a text archive applies: its JSON ("Text (JSON)") or its member ("Spieldatei"). */
 export type TextKeep = "json" | "member";

@@ -51,15 +51,21 @@ impl From<KernelError> for CmdError {
                         .collect(),
                 };
             }
+            // Kernel problem files are project-relative already.
+            let problems: Vec<ProblemDto> = problems
+                .iter()
+                .map(|p| ProblemDto::by_origin(p, Path::new("")))
+                .collect();
+            // The build's own errors are hidden files below `files/`, not script or text faults.
+            let hidden = problems
+                .iter()
+                .filter(|p| p.severity == "error" && p.source == "build")
+                .count();
             return CmdError {
                 code: "compile",
-                message: format!("{errors} Fehler in Scripts oder Texten"),
+                message: compile_message(errors - hidden, hidden),
                 asset: None,
-                // Kernel problem files are project-relative already.
-                problems: problems
-                    .iter()
-                    .map(|p| ProblemDto::by_origin(p, Path::new("")))
-                    .collect(),
+                problems,
             };
         }
         if let KernelError::TextConflict(archives) = &e {
@@ -81,6 +87,25 @@ impl From<KernelError> for CmdError {
             asset,
             problems: Vec::new(),
         }
+    }
+}
+
+/// The message of a `"compile"` error: the script and text errors, and the hidden files below
+/// `files/` that stopped the build (with the way out).
+fn compile_message(errors: usize, hidden: usize) -> String {
+    let hidden_text = match hidden {
+        1 => "1 versteckte Datei unter files/ hält den Build an; entferne sie (in den Problemen \
+              „Entfernen“) und baue erneut"
+            .to_owned(),
+        n => format!(
+            "{n} versteckte Dateien unter files/ halten den Build an; entferne sie (in den \
+             Problemen „Entfernen“) und baue erneut"
+        ),
+    };
+    match (errors, hidden) {
+        (_, 0) => format!("{errors} Fehler in Scripts oder Texten"),
+        (0, _) => hidden_text,
+        _ => format!("{errors} Fehler in Scripts oder Texten; {hidden_text}"),
     }
 }
 
@@ -255,6 +280,51 @@ mod tests {
         let json = serde_json::to_value(&err).unwrap();
         assert_eq!(json["code"], "compile");
         assert_eq!(json["problems"][2]["message"], "glyph");
+    }
+
+    #[test]
+    fn hidden_files_are_counted_apart_from_script_and_text_errors() {
+        use g4_kernel::text::Problem;
+        let hidden = |path: &str| Problem {
+            severity: Severity::Error,
+            file: path.into(),
+            line: 0,
+            col: 0,
+            message: format!("build.hidden-file: {path} is hidden"),
+        };
+        let one = CmdError::from(KernelError::Compile(vec![hidden("files/a/.DS_Store")]));
+        assert_eq!(one.code, "compile");
+        assert_eq!(
+            one.message,
+            "1 versteckte Datei unter files/ hält den Build an; entferne sie (in den Problemen \
+             „Entfernen“) und baue erneut"
+        );
+        assert_eq!(one.problems[0].source, "build");
+        let two = CmdError::from(KernelError::Compile(vec![
+            hidden("files/a/.DS_Store"),
+            hidden("files/b/._x"),
+        ]));
+        assert!(
+            two.message
+                .starts_with("2 versteckte Dateien unter files/ halten"),
+            "{}",
+            two.message
+        );
+        let script = Problem {
+            severity: Severity::Error,
+            file: "expanded/scripts/0000.rotom".into(),
+            line: 1,
+            col: 1,
+            message: "kaputt".into(),
+        };
+        let mixed = CmdError::from(KernelError::Compile(vec![script, hidden("files/.x")]));
+        assert!(
+            mixed
+                .message
+                .starts_with("1 Fehler in Scripts oder Texten; 1 versteckte Datei"),
+            "{}",
+            mixed.message
+        );
     }
 
     #[test]

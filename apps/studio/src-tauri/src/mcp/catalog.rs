@@ -842,8 +842,8 @@ static TOOLS: &[ToolDef] = &[
         title: "Build ROM",
         description: "Saves the project and builds a playable ROM, by default to \
                       build/<game code>.nds in the project; only the steps whose inputs \
-                      changed run (the answer lists them under steps), and fresh deletes the \
-                      build state first so every step runs fully. Text archives whose JSON and \
+                      changed run (the answer lists them under steps), and fresh drops the \
+                      build cache first so every step runs fully. Text archives whose JSON and \
                       member both changed since the last build stop it with the error \
                       text_conflict (one problem per archive), which resolve_text_conflicts \
                       decides.",
@@ -858,8 +858,8 @@ static TOOLS: &[ToolDef] = &[
                     "fresh": {
                         "type": "boolean",
                         "default": false,
-                        "description": "delete the build state and caches (.g4/build/) \
-                                        first and build every step fully",
+                        "description": "drop the build cache (.g4/build/, all but the \
+                                        text sync) first and build every step fully",
                     },
                 }),
                 &[],

@@ -193,6 +193,32 @@ fn only_the_member_changed_is_member_newer() {
 }
 
 #[test]
+fn a_build_without_cache_keeps_a_member_dspre_changed() {
+    let (_s, p) = synced();
+    write_member(&p, 0, &["Aus DSPRE"]);
+    age(&member_path(&p, 0), 2 * HOUR);
+    let json = std::fs::read(json_path(&p, 0)).unwrap();
+
+    // "Neu bauen (ohne Cache)" keeps the text sync: the member still applies.
+    g4_kernel::build::clear_cache(&p).unwrap();
+    assert_eq!(side(&p, 0), TextSide::MemberNewer);
+    let prepared = prepare_for_build(&p, &out(&p)).unwrap();
+    assert!(prepared.encoded.is_empty(), "{prepared:?}");
+    assert!(
+        prepared
+            .problems
+            .iter()
+            .all(|p| p.severity != Severity::Info),
+        "no hint: {:?}",
+        prepared.problems
+    );
+    assert_eq!(member_texts(&p, 0), ["Aus DSPRE"]);
+    assert_eq!(std::fs::read(json_path(&p, 0)).unwrap(), json);
+    assert_eq!(store_texts(&p, 0), ["Aus DSPRE"]);
+    assert_eq!(row(&prepared.steps, "chatot").status, StepStatus::Full);
+}
+
+#[test]
 fn both_changed_is_a_conflict_and_the_build_stops_before_writing() {
     let (_s, p) = synced();
     prepare_for_build(&p, &out(&p)).unwrap();

@@ -381,6 +381,38 @@ fn clear_cache_removes_the_build_folder_and_keeps_g4() {
 }
 
 #[test]
+fn clear_cache_keeps_only_the_text_sync_records() {
+    use g4_kernel::build::state::{BuildState, StepRecord, TextRecord};
+    let s = common::synthetic_project();
+    let p = Project::open(s.dir.path()).unwrap();
+    let build_dir = s.dir.path().join(BUILD_DIR);
+    std::fs::create_dir_all(build_dir.join("blz")).unwrap();
+    std::fs::write(build_dir.join("blz/arm9-0.blz"), b"blz").unwrap();
+    std::fs::write(s.dir.path().join(".g4/base.json"), b"{}").unwrap();
+    let text = TextRecord {
+        json: None,
+        member: None,
+        scanned_at_ns: 7,
+    };
+    BuildState::update(&p.root, |state| {
+        state.steps.insert("chatot".into(), StepRecord::default());
+        state.texts.insert(12, text.clone());
+    })
+    .unwrap();
+
+    clear_cache(&p).unwrap();
+    let state = BuildState::load(&p.root);
+    assert!(state.steps.is_empty() && state.rom.is_none(), "{state:?}");
+    assert_eq!(state.texts.into_iter().collect::<Vec<_>>(), [(12, text)]);
+    let left: Vec<String> = std::fs::read_dir(&build_dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["state.json"], "the BLZ cache is gone");
+    assert!(s.dir.path().join(".g4/base.json").exists());
+}
+
+#[test]
 fn clear_cache_without_folder_is_ok() {
     let s = common::synthetic_project();
     let p = Project::open(s.dir.path()).unwrap();

@@ -6,10 +6,18 @@ Eingaben sich seitdem nicht geändert haben. Implementierung: `crates/g4-kernel/
 (`state.rs` mit `BuildState`, `fingerprint.rs`, `step.rs` mit dem Runner, `steps.rs` mit den
 Schritten, `salt.rs`).
 
-**Die Datei ist Cache, nie Quelle.** Sie darf jederzeit gelöscht werden, ebenso der ganze Ordner
-`.g4/build/` („Neu bauen (ohne Cache)“, `build::clear_cache`). Fehlt sie, ist sie kaputt oder hat
-sie eine andere `version`, gilt ein leerer Zustand: Der nächste Build lässt jeden Schritt voll
-laufen, ohne Fehler, und das Ergebnis ist byte-gleich.
+**Die Datei ist nie Quelle.** Sie darf gelöscht werden, ebenso der ganze Ordner `.g4/build/`. Fehlt
+sie, ist sie kaputt oder hat sie eine andere `version`, gilt ein leerer Zustand: Der nächste Build
+lässt jeden Schritt voll laufen, ohne Fehler, und das Ergebnis ist byte-gleich. Die Einträge unter
+`texts` sind dabei mehr als Cache: Sie entscheiden, ob die JSON oder der Member eines Textarchivs
+gilt. Ohne sie gilt für jedes Archiv die JSON, auch wenn DSPRE den Member seitdem geändert hat (der
+Build meldet das als Hinweis).
+
+**„Neu bauen (ohne Cache)“** (`build::clear_cache`, `g4k build --no-cache`, `build_rom` mit
+`fresh: true`) löscht darum alles unter `.g4/build/` (BLZ-Cache, Schritt-Einträge, `rom`), behält
+aber die `texts`-Einträge und schreibt `state.json` nur mit ihnen neu. Alle Schritte laufen danach
+voll (`no-state`), die Seiten der Textarchive folgen weiter den Fingerabdrücken. Fehlt `state.json`
+oder ist sie kaputt, verschwindet nur der Ordner.
 
 ## Felder
 

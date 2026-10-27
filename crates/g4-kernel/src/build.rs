@@ -39,14 +39,13 @@ use steps::{ChatotStep, PackKind, PackStep, RomStep, RotomStep};
 /// Everything in it may be deleted; the next build then runs fully.
 pub const BUILD_DIR: &str = ".g4/build";
 
-/// Deletes [`BUILD_DIR`] ("Neu bauen (ohne Cache)"). A missing folder is not an error.
+/// "Neu bauen (ohne Cache)": deletes [`BUILD_DIR`] (the BLZ cache and every step entry, so
+/// the next build runs every step fully) but keeps the text archives' sync records in
+/// `state.json`, so which version of a text applies still follows the fingerprints: a member
+/// DSPRE changed since the last build is not overwritten by its JSON. Only a project without
+/// any state reads every JSON (with the build's hint). A missing folder is not an error.
 pub fn clear_cache(project: &Project) -> Result<(), KernelError> {
-    let dir = project.root.join(BUILD_DIR);
-    match std::fs::remove_dir_all(&dir) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(io_at(&dir)(e)),
-    }
+    BuildState::clear_keeping_texts(&project.root)
 }
 
 /// The ROM loader of [`build_prepared`] (ds-rom without compression, ARM9 and overlays from

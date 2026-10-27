@@ -58,7 +58,9 @@ G4_APICULA_TIMEOUT_SECS=120 G4_APICULA="$PWD/tools/apicula/bin/apicula" pnpm tau
 
 Folgen:
 
-- `.g4/` ist reiner Cache und darf jederzeit gelöscht werden; `.g4/models/` ebenso.
+- Die oberste Ebene von `.g4/` ist versionierte Projekt-Metadaten (`base.json`, `preview.png`) und bleibt stehen. Nur die
+  Unterordner `cache/`, `tmp/`, `build/`, `backup/` und `models/` sind lokal und dürfen jederzeit gelöscht werden, `.g4/models/`
+  also auch.
 - Ein apicula-Update entwertet `.glb` und `.fail` automatisch (neuer Werkzeug-Hash), das Löschen der Marker ist
   dafür nicht mehr nötig. Einen Marker ohne Update loszuwerden geht nur von Hand: `rm <Projekt>/.g4/models/*.fail`.
   Ein fehlerhaftes `.glb` lässt sich nur durch Löschen der Datei erneuern.
@@ -441,12 +443,12 @@ Der Pfad in `G4_WORLD_DUMP` muss absolut sein; die Ordner heißen `3e-pt` (Plati
 
 #### Build-Graph (4.2)
 
-Der Build läuft nur die Schritte, deren Eingaben sich geändert haben (`rotom`, `chatot`, je Archiv `pack:<Ordner>`, `watch:<Ordner>`, `rom`; der ROM-Schritt liefert `blz:arm9`, `blz:overlays`, `rom`, `crc`). Seinen Zustand legt er unter `<Projekt>/.g4/build/` ab: `state.json` (die Fingerabdrücke der Eingaben und Ausgaben je Schritt und der Textabgleich JSON gegen Member, Format in [docs/formats/build_state.md](formats/build_state.md)) und `blz/` (die komprimierten ARM9- und Overlay-Dateien). Der Ordner ist Cache: Ohne ihn baut der Build alles voll und byte-gleich; nur Texte, deren JSON und Member sich beide geändert haben, gelten dann ohne Rückfrage in der JSON-Fassung (der Build meldet das als Hinweis).
+Der Build läuft nur die Schritte, deren Eingaben sich geändert haben (`rotom`, `chatot`, je Archiv `pack:<Ordner>`, `watch:<Ordner>`, `rom`; der ROM-Schritt liefert `blz:arm9`, `blz:overlays`, `rom`, `crc`). Seinen Zustand legt er unter `<Projekt>/.g4/build/` ab: `state.json` (die Fingerabdrücke der Eingaben und Ausgaben je Schritt und der Textabgleich JSON gegen Member, Format in [docs/formats/build_state.md](formats/build_state.md)) und `blz/` (die komprimierten ARM9- und Overlay-Dateien). Ohne den Ordner baut der Build alles voll und byte-gleich. Der Textabgleich (`texts` in `state.json`) ist aber kein Cache, sondern entscheidet, ob die JSON oder der Member eines Textarchivs gilt: „Neu bauen (ohne Cache)“ (`--no-cache`, `fresh: true`) löscht darum alles unter `.g4/build/` außer ihm und schreibt `state.json` nur mit `texts` neu. Alle Schritte laufen dann voll, und ein Member, den DSPRE seit dem letzten Bauen geändert hat, gilt weiter. Nur ganz ohne Zustand (frischer Klon, gelöschter Ordner) gilt für jedes Archiv die JSON, und der Build meldet das als Hinweis „N Textarchive ohne Bauzustand: die JSON-Fassung gilt.“
 
 ```sh
 cargo build --workspace --all-features
 target/debug/g4k build <Kopie> --out <Kopie>/out.nds --timings    # eine JSON-Zeile: {"ms", "rom", "steps": [{id, status, ms, done, total, cached, reason}]}
-target/debug/g4k build <Kopie> --out <Kopie>/out.nds --no-cache   # löscht .g4/build/ zuerst, alle Schritte laufen voll
+target/debug/g4k build <Kopie> --out <Kopie>/out.nds --no-cache   # löscht .g4/build/ zuerst (bis auf den Textabgleich), alle Schritte laufen voll
 ```
 
 `--timings` schreibt statt der Textzeilen genau eine JSON-Zeile auf stdout (Probleme weiter auf stderr); `status` ist `skipped`, `incremental` oder `full`, `reason` nennt bei einem vollen Lauf den Grund (`no-state`, `build.cache-stale` nach einem Werkzeugwechsel, `output-changed`, `removed`; bei `crc` `no-base-mark`). In der App entspricht `--no-cache` dem Befehl `build_rom` mit `fresh: true`. Ein Textkonflikt (JSON und Member beide geändert) bricht `g4k build` mit der Meldung „text archives changed as JSON and as member since the last build: …“ ab; in der App und über MCP ist das der Fehler `text_conflict`, aufgelöst mit `resolve_text_conflicts`.

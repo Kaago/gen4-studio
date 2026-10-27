@@ -75,7 +75,8 @@ enum Command {
         /// the text lines.
         #[arg(long)]
         timings: bool,
-        /// Delete the build state and caches (`.g4/build/`) first, so every step runs fully.
+        /// Delete the build cache (`.g4/build/`, all but the text sync) first, so every step
+        /// runs fully.
         #[arg(long)]
         no_cache: bool,
     },
