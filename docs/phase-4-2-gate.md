@@ -1,6 +1,6 @@
 # Phase 4.2: Gate prüfen
 
-Stand: 2026-10-27. Gate 4.2 „Build-Graph“: vom Agenten bestanden, (G1) bis (G6) über die Test-Umgebung und auf frischen Kopien (Ergebnis unten). Beim Nutzer offen: (G7), also „Hier spielen“ in der gepackten App, die DSPRE-Gegenprobe und der Blick auf die Schritte-Tabelle.
+Stand: 2026-10-27. Gate 4.2 „Build-Graph“: vom Agenten bestanden, (G1) bis (G6) über die Test-Umgebung und auf frischen Kopien (Ergebnis unten). Beim Nutzer offen: (G7), also „Hier spielen“ in der gepackten App, die DSPRE-Gegenprobe und der Blick auf die Schritte-Tabelle. Unabhängige Abnahme am selben Tag auf dem gemergten Stand mit 4.1a bestanden, fünf Befunde behoben (A1 bis A5, Abschnitt „Abnahme (2026-10-27)“).
 
 Phase 4.2 baut nur noch die Schritte, deren Eingaben sich geändert haben. Lieferumfang:
 
@@ -199,6 +199,83 @@ Die erste Runde von (G3), (G4) und (G6) lief auf dem Stand vor der Leistungsrund
 - **Vorschaubild aus 4.0:** Der Plan verlangt nach dem Merge von 4.0, dass `git grep -n "preview-standard"` nur `.g4/cache/` zeigt. 4.0 ist in diesem Branch nicht enthalten; die Probe gehört in die Sitzung, die zusammenführt.
 - **Das Kreuz des Konflikt-Dialogs** ist während des Wartens nicht gesperrt; ein Klick darauf tut in dieser Zeit nichts (`onOpenChange` wird ignoriert).
 
+## Abnahme (2026-10-27)
+
+Unabhängige Abnahme durch eine zweite Sitzung im Worktree des Branches `abnahme-4-2`, auf dem gemergten Stand `df7d6bf` (4.2 mit 4.0 und 4.1a auf main), danach die Fixes unten. Test-Umgebung auf 1560/1561 (`G4_ROMS_DIR` absolut, Browser-Fenster und Chrome headless über CDP), Release-`g4k` für die Zeiten und den Git-Teil, Debug-Brücke für Browser, MCP und `g4emu`. Last während der ganzen Abnahme: drei bis vier Sitzungen bauten parallel (4.1b, 4.3a, die `.fig`-Sitzung und ihre Subagenten), Lastmittel 6 bis 20.
+
+Frische Kopien unter `Roms/_testkopien/` (`cp -cR`, `cp -c`): `4-2-abn-zeiten-{pt,hgde,hgus}` (G3, G2 inkrementell gleich voll, DSPRE und Salz), `4-2-abn-git-{pt,hgde,hgus}` (Vanilla, Basis-Marke, G4 Git auf Platin), `4-2-abn-create-{pt,hgde,hgus}` (aus `g4k create`), `4-2-abn-base-{pt,hgde,hgus}.nds` (Kopien der `.nds` für Marke und `create`), `4-2-abn-web-hgde` (G6), `4-2-abn-patch_DSPRE_contents` mit `4-2-abn-patch.nds` (4.1a), `4-2-abn-mcp-hgus` (MCP), `4-2-abn-szenario-{pt,hg}` (G5). Ausgaben unter `target/agent/gate-2026-10-27/abnahme-4-2/` im Worktree: `zeiten/` (Rohzeilen je Build), `zeiten.log`, `g2.log` und `g2/`, `g4-git-pt.log`, `g5/` (Szenarien mit Bildern), `mcp-resolve*.out`, `checks.log`, `gate.log`, 18 Bilder der App und drei von `g4emu`. Alle Kopien `4-2-abn-*` sind nach der Abnahme gelöscht.
+
+| Punkt | Projekt | Ergebnis |
+|---|---|---|
+| (G1) `scripts/gate.sh` | alle drei | bestanden auf d07fa2b: „Gate: ok (5602 s)“, alle 21 Schritte ok, ein Lauf je Spiel. `build-timings` (ms, Karte / Text / Script / ohne Änderung): Platin DE 264 / 282 / 327 / 109, HeartGold DE 284 / 344 / 328 / 128, HeartGold US 295 / 285 / 329 / 111; alle unter den Grenzen, schlechtester Wert Text HeartGold DE 344 ms (31 % darunter). Log `gate.log` |
+| (G2) Vanilla-DSPRE-Ordner gleich der `.nds` | `git-{pt,hgde,hgus}` | bestanden mit Basis-Marke: nach `g4k base assign` baut der Ordner `d40f19ac…` / `13b6853a…` / `4fcded0e…`, gleich der Marke. Ohne Marke weichen 4 Byte ab (0x6C–0x6D Sicherheitsbereich-CRC, 0x15E–0x15F Header-CRC), so gewollt: `crc` „keine Basis-Marke“ |
+| (G2) inkrementell gleich voll ohne Cache | `zeiten-{pt,hgde,hgus}` | bestanden: `out.nds` nach Karte, Text, Script und „ohne Änderung“ gleich einem `--no-cache`-Build an einen anderen Pfad (`541bf341…`, `58963c85…`, `1fbf1d54…`) |
+| (G2) extrahiertes Projekt gleich der Marke | `create-{pt,hgde,hgus}` | bestanden: `g4k create` aus der `.nds`, dann `g4k build`, SHA-1 gleich `.g4/base.json` |
+| (G3) Zeiten | `zeiten-{pt,hgde,hgus}` | Karte, Text und ohne Änderung klar unter den Grenzen; Script mit `g4k build` je nach Last knapp darüber oder darunter, im Gate-Lauf (G1, ein Prozess wie die App) 327 bis 329 ms; siehe Tabelle unten und H1 |
+| (G4) simulierte DSPRE-Änderung | `zeiten-hgde` | bestanden: Member `unpacked/pokeHeight/0005` in place geändert, Größe, mtime und Inode gleich, nur die ctime neu: `pack:pokeHeight` incremental „1 Member eingesetzt“ |
+| (G4) Salzwechsel | `zeiten-hgde` | bestanden: Salz von `pack:maps` in `state.json` auf „alt“: `pack:maps` full, Grund `build.cache-stale`, 676 Member; danach 84 ms ohne Schritt |
+| (G4) Branch-Wechsel mit Text-JSON | `git-pt` | bestanden: `git init`, nur `expanded/` versioniert, Textarchiv 0012 auf `main` „Hauptzweig“, auf `zweig` „Zweig B“; nach jedem `git switch` baut `g4k build` `chatot` und `pack:textArchives` inkrementell, der Member folgt dem Zweig (`beef2e20afed` ↔ `1362314d31c8`, wie im Gate), `git status` zeigt nur Unversioniertes |
+| (G4) beidseitiger Wechsel | `git-pt` | bestanden: Member von außen geändert, dann `git switch main`: `g4k build` Rückgabe 1 „text archives changed as JSON and as member since the last build: 0012“; Brücke `build_rom` HTTP 400 `text_conflict` mit deutschem Satz; im Browser über „Hier spielen“ der Dialog, „Übernehmen und bauen“ (JSON): JSON von `main` bleibt, Member wieder `beef2e20afed`, `git status` sauber, danach weiter gebaut („Im Browser-Modus wird nur gebaut“) |
+| (G5) `pt-treppe-warp.yaml` | `szenario-pt` | bestanden: Vorbau 27 s (kalt), im Szenario nur `pack:eventFiles` (1 Member, 5 ms), `rom`, `crc`; Header 415 → 412 → 411, `"ok": true` |
+| (G5) `hg-neuheim.yaml` | `szenario-hg` | bestanden: Vorbau 21 s, im Szenario inkrementell `chatot`, `pack:maps` (3), `pack:matrices`, `pack:eventFiles`, `pack:textArchives`, `pack:dynamicHeaders`, `blz:overlays` 127 aus dem Cache, `blz:arm9` voll (Header-Patch); Header 64 → 540, `"ok": true` |
+| (G6) Schritte-Zeilen | `web-hgde` | bestanden: erstes „Hier spielen“ voll „(erster Build, voll)“, das zweite 0,45 s „Kein Schritt lief: alles war aktuell.“, „Übersprungen (42)“ mit `aria-expanded`, darin `rom` „ROM schreiben aktuell“ |
+| (G6) Kartenänderung | `web-hgde` | bestanden: „Karten packen 1 Member eingesetzt“, „Spielcode (ARM9) 1 aus dem Cache“, „Overlays 127 aus dem Cache“, Toast „ROM gebaut: … in 1,72 s (1 Datei(en) vorher gespeichert)“ (Debug-Brücke unter Last) |
+| (G6) „Neu bauen (ohne Cache)“ | `web-hgde` | bestanden: `title` „Löscht den Bauzustand und baut alles neu“, 45 Zeilen `full`, alle „(ohne Cache, voll)“ bis auf BLZ („komprimiert“) und `crc`; 60,9 s (Debug-Brücke, Last um 15) |
+| (G6) Text-Konflikt, beide Wahlen | `web-hgde` | bestanden: „Spieldatei“ schreibt die JSON aus dem Member (Schlüssel 4232, 334 Nachrichten wie 0013), Member unverändert; „Text (JSON)“ lässt die JSON-Bytes (`84450402…`) und kodiert den Member neu; danach `chatot` incremental „0 kodiert“, `pack:textArchives` „1 Member eingesetzt“. Escape und „Abbrechen“: „Nichts gebaut. Beim nächsten „Bauen“ fragt das Studio wieder, welche Fassung gilt.“ Fokus nach „Übernehmen und bauen“ siehe A1 |
+| (G6) `build.hidden-file`, `build.base-missing` | `web-hgde` | bestanden nach A2: Meldung „1 versteckte Datei unter files/ hält den Build an; …“ mit „Probleme zeigen“, „Beheben…“ mit „Nicht rückgängig“ und `hidden-<UTC-Zeitpunkt>`, „Entfernen“ verschiebt nach `.g4/backup/hidden-20261027-112552/`, das nächste „Bauen“ 0,41 s und die Meldung ist weg; Gruppe „Basis-ROM unbekannt“ |
+| (G6) MCP `resolve_text_conflicts` | `mcp-hgus` | bestanden nach A5: `build_rom` über MCP antwortet `text_conflict`; „Ablehnen“ ergibt `needs_confirmation`, nichts geändert; „Zulassen“ ergibt `[12]`, die gewählte Fassung gilt, danach baut `build_rom` |
+| 4.1a: „Patch erstellen…“ nutzt den inkrementellen Build | `patch` | bestanden: nach einer Kartenänderung „Patch erstellt: 558 Byte“ in 1,5 s samt Build (in 4.1a mit vollem Build 13 bis 19 s), Selbstprüfung bestanden |
+| 4.1a: Schritte des Patch-Builds als letzter Build | `patch` | bestanden nach A3: `pack:maps` „1 Member eingesetzt“, BLZ aus dem Cache, „Prüfsummen aus der Basis übernommen“; darüber jetzt „Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds“ |
+| Prüfen und Bauen Hell, Dunkel, Kompakt, 1440 × 900 und 1100 × 720 | `patch`, `web-hgde` | bestanden: drei Spalten, Dauer rechtsbündig, „Übersprungen (40)“ eingeklappt, Dialog in allen sechs Varianten; Tüfteln nach A4 |
+| Tastatur | `web-hgde`, `mcp-hgus` | bestanden nach A1: Tab „Bauen“ → „Neu bauen (ohne Cache)“ → Tabelle → „Übersprungen (N)“, Enter klappt auf; im Dialog Fokus auf „Text (JSON)“, Pfeil wechselt, Leertaste wählt, Tab zu „Abbrechen“ und „Übernehmen und bauen“, Escape bricht ab |
+| Screenreader-Namen | `mcp-hgus`, `web-hgde` | bestanden: Tabellen „Schritte des letzten Builds“ und „Übersprungene Schritte“ mit Spaltenköpfen (`scope=col`), Umschalter mit `aria-expanded` und `aria-controls`; Dialog `role=dialog`, `aria-modal`, Titel und Beschreibung verbunden, Gruppe „Fassung von Textarchiv 0012“ mit `aria-pressed` |
+
+### Befunde
+
+| Nr. | Schwere | Befund | Fix |
+|---|---|---|---|
+| A1 | Mittel | Nach „Übernehmen und bauen“ im Dialog „Texte auf zwei Seiten geändert“ fiel der Tastaturfokus auf `body`: die auslösende Taste („Bauen“ in Technik, „Hier spielen“, das Hammer-Symbol der Titelleiste) war während des Builds `disabled`. Nach „Abbrechen“ kam er richtig zurück. | `d07fa2b`: „Bauen“, „Neu bauen (ohne Cache)“, „Starten“ (Technik), „Hier spielen“ und „Speichern“/„Bauen“ der Titelleiste warten mit `aria-disabled` und einer Sperre im Klick statt `disabled`; `IconButton` bekam dafür `busy` (wie `Button` in 4.1a A1). Nachgeprüft im Browser: Fokus bleibt während des Builds und danach auf „Bauen“. |
+| A2 | Gering | `build.base-missing` verwies auf „Basis-ROM zuordnen…“; seit 4.1a heißt die Taste mit einer `.nds` neben dem Projekt „Zuordnen…“, die Stelle ist Technik › Veröffentlichen. | `bb723fd`: „Ordne sie in Technik unter „Veröffentlichen“ zu.“ |
+| A3 | Gering | Nach „Patch erstellen…“ zeigte Prüfen und Bauen die Schritte des Patch-Builds, daneben aber als „Pfad“ `out.nds`; die Zeile „ROM schreiben“ sagte „(Datei entfernt, voll gebaut)“, obwohl nur an einen anderen Pfad gebaut wurde (das kommt nach jedem Wechsel zwischen Patch und „Bauen“). | `d07fa2b`: unter „Schritte“ steht nach einem Patch-Build „Build von „Patch erstellen“ nach build/<Name>.nds“ (nach einem normalen Build nicht mehr); `rom` mit Grund `removed` heißt „anderes Ziel oder ROM gelöscht, voll gebaut“, Pack-Schritte behalten „Datei entfernt“. Nachgeprüft im Browser und im Bild `fix-patch-build-*`. |
+| A4 | Gering | In Tüfteln wurden lange Kennungen abgeschnitten („pack:exteriorBuildingMo…“) und waren nirgends ganz lesbar. | `5477789`: die Kennung bricht um (`overflow-wrap: anywhere`), nichts wird abgeschnitten. Bild `fix-tuefteln-*`. |
+| A5 | Mittel | Die Rückfrage zu `resolve_text_conflicts` über MCP lautete nur „Eine Fassung eines Textarchivs überschreiben“, ohne Archiv und ohne die Fassung, die gilt. | `771c02d`: „Eine Fassung eines Textarchivs überschreiben: Textarchiv 0012 (der Text (JSON) gilt, die Spieldatei wird überschrieben)“, mehrere Archive mit „; “; unlesbare Argumente behalten den allgemeinen Satz; `docs/mcp.md` nachgezogen. Nachgeprüft über `mcp.sh` im Browser-Fenster. |
+
+Hinweise ohne Fix:
+
+- H1: Der Script-Fall eines frischen `g4k build --timings` liegt unter der Last dieser Abnahme nahe an 0,5 s und streut stark: rotom liest in einem neuen Prozess alle Quellen (1 124 bzw. 965) und braucht dafür 200 bis 450 ms, bei leerem Seiten-Cache bis 1,7 s. Erste Runde Platin DE 545 ms (Last 17), Nachmessung 440 ms (Last 10,7); eine zweite Nachmessung lief bei gleichem Lastmittel überall zwei- bis dreimal langsamer (auch `rom` und „ohne Änderung“), also unter Ein-/Ausgabelast der Nachbarsitzungen. Der gated Test in `gate.sh` (ein Prozess, wie die App) misst das Gate-Kriterium, siehe (G1).
+- H2: Ohne Basis-Marke ist der Build eines unveränderten DSPRE-Ordners nicht byte-gleich mit der `.nds` (Prüfsummen bleiben 0, `crc` „keine Basis-Marke“); mit Marke ist er es. Gewollt, aber für Nutzer ohne Marke überraschend.
+- H3: Die Fehlerzeile zur versteckten Datei (Quelle „Bauen“, Zeile:Spalte „0:0“) bleibt nach „Entfernen“ in der Problemtabelle, bis der nächste Build läuft; die Prüfgruppe verschwindet sofort.
+- H4: Der Satz nach „Abbrechen“ sagt „Beim nächsten „Bauen“ …“, auch wenn der Build über „Hier spielen“ kam.
+- H5: Wechseln „Patch erstellen“ und „Bauen“ ab, baut `rom` jedes Mal voll (anderes Ziel); `rom` ist ohnehin ein ganzer Schreibvorgang, merklich ist das nicht.
+- H6: Neue UI aus A3 (die Zeile unter „Schritte“) und das Umbrechen der Kennung aus A4 fehlen in der `.fig`; diese Sitzung fasst die `.fig` nicht an. Nachtrag für die Design-System-Sitzung.
+
+### Zeiten der Abnahme (G3)
+
+`g4k build --timings` (Release) auf `4-2-abn-zeiten-{pt,hgde,hgus}`, Ablauf wie „(G3) Wie gemessen“ (Skript im Scratchpad, Rohzeilen `zeiten/<k>.jsonl`), Median der Läufe 2 bis 4, in ms; in Klammern das Lastmittel (1 min) der Läufe.
+
+| Projekt | voll (ohne Cache) | Karte | Text | Script | ohne Änderung | kalt |
+|---|---|---|---|---|---|---|
+| Platin DE | 1 701 (16) | **254** (15) | **271** (15) | 545 (17) | **89** (17) | 15 027 (20) |
+| HeartGold DE | 7 362 (14–16) | **244** (16) | **252** (16) | **359** (15–16) | **83** (15) | 21 209 (20) |
+| HeartGold US | 6 615 (8–10) | **237** (8) | **246** (7–8) | **497** (7) | **82** (7) | 21 095 (15) |
+
+Nachmessung Script und ohne Änderung (`zeiten/<k>-script-<n>.jsonl`): Runde 1 (Last 10,4–10,7) Platin DE **440** / **81**, HeartGold DE **491** / **86**, HeartGold US **418** / **86**; Runde 2 (Last 9,5–11, alle Schritte zwei- bis dreimal langsamer) 724 / 83, 1 234 / 136, 1 184 / 129. Karte, Text und ohne Änderung liegen in allen Runden unter den Grenzen (≤ 271 ms bzw. ≤ 89 ms außer Runde 2); der Script-Fall nur bei mäßiger Last, siehe H1.
+
+### Nach den Fixes
+
+Checks auf `d07fa2b` (Log `checks.log`), alle grün: `cargo fmt --check`, `cargo clippy --workspace --all-features -D warnings`, `cargo test --workspace --all-features` (ohne ROM, 194 s), `cargo deny check licenses advisories` („advisories ok, licenses ok“), `pnpm test` (3 068 bestanden, 1 übersprungen), `pnpm build`, `check-styles.sh`, `check-tokens.sh`. Nachgeprüft mit neu gestarteter Brücke: A1 (Tastatur im Browser-Fenster), A3 und A4 (Browser und Bilder), A5 (`mcp.sh`, Rückfrage im Browser-Fenster). `scripts/gate.sh` lief auf dem Endstand, siehe (G1).
+
+### Bilder
+
+18 Bilder der App (dazu die drei von `g4emu`) unter `target/agent/gate-2026-10-27/abnahme-4-2/` im Worktree, Chrome headless über CDP mit der laufenden Test-Umgebung; Thema über `data-theme`, Kompakt über die Taste der Statusleiste:
+
+- `bauen-{hell,dunkel,kompakt}-{1440,1100}.png` (Kopie `patch`, vor den Fixes): „Bauen“ nach einer Kartenänderung, Tabelle „Schritt / Ergebnis / Dauer“ mit fünf Zeilen (Karten packen, Spielcode (ARM9), Overlays, ROM schreiben, Prüfsummen „aus der Basis übernommen“), „Übersprungen (40)“ eingeklappt.
+- `bauen-uebersprungen-dunkel-1440.png`, `bauen-tuefteln-hell-1440.png`: aufgeklappt; Tüfteln mit abgeschnittenen Kennungen (A4, vorher).
+- `konflikt-{hell,dunkel,kompakt}-{1440,1100}.png` (Kopie `web-hgde`): Dialog „Texte auf zwei Seiten geändert“ mit „Textarchiv 0012“, „Text (JSON)“ vorgewählt, „Abbrechen“ und „Übernehmen und bauen“ (primär).
+- `fix-patch-build-hell-1440.png`, `fix-patch-build-dunkel-1100.png` (nach A3): die Zeile „Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds“ über der Tabelle.
+- `fix-tuefteln-hell-1440.png`, `fix-tuefteln-kompakt-1100.png` (nach A4): `pack:exteriorBuildingModels` ganz, umgebrochen unter dem Namen.
+- `g5/pt-treppe-warp/angekommen.png`, `draussen.png`, `g5/hg-neuheim/einblendung.png`: wie im Gate (Rivalenhaus Erdgeschoss; Zweiblattdorf; „Neuheim“).
+
 ## Hand
 
 1. **„Hier spielen“ in der gepackten App auf HeartGold.** In der gebündelten App (Release) ein HeartGold-Projekt öffnen, einmal „Hier spielen“ (der erste Build ist voll), dann eine Kachel malen und noch einmal „Hier spielen“. Erwartet: Der zweite Build ist spürbar schneller, der Toast nennt unter 0,5 s (heute etwa 4,7 s). In Technik › Prüfen und Bauen steht „Karten packen 1 Member eingesetzt“.
@@ -206,6 +283,10 @@ Die erste Runde von (G3), (G4) und (G6) lief auf dem Stand vor der Leistungsrund
    - In DSPRE auf einer Kopie einen der neuen Pack-Ordner ändern, etwa eine Größe in `pokeHeight`, und speichern.
    - Danach mit dem Studio bauen. Erwartet: In der Tabelle läuft `pack:pokeHeight` (Bauen: „Spieldaten packen … Member eingesetzt“), und die Änderung ist im Spiel.
    - Dazu die offene Frage aus den Entscheidungen: Packt DSPRE diese Ordner beim Speichern selbst (ändert sich die gepackte Datei unter `data/` oder nur `unpacked/`)?
+3. **„Hier spielen“ nach dem Konfliktdialog in der gepackten App** (neu aus der Abnahme): einen Konflikt wie in (G6) 4 erzeugen, „Hier spielen“, im Dialog „Übernehmen und bauen“. Erwartet: der Emulator startet die gebaute ROM, der Fokus bleibt auf „Hier spielen“ (A1). Im Browser-Modus wird nur gebaut; der Start selbst ist nur in der gepackten App zu sehen.
+4. **„Patch erstellen…“ nach einer Kartenänderung** in der gepackten App (neu aus der Abnahme): Erwartet: der Patch ist nach etwa einer Sekunde da statt nach 15 s, in Prüfen und Bauen steht „Build von „Patch erstellen“ nach build/<Name>.nds“ über den Schritten.
+
+Stand der Abnahme (2026-10-27): 1 bis 4 offen; der Agent hat keine gepackte App und kein DSPRE.
 
 ## Blick
 
@@ -228,3 +309,10 @@ In der `.fig` (Commit 1cadadb), zum Vergleich mit der App:
 - Seite „App: Texte, Technik, Dialoge“: „App: Technik, Prüfen und Bauen mit Schritten“ (x 6080, y 0) und „App: Technik, Texte auf zwei Seiten geändert“ (x 10640, y 1000).
 - Seite „Komponenten“: das Brett „Komponenten (App): Build-Schritte“ (x 3440, y 13020).
 - Die Marke über dem Zielbild „Prüfen und Bauen“ und die Zeile im Brett „Stand der App“.
+
+Abnahme (2026-10-27), Bilder unter `target/agent/gate-2026-10-27/abnahme-4-2/` (Liste im Abschnitt „Abnahme“, „Bilder“); der Agent hat alle angesehen. Beim Nutzer ein kurzer Blick auf:
+
+- [ ] `bauen-kompakt-1100.png` und `bauen-dunkel-1440.png`: die Tabelle der Schritte nach einer Kartenänderung, Dauer rechtsbündig, „Übersprungen (40)“ eingeklappt.
+- [ ] `konflikt-dunkel-1440.png` und `konflikt-kompakt-1100.png`: der Dialog, eine primäre Taste.
+- [ ] `fix-patch-build-hell-1440.png`: die neue Zeile „Build von „Patch erstellen“ nach …“ unter „Schritte“ (A3); passt sie zum Zielbild, oder gehört sie als Notiz an die Tabelle? Die `.fig` hat sie noch nicht (H6).
+- [ ] `fix-tuefteln-hell-1440.png`: lange Kennungen brechen jetzt unter dem Namen um (A4).
