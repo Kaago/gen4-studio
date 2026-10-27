@@ -573,7 +573,12 @@ pub fn extract_rom(nds: &Path, dest: &Path) -> Result<Project, KernelError> {
         }
     }
     let raw_rom = raw::Rom::from_file(nds).map_err(build_err)?;
-    let rom = Rom::extract(&raw_rom).map_err(build_err)?;
+    extract_raw(&raw_rom, dest)
+}
+
+/// [`extract_rom`] for a ROM already in memory; `dest` must not exist or be empty.
+pub(crate) fn extract_raw(raw_rom: &raw::Rom, dest: &Path) -> Result<Project, KernelError> {
+    let rom = Rom::extract(raw_rom).map_err(build_err)?;
     rom.save(dest, None).map_err(|e| match e {
         RomSaveError::BlowfishKeyNeeded => KernelError::Build(
             "the ROM's ARM9 is encrypted; encrypted ROMs are not supported".to_owned(),

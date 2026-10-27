@@ -5,10 +5,13 @@
 //! This module holds the manifest with its schema version ([`manifest`]), the canonical
 //! JSON form every file is written in ([`canon`]) and the migration chain that lifts an
 //! older project to [`SCHEMA_VERSION`] ([`migrate`]), and the symbolic ids of the data
-//! ([`symbols`]) with the per-project registers of christened ids ([`registry`]).
+//! ([`symbols`]) with the per-project registers of christened ids ([`registry`]), and the
+//! base layer every "differs" is measured against, with the blobs of `data/raw/`
+//! ([`base_layer`]).
 
 use std::path::Path;
 
+pub mod base_layer;
 pub(crate) mod canon;
 pub mod manifest;
 pub mod migrate;

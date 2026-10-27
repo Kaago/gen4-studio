@@ -727,12 +727,26 @@ impl Project {
             AssetKind::DynamicHeaders => return Err(store_only(kind)),
             _ => {}
         }
-        self.require_packed(kind)?;
-        let dir = self.unpacked_dir(kind);
+        let packed = self.require_packed(kind)?.to_path_buf();
+        self.unpack_archive(&packed, self.archives.unpacked_name(kind))
+    }
+
+    /// Unpacks the NARC at `packed` (relative to the root) into `unpacked/<unpacked_name>` if
+    /// that folder is missing and returns the member count. An existing folder is never
+    /// touched. Unlike [`Project::ensure_unpacked`] it takes any archive, also the pack
+    /// entries and the Dynamic Headers NARC.
+    pub(crate) fn unpack_archive(
+        &self,
+        packed: &Path,
+        unpacked_name: &str,
+    ) -> Result<usize, KernelError> {
+        let dir = self.root.join("unpacked").join(unpacked_name);
         if dir.is_dir() {
             return Self::count_unpacked(&dir);
         }
-        let narc = self.read_packed(kind)?;
+        let path = self.root.join(packed);
+        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        let narc = Narc::read(&bytes)?;
         let parent = self.root.join("unpacked");
         std::fs::create_dir_all(&parent).map_err(io_at(&parent))?;
         // Write into a uniquely named sibling folder and rename, so an interrupted unpack
@@ -740,8 +754,7 @@ impl Project {
         // overlapping callers never share a temp folder.
         static UNPACK_SEQ: AtomicU64 = AtomicU64::new(0);
         let tmp = parent.join(format!(
-            ".{}.unpacking.{}.{}",
-            self.archives.unpacked_name(kind),
+            ".{unpacked_name}.unpacking.{}.{}",
             std::process::id(),
             UNPACK_SEQ.fetch_add(1, Ordering::Relaxed)
         ));
