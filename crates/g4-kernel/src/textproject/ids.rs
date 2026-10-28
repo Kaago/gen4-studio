@@ -70,8 +70,9 @@ pub struct Resolver {
 
 impl Resolver {
     /// The resolver of `project`: its registers when it is a text project of the current
-    /// schema, and the internal names of its headers. A broken manifest or register, or an
-    /// unreadable `mapname.bin`, is the error of reading it.
+    /// schema, and the internal names of its headers. A broken manifest or register, or a
+    /// `mapname.bin` that is there but cannot be read, is the error of reading it; without
+    /// `mapname.bin` there are no internal names (everything else still resolves).
     pub fn for_project(project: &Project) -> Result<Resolver, KernelError> {
         let root = project.root.clone();
         // Stamped before reading, so a change while reading shows as not current.
@@ -86,15 +87,22 @@ impl Resolver {
             SchemaState::Current => Some(Symbols::load(&root)?),
             SchemaState::Missing | SchemaState::Older(_) | SchemaState::Newer(_) => None,
         };
+        let names = if project.mapname_path().exists() {
+            project.internal_names()?
+        } else {
+            Vec::new()
+        };
+        // Every exact name first, so a normalized name never shadows another header's own.
         let mut internal = HashMap::new();
-        for (n, name) in (0u32..).zip(project.internal_names()?) {
-            if name.is_empty() {
-                continue;
+        for (n, name) in (0u32..).zip(&names) {
+            if !name.is_empty() {
+                internal.entry(name.clone()).or_insert(n);
             }
-            if let Some(body) = normalize(&name, false) {
+        }
+        for (n, name) in (0u32..).zip(&names) {
+            if let Some(body) = normalize(name, false) {
                 internal.entry(body).or_insert(n);
             }
-            internal.entry(name).or_insert(n);
         }
         Ok(Resolver {
             root: Some(root),
@@ -115,11 +123,11 @@ impl Resolver {
     }
 
     /// The number of `input`: a number as it is, an id (or a number as text) as
-    /// [`Resolver::parse`] reads it.
+    /// [`Resolver::parse`] reads it, but never a bare internal name (`"T01"`).
     pub fn number(&self, kind: SymbolKind, input: &RefInput) -> Result<u32, String> {
         match input {
             RefInput::Number(n) => Ok(*n),
-            RefInput::Id(text) => self.parse(kind, text),
+            RefInput::Id(text) => self.resolve(kind, text, false),
         }
     }
 
@@ -127,6 +135,11 @@ impl Resolver {
     /// An unknown id is [`unknown_id_text`]; an id of a register kind outside a text project
     /// says that it needs one.
     pub fn parse(&self, kind: SymbolKind, text: &str) -> Result<u32, String> {
+        self.resolve(kind, text, true)
+    }
+
+    /// [`Resolver::parse`]; `bare`: a map may also be named by its bare internal name.
+    fn resolve(&self, kind: SymbolKind, text: &str, bare: bool) -> Result<u32, String> {
         if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
             return text.parse().map_err(|_| unknown_id_text(text));
         }
@@ -139,8 +152,12 @@ impl Resolver {
             return Ok(n);
         }
         if kind == SymbolKind::Map {
-            let body = text.strip_prefix("MAP_").unwrap_or(text);
-            if let Some(&n) = self.internal.get(body) {
+            let body = match text.strip_prefix("MAP_") {
+                Some(body) => Some(body),
+                None if bare => Some(text),
+                None => None,
+            };
+            if let Some(&n) = body.and_then(|body| self.internal.get(body)) {
                 return Ok(n);
             }
             return Err(unknown_id_text(text));
@@ -287,8 +304,47 @@ mod tests {
             r.parse(SymbolKind::Map, "MAP_HOME"),
             Err("Unbekannte ID: MAP_HOME.".to_owned())
         );
+        // `number` reads ids, never a bare internal name.
+        assert_eq!(r.number(SymbolKind::Map, &id("MAP_T01")), Ok(0));
+        assert_eq!(
+            r.number(SymbolKind::Map, &id("T01")),
+            Err("Unbekannte ID: T01.".to_owned())
+        );
         // Fixed resolvers know no internal names.
         assert!(Resolver::fixed().parse(SymbolKind::Map, "MAP_T01").is_err());
+    }
+
+    #[test]
+    fn an_exact_internal_name_wins_over_a_normalized_one() {
+        let fx = TextFixture::dspre();
+        // Header 0 is `t01` (normalized `T01`), header 1 is exactly `T01`.
+        let mut names = Vec::new();
+        for name in ["t01", "T01"] {
+            let mut record = [0u8; 16];
+            record[..name.len()].copy_from_slice(name.as_bytes());
+            names.extend_from_slice(&record);
+        }
+        fx.write("files/fielddata/maptable/mapname.bin", &names);
+        let r = Resolver::for_project(&fx.project()).unwrap();
+        assert_eq!(r.parse(SymbolKind::Map, "MAP_T01"), Ok(1));
+        assert_eq!(r.parse(SymbolKind::Map, "T01"), Ok(1));
+        assert_eq!(r.parse(SymbolKind::Map, "MAP_t01"), Ok(0));
+    }
+
+    #[test]
+    fn without_mapname_bin_everything_but_internal_names_resolves() {
+        let fx = TextFixture::exported();
+        std::fs::remove_file(fx.project().mapname_path()).unwrap();
+        let r = Resolver::for_project(&fx.project()).unwrap();
+        assert_eq!(r.parse(SymbolKind::Species, "SPECIES_PIKACHU"), Ok(25));
+        assert_eq!(r.parse(SymbolKind::Trainer, "TRAINER_YOUNGSTER_KAI"), Ok(1));
+        // The register still names the map; the internal name is gone.
+        assert_eq!(r.parse(SymbolKind::Map, "MAP_T01"), Ok(0));
+        assert_eq!(
+            r.parse(SymbolKind::Map, "T02"),
+            Err("Unbekannte ID: T02.".to_owned())
+        );
+        assert!(r.is_current(&fx.project()));
     }
 
     #[test]
@@ -427,6 +483,12 @@ mod tests {
         assert!(!r.is_current(&fx.project()));
         let r = Resolver::for_project(&fx.project()).unwrap();
         assert!(r.is_current(&fx.project()));
+
+        // An edit of the same size shows by its modification time.
+        let size = fx.read(MAPS).len();
+        fx.edit(MAPS, "\"MAP_HOME\"", "\"MAP_T999\"");
+        assert_eq!(fx.read(MAPS).len(), size);
+        assert!(!r.is_current(&fx.project()));
 
         // A register that appears (the folder becomes a text project) is a change too.
         let dspre = TextFixture::dspre();
