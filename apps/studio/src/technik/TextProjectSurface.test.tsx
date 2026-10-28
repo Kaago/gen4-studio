@@ -127,6 +127,23 @@ describe("TextProjectSurface", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("the_choices_of_a_conflict_are_locked_while_a_build_runs", async () => {
+    await render(textWith({ busy: true, sync: syncWith({ last: outcome({ conflicts: [conflict(), conflict({ key: "species/0025", label: "Pokémon 0025", other: "files" })] }) }) }));
+    await click(button("Attacke 0001 Pfund", row("moves/0001")!));
+    await click(button("Pokémon 0025", row("species/0025")!));
+    for (const [key, take] of [
+      ["moves/0001", "DSPRE-Fassung übernehmen"],
+      ["species/0025", "Geänderte Datei übernehmen"],
+    ] as const) {
+      for (const name of ["Studio-Fassung behalten", take]) {
+        const choice = button(name, row(key)!);
+        expect(choice?.getAttribute("aria-disabled")).toBe("true");
+        await click(choice);
+      }
+    }
+    expect(resolveExternalConflict).not.toHaveBeenCalled();
+  });
+
   it("a_conflict_row_shows_the_diff_and_both_choices_resolve", async () => {
     const onResolved = vi.fn();
     const last = outcome({ conflicts: [conflict(), conflict({ key: "species/0025", label: "Pokémon 0025 Pikachu", assets: [{ kind: "Personal", index: 25 }], other: "files" })] });

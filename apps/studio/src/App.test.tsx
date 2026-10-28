@@ -2611,6 +2611,35 @@ describe("App wiring", () => {
       expect(externalSync).toHaveBeenCalledTimes(2);
     });
 
+    it("an_agents_reopen_notes_a_script_file_rewritten_meanwhile_and_reloads_a_clean_one", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Main #${file}:\n\tEnd\n` }));
+      await act(async () => data().scripts.open(42));
+      await act(async () => data().scripts.open(43));
+      await act(async () => data().scripts.open(44));
+      const dirtyDoc = data().scripts.documents.get(42)!;
+      dirtyDoc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      // The reopen rewrote 0042 and 0043 (an adoption decompiled them anew); 0044 is as it was.
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: file === 44 ? "script Main #44:\n\tEnd\n" : `script Neu #${file}:\n\tEnd\n` }));
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // The typed text stays, its saved state is the new file, and the user hears that saving overwrites it (as for any outside change).
+      const kept = data().scripts.documents.get(42)!;
+      expect(kept.text).toContain("// edit");
+      expect(kept.savedText).toBe("script Neu #42:\n\tEnd\n");
+      expect(alerts()).toContain("Scriptdatei 0042 wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern");
+      // A clean document shows the new file; an unchanged one says nothing.
+      expect(data().scripts.documents.get(43)?.text).toBe("script Neu #43:\n\tEnd\n");
+      expect(data().scripts.documents.get(43)?.savedText).toBe("script Neu #43:\n\tEnd\n");
+      expect(data().scripts.documents.get(44)?.text).toBe("script Main #44:\n\tEnd\n");
+      expect(alerts().filter((a) => a.includes("außerhalb des Editors"))).toHaveLength(1);
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+    });
+
     it("an_agents_reopen_keeps_unsaved_script_text_and_warns_when_its_file_is_gone", async () => {
       env.tauri = true;
       await renderFresh();

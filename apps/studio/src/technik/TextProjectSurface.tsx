@@ -174,7 +174,7 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
       )}
       {sync.error !== null && <Notice kind="error">{sync.error}</Notice>}
       <div className={styles.groups}>
-        {conflicts.length > 0 && <Conflicts conflicts={conflicts} onResolved={text.onResolved} />}
+        {conflicts.length > 0 && <Conflicts conflicts={conflicts} busy={text.busy} onResolved={text.onResolved} />}
         {broken.length > 0 && <Broken entries={broken} />}
         <Taken taken={sync.taken} />
       </div>
@@ -195,12 +195,12 @@ function Group({ title, count, data, children }: { title: string; count?: number
 }
 
 /** „Auf zwei Seiten geändert“: a row per conflict, folded until asked for. */
-function Conflicts({ conflicts, onResolved }: { conflicts: readonly ConflictEntry[]; onResolved: (assets: AssetId[]) => void }) {
+function Conflicts({ conflicts, busy, onResolved }: { conflicts: readonly ConflictEntry[]; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
   return (
     <Group title="Auf zwei Seiten geändert" count={conflicts.length} data="data-sync-conflicts">
       <ul className={styles.rows}>
         {conflicts.map((c) => (
-          <ConflictRow key={c.key} conflict={c} onResolved={onResolved} />
+          <ConflictRow key={c.key} conflict={c} busy={busy} onResolved={onResolved} />
         ))}
       </ul>
     </Group>
@@ -211,7 +211,7 @@ function Conflicts({ conflicts, onResolved }: { conflicts: readonly ConflictEntr
  * One conflict: its label and „Konflikt“ (or „Ungespeichert“ when the store holds the entry unsaved); unfolded the diff of both sides
  * and the choice, with a warning above it when taking the other side drops unsaved changes.
  */
-function ConflictRow({ conflict, onResolved }: { conflict: ConflictEntry; onResolved: (assets: AssetId[]) => void }) {
+function ConflictRow({ conflict, busy, onResolved }: { conflict: ConflictEntry; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   return (
@@ -224,7 +224,7 @@ function ConflictRow({ conflict, onResolved }: { conflict: ConflictEntry; onReso
       </div>
       {open && (
         <div id={bodyId} className={styles.rowBody}>
-          <ConflictBody conflict={conflict} onResolved={onResolved} />
+          <ConflictBody conflict={conflict} busy={busy} onResolved={onResolved} />
         </div>
       )}
     </li>
@@ -233,7 +233,8 @@ function ConflictRow({ conflict, onResolved }: { conflict: ConflictEntry; onReso
 
 type DiffState = { diff: ConflictDiff | null; error: string | null };
 
-function ConflictBody({ conflict, onResolved }: { conflict: ConflictEntry; onResolved: (assets: AssetId[]) => void }) {
+/** `busy`: a build runs, the choice waits (it would write a member the build is reading). */
+function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry; busy: boolean; onResolved: (assets: AssetId[]) => void }) {
   const { key, label, unsaved, other } = conflict;
   const [read, setRead] = useState<DiffState>({ diff: null, error: null });
   const [resolving, setResolving] = useState(false);
@@ -254,8 +255,9 @@ function ConflictBody({ conflict, onResolved }: { conflict: ConflictEntry; onRes
     { key: "studio", label: "Studio" },
     { key: "other", label: other === "files" ? "Datei" : "DSPRE" },
   ];
+  const locked = resolving || busy;
   const choose = async (keep: Keep) => {
-    if (resolving) return;
+    if (locked) return;
     setResolving(true);
     setRefused(null);
     try {
@@ -284,10 +286,10 @@ function ConflictBody({ conflict, onResolved }: { conflict: ConflictEntry; onRes
       )}
       {unsaved && <Notice kind="warning">„{take}“ verwirft die ungespeicherten Änderungen an diesem Eintrag.</Notice>}
       <div className={styles.actions}>
-        <Button kind="secondary" size="s" aria-disabled={resolving || undefined} onClick={() => void choose("studio")}>
+        <Button kind="secondary" size="s" aria-disabled={locked || undefined} onClick={() => void choose("studio")}>
           Studio-Fassung behalten
         </Button>
-        <Button kind="secondary" size="s" aria-disabled={resolving || undefined} onClick={() => void choose("dspre")}>
+        <Button kind="secondary" size="s" aria-disabled={locked || undefined} onClick={() => void choose("dspre")}>
           {take}
         </Button>
       </div>
