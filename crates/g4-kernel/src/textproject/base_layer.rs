@@ -570,7 +570,7 @@ type Slice = Option<(usize, usize)>;
 /// The header table's [`Slice`]; `None` when it is not there (Dynamic Headers) or cannot be
 /// located (then nothing is masked).
 fn header_slice(project: &Project) -> Slice {
-    match project.asset_location(AssetKind::HeaderTable, 0) {
+    match project.member_location(AssetKind::HeaderTable, 0) {
         Ok(Location::Slice { offset, len, .. }) => Some((usize::try_from(offset).ok()?, len)),
         _ => None,
     }

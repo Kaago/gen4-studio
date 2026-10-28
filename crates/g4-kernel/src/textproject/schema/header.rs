@@ -622,7 +622,7 @@ pub(crate) fn import_headers(
             // Without the patch the table is a slice of arm9.bin, which must hold it. With
             // it, a missing `unpacked/dynamicHeaders` is fine: the headers own that folder
             // and `write_headers` writes every file.
-            if !dynamic && let Err(e) = project.asset_location(AssetKind::HeaderTable, 0) {
+            if !dynamic && let Err(e) = project.member_location(AssetKind::HeaderTable, 0) {
                 problems.push(problem(
                     &rel(&project.arm9_path()),
                     HEADER_TABLE_CODE,
@@ -706,7 +706,7 @@ pub(crate) fn write_headers(
         }
         return Ok(wrote);
     }
-    match project.asset_location(AssetKind::HeaderTable, 0)? {
+    match project.member_location(AssetKind::HeaderTable, 0)? {
         Location::Slice { path, offset, len } => {
             if len != w.table.len() {
                 return Err(KernelError::InvalidProject(format!(
@@ -735,7 +735,8 @@ pub(crate) fn write_headers(
         Location::HeaderFiles { .. }
         | Location::Member(_)
         | Location::TextSource { .. }
-        | Location::MemberPair { .. } => {
+        | Location::MemberPair { .. }
+        | Location::Entity { .. } => {
             return Err(KernelError::InvalidProject(
                 "the header table is not a slice of arm9.bin".to_owned(),
             ));

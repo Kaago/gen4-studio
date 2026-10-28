@@ -296,6 +296,17 @@ fn sync_texts(project: &Project, report: &mut ExportReport) -> Result<(), Kernel
 /// Christens the ids of maps (internal names), trainer classes, trainers (class and name)
 /// and places (location names) that have none yet, in the project language.
 pub(crate) fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> {
+    baptize_named(project, symbols, &BTreeMap::new())
+}
+
+/// [`baptize`] with the names of trainers that are not on disk yet (`trainer_names`, by
+/// number, without the name bank's wrapping): a trainer the store just created, whose name
+/// is still unsaved in its text archive.
+pub(crate) fn baptize_named(
+    project: &Project,
+    symbols: &mut Symbols,
+    trainer_names: &BTreeMap<u16, String>,
+) -> Result<(), KernelError> {
     let german = project.language == Language::German;
     let some =
         |texts: Vec<String>| -> Vec<Option<String>> { texts.into_iter().map(Some).collect() };
@@ -315,7 +326,11 @@ pub(crate) fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), Ke
         .min(read_members(project, AssetKind::TrainerParty)?.len());
     let trainers: Vec<Option<String>> = (0..count)
         .map(|i| {
-            let name = trainer_name::unwrap(names.get(i)?);
+            let given = u16::try_from(i).ok().and_then(|n| trainer_names.get(&n));
+            let name = match given {
+                Some(name) => name.clone(),
+                None => trainer_name::unwrap(names.get(i)?),
+            };
             if name.trim().is_empty() {
                 return None;
             }

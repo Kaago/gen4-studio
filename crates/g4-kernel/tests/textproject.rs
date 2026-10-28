@@ -1413,7 +1413,7 @@ fn textproject_round_trip() {
     }
     deletion_was_complete(&project, &deleted);
     use g4_kernel::project::Location;
-    match project.asset_location(AssetKind::HeaderTable, 0).unwrap() {
+    match project.member_location(AssetKind::HeaderTable, 0).unwrap() {
         Location::Slice { path, offset, len } => {
             let mut bytes = std::fs::read(&path).unwrap();
             let offset = usize::try_from(offset).unwrap();

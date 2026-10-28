@@ -27,6 +27,8 @@ use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
+use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
+use crate::textproject::sync::record_paths;
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -71,6 +73,11 @@ fn uxie_family(family: Family) -> uxie::GameFamily {
         Family::Pt => uxie::GameFamily::Platinum,
         Family::Hgss => uxie::GameFamily::HGSS,
     }
+}
+
+/// Whether the store holds assets of `kind` (see [`Loaded::is_editable`]).
+pub(crate) fn is_store_kind(kind: AssetKind) -> bool {
+    Loaded::is_editable(kind)
 }
 
 /// A loaded asset value.
@@ -398,8 +405,13 @@ struct Reading {
     text_json: bool,
 }
 
-/// Reads the bytes of a location.
-type DiskReader = fn(&Location, Reading) -> Result<Option<Vec<u8>>, KernelError>;
+/// How [`Store::read_disk_as`] reads a location: as the store loads it ([`read_location`])
+/// or as the base `save` and `accept_disk_as_base` compare against ([`read_base`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Read {
+    Load,
+    Base,
+}
 
 struct Asset {
     /// Bytes of the asset (a whole member, or the header table slice) as last read from or
@@ -875,6 +887,9 @@ pub struct Store {
     /// applies; loaded on the first text access and again whenever `state.json` changed
     /// since (a save, a build, a resolved conflict, see [`TextSync::is_current`]).
     text_sync: Mutex<Option<Arc<TextSync>>>,
+    /// The entity JSON of a text project ([`Location::Entity`]), opened on first use; never
+    /// outside a text project of the current schema.
+    source: Option<EntitySource>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -946,7 +961,47 @@ impl Store {
             placeholder_trainer: crate::scripts::trainer_script_meta(project.family)
                 .map(|meta| meta.seen_id()),
             text_sync: Mutex::new(None),
+            source: None,
             project,
+        }
+    }
+
+    /// The entity source of the project, opened on first use (see [`EntitySource::open`]).
+    /// A free function over the field, so the caller keeps the store's other fields.
+    fn source<'a>(
+        slot: &'a mut Option<EntitySource>,
+        project: &Project,
+    ) -> Result<&'a mut EntitySource, KernelError> {
+        if slot.is_none() {
+            *slot = Some(EntitySource::open(project)?);
+        }
+        slot.as_mut()
+            .ok_or_else(|| KernelError::InvalidProject("no entity source".to_owned()))
+    }
+
+    /// The bytes of `id` from its unit's JSON ([`Location::Entity`]); `None` without JSON.
+    /// Read as the base ([`Read::Base`]), a JSON that does not read is the raw bytes of the
+    /// unit's files: never the store's bytes, so `save` finds it changed (`Stale`) and
+    /// `accept_disk_as_base` can take it as a base the next save overwrites.
+    fn entity_bytes(
+        &mut self,
+        id: AssetId,
+        unit: &EntityUnit,
+        read: Read,
+    ) -> Result<Option<Vec<u8>>, KernelError> {
+        let project = Arc::clone(&self.project);
+        match (
+            Store::source(&mut self.source, &project)?.read(&project, id),
+            read,
+        ) {
+            (Err(KernelError::Compile(_)), Read::Base) => {
+                let mut raw = Vec::new();
+                for rel in &unit.sources {
+                    raw.extend(read_file(&project.root.join(rel))?.unwrap_or_default());
+                }
+                Ok(Some(raw))
+            }
+            (bytes, _) => bytes,
         }
     }
 
@@ -1014,21 +1069,26 @@ impl Store {
     /// exist (or `arm9.bin` is missing or too short for the header table slice, or a header
     /// file is missing). Read-only kinds are refused before anything is unpacked.
     fn read_disk(&mut self, id: AssetId) -> Result<(Location, Option<Vec<u8>>), KernelError> {
-        self.read_disk_as(id, read_location)
+        self.read_disk_as(id, Read::Load)
     }
 
-    /// [`Store::read_disk`] with the reader of `location` chosen by the caller.
+    /// [`Store::read_disk`] with the reader of `location` chosen by the caller; an asset of a
+    /// text project reads from its JSON ([`Store::entity_bytes`]).
     fn read_disk_as(
         &mut self,
         id: AssetId,
-        read: DiskReader,
+        read: Read,
     ) -> Result<(Location, Option<Vec<u8>>), KernelError> {
         if !Loaded::is_editable(id.kind) {
             return Err(KernelError::NotEditable(id.kind));
         }
         self.ensure_unpacked(id.kind)?;
         let location = self.project.asset_location(id.kind, id.index)?;
-        let bytes = read(&location, self.reading(id)?)?;
+        let bytes = match (&location, read) {
+            (Location::Entity { unit, .. }, read) => self.entity_bytes(id, unit, read)?,
+            (_, Read::Load) => read_location(&location, self.reading(id)?)?,
+            (_, Read::Base) => read_base(&location, self.reading(id)?)?,
+        };
         Ok((location, bytes))
     }
 
@@ -1052,6 +1112,15 @@ impl Store {
             (Location::MemberPair { props, party }, None) => {
                 let missing = if props.is_file() { party } else { props };
                 Err(io_at(&missing)(std::io::ErrorKind::NotFound.into()))
+            }
+            (Location::Entity { unit, .. }, None) => {
+                let json = unit
+                    .sources
+                    .first()
+                    .map_or(unit.key.as_str().into(), PathBuf::clone);
+                Err(io_at(&self.project.root.join(json))(
+                    std::io::ErrorKind::NotFound.into(),
+                ))
             }
         }
     }
@@ -1211,6 +1280,7 @@ impl Store {
         barrier: Option<&str>,
         f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
     ) -> Result<(T, ChangeId, bool), KernelError> {
+        self.project.editable()?;
         let mut tx = Tx {
             store: self,
             staged: Vec::new(),
@@ -1354,17 +1424,52 @@ impl Store {
 
     /// Writes `bytes` as a new member at the end of the archive of `kind` and returns its
     /// index. The archive is unpacked first; the file appears atomically and an existing file
-    /// is never overwritten. The new member is not part of the undo history.
+    /// is never overwritten. In a text project the new entity's JSON is written at once (see
+    /// [`Store::append_json`]). The new member is not part of the undo history.
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
+        let index = self.append_member_file(kind, bytes)?;
+        self.append_json(AssetId { kind, index }, |source, project| {
+            source.append(project, AssetId { kind, index })
+        })?;
+        Ok(index)
+    }
+
+    /// [`Store::append_member`] without the JSON: the member file alone.
+    fn append_member_file(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
         let (index, path) = self.next_member(kind)?;
         write_atomic(&self.project.root, &path, bytes)?;
         self.note_change(AssetId { kind, index });
         Ok(index)
     }
 
+    /// In a text project, writes the JSON of asset `id`, whose members were just appended,
+    /// with `write` (christening it at once) and records the unit's files for the sync;
+    /// nothing elsewhere. A failure leaves the member without JSON: [`KernelError::Partial`].
+    fn append_json(
+        &mut self,
+        id: AssetId,
+        write: impl FnOnce(&mut EntitySource, &Project) -> Result<SourceWrite, KernelError>,
+    ) -> Result<(), KernelError> {
+        let Location::Entity { .. } = self.project.asset_location(id.kind, id.index)? else {
+            return Ok(());
+        };
+        let project = Arc::clone(&self.project);
+        let written = Store::source(&mut self.source, &project)
+            .and_then(|source| write(source, &project))
+            .map_err(|e| {
+                KernelError::Partial(format!("{id} was written, its JSON was not: {e}"))
+            })?;
+        // The unit as it is now: its JSON exists.
+        if let Location::Entity { unit, .. } = project.asset_location(id.kind, id.index)? {
+            record_saved(&project, &[unit], &written);
+        }
+        Ok(())
+    }
+
     /// Index and path of the next member of the archive of `kind`, which is unpacked first.
-    /// Refuses a full archive and a path that is taken.
+    /// Refuses a full archive and a path that is taken, and a project that may not be edited.
     fn next_member(&mut self, kind: AssetKind) -> Result<(u16, PathBuf), KernelError> {
+        self.project.editable()?;
         self.ensure_unpacked(kind)?;
         let count = self.member_count(kind)?;
         // Map ids are stored in matrices, where 0xFFFF marks an empty cell.
@@ -1388,11 +1493,14 @@ impl Store {
     /// Writes a new trainer (its properties and its party member, see
     /// [`Location::MemberPair`]) at the end of both archives and returns its index. Both
     /// archives must end at the same index; when the party cannot be written, the new
-    /// properties file is removed again. Not undoable.
+    /// properties file is removed again. In a text project its JSON is written at once,
+    /// christened from its class and `name` (the name as typed, which the caller puts into
+    /// the unsaved name bank afterwards; `None`: from the name bank on disk). Not undoable.
     pub(crate) fn append_trainer(
         &mut self,
         props: &[u8],
         party: &[u8],
+        name: Option<&str>,
     ) -> Result<u16, KernelError> {
         let (index, _) = self.next_member(AssetKind::TrainerProperties)?;
         let (party_index, _) = self.next_member(AssetKind::TrainerParty)?;
@@ -1401,8 +1509,8 @@ impl Store {
                 "{index} trainer properties but {party_index} trainer parties"
             )));
         }
-        self.append_member(AssetKind::TrainerProperties, props)?;
-        if let Err(e) = self.append_member(AssetKind::TrainerParty, party) {
+        self.append_member_file(AssetKind::TrainerProperties, props)?;
+        if let Err(e) = self.append_member_file(AssetKind::TrainerParty, party) {
             // Best effort: the file was written a moment ago by this call.
             let _ = std::fs::remove_file(
                 self.project
@@ -1410,10 +1518,14 @@ impl Store {
             );
             return Err(e);
         }
-        self.note_change(AssetId {
+        let id = AssetId {
             kind: AssetKind::Trainer,
             index,
-        });
+        };
+        self.note_change(id);
+        self.append_json(id, |source, project| {
+            source.append_trainer(project, index, name)
+        })?;
         Ok(index)
     }
 
@@ -1554,10 +1666,11 @@ impl Store {
     /// in `arm9.bin` is no longer the one this store loaded (the patch would otherwise bake
     /// the old table over the newer one). A table that was not loaded yet is read fresh.
     pub fn apply_dynamic_headers(&mut self) -> Result<Option<PathBuf>, KernelError> {
+        self.project.editable()?;
         let lang = self.lang();
         let saved = match self.assets.get(&HEADER_TABLE) {
             Some(asset) => {
-                let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
+                let location = self.project.member_location(HEADER_TABLE.kind, 0)?;
                 let on_disk = read_location(&location, self.reading(HEADER_TABLE)?)?;
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(HEADER_TABLE));
@@ -1573,7 +1686,7 @@ impl Store {
         };
         let snapshot = dynamic_headers::apply(&self.project, &headers)?;
         if let Some(asset) = self.assets.get(&HEADER_TABLE) {
-            let location = self.project.asset_location(HEADER_TABLE.kind, 0)?;
+            let location = self.project.member_location(HEADER_TABLE.kind, 0)?;
             if read_location(&location, self.reading(HEADER_TABLE)?)? != asset.saved_bytes {
                 // Only a locked table (one the codec does not write back byte for byte, so
                 // it was never edited) reads differently from the files: read it anew.
@@ -1598,6 +1711,7 @@ impl Store {
         template: u16,
         internal_name: &str,
     ) -> Result<u16, KernelError> {
+        self.project.editable()?;
         if !self.dynamic_headers_applied()? {
             return Err(KernelError::InvalidProject(
                 "new headers need the Dynamic Headers patch, apply the patch first".to_owned(),
@@ -1609,6 +1723,14 @@ impl Store {
                 "internal name {internal_name:?} is not printable ASCII of at most \
                  {MAPNAME_RECORD} bytes"
             )));
+        }
+        let entity = matches!(
+            self.project.asset_location(HEADER_TABLE.kind, 0)?,
+            Location::Entity { .. }
+        );
+        if entity {
+            // The table as its JSON holds it, which the new header's JSON is written after.
+            self.load(HEADER_TABLE)?;
         }
         let count = self.project.header_count()?;
         if count >= MAX_HEADERS {
@@ -1687,6 +1809,16 @@ impl Store {
             }
         }
         self.note_change(HEADER_TABLE);
+        if entity {
+            let table = self
+                .assets
+                .get(&HEADER_TABLE)
+                .and_then(|a| a.saved_bytes.clone())
+                .ok_or(KernelError::Stale(HEADER_TABLE))?;
+            self.append_json(HEADER_TABLE, |source, project| {
+                source.write(project, &[(HEADER_TABLE, table)], &|_| None)
+            })?;
+        }
         Ok(id)
     }
 
@@ -2256,10 +2388,13 @@ impl Store {
         if !self.assets.contains_key(&id) {
             return Ok(());
         }
-        let base = match self.read_disk_as(id, read_base)? {
+        let base = match self.read_disk_as(id, Read::Base)? {
             (_, Some(bytes)) => Some(bytes),
             (
-                Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. },
+                Location::Member(_)
+                | Location::TextSource { .. }
+                | Location::MemberPair { .. }
+                | Location::Entity { .. },
                 None,
             ) => None,
             (Location::Slice { path, .. }, None) => {
@@ -2409,6 +2544,7 @@ impl Store {
     /// barrier (see [`Store::barrier_transaction`]) is [`KernelError::Refused`] with its
     /// reason, and nothing changes.
     pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        self.project.editable()?;
         if let Some(reason) = self.undo.last().and_then(|c| c.barrier.as_ref()) {
             return Err(KernelError::Refused(reason.clone()));
         }
@@ -2433,6 +2569,7 @@ impl Store {
     /// to redo. Errors as with [`Store::undo`]: a file changed since the undo drops the
     /// changeset, any other error keeps it on the redo stack.
     pub fn redo(&mut self) -> Result<Vec<AssetId>, KernelError> {
+        self.project.editable()?;
         let Some(change) = self.redo.pop() else {
             return Ok(Vec::new());
         };
@@ -2604,15 +2741,23 @@ impl Store {
     }
 
     /// Writes every dirty asset. First checks that each file (for the header table: its
-    /// slice of `arm9.bin`, or the concatenation of its header files) still holds the bytes
-    /// this store last saw; if any does not,
+    /// slice of `arm9.bin`, or the concatenation of its header files; in a text project: the
+    /// unit's JSON) still holds the bytes this store last saw; if any does not,
     /// returns [`KernelError::Stale`] and writes nothing. A dirty text archive whose JSON and
     /// member both changed since their last recorded sync ([`TextSide::Conflict`]) is
     /// [`KernelError::TextConflict`], again before anything is written. A header table save
     /// re-reads `arm9.bin` right before writing and replaces only the table's bytes in it, so
     /// changes made to the rest of the file meanwhile are kept.
+    ///
+    /// In a text project ([`Location::Entity`]) the JSON of every dirty unit is written first
+    /// ([`EntitySource::write`], other parts of a unit from the store); only when that
+    /// succeeded the members follow as the build's intermediate state (over whatever they hold
+    /// now), and then both are recorded for the sync ([`record_paths`]).
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
+        if !self.dirty().is_empty() {
+            self.project.editable()?;
+        }
         // A text archive whose JSON and member both changed since their last sync is not
         // overwritten: the user picks a version first (`text::resolve_conflict`).
         let sync = self.text_sync();
@@ -2629,9 +2774,9 @@ impl Store {
         }
         let mut pending = Vec::new();
         for id in self.dirty() {
-            let location = self.project.asset_location(id.kind, id.index)?;
-            // A text archive that no longer decodes differs from what was loaded: stale.
-            let on_disk = read_base(&location, self.reading(id)?)?;
+            // A text archive or entity JSON that no longer decodes differs from what was
+            // loaded: stale.
+            let (location, on_disk) = self.read_disk_as(id, Read::Base)?;
             if let Some(asset) = self.assets.get(&id) {
                 if on_disk != asset.saved_bytes {
                     return Err(KernelError::Stale(id));
@@ -2643,27 +2788,14 @@ impl Store {
             retargeted_scripts: self.retargeted_scripts()?,
             ..SaveReport::default()
         };
+        let (units, sources) = self.write_sources(&pending)?;
         for (id, location, bytes) in pending {
             match &location {
-                Location::Member(path) => write_atomic(&self.project.root, path, &bytes)?,
-                Location::MemberPair { props, party } => {
-                    write_pair(&self.project.root, props, party, &bytes)?;
-                }
-                Location::Slice { .. } => {
-                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
-                    write_slice(&self.project.root, id, &location, base, &bytes)?;
-                }
-                Location::HeaderFiles { dir, count } => {
-                    if bytes.len() != count * MAP_HEADER_SIZE {
-                        return Err(KernelError::InvalidProject(format!(
-                            "{id} is {} bytes, {count} header files in {} hold {}",
-                            bytes.len(),
-                            dir.display(),
-                            count * MAP_HEADER_SIZE
-                        )));
-                    }
-                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
-                    dynamic_headers::write_changed_files(&self.project.root, dir, base, &bytes)?;
+                Location::Entity { members, .. } => {
+                    // The members are the build's intermediate state: written over what they
+                    // hold now, not compared with the JSON's bytes the store saw.
+                    let now = read_location(members, self.reading(id)?)?;
+                    self.write_members(id, members, now.as_deref(), &bytes)?;
                 }
                 Location::TextSource { json, member } => {
                     let Some(Loaded::TextArchive(doc)) = self.assets.get(&id).map(|a| &a.current)
@@ -2673,6 +2805,10 @@ impl Store {
                     let problems = text::write_archive(&self.project.root, json, member, doc)?;
                     report.problems.extend(problems);
                 }
+                location => {
+                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.clone());
+                    self.write_members(id, location, base.as_deref(), &bytes)?;
+                }
             }
             if let Some(asset) = self.assets.get_mut(&id) {
                 asset.saved_bytes = Some(bytes);
@@ -2680,9 +2816,73 @@ impl Store {
             report.written.push(id);
             self.drop_text_index(id);
         }
+        record_saved(&self.project, &units, &sources);
         self.record_texts(&report.written);
         crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
+    }
+
+    /// Writes the JSON of the units of the text project's assets among `pending` (asset,
+    /// location, bytes to save) and returns those units, each once, with what the write did.
+    fn write_sources(
+        &mut self,
+        pending: &[(AssetId, Location, Vec<u8>)],
+    ) -> Result<(Vec<EntityUnit>, SourceWrite), KernelError> {
+        let mut units: Vec<EntityUnit> = Vec::new();
+        let mut writes = Vec::new();
+        for (id, location, bytes) in pending {
+            if let Location::Entity { unit, .. } = location {
+                if !units.iter().any(|u| u.key == unit.key) {
+                    units.push(unit.clone());
+                }
+                writes.push((*id, bytes.clone()));
+            }
+        }
+        if writes.is_empty() {
+            return Ok((units, SourceWrite::default()));
+        }
+        let family = self.project.family;
+        let project = Arc::clone(&self.project);
+        let assets = &self.assets;
+        // The other parts of a unit as the store holds them (unsaved values included).
+        let current = |id: AssetId| {
+            assets
+                .get(&id)
+                .and_then(|a| a.current.to_bytes(family).ok())
+        };
+        let written =
+            Store::source(&mut self.source, &project)?.write(&project, &writes, &current)?;
+        Ok((units, written))
+    }
+
+    /// Writes `bytes` of asset `id` to its member `location` (not a text archive, not an
+    /// entity); `base` is what the location is expected to hold (a slice of `arm9.bin` is
+    /// checked against it, the header files write only where they differ from it).
+    fn write_members(
+        &self,
+        id: AssetId,
+        location: &Location,
+        base: Option<&[u8]>,
+        bytes: &[u8],
+    ) -> Result<(), KernelError> {
+        let root = &self.project.root;
+        match location {
+            Location::Member(path) => write_atomic(root, path, bytes),
+            Location::MemberPair { props, party } => write_pair(root, props, party, bytes),
+            Location::Slice { .. } => write_slice(root, id, location, base, bytes),
+            Location::HeaderFiles { dir, count } => {
+                if bytes.len() != count * MAP_HEADER_SIZE {
+                    return Err(KernelError::InvalidProject(format!(
+                        "{id} is {} bytes, {count} header files in {} hold {}",
+                        bytes.len(),
+                        dir.display(),
+                        count * MAP_HEADER_SIZE
+                    )));
+                }
+                dynamic_headers::write_changed_files(root, dir, base, bytes)
+            }
+            Location::TextSource { .. } | Location::Entity { .. } => Err(mismatch(id)),
+        }
     }
 
     /// Script files of the headers whose script file or text archive differs from the saved
@@ -2729,9 +2929,29 @@ fn corrupt(change: Option<&mut Changeset>, part: usize) {
     }
 }
 
+/// Records the files of `units` (their sources and members) and what `written` wrote for the
+/// text project's sync. The record is a cache like the text archives' (see
+/// [`Store::record_texts`]): a file left unrecorded is compared by content next time and found
+/// in step, so an error here is not the save's.
+fn record_saved(project: &Project, units: &[EntityUnit], written: &SourceWrite) {
+    if units.is_empty() {
+        return;
+    }
+    let mut paths: Vec<PathBuf> = units
+        .iter()
+        .flat_map(|u| u.sources.iter().chain(&u.members).cloned())
+        .chain(written.sources.iter().cloned())
+        .chain(written.registers.iter().cloned())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    let _ = record_paths(project, &paths);
+}
+
 /// The bytes at `location`. `None`: the file does not exist (for header files: one of
 /// them), or (for a slice) it is too short to contain it. A text archive reads as its
-/// canonical JSON, see [`read_text_doc`].
+/// canonical JSON, see [`read_text_doc`]; an entity of a text project as its members (its
+/// JSON is read by the store's [`EntitySource`]).
 fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>>, KernelError> {
     let (path, slice) = match location {
         Location::Member(path) => (path, None),
@@ -2750,6 +2970,7 @@ fn read_location(location: &Location, reading: Reading) -> Result<Option<Vec<u8>
                 _ => None,
             });
         }
+        Location::Entity { members, .. } => return read_location(members, reading),
     };
     let Some(bytes) = read_file(path)? else {
         return Ok(None);
@@ -3073,6 +3294,9 @@ fn write_slice(
     file[range].copy_from_slice(new);
     write_atomic(project_root, path, &file)
 }
+
+#[cfg(all(test, feature = "test-support"))]
+mod textproject_tests;
 
 #[cfg(test)]
 mod tests {

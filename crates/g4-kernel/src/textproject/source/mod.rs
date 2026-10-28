@@ -116,6 +116,57 @@ fn stamps(project: &Project) -> Vec<(PathBuf, Stamp)> {
         .collect()
 }
 
+/// The unit of `id`: `data/species/0025.json` for Personal/Learnset/Evolution 25, the item
+/// member's files for an Item, `data/headers/` for HEADER_TABLE, …; `None` for kinds the
+/// text project does not model (text archives keep `Location::TextSource`).
+pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, KernelError> {
+    let Some(place) = place_of(project, id) else {
+        return Ok(None);
+    };
+    let root = &project.root;
+    let (sources, assets) = match place {
+        Place::Entity { art, index } => {
+            let assets = if art == Art::Trainers {
+                vec![AssetId {
+                    kind: AssetKind::Trainer,
+                    index,
+                }]
+            } else {
+                art.kinds()
+                    .iter()
+                    .map(|&kind| AssetId { kind, index })
+                    .collect()
+            };
+            (entity_sources(root, &art.dir(), u32::from(index))?, assets)
+        }
+        Place::Item { member } => {
+            let Some(ids) = item_ids(project, member).filter(|ids| !ids.is_empty()) else {
+                return Ok(None);
+            };
+            let mut sources = Vec::new();
+            for id in ids {
+                sources.extend(entity_sources(root, &Art::Items.dir(), id)?);
+            }
+            (sources, vec![id])
+        }
+        Place::Headers => {
+            let dir = Art::Headers.dir();
+            let sources = numbered(&root.join(&dir), "json")?
+                .into_iter()
+                .map(|n| dir.join(format!("{n:04}.json")))
+                .collect();
+            (sources, vec![HEADER_TABLE])
+        }
+        Place::Binary { kind, index } => (vec![binary_rel(kind, index)], vec![id]),
+    };
+    Ok(Some(EntityUnit {
+        key: place.key(),
+        sources,
+        members: place_members(project, place)?,
+        assets,
+    }))
+}
+
 /// The text project's entities of one project, read and written one unit at a time. Holds
 /// the symbols (read again when a register, the manifest or `mapname.bin` changes on disk),
 /// the base layer when there is one (never made), the `base_sha1` parts the JSON named when
@@ -131,6 +182,8 @@ pub struct EntitySource {
     /// Per binary unit key, the SHA-1 of the member when a read found no file under `data/`
     /// (the base's bytes then), for a write without base layer.
     binary_sha1: HashMap<String, String>,
+    /// Names of trainers not on disk yet, for their baptism (see [`EntitySource::append_trainer`]).
+    trainer_names: BTreeMap<u16, String>,
 }
 
 impl EntitySource {
@@ -151,6 +204,7 @@ impl EntitySource {
             layer: None,
             base_sha1: HashMap::new(),
             binary_sha1: HashMap::new(),
+            trainer_names: BTreeMap::new(),
         };
         source.refresh(project)?;
         Ok(source)
@@ -186,55 +240,9 @@ impl EntitySource {
         Ok(())
     }
 
-    /// The unit of `id`: `data/species/0025.json` for Personal/Learnset/Evolution 25, the item
-    /// member's files for an Item, `data/headers/` for HEADER_TABLE, …; `None` for kinds the
-    /// text project does not model (text archives keep `Location::TextSource`).
+    /// The unit of `id`, see [`unit_of`].
     pub fn unit(&self, project: &Project, id: AssetId) -> Result<Option<EntityUnit>, KernelError> {
-        let Some(place) = place_of(project, id) else {
-            return Ok(None);
-        };
-        let root = &project.root;
-        let (sources, assets) = match place {
-            Place::Entity { art, index } => {
-                let assets = if art == Art::Trainers {
-                    vec![AssetId {
-                        kind: AssetKind::Trainer,
-                        index,
-                    }]
-                } else {
-                    art.kinds()
-                        .iter()
-                        .map(|&kind| AssetId { kind, index })
-                        .collect()
-                };
-                (entity_sources(root, &art.dir(), u32::from(index))?, assets)
-            }
-            Place::Item { member } => {
-                let Some(ids) = item_ids(project, member).filter(|ids| !ids.is_empty()) else {
-                    return Ok(None);
-                };
-                let mut sources = Vec::new();
-                for id in ids {
-                    sources.extend(entity_sources(root, &Art::Items.dir(), id)?);
-                }
-                (sources, vec![id])
-            }
-            Place::Headers => {
-                let dir = Art::Headers.dir();
-                let sources = numbered(&root.join(&dir), "json")?
-                    .into_iter()
-                    .map(|n| dir.join(format!("{n:04}.json")))
-                    .collect();
-                (sources, vec![HEADER_TABLE])
-            }
-            Place::Binary { kind, index } => (vec![binary_rel(kind, index)], vec![id]),
-        };
-        Ok(Some(EntityUnit {
-            key: place.key(),
-            sources,
-            members: place_members(project, place)?,
-            assets,
-        }))
+        unit_of(project, id)
     }
 
     /// The asset's bytes from its JSON (the store's byte form); `None` when the JSON is missing.
@@ -425,6 +433,30 @@ impl EntitySource {
             KernelError::InvalidProject(format!("{id} ist nicht auf der Platte."))
         })?;
         self.write(project, &[(id, bytes)], &|_| None)
+    }
+
+    /// The JSON of trainer `index` appended just now, christened from `name` (as the user
+    /// typed it, without the name bank's wrapping) and its class instead of the name bank on
+    /// disk: the store writes the members at once, the name only lands in its text archive
+    /// with the next save. `None`: christened from the name bank like [`EntitySource::append`].
+    pub fn append_trainer(
+        &mut self,
+        project: &Project,
+        index: u16,
+        name: Option<&str>,
+    ) -> Result<SourceWrite, KernelError> {
+        if let Some(name) = name {
+            self.trainer_names.insert(index, name.to_owned());
+        }
+        let written = self.append(
+            project,
+            AssetId {
+                kind: AssetKind::Trainer,
+                index,
+            },
+        );
+        self.trainer_names.remove(&index);
+        written
     }
 }
 

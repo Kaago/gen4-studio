@@ -11,7 +11,7 @@ use crate::store::split_pair;
 use super::super::arts::{Art, file_names, numbered};
 use super::super::base_layer::{BaseLayer, part_of_members};
 use super::super::canon::{to_canonical, write_if_changed};
-use super::super::export::{baptize, entity_files, remove_if_empty};
+use super::super::export::{baptize_named, entity_files, remove_if_empty};
 use super::super::import::LazyBase;
 use super::super::part::{BasePart, PartKey, sha1_hex};
 use super::super::registry::{IDS_DIR, registry_file};
@@ -90,7 +90,7 @@ impl EntitySource {
     /// Christens the ids of every entity without one (as the full export does) and writes the
     /// registers that change.
     fn christen(&mut self, project: &Project, out: &mut SourceWrite) -> Result<(), KernelError> {
-        baptize(project, &mut self.symbols)?;
+        baptize_named(project, &mut self.symbols, &self.trainer_names)?;
         for kind in REGISTERS {
             if self.symbols.registry_mut(kind).save(&self.root)?
                 && let Some(file) = registry_file(kind)

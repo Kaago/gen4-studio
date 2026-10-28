@@ -249,7 +249,7 @@ fn write_of_one_header_rewrites_only_that_header_file() {
 
     // What a full export writes once arm9.bin has the table.
     let Location::Slice { path, offset, len } =
-        p.asset_location(AssetKind::HeaderTable, 0).unwrap()
+        p.member_location(AssetKind::HeaderTable, 0).unwrap()
     else {
         panic!("no slice");
     };
