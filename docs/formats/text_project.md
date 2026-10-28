@@ -286,8 +286,9 @@ ID → Nummer, Schlüssel sortiert, ohne eigenes Versionsfeld.
 ```
 
 Getauft wird beim Export in der Projektsprache: Header `MAP_` + interner Name aus `mapname.bin`,
-Trainer `TRAINER_` + Klasse und Name (ohne Namen `TRAINER_NNNN`), Klassen `TRAINER_CLASS_`, Orte
-`PLACE_` aus der Ortsnamen-Bank. Normalisierung: Markup weg, `♂/♀` → `_M/_F`, deutsche Umlaute nur
+Trainer `TRAINER_` + Klasse und Name (ohne Namen `TRAINER_NNNN`, auch wenn der Name allein
+normalisiert nichts ergibt, etwa `-`), Klassen `TRAINER_CLASS_`, Orte `PLACE_` aus der
+Ortsnamen-Bank. Normalisierung: Markup weg, `♂/♀` → `_M/_F`, deutsche Umlaute nur
 bei deutscher Projektsprache, Diakritika weg, Nicht-Alphanumerisches → `_`, groß; leer oder nur
 Ziffern → `PREFIX_NNNN`. Gleichstand in Nummernreihenfolge `_2`, `_3`, … (nächstes freies Suffix).
 Eingefroren: ein vorhandener Eintrag bleibt, auch wenn sich der Name ändert oder die Nummer

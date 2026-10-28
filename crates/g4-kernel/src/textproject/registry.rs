@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{KernelError, io_at};
 use crate::text::Problem;
 
-use super::canon::{json_problem, problem, to_canonical, write_if_changed};
+use super::canon::{parse_json, problem, to_canonical, write_if_changed};
 use super::locate::key_position;
 use super::manifest::SCHEMA_CODE;
 use super::symbols::{SymbolKind, fallback_id, normalize, parse_fallback, table};
@@ -81,8 +81,8 @@ impl Registry {
             }
             Err(e) => return Err(io_at(&path)(e)),
         };
-        let ids: BTreeMap<String, u32> = serde_json::from_slice(&bytes)
-            .map_err(|e| KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)]))?;
+        let ids: BTreeMap<String, u32> = parse_json(&rel, &bytes, SCHEMA_CODE)
+            .map_err(|problem| KernelError::Compile(vec![problem]))?;
         let mut problems = duplicate_keys(&rel, &bytes);
         let registry = Registry { kind, ids };
         problems.extend(registry.check(&rel, &bytes));
@@ -186,6 +186,17 @@ impl Registry {
             self.ids.insert(id, n);
         }
     }
+}
+
+/// The name a trainer is baptized by: the class and the own name (`PKMN TRAINER KAI`), or the
+/// name alone without a class; `None` ("ohne Namen", `TRAINER_NNNN`) when the own name
+/// normalizes to nothing (empty, only markup or punctuation, only digits), whatever its class.
+pub fn trainer_baptism_name(class: Option<&str>, name: &str, german: bool) -> Option<String> {
+    normalize(name, german)?;
+    Some(match class {
+        Some(class) => format!("{class} {name}"),
+        None => name.to_owned(),
+    })
 }
 
 /// A key that appears twice in the JSON object `bytes` (serde keeps the last one silently),
@@ -411,6 +422,51 @@ mod tests {
     }
 
     #[test]
+    fn a_trainer_whose_name_normalizes_to_nothing_is_unnamed() {
+        let classes = ["PKMN TRAINER", "Rocker"];
+        let raw = [
+            ("{TRAINER_NAME: -}", 0usize),
+            ("-", 0),
+            ("?", 1),
+            ("123", 0),
+            ("", 1),
+            ("{TRAINER_NAME:Kai}", 1),
+        ];
+        let labels: Vec<Option<String>> = raw
+            .iter()
+            .map(|&(name, class)| trainer_baptism_name(Some(classes[class]), name, true))
+            .collect();
+        let mut reg = Registry::new(SymbolKind::Trainer);
+        reg.baptize(&labels, true);
+        for n in 0..5 {
+            assert_eq!(
+                reg.id_of(n),
+                Some(fallback_id(SymbolKind::Trainer, n).as_str())
+            );
+        }
+        assert_eq!(reg.id_of(5), Some("TRAINER_ROCKER_KAI"));
+        assert_eq!(
+            trainer_baptism_name(None, "-", true),
+            None,
+            "without a class too"
+        );
+    }
+
+    #[test]
+    fn places_classes_and_maps_of_only_punctuation_get_the_fallback() {
+        for kind in [SymbolKind::Place, SymbolKind::TrainerClass, SymbolKind::Map] {
+            let mut reg = Registry::new(kind);
+            reg.baptize(
+                &names(&[Some("-"), Some("???"), Some("{PAUSE}"), Some("42")]),
+                true,
+            );
+            for n in 0..4 {
+                assert_eq!(reg.id_of(n), Some(fallback_id(kind, n).as_str()));
+            }
+        }
+    }
+
+    #[test]
     fn baptism_uses_the_project_language() {
         let mut reg = Registry::new(SymbolKind::Place);
         reg.baptize(&names(&[Some("Mühlental Süd")]), true);
@@ -480,7 +536,10 @@ mod tests {
         // A number out of range, a number given twice, a foreign prefix and a fallback of
         // another number are refused too, each with the file.
         for (text, needle) in [
-            ("{\"TRAINER_KAI\": -1}", "expected u32"),
+            (
+                "{\"TRAINER_KAI\": -1}",
+                "TRAINER_KAI: die Zahl -1 passt nicht in u32",
+            ),
             ("{\"TRAINER_KAI\": 1, \"TRAINER_UDO\": 1}", "TRAINER_UDO"),
             ("{\"MAP_T01\": 1}", "MAP_T01"),
             ("{\"TRAINER_0005\": 7}", "TRAINER_0005"),

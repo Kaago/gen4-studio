@@ -24,7 +24,7 @@ use crate::store::MAX_HEADERS;
 use crate::text::Problem;
 
 use super::super::DATA_DIR;
-use super::super::canon::{hex, json_problem, problem, to_canonical, unhex, write_if_changed};
+use super::super::canon::{hex, parse_json, problem, to_canonical, unhex, write_if_changed};
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{BasePart, PartKey};
 use super::super::registry::Symbols;
@@ -536,8 +536,7 @@ fn import_one<E: EntitySchema>(
     file: &Path,
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<Option<Vec<u8>>>, Problem> {
-    let e: E = serde_json::from_slice(bytes)
-        .map_err(|err| json_problem(file, bytes, &err, SCHEMA_CODE))?;
+    let e: E = parse_json(file, bytes, SCHEMA_CODE)?;
     e.import(index, ctx)
         .map_err(|message| coded_problem(file, &message))
 }

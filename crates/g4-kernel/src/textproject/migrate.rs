@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::canon::{json_problem, to_canonical, write_if_changed};
+use super::canon::{json_problem, parse_json_value, to_canonical, write_if_changed};
 use super::manifest::{Manifest, SCHEMA_CODE, SchemaState, refusal, schema_state};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 use crate::error::{KernelError, io_at};
@@ -152,8 +152,8 @@ fn current_manifest(tree: &Tree) -> Result<Manifest, KernelError> {
     if let Some(object) = value.as_object_mut() {
         object.insert("schemaVersion".to_owned(), Value::from(SCHEMA_VERSION));
     }
-    let mut manifest: Manifest = serde_json::from_value(value)
-        .map_err(|e| KernelError::Compile(vec![json_problem(rel, &[], &e, SCHEMA_CODE)]))?;
+    let mut manifest: Manifest = parse_json_value(rel, value, SCHEMA_CODE)
+        .map_err(|problem| KernelError::Compile(vec![problem]))?;
     manifest.schema_version = SCHEMA_VERSION;
     Ok(manifest)
 }

@@ -9,7 +9,7 @@ use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::canon::{json_problem, problem};
+use super::canon::{json_problem, parse_json, problem};
 use super::{MANIFEST_FILE, SCHEMA_VERSION};
 use crate::error::{KernelError, io_at};
 use crate::project::Project;
@@ -81,9 +81,8 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
     if let Some(text) = refusal(state) {
         return Err(KernelError::Refused(text));
     }
-    let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| {
-        KernelError::Compile(vec![json_problem(manifest_rel(), &bytes, &e, SCHEMA_CODE)])
-    })?;
+    let manifest: Manifest = parse_json(manifest_rel(), &bytes, SCHEMA_CODE)
+        .map_err(|problem| KernelError::Compile(vec![problem]))?;
     if manifest.format != FORMAT {
         return Err(KernelError::Compile(vec![problem(
             manifest_rel(),
@@ -147,14 +146,16 @@ fn version_of(bytes: &[u8]) -> Result<u32, Problem> {
         .find_map(|key| value.get(key).map(|v| (key, v)));
     let Some((key, version)) = found else {
         // serde names the misspelt or missing key with its position.
-        return Err(match serde_json::from_slice::<Manifest>(bytes) {
-            Err(e) => json_problem(manifest_rel(), bytes, &e, SCHEMA_CODE),
-            Ok(_) => problem(
-                manifest_rel(),
-                SCHEMA_CODE,
-                "Der Schlüssel `schemaVersion` fehlt.".to_owned(),
-            ),
-        });
+        return Err(
+            match parse_json::<Manifest>(manifest_rel(), bytes, SCHEMA_CODE) {
+                Err(problem) => problem,
+                Ok(_) => problem(
+                    manifest_rel(),
+                    SCHEMA_CODE,
+                    "Der Schlüssel `schemaVersion` fehlt.".to_owned(),
+                ),
+            },
+        );
     };
     version
         .as_u64()
@@ -245,7 +246,7 @@ mod tests {
         let p = &problems[0];
         assert!(
             p.message
-                .starts_with("textproject.schema: unknown field `plugin`"),
+                .starts_with("textproject.schema: plugin: unbekannter Schlüssel"),
             "{}",
             p.message
         );
