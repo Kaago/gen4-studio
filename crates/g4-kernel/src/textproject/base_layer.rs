@@ -762,6 +762,11 @@ pub(crate) fn keep_header_table(project: &Project, mut base: Vec<u8>, ours: &[u8
 /// table of the `arm9.bin` on disk spliced in ([`keep_header_table`]), so a blob never brings
 /// its own (stale) table; anything else, and `arm9.bin` without a table or without the file,
 /// as they are.
+///
+/// Without the file the blob's own table lands with it, stale or not, and that is safe: the
+/// table is the header unit's member, and a missing member is written by the header unit in
+/// the same operation (an import or a full build writes every member it finds missing), so
+/// the table is put right there. Nothing is lost because nothing was on disk to keep.
 pub(crate) fn with_disk_table<'a>(
     project: &Project,
     rel: &Path,
@@ -770,14 +775,17 @@ pub(crate) fn with_disk_table<'a>(
     if rel != arm9_rel() || header_slice(project).is_none() {
         return Ok(Cow::Borrowed(bytes));
     }
-    let Some(ours) = read_optional(&project.root.join(rel))? else {
-        return Ok(Cow::Borrowed(bytes));
-    };
-    Ok(Cow::Owned(keep_header_table(
-        project,
-        bytes.to_vec(),
-        &ours,
-    )))
+    let disk = read_optional(&project.root.join(rel))?;
+    Ok(splice_disk_table(project, bytes, disk.as_deref()))
+}
+
+/// [`with_disk_table`] of the `arm9.bin` blob `bytes` when the file on disk is `disk` (`None`:
+/// missing), for a caller that has read it already.
+fn splice_disk_table<'a>(project: &Project, bytes: &'a [u8], disk: Option<&[u8]>) -> Cow<'a, [u8]> {
+    match disk {
+        Some(ours) => Cow::Owned(keep_header_table(project, bytes.to_vec(), ours)),
+        None => Cow::Borrowed(bytes),
+    }
 }
 
 /// Whether the project's `arm9/arm9.bin` equals the base layer's outside the header table
@@ -912,8 +920,15 @@ pub(crate) fn raw_differs(
     rel: &Path,
     bytes: &[u8],
 ) -> Result<bool, KernelError> {
-    let bytes = &*with_disk_table(project, rel, bytes)?;
-    if read_optional(&project.root.join(rel))?.as_deref() != Some(bytes) {
+    // The file is read once: it is what the blob is compared with and, for `arm9.bin`, where
+    // the blob's header table comes from.
+    let disk = read_optional(&project.root.join(rel))?;
+    let bytes = &*if rel == arm9_rel() && header_slice(project).is_some() {
+        splice_disk_table(project, bytes, disk.as_deref())
+    } else {
+        Cow::Borrowed(bytes)
+    };
+    if disk.as_deref() != Some(bytes) {
         return Ok(true);
     }
     let Some(dir) = unpacked_folder_of(project, rel) else {
@@ -1212,6 +1227,26 @@ mod tests {
         back[PT_HEADER_TABLE_CPUE + 5] ^= 0xFF;
         std::fs::write(f.root().join(rel), &back).unwrap();
         assert!(same_outside_header_table(&project, layer).unwrap());
+    }
+
+    /// Without an `arm9.bin` on disk there is no table to keep: the blob lands as it is, with
+    /// its own table, and `raw_differs` says it differs.
+    #[test]
+    fn a_blob_of_arm9_without_the_file_is_placed_as_it_is() {
+        let f = Fixture::new();
+        let project = f.project();
+        let rel = Path::new("arm9/arm9.bin");
+        let mut blob = std::fs::read(f.root().join(rel)).unwrap();
+        blob[PT_HEADER_TABLE_CPUE + 5] ^= 0xFF;
+        std::fs::remove_file(f.root().join(rel)).unwrap();
+
+        let spliced = with_disk_table(&project, rel, &blob).unwrap();
+        assert!(matches!(spliced, Cow::Borrowed(_)));
+        assert_eq!(&*spliced, &blob[..]);
+        assert!(raw_differs(&project, rel, &blob).unwrap());
+        assert!(place_raw(&project, rel, &blob).unwrap());
+        assert_eq!(std::fs::read(f.root().join(rel)).unwrap(), blob);
+        assert!(!raw_differs(&project, rel, &blob).unwrap());
     }
 
     #[test]

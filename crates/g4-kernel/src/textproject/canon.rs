@@ -11,6 +11,7 @@ use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::text::{Problem, Severity};
 
+use super::arts::slash;
 use super::schema::ROOT;
 
 /// `value` as pretty JSON (two spaces, keys in the order the type or the map holds them),
@@ -132,7 +133,7 @@ fn located(
 ) -> Problem {
     Problem {
         severity: Severity::Error,
-        file: file.to_path_buf(),
+        file: slash(file),
         line: u32::try_from(err.line()).unwrap_or(u32::MAX).max(1),
         col: u32::try_from(utf16_column(source, err.line(), err.column()))
             .unwrap_or(u32::MAX)
@@ -399,10 +400,11 @@ fn utf16_column(source: &[u8], line: usize, column: usize) -> usize {
 }
 
 /// An error [`Problem`] of `file` without a position (line 1, column 1): `<code>: <message>`.
+/// The file is shown with `/` between its components on every platform.
 pub(crate) fn problem(file: &Path, code: &str, message: String) -> Problem {
     Problem {
         severity: Severity::Error,
-        file: file.to_path_buf(),
+        file: slash(file),
         line: 1,
         col: 1,
         message: format!("{code}: {message}"),
@@ -463,6 +465,21 @@ mod tests {
         assert_eq!(unhex("00AB").unwrap(), vec![0x00, 0xAB]);
         assert!(unhex("abc").unwrap_err().contains("ungerade"));
         assert!(unhex("zz").unwrap_err().contains("`z`"));
+    }
+
+    /// A problem's file is the path with `/` between its components, whatever the platform's
+    /// separator (an `a\\b` with `\\` is one component off Windows, so the check is on the
+    /// components).
+    #[test]
+    fn problem_files_are_slash_paths() {
+        let nested: PathBuf = ["data", "trainers", "0003.json"].iter().collect();
+        let err = serde_json::from_str::<serde_json::Value>("x").unwrap_err();
+        for file in [
+            problem(&nested, "c", String::new()).file,
+            json_problem(&nested, b"x", &err, "c").file,
+        ] {
+            assert_eq!(file.to_string_lossy(), "data/trainers/0003.json");
+        }
     }
 
     #[test]

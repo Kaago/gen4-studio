@@ -1,4 +1,5 @@
 schemaVersion 1
+symbolTables 6f38b9f6c8379b86
 species.id →SPECIES
 species.personal?.hp
 species.personal?.attack

@@ -295,7 +295,7 @@ fn broken(problems: Vec<Problem>) -> Result<Judged, KernelError> {
 fn plain(file: &Path, message: String) -> Problem {
     Problem {
         severity: Severity::Error,
-        file: file.to_path_buf(),
+        file: super::super::arts::slash(file),
         line: 1,
         col: 1,
         message,
@@ -366,14 +366,14 @@ impl Judge<'_> {
             let kept = unit.sources.iter().find(|s| self.exists(s));
             let message = match kept {
                 Some(source) => format!(
-                    "{} fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit der \
-                     Referenzsperre.",
+                    "{} fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit \
+                     Phase 3d.",
                     shown(gone),
                     shown(source),
                     what(&unit.of)
                 ),
                 None => format!(
-                    "{} fehlt; der Abgleich löscht {}, Löschen kommt mit der Referenzsperre.",
+                    "{} fehlt; der Abgleich löscht {}, Löschen kommt mit Phase 3d.",
                     shown(gone),
                     what(&unit.of)
                 ),
@@ -453,8 +453,8 @@ impl Judge<'_> {
             gone,
             MEMBER_WITHOUT_JSON_CODE,
             format!(
-                "die Datei fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit der \
-                 Referenzsperre.",
+                "die Datei fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit \
+                 Phase 3d.",
                 shown(member),
                 what(&unit.of)
             ),

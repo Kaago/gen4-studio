@@ -26,7 +26,7 @@ use crate::text::{Problem, Severity};
 
 use super::MANIFEST_FILE;
 use super::arts::{
-    ARTS, Art, Members, binary_name, file_names, member_rel, numbered, read_members,
+    ARTS, Art, Members, binary_name, file_names, member_rel, numbered, read_members, slash,
 };
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
@@ -134,13 +134,14 @@ impl ImportPlan {
     /// Every path the import would write, sorted: blobs, members, header files, the compile
     /// state.
     pub(crate) fn paths(&self) -> Vec<PathBuf> {
+        // `/` between the components on every platform: `differs` is shown and compared as is.
         let mut paths: Vec<PathBuf> = self
             .raw
             .iter()
             .chain(&self.writes)
-            .map(|w| w.path.clone())
-            .chain(self.header_paths.iter().cloned())
-            .chain(self.quirks_path.iter().cloned())
+            .map(|w| slash(&w.path))
+            .chain(self.header_paths.iter().map(|p| slash(p)))
+            .chain(self.quirks_path.iter().map(|p| slash(p)))
             .collect();
         paths.sort();
         paths.dedup();
@@ -348,7 +349,9 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 /// binary member with neither a file nor a base member is an error too
 /// (`textproject.member-without-json` when the member exists on disk, else
 /// `textproject.schema`); the scan for files and members beyond the requested ones is
-/// skipped.
+/// skipped. A member that is not planned is not read, so an unreadable one is no error of the
+/// plan (a full plan without a base layer included: a binary member without a file stays as
+/// it is, unread).
 pub(crate) fn plan_import(
     project: &Project,
     base: &dyn BasePart,
@@ -470,7 +473,7 @@ fn check_numbering(
                     MEMBER_WITHOUT_JSON_CODE,
                     format!(
                         "{ROOT}: die Datei fehlt, das Member {gap:04} ist da; der Import löscht \
-                         keine Member, Löschen ist 4.3b."
+                         keine Member, Löschen kommt mit Phase 3d."
                     ),
                 );
                 plan.push_orphan(found, file, members_of(gap));
@@ -491,11 +494,45 @@ fn check_numbering(
             MEMBER_WITHOUT_JSON_CODE,
             format!(
                 "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor {next:04}; der \
-                 Import löscht keine Member, Löschen ist 4.3b."
+                 Import löscht keine Member, Löschen kommt mit Phase 3d."
             ),
         );
         plan.push_orphan(found, file, (next..members).flat_map(members_of).collect());
     }
+}
+
+/// The error for the surplus members of a pair art `art` whose archives have `lens` members:
+/// those from the first number that is neither covered by a JSON (`next`: one past the last
+/// one) nor an entity (the shortest archive's length) to the longest archive's end; `None`
+/// when there are none. The file is the JSON the first of them lacks.
+pub(crate) fn surplus_problem(
+    project: &Project,
+    art: Art,
+    lens: &[usize],
+    next: usize,
+) -> Option<Problem> {
+    let shortest = lens.iter().copied().min()?;
+    let top = lens.iter().copied().max()?;
+    let from = next.max(shortest);
+    if from >= top {
+        return None;
+    }
+    let archives: Vec<String> = art
+        .kinds()
+        .iter()
+        .zip(lens)
+        .map(|(&kind, n)| format!("{} {n}", project.archives.unpacked_name(kind)))
+        .collect();
+    Some(problem(
+        &art.dir().join(format!("{from:04}.json")),
+        MEMBER_WITHOUT_JSON_CODE,
+        format!(
+            "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat kein \
+             Member einen Gegenpart und keine Datei; der Import löscht keine Member, Löschen \
+             kommt mit Phase 3d.",
+            archives.join(", ")
+        ),
+    ))
 }
 
 /// Whether entity `n` of folder `dir` is in the plan's scope: its JSON or a side file with
@@ -547,6 +584,21 @@ fn plan_entities<E: EntitySchema>(
             .collect()
     };
     check_numbering(&rel_dir, &numbers, members, &members_of, plan);
+    if art.is_pair() {
+        // The members only one archive has are no entity (the JSON of a trainer needs both):
+        // those no JSON covers are reported like any member without one.
+        let lens: Vec<usize> = current.iter().map(Members::len).collect();
+        let next = numbers.last().map_or(0, |n| n + 1);
+        if let Some(found) = surplus_problem(project, art, &lens, next) {
+            let from = next.max(members);
+            let top = lens.iter().copied().max().unwrap_or(0);
+            plan.push_orphan(
+                found,
+                rel_dir.join(format!("{from:04}.json")),
+                (from..top).flat_map(members_of).collect(),
+            );
+        }
+    }
     let names = file_names(&dir)?;
     // The next member each archive can append: the archive's length on disk, raised by every
     // part an imported entity appends. An entity that fails to import counts as appending all
@@ -612,7 +664,7 @@ fn plan_entities<E: EntitySchema>(
                         MEMBER_WITHOUT_JSON_CODE,
                         format!(
                             "{ROOT}: das Member {n:04} von {} fehlt in der Datei; der Import \
-                             löscht keine Member, Löschen ist 4.3b.",
+                             löscht keine Member, Löschen kommt mit Phase 3d.",
                             project.archives.unpacked_name(kind)
                         ),
                     ),
@@ -1007,8 +1059,8 @@ fn plan_binary(
                             MEMBER_WITHOUT_JSON_CODE,
                             format!(
                                 "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import löscht keine Member, Löschen ist \
-                                 4.3b."
+                                 der Basisschicht; der Import löscht keine Member, Löschen \
+                                 kommt mit Phase 3d."
                             ),
                         ),
                         file_of(i),
@@ -1044,8 +1096,8 @@ fn plan_binary(
                             MEMBER_WITHOUT_JSON_CODE,
                             format!(
                                 "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import löscht keine Member, Löschen ist \
-                                 4.3b."
+                                 der Basisschicht; der Import löscht keine Member, Löschen \
+                                 kommt mit Phase 3d."
                             ),
                         ),
                         file_of(i),
@@ -1579,6 +1631,81 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(members, own, "the members read");
+    }
+
+    /// 4.3a I3, the binary kinds: an incremental plan over the file of one binary member reads
+    /// that member alone (every other member on disk is unreadable here), and plans the file's
+    /// bytes for it.
+    #[cfg(unix)]
+    #[test]
+    fn an_incremental_plan_over_a_binary_member_file_reads_just_that_member() {
+        let (_s, p) = exported();
+        let file = "data/map_textures/0000.nsbtx";
+        let own: BTreeSet<PathBuf> = [p.root.join("unpacked/mapTextures/0000")].into();
+        let mut bytes = std::fs::read(own.iter().next().unwrap()).unwrap();
+        bytes.push(0xAB);
+        write_to(&p, file, &bytes);
+
+        chmod_files(&p.root.join("unpacked"), 0o000, &own);
+        let journal = Journal::start();
+        let (incremental, _) = plan(&p, Some(&[file]));
+        let notes = journal.finish();
+        chmod_files(&p.root.join("unpacked"), 0o644, &BTreeSet::new());
+        assert!(
+            incremental.problems.is_empty(),
+            "{:?}",
+            incremental.problems
+        );
+        assert_eq!(incremental.paths(), paths(&["unpacked/mapTextures/0000"]));
+        assert_eq!(incremental.writes[0].bytes, bytes);
+        let members: BTreeSet<PathBuf> = notes
+            .keys()
+            .filter(|path| path.starts_with(p.root.join("unpacked")))
+            .cloned()
+            .collect();
+        assert_eq!(members, own, "the members read");
+    }
+
+    /// A base that deletes a member file when it is asked for bytes: the member is listed
+    /// (it was there when the plan took its numbers) and gone when the plan reads it.
+    struct Vanishing<'a> {
+        inner: &'a dyn BasePart,
+        member: PathBuf,
+    }
+
+    impl BasePart for Vanishing<'_> {
+        fn base_bytes(&self, which: PartKey) -> Result<Option<Vec<u8>>, KernelError> {
+            std::fs::remove_file(&self.member).unwrap();
+            self.inner.base_bytes(which)
+        }
+
+        fn available(&self) -> Result<bool, KernelError> {
+            self.inner.available()
+        }
+    }
+
+    /// A member that vanishes between the listing and the read fails the plan; it is neither
+    /// read as "not there" (a stale plan that writes the base member over it) nor skipped.
+    #[test]
+    fn a_member_vanishing_between_listing_and_read_fails_the_plan() {
+        let (_s, p) = exported();
+        let member = p.root.join("unpacked/mapTextures/0000");
+        let lazy = LazyBase::new(&p, None, false);
+        let base = Vanishing {
+            inner: &lazy,
+            member: member.clone(),
+        };
+        // No file for member 0: its bytes come from the base, which removes the member first.
+        let only: BTreeSet<PathBuf> = [PathBuf::from("data/map_textures/0000.nsbtx")].into();
+        let result = plan_import(&p, &base, Some(&only));
+        assert!(!member.exists(), "the member vanished");
+        match result {
+            Err(KernelError::IoAt { path, source }) => {
+                assert_eq!(path, member);
+                assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+            }
+            other => panic!("expected the failed read, got {other:?}"),
+        }
     }
 
     #[test]

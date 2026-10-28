@@ -21,13 +21,14 @@ use crate::places::location_bank;
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{MarkState, mark_state};
-use crate::text::{self, Problem};
+use crate::text::{self, Problem, Severity};
 
 use super::MANIFEST_FILE;
-use super::arts::{ARTS, Art, archive_texts, bank_texts, file_names, read_members};
+use super::arts::{ARTS, Art, Members, archive_texts, bank_texts, file_names, read_members};
 use super::base_layer::{BaseLayer, ENTITY_KINDS, RAW_DIR, raw_diff, walk};
 use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
+use super::import::surplus_problem;
 use super::manifest::{Manifest, SchemaState, manifest_for, read_manifest, refusal, schema_state};
 use super::quirks::{quirks_from_state, write_quirks};
 use super::registry::{IDS_DIR, Symbols, registry_file, trainer_baptism_name};
@@ -353,6 +354,9 @@ fn export_with(
             step(ExportStep::Arts, done, arts);
             continue;
         };
+        if art.is_pair() {
+            report.problems.extend(surplus_warning(project, art)?);
+        }
         let mut stats = write_folder(root, &art.dir(), &files)?;
         stats.art = art.name().to_owned();
         stats.entities = files.entities;
@@ -386,6 +390,24 @@ fn export_with(
         report.bytes += std::fs::metadata(&path).map_err(io_at(&path))?.len();
     }
     Ok(())
+}
+
+/// The warning for the members only one archive of the pair art `art` has (nothing exports
+/// them; the import reports them as an error): none when the archives are of one length.
+fn surplus_warning(project: &Project, art: Art) -> Result<Option<Problem>, KernelError> {
+    let lens: Vec<usize> = art
+        .kinds()
+        .iter()
+        .map(|&k| Members::list(project, k).map(|m| m.len()))
+        .collect::<Result<_, _>>()?;
+    // The export writes a file for every number below the shortest archive's length.
+    let next = lens.iter().copied().min().unwrap_or(0);
+    Ok(
+        surplus_problem(project, art, &lens, next).map(|found| Problem {
+            severity: Severity::Warning,
+            ..found
+        }),
+    )
 }
 
 /// Text JSON where it is missing or the member applies (4.2's loader rule), and the counts.

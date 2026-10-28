@@ -65,7 +65,7 @@ use crate::text::{Problem, Severity};
 
 use super::arts::read_members;
 use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
-use super::base_layer::{BaseLayer, RAW_DIR, same_outside_header_table, walk};
+use super::base_layer::{BaseLayer, RAW_DIR, arm9_rel, same_outside_header_table, walk};
 use super::canon::{problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
@@ -428,7 +428,7 @@ impl Base<'_> {
         let Some(layer) = &self.layer else {
             return Ok(false);
         };
-        if rel == relative(self.project, &self.project.arm9_path()) {
+        if rel == arm9_rel() {
             if !table {
                 return same_outside_header_table(self.project, layer);
             }
@@ -1181,7 +1181,7 @@ pub(crate) fn import_refusal(p: &Project) -> Result<Option<String>, KernelError>
 /// `textproject.member-without-json`: a full run cannot tell where they came from
 /// (`textproject.unsynced`); an incremental run keeps one whose member changed or was kept
 /// before (appended by Studio or DSPRE: `textproject.member-newer`, a warning, its members go
-/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 4.3b).
+/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 3d).
 fn judge_orphans(
     plan: &mut ImportPlan,
     full: bool,
@@ -1199,8 +1199,9 @@ fn judge_orphans(
                 &orphan.file,
                 UNSYNCED_CODE,
                 format!(
-                    "{} weicht von {json} und von der Basis ab; g4k text import (JSON gilt) \
-                     oder g4k text export (Member gilt).",
+                    "{} hat keine {json} und fehlt in der Basis; g4k text export legt sie an \
+                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht \
+                     keine Member).",
                     shown(&member)
                 ),
             );
@@ -1211,8 +1212,8 @@ fn judge_orphans(
                     &orphan.file,
                     MEMBER_NEWER_CODE,
                     format!(
-                        "{} ist neuer als {json}; g4k text export übernimmt ihn, g4k text \
-                         import verwirft ihn.",
+                        "{} hat noch keine {json}; g4k text export legt sie an, g4k text \
+                         import lehnt das Member ab (der Import löscht keine Member).",
                         shown(member)
                     ),
                 )

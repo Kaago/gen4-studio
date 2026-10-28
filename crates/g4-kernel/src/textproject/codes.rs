@@ -22,7 +22,7 @@ pub(crate) const MAP_SOURCE_CODE: &str = "textproject.map-source";
 /// A number of headers the project cannot take (without the Dynamic Headers patch any
 /// change, with it more than the most), a gap or a duplicate number.
 pub(crate) const HEADER_COUNT_CODE: &str = "textproject.header-count";
-/// A member (or header) without its JSON: the import never deletes, that is 4.3b.
+/// A member (or header) without its JSON: the import never deletes, that is 3d.
 pub(crate) const MEMBER_WITHOUT_JSON_CODE: &str = "textproject.member-without-json";
 /// The header table cannot be located or read.
 pub(crate) const HEADER_TABLE_CODE: &str = "textproject.header-table";

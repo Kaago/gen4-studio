@@ -295,6 +295,17 @@ Eingefroren: ein vorhandener Eintrag bleibt, auch wenn sich der Name ändert ode
 verschwindet (`textproject.id-dangling`). Ein Register darf keine ID doppelt nennen, keine Nummer
 doppelt vergeben und keine fremde Fallback-ID tragen (`textproject.schema` an der Stelle der ID).
 
+**Eine Entität von Hand anhängen.** Eine neue Entität hat eine Nummer, die kein Member und kein
+Registereintrag kennt; ihre JSON (`data/<art>/NNNN.json`, die Nummer gleich der Länge der Archive,
+lückenlos) trägt deshalb die **Fallback-ID** `PREFIX_NNNN` (`MOVE_0004`, `TRAINER_0054`,
+`MAP_0161`; vier Stellen), denn `id` muss die ID der Nummer sein (`textproject.id-mismatch`), und
+eine andere gibt es noch nicht. Der Import legt den Member an und trägt die Fallback-ID nicht ins
+Register ein (ein Register darf keine fremde Fallback-ID tragen). Getauft wird erst beim nächsten
+Export oder beim Speichern im Studio: dann bekommt die Entität ihre ID nach den Regeln oben
+(Trainer aus Klasse und Name, Header aus dem internen Namen), das Register wird geschrieben und
+die JSON trägt die neue ID. Arten mit fester Tabelle (Spezies, Attacken, Items) behalten die
+Fallback-ID. Eine ID von Hand zu wählen geht nur über „ID umbenennen“.
+
 ## Basisschicht und Blobs
 
 Die Basisschicht ist die Basis-ROM (aus `.g4/base.json`) mit `extract_rom` entpackt, jedes Archiv in
@@ -309,9 +320,10 @@ gepackten NARCs aller Archive mit `unpacked/`-Ordner (Build-Ausgabe) und Ordnern
 die der Build nicht packt (nur genannt, `not_built`). `arm9/arm9.bin` wird mit ausgeblendeter
 Header-Tabelle verglichen, YAML nach ihrem Wert. Der Import legt jeden Blob an seinen Pfad; ein Blob
 von `arm9/arm9.bin` behält dabei die Header-Tabelle der Datei (sie gehört den Header-Dateien), und er
-weicht nur ab, wo er außerhalb der Tabelle anders ist. Ein Blob
-außerhalb dieses Bereichs, an einem Pfad einer Entität oder als NARC einer Entitätsart ist
-`textproject.raw-path`. Ein vanilla DSPRE-Ordner hat keinen Blob.
+weicht nur ab, wo er außerhalb der Tabelle anders ist (fehlt die Datei, kommt der Blob mit seiner
+eigenen Tabelle, die die Header-Einheit im selben Vorgang schreibt). Ein Blob außerhalb dieses
+Bereichs, an einem Pfad einer Entität oder als NARC einer Entitätsart ist `textproject.raw-path`.
+Ein vanilla DSPRE-Ordner hat keinen Blob.
 
 ## rotom-Quirks
 
@@ -351,8 +363,11 @@ erste Datei schreibt; ein Fehler und nichts wird geschrieben, alle Probleme komm
 Spalte (UTF-16) und dem JSON-Pfad des Feldes (`textproject.schema: data.powr: …`). Dann: Blobs,
 Member je Art (Archiv vorher entpackt), Header zuletzt, Quirks in den Compile-Zustand, danach
 `build::prepare` (Scripts kompilieren, Texte kodieren). Ein Member jenseits der letzten JSON seiner
-Art ist `textproject.member-without-json` (Löschen kommt mit 4.3b); neue Entitäten werden angehängt,
-nur lückenlos. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht und ohne Basis-ROM
+Art ist `textproject.member-without-json` (Löschen kommt mit Phase 3d); neue Entitäten werden angehängt,
+nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
+Member, das nur eins der beiden hat (DSPRE ließ ein Archiv länger), dazu: Ab der ersten Nummer, die
+weder eine JSON deckt noch beide Archive haben, meldet der Import `member-without-json`; der Export
+schreibt keine JSON dafür und warnt mit demselben Code. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht und ohne Basis-ROM
 bleiben sie, wie sie sind (`textproject.base-unchecked`, eine Warnung). Lässt sich die Basisschicht nicht
 lesen oder aus der gegebenen Basis-ROM nicht anlegen, ist das `textproject.base-missing` (ein Fehler).
 
@@ -461,16 +476,21 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | Lauf | JSON-Seite geändert | Member-Seite geändert | Wirkung |
 |---|---|---|---|
 | inkrementell | ja | nein | Member schreiben |
-| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` |
+| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` (für ein Member ganz ohne JSON siehe unten) |
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
-| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` (für ein Member ganz ohne JSON siehe unten) |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
 andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
 behalten hat, also urteilt er über die Basisschicht. Ein Member ohne JSON (von Studio oder DSPRE
 angehängt, oder ein Teil, der in der JSON fehlt) ist inkrementell `member-newer`, wenn sich sein
 Member geändert hat oder schon behalten war, voll `unsynced`, sonst das
-`textproject.member-without-json` des Imports.
+`textproject.member-without-json` des Imports. Beide Sätze nennen für ein solches Member den
+richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht keine
+Member): inkrementell `<member> hat noch keine <json>; g4k text export legt sie an, g4k text import
+lehnt das Member ab (der Import löscht keine Member).`, voll `<member> hat keine <json> und fehlt in
+der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der
+Import löscht keine Member).`
 
 Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
 Register plant alle Einheiten und gilt für jede abweichende als JSON-Änderung; eine abweichende
@@ -585,7 +605,7 @@ Ohne `sync` (erster Abgleich) gelten beide Seiten als geändert: Gleiche Einheit
 aufgezeichnet, abweichende sind Konflikte. Eine Einheit mit Membern und ganz ohne JSON (ein von
 DSPRE angehängter Member) ist aus DSPRE, eine mit JSON und ohne Member aus Datei. Ein seit der
 Aufzeichnung gelöschter Member oder eine gelöschte JSON, deren Member bleibt, ist fehlerhaft: Der
-Abgleich löscht keine Entität, Löschen kommt mit der Referenzsperre. Ein gelöschter Blob unter
+Abgleich löscht keine Entität, Löschen kommt mit Phase 3d (Referenzsperre). Ein gelöschter Blob unter
 `data/raw/` setzt die Datei auf die Fassung der Basisschicht zurück (ohne Schicht fehlerhaft).
 
 **Übernahme.** Aus DSPRE: Entitäten, Items, Header (mit den internen Namen aus `mapname.bin`) und
@@ -927,7 +947,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.base-mismatch` | Fehler | die Basisschicht hat für den Teil andere Bytes |
 | `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
-| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON; der Import löscht nicht |
+| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nicht, Löschen kommt mit Phase 3d. Der Export warnt bei dem überzähligen Member mit demselben Code |
 | `textproject.header-table` | Fehler | die Header-Tabelle ist nicht lesbar oder nicht zu finden |
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |

@@ -39,7 +39,7 @@ pub(crate) use super::super::codes::HEADER_COUNT_CODE;
 /// `mapname.bin`, …).
 pub(crate) use super::super::codes::HEADER_TABLE_CODE;
 /// A member (here: a header) the import would have to delete because no JSON names it;
-/// deleting is 4.3b.
+/// deleting is 3d.
 pub(crate) use super::super::codes::MEMBER_WITHOUT_JSON_CODE;
 /// The folder of the header files under `data/`.
 pub(crate) const HEADERS_ART: &str = "headers";
@@ -608,7 +608,7 @@ pub(crate) fn import_headers(
                     format!(
                         "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
                          Einträge, data/headers {count} Dateien); der Import entfernt keine \
-                         Header, Löschen ist 4.3b."
+                         Header, Löschen kommt mit Phase 3d."
                     ),
                 ));
             } else if dynamic && count > MAX_HEADERS {
@@ -666,7 +666,7 @@ pub(crate) fn import_headers(
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
 /// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
 /// `unpacked/dynamicHeaders` is created with every header file, and a table shorter than
-/// `mapname.bin` is refused (deleting headers is 4.3b); without it the table must have the
+/// `mapname.bin` is refused (deleting headers is 3d); without it the table must have the
 /// length of the slice in `arm9.bin`.
 pub(crate) fn write_headers(
     project: &Project,
@@ -690,7 +690,7 @@ pub(crate) fn write_headers(
         if count < old {
             return Err(KernelError::InvalidProject(format!(
                 "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import \
-                 entfernt keine Header, Löschen ist 4.3b."
+                 entfernt keine Header, Löschen kommt mit Phase 3d."
             )));
         }
         let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
@@ -1089,7 +1089,7 @@ mod project_tests {
             arm9
         );
 
-        // Back to two is refused: deleting a header is 4.3b, and nothing is written.
+        // Back to two is refused: deleting a header is 3d, and nothing is written.
         let three = import_headers(&project, &files, &sym).unwrap();
         files.pop();
         let problems = import_headers(&project, &files, &sym).unwrap_err();
@@ -1103,7 +1103,7 @@ mod project_tests {
             problems[0].message
         );
         assert!(
-            problems[0].message.ends_with("Löschen ist 4.3b."),
+            problems[0].message.ends_with("Löschen kommt mit Phase 3d."),
             "{}",
             problems[0].message
         );
@@ -1161,7 +1161,7 @@ mod project_tests {
             if patched {
                 assert!(
                     message.starts_with("textproject.member-without-json: $: ")
-                        && message.ends_with("Löschen ist 4.3b."),
+                        && message.ends_with("Löschen kommt mit Phase 3d."),
                     "{message}"
                 );
             } else {

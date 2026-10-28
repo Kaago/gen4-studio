@@ -449,11 +449,81 @@ fn import_refuses_members_without_json() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert_eq!(problems[0].file, Path::new("data/moves/0003.json"));
     assert!(
-        problems[0].message.contains("4.3b"),
+        problems[0].message.contains("Phase 3d"),
         "{}",
         problems[0].message
     );
     assert_eq!(fx.mtimes(), before);
+}
+
+/// A trainer has a properties member and a party member; one that only one archive has (DSPRE
+/// left one archive longer) is no entity, so no JSON names it: the import reports it as
+/// `member-without-json` at the first number no file covers, and the export warns the same.
+#[test]
+fn a_surplus_trainer_member_is_reported_by_import_check_and_export() {
+    let fx = Fx::new();
+    fx.export();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    fx.write("unpacked/trainerProperties/0003", &props);
+    fx.write("unpacked/trainerProperties/0004", &props);
+    let before = fx.mtimes();
+
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert_eq!(problems[0].file, Path::new("data/trainers/0003.json"));
+    assert!(
+        problems[0].message.ends_with("Löschen kommt mit Phase 3d."),
+        "{}",
+        problems[0].message
+    );
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(
+        codes(&report.problems),
+        ["textproject.member-without-json"],
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(fx.mtimes(), before);
+
+    // The export writes the three trainers and warns about the surplus; nothing is deleted.
+    let exported = fx.export();
+    let warnings: Vec<&Problem> = exported
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-without-json"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{:?}", exported.problems);
+    assert_eq!(warnings[0].severity, Severity::Warning);
+    assert_eq!(warnings[0].file, Path::new("data/trainers/0003.json"));
+    assert!(!fx.exists("data/trainers/0003.json"));
+    assert!(fx.exists("unpacked/trainerProperties/0004"));
+}
+
+/// `differs` and every `Problem.file` name a nested path with `/` on every platform, never
+/// with the platform's separator.
+#[test]
+fn paths_in_check_reports_use_slashes() {
+    let fx = Fx::new();
+    fx.export();
+    fx.edit("data/moves/0002.json", "\"power\": 20", "\"power\": 99");
+    fx.write("data/moves/0001.json", b"{ nope");
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(report.differs, [Path::new("unpacked/moveData/0002")]);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert_eq!(report.problems[0].file, Path::new("data/moves/0001.json"));
+    for path in report
+        .differs
+        .iter()
+        .chain(report.problems.iter().map(|p| &p.file))
+    {
+        let text = path.to_string_lossy();
+        assert!(text.contains('/') && !text.contains('\\'), "{text}");
+        assert_eq!(
+            path.components().count(),
+            text.split('/').count(),
+            "{text}: one component per `/`"
+        );
+    }
 }
 
 /// Map 2 of the fixture with a model of 100 bytes (`fill`), so its part is a `base_sha1`.
@@ -1148,8 +1218,9 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(found[0].severity, Severity::Warning);
     assert_eq!(
         found[0].message,
-        "textproject.member-newer: unpacked/moveData/0004 ist neuer als data/moves/0004.json; \
-         g4k text export übernimmt ihn, g4k text import verwirft ihn."
+        "textproject.member-newer: unpacked/moveData/0004 hat noch keine data/moves/0004.json; \
+         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht \
+         keine Member)."
     );
     assert_eq!(fx.read("unpacked/moveData/0004"), appended);
 
@@ -1160,14 +1231,19 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
     assert_eq!(
         problems[0].message,
-        "textproject.unsynced: unpacked/moveData/0004 weicht von data/moves/0004.json und von \
-         der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt)."
+        "textproject.unsynced: unpacked/moveData/0004 hat keine data/moves/0004.json und fehlt \
+         in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das \
+         Member ab (der Import löscht keine Member)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 
     // The import keeps its own rule.
     let problems = compile_problems(import(&fx.p(), None));
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+
+    // The way out the sentences name: the export makes the JSON.
+    fx.export();
+    assert!(fx.exists("data/moves/0004.json"));
 }
 
 #[test]

@@ -292,13 +292,53 @@ fn a_member_deleted_by_dspre_is_broken() {
     assert_eq!(unit.side, UnitSide::Broken);
     assert!(unit.label.starts_with("Attacke 0003"), "{}", unit.label);
     assert!(
-        unit.problems[0].message.contains("löscht"),
+        unit.problems[0]
+            .message
+            .ends_with("löscht keine Entität, Löschen kommt mit Phase 3d."),
         "{:?}",
         unit.problems
     );
     let before = tree(&fx);
     apply_of(&fx, &report);
     assert_eq!(tree(&fx), before);
+}
+
+/// The import brings a deleted trailing binary member back from the base layer; the sync
+/// does not: it reports the deletion as broken, with the sentence of the import (deleting is
+/// 3d), and writes nothing.
+#[test]
+fn a_trailing_binary_member_deleted_by_dspre_is_broken_with_the_import_sentence() {
+    let fx = recorded();
+    let dir = fx.root().join("unpacked/mapTextures");
+    let mut members: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    members.sort();
+    let last = members.pop().expect("a map texture member");
+    std::fs::remove_file(dir.join(&last)).unwrap();
+    let report = scan_of(&fx);
+    assert_eq!(report.units.len(), 1, "{:?}", report.units);
+    let unit = &report.units[0];
+    assert_eq!(unit.side, UnitSide::Broken);
+    let found = &unit.problems[0];
+    assert_eq!(
+        found.file,
+        Path::new(&format!("unpacked/mapTextures/{last}"))
+    );
+    assert!(
+        found
+            .message
+            .contains(&format!("unpacked/mapTextures/{last} fehlt"))
+            && found
+                .message
+                .ends_with("der Abgleich löscht keine Datei, Löschen kommt mit Phase 3d."),
+        "{found:?}"
+    );
+    let before = tree(&fx);
+    let applied = apply_of(&fx, &report);
+    assert!(applied.written.is_empty());
+    assert_eq!(tree(&fx), before, "the deleted member is not brought back");
 }
 
 #[test]
