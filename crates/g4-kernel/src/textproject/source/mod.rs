@@ -438,7 +438,10 @@ impl EntitySource {
             return Ok(out);
         }
         if !out.registers.is_empty() {
-            out.include = write_include(project)?;
+            // The JSON and the register are written: a failure on rotom's side (its
+            // configuration, a constant file it cannot read) does not fail the save; the next
+            // compile writes the id files and reports why.
+            out.include = write_include(project).unwrap_or(false);
         }
         forget_kept(&self.root, &members)?;
         out.sources.sort();

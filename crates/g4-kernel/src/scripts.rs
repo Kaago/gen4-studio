@@ -1399,7 +1399,7 @@ fn decompile_text(project: &Project, bytes: &[u8]) -> Result<Option<Decompiled>,
             &config,
             db,
             Some(&ids),
-            project_compile::IdFiles::Skip,
+            project_compile::IdFileUse::Skip,
         )
     })??;
     // rotom v0.7.0: src/lib.rs decompile_file_from_ir, the quirks

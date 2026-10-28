@@ -331,3 +331,43 @@ fn a_source_using_only_rotoms_names_needs_no_id_file() {
         "still a rotom source"
     );
 }
+
+#[test]
+fn a_broken_register_still_gives_the_check_report() {
+    let fx = TextFixture::exported();
+    fx.write(TRAINER_REGISTER, b"{\"TRAINER_YOUNGSTER_KAI\": ");
+    let report = crate::textproject::check(&fx.project()).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.file == Path::new(TRAINER_REGISTER) && p.severity == Severity::Error),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn a_name_in_two_constant_files_resolves_as_in_rotom() {
+    // rotom v0.7.0 ConstantDb::load_directory takes the files in directory order; the kernel
+    // must not reorder them, or a name in two files means another number than in
+    // `rotom compile`.
+    let fx = TextFixture::exported();
+    for (name, n) in [
+        ("b_mine", 6),
+        ("a_mine", 5),
+        ("c_mine", 7),
+        ("zz", 9),
+        ("m", 8),
+    ] {
+        fx.write(
+            &format!("{DIR}/{name}.json"),
+            format!("{{\"{n}\": \"MY_TWICE\"}}").as_bytes(),
+        );
+    }
+    let p = fx.project();
+    let kernel = scripts::base_constants(&p, true).unwrap().get("MY_TWICE");
+    let config = rotom::project_config::load_config(fx.root()).unwrap();
+    let context = rotom::ProjectContext::load_tolerant(fx.root(), &config).unwrap();
+    assert_eq!(kernel, context.project_constants().get("MY_TWICE"));
+}

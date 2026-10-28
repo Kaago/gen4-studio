@@ -162,9 +162,13 @@ fn hint(file: &Path, code: &str, severity: Severity, message: String) -> Problem
 }
 
 /// The ids left out of the id files for rotom ([`include`](super::include)), one warning each:
-/// at the id's key in its register, or at the id file of a kind with a fixed table.
+/// at the id's key in its register, or at the id file of a kind with a fixed table. None when
+/// the id files cannot be made (a broken register is the import plan's problem to report, a
+/// constant folder rotom cannot read the compile's).
 fn shadowed(project: &Project) -> Result<Vec<Problem>, KernelError> {
-    let files = super::include::id_files(project)?;
+    let Ok(files) = super::include::id_files(project) else {
+        return Ok(Vec::new());
+    };
     let mut out = Vec::new();
     for id in files.shadowed {
         let why = match (id.rotom, id.other) {

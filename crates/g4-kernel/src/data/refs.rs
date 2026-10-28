@@ -37,7 +37,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use g4_formats::data::encounter::{DualSlot, Encounters, Method};
 use g4_formats::data::evolution::{EVO_ENTRIES, Evolution};
@@ -831,7 +831,7 @@ fn script_id(file: u16) -> AssetId {
 /// The files the identifiers of the scripts resolve by, relative to the root, with their
 /// stamps: the manifest, the registers and `mapname.bin` ([`watched`]), `rotom.toml` and every
 /// file of rotom's constant folder (its own constants and the id files).
-fn lookup_stamps(project: &Project) -> Vec<(PathBuf, Stamp)> {
+fn lookup_stamps(project: &Project) -> Stamps {
     let mut files = watched(project);
     files.push(PathBuf::from(scripts::ROTOM_TOML));
     let dir = scripts::database_dir(project);
@@ -852,11 +852,15 @@ fn lookup_stamps(project: &Project) -> Vec<(PathBuf, Stamp)> {
 /// Script files with their references read anew (`None`: the source is gone).
 type ScriptReads = Vec<(u16, Option<Vec<Ref>>)>;
 
-/// What the index knows of the script sources: the stamps of the lookup's files and of every
-/// `.rotom` source as last read.
+/// Files relative to the root with their stamps.
+type Stamps = Vec<(PathBuf, Stamp)>;
+
+/// What the index knows of the script sources: the stamps of the lookup's files with the lookup
+/// made from them (kept while they stay: making it reads rotom's constants), and the stamp of
+/// every `.rotom` source as last read.
 #[derive(Default)]
 struct ScriptSources {
-    lookup: Option<Vec<(PathBuf, Stamp)>>,
+    lookup: Option<(Stamps, Option<Arc<ScriptLookup>>)>,
     stamps: BTreeMap<u16, Stamp>,
 }
 
@@ -869,7 +873,13 @@ impl ScriptSources {
         let dir = project.expanded_dir(AssetKind::Script);
         let files = scripts::rotom_sources(project)?;
         let lookup_now = lookup_stamps(project);
-        let all = self.lookup.as_ref() != Some(&lookup_now);
+        let kept = self
+            .lookup
+            .as_ref()
+            .filter(|(was, _)| *was == lookup_now)
+            .map(|(_, lookup)| lookup.clone());
+        let all = kept.is_none();
+        let mut lookup = kept.flatten();
         let stamps: BTreeMap<u16, Stamp> = files
             .iter()
             .map(|&file| (file, stamp(&source_file(&dir, file))))
@@ -886,14 +896,14 @@ impl ScriptSources {
             .map(|(&file, _)| file)
             .collect();
         if !reread.is_empty() {
-            let lookup = ScriptLookup::of(project);
+            let made = lookup.get_or_insert_with(|| Arc::new(ScriptLookup::of(project)));
             let table = script_ref_table(project.family);
-            out.extend(read_scripts(&dir, &reread, table, &lookup)?);
+            out.extend(read_scripts(&dir, &reread, table, made)?);
         }
         out.sort_by_key(|(file, _)| *file);
         Ok((
             ScriptSources {
-                lookup: Some(lookup_now),
+                lookup: Some((lookup_now, lookup)),
                 stamps,
             },
             out,
@@ -1119,6 +1129,41 @@ mod tests {
         assert_eq!(pt.params("TrainerBattle").unwrap().0, "StartTrainerBattle");
         assert!(pt.params("Message").is_none());
         assert_eq!(script_ref_table(Family::Dp).len(), 0);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn the_script_lookup_is_kept_while_its_files_stay() {
+        use crate::textproject::include::LOOKUPS_MADE;
+
+        let fx = crate::test_support::TextFixture::exported();
+        let source = "expanded/scripts/0000.rotom";
+        fx.write(
+            source,
+            b"script Main #1:\n    StartTrainerBattle 3, 0\n    End\n",
+        );
+        let p = fx.project();
+        let made = || LOOKUPS_MADE.with(std::cell::Cell::get);
+        let (first, read) = ScriptSources::default().refresh(&p).unwrap();
+        assert_eq!(read.len(), 1);
+        let after_first = made();
+        // A saved source is read again with the lookup made before.
+        fx.write(
+            source,
+            b"script Main #1:\n    StartTrainerBattle 4, 0\n    End\n\n",
+        );
+        let (second, read) = first.refresh(&p).unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(made(), after_first, "kept");
+        // A changed register makes a new one.
+        fx.edit(
+            "data/ids/trainers.json",
+            "TRAINER_YOUNGSTER_KAI",
+            "TRAINER_YOUNGSTER_KAY",
+        );
+        let (_, read) = second.refresh(&p).unwrap();
+        assert_eq!(read.len(), 1, "all sources again");
+        assert_eq!(made(), after_first + 1);
     }
 
     #[test]

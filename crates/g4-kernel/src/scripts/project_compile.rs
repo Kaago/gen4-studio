@@ -87,14 +87,14 @@ pub(super) fn load_context(
 ) -> Result<rotom::ProjectContext, KernelError> {
     // rotom v0.7.0: src/database.rs DatabaseV2::load
     let db = rotom::DatabaseV2::load(db_path).map_err(|e| rotom_error("database", e))?;
-    context_with(project, config, db, None, IdFiles::Compile)
+    context_with(project, config, db, None, IdFileUse::Compile)
 }
 
 /// What [`context_with`] does with the id files of the text project
 /// ([`ID_FILE_PREFIX`](crate::textproject::include::ID_FILE_PREFIX)) in rotom's constant
 /// folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum IdFiles {
+pub(super) enum IdFileUse {
     /// For a compile: written anew where they changed (a current text project,
     /// [`include::refresh`](crate::textproject::include::refresh)), then loaded like every
     /// other constant file, so the kernel compiles what `rotom compile` compiles.
@@ -156,8 +156,9 @@ pub(crate) fn base_constants(
 }
 
 /// The constant files rotom v0.7.0 `ConstantDb::load_directory` loads from `dir`: every
-/// `*.json` at the top level except `*_v2*` and `commands.json`, sorted by name (rotom takes
-/// them in directory order; the order only matters for a name in two files).
+/// `*.json` at the top level except `*_v2*` and `commands.json`, in directory order as rotom
+/// takes them (not sorted, a folder named `*.json` included and failing like there), so a name
+/// in two files resolves in the kernel's compile as in `rotom compile` on the same disk.
 pub(crate) fn constant_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -171,12 +172,10 @@ pub(crate) fn constant_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
         if path.extension().is_some_and(|e| e == "json")
             && !name.contains("_v2")
             && name != "commands.json"
-            && path.is_file()
         {
             files.push(path);
         }
     }
-    files.sort();
     Ok(files)
 }
 
@@ -191,7 +190,7 @@ pub(super) fn context_with(
     config: &RotomConfig,
     db: rotom::DatabaseV2,
     global_ids: Option<&std::collections::BTreeSet<u16>>,
-    id_files: IdFiles,
+    id_files: IdFileUse,
 ) -> Result<rotom::ProjectContext, KernelError> {
     let root = &project.root;
     let headers = project.read_headers()?;
@@ -211,7 +210,7 @@ pub(super) fn context_with(
         workspace.global_script_table = uxie::script_file::GlobalScriptTable::from_entries(entries);
     }
     let mut constants = base_constants(project, config, &db, &workspace, true)?;
-    if id_files == IdFiles::Compile {
+    if id_files == IdFileUse::Compile {
         let dir = config.database_dir(root);
         crate::textproject::include::refresh(project, &dir, &constants)?;
         // JSON constants beat the workspace's symbols (rotom v0.7.0 ConstantDb::get), and the

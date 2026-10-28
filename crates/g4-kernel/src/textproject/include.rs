@@ -356,6 +356,12 @@ pub(crate) fn g4_only_uses(project: &Project) -> Result<Vec<String>, KernelError
     Ok(uses)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many [`ScriptLookup`]s this thread made (the reference index keeps one).
+    pub(crate) static LOOKUPS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// What an identifier in a script argument stands for as the build resolves it, without the
 /// source's own aliases: the id files as the compile would write them (or, outside a text
 /// project, as they are), then rotom's own constants. Made once for the reference index.
@@ -369,6 +375,8 @@ impl ScriptLookup {
     /// out, as the language server does) and the ids. Without them (the constants do not load
     /// at all) only the ids; a register that does not read gives no ids.
     pub(crate) fn of(project: &Project) -> ScriptLookup {
+        #[cfg(test)]
+        LOOKUPS_MADE.with(|n| n.set(n.get() + 1));
         let base = scripts::base_constants(project, false).ok();
         let ids = match applies(project) {
             Ok(true) => Symbols::load(&project.root)

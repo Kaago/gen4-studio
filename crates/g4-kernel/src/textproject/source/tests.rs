@@ -309,6 +309,24 @@ fn append_of_a_new_trainer_baptizes_and_writes_its_json_and_register() {
     assert_eq!(changed(&after, &tree(&fx)), Vec::<PathBuf>::new());
 }
 
+#[test]
+fn a_baptism_whose_id_files_fail_on_rotoms_side_still_saves() {
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    let props = member(&fx, AssetKind::TrainerProperties, 1);
+    let party = member(&fx, AssetKind::TrainerParty, 1);
+    set_member(&fx, AssetKind::TrainerProperties, 3, &props);
+    set_member(&fx, AssetKind::TrainerParty, 3, &party);
+    // rotom cannot read its configuration: the id files cannot be made.
+    fx.write(crate::scripts::ROTOM_TOML, b"[paths\n");
+    let mut source = EntitySource::open(&p).unwrap();
+    let out = source.append(&p, id(AssetKind::Trainer, 3)).unwrap();
+    assert_eq!(out.sources, paths(&["data/trainers/0003.json"]));
+    assert_eq!(out.registers, paths(&["data/ids/trainers.json"]));
+    assert!(!out.include);
+    assert!(fx.root().join("data/trainers/0003.json").is_file());
+}
+
 /// The fixture's map `seed` with a model of 100 bytes, too long for hex.
 fn big_model_map(seed: u8) -> Vec<u8> {
     let mut map = synthetic_map_bytes(seed);
