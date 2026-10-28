@@ -188,6 +188,17 @@ impl Registry {
     }
 }
 
+/// The name a trainer is baptized by: the class and the own name (`PKMN TRAINER KAI`), or the
+/// name alone without a class; `None` ("ohne Namen", `TRAINER_NNNN`) when the own name
+/// normalizes to nothing (empty, only markup or punctuation, only digits), whatever its class.
+pub fn trainer_baptism_name(class: Option<&str>, name: &str, german: bool) -> Option<String> {
+    normalize(name, german)?;
+    Some(match class {
+        Some(class) => format!("{class} {name}"),
+        None => name.to_owned(),
+    })
+}
+
 /// A key that appears twice in the JSON object `bytes` (serde keeps the last one silently),
 /// one problem per repetition at its key.
 fn duplicate_keys(rel: &Path, bytes: &[u8]) -> Vec<Problem> {
@@ -408,6 +419,51 @@ mod tests {
         reg.baptize(&names(&[Some("0001"), None]), false);
         assert_eq!(reg.id_of(0), Some("MAP_0000"));
         assert_eq!(reg.id_of(1), Some("MAP_0001"));
+    }
+
+    #[test]
+    fn a_trainer_whose_name_normalizes_to_nothing_is_unnamed() {
+        let classes = ["PKMN TRAINER", "Rocker"];
+        let raw = [
+            ("{TRAINER_NAME: -}", 0usize),
+            ("-", 0),
+            ("?", 1),
+            ("123", 0),
+            ("", 1),
+            ("{TRAINER_NAME:Kai}", 1),
+        ];
+        let labels: Vec<Option<String>> = raw
+            .iter()
+            .map(|&(name, class)| trainer_baptism_name(Some(classes[class]), name, true))
+            .collect();
+        let mut reg = Registry::new(SymbolKind::Trainer);
+        reg.baptize(&labels, true);
+        for n in 0..5 {
+            assert_eq!(
+                reg.id_of(n),
+                Some(fallback_id(SymbolKind::Trainer, n).as_str())
+            );
+        }
+        assert_eq!(reg.id_of(5), Some("TRAINER_ROCKER_KAI"));
+        assert_eq!(
+            trainer_baptism_name(None, "-", true),
+            None,
+            "without a class too"
+        );
+    }
+
+    #[test]
+    fn places_classes_and_maps_of_only_punctuation_get_the_fallback() {
+        for kind in [SymbolKind::Place, SymbolKind::TrainerClass, SymbolKind::Map] {
+            let mut reg = Registry::new(kind);
+            reg.baptize(
+                &names(&[Some("-"), Some("???"), Some("{PAUSE}"), Some("42")]),
+                true,
+            );
+            for n in 0..4 {
+                assert_eq!(reg.id_of(n), Some(fallback_id(kind, n).as_str()));
+            }
+        }
     }
 
     #[test]

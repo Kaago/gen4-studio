@@ -29,7 +29,7 @@ use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
 use super::manifest::{Manifest, SchemaState, manifest_for, read_manifest, refusal, schema_state};
 use super::quirks::{quirks_from_state, write_quirks};
-use super::registry::{IDS_DIR, Symbols, registry_file};
+use super::registry::{IDS_DIR, Symbols, registry_file, trainer_baptism_name};
 use super::schema::data::{
     EncounterEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity, TrainerTextTableEntity,
     export_items,
@@ -316,17 +316,11 @@ fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> 
     let trainers: Vec<Option<String>> = (0..count)
         .map(|i| {
             let name = trainer_name::unwrap(names.get(i)?);
-            if name.trim().is_empty() {
-                return None;
-            }
             let class = props[i]
                 .as_deref()
                 .and_then(|p| TrainerProps::read(p).ok())
                 .and_then(|p| classes.get(usize::from(p.class())));
-            Some(match class {
-                Some(class) => format!("{class} {name}"),
-                None => name,
-            })
+            trainer_baptism_name(class.map(String::as_str), &name, german)
         })
         .collect();
     symbols
