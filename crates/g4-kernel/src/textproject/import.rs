@@ -257,6 +257,9 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
     // Every JSON equals its member now: nothing is newer than its JSON.
     clear_kept(&project.root)?;
     let prepared = build::prepare(project)?;
+    // Sources and members are in step now (scripts compiled, texts encoded): the sync records
+    // them as they are.
+    super::sync::record_all(project)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
     for problem in prepared.problems {

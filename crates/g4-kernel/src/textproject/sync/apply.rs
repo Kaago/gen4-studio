@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::build::fingerprint::{Fp, capture_hashed, now_ns};
+use crate::build::fingerprint::{Fp, capture_hashed, now_ns, same_stat, stat};
 use crate::build::state::{BuildState, SyncRecord};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, Project};
@@ -51,9 +51,14 @@ pub(super) fn apply(
     let mut taken: Vec<&SyncUnit> = Vec::new();
     let mut from_dspre: Vec<AssetId> = Vec::new();
     let mut planned: Vec<&SyncUnit> = Vec::new();
+    // Units recorded without being reported as taken over (a script source rotom compiles).
+    let mut quiet: Vec<&str> = Vec::new();
 
     for unit in &scan.units {
-        if !matches!(unit.side, UnitSide::Dspre | UnitSide::Files) || held(unit) {
+        if !matches!(unit.side, UnitSide::Dspre | UnitSide::Files)
+            || held(unit)
+            || moved_since(project, scan, unit)?
+        {
             continue;
         }
         let done = match (unit.side, of_unit(&unit.key, &unit.assets)) {
@@ -81,8 +86,11 @@ pub(super) fn apply(
                 written.extend(unit.members.iter().cloned());
                 true
             }
-            // rotom compiles a changed source with the build.
-            (UnitSide::Files, Of::Script(_)) => true,
+            // rotom compiles a changed source with the build: recorded, nothing taken over.
+            (UnitSide::Files, Of::Script(_)) => {
+                quiet.push(&unit.key);
+                true
+            }
             _ => false,
         };
         if done {
@@ -113,7 +121,7 @@ pub(super) fn apply(
         ..ApplyReport::default()
     };
     for unit in &scan.units {
-        if !taken.iter().any(|t| t.key == unit.key) {
+        if !taken.iter().any(|t| t.key == unit.key) || quiet.contains(&unit.key.as_str()) {
             continue;
         }
         match unit.side {
@@ -124,6 +132,25 @@ pub(super) fn apply(
     }
     report.ms = ms_since(start);
     Ok(report)
+}
+
+/// Whether a file of `unit` has another `stat` than the scan saw (written since, by DSPRE
+/// or by hand): the unit is not taken over and stays unrecorded, the next scan judges it
+/// anew.
+fn moved_since(project: &Project, scan: &ScanReport, unit: &SyncUnit) -> Result<bool, KernelError> {
+    for rel in unit.sources.iter().chain(&unit.members) {
+        let seen = scan.seen.get(&key(rel)).copied().flatten();
+        let now = stat(&project.root.join(rel))?;
+        let moved = match (seen, now) {
+            (None, None) => false,
+            (Some(seen), Some(now)) => !same_stat(&seen, &now),
+            _ => true,
+        };
+        if moved {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// A script member DSPRE changed: decompiled into its source, with the compile state entry
@@ -275,9 +302,36 @@ fn record(
 ) -> Result<(), KernelError> {
     let mut entries: BTreeMap<String, Option<Fp>> = BTreeMap::new();
     let mut capture: BTreeSet<PathBuf> = BTreeSet::new();
+    // Every file of a unit that stays unrecorded (a conflict, a broken or held unit, one not
+    // taken over): another unit sharing the file (`arm9.bin` is the header table's and a
+    // blob) must not record it, or the change would vanish. A changed manifest or register
+    // stays unrecorded while an entity it put up for judging does.
+    let open: Vec<&SyncUnit> = scan
+        .units
+        .iter()
+        .filter(|u| u.side != UnitSide::InSync && !taken.iter().any(|t| t.key == u.key))
+        .collect();
+    let mut held_back: BTreeSet<String> = open
+        .iter()
+        .flat_map(|u| u.sources.iter().chain(&u.members))
+        .map(|rel| key(rel))
+        .collect();
+    if open
+        .iter()
+        .any(|u| matches!(of_unit(&u.key, &u.assets), Of::Asset(_)))
+    {
+        for unit in &scan.units {
+            if matches!(of_unit(&unit.key, &unit.assets), Of::Global(_)) {
+                held_back.extend(unit.sources.iter().map(|rel| key(rel)));
+            }
+        }
+    }
     for unit in scan.units.iter().filter(|u| u.side == UnitSide::InSync) {
         for rel in unit.sources.iter().chain(&unit.members) {
             let k = key(rel);
+            if held_back.contains(&k) {
+                continue;
+            }
             match scan.seen.get(&k) {
                 Some(Some(fp)) if fp.xxh3.is_some() => {
                     entries.insert(k, Some(*fp));
@@ -302,7 +356,7 @@ fn record(
     }
     capture.extend(written.iter().cloned());
     for rel in capture {
-        if watch.watches(&rel) {
+        if watch.watches(&rel) && !held_back.contains(&key(&rel)) {
             entries.insert(key(&rel), capture_hashed(&project.root.join(&rel))?);
         }
     }

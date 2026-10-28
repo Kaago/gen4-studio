@@ -342,11 +342,20 @@ fn a_touched_tree_reports_nothing_and_rerecords() {
 #[test]
 fn without_a_record_the_scan_is_full_and_reports_progress() {
     let fx = TextFixture::exported();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
     let mut seen = Vec::new();
     let report = scan(&fx.project(), &mut |p| seen.push(p)).unwrap();
     assert!(report.full);
     let last = *seen.last().unwrap();
     assert!(last.total > 100 && last.done == last.total, "{last:?}");
+    // The judging of the units counts: after the files the bar is not at its end yet.
+    let files = report.stat_files;
+    assert!(last.total > files, "{last:?}");
+    assert!(
+        seen.iter().any(|p| p.done >= files && p.done < p.total),
+        "{seen:?}"
+    );
+    assert!(seen.windows(2).all(|w| w[0].done <= w[1].done));
     assert!(
         report.units.iter().all(|u| u.side == UnitSide::InSync),
         "{:?}",
@@ -422,6 +431,7 @@ fn record_paths_adds_hashed_fingerprints_only_to_a_recorded_sync() {
     let p = fx.project();
     let json = PathBuf::from(MOVE_1_JSON);
     let gone = PathBuf::from("data/moves/9999.json");
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
     record_paths(&p, std::slice::from_ref(&json)).unwrap();
     assert_eq!(BuildState::load(fx.root()).sync, None, "no sync, no record");
 
@@ -446,4 +456,200 @@ fn record_paths_adds_hashed_fingerprints_only_to_a_recorded_sync() {
         sync.files[MOVE_1_JSON].xxh3,
         Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON)))
     );
+}
+
+/// The header table's slice of `arm9.bin` (offset of header 0).
+fn header_table_offset(fx: &TextFixture) -> usize {
+    match fx
+        .project()
+        .member_location(AssetKind::HeaderTable, 0)
+        .unwrap()
+    {
+        crate::project::Location::Slice { offset, .. } => usize::try_from(offset).unwrap(),
+        other => panic!("{other:?}"),
+    }
+}
+
+const ARM9: &str = "arm9/arm9.bin";
+const HEADERS: &str = "data/headers/";
+
+/// DSPRE changes header 0's music in `arm9.bin` (inside the table, so the blob of `arm9.bin`
+/// is in step and only the header table changed).
+fn dspre_header_edit(fx: &TextFixture) {
+    let at = header_table_offset(fx) + 10;
+    let mut arm9 = fx.read(ARM9);
+    arm9[at] = arm9[at].wrapping_add(7);
+    fx.write(ARM9, &arm9);
+}
+
+fn side_of(report: &ScanReport, key: &str) -> Option<UnitSide> {
+    report.units.iter().find(|u| u.key == key).map(|u| u.side)
+}
+
+#[test]
+fn a_header_conflict_through_arm9_stays_a_conflict() {
+    let fx = recorded();
+    fx.edit(
+        "data/headers/0000.json",
+        "\"music_night_id\": 0",
+        "\"music_night_id\": 5",
+    );
+    dspre_header_edit(&fx);
+    let report = scan_of(&fx);
+    assert_eq!(
+        side_of(&report, HEADERS),
+        Some(UnitSide::Conflict),
+        "{:?}",
+        report.units
+    );
+    assert_eq!(
+        side_of(&report, "data/raw/arm9/arm9.bin"),
+        Some(UnitSide::InSync)
+    );
+    let before = tree(&fx);
+    apply_of(&fx, &report);
+    assert_eq!(tree(&fx), before);
+    // The blob of `arm9.bin` in step did not record the file the conflict shares with it.
+    let again = scan_of(&fx);
+    assert_eq!(
+        side_of(&again, HEADERS),
+        Some(UnitSide::Conflict),
+        "{:?}",
+        again.units
+    );
+}
+
+#[test]
+fn a_held_header_unit_stays_from_dspre() {
+    let fx = recorded();
+    dspre_header_edit(&fx);
+    let report = scan_of(&fx);
+    assert_eq!(
+        side_of(&report, HEADERS),
+        Some(UnitSide::Dspre),
+        "{:?}",
+        report.units
+    );
+    let applied = apply_one_sided(&fx.project(), &report, &|u| u.key == HEADERS).unwrap();
+    assert!(
+        applied.dspre.is_empty() && applied.written.is_empty(),
+        "{applied:?}"
+    );
+    let again = scan_of(&fx);
+    assert_eq!(
+        side_of(&again, HEADERS),
+        Some(UnitSide::Dspre),
+        "{:?}",
+        again.units
+    );
+}
+
+#[test]
+fn an_uncompiled_script_edit_and_a_dspre_member_change_are_a_conflict() {
+    let fx = recorded();
+    fx.edit(SCRIPT_0_SOURCE, "Message 1", "Message 3");
+    let report = scan_of(&fx);
+    let units = changed(&report);
+    assert_eq!(units.len(), 1, "{:?}", report.units);
+    assert_eq!(units[0].side, UnitSide::Files);
+    let applied = apply_of(&fx, &report);
+    assert!(
+        applied.files.is_empty(),
+        "rotom compiles it, nothing taken over"
+    );
+    assert!(applied.written.is_empty());
+    assert_eq!(
+        sync_of(&fx).files[SCRIPT_0_SOURCE].xxh3,
+        Some(xxhash_rust::xxh3::xxh3_64(&fx.read(SCRIPT_0_SOURCE))),
+        "the source is recorded"
+    );
+
+    // DSPRE writes the member before rotom compiled the edit.
+    fx.write(
+        SCRIPT_0_MEMBER,
+        &compile_script(&SCRIPT_SOURCE.replace("Message 1", "Message 2")),
+    );
+    let report = scan_of(&fx);
+    let units = changed(&report);
+    assert_eq!(units.len(), 1, "{:?}", report.units);
+    assert_eq!(units[0].side, UnitSide::Conflict);
+    apply_of(&fx, &report);
+    assert!(
+        fx.text(SCRIPT_0_SOURCE).contains("Message 3"),
+        "the edit stays"
+    );
+}
+
+#[test]
+fn a_unit_written_again_after_the_scan_is_left_for_the_next() {
+    let fx = recorded();
+    let json = fx.read(MOVE_1_JSON);
+    let mut member = fx.read(MOVE_1_MEMBER);
+    member[3] += 1;
+    fx.write(MOVE_1_MEMBER, &member);
+    let report = scan_of(&fx);
+    assert_eq!(report.units[0].side, UnitSide::Dspre);
+    // DSPRE saves once more between the scan and the takeover.
+    member[3] += 1;
+    fx.write(MOVE_1_MEMBER, &member);
+    let applied = apply_of(&fx, &report);
+    assert!(
+        applied.dspre.is_empty() && applied.written.is_empty(),
+        "{applied:?}"
+    );
+    assert_eq!(fx.read(MOVE_1_JSON), json);
+    let again = scan_of(&fx);
+    assert_eq!(again.units.len(), 1, "{:?}", again.units);
+    assert_eq!(again.units[0].side, UnitSide::Dspre);
+    apply_of(&fx, &again);
+    assert_eq!(power(&fx), u64::from(member[3]));
+}
+
+#[test]
+fn a_broken_register_is_a_broken_unit_with_its_position() {
+    let fx = recorded();
+    let register = "data/ids/maps.json";
+    fx.write(register, b"{\n  \"MAP_T01\": 0,\n  oops\n}\n");
+    let report = scan(&fx.project(), &mut |_| {}).unwrap();
+    assert_eq!(report.units.len(), 1, "{:?}", report.units);
+    let unit = &report.units[0];
+    assert_eq!(unit.key, register);
+    assert_eq!(unit.side, UnitSide::Broken);
+    assert_eq!(unit.problems[0].file, Path::new(register));
+    assert!(unit.problems[0].line > 1, "{:?}", unit.problems);
+    let recorded = sync_of(&fx).files[register];
+    apply_of(&fx, &report);
+    assert_eq!(sync_of(&fx).files[register], recorded, "not recorded");
+}
+
+#[test]
+fn a_broken_manifest_is_a_broken_unit_not_an_error() {
+    let fx = recorded();
+    fx.write("g4-project.json", b"{ not json");
+    let report = scan(&fx.project(), &mut |_| {}).unwrap();
+    assert_eq!(report.units.len(), 1, "{:?}", report.units);
+    assert_eq!(report.units[0].side, UnitSide::Broken);
+    assert_eq!(report.units[0].key, "g4-project.json");
+}
+
+#[test]
+fn export_and_import_record_the_sync() {
+    let fx = TextFixture::exported();
+    let sync = sync_of(&fx);
+    assert_eq!(
+        sync.files[MOVE_1_JSON].xxh3,
+        Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON)))
+    );
+
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 12");
+    crate::textproject::import(&fx.project(), Some(&fx.base())).unwrap();
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 12);
+    let sync = sync_of(&fx);
+    assert_eq!(
+        sync.files[MOVE_1_MEMBER].xxh3,
+        Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_MEMBER)))
+    );
+    settle(&fx);
+    assert!(scan_of(&fx).units.is_empty());
 }

@@ -391,8 +391,13 @@ pub(super) fn of_unit(key: &str, assets: &[AssetId]) -> Of {
 /// MOVE_POUND`, `Item 0004 · ITEM_POKE_BALL` (an item member by its first item id), `Trainer
 /// 0001 · TRAINER_…`, `Header-Tabelle`, `Textarchiv 0012`, `Scriptdatei 0101`, `Datei <pfad>`
 /// for a blob, `rotom-Eigenheiten`, else the asset's label (`Karte 0003`). An id the symbols
-/// do not know (or no symbols) leaves the number alone.
-pub(super) fn label(project: &Project, unit: &Unit, symbols: Option<&Symbols>) -> String {
+/// do not know (or no symbols) leaves the number alone. `first_item`: per item member its
+/// first item id.
+pub(super) fn label(
+    unit: &Unit,
+    symbols: Option<&Symbols>,
+    first_item: &HashMap<u16, u32>,
+) -> String {
     let with_id = |word: &str, kind: SymbolKind, n: u32| match symbols.and_then(|s| s.id(kind, n)) {
         Some(id) => format!("{word} {n:04} · {id}"),
         None => format!("{word} {n:04}"),
@@ -406,16 +411,10 @@ pub(super) fn label(project: &Project, unit: &Unit, symbols: Option<&Symbols>) -
             }
             AssetKind::Move => with_id("Attacke", SymbolKind::Move, u32::from(id.index)),
             AssetKind::Trainer => with_id("Trainer", SymbolKind::Trainer, u32::from(id.index)),
-            AssetKind::Item => {
-                let first = (0u32..)
-                    .map_while(|n| item_member_of(project, n).map(|member| (n, member)))
-                    .find(|&(_, member)| member == id.index)
-                    .map(|(n, _)| n);
-                match first {
-                    Some(n) => with_id("Item", SymbolKind::Item, n),
-                    None => asset_label(*id),
-                }
-            }
+            AssetKind::Item => match first_item.get(&id.index) {
+                Some(&n) => with_id("Item", SymbolKind::Item, n),
+                None => asset_label(*id),
+            },
             _ => asset_label(*id),
         },
         Of::Text(n) => format!("Textarchiv {n:04}"),

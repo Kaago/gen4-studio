@@ -504,6 +504,21 @@ Inhalt auf beiden Seiten sind abgeglichen, nicht übernommen. Scripts sind abgeg
 Compile-Zustand die Hashes von Quelle und Member nennt; ein Member, den rotom selbst schrieb, ist
 keine Änderung von außen.
 
+Was unaufgezeichnet bleibt (Konflikt, fehlerhaft, zurückgehalten, nicht übernommen), bleibt es
+mit **allen** seinen Dateien: Eine abgeglichene Einheit, die eine davon teilt (`arm9.bin` gehört der
+Header-Tabelle und als Blob sich selbst), zeichnet sie nicht auf, und ein geändertes Manifest oder
+Register bleibt unaufgezeichnet, solange eine Entität offen ist. Eine Einheit, deren Dateien seit
+dem Scan einen anderen `stat` haben, übernimmt der Abgleich nicht und zeichnet sie nicht auf; der
+nächste Scan urteilt neu. Eine Script-Quelle gilt als geändert, solange ihr Hash nicht der ist, den
+rotoms Compile-Zustand nennt (noch nicht übersetzt): Ändert DSPRE inzwischen den Member, ist das ein
+Konflikt, kein Dekompilieren über die Bearbeitung; eine geänderte Quelle allein wird aufgezeichnet,
+aber nicht als übernommen gemeldet. Ein Register oder Manifest, das sich nicht lesen lässt, ist
+eine fehlerhafte Einheit mit Datei, Zeile und Spalte; die Entitäten warten, bis es lesbar ist.
+
+Nach jedem Scan, auch einem leeren, ruft die App `apply_one_sided`: Das rückt die Scan-Zeit der
+Aufzeichnung vor, sodass kurz vorher aufgezeichnete (racy) Einträge danach allein über den `stat`
+verglichen werden. Der Fortschritt zählt die Dateien und danach die Einheiten.
+
 Scan und Übernahme eines Projekts laufen nacheinander (eine Sperre je Projektwurzel im Prozess).
 
 ## Schema-Version und Migration

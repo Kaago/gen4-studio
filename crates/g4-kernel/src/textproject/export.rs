@@ -152,8 +152,10 @@ pub fn export(
     report.base_layer_ms = ms_since(layer_start);
     report.base_layer_created = created;
     export_with(project, &layer, keep.as_ref(), &mut report)?;
-    // Every JSON equals its member now: the build step forgets the members it kept as newer.
+    // Every JSON equals its member now: the build step forgets the members it kept as newer,
+    // and the sync records the project as it is.
     super::step::clear_kept(&project.root)?;
+    super::sync::record_all(project)?;
     report.ms = ms_since(start);
     Ok(report)
 }

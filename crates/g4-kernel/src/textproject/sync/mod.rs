@@ -119,6 +119,10 @@ pub struct ApplyReport {
 
 /// Finds every unit whose files changed since `sync` (all units when there is none, `full`);
 /// writes nothing. Units in sync whose fingerprints moved are listed as `InSync`.
+///
+/// The caller hands every scan to [`apply_one_sided`], an empty one too: that moves the
+/// record's scan time forward, so entries recorded just before it (racy) settle and the next
+/// scan takes their `stat` alone instead of hashing them again.
 pub fn scan(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
@@ -127,7 +131,10 @@ pub fn scan(
 }
 
 /// Takes over the one-sided units (`Dspre`, `Files`) not `held` and records them and every
-/// `InSync` unit; conflicts and broken units stay unrecorded.
+/// `InSync` unit; conflicts and broken units stay unrecorded, and so does every file they
+/// share with another unit. A unit whose files have another `stat` than `scan` saw is
+/// neither taken over nor recorded (the next scan judges it). Call it after every [`scan`],
+/// also when it found nothing (see there).
 pub fn apply_one_sided(
     project: &Project,
     scan: &ScanReport,
@@ -166,6 +173,9 @@ fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
     #[cfg(test)]
     let _inside = probe::enter(root);
+    // A pause inside the lock, so two runs that were not kept apart would overlap (tests).
+    #[cfg(test)]
+    std::thread::sleep(std::time::Duration::from_millis(10));
     f()
 }
 

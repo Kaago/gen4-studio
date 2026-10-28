@@ -140,6 +140,25 @@ fn simulated_dspre_change_is_adopted_one_sided() {
     )
     .unwrap();
     let project = Project::open(&root).unwrap();
+    // The full scan, as after a lost record (the export recorded everything).
+    g4_kernel::build::state::BuildState::update(&root, |s| s.sync = None).unwrap();
+    let started = Instant::now();
+    let full = scan(&project, &mut |_| {}).unwrap();
+    let full_ms = started.elapsed().as_millis();
+    assert!(full.full);
+    let open: Vec<_> = full
+        .units
+        .iter()
+        .filter(|u| u.side != UnitSide::InSync)
+        .map(|u| (&u.key, u.side))
+        .collect();
+    eprintln!(
+        "sync-full {} units={} not_in_sync={} full_ms={full_ms} {:?}",
+        base.game_code(),
+        full.units.len(),
+        open.len(),
+        open.iter().take(10).collect::<Vec<_>>()
+    );
     let recorded = record_all(&project).unwrap();
     assert!(recorded > 1000, "{recorded}");
 

@@ -14,6 +14,7 @@ use crate::scripts;
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity, TextArchiveDoc, TextSide, TextSync, json_matches_member};
 
+use super::super::MANIFEST_FILE;
 use super::super::base_layer::{BaseLayer, check_raw_blob, owned_paths, same_blob};
 use super::super::canon::problem;
 use super::super::codes::{MEMBER_WITHOUT_JSON_CODE, RAW_PATH_CODE, SCHEMA_CODE};
@@ -21,6 +22,7 @@ use super::super::import::plan_quirks_alone;
 use super::super::manifest::{refusal, schema_state};
 use super::super::registry::Symbols;
 use super::super::source::EntitySource;
+use super::super::source::item_member_of;
 use super::watch::{Of, Unit, Watch, label};
 use super::{ScanReport, SyncProgress, SyncUnit, UnitSide, key};
 
@@ -71,8 +73,22 @@ pub(super) fn scan(
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<ScanReport, KernelError> {
     let start = Instant::now();
-    if let Some(why) = refusal(schema_state(&project.root)?) {
-        return Err(KernelError::Refused(why));
+    match schema_state(&project.root) {
+        Ok(state) => {
+            if let Some(why) = refusal(state) {
+                return Err(KernelError::Refused(why));
+            }
+        }
+        // A manifest that does not read: nothing can be judged; the manifest is the unit.
+        Err(KernelError::Compile(problems)) => {
+            return Ok(ScanReport {
+                units: vec![manifest_unit(problems)],
+                scanned_at_ns: now_ns(),
+                ms: ms_since(start),
+                ..ScanReport::default()
+            });
+        }
+        Err(e) => return Err(e),
     }
     let at = now_ns();
     let state = BuildState::load_shared(&project.root);
@@ -92,7 +108,10 @@ pub(super) fn scan(
             }
         }
     }
-    let total = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    // Until the units are known the total is one more than the files, so the bar does not
+    // stand at its end while the units are judged.
+    let total = count(files.len()).saturating_add(1);
     let mut seen: HashMap<String, (Seen, Option<Fp>)> = HashMap::with_capacity(files.len());
     let mut changed = Vec::new();
     let mut hashed = 0u32;
@@ -112,7 +131,6 @@ pub(super) fn scan(
         }
         seen.insert(k, (verdict, fp));
     }
-    progress(SyncProgress { done: total, total });
 
     // The units of the changed files; a changed manifest or register puts every entity's
     // unit up for judging.
@@ -129,10 +147,10 @@ pub(super) fn scan(
         }
     }
     let mut units: BTreeMap<String, Unit> = BTreeMap::new();
-    let mut done: HashSet<String> = HashSet::new();
+    let mut grouped: HashSet<String> = HashSet::new();
     for of in ofs {
         let id = format!("{of:?}");
-        if !done.insert(id) {
+        if !grouped.insert(id) {
             continue;
         }
         if let Some(unit) = watch.unit(&of)? {
@@ -153,15 +171,28 @@ pub(super) fn scan(
         rerecord: Vec::new(),
     };
     let symbols: OnceCell<Option<Symbols>> = OnceCell::new();
+    let total = count(files.len() + units.len());
+    progress(SyncProgress {
+        done: count(files.len()),
+        total,
+    });
     let mut report = ScanReport {
-        stat_files: total,
+        stat_files: count(files.len()),
         hashed,
         full,
         scanned_at_ns: at,
         ..ScanReport::default()
     };
-    for unit in units.into_values() {
-        let (side, problems) = judge.side(&unit)?;
+    let items = OnceCell::new();
+    for (done, unit) in (count(files.len())..).zip(units.into_values()) {
+        if done % PROGRESS_EVERY as u32 == 0 {
+            progress(SyncProgress { done, total });
+        }
+        // `None`: an entity judged only for a changed register that does not read; the
+        // register's own unit says why, the entity waits.
+        let Some((side, problems)) = judge.side(&unit)? else {
+            continue;
+        };
         for rel in unit.sources.iter().chain(&unit.members) {
             let k = key(rel);
             if let Some((_, fp)) = seen.get(&k) {
@@ -170,7 +201,11 @@ pub(super) fn scan(
         }
         let symbols = symbols.get_or_init(|| Symbols::load(&project.root).ok());
         report.units.push(SyncUnit {
-            label: label(project, &unit, symbols.as_ref()),
+            label: label(
+                &unit,
+                symbols.as_ref(),
+                items.get_or_init(|| first_item_ids(project)),
+            ),
             key: unit.key,
             side,
             assets: unit.assets,
@@ -179,9 +214,33 @@ pub(super) fn scan(
             problems,
         });
     }
+    progress(SyncProgress { done: total, total });
     report.texts = judge.rerecord;
     report.ms = ms_since(start);
     Ok(report)
+}
+
+/// The unit of a manifest that does not read.
+fn manifest_unit(problems: Vec<Problem>) -> SyncUnit {
+    let file = PathBuf::from(MANIFEST_FILE);
+    SyncUnit {
+        key: MANIFEST_FILE.to_owned(),
+        label: format!("Datei {MANIFEST_FILE}"),
+        side: UnitSide::Broken,
+        assets: Vec::new(),
+        sources: vec![file],
+        members: Vec::new(),
+        problems,
+    }
+}
+
+/// Per item member the first item id naming it, from the item table (read once per scan).
+fn first_item_ids(project: &Project) -> HashMap<u16, u32> {
+    let mut first = HashMap::new();
+    for (id, member) in (0u32..).map_while(|n| item_member_of(project, n).map(|m| (n, m))) {
+        first.entry(member).or_insert(id);
+    }
+    first
 }
 
 /// What judging the units needs, read once.
@@ -191,7 +250,9 @@ struct Judge<'a> {
     seen: &'a HashMap<String, (Seen, Option<Fp>)>,
     full: bool,
     global: bool,
-    source: Option<EntitySource>,
+    /// The entities' source, opened on first use; the problems when a register or the
+    /// manifest does not read.
+    source: Option<Result<EntitySource, Vec<Problem>>>,
     texts: TextSync,
     layer: OnceCell<Option<BaseLayer>>,
     owned: OnceCell<Option<BTreeSet<PathBuf>>>,
@@ -232,6 +293,17 @@ fn shown(path: &Path) -> String {
         .into_owned()
 }
 
+/// What the sync does not delete, for the sentence of a deleted file of a unit of `of`.
+fn what(of: &Of) -> &'static str {
+    match of {
+        Of::Asset(id) if is_binary(id.kind) => "keine Datei",
+        Of::Asset(_) => "keine Entität",
+        Of::Text(_) => "kein Textarchiv",
+        Of::Script(_) => "keine Scriptdatei",
+        Of::Blob(_) | Of::Quirks | Of::Global(_) | Of::Other(_) => "keine Datei",
+    }
+}
+
 /// Whether `kind` is one of the binary kinds (no JSON, `data/<art>/NNNN.<ext>`).
 fn is_binary(kind: AssetKind) -> bool {
     matches!(
@@ -269,39 +341,85 @@ impl Judge<'_> {
             .as_ref()
     }
 
-    fn side(&mut self, unit: &Unit) -> Result<Judged, KernelError> {
-        let source = self.full
-            || unit.sources.iter().any(|s| self.seen(s) != Seen::Same)
-            || (self.global && matches!(unit.of, Of::Asset(_)));
+    fn side(&mut self, unit: &Unit) -> Result<Option<Judged>, KernelError> {
+        let own_source = unit.sources.iter().any(|s| self.seen(s) != Seen::Same);
+        let source = self.full || own_source || (self.global && matches!(unit.of, Of::Asset(_)));
         let member = self.full || unit.members.iter().any(|m| self.seen(m) != Seen::Same);
         if !self.full
             && let Some(gone) = unit.members.iter().find(|m| self.seen(m) == Seen::Removed)
         {
-            let json = unit.sources.first().map(|s| shown(s)).unwrap_or_default();
-            return broken(vec![problem(
-                gone,
-                SCHEMA_CODE,
-                format!(
-                    "{} fehlt, {json} ist da; der Abgleich löscht keine Entität, Löschen kommt \
-                     mit der Referenzsperre.",
-                    shown(gone)
+            let kept = unit.sources.iter().find(|s| self.exists(s));
+            let message = match kept {
+                Some(source) => format!(
+                    "{} fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit der \
+                     Referenzsperre.",
+                    shown(gone),
+                    shown(source),
+                    what(&unit.of)
                 ),
-            )]);
+                None => format!(
+                    "{} fehlt; der Abgleich löscht {}, Löschen kommt mit der Referenzsperre.",
+                    shown(gone),
+                    what(&unit.of)
+                ),
+            };
+            return Ok(Some((
+                UnitSide::Broken,
+                vec![problem(gone, SCHEMA_CODE, message)],
+            )));
         }
         if !source && !member {
             // Only the `stat` moved: the content is what was recorded.
             if let Of::Text(n) = unit.of {
                 self.rerecord.push(n);
             }
-            return Ok((UnitSide::InSync, Vec::new()));
+            return Ok(Some((UnitSide::InSync, Vec::new())));
         }
-        match unit.of.clone() {
-            Of::Asset(id) => self.asset(unit, id, source, member),
-            Of::Text(n) => self.text(unit, n),
-            Of::Script(n) => self.script(unit, n, source, member),
-            Of::Blob(file) => self.blob(unit, &file, source, member),
-            Of::Quirks => self.quirks(),
-            Of::Global(_) | Of::Other(_) => Ok((UnitSide::InSync, Vec::new())),
+        Ok(Some(match unit.of.clone() {
+            Of::Asset(id) => {
+                let only_global = !self.full && !own_source && !member;
+                return self.asset(unit, id, source, member, only_global);
+            }
+            Of::Text(n) => self.text(unit, n)?,
+            Of::Script(n) => self.script(unit, n, source, member)?,
+            Of::Blob(file) => self.blob(unit, &file, source, member)?,
+            Of::Quirks => self.quirks()?,
+            Of::Global(file) => self.global_file(&file),
+            Of::Other(_) => (UnitSide::InSync, Vec::new()),
+        }))
+    }
+
+    /// A changed manifest or register: broken with its problems when it does not read.
+    fn global_file(&mut self, file: &Path) -> Judged {
+        let problems = match self.entities() {
+            Ok(_) => Vec::new(),
+            Err(problems) => problems.clone(),
+        };
+        let mine: Vec<Problem> = problems
+            .iter()
+            .filter(|p| p.file == file)
+            .cloned()
+            .collect();
+        if mine.is_empty() {
+            (UnitSide::InSync, Vec::new())
+        } else {
+            (UnitSide::Broken, mine)
+        }
+    }
+
+    /// The entities' source, opened once; the problems of a register or manifest that does
+    /// not read.
+    fn entities(&mut self) -> Result<&mut EntitySource, &Vec<Problem>> {
+        if self.source.is_none() {
+            self.source = Some(match EntitySource::open(self.project) {
+                Ok(source) => Ok(source),
+                Err(KernelError::Compile(problems)) => Err(problems),
+                Err(e) => Err(vec![plain(Path::new(MANIFEST_FILE), e.to_string())]),
+            });
+        }
+        match self.source.as_mut().expect("opened") {
+            Ok(source) => Ok(source),
+            Err(problems) => Err(problems),
         }
     }
 
@@ -319,9 +437,10 @@ impl Judge<'_> {
             gone,
             MEMBER_WITHOUT_JSON_CODE,
             format!(
-                "die Datei fehlt, {} ist da; der Abgleich löscht keine Entität, Löschen kommt \
-                 mit der Referenzsperre.",
-                shown(member)
+                "die Datei fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit der \
+                 Referenzsperre.",
+                shown(member),
+                what(&unit.of)
             ),
         ))
     }
@@ -332,15 +451,17 @@ impl Judge<'_> {
         id: AssetId,
         source: bool,
         member: bool,
-    ) -> Result<Judged, KernelError> {
+        only_global: bool,
+    ) -> Result<Option<Judged>, KernelError> {
+        let judged = |side: UnitSide| Ok(Some((side, Vec::new())));
         if let Some(found) = self.json_deleted(unit) {
-            return broken(vec![found]);
+            return Ok(Some((UnitSide::Broken, vec![found])));
         }
         let has_member = unit.members.iter().any(|m| self.exists(m));
         if is_binary(id.kind) {
             // Without its file the member is the base's: no file is no deletion.
             if !has_member && unit.sources.iter().any(|s| self.exists(s)) {
-                return Ok((UnitSide::Files, Vec::new()));
+                return judged(UnitSide::Files);
             }
         } else {
             let has_json = unit
@@ -349,21 +470,25 @@ impl Judge<'_> {
                 .any(|s| s.extension().is_some_and(|e| e == "json") && self.exists(s));
             match (has_json, has_member) {
                 // A member DSPRE appended: its JSON comes from it.
-                (false, true) => return Ok((UnitSide::Dspre, Vec::new())),
+                (false, true) => return judged(UnitSide::Dspre),
                 // A JSON without a member: the member comes from it.
-                (true, false) => return Ok((UnitSide::Files, Vec::new())),
-                (false, false) => return Ok((UnitSide::InSync, Vec::new())),
+                (true, false) => return judged(UnitSide::Files),
+                (false, false) => return judged(UnitSide::InSync),
                 (true, true) => {}
             }
         }
-        if self.source.is_none() {
-            self.source = Some(EntitySource::open(self.project)?);
-        }
-        let entities = self.source.as_mut().expect("opened");
-        match entities.matches_members(self.project, &unit.assets) {
-            Ok(true) => Ok((UnitSide::InSync, Vec::new())),
-            Ok(false) => Ok((by_change(source, member), Vec::new())),
-            Err(KernelError::Compile(problems)) => broken(problems),
+        let project = self.project;
+        let entities = match self.entities() {
+            Ok(entities) => entities,
+            // Without readable registers nothing reads; an entity of its own change is broken
+            // with their problems, one judged only for the register waits.
+            Err(_) if only_global => return Ok(None),
+            Err(problems) => return Ok(Some((UnitSide::Broken, problems.clone()))),
+        };
+        match entities.matches_members(project, &unit.assets) {
+            Ok(true) => judged(UnitSide::InSync),
+            Ok(false) => judged(by_change(source, member)),
+            Err(KernelError::Compile(problems)) => Ok(Some((UnitSide::Broken, problems))),
             Err(e) => Err(e),
         }
     }
@@ -453,8 +578,11 @@ impl Judge<'_> {
         {
             return Ok((UnitSide::InSync, Vec::new()));
         }
-        // A member rotom wrote (the build compiled the source) is no change from outside.
+        // A member rotom wrote (the build compiled the source) is no change from outside; a
+        // source rotom has not compiled yet stays changed even once recorded, so a member
+        // DSPRE changes meanwhile is a conflict, not a decompile over the edit.
         let member = member && hash_of("output_hash") != Some(member_hash);
+        let source = source || hash_of("source_hash").is_some_and(|h| h != source_hash);
         let side = by_change(source, member);
         if side != UnitSide::Dspre {
             return Ok((side, Vec::new()));
