@@ -109,9 +109,10 @@ impl Session {
     ///
     /// `written` names the assets whose files were written: in a text project the binary
     /// members among them (textures and models, reset to the original or by its undo) are
-    /// exported to `data/` and recorded (`textproject::source::after_member_write`), so the
-    /// next sync does not take the own change for one from DSPRE. When that fails the sync
-    /// takes the member over later (from DSPRE): nothing is lost, so it is only logged.
+    /// exported to `data/` (`textproject::source::after_member_write`), so the next sync finds
+    /// JSON and member in step (and records them) instead of taking the own change for one
+    /// from DSPRE. When that fails the sync takes the member over later (from DSPRE): nothing
+    /// is lost, so it is only logged.
     pub fn files_written(&mut self, written: &[AssetId]) {
         self.checks.disk_written();
         let members: Vec<PathBuf> = written

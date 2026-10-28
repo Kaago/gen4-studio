@@ -16,6 +16,7 @@ use serde::Serialize;
 use crate::base::{BaseRom, other_rom};
 use crate::data::names::{Bank, trainer_name};
 use crate::error::{KernelError, io_at};
+use crate::fsutil::Journal;
 use crate::places::location_bank;
 use crate::project::{AssetKind, Project};
 use crate::scripts;
@@ -185,6 +186,7 @@ pub(super) fn run_checked(
     record: bool,
 ) -> Result<ExportReport, KernelError> {
     let start = Instant::now();
+    let journal = Journal::start();
     let mut report = ExportReport::default();
     let adopted = scripts::is_adopted(project);
     if !adopted && !opts.adopt_scripts {
@@ -227,8 +229,9 @@ pub(super) fn run_checked(
     // project as it is.
     step::clear_kept(&project.root)?;
     crate::build::step::resync(project, &step::TextProjectStep::default())?;
+    let journal = journal.finish();
     if record {
-        super::sync::record_all(project)?;
+        super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     }
     report.ms = ms_since(start);
     Ok(report)

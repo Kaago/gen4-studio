@@ -18,6 +18,7 @@ use crate::base::{BaseRom, missing_text, other_rom};
 use crate::build;
 use crate::dynamic_headers;
 use crate::error::KernelError;
+use crate::fsutil::Journal;
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
@@ -278,13 +279,15 @@ pub fn import_with(
     if plan.has_errors() {
         return Err(KernelError::Compile(plan.problems));
     }
+    let journal = Journal::start();
     let applied = apply_import(project, &plan)?;
     // Every JSON equals its member now: nothing is newer than its JSON.
     clear_kept(&project.root)?;
     let prepared = build::prepare(project)?;
+    let journal = journal.finish();
     // Sources and members are in step now (scripts compiled, texts encoded): the sync records
-    // them as they are.
-    super::sync::record_all(project)?;
+    // them as they are, what the import wrote only while it holds those bytes.
+    super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
     for problem in prepared.problems {

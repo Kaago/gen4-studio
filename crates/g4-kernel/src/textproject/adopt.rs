@@ -17,7 +17,7 @@ use crate::base::BaseRom;
 use crate::build::state::BuildState;
 use crate::checks::{IGNORE_FILE, IgnoreSet};
 use crate::error::{KernelError, io_at};
-use crate::fsutil::write_atomic;
+use crate::fsutil::{Journal, write_atomic};
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::text::record_text_sync;
@@ -112,6 +112,7 @@ pub(crate) fn adopt_as(
         refuse_pending(project)?;
     }
 
+    let journal = Journal::start();
     let mut report = |phase, done, total| progress(AdoptProgress { phase, done, total });
     let adopted = if scripts::is_adopted(project) {
         report(AdoptPhase::Scripts, 0, 0);
@@ -149,10 +150,15 @@ pub(crate) fn adopt_as(
     // worth a step; the text records after them neither).
     let include_written = write_include(project)?;
     let mut last = (0, 0);
-    let sync_files = sync::record_all_reported(project, &mut |p| {
-        last = (p.done, p.total);
-        report(AdoptPhase::Sync, p.done, p.total);
-    })?;
+    let journal = journal.finish();
+    let sync_files = sync::record_all_written(
+        project,
+        &mut |p| {
+            last = (p.done, p.total);
+            report(AdoptPhase::Sync, p.done, p.total);
+        },
+        &journal,
+    )?;
     if project.has_archive(AssetKind::TextArchive) {
         let count = project.member_count(AssetKind::TextArchive)?;
         let archives: Vec<u16> = (0..count).filter_map(|n| u16::try_from(n).ok()).collect();

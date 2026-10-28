@@ -575,3 +575,33 @@ fn a_busy_store_refuses_every_write_and_names_why() {
     st.set_busy(None);
     assert_eq!(st.undo().unwrap().len(), 1);
 }
+
+#[test]
+fn a_member_written_past_the_save_before_it_is_recorded_stays_visible() {
+    let fx = TextFixture::exported();
+    let mut st = store(&fx);
+    set_power(&mut st, 55);
+    let root = fx.root().to_path_buf();
+    AFTER_SAVE_WRITES.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            let path = root.join(MOVE_1_MEMBER);
+            let mut bytes = std::fs::read(&path).unwrap();
+            bytes[3] = 77;
+            std::fs::write(&path, bytes).unwrap();
+        }));
+    });
+    let saved = st.save();
+    AFTER_SAVE_WRITES.with(|hook| *hook.borrow_mut() = None);
+    saved.unwrap();
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 77);
+    // DSPRE's bytes are not recorded as the save's: the sync still sees move 1 changed.
+    let report = crate::textproject::sync::scan(&fx.project(), &mut |_| {}).unwrap();
+    assert!(
+        report
+            .units
+            .iter()
+            .any(|u| u.key == MOVE_1_JSON && u.side != crate::textproject::sync::UnitSide::InSync),
+        "{:?}",
+        report.units
+    );
+}

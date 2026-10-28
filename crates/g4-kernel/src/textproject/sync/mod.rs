@@ -30,15 +30,17 @@
 //! [`EntitySource`](super::source::EntitySource)), the text JSON, the script source or the
 //! blob; from the files the members (through the import), the text member. Then it records
 //! them with every unit in step. [`record_all`] records everything as it is (adoption,
-//! import, export). A save of the store records what it wrote ([`record_paths`]), and so does
-//! the build step `textproject` ([`record_written`]), each with the sources of the units whose
-//! members it wrote (a member's record never moves alone: the build step's sides rely on it),
-//! so the next scan finds nothing to take over. One lock per project root keeps scans and takeovers of a project apart.
+//! import, export). A save of the store, the build step `textproject`, a takeover and an id
+//! rename record what they wrote ([`record_known`]): a file only with the hash of the bytes
+//! its writer wrote or read and only while it still holds them, the sources of a unit only
+//! while the unit is in step (a member's record never moves alone next to an older one of its
+//! JSON: the build step's sides rely on it), so the next scan finds nothing to take over. One lock per project root keeps scans and takeovers of a project apart.
 //!
 //! With the store, [`sync_store`] keeps every unit with an unsaved asset from being taken over
 //! (a conflict with `unsaved`); [`conflict_diff`] shows a unit's two sides, [`resolve`] (and
 //! [`resolve_files`] without a store) applies the user's choice (see `conflict.rs`).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -176,7 +178,20 @@ pub fn record_all_reported(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<u32, KernelError> {
-    locked(&project.root, || apply::record_all(project, progress))
+    record_all_written(project, progress, &BTreeMap::new())
+}
+
+/// [`record_all_reported`] after an operation that wrote the files of `journal` (absolute
+/// paths, see [`Journal`](crate::fsutil::Journal)): each of them is recorded only while it
+/// holds the bytes written, else it gets no entry (written past the operation meanwhile).
+pub(crate) fn record_all_written(
+    project: &Project,
+    progress: &mut dyn FnMut(SyncProgress),
+    journal: &BTreeMap<PathBuf, u64>,
+) -> Result<u32, KernelError> {
+    locked(&project.root, || {
+        apply::record_all(project, progress, journal)
+    })
 }
 
 /// How many files [`record_all_reported`] hashes between two reports.
@@ -213,58 +228,123 @@ pub(crate) fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
     f()
 }
 
-/// Records the fingerprints (with their content hash) of `paths` (relative to the root, or
-/// absolute below it) as they are now in `sync.files`; a path without a file loses its entry.
-/// Only into a sync that was recorded as a whole before: without one the next sync scans
-/// everything anyway, and a record of a few files would make it look partial. The scan time
-/// of the record stays as it is (the earliest), so a fingerprint taken now is racy against it
-/// and compared by content.
-pub(crate) fn record_paths(project: &Project, paths: &[PathBuf]) -> Result<(), KernelError> {
-    if paths.is_empty() || BuildState::load_shared(&project.root).sync.is_none() {
+/// What a writer can vouch for about a file it hands to [`record_known`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Known {
+    /// It wrote the file with bytes of this xxh3 ([`Journal`](crate::fsutil::Journal)).
+    Wrote(u64),
+    /// It read the file as this fingerprint (with its hash) and found its unit in step.
+    Read(Fp),
+    /// Nothing: the file's entry goes (no record counts as changed; the next scan judges it,
+    /// and records it when its unit is in step).
+    Drop,
+}
+
+/// The files of `journal` (absolute paths from a [`Journal`](crate::fsutil::Journal)) as
+/// [`Known::Wrote`], relative to the root.
+pub(crate) fn wrote(project: &Project, journal: &BTreeMap<PathBuf, u64>) -> Vec<(PathBuf, Known)> {
+    journal
+        .iter()
+        .filter_map(|(path, hash)| {
+            let rel = path.strip_prefix(&project.root).ok()?;
+            Some((rel.to_path_buf(), Known::Wrote(*hash)))
+        })
+        .collect()
+}
+
+/// Records `files` (relative to the root, or absolute below it) for the sync, each only with
+/// the hash its writer knows and only while the file still has those bytes; a file that has
+/// other bytes now (written meanwhile by someone else), is gone or is [`Known::Drop`] loses its
+/// entry. A file named twice keeps the weaker answer (a drop wins). Files the sync does not
+/// watch are left alone. Only into a sync that was recorded as a whole before: without one the
+/// next sync scans everything anyway. The record's scan time stays (a fingerprint taken now is
+/// racy against it and compared by content).
+pub(crate) fn record_known(
+    project: &Project,
+    files: &[(PathBuf, Known)],
+) -> Result<(), KernelError> {
+    if files.is_empty() || BuildState::load_shared(&project.root).sync.is_none() {
         return Ok(());
     }
-    let mut taken = Vec::with_capacity(paths.len());
-    for path in paths {
+    let watch = watch::Watch::new(project)?;
+    let mut wanted: BTreeMap<String, (PathBuf, Option<u64>)> = BTreeMap::new();
+    for (path, known) in files {
         let rel = path.strip_prefix(&project.root).unwrap_or(path);
-        let fp = capture_hashed(&project.root.join(rel))?;
-        taken.push((key(rel), fp));
+        if !watch.watches(rel) {
+            continue;
+        }
+        let hash = match known {
+            Known::Wrote(hash) => Some(*hash),
+            Known::Read(fp) => fp.xxh3,
+            Known::Drop => None,
+        };
+        wanted
+            .entry(key(rel))
+            .and_modify(|(_, have)| {
+                if *have != hash {
+                    *have = None;
+                }
+            })
+            .or_insert((rel.to_path_buf(), hash));
+    }
+    let mut entries: Vec<(String, Option<Fp>)> = Vec::with_capacity(wanted.len());
+    for (k, (rel, hash)) in wanted {
+        let entry = match hash {
+            Some(hash) => {
+                capture_hashed(&project.root.join(&rel))?.filter(|now| now.xxh3 == Some(hash))
+            }
+            None => None,
+        };
+        entries.push((k, entry));
     }
     BuildState::update(&project.root, |state| {
         let Some(sync) = state.sync.as_mut() else {
             return;
         };
-        for (key, fp) in taken {
+        for (k, fp) in entries {
             match fp {
                 Some(fp) => {
-                    sync.files.insert(key, fp);
+                    sync.files.insert(k, fp);
                 }
                 None => {
-                    sync.files.remove(&key);
+                    sync.files.remove(&k);
                 }
             }
         }
     })
 }
 
-/// [`record_paths`] of what a writer outside the store wrote (the build step `textproject`):
-/// a folder stands for every file in it, and only the files the sync watches are recorded
-/// (not rotom's compile state). Nothing without a recorded sync.
-pub(crate) fn record_written(project: &Project, paths: &[PathBuf]) -> Result<(), KernelError> {
-    if paths.is_empty() || BuildState::load_shared(&project.root).sync.is_none() {
-        return Ok(());
+/// The fingerprints of `files` (relative to the root) with their hashes, taken now, for
+/// [`Known::Read`] once their unit is found in step: a file without one is [`Known::Drop`].
+pub(crate) fn read_now(
+    project: &Project,
+    files: &[PathBuf],
+) -> Result<Vec<(PathBuf, Known)>, KernelError> {
+    let mut out = Vec::with_capacity(files.len());
+    for rel in files {
+        let known = match capture_hashed(&project.root.join(rel))? {
+            Some(fp) if fp.xxh3.is_some() => Known::Read(fp),
+            _ => Known::Drop,
+        };
+        out.push((rel.clone(), known));
     }
-    let watch = watch::Watch::new(project)?;
+    Ok(out)
+}
+
+/// The files below `rel` (relative to the root): the folder's files, or `rel` itself.
+pub(crate) fn files_below(project: &Project, rel: &Path) -> Result<Vec<PathBuf>, KernelError> {
+    files_below_root(&project.root, rel)
+}
+
+/// [`files_below`] below `root`.
+pub(crate) fn files_below_root(root: &Path, rel: &Path) -> Result<Vec<PathBuf>, KernelError> {
     let mut files = Vec::new();
-    for path in paths {
-        let rel = path.strip_prefix(&project.root).unwrap_or(path);
-        if project.root.join(rel).is_dir() {
-            walk(&project.root, rel, &mut files, &|_| false)?;
-        } else {
-            files.push(rel.to_path_buf());
-        }
+    if root.join(rel).is_dir() {
+        walk(root, rel, &mut files, &|_| false)?;
+    } else {
+        files.push(rel.to_path_buf());
     }
-    files.retain(|rel| watch.watches(rel));
-    record_paths(project, &files)
+    Ok(files)
 }
 
 /// The first of `paths` (relative to the root, or absolute below it) whose file is no longer

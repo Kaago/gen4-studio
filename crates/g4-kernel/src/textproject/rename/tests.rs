@@ -604,10 +604,10 @@ fn a_rename_to_the_own_fallback_still_compiles() {
 fn what_fails_after_the_files_is_a_warning() {
     let fx = fixture();
     let p = fx.project();
-    assert!(after_move(&p, &[]).is_empty());
+    assert!(after_move(&p, &[], &Default::default()).is_empty());
     // A rotom.toml that no longer reads: the id files cannot be written.
     fx.write("rotom.toml", b"[paths\n");
-    let warnings = after_move(&p, &[]);
+    let warnings = after_move(&p, &[], &Default::default());
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
         warnings[0].starts_with("Die ID-Dateien für rotom sind nicht neu geschrieben ("),

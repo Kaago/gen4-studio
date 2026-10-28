@@ -426,13 +426,14 @@ fn a_save_over_an_unchanged_recorded_member_is_not_stale() {
 }
 
 #[test]
-fn record_paths_adds_hashed_fingerprints_only_to_a_recorded_sync() {
+fn record_known_records_only_what_the_writer_vouches_for() {
     let fx = TextFixture::exported();
     let p = fx.project();
     let json = PathBuf::from(MOVE_1_JSON);
     let gone = PathBuf::from("data/moves/9999.json");
+    let hash = xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON));
     BuildState::update(fx.root(), |s| s.sync = None).unwrap();
-    record_paths(&p, std::slice::from_ref(&json)).unwrap();
+    record_known(&p, &[(json.clone(), Known::Wrote(hash))]).unwrap();
     assert_eq!(BuildState::load(fx.root()).sync, None, "no sync, no record");
 
     BuildState::update(fx.root(), |s| {
@@ -448,14 +449,37 @@ fn record_paths_adds_hashed_fingerprints_only_to_a_recorded_sync() {
         });
     })
     .unwrap();
-    record_paths(&p, &[p.root.join(&json), gone.clone()]).unwrap();
+    record_known(
+        &p,
+        &[
+            (p.root.join(&json), Known::Wrote(hash)),
+            (gone.clone(), Known::Drop),
+        ],
+    )
+    .unwrap();
     let sync = sync_of(&fx);
     assert_eq!(sync.scanned_at_ns, 7);
     assert_eq!(sync.files.keys().collect::<Vec<_>>(), [MOVE_1_JSON]);
-    assert_eq!(
-        sync.files[MOVE_1_JSON].xxh3,
-        Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON)))
-    );
+    assert_eq!(sync.files[MOVE_1_JSON].xxh3, Some(hash));
+
+    // Bytes other than the ones the writer knows (written past it): the entry goes. So it
+    // does for a file named twice with two answers.
+    record_known(&p, &[(json.clone(), Known::Wrote(hash ^ 1))]).unwrap();
+    assert!(sync_of(&fx).files.is_empty());
+    let read = crate::build::fingerprint::capture_hashed(&p.root.join(&json))
+        .unwrap()
+        .unwrap();
+    record_known(&p, &[(json.clone(), Known::Read(read))]).unwrap();
+    assert_eq!(sync_of(&fx).files.keys().collect::<Vec<_>>(), [MOVE_1_JSON]);
+    record_known(
+        &p,
+        &[
+            (json.clone(), Known::Read(read)),
+            (json.clone(), Known::Drop),
+        ],
+    )
+    .unwrap();
+    assert!(sync_of(&fx).files.is_empty());
 }
 
 /// The header table's slice of `arm9.bin` (offset of header 0).
@@ -641,9 +665,15 @@ fn export_and_import_record_the_sync() {
         Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON)))
     );
 
+    // Without a record the import cannot tell the sides apart: forced.
     BuildState::update(fx.root(), |s| s.sync = None).unwrap();
     fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 12");
-    crate::textproject::import(&fx.project(), Some(&fx.base())).unwrap();
+    crate::textproject::import_with(
+        &fx.project(),
+        Some(&fx.base()),
+        &crate::textproject::ImportOptions { force: true },
+    )
+    .unwrap();
     assert_eq!(fx.read(MOVE_1_MEMBER)[3], 12);
     let sync = sync_of(&fx);
     assert_eq!(
@@ -784,4 +814,54 @@ fn applying_a_report_that_records_nothing_makes_no_sync_record() {
     let report = scan_of(&fx);
     apply_of(&fx, &report);
     assert_eq!(BuildState::load(fx.root()).sync, None);
+}
+
+#[test]
+fn a_json_edited_while_the_build_step_writes_is_not_recorded_in_step() {
+    let fx = recorded();
+    crate::build::prepare(&fx.project()).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 12");
+    // The JSON changes again after the step read it and wrote the member.
+    let root = fx.root().to_path_buf();
+    crate::textproject::step::AFTER_APPLY.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            let path = root.join(MOVE_1_JSON);
+            let text = std::fs::read_to_string(&path).unwrap();
+            std::fs::write(&path, text.replacen("\"power\": 12", "\"power\": 13", 1)).unwrap();
+        }));
+    });
+    let built = crate::build::prepare(&fx.project());
+    crate::textproject::step::AFTER_APPLY.with(|hook| *hook.borrow_mut() = None);
+    built.unwrap();
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 12);
+    assert_eq!(power(&fx), 13);
+    std::thread::sleep(Duration::from_millis(20));
+    let mut member = fx.read(MOVE_1_MEMBER);
+    member[3] = 77;
+    fx.write(MOVE_1_MEMBER, &member);
+
+    // The JSON the step did not read is not in step with the member: both sides changed.
+    match crate::build::prepare(&fx.project()) {
+        Err(KernelError::Compile(problems)) => assert!(
+            problems
+                .iter()
+                .any(|p| p.message.starts_with("textproject.conflict:")),
+            "{problems:?}"
+        ),
+        other => panic!("expected a conflict, got {other:?}"),
+    }
+    let refused = crate::textproject::export(
+        &fx.project(),
+        &fx.base(),
+        &crate::textproject::ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    );
+    assert!(
+        matches!(&refused, Err(KernelError::Refused(text)) if text.starts_with(crate::textproject::UNSYNCED_EXPORT)),
+        "{refused:?}"
+    );
+    assert_eq!(power(&fx), 13);
 }

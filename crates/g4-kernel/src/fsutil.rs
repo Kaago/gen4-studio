@@ -1,6 +1,8 @@
 //! File helpers shared by the store and the patch module.
 
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{KernelError, io_at};
@@ -58,9 +60,69 @@ pub(crate) fn write_atomic_meta(
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
+    note_written(&project_root.join(path), bytes);
     #[cfg(unix)]
     let meta = file.metadata();
     #[cfg(not(unix))]
     let meta = std::fs::metadata(path);
     Ok(meta.ok())
+}
+
+thread_local! {
+    /// The files written on this thread while a [`Journal`] is open: path (absolute) → xxh3
+    /// of the bytes written last.
+    static JOURNAL: RefCell<Option<BTreeMap<PathBuf, u64>>> = const { RefCell::new(None) };
+}
+
+/// Notes a write of `bytes` to `path` in the open [`Journal`], if any.
+fn note_written(path: &Path, bytes: &[u8]) {
+    JOURNAL.with(|journal| {
+        if let Some(files) = journal.borrow_mut().as_mut() {
+            files.insert(path.to_path_buf(), xxhash_rust::xxh3::xxh3_64(bytes));
+        }
+    });
+}
+
+/// The files this thread writes through [`write_atomic`] (and so `write_if_changed`) from
+/// [`Journal::start`] to [`Journal::finish`], each with the xxh3 of the bytes written: what a
+/// writer can vouch for when it records its files for the text project's sync. Journals nest
+/// (an outer one gets the inner one's files too).
+pub(crate) struct Journal {
+    outer: Option<BTreeMap<PathBuf, u64>>,
+    open: bool,
+}
+
+impl Journal {
+    pub(crate) fn start() -> Journal {
+        let outer = JOURNAL.with(|journal| journal.replace(Some(BTreeMap::new())));
+        Journal { outer, open: true }
+    }
+
+    /// The files written since [`Journal::start`] (absolute paths), and the journal closed.
+    pub(crate) fn finish(mut self) -> BTreeMap<PathBuf, u64> {
+        self.close()
+    }
+
+    fn close(&mut self) -> BTreeMap<PathBuf, u64> {
+        if !self.open {
+            return BTreeMap::new();
+        }
+        self.open = false;
+        let outer = self.outer.take();
+        let files = JOURNAL
+            .with(|journal| journal.replace(outer))
+            .unwrap_or_default();
+        JOURNAL.with(|journal| {
+            if let Some(outer) = journal.borrow_mut().as_mut() {
+                outer.extend(files.iter().map(|(path, hash)| (path.clone(), *hash)));
+            }
+        });
+        files
+    }
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        self.close();
+    }
 }

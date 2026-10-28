@@ -2,7 +2,7 @@
 //! byte comparison, and a save that refuses to overwrite files changed on disk.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -24,11 +24,12 @@ use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
+use crate::fsutil::Journal;
 use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
-use crate::textproject::sync::{changed_since_record, record_paths};
+use crate::textproject::sync::{self, Known, changed_since_record, record_known};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -1494,17 +1495,25 @@ impl Store {
         members: Vec<PathBuf>,
         write: impl FnOnce(&mut EntitySource, &Project) -> Result<SourceWrite, KernelError>,
     ) -> Result<(), KernelError> {
-        let Location::Entity { .. } = self.project.asset_location(id.kind, id.index)? else {
+        let Location::Entity { unit, .. } = self.project.asset_location(id.kind, id.index)? else {
             return Ok(());
         };
         let project = Arc::clone(&self.project);
-        let mut written = Store::source(&mut self.source, &project)
+        let journal = Journal::start();
+        let written = Store::source(&mut self.source, &project)
             .and_then(|source| write(source, &project))
-            .map_err(|e| {
-                KernelError::Partial(format!("{id} was written, its JSON was not: {e}"))
-            })?;
-        written.sources.extend(members);
-        record_saved(&project, &written);
+            .map_err(|e| KernelError::Partial(format!("{id} was written, its JSON was not: {e}")));
+        let journal = journal.finish();
+        let written = written?;
+        let source = Store::source(&mut self.source, &project).ok();
+        record_saved(
+            &project,
+            source,
+            &written,
+            &members,
+            std::slice::from_ref(&unit),
+            &journal,
+        );
         Ok(())
     }
 
@@ -2803,7 +2812,7 @@ impl Store {
     /// In a text project ([`Location::Entity`]) the JSON of every dirty unit is written first
     /// ([`EntitySource::write`], other parts of a unit from the store); only when that
     /// succeeded the members follow as the build's intermediate state (over whatever they hold
-    /// now), and then both are recorded for the sync ([`record_paths`]).
+    /// now), and then both are recorded for the sync ([`record_saved`]).
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
         if let Some(why) = &self.busy {
@@ -2843,8 +2852,10 @@ impl Store {
             retargeted_scripts: self.retargeted_scripts()?,
             ..SaveReport::default()
         };
-        let mut written = self.write_sources(&pending)?;
+        let journal = Journal::start();
+        let written = self.write_sources(&pending)?;
         let mut members = Vec::new();
+        let mut units: Vec<EntityUnit> = Vec::new();
         for (id, location, bytes) in pending {
             match &location {
                 Location::Entity { unit, members: at } => {
@@ -2852,10 +2863,9 @@ impl Store {
                     // hold now, not compared with the JSON's bytes the store saw.
                     let now = read_location(at, self.reading(id)?)?;
                     members.extend(member_targets(at, &bytes)?);
-                    // The unit's JSON and side files are in step with what is written now,
-                    // also those the write left alone: recorded with the members, so the
-                    // sync never holds a member's new record next to an older one of its JSON.
-                    members.extend(unit.sources.iter().cloned());
+                    if !units.iter().any(|u| u.key == unit.key) {
+                        units.push(unit.clone());
+                    }
                     self.write_members(id, at, now.as_deref(), &bytes)?;
                 }
                 Location::TextSource { json, member } => {
@@ -2877,8 +2887,16 @@ impl Store {
             report.written.push(id);
             self.drop_text_index(id);
         }
-        written.sources.append(&mut members);
-        record_saved(&self.project, &written);
+        #[cfg(test)]
+        AFTER_SAVE_WRITES.with(|hook| {
+            if let Some(hook) = hook.borrow().as_ref() {
+                hook();
+            }
+        });
+        let journal = journal.finish();
+        let project = Arc::clone(&self.project);
+        let source = Store::source(&mut self.source, &project).ok();
+        record_saved(&project, source, &written, &members, &units, &journal);
         self.record_texts(&report.written);
         crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
@@ -3035,26 +3053,80 @@ fn corrupt(change: Option<&mut Changeset>, part: usize) {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Runs in a save right after the members are written, before they are recorded for the
+    /// sync (tests: a write in between).
+    pub(crate) static AFTER_SAVE_WRITES: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        std::cell::RefCell::new(None);
+}
+
 /// The assets of one unit a save writes, with their bytes.
 type Writes = Vec<(AssetId, Vec<u8>)>;
 
-/// Records what a save or an append wrote for the text project's sync: `written.sources`
-/// (the JSON and side files, the members written, and with them the sources of their units),
-/// `written.registers`. Only what was
-/// written: a member left alone keeps its record, so a change DSPRE makes to it stays visible.
-/// The record is a cache like the text archives' (see [`Store::record_texts`]): a file left
-/// unrecorded is compared by content next time and found in step, so an error here is not
-/// the save's.
-fn record_saved(project: &Project, written: &SourceWrite) {
-    let mut paths: Vec<PathBuf> = written
+/// Records what a save or an append wrote for the text project's sync ([`record_known`]):
+/// every file it wrote (`journal`: the JSON and side files, the members, the registers) only
+/// with the bytes it wrote; a file it names but did not write (a side file it deleted) loses
+/// its entry. The JSON and side files of each unit written (`units`) that it left unchanged are
+/// recorded only while the unit is in step ([`EntitySource::matches_members`], with the bytes
+/// read for it); a unit that is not (a part the JSON took from the file, edited there and not
+/// built) records its written members alone, and its JSON and side files lose their entries,
+/// so they count as changed. The members it left alone keep their records. The
+/// record is a cache like the text archives' (see [`Store::record_texts`]): a file left
+/// unrecorded is compared by content next time, so an error here is not the save's.
+fn record_saved(
+    project: &Project,
+    source: Option<&mut EntitySource>,
+    written: &SourceWrite,
+    members: &[PathBuf],
+    units: &[EntityUnit],
+    journal: &BTreeMap<PathBuf, u64>,
+) {
+    let rel = |path: &PathBuf| {
+        path.strip_prefix(&project.root)
+            .unwrap_or(path)
+            .to_path_buf()
+    };
+    let mut known = sync::wrote(project, journal);
+    let journaled: BTreeSet<PathBuf> = known.iter().map(|(path, _)| path.clone()).collect();
+    for path in written
         .sources
         .iter()
         .chain(&written.registers)
-        .cloned()
-        .collect();
-    paths.sort();
-    paths.dedup();
-    let _ = record_paths(project, &paths);
+        .chain(members)
+    {
+        let path = rel(path);
+        if !journaled.contains(&path) {
+            known.push((path, Known::Drop));
+        }
+    }
+    let mut source = source;
+    for unit in units {
+        // The members the save left alone keep their records (a change DSPRE made to one
+        // stays visible); the JSON and side files it left alone are in step only with the unit.
+        let sources: Vec<PathBuf> = unit.sources.iter().map(rel).collect();
+        let left: Vec<PathBuf> = sources
+            .iter()
+            .filter(|path| !journaled.contains(*path))
+            .cloned()
+            .collect();
+        let Ok(before) = sync::read_now(project, &left) else {
+            known.extend(left.into_iter().map(|path| (path, Known::Drop)));
+            continue;
+        };
+        let in_step = source.as_deref_mut().is_some_and(|source| {
+            source
+                .matches_members(project, &unit.assets)
+                .unwrap_or(false)
+        });
+        if in_step {
+            known.extend(before);
+        } else {
+            known.extend(left.into_iter().map(|path| (path, Known::Drop)));
+            known.extend(sources.into_iter().map(|path| (path, Known::Drop)));
+        }
+    }
+    let _ = record_known(project, &known);
 }
 
 /// The member files a save of `bytes` to member location `location` writes (see
@@ -3223,11 +3295,14 @@ fn move_files(
     } else {
         Vec::new()
     };
-    write_files_and_entries(project, files, entries, side).map_err(StepError::Keep)?;
+    let journal = Journal::start();
+    let wrote = write_files_and_entries(project, files, entries, side);
+    let journal = journal.finish();
+    wrote.map_err(StepError::Keep)?;
     if renamed {
         // The step's files are written; what fails here is a cache the next scan or compile
         // puts right (`rename_id` reports it, undo and redo have no place for it).
-        let _ = crate::textproject::rename::after_move(project, &in_step);
+        let _ = crate::textproject::rename::after_move(project, &in_step, &journal);
     }
     Ok(())
 }

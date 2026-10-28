@@ -369,14 +369,25 @@ was sich seit seinem letzten Stand auf welcher Seite geändert hat:
 - Member-Seite: die Member, die er als neuer behält (`member-newer`);
 - beide Seiten: `conflict`; `unsynced` (voll, Member weicht von der Basis ab) zählt für keine Seite.
 
-Der Abgleich von 4.3b schärft das Urteil, ersetzt es aber nicht. Sein Stand (`sync` in
-`.g4/build/state.json`) hält je Datei den Fingerabdruck aus einem Augenblick, in dem JSON und Member
-der Einheit gleich waren: Export, Import und Einrichten zeichnen alles auf; Speichern, Übernahme,
-Wahl und Build-Schritt zeichnen die Member, die sie schreiben, **mit den Quellen ihrer Einheit** auf
-(nie den neuen Stand eines Members neben einem älteren seiner JSON). Halten alle Dateien einer Seite
-einer abweichenden Einheit noch, was er aufzeichnete, und ist dieser Stand nicht älter als der, den
-der Schritt zuletzt gelesen hat (`ctime` im Eintrag des Schritts), hat sich nur die andere Seite
-geändert:
+Der Abgleich von 4.3b schärft das Urteil, ersetzt es aber nicht. **Was sein Stand garantiert:**
+`sync` in `.g4/build/state.json` hält je Datei einen Fingerabdruck mit dem Hash von Bytes, die ein
+Schreiber selbst geschrieben oder gelesen hat, und nur, solange die Datei sie noch hält:
+
+- Speichern, Build-Schritt, Übernahme, Wahl, „ID umbenennen“, Export, Import und Einrichten
+  zeichnen eine Datei, die sie schreiben, nur mit dem Hash der geschriebenen Bytes auf; hält sie
+  danach andere (DSPRE oder ein Editor schrieb dazwischen), verliert sie ihren Eintrag;
+- die Quellen (JSON, Beifiles) einer Einheit, die Speichern oder Build-Schritt nicht selbst
+  schreiben, zeichnen sie nur auf, wenn die Einheit danach nachweislich gleich ist (aus der JSON
+  erzeugte Bytes gleich den Membern, mit den dafür gelesenen Bytes); sonst verlieren sie ihren
+  Eintrag (etwa ein von Hand geänderter, nicht gebauter Teil, den das Speichern eines anderen
+  Teils aus der Datei übernahm, oder eine JSON, die sich während des Builds änderte);
+- eine Übernahme zeichnet die Seite, von der sie übernimmt, nur so auf, wie der Abgleich sie las;
+- kein Eintrag gilt als geändert: der nächste Abgleich vergleicht dann den Inhalt und zeichnet
+  eine gleiche Einheit wieder auf.
+
+Halten alle Dateien einer Seite einer abweichenden Einheit noch, was er aufzeichnete, ist dieser
+Stand nicht älter als der, den der Schritt zuletzt gelesen hat (`ctime` im Eintrag des Schritts),
+und halten Manifest und Register ebenfalls ihren Stand, hat sich nur die andere Seite geändert:
 
 - beide Seiten seit dem letzten Lauf geändert (Speichern oder Übernahme, dann eine Änderung auf
   einer Seite): zählt für die geänderte Seite allein; so urteilt auch der Build selbst (Member
@@ -385,10 +396,20 @@ geändert:
   zurückgesetzt): Member-Seite; ein gelöschter Member zählt für keine Seite (der Import holt ihn
   nur zurück);
 - als neuer behalten, aber nur die JSON geändert: JSON-Seite;
-- `unsynced` (voll): die geänderte Seite, sonst keine.
+- `unsynced` (voll): die geänderte Seite.
 
-Eine Datei ohne Aufzeichnung gilt als geändert, dann urteilt der Schritt allein. Speichern und
-Übernahmen schreiben JSON und Member gleich, ihre Einheiten weichen also gar nicht ab.
+Fehlt dieser Nachweis in einem vollen Lauf (kein Stand, ein älterer Stand als der des Schritts,
+beide Seiten geändert, Manifest oder Register geändert), zählt eine Einheit, die der Schritt
+schreiben würde, für **beide** Seiten, und ein `unsynced` ebenso: der Import lehnt ab, statt einen
+Member zu überschreiben, den DSPRE geändert haben kann. Im inkrementellen Lauf urteilt dann der
+Schritt allein. Speichern und Übernahmen schreiben JSON und Member gleich, ihre Einheiten weichen
+also gar nicht ab.
+
+**Wofür `--force` ist:** wenn die Ablehnung eine Seite schützt, die verworfen werden soll (der
+Export soll die Member übernehmen, der Import die JSON durchsetzen, etwa nach `git checkout -- data/`
+über geänderte Member), oder wenn kein Stand zeigt, welche Seite neuer ist (ein Projekt ohne
+`sync`, nach einem Wechsel des Manifests). `--force` prüft nichts davon und überschreibt die andere
+Seite.
 
 Der Export lehnt dann JSON-Seite und Konflikte ab (nach der Basisschicht, vor allem anderen, nichts
 geschrieben): `Im Textprojekt sind Änderungen, die noch nicht in den Membern sind (<bis zu zehn,

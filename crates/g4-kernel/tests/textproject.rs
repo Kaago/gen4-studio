@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime};
 
 use g4_formats::narc::Narc;
 use g4_kernel::base::BaseRom;
+use g4_kernel::build::state::BuildState;
 use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
@@ -360,7 +361,11 @@ fn import_after_deleting_members_restores_every_byte() {
     fx.write("files/fielddata/maptable/mapname.bin", &[0x41; 32]);
     std::fs::remove_file(fx.root().join("files/a/b.bin")).unwrap();
 
-    let report = import(&fx.p(), None).unwrap();
+    // The deleted members only come back, but the header table overwritten since the export
+    // is a member-side change the import would throw away: forced.
+    let text = refused(import(&fx.p(), None));
+    assert!(text.contains("arm9/arm9.bin"), "{text}");
+    let report = import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
     assert!(report.members_written > 500, "{report:?}");
     assert_eq!(report.raw_written, 1);
     assert_eq!(fx.contents("unpacked"), unpacked);
@@ -1592,6 +1597,101 @@ fn the_build_after_a_save_and_an_edit_on_one_side_is_no_conflict() {
 }
 
 #[test]
+fn a_save_of_one_part_over_a_hand_edited_part_records_no_json() {
+    // Built; the learnset of species 1 is edited by hand in its JSON, not built.
+    let fx = built();
+    let species = "data/species/0001.json";
+    let mut json = fx.json(species);
+    let level = json["learnset"]["moves"][0]["level"].as_u64().unwrap();
+    json["learnset"]["moves"][0]["level"] = (level + 4).into();
+    fx.write(species, &serde_json::to_vec_pretty(&json).unwrap());
+    // The store saves the personal part alone (its JSON takes the learnset from the file).
+    let mut store = Store::new(Arc::new(fx.p()));
+    store
+        .edit_personal(1, "Angriff", |p| p.set_attack(p.attack().wrapping_add(1)))
+        .unwrap()
+        .expect("the attack changed");
+    store.save().unwrap();
+    tick();
+    // DSPRE edits the learnset member.
+    let learnset = "unpacked/learnsets/0001";
+    let mut bytes = fx.read(learnset);
+    bytes[0] ^= 0x01;
+    fx.write(learnset, &bytes);
+
+    // Both sides of the species changed since they were last in step: nothing is taken over.
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let side = found
+        .units
+        .iter()
+        .find(|u| u.key == species)
+        .map(|u| u.side);
+    assert_eq!(side, Some(UnitSide::Conflict), "{:?}", found.units);
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export(&format!("{species} (auch {learnset} geändert)"))
+    );
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert!(
+        codes(&problems).contains(&"textproject.conflict".to_owned()),
+        "{problems:?}"
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+}
+
+#[test]
+fn a_changed_manifest_leaves_the_judgement_to_the_step() {
+    // After a save the manifest changes (it is read by every JSON), then DSPRE edits the
+    // member: the record of the JSON proves nothing any more.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.edit(
+        "g4-project.json",
+        "\"schemaVersion\": 1",
+        "\"schemaVersion\":  1",
+    );
+    fx.dspre_power(57);
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.conflict"], "{problems:?}");
+}
+
+#[test]
+fn without_a_sync_record_a_full_judgement_refuses_both_directions() {
+    // Exported, not built, and the sync's record lost: a JSON edit could be over a member
+    // DSPRE changed, so neither direction goes without `force`.
+    let fx = Fx::new();
+    fx.export();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // A member that left the base (unsynced): the same.
+    let fx = Fx::new();
+    fx.export();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    fx.dspre_power(77);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+}
+
+#[test]
 fn adopt_and_revert_are_not_refused() {
     use g4_kernel::textproject::adopt::{adopt, revert};
     // A DSPRE folder: no manifest, so nothing to judge, whatever the step's file says.
@@ -1858,8 +1958,15 @@ fn textproject_round_trip() {
         other => panic!("header table at {other:?}"),
     }
 
+    // The zeroed header table and names are member-side changes the import refuses without
+    // `force` (4.3a I1); the round trip restores them on purpose.
     let started = std::time::Instant::now();
-    import(&Project::open(&copy).unwrap(), Some(&base)).unwrap();
+    import_with(
+        &Project::open(&copy).unwrap(),
+        Some(&base),
+        &ImportOptions { force: true },
+    )
+    .unwrap();
     let import_ms = ms(started);
     let mut after = BTreeMap::new();
     hashes(&copy, "unpacked", &mut after);

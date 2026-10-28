@@ -58,6 +58,7 @@ use crate::build::step::{Dirty, Step, StepRun, dirty_now};
 use crate::build::{Tool, lock};
 use crate::dynamic_headers;
 use crate::error::KernelError;
+use crate::fsutil::Journal;
 use crate::project::{AssetKind, Project};
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity};
@@ -76,6 +77,7 @@ use super::import::{
 use super::manifest::{SchemaState, refusal, schema_state};
 use super::quirks::{QUIRKS_FILE, seed_quirks};
 use super::registry::IDS_DIR;
+use super::sync::{self, Known};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 
 /// The step's revision; raise it when what the step writes changes.
@@ -504,6 +506,10 @@ struct Judged {
     unit_errors: bool,
     /// The units changed on both sides: the index into `units` and the changed member.
     conflicts: Vec<(usize, PathBuf)>,
+    /// Whether the run is full (judged by the base layer).
+    full: bool,
+    /// Whether the manifest or a register changed (every unit counts as JSON-side changed).
+    global: bool,
 }
 
 /// Decides a run on `dirty` as the module documentation says and writes nothing: plans the
@@ -556,6 +562,8 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
         write: Vec::new(),
         newer: Vec::new(),
         unsynced: Vec::new(),
+        full,
+        global,
         kept,
         unit_problems: Vec::new(),
         unit_errors: false,
@@ -568,7 +576,7 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
     if plan_failed && !always {
         return Ok(judged);
     }
-    let records = Records::load(p);
+    let records = Records::load(p, global);
     let base = Base {
         project: p,
         layer: full
@@ -663,6 +671,13 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
     Ok(judged)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Runs right after the step wrote the members, before it records them (tests: a write
+    /// in between).
+    pub(crate) static AFTER_APPLY: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
+}
+
 /// The step's run: the counters and the problems (warnings), or `Compile` with every problem.
 fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelError> {
     let root = &p.root;
@@ -727,7 +742,16 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
         .filter(|&k| p.has_archive(k) && !p.unpacked_dir(k).is_dir())
         .map(|k| p.unpacked_dir(k))
         .collect();
-    let applied = apply_import(p, &chosen)?;
+    let journal = Journal::start();
+    let applied = apply_import(p, &chosen);
+    let journal = journal.finish();
+    let applied = applied?;
+    #[cfg(test)]
+    AFTER_APPLY.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook();
+        }
+    });
     let mut wrote = applied.paths;
     // A folder the import unpacked: every member in it is new.
     wrote.extend(
@@ -737,17 +761,11 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
             .map(|dir| relative(p, dir)),
     );
     save_kept(root, &judged.kept)?;
-    // What the step wrote is in step with its JSON: recorded for the sync (a cache like the
-    // store's record, so an error here is not the build's), or the next scan would take the
-    // step's own write for DSPRE's and the next save would find the member changed. The
-    // sources of the units written are recorded with their members: a member's new record
-    // next to an older one of its JSON would make that older JSON look in step later
-    // ([`Records`]).
-    let mut recorded = wrote.clone();
-    for &i in &judged.write {
-        recorded.extend(judged.units[i].sources.iter().cloned());
-    }
-    let _ = super::sync::record_written(p, &recorded);
+    // What the step wrote is recorded for the sync (a cache like the store's record, so an
+    // error here is not the build's), or the next scan would take the step's own write for
+    // DSPRE's and the next save would find the member changed: see [`record_run`].
+    let written: Vec<&Unit> = judged.write.iter().map(|&i| &judged.units[i]).collect();
+    let _ = record_run(p, &written, &wrote, &journal);
     let done = done + usize::from(applied.quirks > 0);
     Ok((
         StepRun {
@@ -759,6 +777,67 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
         },
         problems,
     ))
+}
+
+/// Records a run for the sync: every file the step wrote only with the bytes it wrote (a file
+/// written past it meanwhile, or one it did not write itself, as an unpacked folder, loses its
+/// entry), and the sources of the units it wrote only while each unit is in step, judged by a
+/// plan of those units after the writes, with the bytes read for it (a JSON changed while the
+/// step ran, or a member written past it, leaves the sources unrecorded: they count as changed).
+fn record_run(
+    p: &Project,
+    units: &[&Unit],
+    wrote: &[PathBuf],
+    journal: &BTreeMap<PathBuf, u64>,
+) -> Result<(), KernelError> {
+    let mut known = sync::wrote(p, journal);
+    let journaled: BTreeSet<PathBuf> = known.iter().map(|(rel, _)| rel.clone()).collect();
+    for path in wrote {
+        for file in sync::files_below(p, path)? {
+            if !journaled.contains(&file) {
+                known.push((file, Known::Drop));
+            }
+        }
+    }
+    let mut read = Vec::with_capacity(units.len());
+    for unit in units {
+        let mut files = Vec::new();
+        for source in &unit.sources {
+            files.extend(sync::files_below(p, source)?);
+        }
+        read.push((files.clone(), sync::read_now(p, &files)?));
+    }
+    let in_step = units_in_step(p, units)?;
+    for ((files, before), in_step) in read.into_iter().zip(in_step) {
+        if in_step {
+            known.extend(before);
+        } else {
+            known.extend(files.into_iter().map(|file| (file, Known::Drop)));
+        }
+    }
+    sync::record_known(p, &known)
+}
+
+/// Whether each of `units` is in step now: a plan of their sources finds no unit whose bytes
+/// differ from its members among them (any error of the plan: none is).
+fn units_in_step(p: &Project, written: &[&Unit]) -> Result<Vec<bool>, KernelError> {
+    if written.is_empty() {
+        return Ok(Vec::new());
+    }
+    let only: BTreeSet<PathBuf> = written
+        .iter()
+        .flat_map(|u| u.sources.iter().cloned())
+        .collect();
+    let plan = plan_import(p, &LazyBase::new(p, None, false), Some(&only))?;
+    if plan.has_errors() {
+        return Ok(vec![false; written.len()]);
+    }
+    let differing: Vec<BTreeSet<PathBuf>> =
+        units(&plan).into_iter().map(|unit| unit.keys).collect();
+    Ok(written
+        .iter()
+        .map(|unit| differing.iter().all(|keys| keys.is_disjoint(&unit.keys)))
+        .collect())
 }
 
 /// What changed on each side of the text project since the build step's last sync point (its
@@ -805,15 +884,37 @@ struct Records {
     root: PathBuf,
     state: std::sync::Arc<BuildState>,
     now: i128,
+    /// Proves nothing: the manifest or a register changed since the step's last run (every
+    /// JSON reads through them).
+    off: bool,
+    /// Whether the manifest and the registers are what the record says (read once).
+    globals: OnceCell<bool>,
 }
 
 impl Records {
-    fn load(p: &Project) -> Records {
+    /// The record, proving nothing when `global` (the manifest or a register changed since
+    /// the step's last run).
+    fn load(p: &Project, global: bool) -> Records {
         Records {
             root: p.root.clone(),
             state: BuildState::load_shared(&p.root),
             now: now_ns(),
+            off: global,
+            globals: OnceCell::new(),
         }
+    }
+
+    /// Whether the manifest and every register hold what the record says: a JSON recorded
+    /// unchanged means the same only then.
+    fn globals_unchanged(&self) -> Result<bool, KernelError> {
+        if let Some(&unchanged) = self.globals.get() {
+            return Ok(unchanged);
+        }
+        let mut files = vec![PathBuf::from(MANIFEST_FILE)];
+        walk(&self.root, Path::new(IDS_DIR), &mut files, &|_| false)?;
+        let unchanged = self.unchanged(&files)?;
+        let _ = self.globals.set(unchanged);
+        Ok(unchanged)
     }
 
     /// Whether every one of `files` holds what the sync recorded for it, by a record not older
@@ -826,7 +927,15 @@ impl Records {
         if files.is_empty() {
             return Ok(false);
         }
+        // A folder (the header table's `data/headers`) stands for its files.
+        let mut expanded = Vec::with_capacity(files.len());
         for file in files {
+            expanded.extend(sync::files_below_root(&self.root, file)?);
+        }
+        if expanded.is_empty() {
+            return Ok(false);
+        }
+        for file in &expanded {
             let key = shown(file);
             let Some(recorded) = sync.files.get(&key) else {
                 return Ok(false);
@@ -853,6 +962,9 @@ impl Records {
     /// The side of `unit` that alone changed since the record: `None` when the record proves
     /// neither (both or neither side unchanged, or no record).
     fn side(&self, unit: &Unit) -> Result<Option<Side>, KernelError> {
+        if self.off || !self.globals_unchanged()? {
+            return Ok(None);
+        }
         Ok(
             match (
                 self.unchanged(&unit.sources)?,
@@ -891,22 +1003,38 @@ impl Records {
 /// (already in [`judge`], so the build agrees), a unit the step would write counts for the
 /// member side when only the members changed (DSPRE put a member back to the base after the
 /// export; a deleted member counts for neither side, the import only brings it back), one
-/// kept as newer for the JSON side when only the JSON changed, and an
-/// `unsynced` unit for the side that changed (on neither when the record proves neither).
+/// kept as newer for the JSON side when only the JSON changed, and an `unsynced` unit for the
+/// side that changed. Where a full run has no such proof (no record, a record older than what
+/// the step read, both sides changed, or the manifest or a register changed), a unit it would
+/// write counts for both sides, and so does an `unsynced` one: the import refuses rather than
+/// overwrite a member DSPRE may have changed, and `--force` decides.
 pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
     if !p.root.join(SYNC_FILE).is_file() || schema_state(&p.root)? != SchemaState::Current {
         return Ok(None);
     }
     let dirty = dirty_now(p, &TextProjectStep::default())?;
     let judged = judge(p, &dirty, true)?;
-    let records = Records::load(p);
+    let records = Records::load(p, judged.global);
     let mut sides = Sides::default();
     for &i in &judged.write {
         let unit = &judged.units[i];
         match records.side(unit)? {
             Some(Side::Members) => sides.members.extend(records.changed_members(unit)?),
-            _ => {
+            Some(Side::Json) => {
                 sides.json.insert(shown(&unit.json()));
+            }
+            None => {
+                sides.json.insert(shown(&unit.json()));
+                // A full run cannot tell who put the member to the base (or left it there):
+                // without the record's proof the import counts it as the member side's too.
+                if judged.full {
+                    sides.members.extend(
+                        unit.members
+                            .iter()
+                            .filter(|m| p.root.join(m).is_file())
+                            .map(|m| shown(m)),
+                    );
+                }
             }
         }
     }
@@ -950,7 +1078,11 @@ pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
             Some(Side::Json) => {
                 sides.json.insert(shown(&unit.json()));
             }
-            None => {}
+            // Either side may have changed: neither direction goes without `force`.
+            None => {
+                sides.json.insert(shown(&unit.json()));
+                sides.members.insert(shown(member));
+            }
         }
     }
     Ok(Some(sides))

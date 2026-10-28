@@ -572,9 +572,10 @@ impl EntitySource {
     }
 }
 
-/// Exports the units of members written past the store (binary kinds) and records them.
-/// Nothing outside a text project of the current schema (a DSPRE folder keeps its members as
-/// its only source).
+/// Exports the units of members written past the store (binary kinds). It records nothing:
+/// the member was written past it, so it cannot vouch for the bytes; the next scan finds JSON
+/// and member in step and records them. Nothing outside a text project of the current schema
+/// (a DSPRE folder keeps its members as its only source).
 pub fn after_member_write(
     project: &Project,
     members: &[PathBuf],

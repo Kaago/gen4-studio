@@ -30,6 +30,7 @@ use serde::Serialize;
 
 use crate::checks::IGNORE_FILE;
 use crate::error::{KernelError, guard_panic, io_at};
+use crate::fsutil::Journal;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, SourceKind};
 use crate::store::{
@@ -203,8 +204,11 @@ fn apply(project: &Project, step: &FileStep) -> Result<Vec<String>, KernelError>
     sync::locked(&project.root, || {
         let paths: Vec<&Path> = step.files.iter().map(|f| f.path.as_path()).collect();
         let in_step = before_move(project, &paths);
-        write_file_step(project, step)?;
-        Ok(after_move(project, &in_step))
+        let journal = Journal::start();
+        let wrote = write_file_step(project, step);
+        let journal = journal.finish();
+        wrote?;
+        Ok(after_move(project, &in_step, &journal))
     })
 }
 
@@ -216,13 +220,28 @@ pub(crate) fn before_move(project: &Project, paths: &[&Path]) -> Vec<PathBuf> {
     sync::in_step(project, &owned).unwrap_or_default()
 }
 
-/// After the files of an id rename moved: records `in_step` (the files the sync had in step
-/// before) and writes the id files for rotom anew. Both are caches the next scan or compile
-/// puts right, so neither fails the step whose files are written already: what fails is a
-/// warning.
-pub(crate) fn after_move(project: &Project, in_step: &[PathBuf]) -> Vec<String> {
+/// After the files of an id rename moved: records those of `in_step` (the files the sync had
+/// in step before) that the move wrote, with the bytes it wrote (`journal`, see
+/// [`Journal`](crate::fsutil::Journal); a file written past it meanwhile loses its entry), and
+/// writes the id files for rotom anew. The rename changes no member and keeps every JSON's
+/// meaning, so a file in step before is in step with those bytes. Both are caches the next
+/// scan or compile puts right, so neither fails the step whose files are written already:
+/// what fails is a warning.
+pub(crate) fn after_move(
+    project: &Project,
+    in_step: &[PathBuf],
+    journal: &std::collections::BTreeMap<PathBuf, u64>,
+) -> Vec<String> {
     let mut warnings = Vec::new();
-    if let Err(e) = sync::record_written(project, in_step) {
+    let known: Vec<(PathBuf, sync::Known)> = in_step
+        .iter()
+        .filter_map(|rel| {
+            journal
+                .get(&project.root.join(rel))
+                .map(|hash| (rel.clone(), sync::Known::Wrote(*hash)))
+        })
+        .collect();
+    if let Err(e) = sync::record_known(project, &known) {
         warnings.push(format!(
             "Der Abgleich ist nicht neu aufgezeichnet ({e}); der nächste Abgleich prüft die \
              Dateien."

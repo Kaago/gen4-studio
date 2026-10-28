@@ -8,6 +8,7 @@ use std::time::Instant;
 use crate::build::fingerprint::{Fp, capture_hashed, hash, is_racy, now_ns, same_stat, stat};
 use crate::build::state::{BuildState, SyncRecord};
 use crate::error::{KernelError, io_at};
+use crate::fsutil::Journal;
 use crate::project::{AssetId, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
@@ -73,6 +74,8 @@ pub(super) fn apply_keys(
     let mut quiet: Vec<&str> = Vec::new();
     let mut failed: Vec<(String, KernelError)> = Vec::new();
     let refused = |why: String| KernelError::Refused(why);
+    // The files the takeover writes, with the bytes written: recorded only while they hold them.
+    let journal = Journal::start();
 
     for unit in &scan.units {
         if !matches!(unit.side, UnitSide::Dspre | UnitSide::Files)
@@ -167,7 +170,8 @@ pub(super) fn apply_keys(
         taken.extend(imported);
     }
 
-    record(project, &watch, scan, &taken, &written)?;
+    let journal = journal.finish();
+    record(project, &watch, scan, &taken, &written, &journal)?;
     written.sort();
     written.dedup();
     let mut report = ApplyReport {
@@ -378,8 +382,12 @@ fn record(
     scan: &ScanReport,
     taken: &[&SyncUnit],
     written: &[PathBuf],
+    journal: &BTreeMap<PathBuf, u64>,
 ) -> Result<(), KernelError> {
     let mut entries: BTreeMap<String, Option<Fp>> = BTreeMap::new();
+    // The files of the units taken over that the build step judges (entities, blobs, the
+    // quirks): recorded only with what the takeover wrote or the scan read.
+    let mut strict: BTreeSet<PathBuf> = BTreeSet::new();
     let mut capture: BTreeSet<PathBuf> = BTreeSet::new();
     // Files of units in step, as the scan saw them: recorded only while they are still what
     // the scan judged.
@@ -418,41 +426,46 @@ fn record(
         }
     }
     for unit in taken {
-        capture.extend(unit.sources.iter().cloned());
-        capture.extend(unit.members.iter().cloned());
+        let of = of_unit(&unit.key, &unit.assets);
+        let mut files: Vec<PathBuf> = unit.sources.iter().chain(&unit.members).cloned().collect();
         // Files the takeover added to the unit (a new side file).
-        if let Some(now) = watch.unit(&of_unit(&unit.key, &unit.assets))? {
-            capture.extend(now.sources);
-            capture.extend(now.members);
+        if let Some(now) = watch.unit(&of)? {
+            files.extend(now.sources);
+            files.extend(now.members);
         }
+        if matches!(of, Of::Asset(_) | Of::Blob(_) | Of::Quirks) {
+            strict.extend(files.iter().cloned());
+        }
+        capture.extend(files);
     }
     for (rel, seen) in confirm {
         if !watch.watches(&rel) {
             continue;
         }
         let path = project.root.join(&rel);
-        let entry = match (seen, stat(&path)?) {
-            (None, None) => None,
-            (Some(seen), Some(now)) if same_stat(&seen, &now) => match seen.xxh3 {
-                // The content the scan judged (racy or not: a racy entry is compared by
-                // content next time).
-                Some(_) => Some(seen),
-                // A racy `stat` without the content's hash proves nothing: as moved.
-                None if is_racy(&seen, scan.scanned_at_ns) => None,
-                None => capture_hashed(&path)?,
-            },
+        let Some(entry) = as_seen(&path, seen, scan.scanned_at_ns)? else {
             // Gone since the scan: the old entry stays, the next scan finds it removed.
-            (Some(_), None) => continue,
-            // Written since the scan: no entry, the next scan judges the file as added.
-            (_, Some(_)) => None,
+            continue;
         };
         entries.insert(key(&rel), entry);
     }
     capture.extend(written.iter().cloned());
     for rel in capture {
-        if watch.watches(&rel) && !held_back.contains(&key(&rel)) {
-            entries.insert(key(&rel), capture_hashed(&project.root.join(&rel))?);
+        if !watch.watches(&rel) || held_back.contains(&key(&rel)) {
+            continue;
         }
+        let path = project.root.join(&rel);
+        let entry = match journal.get(&path) {
+            // Written by the takeover: only while it holds those bytes.
+            Some(&hash) => capture_hashed(&path)?.filter(|now| now.xxh3 == Some(hash)),
+            // Read by the scan (the side taken over from): only while it is what the scan saw.
+            None if strict.contains(&rel) => {
+                let seen = scan.seen.get(&key(&rel)).copied().flatten();
+                as_seen(&path, seen, scan.scanned_at_ns)?.flatten()
+            }
+            None => capture_hashed(&path)?,
+        };
+        entries.insert(key(&rel), entry);
     }
     entries.retain(|k, _| watch.watches(Path::new(k)));
     let records = entries.values().any(Option::is_some);
@@ -460,6 +473,31 @@ fn record(
         record_sync(project, scan.scanned_at_ns, entries, records)?;
     }
     record_text_sync(project, &scan.texts)
+}
+
+/// The record of file `path` as the scan saw it (`seen`, its scan time `scanned_at_ns`) when
+/// the file still is that: the scan's fingerprint, or one hashed now when the scan took only
+/// the `stat` and it has not moved; `Some(None)` (no entry) when it moved or was added since,
+/// `None` when it is gone since the scan.
+fn as_seen(
+    path: &Path,
+    seen: Option<Fp>,
+    scanned_at_ns: i128,
+) -> Result<Option<Option<Fp>>, KernelError> {
+    Ok(Some(match (seen, stat(path)?) {
+        (None, None) => None,
+        (Some(seen), Some(now)) if same_stat(&seen, &now) => match seen.xxh3 {
+            // The content the scan judged (racy or not: a racy entry is compared by content
+            // next time).
+            Some(_) => Some(seen),
+            // A racy `stat` without the content's hash proves nothing: as moved.
+            None if is_racy(&seen, scanned_at_ns) => None,
+            None => capture_hashed(path)?,
+        },
+        (Some(_), None) => return Ok(None),
+        // Written since the scan: no entry, the next scan judges the file as added.
+        (_, Some(_)) => None,
+    }))
 }
 
 /// Writes `entries` (`None` removes one) into the sync record, and the scan time `at_ns`
@@ -495,6 +533,7 @@ fn record_sync(
 pub(super) fn record_all(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
+    journal: &BTreeMap<PathBuf, u64>,
 ) -> Result<u32, KernelError> {
     let watch = Watch::new(project)?;
     let at = now_ns();
@@ -503,7 +542,12 @@ pub(super) fn record_all(
     let total = u32::try_from(watched.len()).unwrap_or(u32::MAX);
     progress(SyncProgress { done: 0, total });
     for (done, rel) in (1..).zip(watched) {
-        if let Some(fp) = capture_hashed(&project.root.join(&rel))? {
+        let path = project.root.join(&rel);
+        // A file the operation wrote only while it holds those bytes.
+        let wrote = journal.get(&path);
+        if let Some(fp) = capture_hashed(&path)?
+            && wrote.is_none_or(|&hash| fp.xxh3 == Some(hash))
+        {
             files.insert(key(&rel), fp);
         }
         if done % RECORD_STEP == 0 || done == total {
