@@ -892,7 +892,7 @@ impl<'a> Call<'a> {
     /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
     /// and the question names the file and the ROM. `create_patch` names the patch file.
     /// `resolve_text_conflicts` names every archive and the version that applies.
-    /// `text_export` answers `unsaved`, `base_missing` and `not_adopted` unasked, and
+    /// `text_export` answers `unsaved`, `base_missing`, `not_adopted` and `unsynced` unasked, and
     /// `adopt_text_project` `unsaved`, `base_missing` and Diamond/Pearl.
     /// `resolve_external_conflict` names the unit and the version that stays.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
@@ -3731,6 +3731,54 @@ mod tests {
         let message = unasked("unsaved");
         assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
         assert!(!d.root.join("g4-project.json").exists());
+    }
+
+    /// 4.3a I1: in a text project `text_export` asks and exports; a JSON edit the members
+    /// lack (not built yet) comes back as `unsynced` before the question, and nothing is
+    /// written.
+    #[test]
+    fn shared_text_export_asks_then_refuses_unsynced_changes() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        crate::commands::adopt_text_project_impl(&state, &mut |_| {}).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+
+        let user = answer_next(&state, "allow");
+        toolbox.call("text_export", json!({}), AGENT).unwrap();
+        assert_eq!(
+            user.join().unwrap().what.as_deref(),
+            Some("Textprojekt exportieren")
+        );
+
+        let json_file = fx.root().join("data/moves/0001.json");
+        let edited = std::fs::read_to_string(&json_file).unwrap().replacen(
+            "\"power\": 10",
+            "\"power\": 99",
+            1,
+        );
+        std::fs::write(&json_file, &edited).unwrap();
+        let (code, message, _) = failed(toolbox.call("text_export", json!({}), AGENT));
+        assert_eq!(code, "unsynced", "{message}");
+        assert_eq!(
+            message,
+            format!(
+                "{} (data/moves/0001.json); der Export würde sie verwerfen: erst bauen (g4k \
+                 build) oder g4k text import, dann exportieren.",
+                g4_kernel::textproject::UNSYNCED_EXPORT
+            )
+        );
+        assert_eq!(state.agents.status().question, None);
+        assert_eq!(std::fs::read_to_string(&json_file).unwrap(), edited);
+        // The command itself answers the same.
+        let err = crate::commands::text_export_impl(&state).unwrap_err();
+        assert_eq!((err.code, err.message), ("unsynced", message));
+        assert_eq!(std::fs::read_to_string(&json_file).unwrap(), edited);
     }
 
     #[test]

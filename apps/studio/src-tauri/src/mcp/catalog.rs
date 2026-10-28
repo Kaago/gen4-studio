@@ -1213,8 +1213,9 @@ static TOOLS: &[ToolDef] = &[
         description: "Writes the project as a text project: g4-project.json and one JSON per \
                       entity under data/ with symbolic ids, binary parts only where they differ \
                       from the base ROM; needs a saved project, adopted scripts and the base \
-                      ROM; this cannot be undone. Headless (studio mcp) it needs \
-                      --allow-irreversible, without it the call answers needs_confirmation.",
+                      ROM; refuses (unsynced) while JSON-side changes are not built yet; this \
+                      cannot be undone. Headless (studio mcp) it needs --allow-irreversible, \
+                      without it the call answers needs_confirmation.",
         input_schema: no_args,
         output_schema: answers_object,
         route: command("text_export"),

@@ -553,9 +553,9 @@ Gemessen (Release, 27.10.2026, Median in ms, je zwei Läufe, Last 3 bis 9): Plat
 `crates/g4-kernel/src/textproject/` schreibt ein Projekt als Textprojekt (Manifest `g4-project.json`, je Entität eine JSON unter `data/<art>/NNNN.json`, Register `data/ids/`, Blobs `data/raw/`, `data/rotom-quirks.json`) und liest es zurück; Format in [docs/formats/text_project.md](formats/text_project.md). Kopflos:
 
 ```sh
-target/release/g4k text export <Kopie>    # braucht Basismarke und Basis-ROM (--base-rom, sonst die Nachbar-.nds, sonst G4_BASE_ROM_DIR); übernimmt nicht übernommene Scripts
+target/release/g4k text export <Kopie>    # braucht Basismarke und Basis-ROM (--base-rom, sonst die Nachbar-.nds, sonst G4_BASE_ROM_DIR); übernimmt nicht übernommene Scripts; lehnt ab, solange noch nicht gebaute JSON-Änderungen da sind (--force verwirft sie)
 target/release/g4k text check <Kopie>     # schema=…, Probleme, differs=N; schreibt nie
-target/release/g4k text import <Kopie>    # prüft alles, bevor es den ersten Member schreibt
+target/release/g4k text import <Kopie>    # prüft alles, bevor es den ersten Member schreibt; lehnt ab, solange Member neuer als ihre JSON sind (--force verwirft sie)
 target/release/g4k text sources <Kopie>   # die Dateien des Textprojekts, eine je Zeile (für git add)
 target/release/g4k text migrate <Kopie>   # ältere Schema-Version mit Schnappschuss unter .g4/backup/
 target/release/g4k text adopt <Kopie>     # als Textprojekt einrichten (Scripts, Export, rotom.toml, Aufzeichnung); phase=… ms=… je Phase

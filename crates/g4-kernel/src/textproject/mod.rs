@@ -55,10 +55,10 @@ pub mod sync;
 
 pub use check::{CheckReport, check, sources};
 pub use export::{
-    ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED, export,
-    export_reported,
+    ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED,
+    UNSYNCED_EXPORT, export, export_reported, unsynced_export,
 };
-pub use import::{ImportReport, import};
+pub use import::{ImportOptions, ImportReport, import, import_with};
 pub use record::ref_kind;
 pub use schema::data::item_owners;
 pub use schema::header::NO_DP;

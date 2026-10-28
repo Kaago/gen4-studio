@@ -127,6 +127,7 @@ pub(crate) fn adopt_as(
     let arts = u32::try_from(ARTS.len()).unwrap_or(u32::MAX);
     let opts = ExportOptions {
         adopt_scripts: false,
+        force: false,
     };
     let mut export = export::run_checked(
         project,
@@ -719,6 +720,7 @@ mod tests {
             &fx.base(),
             &ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         ) {
             Err(KernelError::Refused(why)) => why,

@@ -354,6 +354,48 @@ nur lückenlos. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht
 bleiben sie, wie sie sind (`textproject.base-unchecked`, eine Warnung). Lässt sich die Basisschicht nicht
 lesen oder aus der gegebenen Basis-ROM nicht anlegen, ist das `textproject.base-missing` (ein Fehler).
 
+**Wenn die andere Seite neuer ist** (seit 4.3a I1): Export und Import verwerfen sonst Arbeit. Der
+Export schreibt die JSON aus den Membern (und löscht Beifiles und Blobs, die er nicht schreibt), der
+Import schreibt die Member aus der JSON. Gibt es `.g4/build/textproject.json` (nach dem ersten
+Export, Import oder Build) und ein Manifest der aktuellen Version, fragen beide vorher den
+Build-Schritt `textproject` ohne zu schreiben (sein Urteil wie beim nächsten Build, siehe unten),
+was sich seit seinem letzten Stand auf welcher Seite geändert hat:
+
+- JSON-Seite: Einheiten, die der Schritt in die Member schreiben würde (JSON, Beifile oder Blob
+  geändert; ohne Eintrag des Schritts: Member fehlt oder gleicht der Basisschicht), die Dateien der
+  Fehler seiner Planung (eine kaputte oder gelöschte JSON, ein Blob am falschen Ort; nicht
+  `base-missing`, `base-unchecked`) und `data/rotom-quirks.json`, wenn sie den Compile-Zustand
+  ändern würde;
+- Member-Seite: die Member, die er als neuer behält (`member-newer`);
+- beide Seiten: `conflict`; `unsynced` (voll, Member weicht von der Basis ab) zählt für keine Seite.
+
+Der Abgleich von 4.3b schärft das Urteil, ersetzt es aber nicht: sein Stand (`sync` in
+`.g4/build/state.json`) wird nur aufgezeichnet, wenn JSON und Member gleich sind (Export, Import,
+Speichern, Übernahme, Build-Schritt). Halten alle Dateien einer Seite einer abweichenden Einheit
+noch, was er aufzeichnete, hat sich nur die andere Seite geändert: diese Seite zählt nicht, und ein
+Konflikt oder ein `unsynced` zählt für die andere Seite allein. Speichern und Übernahmen schreiben
+JSON und Member gleich, ihre Einheiten weichen also gar nicht ab.
+
+Der Export lehnt dann JSON-Seite und Konflikte ab (nach der Basisschicht, vor allem anderen, nichts
+geschrieben): `Im Textprojekt sind Änderungen, die noch nicht in den Membern sind (<bis zu zehn,
+dann …>); der Export würde sie verwerfen: erst bauen (g4k build) oder g4k text import, dann
+exportieren.` (ein Konflikt als `<json> (auch <member> geändert)`). Der Import lehnt Member-Seite und
+Konflikte ab, bevor er etwas liest: `Member sind neuer als ihre JSON (<…>); der Import würde sie
+überschreiben: erst exportieren (g4k text export), dann importieren.` (ein Konflikt als
+`<member> (auch <json> geändert)`). Mit `--force` (`ExportOptions { force }`, `ImportOptions { force }`)
+gehen beide darüber hinweg und verwerfen die andere Seite. Ohne `.g4/build/textproject.json` (frischer
+Klon) urteilt niemand, und beide laufen wie bisher. Die App fragt dasselbe vor ihrer Frage
+„Textprojekt exportieren“ (Code `unsynced`).
+
+Ein erfolgreicher Export ist ein Abgleichspunkt des Schritts: hat der Schritt einen Eintrag mit
+seinem Salz, zeichnet der Export ihn aus den Eingaben neu auf, wie sie danach sind; sonst sähe die
+neu geschriebene JSON beim nächsten Build (und beim nächsten Export) wie eine JSON-Änderung neben
+jeder späteren Member-Änderung aus (ein falscher Konflikt). Ohne Eintrag bleibt der nächste Lauf
+voll. Der Import braucht das nicht: sein `prepare` zeichnet den Schritt auf.
+
+Ein Beifile, das keine JSON nennt, ändert keinen Member; der Schritt sieht es nicht, und der Export
+löscht es weiter ohne Rückfrage.
+
 **Check** (`textproject::check`, `g4k text check`): wie der Import, schreibt nie (auch keine
 Basisschicht); nennt die Probleme, die Hinweise und die Dateien, die ein Import schreiben würde.
 

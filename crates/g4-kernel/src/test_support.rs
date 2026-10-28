@@ -603,6 +603,7 @@ impl TextFixture {
             &fx.base(),
             &crate::textproject::ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         )
         .unwrap();

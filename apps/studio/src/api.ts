@@ -435,9 +435,33 @@ export interface AssetId {
  * "text_conflict": a build or a save met text archives whose JSON and member both changed since the last build; nothing was written.
  * `problems` holds one error per archive (source "build", file "expanded/textArchives/0012.json", see `textConflictArchives`), and
  * `resolveTextConflicts` decides which version applies.
+ * Text project (4.3a/4.3b, mostly over MCP): "unsaved" (`text_export`, adoption: unsaved changes; nothing written), "not_adopted"
+ * (`text_export`: the scripts are not adopted), "unsynced" (`text_export`: the text project holds changes the members lack, not built
+ * yet, which the export would throw away; nothing written), "busy" (a write while the project is set up as text project),
+ * "not_text_project" (a text project command in a DSPRE folder), "pending" (adoption on a text project or taking it back while the
+ * sync finds something open), "conflicts" (a build of a text project with an open conflict), "unknown_id" (MCP: a symbolic id
+ * nothing knows).
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing" | "text_conflict" | "no_original";
+  code:
+    | "stale"
+    | "read_only"
+    | "tool_missing"
+    | "partial"
+    | "error"
+    | "compile"
+    | "finding_stale"
+    | "base_missing"
+    | "text_conflict"
+    | "no_original"
+    | "unsaved"
+    | "not_adopted"
+    | "unsynced"
+    | "busy"
+    | "not_text_project"
+    | "pending"
+    | "conflicts"
+    | "unknown_id";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -457,7 +481,15 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "finding_stale" ||
       o.code === "base_missing" ||
       o.code === "text_conflict" ||
-      o.code === "no_original") &&
+      o.code === "no_original" ||
+      o.code === "unsaved" ||
+      o.code === "not_adopted" ||
+      o.code === "unsynced" ||
+      o.code === "busy" ||
+      o.code === "not_text_project" ||
+      o.code === "pending" ||
+      o.code === "conflicts" ||
+      o.code === "unknown_id") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))

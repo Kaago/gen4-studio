@@ -39,6 +39,8 @@ use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ExportCtx};
+use super::step;
+pub use super::step::UNSYNCED_EXPORT;
 use super::symbols::SymbolKind;
 
 /// The refusal of a project without base mark.
@@ -48,9 +50,23 @@ const NO_MARK: &str =
 /// answers it with its own code).
 pub const NOT_ADOPTED: &str = "Die Scripts sind noch nicht übernommen (adopt_scripts).";
 
+/// How [`export`] runs.
+#[derive(Debug, Clone, Default)]
 pub struct ExportOptions {
     /// Adopt the scripts first when they are not (`scripts::adopt`), else refuse.
     pub adopt_scripts: bool,
+    /// Export also over changes of the text project the members lack (`g4k text export
+    /// --force`): they are thrown away. Without it the export refuses them
+    /// ([`UNSYNCED_EXPORT`]).
+    pub force: bool,
+}
+
+/// The refusal of [`export`] without `force` when the text project holds changes the members
+/// lack ([`UNSYNCED_EXPORT`]), found without exporting and without writing anything (a
+/// missing base layer is not made). The app asks it before its question „Textprojekt
+/// exportieren“.
+pub fn unsynced_export(project: &Project) -> Result<Option<String>, KernelError> {
+    step::export_refusal(project)
 }
 
 /// What the export did for one art (folder under `data/`): its entities, the JSON and side
@@ -96,9 +112,9 @@ fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// A step of the export, as [`export_reported`] reports it: adopting the scripts (only when
-/// it adopts them), the base layer, the art folders (one per entry of the art list, also one
-/// the game lacks) and the blobs.
+/// A step of the export, as [`export_reported`] reports it: the base layer, adopting the
+/// scripts (only when it adopts them), the art folders (one per entry of the art list, also
+/// one the game lacks) and the blobs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportStep {
@@ -120,9 +136,14 @@ pub struct ExportProgress {
 /// Exports `project` as a text project against base ROM `base`. Refuses (before writing
 /// anything) Diamond/Pearl, a project without base mark or with another base, an older or
 /// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), missing
-/// itemData members that hide the item table (named ones or a gap; the import first) and
-/// scripts that are not adopted unless `opts.adopt_scripts`. The base layer is made only when
-/// it is not there.
+/// itemData members that hide the item table (named ones or a gap; the import first),
+/// scripts that are not adopted unless `opts.adopt_scripts`, and, unless `opts.force`,
+/// changes of the text project the members lack ([`UNSYNCED_EXPORT`]: what the build step
+/// would write into the members since its last sync point, side files and blobs included, or
+/// a unit changed on both sides), which the export would overwrite or delete. The base layer
+/// is made only when it is not there (before that last refusal). Afterwards every JSON equals
+/// its member: the build step's members kept as newer are forgotten and its entry, when it
+/// has one, starts from here.
 pub fn export(
     project: &Project,
     base: &BaseRom,
@@ -165,10 +186,31 @@ pub(super) fn run_checked(
 ) -> Result<ExportReport, KernelError> {
     let start = Instant::now();
     let mut report = ExportReport::default();
-    if !scripts::is_adopted(project) {
-        if !opts.adopt_scripts {
-            return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
-        }
+    let adopted = scripts::is_adopted(project);
+    if !adopted && !opts.adopt_scripts {
+        return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
+    }
+    let layer_start = Instant::now();
+    let base_step = |done| ExportProgress {
+        step: ExportStep::BaseLayer,
+        done,
+        total: 1,
+    };
+    progress(base_step(0));
+    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
+        Some(layer) => (layer, false),
+        None => BaseLayer::ensure(&project.root, base)?,
+    };
+    progress(base_step(1));
+    report.base_layer_ms = ms_since(layer_start);
+    report.base_layer_created = created;
+    // With the base layer there, so a build step that never ran judges by it.
+    if !opts.force
+        && let Some(refusal) = step::export_refusal(project)?
+    {
+        return Err(KernelError::Refused(refusal));
+    }
+    if !adopted {
         let adopted = scripts::adopt(project, &mut |p| {
             progress(ExportProgress {
                 step: ExportStep::Scripts,
@@ -178,24 +220,13 @@ pub(super) fn run_checked(
         })?;
         report.adopted = Some(adopted.decompiled);
     }
-    let layer_start = Instant::now();
-    let step = |done| ExportProgress {
-        step: ExportStep::BaseLayer,
-        done,
-        total: 1,
-    };
-    progress(step(0));
-    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
-        Some(layer) => (layer, false),
-        None => BaseLayer::ensure(&project.root, base)?,
-    };
-    progress(step(1));
-    report.base_layer_ms = ms_since(layer_start);
-    report.base_layer_created = created;
     export_with(project, &layer, keep, &mut report, progress)?;
-    // Every JSON equals its member now: the build step forgets the members it kept as newer,
-    // and the sync records the project as it is.
-    super::step::clear_kept(&project.root)?;
+    // Every JSON equals its member now: the build step forgets the members it kept as newer
+    // and, when it has an entry, starts from here (or the JSON the export rewrote would look
+    // like a JSON-side change next to every later member change); the sync records the
+    // project as it is.
+    step::clear_kept(&project.root)?;
+    crate::build::step::resync(project, &step::TextProjectStep::default())?;
     if record {
         super::sync::record_all(project)?;
     }

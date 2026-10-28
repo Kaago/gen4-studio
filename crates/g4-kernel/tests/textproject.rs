@@ -8,6 +8,7 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use g4_formats::narc::Narc;
@@ -15,10 +16,15 @@ use g4_kernel::base::BaseRom;
 use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
+use g4_kernel::store::Store;
 use g4_kernel::text::{Problem, Severity};
 use g4_kernel::textproject::manifest::SchemaState;
 use g4_kernel::textproject::quirks::quirks_from_state;
-use g4_kernel::textproject::{ExportOptions, ExportReport, check, export, import, sources};
+use g4_kernel::textproject::sync::{UnitSide, apply_one_sided, scan};
+use g4_kernel::textproject::{
+    ExportOptions, ExportReport, ImportOptions, UNSYNCED_EXPORT, check, export, import,
+    import_with, sources, unsynced_export as unsynced_export_of,
+};
 
 use common::{TextFixture, synthetic_map_bytes};
 
@@ -68,6 +74,7 @@ impl Fx {
             &self.base(),
             &ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         )
         .unwrap()
@@ -273,7 +280,14 @@ fn export_removes_files_it_no_longer_writes() {
     fx.write("data/maps/0000.nsbmd", b"old side file");
     fx.write("data/raw/files/x.bin", b"old blob");
     fx.write("data/stories/0000.json", b"{}\n");
-    let report = fx.export();
+    // The blob placed by hand is a change the members lack: refused without `force`. The side
+    // file no JSON names changes no member, so the build step does not see it.
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/raw/files/x.bin")
+    );
+    assert!(fx.exists("data/raw/files/x.bin"));
+    let report = fx.export_forced();
     assert!(!fx.exists("data/maps/0000.nsbmd"));
     assert!(!fx.exists("data/raw/files/x.bin"));
     assert!(!fx.exists("data/raw"), "an empty blob folder goes too");
@@ -295,6 +309,9 @@ fn export_removes_files_it_no_longer_writes() {
     assert_eq!(report.raw_blobs, 1);
     assert_eq!(fx.read("data/raw/files/a/b.bin"), [1, 2, 3]);
     std::fs::remove_file(fx.root().join("files/a/b.bin")).unwrap();
+    // Without a build the step alone cannot tell the deleted file from a blob placed by
+    // hand; the sync's record can: the blob is what the export wrote, so only its file
+    // changed, and the export goes on.
     let report = fx.export();
     assert_eq!(report.raw_blobs, 0);
     assert_eq!(report.removed, 1);
@@ -500,9 +517,14 @@ fn import_needs_the_base_only_for_changed_base_parts() {
     );
     assert_ne!(problems[0].line, 1);
 
-    // With the base layer back, the import restores the base's model.
+    // With the base layer back, the member changed since the last import is newer than its
+    // JSON; forced, the import restores the base's model.
     fx.place_layer_from_original();
-    let report = import(&fx.p(), None).unwrap();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/maps/0002")
+    );
+    let report = import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
     assert_eq!(report.members_written, 1);
     assert_eq!(fx.read("unpacked/maps/0002"), big_model_map(0x11));
 }
@@ -634,6 +656,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &dp.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert_eq!(text, "Kein Textprojekt für Diamant/Perl in Phase 4.");
@@ -645,6 +668,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &unmarked.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.contains(".g4/base.json"), "{text}");
@@ -657,6 +681,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &other.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.starts_with("Das ist eine andere ROM"), "{text}");
@@ -672,6 +697,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &old.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.ends_with("`g4k text migrate` ausführen."), "{text}");
@@ -683,6 +709,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &scripts.base(),
         &ExportOptions {
             adopt_scripts: false,
+            force: false,
         },
     ));
     assert_eq!(
@@ -782,6 +809,7 @@ fn export_refuses_text_in_conflict_and_writes_nothing() {
         &fx.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ) {
         Err(KernelError::TextConflict(archives)) => assert_eq!(archives, [433]),
@@ -1182,6 +1210,332 @@ fn a_packed_member_without_its_folder_is_judged_by_the_base() {
     assert!(!fx.exists("unpacked/moveData"));
 }
 
+// Export and import refuse when the other side is newer (4.3a I1).
+
+impl Fx {
+    /// The export without `force`: what it answers.
+    fn try_export(&self) -> Result<ExportReport, KernelError> {
+        export(
+            &self.p(),
+            &self.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        )
+    }
+
+    /// The export with `force`.
+    fn export_forced(&self) -> ExportReport {
+        export(
+            &self.p(),
+            &self.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: true,
+            },
+        )
+        .unwrap()
+    }
+
+    /// Move 1's member as DSPRE changes it: its power set to `power`.
+    fn dspre_power(&self, power: u8) {
+        let mut member = self.read(MOVE_1);
+        member[3] = power;
+        self.write(MOVE_1, &member);
+    }
+
+    /// Move 1's power in its JSON.
+    fn json_power(&self) -> u64 {
+        self.json(MOVE_1_JSON)["data"]["power"].as_u64().unwrap()
+    }
+}
+
+/// The refusal of a call that is not an export.
+fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
+    match result {
+        Err(KernelError::Refused(text)) => text,
+        other => panic!("expected Refused, got {other:?}"),
+    }
+}
+
+/// The export's refusal naming `list`.
+fn unsynced_export(list: &str) -> String {
+    format!(
+        "{UNSYNCED_EXPORT} ({list}); der Export würde sie verwerfen: erst bauen (g4k build) \
+         oder g4k text import, dann exportieren."
+    )
+}
+
+/// The import's refusal naming `list`.
+fn unsynced_import(list: &str) -> String {
+    format!(
+        "Member sind neuer als ihre JSON ({list}); der Import würde sie überschreiben: erst \
+         exportieren (g4k text export), dann importieren."
+    )
+}
+
+/// A pause so the next write gets another mtime than the one recorded.
+fn tick() {
+    std::thread::sleep(Duration::from_millis(20));
+}
+
+#[test]
+fn export_refuses_json_side_changes_the_members_lack() {
+    // Exported, not built: the build step would judge every unit by the base layer, and move
+    // 1's member is the base's, so its JSON edit is JSON-side work.
+    let fx = Fx::new();
+    fx.export();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    let sentence = unsynced_export("data/moves/0001.json");
+    assert_eq!(refusal(fx.try_export()), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    // The app asks the same before its question.
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), Some(sentence));
+
+    // Built: a JSON edit and a blob placed by hand are not in the members yet.
+    let fx = built();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    fx.write("data/raw/files/x.bin", b"blob");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json, data/raw/files/x.bin")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // Forced: the members apply, the blob goes.
+    fx.export_forced();
+    assert_eq!(fx.json_power(), 10);
+    assert!(!fx.exists("data/raw/files/x.bin"));
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+
+    // Without the step's side file nothing tells the sides apart: the export runs as before.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 98");
+    std::fs::remove_file(fx.root().join(SYNC_FILE)).unwrap();
+    fx.export();
+    assert_eq!(fx.json_power(), 10);
+}
+
+#[test]
+fn export_after_a_member_edit_takes_the_member() {
+    let fx = built();
+    fx.dspre_power(77);
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+
+    // DSPRE edits it again: the export was a sync point of the build step, so this is only
+    // the member again (no conflict with the JSON the export wrote), for the build and for
+    // the next export.
+    tick();
+    fx.dspre_power(78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(fx.read(MOVE_1)[3], 78);
+    fx.export();
+    assert_eq!(fx.json_power(), 78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+
+    // A JSON edit after the export reaches the member.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 78", "\"power\": 99");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+}
+
+#[test]
+fn import_refuses_members_newer_than_their_json() {
+    // Exported, not built: the build step alone would call the unit unsynced (either side);
+    // the sync's record shows only the member changed since the export.
+    let fx = Fx::new();
+    fx.export();
+    fx.dspre_power(77);
+    let before = fx.mtimes();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+
+    let fx = built();
+    fx.dspre_power(77);
+    let sentence = unsynced_import("unpacked/moveData/0001");
+
+    // Changed since the last build.
+    let before = fx.mtimes();
+    assert_eq!(refused(import(&fx.p(), None)), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // Kept by the build as newer.
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    let before = fx.mtimes();
+    assert_eq!(refused(import(&fx.p(), None)), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1)[3], 77);
+
+    // Forced: the JSON applies.
+    import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
+    assert_eq!(fx.read(MOVE_1)[3], 10);
+    import(&fx.p(), None).unwrap();
+}
+
+#[test]
+fn a_unit_changed_on_both_sides_refuses_export_and_import() {
+    let fx = built();
+    fx.dspre_power(77);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001 (auch data/moves/0001.json geändert)")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+}
+
+// Phase 4.3b: the Studio's save and the external sync keep JSON and members in step, so
+// neither makes the export or the import refuse.
+
+/// Move 1's power raised to `power` through the store and saved (JSON and member).
+fn store_power(fx: &Fx, power: u8) {
+    let mut store = Store::new(Arc::new(fx.p()));
+    store
+        .edit_move(1, "Stärke", |m| m.set_power(power))
+        .unwrap()
+        .expect("the power changed");
+    store.save().unwrap();
+}
+
+/// One scan and its takeover; the sides of the units it found.
+fn sync_once(fx: &Fx) -> Vec<UnitSide> {
+    let p = fx.p();
+    let found = scan(&p, &mut |_| {}).unwrap();
+    apply_one_sided(&p, &found, &|_| false).unwrap();
+    found.units.iter().map(|u| u.side).collect()
+}
+
+#[test]
+fn a_store_save_refuses_neither_export_nor_import() {
+    // Exported only (the step would judge by the base layer) and built.
+    for fx in [
+        {
+            let fx = Fx::new();
+            fx.export();
+            fx
+        },
+        built(),
+    ] {
+        store_power(&fx, 55);
+        assert_eq!(fx.json_power(), 55);
+        assert_eq!(fx.read(MOVE_1)[3], 55);
+        fx.try_export().unwrap();
+        import(&fx.p(), None).unwrap();
+        assert_eq!(fx.json_power(), 55);
+
+        // After the save DSPRE edits the member: only the import refuses. After a save the
+        // JSON is edited by hand: only the export refuses.
+        tick();
+        store_power(&fx, 56);
+        tick();
+        fx.dspre_power(57);
+        assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+        assert_eq!(
+            refused(import(&fx.p(), None)),
+            unsynced_import("unpacked/moveData/0001")
+        );
+        fx.try_export().unwrap();
+        assert_eq!(fx.json_power(), 57);
+        tick();
+        store_power(&fx, 58);
+        tick();
+        fx.edit(MOVE_1_JSON, "\"power\": 58", "\"power\": 59");
+        assert_eq!(
+            refusal(fx.try_export()),
+            unsynced_export("data/moves/0001.json")
+        );
+        import(&fx.p(), None).unwrap();
+        assert_eq!(fx.read(MOVE_1)[3], 59);
+    }
+}
+
+#[test]
+fn a_sync_takeover_refuses_neither_export_nor_import() {
+    let fx = built();
+    // From DSPRE: the member changed, the sync writes the JSON.
+    fx.dspre_power(77);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    assert_eq!(fx.json_power(), 77);
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+    fx.try_export().unwrap();
+    import(&fx.p(), None).unwrap();
+
+    // From the files: the JSON changed, the sync writes the member.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 77", "\"power\": 66");
+    assert_eq!(sync_once(&fx), [UnitSide::Files]);
+    assert_eq!(fx.read(MOVE_1)[3], 66);
+    fx.try_export().unwrap();
+    import(&fx.p(), None).unwrap();
+
+    // A takeover from DSPRE, then the JSON edited by hand: the step saw both sides change
+    // since its build, the sync record shows the member is what the JSON had. Only the
+    // export refuses, as the scan says „aus Datei“.
+    let fx = built();
+    fx.dspre_power(77);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 77", "\"power\": 66");
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    import(&fx.p(), None).unwrap();
+    assert_eq!(fx.read(MOVE_1)[3], 66);
+}
+
+#[test]
+fn adopt_and_revert_are_not_refused() {
+    use g4_kernel::textproject::adopt::{adopt, revert};
+    // A DSPRE folder: no manifest, so nothing to judge, whatever the step's file says.
+    let fx = Fx::new();
+    fx.write(
+        SYNC_FILE,
+        br#"{"version":1,"member_newer":["unpacked/moveData/0001"]}"#,
+    );
+    fx.dspre_power(77);
+    adopt(&fx.p(), &fx.base(), &mut |_| {}).unwrap();
+    assert_eq!(fx.json_power(), 77);
+
+    // Built, a member kept as newer and taken over by the sync: the revert goes through.
+    run_source_and_pack_steps(&fx.p()).unwrap();
+    tick();
+    fx.dspre_power(78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    revert(&fx.p()).unwrap();
+    assert!(!fx.exists("g4-project.json"));
+}
+
 // Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base
 // ROM next to the original (only read). Deviations are findings in export, import or the
 // build step, never exceptions here.
@@ -1208,6 +1562,7 @@ fn exported_copy() -> Option<(tempfile::TempDir, PathBuf, PathBuf, ExportReport)
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();
@@ -1483,6 +1838,7 @@ fn textproject_export_idempotent() {
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();

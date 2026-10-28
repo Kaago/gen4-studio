@@ -1224,8 +1224,10 @@ fn required_base(
 enum TextCommand {
     /// Write the project's members as the text project (manifest, `data/`), adopting the
     /// scripts first when they are not. Needs the base mark and the base ROM: `--base-rom`,
-    /// else the sibling `.nds`, else `G4_BASE_ROM_DIR`. Prints `adopted scripts=N` when it
-    /// adopted, one line per art, then the totals; exit 1 on an error.
+    /// else the sibling `.nds`, else `G4_BASE_ROM_DIR`. Refused (exit 1, nothing written)
+    /// while the text project holds changes the members lack (not built yet), unless
+    /// `--force`. Prints `adopted scripts=N` when it adopted, one line per art, then the
+    /// totals; exit 1 on an error.
     Export {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1234,10 +1236,14 @@ enum TextCommand {
         /// Print the export report as JSON.
         #[arg(long)]
         json: bool,
+        /// Export also over changes of the text project the members lack; they are lost.
+        #[arg(long)]
+        force: bool,
     },
     /// Write the text project back into the members after checking every file; an error
     /// names file, line and column and nothing is written (exit 1). The base ROM (found like
-    /// `export`) is needed only for parts that reference it.
+    /// `export`) is needed only for parts that reference it. Refused (exit 1, nothing
+    /// written) while members are newer than their JSON, unless `--force`.
     Import {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1246,6 +1252,9 @@ enum TextCommand {
         /// Print the import report as JSON.
         #[arg(long)]
         json: bool,
+        /// Import also over members newer than their JSON; their changes are lost.
+        #[arg(long)]
+        force: bool,
     },
     /// What an import would find and write, without writing: `schema=…`, one line per
     /// problem, `differs=N` and the first 20 paths. Exit 1 on an error or another schema
@@ -1319,12 +1328,14 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             project,
             base_rom,
             json,
-        } => text_export(&project, base_rom.as_deref(), json),
+            force,
+        } => text_export(&project, base_rom.as_deref(), json, force),
         TextCommand::Import {
             project,
             base_rom,
             json,
-        } => text_import(&project, base_rom.as_deref(), json),
+            force,
+        } => text_import(&project, base_rom.as_deref(), json, force),
         TextCommand::Check { project, json } => text_check(&project, json),
         TextCommand::Sources { project } => {
             for path in g4_kernel::textproject::sources(&Project::open(project)?)? {
@@ -1371,8 +1382,14 @@ fn fail_on_errors(problems: &[Problem], what: &str) -> Result<(), Failure> {
     }
 }
 
-/// `g4k text export`: [`g4_kernel::textproject::export`], adopting the scripts.
-fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+/// `g4k text export`: [`g4_kernel::textproject::export`], adopting the scripts; `force` over
+/// changes the members lack.
+fn text_export(
+    root: &Path,
+    base_rom: Option<&Path>,
+    json: bool,
+    force: bool,
+) -> Result<(), Failure> {
     let mark = required_mark(root)?;
     let project = Project::open(root)?;
     let base = required_base(root, &mark, base_rom)?;
@@ -1381,6 +1398,7 @@ fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
         &base,
         &g4_kernel::textproject::ExportOptions {
             adopt_scripts: true,
+            force,
         },
     )?;
     print_problems(&report.problems);
@@ -1414,8 +1432,14 @@ fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
     fail_on_errors(&report.problems, "text export")
 }
 
-/// `g4k text import`: [`g4_kernel::textproject::import`], with the base ROM when it is found.
-fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+/// `g4k text import`: [`g4_kernel::textproject::import_with`], with the base ROM when it is
+/// found; `force` over members newer than their JSON.
+fn text_import(
+    root: &Path,
+    base_rom: Option<&Path>,
+    json: bool,
+    force: bool,
+) -> Result<(), Failure> {
     use g4_kernel::start::MarkState;
 
     // A broken or newer mark is refused like `export` and `patch create`; only without a
@@ -1431,7 +1455,11 @@ fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
         }
     };
     let project = Project::open(root)?;
-    let report = g4_kernel::textproject::import(&project, base.as_ref())?;
+    let report = g4_kernel::textproject::import_with(
+        &project,
+        base.as_ref(),
+        &g4_kernel::textproject::ImportOptions { force },
+    )?;
     print_problems(&report.problems);
     if json {
         println!("{}", json_line(&report)?);

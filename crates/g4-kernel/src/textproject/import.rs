@@ -48,7 +48,7 @@ use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ImportCtx, ROOT};
-use super::step::clear_kept;
+use super::step::{clear_kept, import_refusal};
 
 /// What [`import`] did: per art the entities read and the members written, the blobs and
 /// members written, the compile state entries the quirks changed, what `prepare` compiled and
@@ -232,13 +232,33 @@ fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// Imports the text project into the members of `project`. Every file is read and checked
-/// first; one error and the import is `Err(Compile(problems))` with nothing written. Parts
+/// How [`import_with`] runs.
+#[derive(Debug, Clone, Default)]
+pub struct ImportOptions {
+    /// Import also over members newer than their JSON (`g4k text import --force`): their
+    /// changes are thrown away. Without it the import refuses them.
+    pub force: bool,
+}
+
+/// [`import_with`] without `force`.
+pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport, KernelError> {
+    import_with(project, base, &ImportOptions::default())
+}
+
+/// Imports the text project into the members of `project`. Unless `opts.force` it refuses
+/// (before reading the text project) members that are newer than their JSON: kept by the
+/// build step as `textproject.member-newer`, changed since its last sync point, or changed
+/// together with their JSON. Every file is read and checked first; one error and the import
+/// is `Err(Compile(problems))` with nothing written. Parts
 /// stored as `base_sha1` come from the current member when it has them, else from the base
 /// layer, made from `base` when there is none. Afterwards the build's `prepare` runs its
 /// steps (`textproject` finds the members in sync), compiles the scripts and encodes the
 /// texts.
-pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport, KernelError> {
+pub fn import_with(
+    project: &Project,
+    base: Option<&BaseRom>,
+    opts: &ImportOptions,
+) -> Result<ImportReport, KernelError> {
     let start = Instant::now();
     if project.family == Family::Dp {
         return Err(KernelError::Refused(NO_DP.to_owned()));
@@ -247,6 +267,11 @@ pub fn import(project: &Project, base: Option<&BaseRom>) -> Result<ImportReport,
         && !mark.sha1.eq_ignore_ascii_case(base.sha1())
     {
         return Err(KernelError::Refused(other_rom(base.sha1(), &mark)));
+    }
+    if !opts.force
+        && let Some(refusal) = import_refusal(project)?
+    {
+        return Err(KernelError::Refused(refusal));
     }
     let lazy = LazyBase::new(project, base, true);
     let plan = plan_import(project, &lazy, None)?;
@@ -1261,6 +1286,7 @@ mod tests {
             &base,
             &ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         )
         .unwrap();
@@ -1639,6 +1665,7 @@ mod tests {
             &base,
             &ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         );
         assert_eq!(tree(dir), before, "nothing written");

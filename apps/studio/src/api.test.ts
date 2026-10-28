@@ -68,6 +68,8 @@ describe("isCmdError", () => {
     expect(isCmdError({ code: "read_only", message: "m", asset: { kind: "Event", index: 3 } })).toBe(true);
     expect(isCmdError({ code: "partial", message: "map 0003 was created; header edit failed: boom", asset: null })).toBe(true);
     expect(isCmdError({ code: "finding_stale", message: "finding is no longer current", asset: null })).toBe(true);
+    expect(isCmdError({ code: "unsynced", message: "Im Textprojekt sind Änderungen …", asset: null })).toBe(true);
+    expect(isCmdError({ code: "busy", message: "m", asset: null })).toBe(true);
     expect(isCmdError("plain string")).toBe(false);
   });
 

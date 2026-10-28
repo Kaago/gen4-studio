@@ -1168,6 +1168,47 @@ fn cli_text_import_reports_problems_with_exit_1() {
     assert!(err.contains("powr"), "{err}");
 }
 
+/// 4.3a I1: `text export` refuses JSON changes the members lack, `text import` member changes
+/// the JSON lacks; `--force` goes over them.
+#[test]
+fn cli_text_export_refuses_unbuilt_changes_unless_forced() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    let json = root.join("data/moves/0002.json");
+    let edited =
+        std::fs::read_to_string(&json)
+            .unwrap()
+            .replacen("\"power\": 20", "\"power\": 99", 1);
+    std::fs::write(&json, &edited).unwrap();
+
+    // Not built yet: the export would throw the edit away.
+    text(&["export"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::textproject::UNSYNCED_EXPORT))
+        .stderr(contains("data/moves/0002.json"))
+        .stderr(contains("erst bauen (g4k build)"));
+    assert_eq!(std::fs::read_to_string(&json).unwrap(), edited);
+    text(&["export", "--force"], &root).assert().success();
+    assert!(
+        std::fs::read_to_string(&json)
+            .unwrap()
+            .contains("\"power\": 20")
+    );
+
+    // A member changed after the export: the import would throw it away.
+    let member = root.join("unpacked/moveData/0002");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 77;
+    std::fs::write(&member, &bytes).unwrap();
+    text(&["import"], &root).assert().code(1).stderr(contains(
+        "Member sind neuer als ihre JSON (unpacked/moveData/0002)",
+    ));
+    assert_eq!(std::fs::read(&member).unwrap()[3], 77);
+    text(&["import", "--force"], &root).assert().success();
+    assert_eq!(std::fs::read(&member).unwrap()[3], 20);
+}
+
 #[test]
 fn cli_text_sources_lists_manifest_and_data() {
     let (_tmp, root, _nds) = text_layout();

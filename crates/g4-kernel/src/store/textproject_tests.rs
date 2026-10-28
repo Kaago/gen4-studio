@@ -82,6 +82,7 @@ fn full_export(fx: &TextFixture) {
         &fx.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();

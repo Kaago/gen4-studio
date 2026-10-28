@@ -84,6 +84,7 @@ fn store_on_json_edits_only_the_entity_file_and_builds_like_dspre() {
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();
@@ -139,6 +140,7 @@ fn simulated_dspre_change_is_adopted_one_sided() {
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();
@@ -244,6 +246,7 @@ fn simulated_change_on_both_sides_is_a_conflict_and_both_choices_work() {
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();
