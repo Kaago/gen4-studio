@@ -43,16 +43,24 @@ pub(super) fn apply(
     scan: &ScanReport,
     held: &dyn Fn(&SyncUnit) -> bool,
 ) -> Result<ApplyReport, KernelError> {
-    apply_keys(project, scan, held).map(|(report, _)| report)
+    apply_keys(project, scan, held).map(|applied| applied.report)
 }
 
-/// [`apply`], with the keys of every unit taken over (also those recorded without being
-/// reported, a script source rotom compiles).
+/// What [`apply_keys`] did: the report, the keys of every unit taken over (also those
+/// recorded without being reported, a script source rotom compiles) and why a one-sided unit
+/// that was not held and had not moved since the scan was not taken over.
+pub(super) struct Applied {
+    pub report: ApplyReport,
+    pub taken: Vec<String>,
+    pub failed: Vec<(String, KernelError)>,
+}
+
+/// [`apply`], with the keys taken over and the reasons of the units that could not be.
 pub(super) fn apply_keys(
     project: &Project,
     scan: &ScanReport,
     held: &dyn Fn(&SyncUnit) -> bool,
-) -> Result<(ApplyReport, Vec<String>), KernelError> {
+) -> Result<Applied, KernelError> {
     let start = Instant::now();
     let watch = Watch::new(project)?;
     let layer = OnceCell::new();
@@ -63,6 +71,8 @@ pub(super) fn apply_keys(
     let mut planned: Vec<&SyncUnit> = Vec::new();
     // Units recorded without being reported as taken over (a script source rotom compiles).
     let mut quiet: Vec<&str> = Vec::new();
+    let mut failed: Vec<(String, KernelError)> = Vec::new();
+    let refused = |why: String| KernelError::Refused(why);
 
     for unit in &scan.units {
         if !matches!(unit.side, UnitSide::Dspre | UnitSide::Files)
@@ -81,7 +91,20 @@ pub(super) fn apply_keys(
                 written.extend(unit.sources.iter().cloned());
                 true
             }
-            (UnitSide::Dspre, Of::Script(n)) => take_script(project, n, unit, &mut written)?,
+            (UnitSide::Dspre, Of::Script(n)) => {
+                let done = take_script(project, n, unit, &mut written)?;
+                if !done {
+                    failed.push((
+                        unit.key.clone(),
+                        refused(format!(
+                            "rotom dekompiliert {} nicht; {} bleibt, wie sie ist.",
+                            key(&unit.members[0]),
+                            unit.key
+                        )),
+                    ));
+                }
+                done
+            }
             (UnitSide::Dspre, Of::Blob(file)) => {
                 take_blob(project, &watch, layer(), &file, &mut written)?;
                 true
@@ -90,7 +113,21 @@ pub(super) fn apply_keys(
                 planned.push(unit);
                 false
             }
-            (UnitSide::Files, Of::Blob(file)) => put_blob(project, layer(), &file, &mut written)?,
+            (UnitSide::Files, Of::Blob(file)) => {
+                let done = put_blob(project, layer(), &file, &mut written)?;
+                if !done {
+                    failed.push((
+                        unit.key.clone(),
+                        refused(format!(
+                            "{} fehlt; ohne Basisschicht ist die Fassung der Basis von {} nicht \
+                             bekannt.",
+                            unit.key,
+                            key(&file)
+                        )),
+                    ));
+                }
+                done
+            }
             (UnitSide::Files, Of::Text(n)) => {
                 resolve_conflict(project, n, TextKeep::Json)?;
                 written.extend(unit.members.iter().cloned());
@@ -101,7 +138,13 @@ pub(super) fn apply_keys(
                 quiet.push(&unit.key);
                 true
             }
-            _ => false,
+            _ => {
+                failed.push((
+                    unit.key.clone(),
+                    refused(format!("{} übernimmt der Abgleich nicht.", unit.label)),
+                ));
+                false
+            }
         };
         if done {
             taken.push(unit);
@@ -113,8 +156,9 @@ pub(super) fn apply_keys(
         written.extend(wrote.registers);
     }
     if !planned.is_empty() {
-        let (wrote, imported) = import_units(project, &planned)?;
+        let (wrote, imported, problems) = import_units(project, &planned)?;
         written.extend(wrote);
+        failed.extend(problems);
         let members: Vec<PathBuf> = imported
             .iter()
             .flat_map(|u| u.members.iter().cloned())
@@ -141,8 +185,11 @@ pub(super) fn apply_keys(
         }
     }
     report.ms = ms_since(start);
-    let keys = taken.iter().map(|u| u.key.clone()).collect();
-    Ok((report, keys))
+    Ok(Applied {
+        report,
+        taken: taken.iter().map(|u| u.key.clone()).collect(),
+        failed,
+    })
 }
 
 /// Whether a file of `unit` is no longer what the scan saw (written since, by DSPRE or by
@@ -262,11 +309,12 @@ fn put_blob(
 
 /// The members of the entity units and the quirks among `units` from their sources, through
 /// the import's plan limited to them. A unit whose source the plan finds an error in is left
-/// out. The files written, and the units imported.
+/// out. The files written, the units imported, and the units left out with their errors.
+#[allow(clippy::type_complexity)]
 fn import_units<'a>(
     project: &Project,
     units: &[&'a SyncUnit],
-) -> Result<(Vec<PathBuf>, Vec<&'a SyncUnit>), KernelError> {
+) -> Result<(Vec<PathBuf>, Vec<&'a SyncUnit>, Vec<(String, KernelError)>), KernelError> {
     let only: BTreeSet<PathBuf> = units
         .iter()
         .flat_map(|u| u.sources.iter().cloned())
@@ -279,6 +327,19 @@ fn import_units<'a>(
             .any(|p| p.severity == Severity::Error && unit.sources.contains(&p.file))
     };
     let ok: Vec<&SyncUnit> = units.iter().copied().filter(|u| !failed(u)).collect();
+    let left_out = units
+        .iter()
+        .filter(|u| failed(u))
+        .map(|u| {
+            let problems = plan
+                .problems
+                .iter()
+                .filter(|p| p.severity == Severity::Error && u.sources.contains(&p.file))
+                .cloned()
+                .collect();
+            (u.key.clone(), KernelError::Compile(problems))
+        })
+        .collect();
     let mine = |w: &PlannedWrite| {
         ok.iter()
             .any(|u| w.unit.iter().any(|s| u.sources.contains(s)))
@@ -305,7 +366,7 @@ fn import_units<'a>(
         ..ImportPlan::default()
     };
     let applied = apply_import(project, &chosen)?;
-    Ok((applied.paths, ok))
+    Ok((applied.paths, ok, left_out))
 }
 
 /// Records the units taken over (their files as they are now, with the files written) and

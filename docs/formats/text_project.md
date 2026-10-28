@@ -542,11 +542,15 @@ Blobs nach `Größe` und `xxh3`; höchstens 40 Zeilen, der Rest als Zahl (`more`
 
 | Konflikt | Studio-Fassung behalten | andere Fassung übernehmen |
 |---|---|---|
-| beide Seiten, oder DSPRE mit ungespeichertem Asset (`other = dspre`) | Member aus der Quelle; Ungespeichertes bleibt ungespeichert; saubere geladene Assets, deren Quelle sich änderte, werden neu geladen | Quelle aus den Membern; alle geladenen Assets werden neu geladen, Ungespeichertes fällt weg |
+| beide Seiten, oder DSPRE mit ungespeichertem Asset (`other = dspre`) | Member aus der Quelle; Ungespeichertes bleibt ungespeichert und unberührt (samt Undo; änderte sich die Quelle auch, lehnt sein Speichern mit `Stale` ab); saubere geladene Assets, deren Quelle sich änderte, werden neu geladen | Quelle aus den Membern; alle geladenen Assets werden neu geladen, Ungespeichertes fällt weg |
 | Quelle mit ungespeichertem Asset (`other = files`) | Member aus der geänderten Quelle, die der neue Stand des Stores wird (`accept_disk_as_base`): Das nächste Speichern überschreibt sie ohne `Stale` | Member aus der geänderten Quelle; die Assets werden neu geladen, Ungespeichertes fällt weg |
 
-Ein Text folgt `resolve_conflict` (`Json` bzw. `Member`), ein Script behält seine Quelle (rotom
-übersetzt sie beim Build) bzw. wird aus dem Member dekompiliert, ein Blob wird kopiert.
+Ein Text folgt `resolve_conflict` (`Json` bzw. `Member`), ein Script behält seine Quelle (sie wird
+in rotoms Compile-Zustand veraltet gesetzt, der nächste Build übersetzt sie über DSPRE's Member)
+bzw. wird aus dem Member dekompiliert, ein Blob wird kopiert. Lässt sich die Einheit nicht
+übernehmen, nennt die Ablehnung den Grund (rotom dekompiliert den Member nicht, die Quelle lässt
+sich nicht importieren, ihre Dateien änderten sich seit dem Scan). Bei Scripts zeigt der Diff
+`fehlt` für eine Zeile, die nur eine Seite hat, und Größe und xxh3, wenn nur Zeilenenden abweichen.
 
 ## Schema-Version und Migration
 

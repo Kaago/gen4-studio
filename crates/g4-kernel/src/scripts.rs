@@ -598,6 +598,25 @@ pub(crate) fn refresh_stale_text_json(
 /// its quirks. A file without a rotom source (binary, level script) or without an entry
 /// (rotom compiles it anyway) is skipped; so is a project that is not adopted.
 pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
+    mark_stale_kinds(project, files, &[SourceKind::Script])
+}
+
+/// [`mark_stale`] of script file `file`'s source of either kind (`.rotom` or the level
+/// script's `.json`): the next compile writes its member from the source, whatever the member
+/// holds now (a sync that kept the Studio's source over DSPRE's member).
+pub(crate) fn mark_source_stale(project: &Project, file: u16) -> Result<(), KernelError> {
+    mark_stale_kinds(
+        project,
+        &[file],
+        &[SourceKind::Script, SourceKind::LevelScript],
+    )
+}
+
+fn mark_stale_kinds(
+    project: &Project,
+    files: &[u16],
+    kinds: &[SourceKind],
+) -> Result<(), KernelError> {
     if files.is_empty() || !is_adopted(project) {
         return Ok(());
     }
@@ -609,17 +628,20 @@ pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
         .map_err(|e| rotom_error("compile state", e))?;
     let mut changed = false;
     for &file in files {
-        let source = source_path(project, file, SourceKind::Script);
-        if !source.is_file() {
-            continue;
-        }
-        // rotom v0.7.0: src/project/compile.rs compile_project keys the state by the source
-        // path relative to the project root and compiles an entry whose source_hash differs.
-        if let Some(entry) = state.entries.get_mut(&relative(root, &source))
-            && entry.source_hash != 0
-        {
-            entry.source_hash = 0;
-            changed = true;
+        for &kind in kinds {
+            let source = source_path(project, file, kind);
+            if !source.is_file() {
+                continue;
+            }
+            // rotom v0.7.0: src/project/compile.rs compile_project keys the state by the
+            // source path relative to the project root and compiles an entry whose
+            // source_hash differs.
+            if let Some(entry) = state.entries.get_mut(&relative(root, &source))
+                && entry.source_hash != 0
+            {
+                entry.source_hash = 0;
+                changed = true;
+            }
         }
     }
     if changed {

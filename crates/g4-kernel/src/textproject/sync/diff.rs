@@ -257,11 +257,21 @@ fn script(project: &Project, unit: &Unit, out: &mut Lines) -> Result<(), KernelE
     };
     let studio = source.as_deref().map(String::from_utf8_lossy);
     match (&studio, &decompiled) {
-        (Some(studio), Some(dspre)) => lines(out, studio, dspre),
+        (Some(studio), Some(dspre)) => texts(out, studio, dspre),
         // A side without text: its bytes.
         _ => bytes(out, "", source.as_deref(), member.as_deref()),
     }
     Ok(())
+}
+
+/// Two texts by line ([`lines`]); with equal lines but other bytes (line ends, a last line
+/// break) by size and hash.
+fn texts(out: &mut Lines, studio: &str, dspre: &str) {
+    let before = out.lines.len() + out.more as usize;
+    lines(out, studio, dspre);
+    if out.lines.len() + out.more as usize == before && studio != dspre {
+        bytes(out, "", Some(studio.as_bytes()), Some(dspre.as_bytes()));
+    }
 }
 
 /// A blob: `data/raw/<file>` (the base layer's file when there is none) against the file.
@@ -283,7 +293,7 @@ fn blob(project: &Project, file: &Path, unit: &Unit, out: &mut Lines) -> Result<
 /// The differing lines of two texts with [`CONTEXT`] lines around them: the lines aligned by
 /// their longest common subsequence, in each run between equal lines the Studio's removed
 /// lines paired with DSPRE's added ones. `Zeile` is the Studio's line number (DSPRE's for a
-/// line only DSPRE has); a missing side is empty.
+/// line only DSPRE has); a missing side is [`ABSENT`].
 fn lines(out: &mut Lines, studio: &str, dspre: &str) {
     let a: Vec<&str> = studio.lines().collect();
     let b: Vec<&str> = dspre.lines().collect();
@@ -305,8 +315,8 @@ fn lines(out: &mut Lines, studio: &str, dspre: &str) {
         let number = i.or(j).map_or(0, |n| n + 1);
         out.push(
             format!("Zeile {number}"),
-            i.map_or_else(String::new, |i| a[i].to_owned()),
-            j.map_or_else(String::new, |j| b[j].to_owned()),
+            i.map_or_else(|| ABSENT.to_owned(), |i| a[i].to_owned()),
+            j.map_or_else(|| ABSENT.to_owned(), |j| b[j].to_owned()),
         );
     }
 }
@@ -414,11 +424,21 @@ mod tests {
             got,
             [
                 line("Zeile 1", "a", "a"),
-                line("Zeile 2", "", "new"),
+                line("Zeile 2", ABSENT, "new"),
                 line("Zeile 2", "b", "b"),
                 line("Zeile 3", "c", "c"),
             ]
         );
+    }
+
+    #[test]
+    fn equal_lines_with_other_line_ends_show_size_and_hash() {
+        let mut out = Lines::default();
+        texts(&mut out, "a\nb\n", "a\r\nb\r\n");
+        let paths: Vec<&str> = out.lines.iter().map(|l| l.path.as_str()).collect();
+        assert_eq!(paths, ["Größe", "xxh3"]);
+        assert_eq!(out.lines[0].studio, "4 Byte");
+        assert_eq!(out.lines[0].dspre, "6 Byte");
     }
 
     #[test]

@@ -7,10 +7,13 @@
 //!
 //! | conflict | Studio's version ([`Keep::Studio`]) | the other ([`Keep::Dspre`]) |
 //! |---|---|---|
-//! | both sides, or DSPRE's side with an unsaved value (`other = dspre`) | the member from the source; unsaved values stay unsaved; clean loaded assets whose source changed are loaded anew | the source from the member; every loaded asset is loaded anew, unsaved values go |
+//! | both sides, or DSPRE's side with an unsaved value (`other = dspre`) | the member from the source; unsaved values stay unsaved and untouched (when the source changed on disk too, the next save of them is `Stale`); clean loaded assets whose source changed are loaded anew | the source from the member; every loaded asset is loaded anew, unsaved values go |
 //! | the source with an unsaved value (`other = files`) | the member from the changed source, which becomes the store's base ([`Store::accept_disk_as_base`]): the next save overwrites it | the member from the changed source; the assets are loaded anew, unsaved values go |
 //!
-//! Every choice records the unit, so the next scan finds nothing in it.
+//! A script whose source stays is made stale in rotom's compile state, so the next build
+//! compiles it over DSPRE's member. Every choice records the unit, so the next scan finds
+//! nothing in it. A unit that cannot be taken over is refused with the reason (rotom does not
+//! decompile the member, the source does not import, its files moved since the scan).
 
 use std::time::Instant;
 
@@ -18,9 +21,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::KernelError;
 use crate::project::{AssetId, Project};
+use crate::scripts;
 use crate::store::Store;
 use crate::text::Problem;
 
+use super::watch::{Of, of_unit};
 use super::{ScanReport, SyncUnit, UnitSide, apply, apply_one_sided, locked, scan};
 
 /// Which version of a conflict stays: the Studio's (its source) or the other one (DSPRE's
@@ -86,7 +91,7 @@ pub struct SyncOutcome {
 pub const NO_CONFLICT: &str = "Für diese Einheit gibt es keinen Konflikt mehr.";
 
 /// The refusal of a choice whose unit was written again while it was made.
-const MOVED: &str =
+pub(super) const MOVED: &str =
     "Die Dateien dieser Einheit haben sich eben geändert; bitte noch einmal abgleichen.";
 
 fn ms_since(start: Instant) -> u64 {
@@ -189,14 +194,15 @@ pub fn resolve(store: &mut Store, key: &str, keep: Keep) -> Result<Vec<AssetId>,
                 store.reload_from_disk(id)?;
                 reloaded.push(id);
             }
-            // The source changed on disk: an unsaved value overwrites it with the next save,
-            // a clean one shows it.
+            // The source changed on disk: a clean value shows it; an unsaved one overwrites
+            // it with the next save when it is the other side (`other = files`), else it
+            // stays untouched (its save is `Stale`: the user's choice was the file's JSON).
             Keep::Studio if chosen.source_changed => {
-                if store.is_dirty(id) {
-                    store.accept_disk_as_base(id)?;
-                } else {
+                if !store.is_dirty(id) {
                     store.reload_from_disk(id)?;
                     reloaded.push(id);
+                } else if chosen.other == Other::Files {
+                    store.accept_disk_as_base(id)?;
                 }
             }
             // The source is what the store loaded: its values stay.
@@ -212,10 +218,19 @@ pub fn resolve_files(project: &Project, key: &str, keep: Keep) -> Result<(), Ker
     choose(project, key, keep, &|_| false).map(|_| ())
 }
 
-/// A choice made: the unit's assets and whether its source changed on disk.
+/// A choice made: the unit's assets, whether its source changed on disk and what it stood
+/// against.
 struct Chosen {
     assets: Vec<AssetId>,
     source_changed: bool,
+    other: Other,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs between the scan and the takeover of a choice (tests: a write in between).
+    pub(super) static AFTER_SCAN: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        std::cell::RefCell::new(None);
 }
 
 /// Scans, checks that `key` is still a conflict (given the assets with an unsaved value),
@@ -228,6 +243,12 @@ fn choose(
     unsaved: &dyn Fn(AssetId) -> bool,
 ) -> Result<Chosen, KernelError> {
     let mut report = scan(project, &mut |_| {})?;
+    #[cfg(test)]
+    AFTER_SCAN.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook();
+        }
+    });
     let open = report
         .units
         .iter()
@@ -248,13 +269,20 @@ fn choose(
     for u in report.units.iter_mut().filter(|u| u.key == key) {
         u.side = from;
     }
-    let (_, taken) = locked(&project.root, || {
+    let applied = locked(&project.root, || {
         apply::apply_keys(project, &report, &|u| u.key != key)
     })?;
-    if !taken.iter().any(|k| k == key) {
-        return Err(KernelError::Refused(MOVED.to_owned()));
+    if !applied.taken.iter().any(|k| k == key) {
+        let why = applied.failed.into_iter().find(|(k, _)| k == key);
+        return Err(why.map_or_else(|| KernelError::Refused(MOVED.to_owned()), |(_, e)| e));
+    }
+    if let (Keep::Studio, Of::Script(n)) = (keep, of_unit(&unit.key, &unit.assets)) {
+        // The source stays: the next build compiles it over DSPRE's member, also where the
+        // compile state already names its hash.
+        scripts::mark_source_stale(project, n)?;
     }
     Ok(Chosen {
+        other: other_of(&unit),
         assets: unit.assets,
         source_changed: matches!(unit.side, UnitSide::Files | UnitSide::Conflict),
     })

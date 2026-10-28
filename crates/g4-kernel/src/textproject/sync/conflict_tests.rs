@@ -1,11 +1,12 @@
 //! Conflicts of the sync: the field diff, the choice per unit and the store's unsaved values
 //! (on the synthetic text project, recorded with [`record_all`]).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use super::tests::{
-    MOVE_1_JSON, SCRIPT_0_MEMBER, SCRIPT_0_SOURCE, changed, power, recorded, scan_of, text_archive,
-    tree,
+    MOVE_1_JSON, MOVE_1_MEMBER, SCRIPT_0_MEMBER, SCRIPT_0_SOURCE, changed, power, recorded,
+    scan_of, text_archive, tree,
 };
 use super::*;
 use crate::project::AssetKind;
@@ -393,4 +394,176 @@ fn keep_studio_of_a_text_archive_encodes_the_member() {
     let decoded = TextArchiveDoc::from_member(&member, lang).unwrap();
     assert_eq!(decoded.messages[0].text, "Studio");
     assert!(changed(&scan_of(&fx)).is_empty());
+}
+
+#[test]
+fn keep_studio_leaves_an_unsaved_value_of_a_two_sided_conflict_untouched() {
+    let fx = recorded();
+    let mut st = store(&fx);
+    set_power(&mut st, 33);
+    move_conflict(&fx);
+    let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+    assert!(outcome.conflicts[0].unsaved);
+    assert_eq!(outcome.conflicts[0].other, Other::Dspre);
+    let reload = resolve(&mut st, MOVE_1_JSON, Keep::Studio).unwrap();
+    assert!(reload.is_empty(), "{reload:?}");
+    assert_eq!(member_power(&fx, 1), 45, "the member from the JSON");
+    assert_eq!(power(&fx), 45);
+    assert!(st.is_dirty(MOVE_1));
+    assert_eq!(store_power(&st), 33, "the unsaved value stays");
+    assert_eq!(st.undo_depth(), 1, "and its undo step");
+    assert!(scan_of(&fx).units.is_empty(), "recorded");
+    // The JSON moved under the unsaved value: its save is not silent.
+    assert!(
+        matches!(st.save(), Err(KernelError::Stale(id)) if id == MOVE_1),
+        "stale"
+    );
+    assert_eq!(power(&fx), 45);
+}
+
+#[test]
+fn keep_studio_of_a_script_is_compiled_over_the_dspre_member_by_the_next_build() {
+    let fx = recorded();
+    let original = fx.read(SCRIPT_0_MEMBER);
+    let source = fx.read(SCRIPT_0_SOURCE);
+    // An edit recorded but not compiled, then taken back: the source is what rotom's compile
+    // state names again, while DSPRE writes the member.
+    fx.edit(SCRIPT_0_SOURCE, "Message 1", "Message 3");
+    let report = scan_of(&fx);
+    super::apply_one_sided(&fx.project(), &report, &|_| false).unwrap();
+    fx.write(SCRIPT_0_SOURCE, &source);
+    let dspre = compile_script(&SCRIPT_SOURCE.replace("Message 1", "Message 2"));
+    fx.write(SCRIPT_0_MEMBER, &dspre);
+    let report = scan_of(&fx);
+    let units = changed(&report);
+    assert_eq!(units.len(), 1, "{:?}", report.units);
+    assert_eq!(units[0].side, UnitSide::Conflict);
+
+    resolve_files(&fx.project(), &script_key(0), Keep::Studio).unwrap();
+    assert_eq!(fx.read(SCRIPT_0_SOURCE), source, "the source stays");
+    assert_eq!(fx.read(SCRIPT_0_MEMBER), dspre, "until the build");
+    let entry = crate::scripts::state_entry(&fx.project(), Path::new(SCRIPT_0_SOURCE))
+        .unwrap()
+        .unwrap();
+    assert_eq!(entry["source_hash"], 0, "stale in rotom's compile state");
+    assert!(changed(&scan_of(&fx)).is_empty(), "recorded");
+    crate::build::prepare(&fx.project()).unwrap();
+    assert_eq!(
+        fx.read(SCRIPT_0_MEMBER),
+        original,
+        "the build compiled the source"
+    );
+}
+
+#[test]
+fn keep_dspre_of_an_undecompilable_script_names_rotoms_reason() {
+    let fx = recorded();
+    fx.edit(SCRIPT_0_SOURCE, "Message 1", "Message 3");
+    fx.write(SCRIPT_0_MEMBER, &[0x00, 0x00, 0x13, 0xFD]);
+    let report = scan_of(&fx);
+    assert_eq!(changed(&report)[0].side, UnitSide::Conflict);
+    let err = resolve_files(&fx.project(), &script_key(0), Keep::Dspre).unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Refused(why) if why.contains("dekompiliert")),
+        "{err:?}"
+    );
+    assert!(fx.text(SCRIPT_0_SOURCE).contains("Message 3"));
+}
+
+#[test]
+fn a_choice_whose_files_moved_since_the_scan_is_refused() {
+    let fx = recorded();
+    move_conflict(&fx);
+    let root = fx.root().to_path_buf();
+    conflict::AFTER_SCAN.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            // DSPRE saves once more between the choice's scan and its takeover.
+            let path = root.join(MOVE_1_MEMBER);
+            let mut member = std::fs::read(&path).unwrap();
+            member[3] = 51;
+            std::fs::write(&path, member).unwrap();
+        }));
+    });
+    let err = resolve_files(&fx.project(), MOVE_1_JSON, Keep::Studio).unwrap_err();
+    conflict::AFTER_SCAN.with(|hook| *hook.borrow_mut() = None);
+    assert!(
+        matches!(&err, KernelError::Refused(why) if why == conflict::MOVED),
+        "{err:?}"
+    );
+    assert_eq!(member_power(&fx, 1), 51, "nothing written");
+    assert_eq!(power(&fx), 45);
+    assert_eq!(scan_of(&fx).units[0].side, UnitSide::Conflict, "still");
+}
+
+#[test]
+fn keep_dspre_of_a_text_archive_writes_the_json() {
+    let fx = recorded();
+    let n = text_archive(&fx);
+    let mut doc = doc_of(&fx, n);
+    let mut dspre = doc.clone();
+    doc.messages[0].text = "Studio".to_owned();
+    fx.write(&text_json(n), &doc.to_json());
+    dspre.messages[0].text = "DSPRE".to_owned();
+    dspre_text(&fx, n, &dspre);
+    resolve_files(&fx.project(), &text_archive_key(n), Keep::Dspre).unwrap();
+    assert_eq!(doc_of(&fx, n).messages[0].text, "DSPRE");
+    assert!(changed(&scan_of(&fx)).is_empty());
+}
+
+const PERSONAL_1: AssetId = AssetId {
+    kind: AssetKind::Personal,
+    index: 1,
+};
+const LEARNSET_1: AssetId = AssetId {
+    kind: AssetKind::Learnset,
+    index: 1,
+};
+const SPECIES_1_JSON: &str = "data/species/0001.json";
+
+/// A store with species 1's personal data edited (unsaved) and its learnset loaded (clean),
+/// and DSPRE's change of the learnset member; the learnset member as DSPRE wrote it.
+fn species_with_one_unsaved_part(fx: &TextFixture) -> (Store, Vec<u8>) {
+    let mut st = store(fx);
+    st.edit_personal(1, "Angriff", |p| p.set_attack(p.attack().wrapping_add(1)))
+        .unwrap();
+    st.learnset(1).unwrap();
+    let path = fx.project().member_path(AssetKind::Learnset, 1);
+    let mut member = std::fs::read(&path).unwrap();
+    member[0] ^= 0x02;
+    std::fs::write(&path, &member).unwrap();
+    (st, member)
+}
+
+#[test]
+fn a_species_with_one_unsaved_part_is_one_unsaved_conflict() {
+    let fx = recorded();
+    let (mut st, _) = species_with_one_unsaved_part(&fx);
+    let learnset = st.current_bytes(LEARNSET_1).unwrap().unwrap();
+    let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    let conflict = &outcome.conflicts[0];
+    assert_eq!(conflict.key, SPECIES_1_JSON);
+    assert!(conflict.unsaved);
+    assert_eq!(conflict.other, Other::Dspre);
+    assert!(conflict.assets.contains(&PERSONAL_1) && conflict.assets.contains(&LEARNSET_1));
+    assert!(outcome.reloaded.is_empty(), "the clean part waits as well");
+
+    // The Studio's version: the learnset member from the JSON, nothing reloaded.
+    let reload = resolve(&mut st, SPECIES_1_JSON, Keep::Studio).unwrap();
+    assert!(reload.is_empty(), "{reload:?}");
+    assert!(st.is_dirty(PERSONAL_1));
+    assert_eq!(st.current_bytes(LEARNSET_1).unwrap().unwrap(), learnset);
+    let path = fx.project().member_path(AssetKind::Learnset, 1);
+    assert_eq!(std::fs::read(&path).unwrap(), learnset);
+    st.save().unwrap();
+
+    // DSPRE's version: both loaded parts loaded anew, the unsaved edit goes.
+    let fx = recorded();
+    let (mut st, member_dspre) = species_with_one_unsaved_part(&fx);
+    sync_store(&mut st, scan_of(&fx)).unwrap();
+    let reload = resolve(&mut st, SPECIES_1_JSON, Keep::Dspre).unwrap();
+    assert_eq!(reload, [PERSONAL_1, LEARNSET_1]);
+    assert!(!st.is_dirty(PERSONAL_1));
+    assert_eq!(st.current_bytes(LEARNSET_1).unwrap().unwrap(), member_dspre);
+    assert!(scan_of(&fx).units.is_empty(), "recorded");
 }

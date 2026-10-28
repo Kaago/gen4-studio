@@ -724,21 +724,30 @@ fn a_file_of_a_unit_in_step_moved_after_the_scan_loses_its_record_entry() {
 fn a_racy_stat_without_a_hash_is_not_recorded_as_in_step() {
     let fx = TextFixture::exported();
     BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    // Every other file is out of the racy window of the member written now.
+    std::thread::sleep(Duration::from_nanos(
+        u64::try_from(RACY_NS).unwrap() + 100_000_000,
+    ));
+    let member = fx.read(MOVE_1_MEMBER);
+    fx.write(MOVE_1_MEMBER, &member);
     let mut report = scan_of(&fx);
     let Some(Some(fp)) = report.seen.get_mut(MOVE_1_MEMBER) else {
         panic!("the scan saw the member");
     };
-    // A stat taken within the racy window of the scan, without a hash.
+    // The member's stat in the scan's racy window, seen without a hash; the scan's time just
+    // after it, so no other file is racy.
     fp.xxh3 = None;
     report.scanned_at_ns = fp.mtime_ns.max(fp.ctime_ns) + 1;
     apply_of(&fx, &report);
-    // Files exported in the same window are left out as well (under load maybe all of them,
-    // then no record is made).
-    let sync = BuildState::load(fx.root()).sync;
-    assert!(
-        sync.is_none_or(|s| !s.files.contains_key(MOVE_1_MEMBER)),
-        "not recorded"
-    );
+    let sync = sync_of(&fx);
+    assert!(!sync.files.contains_key(MOVE_1_MEMBER), "not recorded");
+    let watched = watch::Watch::new(&fx.project()).unwrap().files().unwrap();
+    let missing: Vec<String> = watched
+        .iter()
+        .map(|rel| key(rel))
+        .filter(|k| !sync.files.contains_key(k))
+        .collect();
+    assert_eq!(missing, [MOVE_1_MEMBER], "every other file is recorded");
 }
 
 #[test]
