@@ -14,6 +14,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::close_project;
 use commands::resolve_text_conflicts;
 use commands::split_room;
 use commands::{
@@ -211,7 +212,8 @@ pub fn run() {
             resolve_external_conflict,
             plan_rename_id,
             rename_id,
-            entity_ids
+            entity_ids,
+            close_project
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

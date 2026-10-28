@@ -89,6 +89,25 @@ describe("RenameIdDialog", () => {
     expect(dialog()?.textContent).toContain("und 3 weitere");
   });
 
+  it("a_late_plan_for_older_input_is_not_shown", async () => {
+    await show();
+    let early: (p: RenamePlan) => void = () => {};
+    vi.mocked(planRenameId)
+      .mockImplementationOnce(() => new Promise((resolve) => (early = resolve)))
+      .mockImplementationOnce(async (id, newId) => plan({ old_id: id, new_id: newId, total: 9 }));
+    typeInto(field(), "TRAINER_A");
+    await wait(PLAN_DELAY_MS);
+    typeInto(field(), "TRAINER_B");
+    await wait(PLAN_DELAY_MS);
+    expect(planRenameId).toHaveBeenCalledTimes(2);
+    expect(notices("status")[0]).toContain("9 Verweise");
+    // The answer for „TRAINER_A“ comes last: it is dropped, the plan for „TRAINER_B“ stays.
+    await act(async () => early(plan({ old_id: "TRAINER_JENS", new_id: "TRAINER_A", refusal: "Die ID TRAINER_A ist schon vergeben.", files: [], total: 0 })));
+    expect(notices("alert")).toEqual([]);
+    expect(notices("status")[0]).toContain("9 Verweise");
+    expect(button("Umbenennen")?.disabled).toBe(false);
+  });
+
   it("a_refusal_locks_rename", async () => {
     await show();
     vi.mocked(planRenameId).mockResolvedValueOnce(plan({ new_id: "TRAINER_RIVAL", refusal: "Die ID TRAINER_RIVAL ist schon vergeben.", files: [], total: 0 }));

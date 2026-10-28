@@ -254,6 +254,11 @@ function shareInflight<A extends (number | string)[], R>(call: (...args: A) => P
 }
 
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
+/**
+ * Closes the open project in the backend: its session, store, undo history and language server go; afterwards every command and agent
+ * tool answers that no project is open (the app closes a text project of an older schema that is not lifted).
+ */
+export const closeProject = () => invoke<void>("close_project");
 export const listHeaders = () => invoke<HeaderListing>("list_headers");
 /** Map header `id` including unsaved edits. */
 export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id });

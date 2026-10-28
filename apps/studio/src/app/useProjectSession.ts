@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
+import { acceptDisk, buildRom, closeProject as closeBackendProject, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
 import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
 import { formatSeconds } from "../technik/stepWords";
@@ -106,6 +106,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   const [busy, setBusy] = useState(false);
   // `busy` as `exclusive` reads it before the next render.
   const busyRef = useRef(false);
+  // `busy` comes from `exclusive` (a set-up, take-back or lift), not from a build: the status line does not say „Baut …“ then.
+  const [holding, setHolding] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
@@ -281,10 +283,16 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   }
 
   /**
-   * Closes the project in the UI (a text project of an older schema the user did not lift): no project shows, as before the first opening.
-   * The backend keeps its read-only session until another project opens.
+   * Closes the project (a text project of an older schema the user did not lift): the backend drops its session (so no agent acts on it
+   * unseen), then no project shows, as before the first opening. When the backend cannot close it, the project stays shown with the error.
    */
-  function closeProject(resetProject: (headers: HeaderSummary[]) => void): void {
+  async function closeProject(resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
+    try {
+      await closeBackendProject();
+    } catch (e) {
+      fail(e);
+      return false;
+    }
     backendRoot.current = null;
     reopenedInfo.current = null;
     resetProject([]);
@@ -300,6 +308,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     setLastPatchRom(null);
     setTextConflicts(null);
     setMessage(null);
+    return true;
   }
 
   /**
@@ -310,11 +319,13 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     if (busyRef.current || busy) throw new Error("Das Projekt ist gerade beschäftigt.");
     busyRef.current = true;
     setBusy(true);
+    setHolding(true);
     try {
       return await work();
     } finally {
       busyRef.current = false;
       setBusy(false);
+      setHolding(false);
     }
   }
 
@@ -632,6 +643,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     dirtyAssets,
     dirtyRef,
     busy,
+    /** A build (or a patch's build) runs; `busy` without one is a set-up, take-back or lift. */
+    building: busy && !holding,
     lastRom,
     lastBuiltAt,
     lastSteps,

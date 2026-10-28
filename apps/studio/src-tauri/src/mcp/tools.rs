@@ -4002,4 +4002,25 @@ mod tests {
         assert_eq!(reopened[0]["root"], fx.root().display().to_string());
         assert!(reopened[0]["seq"].as_u64().unwrap() > 0);
     }
+
+    #[test]
+    fn after_the_app_closes_the_project_tools_find_none() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        assert!(toolbox.call("project_info", json!({}), AGENT).is_ok());
+        crate::commands::close_project_impl(&state).unwrap();
+        // The session is gone: neither reading nor writing reaches the folder any more.
+        assert!(toolbox.call("project_info", json!({}), AGENT).is_err());
+        assert!(
+            toolbox
+                .call("text_project_status", json!({}), AGENT)
+                .is_err()
+        );
+    }
 }

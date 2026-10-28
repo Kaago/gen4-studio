@@ -32,15 +32,13 @@ import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
 import { adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
-import type { TextProjectView } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
-import { AdoptDialog, adoptedText as setUpText } from "./textproject/AdoptDialog";
-import { MigrateDialog, liftedText } from "./textproject/MigrateDialog";
-import { renamedText } from "./textproject/RenameIdDialog";
-import { RevertDialog, revertedText } from "./textproject/RevertDialog";
-import { EntityIdCache, TextProjectProvider } from "./textproject/TextProjectContext";
-import { dismissHint, hintOf, shouldHint } from "./textproject/textProjectHint";
+import { AdoptDialog } from "./textproject/AdoptDialog";
+import { MigrateDialog } from "./textproject/MigrateDialog";
+import { RevertDialog } from "./textproject/RevertDialog";
+import { TextProjectProvider } from "./textproject/TextProjectContext";
+import { useTextProjectDialogs } from "./app/useTextProjectDialogs";
 import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
@@ -61,7 +59,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AdoptReport, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, MigrateReport, ProjectInfo, RegionReport, RenameResult, ResetResult, RevertReport, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -757,75 +755,25 @@ function AppBody() {
       .then(() => void sync.run())
       .catch(session.fail);
   });
-  // „Als Textprojekt einrichten…“ (Technik, the hint) and „Zurücknehmen…“: their dialogs.
-  const [textDialog, setTextDialog] = useState<"adopt" | "revert" | null>(null);
-  const openTextDialog = useStableCallback((which: "adopt" | "revert") => {
-    if (!session.busy && session.info !== null && !wizardOpen.current && !startOpen) setTextDialog(which);
+  // The text project's dialogs (set up, take back, lift), the open hint, a rename's message and the ids of the heads.
+  const text = useTextProjectDialogs({
+    session,
+    projectText,
+    sync,
+    onResolved: onConflictResolved,
+    reloads: agentReloads,
+    resetProject,
+    bumpChanged,
+    idsRevision,
+    bumpIds,
+    canOpen: () => !wizardOpen.current && !startOpen,
+    showPublish: () => {
+      setTechnikEntry("veroeffentlichen");
+      setArea("technik");
+    },
+    onClosed: () => setArea("start"),
   });
-  const textProject: TextProjectView | null =
-    session.info === null
-      ? null
-      : { status: projectText, sync, busy: session.busy, onResolved: onConflictResolved, onSetUp: () => openTextDialog("adopt"), onRevert: () => openTextDialog("revert") };
-  /**
-   * The backend opened the session anew after a set-up, a take-back or a lift: read again as after an agent's reopen (in the queue of the
-   * agents' changes), then `said`.
-   */
-  const afterSwap = useStableCallback(async (said: string) => {
-    const root = session.info?.root;
-    if (root === undefined) return;
-    const reloaded = agentReloads.current.then(() => session.reloadSession(root, resetProject)).then(bumpChanged);
-    agentReloads.current = reloaded.catch(session.fail);
-    await agentReloads.current;
-    bumpIds();
-    session.setMessage({ kind: "info", text: said });
-  });
-  const onAdopted = useStableCallback((report: AdoptReport) => afterSwap(setUpText(report)));
-  const onReverted = useStableCallback((report: RevertReport) => afterSwap(revertedText(report)));
-  const onLifted = useStableCallback((report: MigrateReport) => afterSwap(`${liftedText(report)}${report.snapshot === null ? "" : ` Sicherung: ${report.snapshot}`}`));
-  // A rename went in (one undo step that wrote files): the history and the ids are read again, Änderungen compares again.
-  const onRenamed = useStableCallback((result: RenameResult) => {
-    session.setMessage({ kind: "info", text: renamedText(result.plan) });
-    for (const warning of result.warnings) toast.warning(warning);
-    bumpIds();
-    bumpChanged();
-    void session.refreshDirty();
-  });
-  const idCache = useMemo(() => new EntityIdCache(), [session.info, idsRevision]);
-  // A DSPRE folder that opened (not one an agent or a set-up opened anew) hints once per opening that it can be set up, unless the user
-  // said not to ask again; without its base ROM the hint says it needs one and leads to where it is assigned.
-  const hinted = useRef<ProjectInfo | null>(null);
-  useEffect(() => {
-    const opened = session.info;
-    if (opened === null || projectText === null || hinted.current === opened) return;
-    hinted.current = opened;
-    if (session.isReopened(opened) || !shouldHint(opened.root, projectText)) return;
-    const { text, setUp } = hintOf(projectText);
-    const first = setUp
-      ? { label: "Einrichten…", onClick: () => openTextDialog("adopt") }
-      : {
-          label: "Basis-ROM zuordnen…",
-          onClick: () => {
-            if (wizardOpen.current || startOpen) return;
-            setTechnikEntry("veroeffentlichen");
-            setArea("technik");
-          },
-        };
-    toast.info(text, { actions: [first, { label: "Nicht mehr fragen", onClick: () => dismissHint(opened.root) }] });
-  }, [session.info, projectText]);
-  // A text project of a newer schema or with a broken manifest is refused when it opens; should a session of one come up anew (an agent's
-  // reopen), it is closed with the kernel's sentence.
-  useEffect(() => {
-    if (projectText?.state !== "newer" && projectText?.state !== "broken") return;
-    const why = projectText.state === "newer" ? `Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version ${projectText.schema}).` : projectText.reason;
-    session.closeProject(resetProject);
-    setArea("start");
-    session.setMessage({ kind: "error", text: why });
-  }, [projectText]);
-  // An older schema is lifted or the project closes: „Abbrechen“ closes it (unlifted it could only be read).
-  const onCancelLift = useStableCallback(() => {
-    session.closeProject(resetProject);
-    setArea("start");
-  });
+  const textProject = text.textProject;
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
   // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({
@@ -1241,7 +1189,7 @@ function AppBody() {
 
   return (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
-      <TextProjectProvider active={isTextProject} ids={idCache} onRenamed={onRenamed}>
+      <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
         <Workbench data={data} live={live}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
@@ -1299,7 +1247,7 @@ function AppBody() {
                     bridge={bridge}
                     density={shell.density}
                     onToggleDensity={shell.toggleDensity}
-                    build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+                    build={{ builtAt: session.lastBuiltAt, building: session.building }}
                     agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
                   />
                 }
@@ -1344,7 +1292,7 @@ function AppBody() {
           <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
         )}
         <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
-        {textDialog === "adopt" && session.info !== null && (
+        {text.dialog === "adopt" && session.info !== null && (
           <AdoptDialog
             unsaved={session.dirtyCount + scripts.dirtyCount}
             baseLabel={original.status?.state === "ready" ? original.status.label : null}
@@ -1352,22 +1300,22 @@ function AppBody() {
             scriptsAdopted={scripts.api.status?.adopted ?? false}
             exclusive={session.exclusive}
             onClose={() => {
-              setTextDialog(null);
+              text.closeDialog();
               rereadTextStatus();
             }}
-            onAdopted={onAdopted}
+            onAdopted={text.onAdopted}
           />
         )}
-        {textDialog === "revert" && session.info !== null && (
+        {text.dialog === "revert" && session.info !== null && (
           <RevertDialog
             unsaved={session.dirtyCount + scripts.dirtyCount}
             exclusive={session.exclusive}
-            onClose={() => setTextDialog(null)}
-            onReverted={onReverted}
+            onClose={text.closeDialog}
+            onReverted={text.onReverted}
           />
         )}
         {projectText?.state === "older" && session.info !== null && (
-          <MigrateDialog key={session.info.root} schema={projectText.schema} exclusive={session.exclusive} onCancel={onCancelLift} onLifted={onLifted} />
+          <MigrateDialog key={session.info.root} schema={projectText.schema} exclusive={session.exclusive} onCancel={() => void text.onCancelLift()} onLifted={text.onLifted} />
         )}
         {!inTauri() && <WebDialogHost />}
       </TextProjectProvider>

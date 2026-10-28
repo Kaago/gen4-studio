@@ -184,6 +184,7 @@ pub const COMMANDS: &[&str] = &[
     "plan_rename_id",
     "rename_id",
     "entity_ids",
+    "close_project",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -914,6 +915,9 @@ pub fn dispatch(
             { kind: g4_kernel::textproject::symbols::SymbolKind },
             |a| entity_ids_impl(state, a.kind)
         ),
+        "close_project" => run!(json, "close_project", args, {}, |_a| close_project_impl(
+            state
+        )),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1277,6 +1281,8 @@ mod tests {
                 json!({ "id": "TRAINER_YOUNGSTER_KAI", "newId": "TRAINER_KID_KAI" }),
             ),
             ("entity_ids", json!({ "kind": "Species" })),
+            // Last: it closes the project the cases above work on.
+            ("close_project", json!({})),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

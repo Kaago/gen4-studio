@@ -196,6 +196,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("plan_rename_id", Kind::Read),
     ("rename_id", Kind::Write),
     ("entity_ids", Kind::Read),
+    ("close_project", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -405,6 +406,7 @@ mod tests {
             unavailable,
             [
                 ("check_project_dest", Kind::Unavailable("Nur in der App")),
+                ("close_project", Kind::Unavailable("Nur in der App")),
                 ("create_project", Kind::Unavailable("Nur in der App")),
                 (
                     "default_project_parent",

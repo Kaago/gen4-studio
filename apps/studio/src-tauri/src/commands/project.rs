@@ -64,6 +64,20 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     Ok(info)
 }
 
+/// Closes the open project: the session goes, and with it its store, its undo history and its
+/// language server (as when another project opens). The app closes a text project of an older
+/// schema that the user did not lift; afterwards every command and tool answers that no
+/// project is open. Under the agents' turn, like opening: an agent call admitted for the
+/// project finishes first. Nothing open: nothing happens.
+pub fn close_project_impl(state: &AppState) -> Result<(), CmdError> {
+    let turn = state.agents.agent_turn();
+    let old = lock(state)?.take();
+    drop(turn);
+    // The language server ends with its session, outside the state lock.
+    drop(old);
+    Ok(())
+}
+
 /// A fresh session of the project at `path` and what `open_project` answers about it (see
 /// [`open_project_impl`]); nothing is replaced yet.
 pub(crate) fn new_session(
@@ -492,6 +506,14 @@ pub async fn open_project(app: tauri::AppHandle, path: String) -> Result<Project
         .map_err(|e| CmdError::from(e.to_string()))?
 }
 
+/// Closing waits for a running agent call (the agent turn), so it runs on a blocking worker.
+#[tauri::command]
+pub async fn close_project(app: tauri::AppHandle) -> Result<(), CmdError> {
+    tauri::async_runtime::spawn_blocking(move || close_project_impl(&app.state::<AppState>()))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
+}
+
 #[tauri::command]
 pub fn member_counts(state: State<AppState>) -> Result<HashMap<AssetKind, usize>, CmdError> {
     member_counts_impl(&state)
@@ -597,6 +619,22 @@ mod tests {
         let matrix = get_matrix_impl(&state, 0).unwrap();
         assert_eq!((matrix.width, matrix.height), (2, 1));
         assert_eq!(matrix.maps, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn close_project_drops_the_session_and_nothing_answers_for_it() {
+        let (_fixture, state) = open_synthetic();
+        assert!(list_headers_impl(&state).is_ok());
+        close_project_impl(&state).unwrap();
+        assert!(lock(&state).unwrap().is_none());
+        assert_eq!(
+            list_headers_impl(&state).unwrap_err().message,
+            "no project open"
+        );
+        assert_eq!(history_impl(&state).unwrap_err().message, "no project open");
+        assert!(member_counts_impl(&state).is_err());
+        // Nothing open: closing again does nothing.
+        close_project_impl(&state).unwrap();
     }
 
     #[test]

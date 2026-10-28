@@ -1,5 +1,5 @@
 // The toast store: a plain module (no React) that `ToastHost` reads through `useSyncExternalStore`.
-// Rules: info vanishes after INFO_MS (hover pauses the clock); an error and a warning stay until closed, with or without actions;
+// Rules: info vanishes after INFO_MS (hover pauses the clock), a lasting info stays; an error and a warning stay until closed, with or without actions;
 // progress stays until `progress(key, null)` and a second one with the same key replaces the first; an error (a warning) that says what
 // an open error (warning) already says (same text, same action labels) bumps that one instead of stacking; at most four toasts.
 
@@ -57,10 +57,10 @@ function trim(list: readonly Toast[], fresh: string): readonly Toast[] {
   return kept;
 }
 
-function add(kind: ToastKind, text: string, options?: ToastOptions, key?: string): string {
+function add(kind: ToastKind, text: string, options?: ToastOptions, key?: string, lasting = false): string {
   const id = `toast-${nextId++}`;
   const toast: Toast = { id, kind, text, actions: options?.actions ?? [], ...(key === undefined ? {} : { key }) };
-  if (kind === "info") startClock(id, INFO_MS);
+  if (kind === "info" && !lasting) startClock(id, INFO_MS);
   emit(trim([...toasts, toast], id));
   return id;
 }
@@ -91,6 +91,20 @@ function addLasting(kind: "warning" | "error", text: string, options?: ToastOpti
 
 export const toast = {
   info: (text: string, options?: ToastOptions): string => add("info", text, options),
+  /**
+   * An info that asks something (the hint that a folder can be set up as text project): it stays until it is answered or closed, and one
+   * open with the same `key` is replaced in place.
+   */
+  lastingInfo(text: string, options?: ToastOptions): string {
+    const key = options?.key;
+    const keyed = key === undefined ? undefined : toasts.find((t) => t.key === key && t.kind !== "progress");
+    if (keyed !== undefined) {
+      stopClock(keyed.id);
+      emit(toasts.map((t) => (t === keyed ? { ...keyed, kind: "info", text, actions: options?.actions ?? [] } : t)));
+      return keyed.id;
+    }
+    return add("info", text, options, key, true);
+  },
   /** Something that waits for the user although nothing went wrong (conflicts to resolve); stays like an error. */
   warning: (text: string, options?: ToastOptions): string => addLasting("warning", text, options),
   /** An error equal to an open one (text and action labels) takes that one's place at the end, with the new actions, and keeps its id. */

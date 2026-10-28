@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { adoptTextProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
+import { adoptTextProject, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
@@ -224,6 +224,7 @@ vi.mock("./api", async (importOriginal) => ({
   planRenameId: vi.fn(),
   renameId: vi.fn(),
   entityIds: vi.fn(),
+  closeProject: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -2753,6 +2754,7 @@ describe("App wiring", () => {
     const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
     const HINT = "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. DSPRE öffnet den Ordner weiter.";
     const hint = () => listToasts().find((t) => t.text.startsWith("Dieses Projekt lässt sich als Textprojekt einrichten"));
+    const toasts = () => listToasts().map((t) => t.text);
     const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
     const dialogButton = (text: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === text);
     const outcome = (): SyncOutcome => ({ adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: true, ms: 3 });
@@ -2777,6 +2779,22 @@ describe("App wiring", () => {
       expect(hint()?.text).toBe(HINT);
       expect(hint()?.kind).toBe("info");
       expect(hint()?.actions.map((a) => a.label)).toEqual(["Einrichten…", "Nicht mehr fragen"]);
+      // It stays until it is answered or closed.
+      vi.useFakeTimers();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(INFO_MS * 3)));
+      vi.useRealTimers();
+      expect(hint()?.text).toBe(HINT);
+      // During a build it says why nothing opens.
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let built: () => void = () => {};
+      vi.mocked(buildRom).mockImplementationOnce(() => new Promise((resolve) => (built = () => resolve({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 1 } as never))));
+      await click("Bauen");
+      await flush();
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Erst wenn der Build fertig ist.");
+      await act(async () => built());
+      await flush();
       await act(async () => hint()!.actions[0]!.onClick());
       expect(dialog()?.querySelector("h2")?.textContent).toBe("Als Textprojekt einrichten?");
       await act(async () => dialogButton("Abbrechen")!.click());
@@ -2807,6 +2825,8 @@ describe("App wiring", () => {
       await act(async () => dialogButton("Abbrechen")!.click());
       await flush();
       expect(migrateTextProject).not.toHaveBeenCalled();
+      // The backend's session goes too: no agent acts on it unseen.
+      expect(closeProject).toHaveBeenCalledOnce();
       expect(titleBar()).toContain("Kein Projekt geöffnet");
       expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
       // Opened again and lifted: the session is read anew as a current text project, which syncs.
@@ -2825,6 +2845,19 @@ describe("App wiring", () => {
       expect(externalSync).toHaveBeenCalled();
       expect(live().message?.text).toBe("Textprojekt angehoben: Schema-Version 0 → 1.");
 
+      // A lift that found the files lifted already (another Gen4 Studio did it) changed nothing and kept the session: it is opened anew.
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "older", schema: 0 });
+      await reopen({ state: "older", schema: 0 });
+      vi.mocked(migrateTextProject).mockResolvedValue({ from: 1, to: 1, changed: [], snapshot: null });
+      vi.mocked(openProject).mockClear();
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await act(async () => dialogButton("Anheben")!.click());
+      await flush();
+      await flush();
+      expect(openProject).toHaveBeenCalledWith("/p");
+      expect(dialog()).toBeNull();
+
       // A newer schema or a broken manifest is refused when opening, with the kernel's sentence; nothing opens.
       vi.mocked(openProject).mockRejectedValue({ code: "error", message: "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).", asset: null });
       await click("Projekt öffnen");
@@ -2840,7 +2873,6 @@ describe("App wiring", () => {
       await flush();
       // Opening hinted; the reloads after the set-up and the take-back below are no openings and hint nothing.
       expect(hint()).toBeDefined();
-      resetToasts();
       await showTextProjectEntry();
       let finish: (r: Awaited<ReturnType<typeof adoptTextProject>>) => void = () => {};
       vi.mocked(adoptTextProject).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
@@ -2849,6 +2881,8 @@ describe("App wiring", () => {
       expect([...dialog()!.querySelectorAll("[data-check]")].map((r) => r.textContent)).toEqual(["Alles gespeichert", "Basis-ROM gefunden: HeartGold US (Testprojekt)", "Scripts werden dabei übernommen"]);
       await act(async () => dialogButton("Einrichten")!.click());
       expect(adoptTextProject).toHaveBeenCalledOnce();
+      // No build runs: the status line does not say so.
+      expect(statusLine()).not.toContain("Baut");
       // While it runs nothing writes: ⌘S and ⌘Z do nothing, the project is busy.
       vi.mocked(save).mockClear();
       vi.mocked(undo).mockClear();
@@ -2870,6 +2904,8 @@ describe("App wiring", () => {
       expect(listHeaders).toHaveBeenCalledOnce();
       expect(externalSync).toHaveBeenCalled();
       expect(live().message?.text).toBe("Textprojekt eingerichtet: 6.512 Dateien in 88 s.");
+      // Set up: the hint has gone.
+      expect(hint()).toBeUndefined();
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
 
       // Taken back: the same reload, and the backup is named.
