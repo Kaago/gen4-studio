@@ -180,6 +180,80 @@ pub(crate) fn read_members(
     }
 }
 
+/// The members of one archive by index as [`read_members`] finds them, but without reading
+/// the files below `unpacked/`: their numbers come from the folder, their bytes are read
+/// (and noted) only when asked for. A packed NARC (no folder) is read whole.
+pub(crate) struct Members {
+    /// The folder below `unpacked/` (absolute); `None` when the members are the NARC's.
+    dir: Option<PathBuf>,
+    /// Per index whether the member is there.
+    present: Vec<bool>,
+    /// The NARC's members when there is no folder.
+    packed: Vec<Option<Vec<u8>>>,
+}
+
+impl Members {
+    /// The members of `kind` without their bytes (see [`Members`]); none when the game has no
+    /// such archive or the NARC is missing.
+    pub(crate) fn list(project: &Project, kind: AssetKind) -> Result<Members, KernelError> {
+        let mut members = Members {
+            dir: None,
+            present: Vec::new(),
+            packed: Vec::new(),
+        };
+        if project.archives.packed(kind).is_none() {
+            return Ok(members);
+        }
+        let dir = project.unpacked_dir(kind);
+        if !dir.is_dir() {
+            members.packed = read_members(project, kind)?;
+            members.present = members.packed.iter().map(Option::is_some).collect();
+            return Ok(members);
+        }
+        for entry in std::fs::read_dir(&dir).map_err(io_at(&dir))? {
+            let entry = entry.map_err(io_at(&dir))?;
+            let Some(index) = member_number(&entry.file_name().to_string_lossy()) else {
+                continue;
+            };
+            if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
+                continue;
+            }
+            if members.present.len() <= index {
+                members.present.resize(index + 1, false);
+            }
+            members.present[index] = true;
+        }
+        members.dir = Some(dir);
+        Ok(members)
+    }
+
+    /// One past the highest member there.
+    pub(crate) fn len(&self) -> usize {
+        self.present.len()
+    }
+
+    /// Whether member `index` is there.
+    pub(crate) fn has(&self, index: usize) -> bool {
+        self.present.get(index).copied().unwrap_or(false)
+    }
+
+    /// The bytes of member `index`; `None` when it is not there.
+    pub(crate) fn bytes(&self, index: usize) -> Result<Option<Vec<u8>>, KernelError> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        match &self.dir {
+            Some(dir) => {
+                let path = dir.join(format!("{index:04}"));
+                crate::fsutil::read_noted(&path)
+                    .map(Some)
+                    .map_err(io_at(&path))
+            }
+            None => Ok(self.packed.get(index).cloned().flatten()),
+        }
+    }
+}
+
 /// The index of a member file name `NNNN` (four digits or more, as DSPRE writes them).
 fn member_number(name: &str) -> Option<usize> {
     let n: usize = name.parse().ok()?;

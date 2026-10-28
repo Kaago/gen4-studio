@@ -25,7 +25,9 @@ use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
 
 use super::MANIFEST_FILE;
-use super::arts::{ARTS, Art, binary_name, file_names, member_rel, numbered, read_members};
+use super::arts::{
+    ARTS, Art, Members, binary_name, file_names, member_rel, numbered, read_members,
+};
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
 };
@@ -337,13 +339,16 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 /// a side file is in it, the items when any item file is, a binary member whose file path
 /// is, a blob whose path is, the header table when any header file is, the quirks when the
 /// quirks file is. The checks of the JSON numbering (gaps, members without JSON) look at the
-/// files on disk and always run. An entity outside `only` keeps its members as they are on
-/// disk. An appended member, of an entity or of a binary kind, must follow the last member on
-/// disk or one this plan appends before it (in index order); otherwise it is an error
-/// (`textproject.schema`, "nur als NNNN möglich"). A requested binary member with neither a
-/// file nor a base member is an error too (`textproject.member-without-json` when the member
-/// exists on disk, else `textproject.schema`); the scan for files and members beyond the
-/// requested ones is skipped.
+/// files on disk and always run; they take the members' numbers from their folders below
+/// `unpacked/` ([`Members`]; a packed NARC is read whole). An entity outside `only` keeps its
+/// members as they are on disk, and they are not read: a plan reads the members of the units
+/// it plans and nothing else. An appended member, of an entity or of a binary kind, must
+/// follow the last member on disk or one this plan appends before it (in index order);
+/// otherwise it is an error (`textproject.schema`, "nur als NNNN möglich"). A requested
+/// binary member with neither a file nor a base member is an error too
+/// (`textproject.member-without-json` when the member exists on disk, else
+/// `textproject.schema`); the scan for files and members beyond the requested ones is
+/// skipped.
 pub(crate) fn plan_import(
     project: &Project,
     base: &dyn BasePart,
@@ -520,11 +525,13 @@ fn plan_entities<E: EntitySchema>(
     let kinds = art.kinds();
     let rel_dir = art.dir();
     let dir = project.root.join(&rel_dir);
-    let current: Vec<Vec<Option<Vec<u8>>>> = kinds
+    // The members' numbers alone: the bytes of an entity's members are read only when the
+    // entity is in the plan's scope.
+    let current: Vec<Members> = kinds
         .iter()
-        .map(|&k| read_members(project, k))
+        .map(|&k| Members::list(project, k))
         .collect::<Result<_, _>>()?;
-    let lens = current.iter().map(Vec::len);
+    let lens = current.iter().map(Members::len);
     let members = if art.is_pair() {
         lens.min().unwrap_or(0)
     } else {
@@ -535,7 +542,7 @@ fn plan_entities<E: EntitySchema>(
         kinds
             .iter()
             .zip(&current)
-            .filter(|(_, c)| c.get(n).is_some_and(Option::is_some))
+            .filter(|(_, c)| c.has(n))
             .map(|(&kind, _)| member_rel(project, kind, n))
             .collect()
     };
@@ -546,7 +553,7 @@ fn plan_entities<E: EntitySchema>(
     // its parts, and a gap in the numbering (reported above) as filled, so no error follows
     // from another one. An entity outside `only` adds nothing: its members are what is on
     // disk.
-    let mut next: Vec<usize> = current.iter().map(Vec::len).collect();
+    let mut next: Vec<usize> = current.iter().map(Members::len).collect();
     let mut prev: Option<usize> = None;
     for n in numbers {
         stats.entities += 1;
@@ -555,16 +562,16 @@ fn plan_entities<E: EntitySchema>(
             next.iter_mut().for_each(|x| *x = (*x).max(n));
         }
         prev = Some(n);
-        let cur: Vec<Option<Vec<u8>>> = current
-            .iter()
-            .map(|c| c.get(n).cloned().flatten())
-            .collect();
         let file = rel_dir.join(format!("{n:04}.json"));
         if !entity_wanted(only, &rel_dir, n) {
             // Outside `only` the entity's members stay as they are on disk, where `next`
-            // already counts them.
+            // already counts them; they are not read.
             continue;
         }
+        let cur: Vec<Option<Vec<u8>>> = current
+            .iter()
+            .map(|c| c.bytes(n))
+            .collect::<Result<_, _>>()?;
         let Some(parts) = import_entity::<E>(project, &file, n, symbols, base, &cur, plan, stats)
         else {
             // The plan has the entity's error; the ones after it are judged as if it were
@@ -861,6 +868,12 @@ fn header_changes(project: &Project, w: &HeaderWrite) -> Result<Vec<PathBuf>, Ke
     Ok(paths)
 }
 
+/// What a member of a binary kind should hold: these bytes, or what it holds now.
+enum Want {
+    Bytes(Vec<u8>),
+    Keep,
+}
+
 /// A binary kind: member `i` is `data/<art>/NNNN.<ext>` when that file exists, else the base
 /// layer's member. Without base layer and base ROM the members without file stay as they are
 /// (`textproject.base-unchecked`, a warning); a base that fails (a broken layer, a failed
@@ -889,17 +902,20 @@ fn plan_binary(
             })
             .collect()
     });
-    let current = read_members(project, kind)?;
+    // The members' numbers alone: a member's bytes are read only to compare them with what
+    // it should have.
+    let current = Members::list(project, kind)?;
     let mut availability: Option<bool> = None;
     let mut unchecked = false;
     // The bytes member `i` should have: Ok(None) when neither a file nor the base has one,
-    // Err(()) when a problem was recorded (and the art is to stop when `stop`).
+    // Ok(Some(Want::Keep)) when it stays as it is (no base to judge it by), Err(()) when a
+    // problem was recorded (and the art is to stop when `stop`).
     let mut want_of =
-        |i: usize, plan: &mut ImportPlan, stop: &mut bool| -> Result<Option<Vec<u8>>, ()> {
+        |i: usize, plan: &mut ImportPlan, stop: &mut bool| -> Result<Option<Want>, ()> {
             let file = file_of(i);
             if files.contains(&i) {
                 return crate::fsutil::read_noted(project.root.join(&file))
-                    .map(Some)
+                    .map(|bytes| Some(Want::Bytes(bytes)))
                     .map_err(|e| {
                         plan.problems.push(problem(
                             &file,
@@ -928,29 +944,35 @@ fn plan_binary(
             };
             if !available {
                 unchecked = true;
-                return Ok(current.get(i).cloned().flatten());
+                return Ok(current.has(i).then_some(Want::Keep));
             }
             let key = PartKey {
                 art,
                 index: u32::try_from(i).unwrap_or(u32::MAX),
                 part: ext,
             };
-            base.base_bytes(key).map_err(|e| {
-                plan.problems.push(problem(
-                    &file,
-                    BASE_MISSING_CODE,
-                    format!("{ROOT}: {key}: {e}"),
-                ));
-            })
+            base.base_bytes(key)
+                .map(|bytes| bytes.map(Want::Bytes))
+                .map_err(|e| {
+                    plan.problems.push(problem(
+                        &file,
+                        BASE_MISSING_CODE,
+                        format!("{ROOT}: {key}: {e}"),
+                    ));
+                })
         };
-    let push = |i: usize, want: Vec<u8>, plan: &mut ImportPlan| {
-        if current.get(i).cloned().flatten().as_deref() != Some(want.as_slice()) {
+    let push = |i: usize, want: Want, plan: &mut ImportPlan| -> Result<(), KernelError> {
+        let Want::Bytes(want) = want else {
+            return Ok(());
+        };
+        if current.bytes(i)?.as_deref() != Some(want.as_slice()) {
             plan.writes.push(PlannedWrite {
                 path: member_rel(project, kind, i),
                 bytes: want,
                 unit: vec![file_of(i)],
             });
         }
+        Ok(())
     };
     let mut stop = false;
     if let Some(indices) = indices {
@@ -975,10 +997,10 @@ fn plan_binary(
                 )),
                 Ok(Some(want)) => {
                     stats.entities += 1;
-                    push(i, want, plan);
+                    push(i, want, plan)?;
                     next = next.max(i + 1);
                 }
-                Ok(None) if current.get(i).is_some_and(Option::is_some) => {
+                Ok(None) if current.has(i) => {
                     plan.push_orphan(
                         problem(
                             &file_of(i),
@@ -1012,10 +1034,10 @@ fn plan_binary(
                 Err(()) => {}
                 Ok(Some(want)) => {
                     stats.entities += 1;
-                    push(i, want, plan);
+                    push(i, want, plan)?;
                 }
                 Ok(None) if i >= end => break,
-                Ok(None) if current.get(i).is_some_and(Option::is_some) => {
+                Ok(None) if current.has(i) => {
                     plan.push_orphan(
                         problem(
                             &file_of(i),
@@ -1065,14 +1087,12 @@ fn plan_raw(
     let raw = Path::new(RAW_DIR);
     let mut blobs = Vec::new();
     walk(&project.root, raw, &mut blobs, &|_| false)?;
+    blobs.retain(|blob| wanted(only, std::slice::from_ref(blob)));
     if blobs.is_empty() {
         return Ok(());
     }
     let owned = owned_paths(project)?;
     for blob in blobs {
-        if !wanted(only, std::slice::from_ref(&blob)) {
-            continue;
-        }
         let Ok(rel) = blob.strip_prefix(raw).map(Path::to_path_buf) else {
             continue;
         };
@@ -1497,6 +1517,68 @@ mod tests {
         assert_eq!(calls, 1);
         let (_, calls) = plan(&p, None);
         assert!(calls > 1, "a full plan asks for every member");
+    }
+
+    /// Sets the permissions of every file below `dir` (recursively) to `mode`.
+    #[cfg(unix)]
+    fn chmod_files(dir: &Path, mode: u32, keep: &BTreeSet<PathBuf>) {
+        use std::os::unix::fs::PermissionsExt;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                chmod_files(&path, mode, keep);
+            } else if !keep.contains(&path) {
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            }
+        }
+    }
+
+    /// 4.3a I3: an incremental plan over one species JSON reads the members of that species
+    /// alone (no member of another art, of another species or of a binary kind), and plans
+    /// what it planned while every member was readable.
+    #[cfg(unix)]
+    #[test]
+    fn an_incremental_plan_reads_only_the_members_its_files_name() {
+        let (_s, p) = exported();
+        let species = "data/species/0001.json";
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(p.root.join(species)).unwrap()).unwrap();
+        let level = json["learnset"]["moves"][0]["level"].as_u64().unwrap();
+        json["learnset"]["moves"][0]["level"] = (level + 4).into();
+        write_to(&p, species, &serde_json::to_vec_pretty(&json).unwrap());
+        let only = Some(&[species][..]);
+        let (readable, _) = plan(&p, only);
+        assert!(readable.problems.is_empty(), "{:?}", readable.problems);
+        assert_eq!(readable.paths(), paths(&["unpacked/learnsets/0001"]));
+
+        // Every member but those of species 1 unreadable: a full plan cannot read them.
+        let own: BTreeSet<PathBuf> = ["personalPokeData", "learnsets", "evolutions"]
+            .iter()
+            .map(|folder| p.root.join("unpacked").join(folder).join("0001"))
+            .collect();
+        chmod_files(&p.root.join("unpacked"), 0o000, &own);
+        let full = plan_import(&p, &LazyBase::new(&p, None, false), None);
+        assert!(full.is_err(), "a full plan reads every member");
+
+        let journal = Journal::start();
+        let (incremental, _) = plan(&p, only);
+        let notes = journal.finish();
+        chmod_files(&p.root.join("unpacked"), 0o644, &BTreeSet::new());
+        assert!(
+            incremental.problems.is_empty(),
+            "{:?}",
+            incremental.problems
+        );
+        assert_eq!(incremental.paths(), readable.paths());
+        for (a, b) in incremental.writes.iter().zip(&readable.writes) {
+            assert_eq!((&a.bytes, &a.unit), (&b.bytes, &b.unit));
+        }
+        let members: BTreeSet<PathBuf> = notes
+            .keys()
+            .filter(|path| path.starts_with(p.root.join("unpacked")))
+            .cloned()
+            .collect();
+        assert_eq!(members, own, "the members read");
     }
 
     #[test]
