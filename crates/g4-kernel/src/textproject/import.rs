@@ -28,7 +28,7 @@ use super::arts::{ARTS, Art, binary_name, file_names, member_rel, numbered, read
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
 };
-use super::canon::{json_problem, problem, write_if_changed};
+use super::canon::{parse_json, problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE,
     RAW_PATH_CODE, SCHEMA_CODE,
@@ -405,9 +405,10 @@ fn read_source(root: &Path, rel: &Path) -> Result<Vec<u8>, Problem> {
         .map_err(|e| problem(rel, SCHEMA_CODE, format!("{ROOT}: nicht lesbar ({e}).")))
 }
 
-/// `T` from file `rel`'s `bytes`, or the problem with serde's position.
+/// `T` from file `rel`'s `bytes`, or the problem with serde's position and the JSON path of
+/// the field, in German.
 fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
-    serde_json::from_slice(bytes).map_err(|e| json_problem(rel, bytes, &e, SCHEMA_CODE))
+    parse_json(rel, bytes, SCHEMA_CODE)
 }
 
 /// The JSON numbers of `dir` checked for gaps: a missing number below the member count is a

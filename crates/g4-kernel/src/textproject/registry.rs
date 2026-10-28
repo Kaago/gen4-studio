@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::error::{KernelError, io_at};
 use crate::text::Problem;
 
-use super::canon::{json_problem, problem, to_canonical, write_if_changed};
+use super::canon::{parse_json, problem, to_canonical, write_if_changed};
 use super::locate::key_position;
 use super::manifest::SCHEMA_CODE;
 use super::symbols::{SymbolKind, fallback_id, normalize, parse_fallback, table};
@@ -81,8 +81,8 @@ impl Registry {
             }
             Err(e) => return Err(io_at(&path)(e)),
         };
-        let ids: BTreeMap<String, u32> = serde_json::from_slice(&bytes)
-            .map_err(|e| KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)]))?;
+        let ids: BTreeMap<String, u32> = parse_json(&rel, &bytes, SCHEMA_CODE)
+            .map_err(|problem| KernelError::Compile(vec![problem]))?;
         let mut problems = duplicate_keys(&rel, &bytes);
         let registry = Registry { kind, ids };
         problems.extend(registry.check(&rel, &bytes));
@@ -480,7 +480,10 @@ mod tests {
         // A number out of range, a number given twice, a foreign prefix and a fallback of
         // another number are refused too, each with the file.
         for (text, needle) in [
-            ("{\"TRAINER_KAI\": -1}", "expected u32"),
+            (
+                "{\"TRAINER_KAI\": -1}",
+                "TRAINER_KAI: die Zahl -1 passt nicht in u32",
+            ),
             ("{\"TRAINER_KAI\": 1, \"TRAINER_UDO\": 1}", "TRAINER_UDO"),
             ("{\"MAP_T01\": 1}", "MAP_T01"),
             ("{\"TRAINER_0005\": 7}", "TRAINER_0005"),
