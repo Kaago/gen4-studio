@@ -341,6 +341,34 @@ fn a_trailing_binary_member_deleted_by_dspre_is_broken_with_the_import_sentence(
     assert_eq!(tree(&fx), before, "the deleted member is not brought back");
 }
 
+/// A trainer member only one archive has is no trainer: the sync neither adopts it as one
+/// from DSPRE nor leaves it unmentioned, it reports it as broken with the sentence every
+/// other place has (surplus member of a pair art).
+#[test]
+fn a_surplus_trainer_member_is_broken_not_adopted() {
+    let fx = recorded();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let report = scan_of(&fx);
+    assert_eq!(report.units.len(), 1, "{:?}", report.units);
+    let unit = &report.units[0];
+    assert_eq!(unit.side, UnitSide::Broken, "{unit:?}");
+    let found = &unit.problems[0];
+    assert!(
+        found
+            .message
+            .starts_with("textproject.member-without-json: ")
+            && found.message.contains("verschieden viele Member")
+            && found.message.contains("Weder Export noch Import")
+            && found.message.ends_with("Löschen kommt mit Phase 3d)."),
+        "{found:?}"
+    );
+    let before = tree(&fx);
+    let applied = apply_of(&fx, &report);
+    assert!(applied.written.is_empty() && applied.dspre.is_empty());
+    assert_eq!(tree(&fx), before, "no trainer JSON was made");
+}
+
 #[test]
 fn a_touched_tree_reports_nothing_and_rerecords() {
     let fx = recorded();

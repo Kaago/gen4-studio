@@ -456,6 +456,11 @@ fn import_refuses_members_without_json() {
     assert_eq!(fx.mtimes(), before);
 }
 
+/// The end of the sentence for a surplus member of a pair art: neither tool makes the missing
+/// counterpart, so it names DSPRE and not `g4k text export` or `import`.
+const SURPLUS_WAY_OUT: &str = "Weder Export noch Import legen ein Gegenstück an: das Member in \
+                               DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).";
+
 /// A trainer has a properties member and a party member; one that only one archive has (DSPRE
 /// left one archive longer) is no entity, so no JSON names it: the import reports it as
 /// `member-without-json` at the first number no file covers, and the export warns the same.
@@ -472,7 +477,7 @@ fn a_surplus_trainer_member_is_reported_by_import_check_and_export() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert_eq!(problems[0].file, Path::new("data/trainers/0003.json"));
     assert!(
-        problems[0].message.ends_with("Löschen kommt mit Phase 3d."),
+        problems[0].message.ends_with(SURPLUS_WAY_OUT),
         "{}",
         problems[0].message
     );
@@ -1244,6 +1249,38 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     // The way out the sentences name: the export makes the JSON.
     fx.export();
     assert!(fx.exists("data/moves/0004.json"));
+}
+
+/// The build step does not tell a surplus trainer member to run the export (which writes
+/// nothing for it): incremental and full run both keep the import's sentence, an error, and
+/// write nothing.
+#[test]
+fn a_surplus_trainer_member_gets_the_way_out_in_incremental_and_full_runs() {
+    let fx = built();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let before = fx.mtimes();
+
+    for full in [false, true] {
+        if full {
+            build::clear_cache(&fx.p()).unwrap();
+        }
+        let problems = compile_problems(build::prepare(&fx.p()));
+        assert_eq!(
+            codes(&problems),
+            ["textproject.member-without-json"],
+            "full: {full}, {problems:?}"
+        );
+        assert_eq!(problems[0].severity, Severity::Error);
+        let message = &problems[0].message;
+        assert!(
+            message.ends_with(SURPLUS_WAY_OUT)
+                && message.contains("verschieden viele Member")
+                && !message.contains("g4k text"),
+            "full: {full}, {message}"
+        );
+        assert_eq!(fx.mtimes(), before, "nothing written");
+    }
 }
 
 #[test]

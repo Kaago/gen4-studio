@@ -15,6 +15,7 @@ use crate::start::read_base_mark;
 use crate::text::{Problem, Severity, TextArchiveDoc, TextSide, TextSync, json_matches_member};
 
 use super::super::MANIFEST_FILE;
+use super::super::arts::{Art, Members, surplus_problem};
 use super::super::base_layer::{BaseLayer, check_raw_blob, owned_paths, same_blob};
 use super::super::canon::problem;
 use super::super::codes::{MEMBER_WITHOUT_JSON_CODE, RAW_PATH_CODE, SCHEMA_CODE};
@@ -356,6 +357,27 @@ impl Judge<'_> {
             .as_ref()
     }
 
+    /// The error of a trainer unit that has only one of its two members while the archives
+    /// differ in length (a surplus member, not a trainer DSPRE appended): nothing can make
+    /// the other half, so the unit is broken, never adopted. `None` for any other unit.
+    fn surplus_trainer(&self, unit: &Unit) -> Result<Option<Problem>, KernelError> {
+        let Of::Asset(id) = &unit.of else {
+            return Ok(None);
+        };
+        if id.kind != AssetKind::Trainer
+            || unit.members.iter().filter(|m| self.exists(m)).count() != 1
+        {
+            return Ok(None);
+        }
+        let art = Art::Trainers;
+        let lens: Vec<usize> = art
+            .kinds()
+            .iter()
+            .map(|&kind| Members::list(self.project, kind).map(|m| m.len()))
+            .collect::<Result<_, _>>()?;
+        Ok(surplus_problem(self.project, art, &lens, 0))
+    }
+
     fn side(&mut self, unit: &Unit) -> Result<Option<Judged>, KernelError> {
         let own_source = unit.sources.iter().any(|s| self.seen(s) != Seen::Same);
         let source = self.full || own_source || (self.global && matches!(unit.of, Of::Asset(_)));
@@ -382,6 +404,9 @@ impl Judge<'_> {
                 UnitSide::Broken,
                 vec![problem(gone, SCHEMA_CODE, message)],
             )));
+        }
+        if let Some(found) = self.surplus_trainer(unit)? {
+            return Ok(Some((UnitSide::Broken, vec![found])));
         }
         if !source && !member {
             // Only the `stat` moved: the content is what was recorded.

@@ -24,11 +24,12 @@ use crate::start::{MarkState, mark_state};
 use crate::text::{self, Problem, Severity};
 
 use super::MANIFEST_FILE;
-use super::arts::{ARTS, Art, Members, archive_texts, bank_texts, file_names, read_members};
+use super::arts::{
+    ARTS, Art, archive_texts, bank_texts, file_names, read_members, surplus_problem,
+};
 use super::base_layer::{BaseLayer, ENTITY_KINDS, RAW_DIR, raw_diff, walk};
 use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
-use super::import::surplus_problem;
 use super::manifest::{Manifest, SchemaState, manifest_for, read_manifest, refusal, schema_state};
 use super::quirks::{quirks_from_state, write_quirks};
 use super::registry::{IDS_DIR, Symbols, registry_file, trainer_baptism_name};
@@ -354,9 +355,7 @@ fn export_with(
             step(ExportStep::Arts, done, arts);
             continue;
         };
-        if art.is_pair() {
-            report.problems.extend(surplus_warning(project, art)?);
-        }
+        report.problems.extend(files.surplus.clone());
         let mut stats = write_folder(root, &art.dir(), &files)?;
         stats.art = art.name().to_owned();
         stats.entities = files.entities;
@@ -390,24 +389,6 @@ fn export_with(
         report.bytes += std::fs::metadata(&path).map_err(io_at(&path))?.len();
     }
     Ok(())
-}
-
-/// The warning for the members only one archive of the pair art `art` has (nothing exports
-/// them; the import reports them as an error): none when the archives are of one length.
-fn surplus_warning(project: &Project, art: Art) -> Result<Option<Problem>, KernelError> {
-    let lens: Vec<usize> = art
-        .kinds()
-        .iter()
-        .map(|&k| Members::list(project, k).map(|m| m.len()))
-        .collect::<Result<_, _>>()?;
-    // The export writes a file for every number below the shortest archive's length.
-    let next = lens.iter().copied().min().unwrap_or(0);
-    Ok(
-        surplus_problem(project, art, &lens, next).map(|found| Problem {
-            severity: Severity::Warning,
-            ..found
-        }),
-    )
 }
 
 /// Text JSON where it is missing or the member applies (4.2's loader rule), and the counts.
@@ -499,6 +480,9 @@ pub(crate) fn baptize_named(
 /// The files of one art folder: name in the folder → bytes, and the number of entities.
 pub(crate) struct ArtFiles {
     pub entities: u32,
+    /// For a pair art whose archives differ in length: the warning for the members beyond
+    /// the shortest one (nothing exports them; the import reports them as an error).
+    pub surplus: Option<Problem>,
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
@@ -520,6 +504,7 @@ fn art_files(
     };
     let mut out = ArtFiles {
         entities: 0,
+        surplus: None,
         files: BTreeMap::new(),
     };
     match art {
@@ -588,12 +573,19 @@ fn entities(
         .iter()
         .map(|&k| read_members(project, k))
         .collect::<Result<_, _>>()?;
-    let lens = members.iter().map(Vec::len);
+    let lens: Vec<usize> = members.iter().map(Vec::len).collect();
     let count = if art.is_pair() {
-        lens.min().unwrap_or(0)
+        lens.iter().copied().min().unwrap_or(0)
     } else {
-        lens.max().unwrap_or(0)
+        lens.iter().copied().max().unwrap_or(0)
     };
+    if art.is_pair() {
+        // The export writes a file for every number below the shortest archive's length.
+        out.surplus = surplus_problem(project, art, &lens, count).map(|found| Problem {
+            severity: Severity::Warning,
+            ..found
+        });
+    }
     for i in 0..count {
         let parts: Vec<Option<Vec<u8>>> = members
             .iter()

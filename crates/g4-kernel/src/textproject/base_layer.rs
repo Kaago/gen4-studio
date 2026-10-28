@@ -772,11 +772,17 @@ pub(crate) fn with_disk_table<'a>(
     rel: &Path,
     bytes: &'a [u8],
 ) -> Result<Cow<'a, [u8]>, KernelError> {
-    if rel != arm9_rel() || header_slice(project).is_none() {
+    if !takes_disk_table(project, rel) {
         return Ok(Cow::Borrowed(bytes));
     }
     let disk = read_optional(&project.root.join(rel))?;
     Ok(splice_disk_table(project, bytes, disk.as_deref()))
+}
+
+/// Whether a blob of `rel` gets the header table of the file on disk: `arm9/arm9.bin` of a
+/// project whose table can be located.
+fn takes_disk_table(project: &Project, rel: &Path) -> bool {
+    rel == arm9_rel() && header_slice(project).is_some()
 }
 
 /// [`with_disk_table`] of the `arm9.bin` blob `bytes` when the file on disk is `disk` (`None`:
@@ -923,7 +929,7 @@ pub(crate) fn raw_differs(
     // The file is read once: it is what the blob is compared with and, for `arm9.bin`, where
     // the blob's header table comes from.
     let disk = read_optional(&project.root.join(rel))?;
-    let bytes = &*if rel == arm9_rel() && header_slice(project).is_some() {
+    let bytes = &*if takes_disk_table(project, rel) {
         splice_disk_table(project, bytes, disk.as_deref())
     } else {
         Cow::Borrowed(bytes)

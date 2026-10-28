@@ -11,11 +11,12 @@ use g4_formats::narc::Narc;
 use crate::data::names::{Bank, bank_index};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
-use crate::text::{TextArchiveDoc, json_path};
+use crate::text::{Problem, TextArchiveDoc, json_path};
 
 use super::DATA_DIR;
+use super::canon::problem;
+use super::codes::MEMBER_WITHOUT_JSON_CODE;
 use super::registry::IDS_DIR;
-use super::schema::EntitySchema;
 use super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
     TrainerTextTableEntity,
@@ -24,6 +25,7 @@ use super::schema::header::HEADERS_ART;
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
+use super::schema::{EntitySchema, ROOT};
 
 /// One art: a folder under `data/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +143,42 @@ pub(crate) fn is_known_folder(name: &str) -> bool {
             .file_name()
             .is_some_and(|ids| ids == name)
         || name == "raw"
+}
+
+/// The error for the surplus members of a pair art `art` whose archives have `lens` members:
+/// those from the first number that is neither covered by a JSON (`next`: one past the last
+/// one) nor an entity (the shortest archive's length) to the longest archive's end; `None`
+/// when there are none. The file is the JSON the first of them lacks. No tool makes the
+/// missing counterpart (export writes below the shortest archive, import never appends half
+/// an entity), so the sentence names the way out: DSPRE.
+pub(crate) fn surplus_problem(
+    project: &Project,
+    art: Art,
+    lens: &[usize],
+    next: usize,
+) -> Option<Problem> {
+    let shortest = lens.iter().copied().min()?;
+    let top = lens.iter().copied().max()?;
+    let from = next.max(shortest);
+    if from >= top {
+        return None;
+    }
+    let archives: Vec<String> = art
+        .kinds()
+        .iter()
+        .zip(lens)
+        .map(|(&kind, n)| format!("{} {n}", project.archives.unpacked_name(kind)))
+        .collect();
+    Some(problem(
+        &art.dir().join(format!("{from:04}.json")),
+        MEMBER_WITHOUT_JSON_CODE,
+        format!(
+            "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat ein Member \
+             kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in \
+             DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).",
+            archives.join(", ")
+        ),
+    ))
 }
 
 /// The members of `kind` by index, read without writing: from its folder below `unpacked/`

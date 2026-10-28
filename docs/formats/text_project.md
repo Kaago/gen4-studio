@@ -476,21 +476,23 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | Lauf | JSON-Seite geändert | Member-Seite geändert | Wirkung |
 |---|---|---|---|
 | inkrementell | ja | nein | Member schreiben |
-| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` (für ein Member ganz ohne JSON siehe unten) |
+| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.`; ein Member ganz ohne JSON: `textproject.member-newer: <member> hat noch keine <json>; g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht keine Member).` |
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
-| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` (für ein Member ganz ohne JSON siehe unten) |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).`; ein Member ganz ohne JSON: `textproject.unsynced: <member> hat keine <json> und fehlt in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der Import löscht keine Member).` |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
 andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
 behalten hat, also urteilt er über die Basisschicht. Ein Member ohne JSON (von Studio oder DSPRE
 angehängt, oder ein Teil, der in der JSON fehlt) ist inkrementell `member-newer`, wenn sich sein
 Member geändert hat oder schon behalten war, voll `unsynced`, sonst das
-`textproject.member-without-json` des Imports. Beide Sätze nennen für ein solches Member den
+`textproject.member-without-json` des Imports. Die Sätze der Tabelle nennen für ein solches Member den
 richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht keine
-Member): inkrementell `<member> hat noch keine <json>; g4k text export legt sie an, g4k text import
-lehnt das Member ab (der Import löscht keine Member).`, voll `<member> hat keine <json> und fehlt in
-der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der
-Import löscht keine Member).`
+Member). Das überzählige Member einer Art aus zwei Archiven (Trainer) ist davon ausgenommen: Der
+Export legt dafür nichts an, der Schritt (inkrementell und voll) und der Abgleich melden den Satz des
+Imports als Fehler, der DSPRE als Ausweg nennt: `die Archive haben verschieden viele Member (…); ab
+NNNN hat ein Member kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in
+DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).` Der Abgleich übernimmt es nicht als
+Trainer aus DSPRE, die Einheit ist fehlerhaft.
 
 Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
 Register plant alle Einheiten und gilt für jede abweichende als JSON-Änderung; eine abweichende

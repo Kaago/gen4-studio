@@ -27,6 +27,7 @@ use crate::text::{Problem, Severity};
 use super::MANIFEST_FILE;
 use super::arts::{
     ARTS, Art, Members, binary_name, file_names, member_rel, numbered, read_members, slash,
+    surplus_problem,
 };
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
@@ -111,6 +112,9 @@ pub(crate) struct Orphan {
     pub problem: usize,
     pub file: PathBuf,
     pub members: Vec<PathBuf>,
+    /// The surplus members of a pair art (one archive longer than the other): no tool
+    /// creates the missing counterpart, so the build step keeps the import's own sentence.
+    pub surplus: bool,
 }
 
 impl ImportPlan {
@@ -120,6 +124,7 @@ impl ImportPlan {
             problem: self.problems.len(),
             file,
             members,
+            surplus: false,
         });
         self.problems.push(problem);
     }
@@ -501,40 +506,6 @@ fn check_numbering(
     }
 }
 
-/// The error for the surplus members of a pair art `art` whose archives have `lens` members:
-/// those from the first number that is neither covered by a JSON (`next`: one past the last
-/// one) nor an entity (the shortest archive's length) to the longest archive's end; `None`
-/// when there are none. The file is the JSON the first of them lacks.
-pub(crate) fn surplus_problem(
-    project: &Project,
-    art: Art,
-    lens: &[usize],
-    next: usize,
-) -> Option<Problem> {
-    let shortest = lens.iter().copied().min()?;
-    let top = lens.iter().copied().max()?;
-    let from = next.max(shortest);
-    if from >= top {
-        return None;
-    }
-    let archives: Vec<String> = art
-        .kinds()
-        .iter()
-        .zip(lens)
-        .map(|(&kind, n)| format!("{} {n}", project.archives.unpacked_name(kind)))
-        .collect();
-    Some(problem(
-        &art.dir().join(format!("{from:04}.json")),
-        MEMBER_WITHOUT_JSON_CODE,
-        format!(
-            "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat kein \
-             Member einen Gegenpart und keine Datei; der Import löscht keine Member, Löschen \
-             kommt mit Phase 3d.",
-            archives.join(", ")
-        ),
-    ))
-}
-
 /// Whether entity `n` of folder `dir` is in the plan's scope: its JSON or a side file with
 /// its stem in `only`.
 fn entity_wanted(only: Option<&BTreeSet<PathBuf>>, dir: &Path, n: usize) -> bool {
@@ -597,6 +568,9 @@ fn plan_entities<E: EntitySchema>(
                 rel_dir.join(format!("{from:04}.json")),
                 (from..top).flat_map(members_of).collect(),
             );
+            if let Some(orphan) = plan.orphans.last_mut() {
+                orphan.surplus = true;
+            }
         }
     }
     let names = file_names(&dir)?;

@@ -1055,10 +1055,22 @@ pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
             }
         }
     }
+    // The surplus members of a pair art are the DSPRE side's own mess, no change the export
+    // would discard: it leaves them alone (with a warning).
+    let surplus: BTreeSet<usize> = judged
+        .plan
+        .orphans
+        .iter()
+        .filter(|o| o.surplus)
+        .map(|o| o.problem)
+        .collect();
     sides.json.extend(
         judged
             .plan_problems
             .iter()
+            .enumerate()
+            .filter(|(i, _)| !surplus.contains(i))
+            .map(|(_, p)| p)
             .filter(|p| p.severity == Severity::Error)
             .filter(|p| {
                 ![BASE_MISSING_CODE, BASE_UNCHECKED_CODE, UNSYNCED_CODE]
@@ -1181,7 +1193,9 @@ pub(crate) fn import_refusal(p: &Project) -> Result<Option<String>, KernelError>
 /// `textproject.member-without-json`: a full run cannot tell where they came from
 /// (`textproject.unsynced`); an incremental run keeps one whose member changed or was kept
 /// before (appended by Studio or DSPRE: `textproject.member-newer`, a warning, its members go
-/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 3d).
+/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 3d), and so do
+/// the surplus members of a pair art, whose sentence names the way out already (neither export
+/// nor import makes the missing counterpart).
 fn judge_orphans(
     plan: &mut ImportPlan,
     full: bool,
@@ -1189,6 +1203,11 @@ fn judge_orphans(
     kept: &mut BTreeSet<PathBuf>,
 ) {
     for orphan in &plan.orphans {
+        if orphan.surplus {
+            // Neither tool can make the counterpart: the import's sentence names the way
+            // out, and the member is no unit the step could keep or write.
+            continue;
+        }
         let json = shown(&orphan.file);
         let Some(slot) = plan.problems.get_mut(orphan.problem) else {
             continue;
