@@ -65,7 +65,7 @@ use crate::text::{Problem, Severity};
 
 use super::arts::read_members;
 use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
-use super::base_layer::{BaseLayer, RAW_DIR, walk};
+use super::base_layer::{BaseLayer, RAW_DIR, same_outside_header_table, walk};
 use super::canon::{problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
@@ -418,9 +418,10 @@ struct Base<'a> {
 
 impl Base<'_> {
     /// Whether member `rel` may be written in a full run: it is missing, or equal to the base
-    /// layer's (the header table in `arm9.bin` by the table alone). A member whose folder
-    /// below `unpacked/` is not there is read from its packed NARC.
-    fn may_write(&self, rel: &Path) -> Result<bool, KernelError> {
+    /// layer's. `arm9.bin` is two members: of the header unit (`table`) by the header table
+    /// alone, of its blob by everything outside the table (the table is the header files').
+    /// A member whose folder below `unpacked/` is not there is read from its packed NARC.
+    fn may_write(&self, rel: &Path, table: bool) -> Result<bool, KernelError> {
         let Some(ours) = self.current(rel)? else {
             return Ok(true);
         };
@@ -428,6 +429,9 @@ impl Base<'_> {
             return Ok(false);
         };
         if rel == relative(self.project, &self.project.arm9_path()) {
+            if !table {
+                return same_outside_header_table(self.project, layer);
+            }
             let theirs = self.table.get_or_init(|| {
                 Project::open(&layer.root)
                     .and_then(|base| base.read_header_table_bytes())
@@ -590,7 +594,7 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
         if full {
             let mut refused = None;
             for member in &unit.members {
-                if !base.may_write(member)? {
+                if !base.may_write(member, matches!(unit.what, What::Headers))? {
                     refused = Some(member);
                     break;
                 }

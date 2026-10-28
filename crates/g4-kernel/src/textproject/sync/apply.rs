@@ -15,7 +15,7 @@ use crate::start::read_base_mark;
 use crate::store::HEADER_TABLE;
 use crate::text::{Severity, TextKeep, record_text_sync, resolve_conflict};
 
-use super::super::base_layer::{BaseLayer, RAW_DIR, keep_header_table, place_raw};
+use super::super::base_layer::{BaseLayer, RAW_DIR, place_raw};
 use super::super::canon::write_if_changed;
 use super::super::import::{ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import};
 use super::super::source::EntitySource;
@@ -295,18 +295,8 @@ fn put_blob(
         }
         Err(e) => return Err(io_at(&raw)(e)),
     };
-    let wrote = if file == Path::new("arm9").join("arm9.bin") {
-        let path = project.root.join(file);
-        let ours = std::fs::read(&path).map_err(io_at(&path))?;
-        write_if_changed(
-            &project.root,
-            file,
-            &keep_header_table(project, bytes, &ours),
-        )?
-    } else {
-        place_raw(project, file, &bytes)?
-    };
-    if wrote {
+    // `place_raw` keeps the header table of `arm9.bin` on disk.
+    if place_raw(project, file, &bytes)? {
         written.push(file.to_path_buf());
     }
     Ok(true)

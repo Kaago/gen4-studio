@@ -12,8 +12,11 @@
 //! every archive whose `unpacked/` folder exists (the build writes it) and the folders below
 //! `unpacked/` the build does not pack (named in [`RawDiff::not_built`] only). `arm9/arm9.bin`
 //! is compared with the header table zeroed on both sides, YAML files by their value
-//! (`config.yaml` by the keys the build's ds-rom reads).
+//! (`config.yaml` by the keys the build's ds-rom reads). The header table in `arm9.bin` is the
+//! header files': a blob of `arm9.bin` is compared with the file and placed into it with the
+//! table on disk spliced in ([`with_disk_table`]).
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
@@ -564,6 +567,11 @@ fn build_outputs(project: &Project) -> BTreeSet<PathBuf> {
         .collect()
 }
 
+/// `arm9/arm9.bin`, relative to the root.
+pub(crate) fn arm9_rel() -> PathBuf {
+    Path::new("arm9").join("arm9.bin")
+}
+
 /// Offset and length of the header table in `arm9/arm9.bin`.
 type Slice = Option<(usize, usize)>;
 
@@ -672,7 +680,7 @@ impl BlobRange {
             }
             _ => rel.to_path_buf(),
         };
-        let arm9 = rel == Path::new("arm9").join("arm9.bin");
+        let arm9 = rel == arm9_rel();
         let masks = if arm9 {
             (header_slice(project), header_slice(layer.project()?))
         } else {
@@ -722,7 +730,7 @@ pub(crate) fn same_blob(project: &Project, rel: &Path, ours: &[u8], theirs: &[u8
     if ours == theirs {
         return true;
     }
-    if rel == Path::new("arm9").join("arm9.bin") {
+    if rel == arm9_rel() {
         let mask = header_slice(project);
         return masked(ours.to_vec(), mask) == masked(theirs.to_vec(), mask);
     }
@@ -748,6 +756,42 @@ pub(crate) fn keep_header_table(project: &Project, mut base: Vec<u8>, ours: &[u8
         to.copy_from_slice(from);
     }
     base
+}
+
+/// Blob `bytes` of file `rel` as they land in the file: for `arm9/arm9.bin` with the header
+/// table of the `arm9.bin` on disk spliced in ([`keep_header_table`]), so a blob never brings
+/// its own (stale) table; anything else, and `arm9.bin` without a table or without the file,
+/// as they are.
+pub(crate) fn with_disk_table<'a>(
+    project: &Project,
+    rel: &Path,
+    bytes: &'a [u8],
+) -> Result<Cow<'a, [u8]>, KernelError> {
+    if rel != arm9_rel() || header_slice(project).is_none() {
+        return Ok(Cow::Borrowed(bytes));
+    }
+    let Some(ours) = read_optional(&project.root.join(rel))? else {
+        return Ok(Cow::Borrowed(bytes));
+    };
+    Ok(Cow::Owned(keep_header_table(
+        project,
+        bytes.to_vec(),
+        &ours,
+    )))
+}
+
+/// Whether the project's `arm9/arm9.bin` equals the base layer's outside the header table
+/// (each side's table zeroed); a missing file on either side is not the same.
+pub(crate) fn same_outside_header_table(
+    project: &Project,
+    layer: &BaseLayer,
+) -> Result<bool, KernelError> {
+    let rel = arm9_rel();
+    if !project.root.join(&rel).is_file() {
+        return Ok(false);
+    }
+    let masks = (header_slice(project), header_slice(layer.project()?));
+    Ok(!differs(project, layer, &rel, &rel, true, masks)?)
 }
 
 /// Whether file `rel` of the project differs from the layer's file `theirs_rel` (the same
@@ -860,13 +904,15 @@ fn unpacked_folder_of(project: &Project, rel: &Path) -> Option<PathBuf> {
 }
 
 /// Whether [`place_raw`] of `bytes` at `rel` would write anything: the file differs (or is
-/// missing), or `rel` is a packed NARC whose folder does not hold exactly its members.
-/// Writes nothing; a NARC that does not read counts as differing (`place_raw` reports it).
+/// missing; `arm9/arm9.bin` outside its header table, see [`with_disk_table`]), or `rel` is a
+/// packed NARC whose folder does not hold exactly its members. Writes nothing; a NARC that
+/// does not read counts as differing (`place_raw` reports it).
 pub(crate) fn raw_differs(
     project: &Project,
     rel: &Path,
     bytes: &[u8],
 ) -> Result<bool, KernelError> {
+    let bytes = &*with_disk_table(project, rel, bytes)?;
     if read_optional(&project.root.join(rel))?.as_deref() != Some(bytes) {
         return Ok(true);
     }
@@ -883,9 +929,11 @@ pub(crate) fn raw_differs(
 /// was written. `rel` must be a plain relative path in the range of the blobs (see the
 /// module docs). For a member `unpacked/<folder>/NNNN` whose folder is missing, the folder's
 /// archive is unpacked first, so the other members stay. A packed NARC whose folder exists
-/// replaces that folder's members as well, or the build would pack the folder over it.
+/// replaces that folder's members as well, or the build would pack the folder over it. A blob
+/// of `arm9/arm9.bin` keeps the header table on disk ([`with_disk_table`]).
 pub(crate) fn place_raw(project: &Project, rel: &Path, bytes: &[u8]) -> Result<bool, KernelError> {
     check_raw_path(rel).map_err(KernelError::InvalidProject)?;
+    let bytes = &*with_disk_table(project, rel, bytes)?;
     if let Some(dir) = unpacked_folder_of(project, rel) {
         let narc = Narc::read(bytes)?;
         let wrote = write_if_changed(&project.root, rel, bytes)?;
@@ -1123,6 +1171,47 @@ mod tests {
         bytes[PT_HEADER_TABLE_CPUE - 1] ^= 0xFF;
         std::fs::write(&arm9, &bytes).unwrap();
         assert_eq!(f.diff().changed, paths(&["arm9/arm9.bin"]));
+    }
+
+    #[test]
+    fn a_blob_of_arm9_is_compared_and_placed_without_the_header_table() {
+        let f = Fixture::new();
+        let project = f.project();
+        let rel = Path::new("arm9/arm9.bin");
+        let disk = std::fs::read(f.root().join(rel)).unwrap();
+        // The blob's table is stale: the header files changed it on disk since.
+        let mut blob = disk.clone();
+        blob[PT_HEADER_TABLE_CPUE + 5] ^= 0xFF;
+        assert!(
+            !raw_differs(&project, rel, &blob).unwrap(),
+            "only the table"
+        );
+        assert!(
+            !place_raw(&project, rel, &blob).unwrap(),
+            "nothing to write"
+        );
+        assert_eq!(std::fs::read(f.root().join(rel)).unwrap(), disk);
+
+        // Outside the table the blob wins; the table stays the one on disk.
+        blob[0x100] ^= 0xFF;
+        assert!(raw_differs(&project, rel, &blob).unwrap());
+        assert!(place_raw(&project, rel, &blob).unwrap());
+        let placed = std::fs::read(f.root().join(rel)).unwrap();
+        assert_eq!(placed[0x100], blob[0x100]);
+        assert_eq!(
+            placed[PT_HEADER_TABLE_CPUE + 5],
+            disk[PT_HEADER_TABLE_CPUE + 5]
+        );
+        assert!(!raw_differs(&project, rel, &blob).unwrap());
+
+        // Against the base layer by the bytes outside the table.
+        let layer = &f.layer;
+        assert!(!same_outside_header_table(&project, layer).unwrap());
+        let mut back = placed.clone();
+        back[0x100] = disk[0x100];
+        back[PT_HEADER_TABLE_CPUE + 5] ^= 0xFF;
+        std::fs::write(f.root().join(rel), &back).unwrap();
+        assert!(same_outside_header_table(&project, layer).unwrap());
     }
 
     #[test]

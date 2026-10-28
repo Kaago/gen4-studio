@@ -17,7 +17,7 @@ use g4_kernel::build::state::BuildState;
 use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::store::Store;
+use g4_kernel::store::{MapHeader, Store};
 use g4_kernel::text::{Problem, Severity};
 use g4_kernel::textproject::manifest::SchemaState;
 use g4_kernel::textproject::quirks::quirks_from_state;
@@ -1713,6 +1713,137 @@ fn adopt_and_revert_are_not_refused() {
     assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
     revert(&fx.p()).unwrap();
     assert!(!fx.exists("g4-project.json"));
+}
+
+// 4.3a I2: `arm9.bin` changed outside the header table is a blob, but the header table in it
+// is the header files'. A header change neither makes the blob differ nor stops a full run.
+
+const ARM9: &str = "arm9/arm9.bin";
+const ARM9_BLOB: &str = "data/raw/arm9/arm9.bin";
+const HEADER_0_JSON: &str = "data/headers/0000.json";
+
+/// `arm9.bin` changed at byte 0x100 (outside the header table) after the base layer was
+/// copied, then exported: `data/raw/arm9/arm9.bin` holds it.
+fn exported_with_an_arm9_blob() -> Fx {
+    let fx = Fx::new();
+    let mut arm9 = fx.read(ARM9);
+    arm9[0x100] ^= 0xFF;
+    fx.write(ARM9, &arm9);
+    fx.export();
+    assert_eq!(fx.read(ARM9_BLOB), arm9);
+    fx
+}
+
+/// [`exported_with_an_arm9_blob`], then built once.
+fn built_with_an_arm9_blob() -> Fx {
+    let fx = exported_with_an_arm9_blob();
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    assert_eq!(
+        step_row(&rows, "textproject").status,
+        StepStatus::Full,
+        "{rows:?}"
+    );
+    tick();
+    fx
+}
+
+fn level_script_0(fx: &Fx) -> u16 {
+    fx.p().read_headers().unwrap()[0].level_script_id()
+}
+
+#[test]
+fn a_header_edit_beside_an_arm9_blob_leaves_the_blob_in_step() {
+    let fx = built_with_an_arm9_blob();
+    let blob = fx.read(ARM9_BLOB);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(level_script_0(&fx), 2);
+    assert_eq!(fx.read(ARM9)[0x100], blob[0x100]);
+    let report = check(&fx.p()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+
+    // „Neu bauen (ohne Cache)“: the full run finds nothing to judge.
+    build::clear_cache(&fx.p()).unwrap();
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(level_script_0(&fx), 2);
+    assert_eq!(fx.read(ARM9_BLOB), blob, "the blob stays");
+}
+
+#[test]
+fn a_full_run_places_an_arm9_blob_by_the_base_outside_the_header_table() {
+    // The header table differs from the base (a header edit, built), the rest of `arm9.bin`
+    // equals it. A blob with a stale table then reaches `arm9.bin` in a full run, under the
+    // table on disk.
+    let fx = built();
+    let stale = fx.read(ARM9);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    build::prepare(&fx.p()).unwrap();
+    assert_eq!(level_script_0(&fx), 2);
+    let mut blob = stale;
+    blob[0x100] ^= 0xFF;
+    fx.write(ARM9_BLOB, &blob);
+    build::clear_cache(&fx.p()).unwrap();
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(ARM9)[0x100], blob[0x100]);
+    assert_eq!(level_script_0(&fx), 2, "the table stays the header files'");
+    assert!(check(&fx.p()).unwrap().differs.is_empty());
+}
+
+#[test]
+fn a_store_header_save_beside_an_arm9_blob_is_in_step() {
+    // Exported only (the step would judge by the base layer) and built.
+    for fx in [exported_with_an_arm9_blob(), built_with_an_arm9_blob()] {
+        let blob = fx.read(ARM9_BLOB);
+        let mut store = Store::new(Arc::new(fx.p()));
+        store
+            .edit_header(0, "Level-Skript", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.level_script_id = 2;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store.save().unwrap();
+        assert_eq!(fx.json(HEADER_0_JSON)["level_script_id"], 2);
+        assert_eq!(level_script_0(&fx), 2);
+
+        let report = check(&fx.p()).unwrap();
+        assert!(report.differs.is_empty(), "{:?}", report.differs);
+        let sides = sync_once(&fx);
+        assert!(sides.iter().all(|s| *s == UnitSide::InSync), "{sides:?}");
+        assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+        let prepared = build::prepare(&fx.p()).unwrap();
+        assert!(
+            step_problems(&prepared.problems).is_empty(),
+            "{:?}",
+            prepared.problems
+        );
+        assert_eq!(fx.read(ARM9_BLOB), blob, "the blob stays");
+    }
 }
 
 // Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base

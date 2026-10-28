@@ -308,6 +308,8 @@ Script-Membern mit Quelle, `mapname.bin`, `unpacked/dynamicHeaders/` bei angewan
 gepackten NARCs aller Archive mit `unpacked/`-Ordner (Build-Ausgabe) und Ordnern unter `unpacked/`,
 die der Build nicht packt (nur genannt, `not_built`). `arm9/arm9.bin` wird mit ausgeblendeter
 Header-Tabelle verglichen, YAML nach ihrem Wert. Der Import legt jeden Blob an seinen Pfad; ein Blob
+von `arm9/arm9.bin` behält dabei die Header-Tabelle der Datei (sie gehört den Header-Dateien), und er
+weicht nur ab, wo er außerhalb der Tabelle anders ist. Ein Blob
 außerhalb dieses Bereichs, an einem Pfad einer Entität oder als NARC einer Entitätsart ist
 `textproject.raw-path`. Ein vanilla DSPRE-Ordner hat keinen Blob.
 
@@ -461,7 +463,7 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | inkrementell | ja | nein | Member schreiben |
 | inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` |
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
-| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
 andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
