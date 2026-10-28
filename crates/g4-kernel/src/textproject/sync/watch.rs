@@ -40,8 +40,8 @@ pub(super) enum Of {
     Quirks,
     /// The manifest or a register: what every entity's JSON reads through.
     Global(PathBuf),
-    /// A file no unit decides (a folder under `data/` the text project does not know, an
-    /// include file of the scripts); only recorded.
+    /// A file no unit decides (a folder under `data/` the text project does not know);
+    /// only recorded.
     Other(PathBuf),
 }
 

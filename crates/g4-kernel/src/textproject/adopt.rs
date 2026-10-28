@@ -1,12 +1,12 @@
 //! Setting a DSPRE folder up as text project ([`adopt`]) and taking it back ([`revert`]).
 //!
 //! The adoption adopts the scripts (when they are not), exports the project (4.3a) with its
-//! progress, adds the include root to `rotom.toml`, writes the include file and records the
-//! sync and the texts as they are. Taking it back moves the manifest, `data/` and the include
-//! folder to `.g4/backup/textproject-<time>/`: the members are complete all the time (the
-//! export changes none, and saves and the sync keep them current), so without the manifest
-//! the folder is the DSPRE folder again, at once and without loss, and the move itself can be
-//! undone by moving the files back.
+//! progress, writes the id files for rotom ([`include`](super::include)) and records the sync
+//! and the texts as they are. Taking it back moves the manifest, `data/` and the id files to
+//! `.g4/backup/textproject-<time>/`: the members are complete all the time (the export
+//! changes none, and saves and the sync keep them current), so without the manifest the
+//! folder is the DSPRE folder again, at once and without loss, and the move itself can be
+//! undone by moving the files back. `rotom.toml` is never touched.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -26,12 +26,11 @@ use crate::world_meta::{self, WORLD_FILE};
 use super::arts::ARTS;
 use super::export::{self, ExportOptions, ExportProgress, ExportReport, ExportStep};
 use super::ids::Resolver;
+use super::include::{g4_only_uses, id_file_paths, write_include};
 use super::manifest::{SchemaState, refusal, schema_state};
 use super::sync::{self, UnitSide};
 use super::{DATA_DIR, MANIFEST_FILE};
 
-/// The folder of the generated include file, as `rotom.toml` names it (relative to the root).
-pub const INCLUDE_ROOT: &str = ".g4/include";
 /// The refusal of [`revert`] (and of [`adopt`] on a text project) while the sync finds
 /// something pending.
 pub const REVERT_PENDING: &str = "Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien (Technik › Textprojekt).";
@@ -57,8 +56,9 @@ pub struct AdoptProgress {
     pub total: u32,
 }
 
-/// What [`adopt`] did: the export, whether it wrote the include file, how many files the sync
-/// recorded, and the milliseconds.
+/// What [`adopt`] did: the export, whether it wrote (or rewrote) the id files for rotom
+/// (`include_written`, named after the plan's include file), how many files the sync recorded,
+/// and the milliseconds.
 #[derive(Debug, Clone, Serialize)]
 pub struct AdoptReport {
     pub export: ExportReport,
@@ -83,12 +83,11 @@ fn ms_since(start: Instant) -> u64 {
 /// Sets the project up as text project against base ROM `base`. Refuses, before writing
 /// anything, what the export refuses (Diamond/Pearl, no base mark, another base, an older or
 /// newer schema version, texts in conflict, missing item members). Then: the scripts adopted
-/// (when they are not), the export with its progress, the include root in `rotom.toml`, the
-/// include file, and the sync and every text archive recorded as they are now. On a text
-/// project it is an export that writes nothing, plus the records; a change the sync has not
-/// settled yet (from outside, a conflict, a broken file) refuses it with [`REVERT_PENDING`]
-/// first, as the export would overwrite the JSON from the members. A `rotom.toml` whose
-/// include roots cannot be added to is refused before anything is written too.
+/// (when they are not), the export with its progress, the id files for rotom, and the sync
+/// and every text archive recorded as they are now. On a text project it is an export that
+/// writes nothing, plus the records; a change the sync has not settled yet (from outside, a
+/// conflict, a broken file) refuses it with [`REVERT_PENDING`] first, as the export would
+/// overwrite the JSON from the members.
 pub fn adopt(
     project: &Project,
     base: &BaseRom,
@@ -107,7 +106,6 @@ pub(crate) fn adopt_as(
 ) -> Result<AdoptReport, KernelError> {
     let start = Instant::now();
     let keep = export::preflight(project, base)?;
-    scripts::check_include_root(project, INCLUDE_ROOT)?;
     // On a text project the export writes the JSON from the members: a change from outside
     // (a hand-edited JSON, one side of a conflict) is settled first, never overwritten.
     if keep.is_some() && BuildState::load(&project.root).sync.is_some() {
@@ -146,9 +144,8 @@ pub(crate) fn adopt_as(
     )?;
     export.adopted = adopted;
 
-    // The sync counts the watched files it records (the include root and file before them
-    // take no time worth a step; the text records after them neither).
-    scripts::ensure_include_root(project, INCLUDE_ROOT)?;
+    // The sync counts the watched files it records (the id files before them take no time
+    // worth a step; the text records after them neither).
     let include_written = write_include(project)?;
     let mut last = (0, 0);
     let sync_files = sync::record_all_reported(project, &mut |p| {
@@ -169,18 +166,13 @@ pub(crate) fn adopt_as(
     })
 }
 
-/// The include file with the ids of the project (`.g4/include/`); whether it wrote it.
-/// Comes with the include file (Task 8); until then it writes nothing.
-fn write_include(_project: &Project) -> Result<bool, KernelError> {
-    Ok(false)
-}
-
 /// Takes the text project back to a DSPRE folder: refuses while a scan finds a change from
-/// outside, a conflict or a broken file ([`REVERT_PENDING`]), and while `g4-world.json` or
-/// `g4-checks.json` cannot be read; then writes those two with numbers, moves `g4-project.json`, `data/` and `.g4/include/` to a new
+/// outside, a conflict or a broken file ([`REVERT_PENDING`]), while a script source uses an id
+/// only the id files define (without them it would not compile, [`ids_in_scripts`]), and while
+/// `g4-world.json` or `g4-checks.json` cannot be read; then writes those two with numbers,
+/// moves `g4-project.json`, `data/` and the id files in rotom's constant folder to a new
 /// folder `.g4/backup/textproject-<UTC time>/` (the same paths inside) and clears the sync's
-/// record. `rotom.toml` keeps the include root (harmless without the file). Unsaved values are
-/// the app's to check.
+/// record. Unsaved values are the app's to check.
 pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
     let start = Instant::now();
     let root = &project.root;
@@ -189,6 +181,10 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
         return Err(KernelError::Refused(refusal(state).unwrap_or_default()));
     }
     refuse_pending(project)?;
+    let uses = g4_only_uses(project)?;
+    if !uses.is_empty() {
+        return Err(KernelError::Refused(ids_in_scripts(&uses)));
+    }
 
     let mut rewritten = Vec::new();
     for (path, text) in with_numbers(project)? {
@@ -197,12 +193,13 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
     }
     let backup = claim_backup(root)?;
     // The manifest first: once it is gone the folder is a DSPRE folder, whatever follows.
-    for rel in [MANIFEST_FILE, DATA_DIR, INCLUDE_ROOT] {
-        let from = root.join(rel);
+    let moved = [PathBuf::from(MANIFEST_FILE), PathBuf::from(DATA_DIR)];
+    for rel in moved.into_iter().chain(id_file_paths(project)) {
+        let from = root.join(&rel);
         if from.symlink_metadata().is_err() {
             continue;
         }
-        let to = backup.join(rel);
+        let to = backup.join(&rel);
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent).map_err(io_at(parent))?;
         }
@@ -214,6 +211,27 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
         rewritten,
         ms: ms_since(start),
     })
+}
+
+/// Most uses [`ids_in_scripts`] names.
+const USES_NAMED: usize = 5;
+
+/// The refusal of [`revert`] while script sources use ids only the id files define (`uses`:
+/// `file:line ID` each): the first [`USES_NAMED`] and how many more.
+pub fn ids_in_scripts(uses: &[String]) -> String {
+    let mut named = uses
+        .iter()
+        .take(USES_NAMED)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if uses.len() > USES_NAMED {
+        named.push_str(&format!(" und {} weitere", uses.len() - USES_NAMED));
+    }
+    format!(
+        "Scripts nutzen IDs, die nur das Textprojekt kennt; ohne es ließen sie sich nicht mehr \
+         übersetzen. Erst durch Nummern ersetzen: {named}."
+    )
 }
 
 /// Refuses with [`REVERT_PENDING`] when a scan finds a unit that is not in step (a change
@@ -333,12 +351,7 @@ mod tests {
         (report, seen)
     }
 
-    fn include_roots(fx: &TextFixture) -> Vec<String> {
-        rotom::project_config::load_config(fx.root())
-            .unwrap()
-            .paths
-            .include_roots
-    }
+    const TRAINER_IDS: &str = ".rotom/command_database/.g4-ids-trainers.json";
 
     #[test]
     fn adopt_writes_the_text_project_records_sync_and_reports_phases_in_order() {
@@ -395,8 +408,9 @@ mod tests {
         assert!(fx.root().join("data/moves/0001.json").is_file());
         assert!(report.export.written > 0);
         assert!(report.export.adopted.is_some_and(|n| n > 0));
-        assert!(!report.include_written, "Task 8 writes the include file");
-        assert_eq!(include_roots(&fx), [INCLUDE_ROOT]);
+        assert!(report.include_written);
+        assert!(fx.text(TRAINER_IDS).contains("\"TRAINER_YOUNGSTER_KAI\""));
+        assert!(!fx.text(scripts::ROTOM_TOML).contains("include_roots"));
 
         // The sync and the texts are recorded: a scan finds nothing to do.
         assert!(report.sync_files > 0);
@@ -416,17 +430,13 @@ mod tests {
     }
 
     #[test]
-    fn adopt_adds_the_include_root_to_rotom_toml_once() {
+    fn adopt_leaves_rotom_toml_alone() {
         let fx = TextFixture::dspre();
-        adopted(&fx);
+        scripts::adopt(&fx.project(), &mut |_| {}).unwrap();
         let toml = fx.read(scripts::ROTOM_TOML);
         adopted(&fx);
-        assert_eq!(
-            fx.read(scripts::ROTOM_TOML),
-            toml,
-            "rotom.toml is written once"
-        );
-        assert_eq!(include_roots(&fx), [INCLUDE_ROOT]);
+        adopted(&fx);
+        assert_eq!(fx.read(scripts::ROTOM_TOML), toml);
     }
 
     #[test]
@@ -481,34 +491,10 @@ mod tests {
     }
 
     #[test]
-    fn adopt_over_a_rotom_toml_it_cannot_edit_is_refused_and_writes_nothing() {
-        let fx = TextFixture::dspre();
-        scripts::adopt(&fx.project(), &mut |_| {}).unwrap();
-        let toml = fx.text(scripts::ROTOM_TOML);
-        fx.write(
-            scripts::ROTOM_TOML,
-            toml.replace("[paths]\n", "[paths]\ninclude_roots = 3\n")
-                .as_bytes(),
-        );
-        let before = tree(&fx);
-        let mut seen = Vec::new();
-        match adopt(&fx.project(), &fx.base(), &mut |p| seen.push(p)) {
-            Err(KernelError::InvalidProject(why)) => {
-                assert!(why.contains("include_roots"), "{why}");
-            }
-            other => panic!("expected the refusal, got {other:?}"),
-        }
-        assert!(seen.is_empty(), "{seen:?}");
-        assert_eq!(tree(&fx), before, "nothing written");
-        assert!(!fx.root().join(MANIFEST_FILE).exists());
-    }
-
-    #[test]
-    fn revert_moves_manifest_data_and_include_to_the_backup_and_the_dspre_folder_still_builds() {
+    fn revert_moves_manifest_data_and_id_files_to_the_backup_and_the_dspre_folder_still_builds() {
         let fx = TextFixture::dspre();
         adopted(&fx);
-        // The include file (Task 8 writes it) stands in by hand.
-        fx.write(".g4/include/g4_ids.rotom", b"#define MOVE_POUND 1\n");
+        let trainer_ids = fx.read(TRAINER_IDS);
         let manifest = fx.read(MANIFEST_FILE);
         let move_1 = fx.read("data/moves/0001.json");
         let world = fx.root().join("g4-world.json");
@@ -530,13 +516,18 @@ mod tests {
             std::fs::read(backup.join("data/moves/0001.json")).unwrap(),
             move_1
         );
-        assert!(backup.join(".g4/include/g4_ids.rotom").is_file());
+        assert_eq!(
+            std::fs::read(backup.join(TRAINER_IDS)).unwrap(),
+            trainer_ids
+        );
         assert!(!fx.root().join(MANIFEST_FILE).exists());
         assert!(!fx.root().join(DATA_DIR).exists());
-        assert!(!fx.root().join(INCLUDE_ROOT).exists());
+        for rel in id_file_paths(&fx.project()) {
+            assert!(!fx.root().join(rel).exists());
+        }
         assert!(report.rewritten.is_empty(), "no world file, no ignore file");
         assert_eq!(std::fs::read(&world).ok(), world_before);
-        assert_eq!(fx.read(scripts::ROTOM_TOML), toml, "the include root stays");
+        assert_eq!(fx.read(scripts::ROTOM_TOML), toml, "rotom.toml stays");
         assert_eq!(
             BuildState::load(fx.root()).sync,
             None,
@@ -559,6 +550,60 @@ mod tests {
         let again = revert(&fx.project()).unwrap();
         assert_ne!(&again.backup, backup);
         assert!(again.backup.join(MANIFEST_FILE).is_file());
+    }
+
+    #[test]
+    fn revert_is_refused_while_a_script_uses_an_id_only_the_text_project_knows() {
+        let fx = TextFixture::dspre();
+        adopted(&fx);
+        let source = "expanded/scripts/0000.rotom";
+        let text = fx.text(source);
+        fx.write(
+            source,
+            text.replacen("End", "SetTrainerFlag TRAINER_YOUNGSTER_KAI\n    End", 1)
+                .as_bytes(),
+        );
+        let line = fx
+            .text(source)
+            .lines()
+            .position(|l| l.contains("TRAINER_YOUNGSTER_KAI"))
+            .unwrap()
+            + 1;
+        // Compiled and in step: nothing else holds the revert up.
+        let p = fx.project();
+        scripts::compile(&p).unwrap();
+        let scan = sync::scan(&p, &mut |_| {}).unwrap();
+        sync::apply_one_sided(&p, &scan, &|_| false).unwrap();
+        let before = tree(&fx);
+        match revert(&fx.project()) {
+            Err(KernelError::Refused(why)) => assert_eq!(
+                why,
+                ids_in_scripts(&[format!("{source}:{line} TRAINER_YOUNGSTER_KAI")])
+            ),
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert_eq!(tree(&fx), before, "nothing written or moved");
+        assert!(fx.root().join(TRAINER_IDS).is_file());
+
+        // With the number it goes through.
+        fx.write(
+            source,
+            fx.text(source)
+                .replace("TRAINER_YOUNGSTER_KAI", "1")
+                .as_bytes(),
+        );
+        scripts::compile(&p).unwrap();
+        let scan = sync::scan(&p, &mut |_| {}).unwrap();
+        sync::apply_one_sided(&p, &scan, &|_| false).unwrap();
+        revert(&fx.project()).unwrap();
+        assert!(!fx.root().join(TRAINER_IDS).exists());
+    }
+
+    #[test]
+    fn the_refusal_names_five_uses_and_counts_the_rest() {
+        let uses: Vec<String> = (1..=7).map(|n| format!("a.rotom:{n} X")).collect();
+        let why = ids_in_scripts(&uses);
+        assert!(why.ends_with("a.rotom:5 X und 2 weitere."), "{why}");
     }
 
     #[test]

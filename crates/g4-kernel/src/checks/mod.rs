@@ -28,7 +28,7 @@ pub mod fix;
 mod ignore;
 pub mod limits;
 pub mod runner;
-mod scripts;
+pub(crate) mod scripts;
 pub mod snapshot;
 mod text;
 mod world;

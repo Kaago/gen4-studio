@@ -53,9 +53,13 @@ fn has_error(problems: &[Problem]) -> bool {
 
 /// `scripts::compile`, gated by the sources (`expanded/scripts/` recursively, as rotom
 /// collects them, and the include roots of `rotom.toml`), rotom's compile state (which
-/// `mark_stale` changes), its configuration and command database, and the header table
-/// (`arm9.bin`, or `unpacked/dynamicHeaders/` once the Dynamic Headers patch is applied). rotom's compile
-/// state still decides what compiles; the gate only decides whether rotom runs at all.
+/// `mark_stale` changes), its configuration and constant folder (the command database, other
+/// constant files and, named one by one as the folder's walk skips hidden files, the text
+/// project's id files), the registers of the text project (the compile writes the id files
+/// from them) and the header table (`arm9.bin`, or `unpacked/dynamicHeaders/` once the
+/// Dynamic Headers patch is applied). rotom's compile state still decides what compiles; the
+/// gate only decides whether rotom runs at all. The id files the compile writes count as
+/// written by the step.
 /// Before it compiles, a text archive in [`text::TextSide::Conflict`] fails the step with
 /// [`KernelError::TextConflict`] (nothing written). Problems with an error fail the step
 /// (`Compile`); the report is in [`RotomStep::report`].
@@ -87,6 +91,8 @@ impl Step for RotomStep {
         for root in include_roots {
             files_below(p, &root, &mut inputs)?;
         }
+        inputs.extend(crate::textproject::include::id_file_paths(p));
+        inputs.extend(crate::textproject::include::register_paths());
         Ok(inputs)
     }
 
@@ -109,7 +115,9 @@ impl Step for RotomStep {
         let run = StepRun {
             done: report.compiled.len() as u32,
             total: total as u32,
-            wrote: vec![relative(p, &scripts::watched_paths(p).0)],
+            wrote: std::iter::once(relative(p, &scripts::watched_paths(p).0))
+                .chain(crate::textproject::include::id_file_paths(p))
+                .collect(),
             ..StepRun::default()
         };
         let failed = has_error(&report.problems).then(|| report.problems.clone());

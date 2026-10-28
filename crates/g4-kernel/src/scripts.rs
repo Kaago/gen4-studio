@@ -24,6 +24,8 @@ use crate::text::{
 
 mod project_compile;
 
+pub(crate) use project_compile::constant_files;
+
 pub const ROTOM_TOML: &str = "rotom.toml";
 
 pub(crate) const DATABASE_DIR: &str = ".rotom/command_database";
@@ -133,6 +135,74 @@ pub(crate) fn watched_paths(project: &Project) -> (PathBuf, Vec<PathBuf>) {
             Vec::new(),
         ),
     }
+}
+
+/// rotom's constant folder (`database_dir` of `rotom.toml`) relative to the project root;
+/// [`DATABASE_DIR`] without a configuration that loads.
+pub(crate) fn database_dir(project: &Project) -> PathBuf {
+    match load_config(project) {
+        Ok(config) => relative(&project.root, &config.database_dir(&project.root)),
+        Err(_) => PathBuf::from(DATABASE_DIR),
+    }
+}
+
+/// rotom's constants of the adopted project without the id files of the text project, as the
+/// kernel's compile loads them (`project_compile::base_constants`); `strict` as there.
+pub(crate) fn base_constants(
+    project: &Project,
+    strict: bool,
+) -> Result<rotom::ConstantDb, KernelError> {
+    let config = load_config(project)?;
+    let db_path = config
+        .database_file(&project.root)
+        .ok_or_else(|| rotom_error("constants", "keine Befehlsdatenbank in rotom.toml"))?;
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(&db_path).map_err(|e| rotom_error("database", e))?;
+    guard_panic("rotom", || {
+        // uxie 0.9.7: src/workspace.rs Workspace::open (the symbols and the language)
+        let workspace = uxie::Workspace::open(&project.root).map_err(io_at(&project.root))?;
+        project_compile::base_constants(project, &config, &db, &workspace, strict)
+    })?
+}
+
+/// The numbers of the `.rotom` sources of an adopted project (none without one).
+pub(crate) fn rotom_sources(project: &Project) -> Result<Vec<u16>, KernelError> {
+    if !is_adopted(project) {
+        return Ok(Vec::new());
+    }
+    numbered_files(&project.expanded_dir(AssetKind::Script), Some("rotom"))
+}
+
+/// Whether `text` holds `name` as a whole identifier: not inside a longer one. Comments and
+/// strings count too (cheap, and for staleness one compile too many does no harm).
+pub(crate) fn names_identifier(text: &str, name: &str) -> bool {
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = text.as_bytes();
+    text.match_indices(name).any(|(at, _)| {
+        let end = at + name.len();
+        (at == 0 || !word(bytes[at - 1])) && (end == bytes.len() || !word(bytes[end]))
+    })
+}
+
+/// Makes the `.rotom` sources stale that name one of `names` as an identifier
+/// ([`names_identifier`]), so the next [`compile`] compiles them again; their numbers.
+pub(crate) fn mark_stale_naming(
+    project: &Project,
+    names: &BTreeSet<String>,
+) -> Result<Vec<u16>, KernelError> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for file in rotom_sources(project)? {
+        let path = source_path(project, file, SourceKind::Script);
+        let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+        if names.iter().any(|name| names_identifier(&text, name)) {
+            files.push(file);
+        }
+    }
+    mark_stale(project, &files)?;
+    Ok(files)
 }
 
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
@@ -379,75 +449,6 @@ pub(crate) fn adopt_as(
         skipped_empty,
         failed,
     })
-}
-
-/// Adds `root` to `include_roots` in `[paths]` of `rotom.toml` where it is not there yet:
-/// the key is added when it is missing, `root` appended to a list set otherwise (a single
-/// string becomes a list); the rest of the file stays as it is, comments too. Whether it
-/// wrote. Needs `rotom.toml`.
-pub(crate) fn ensure_include_root(project: &Project, root: &str) -> Result<bool, KernelError> {
-    let path = project.root.join(ROTOM_TOML);
-    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
-    match with_include_root(&text, root)? {
-        Some(edited) => {
-            write_atomic(&project.root, &path, edited.as_bytes())?;
-            Ok(true)
-        }
-        None => Ok(false),
-    }
-}
-
-/// Whether [`ensure_include_root`] can add `root` to the project's `rotom.toml`, without
-/// writing: a refusal for a file that does not parse or an `include_roots` that is neither a
-/// list nor a path. `Ok` without `rotom.toml` (adopting the scripts writes one).
-pub(crate) fn check_include_root(project: &Project, root: &str) -> Result<(), KernelError> {
-    let path = project.root.join(ROTOM_TOML);
-    if !path.is_file() {
-        return Ok(());
-    }
-    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
-    with_include_root(&text, root).map(|_| ())
-}
-
-/// `text` (a `rotom.toml`) with `root` in `include_roots`; `None` when it is there already.
-fn with_include_root(text: &str, root: &str) -> Result<Option<String>, KernelError> {
-    use toml_edit::{Array, Document, value};
-
-    let invalid = |why: String| KernelError::InvalidProject(format!("{ROTOM_TOML}: {why}"));
-    let mut doc: Document = text.parse().map_err(|e| invalid(format!("{e}")))?;
-    let norm = |r: &str| r.replace('\\', "/").trim_end_matches('/').to_owned();
-    let wanted = norm(root);
-    let paths = doc
-        .entry("paths")
-        .or_insert(toml_edit::table())
-        .as_table_like_mut()
-        .ok_or_else(|| invalid("[paths] ist keine Tabelle".to_owned()))?;
-    match paths.get_mut("include_roots") {
-        None => {
-            paths.insert("include_roots", value(Array::from_iter([wanted.as_str()])));
-        }
-        Some(item) => {
-            if let Some(list) = item.as_array_mut() {
-                if list
-                    .iter()
-                    .any(|r| r.as_str().map(norm) == Some(wanted.clone()))
-                {
-                    return Ok(None);
-                }
-                list.push(wanted.as_str());
-            } else if let Some(one) = item.as_str().map(str::to_owned) {
-                if norm(&one) == wanted {
-                    return Ok(None);
-                }
-                *item = value(Array::from_iter([one.as_str(), wanted.as_str()]));
-            } else {
-                return Err(invalid(
-                    "include_roots ist weder eine Liste noch ein Pfad".to_owned(),
-                ));
-            }
-        }
-    }
-    Ok(Some(doc.to_string()))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1050,6 +1051,168 @@ pub(crate) fn parse_source(
     Ok(parsed.ok())
 }
 
+/// One thing [`visit`] meets in a parsed source.
+pub(crate) enum AstItem<'a> {
+    /// A command with its arguments: a statement, or a call in a condition or an argument
+    /// (`if CheckItem(ITEM_POTION, 1) …`).
+    Command {
+        name: &'a str,
+        args: &'a [rotom::compiler::ast::Expression],
+    },
+    /// `alias <value> as <name>`, visible from byte `at` on.
+    Alias {
+        name: &'a str,
+        value: &'a rotom::compiler::ast::Expression,
+        at: usize,
+    },
+    /// A name the file declares: a script, an action or a label.
+    Declared(&'a str),
+    /// An expression; nested ones (operands, call arguments, command arguments) each too.
+    Expression(&'a rotom::compiler::ast::Expression),
+}
+
+/// Calls `f` with every [`AstItem`] of the parsed source `file`, in source order (the
+/// top-level aliases first), nested blocks and expressions included.
+pub(crate) fn visit<'a>(
+    file: &'a rotom::compiler::ast::ScriptFile,
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    visit_statements(&file.aliases, f);
+    visit_statements(&file.items, f);
+}
+
+fn visit_statements<'a>(
+    statements: &'a [rotom::compiler::ast::Statement],
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    use rotom::compiler::ast::StatementKind;
+    for statement in statements {
+        match &statement.node {
+            StatementKind::Function { headers, body } => {
+                for header in headers {
+                    f(AstItem::Declared(&header.name));
+                }
+                visit_statements(body, f);
+            }
+            StatementKind::Action { name, body } => {
+                f(AstItem::Declared(name));
+                visit_statements(body, f);
+            }
+            StatementKind::AliasStatement { value, name } => {
+                f(AstItem::Alias {
+                    name,
+                    value,
+                    at: statement.span.start,
+                });
+                visit_expression(value, f);
+            }
+            StatementKind::Define { value, .. } => visit_expression(value, f),
+            StatementKind::IfStatement {
+                condition,
+                body,
+                elseblock,
+            } => {
+                visit_expression(condition, f);
+                visit_statements(body, f);
+                visit_statements(elseblock.as_deref().unwrap_or_default(), f);
+            }
+            StatementKind::WhileStatement { condition, body } => {
+                visit_expression(condition, f);
+                visit_statements(body, f);
+            }
+            StatementKind::MatchStatement {
+                subject,
+                cases,
+                default,
+            } => {
+                visit_expression(subject, f);
+                for case in cases {
+                    for value in &case.values {
+                        visit_expression(value, f);
+                    }
+                    visit_statements(&case.body, f);
+                }
+                visit_statements(default.as_deref().unwrap_or_default(), f);
+            }
+            StatementKind::ScriptCommand { command, args } => {
+                f(AstItem::Command {
+                    name: command,
+                    args,
+                });
+                for arg in args {
+                    visit_expression(arg, f);
+                }
+            }
+            StatementKind::MenuBuilder {
+                entries, config, ..
+            } => {
+                for entry in entries {
+                    visit_expression(&entry.label, f);
+                    if let Some(hover) = &entry.hover {
+                        visit_expression(hover, f);
+                    }
+                    visit_expression(&entry.target, f);
+                }
+                let config = &**config;
+                let position = config.position.iter().flat_map(|(x, y)| [x, y]);
+                for value in [
+                    &config.cursor,
+                    &config.prompt,
+                    &config.width,
+                    &config.columns,
+                    &config.cancel,
+                ]
+                .into_iter()
+                .flatten()
+                .chain(position)
+                {
+                    visit_expression(value, f);
+                }
+            }
+            StatementKind::Label(name) => f(AstItem::Declared(name)),
+            StatementKind::Jump(target) => visit_expression(target, f),
+            StatementKind::Include { .. }
+            | StatementKind::Break
+            | StatementKind::Return
+            | StatementKind::End
+            | StatementKind::EndMovement
+            | StatementKind::Error => {}
+        }
+    }
+}
+
+fn visit_expression<'a>(
+    expression: &'a rotom::compiler::ast::Expression,
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    use rotom::compiler::ast::ExpressionKind;
+    f(AstItem::Expression(expression));
+    match &expression.node {
+        ExpressionKind::Prefix { id, .. } => visit_expression(id, f),
+        ExpressionKind::Infix { left, right, .. } => {
+            visit_expression(left, f);
+            visit_expression(right, f);
+        }
+        ExpressionKind::Call { function, args } => {
+            if let ExpressionKind::Identifier(name) = &function.node {
+                f(AstItem::Command { name, args });
+            } else {
+                visit_expression(function, f);
+            }
+            for arg in args {
+                visit_expression(arg, f);
+            }
+        }
+        ExpressionKind::InlineAction { body } => visit_statements(body, f),
+        ExpressionKind::Number(_)
+        | ExpressionKind::Identifier(_)
+        | ExpressionKind::Label(_)
+        | ExpressionKind::ModuleRef { .. }
+        | ExpressionKind::String(_)
+        | ExpressionKind::Error => {}
+    }
+}
+
 /// The script slots (`#n`) the parsed source `file` declares, with the span of their statement.
 pub(crate) fn slots_in(
     file: &rotom::compiler::ast::ScriptFile,
@@ -1231,7 +1394,13 @@ fn decompile_text(project: &Project, bytes: &[u8]) -> Result<Option<Decompiled>,
     };
     let ids = global_script_ids(&output, &db);
     let context = guard_panic("rotom", || {
-        project_compile::context_with(project, &config, db, Some(&ids))
+        project_compile::context_with(
+            project,
+            &config,
+            db,
+            Some(&ids),
+            project_compile::IdFiles::Skip,
+        )
     })??;
     // rotom v0.7.0: src/lib.rs decompile_file_from_ir, the quirks
     let mut quirks = rotom::BinaryQuirk::default();
@@ -3072,51 +3241,6 @@ AlreadyGiven:
             assert!(err.to_string().contains("DSPRE-Layout"), "{err}");
             assert!(err.to_string().contains("expanded/scripts"), "{err}");
         }
-    }
-
-    #[test]
-    fn ensure_include_root_adds_appends_and_keeps_comments() {
-        let (s, p) = adopted();
-        let path = s.dir.path().join(ROTOM_TOML);
-        let roots = || {
-            rotom::project_config::load_config(s.dir.path())
-                .unwrap()
-                .paths
-                .include_roots
-        };
-        // Adopted without the key: it is added, once.
-        let adopted = std::fs::read_to_string(&path).unwrap();
-        assert!(!adopted.contains("include_roots"), "{adopted}");
-        assert!(ensure_include_root(&p, ".g4/include").unwrap());
-        assert_eq!(roots(), [".g4/include"]);
-        let once = std::fs::read(&path).unwrap();
-        assert!(!ensure_include_root(&p, ".g4/include/").unwrap());
-        assert_eq!(std::fs::read(&path).unwrap(), once, "written once");
-
-        // A list set otherwise keeps its entries, and a comment stays.
-        let text = format!(
-            "# mine\n{}",
-            adopted.replace(
-                "[paths]\n",
-                "[paths]\ninclude_roots = [\"include\"] # local\n"
-            )
-        );
-        std::fs::write(&path, &text).unwrap();
-        assert!(ensure_include_root(&p, ".g4/include").unwrap());
-        assert_eq!(roots(), ["include", ".g4/include"]);
-        let after = std::fs::read_to_string(&path).unwrap();
-        assert!(after.starts_with("# mine\n"), "{after}");
-        assert!(after.contains("# local"), "{after}");
-
-        // A single path becomes a list.
-        std::fs::write(
-            &path,
-            adopted.replace("[paths]\n", "[paths]\ninclude_roots = \"include\"\n"),
-        )
-        .unwrap();
-        // rotom reads only a list; the kernel turns the string into one.
-        assert!(ensure_include_root(&p, ".g4/include").unwrap());
-        assert_eq!(roots(), ["include", ".g4/include"]);
     }
 
     #[test]

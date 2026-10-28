@@ -473,7 +473,7 @@ Blob statt still verloren.
 
 `arm9.bin` gehört der Header-Tabelle und als Blob sich selbst (verglichen ohne die Tabelle). Eine
 Datei, die keine Einheit entscheidet (Register, Manifest, ein unbekannter Ordner unter `data/`,
-eine Include-Datei der Scripts), wird nur aufgezeichnet; eine Änderung am Manifest oder an einem
+eine ID-Datei für rotom), wird nur aufgezeichnet; eine Änderung am Manifest oder an einem
 Register beurteilt alle Entitäten neu und zählt für jede abweichende als Änderung der Quellseite.
 
 **Regeltabelle.** Für jede Einheit mit einer geänderten Datei:
@@ -565,8 +565,7 @@ Voraussetzungen wie beim Export: Platin oder HGSS (nicht Diamant/Perl), eine Bas
 gefundene Basis-ROM dieser Marke (`--base-rom`, sonst die `.nds` daneben, sonst
 `G4_BASE_ROM_DIR`; fehlt sie, sagt es `base::missing_text`), kein Manifest einer älteren oder
 neueren Schema-Version, keine Texte im Konflikt, keine fehlenden Item-Member. Eine Ablehnung kommt,
-bevor etwas geschrieben wird, mit dem Satz des Exports. Ebenso vorher abgelehnt: ein `rotom.toml`,
-das sich nicht lesen lässt oder dessen `include_roots` weder Liste noch Pfad ist. Auf einem
+bevor etwas geschrieben wird, mit dem Satz des Exports. `rotom.toml` bleibt unberührt. Auf einem
 Textprojekt mit Aufzeichnung prüft ein Scan zuerst, dass alles abgeglichen ist; eine Änderung von
 außen (etwa eine von Hand bearbeitete JSON), ein Konflikt oder eine fehlerhafte Datei lehnt mit
 dem Satz der Rücknahme ab, denn der Export schriebe die JSON aus den Membern neu. Die App verlangt
@@ -578,12 +577,10 @@ Der Fortschritt kommt in vier Phasen (`AdoptProgress`, je von `done` 0 bis `done
 | `scripts` | Scripts übernehmen (`scripts::adopt`), wenn sie es nicht sind | Script-Member; 0, wenn schon übernommen |
 | `base_layer` | Basisschicht unter `.g4/cache/base-layer/<sha1>/`, nur wenn sie fehlt | 1 |
 | `entities` | der Export: Text-JSON, Taufe, je Art ihr Ordner unter `data/`, Register, Quirks, dann die Blobs | 17 (16 Arten, eine auch, wenn das Spiel sie nicht hat, und die Blobs) |
-| `sync` | `rotom.toml` bekommt `.g4/include` in `include_roots`, die Include-Datei, dann `sync` und `texts` in `.g4/build/state.json` voll aufgezeichnet | die beobachteten Dateien (gemeldet alle 128) |
+| `sync` | die ID-Dateien für rotom (siehe „IDs in Scripts“), dann `sync` und `texts` in `.g4/build/state.json` voll aufgezeichnet | die beobachteten Dateien (gemeldet alle 128) |
 
-`rotom.toml` wird nur ergänzt: fehlt `include_roots`, kommt der Schlüssel dazu; steht dort eine
-andere Liste (oder ein einzelner Pfad), wird `.g4/include` angehängt; Kommentare und Reihenfolge
-bleiben (`toml_edit`). Für DSPRE-Projekte wertet rotom die Include-Wurzeln beim Übersetzen nicht
-aus; ohne Datei ist der Eintrag harmlos. Ein zweites Einrichten auf einem Textprojekt ist ein
+`AdoptReport.include_written` sagt, ob die ID-Dateien geschrieben wurden (der Name stammt aus dem
+Plan, in dem hier eine Include-Datei stand). Ein zweites Einrichten auf einem Textprojekt ist ein
 Export, der nichts schreibt, und eine neue Aufzeichnung. Danach baut ein unverändertes Projekt
 SHA-1-gleich zur Basis-ROM. Der Assistent richtet mit dem Häkchen nach der Phase `check` (die
 Basismarke steht) und vor dem Umbenennen des Staging-Ordners ein, mit der gewählten ROM als Basis
@@ -602,23 +599,94 @@ Speichern und Abgleich die Member stets aktuell. Ein Schnappschuss vor dem Einri
    Änderung von außen (`dspre`, `files`), einen Konflikt oder eine fehlerhafte Datei, wird
    abgelehnt: „Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien
    (Technik › Textprojekt).“ Ungespeicherte Werte prüft die App vorher.
+   Nutzt eine Script-Quelle eine ID, die nur die ID-Dateien kennen (rotom ohne sie kennt den Namen
+   nicht; ein `alias` der Datei zählt nicht), wird ebenfalls abgelehnt, denn ohne die Dateien
+   übersetzte die Quelle nicht mehr: „Scripts nutzen IDs, die nur das Textprojekt kennt; ohne es
+   ließen sie sich nicht mehr übersetzen. Erst durch Nummern ersetzen:
+   expanded/scripts/0000.rotom:3 TRAINER_YOUNGSTER_KAI.“ (höchstens fünf Stellen, dann „und
+   n weitere“).
 3. `g4-world.json` und `g4-checks.json` werden mit den IDs des Textprojekts gelesen und mit
    Nummern geschrieben (ohne Register gelten dort nur Nummern sicher); eine Datei, die schon nur
    Nummern trägt, bleibt unberührt, `rewritten` nennt die geschriebenen. Ist eine der beiden nicht
    lesbar, wird abgelehnt, bevor etwas geschrieben oder verschoben ist: „g4-world.json ist nicht
    lesbar (<Grund>). Erst reparieren, dann zurücknehmen.“
 4. `g4-project.json` (zuerst: ohne Manifest ist der Ordner sofort wieder ein DSPRE-Ordner),
-   `data/` und `.g4/include/` werden per `rename` in einen neuen Ordner
+   `data/` und die ID-Dateien `.rotom/command_database/.g4-ids-*.json` werden per `rename` in
+   einen neuen Ordner
    `.g4/backup/textproject-<UTC-Zeit>/` verschoben (RFC 3339 ohne Doppelpunkte wie bei der
    Migration, `-2`, `-3` …, wenn es ihn gibt), mit denselben Pfaden darin.
 5. `sync` in `.g4/build/state.json` wird geleert.
 
 Im Backup liegen also das Manifest, alle Entitäts-JSON mit Beifiles, die Register `data/ids/`,
-die Blobs `data/raw/`, die Quirks und die Include-Datei. Die Text-JSON unter
-`expanded/textArchives/`, die Script-Quellen, `rotom.toml` (mit der Include-Wurzel) und die
-Basisschicht bleiben, wo sie sind; sie gehören auch zum DSPRE-Ordner. Wer die Rücknahme
-zurücknehmen will, verschiebt die drei Einträge zurück und gleicht ab. Ein Build danach ist der
+die Blobs `data/raw/`, die Quirks und die ID-Dateien. Die Text-JSON unter
+`expanded/textArchives/`, die Script-Quellen, `rotom.toml` und die Basisschicht bleiben, wo sie
+sind; sie gehören auch zum DSPRE-Ordner. Wer die Rücknahme zurücknehmen will, verschiebt die
+Einträge zurück und gleicht ab (die ID-Dateien schreibt auch der nächste Compile neu). Ein Build danach ist der
 eines DSPRE-Ordners und liefert unverändert die Basis-ROM.
+
+## IDs in Scripts
+
+In einem Textprojekt (aktuelle Schema-Version, Scripts übernommen) nennen Script-Quellen
+Trainer, Items, Spezies, Attacken, Header, Klassen und Orte auch über ihre ID, ohne
+Include-Zeile:
+
+```rotom
+script Main #1:
+    StartTrainerBattle TRAINER_YOUNGSTER_KAI, 0
+    if CheckItem(ITEM_POTION, 1) == 1 then
+        GivePokemon SPECIES_PIKACHU, 5, 0, VAR_RESULT
+    endif
+    End
+```
+
+**Woher die Namen kommen.** rotom v0.7.0 wertet `#include` und `#define` in DSPRE-Projekten nicht
+aus (nur mit einer Decomp-Wurzel; ein Test merkt, wenn sich das ändert), lädt aber jede
+`*.json` direkt in seinem Konstantenordner (`database_dir` aus `rotom.toml`, sonst
+`.rotom/command_database/`) als `{"<Nummer>": "<NAME>"}`. Gen4 Studio schreibt dort je Art eine
+Datei `.g4-ids-<art>.json` (`species` mit den Formen, `moves`, `items`, `abilities`, `types`,
+`maps`, `trainers`, `trainer_classes`, `places`): die IDs der festen Tabellen und der Register,
+ohne Ersatz-IDs (`TRAINER_0005`), aufsteigend nach Nummer, kanonisches JSON.
+
+```json
+{
+  "1": "TRAINER_YOUNGSTER_KAI",
+  "2": "TRAINER_POKEMON_TRAINER_MIA"
+}
+```
+
+Der Compile des Kernels, die `rotom`-CLI und rotoms Sprachserver lesen dieselben Dateien; die
+Script-Ansicht der App braucht nach neuen IDs eventuell ein Neuladen des Sprachservers. DSPRE
+liest den Ordner nie. Der führende Punkt hält die Dateien aus der Quellenliste: sie sind erzeugt
+und lokal, nie ein Blob (für Git gehören sie in die `.gitignore`); nach einem Klonen schreibt sie
+das Öffnen in Gen4 Studio oder der nächste Compile.
+
+**Wann geschrieben.** Beim Einrichten, nach einer Taufe (ein neuer Trainer, Header, Eintrag),
+beim Öffnen eines Projekts in der App und vor jedem Compile (`textproject::include::
+write_include`, im Compile `include::refresh`), jede Datei atomar, geprüft und nur, wenn sie sich
+ändert; die Datei einer Art ohne IDs verschwindet. Bekommt ein Name eine andere Nummer oder fällt
+er weg, werden die Quellen, die ihn nennen, im Compile-Zustand veraltet gesetzt und neu übersetzt.
+Der Build-Schritt `rotom` hat die ID-Dateien und die Register als Eingaben.
+
+**Namen, die rotom schon kennt.** rotom leitet eigene Namen aus den Textarchiven ab
+(`TRAINER_<NAME>_<NNN>`, `ITEM_…`, `SPECIES_…`, `MOVE_…`, `TRAINER_CLASS_…`, `LOCATION_…`) und
+kennt die Konstanten der Befehlsdatenbank. Eine Konstante aus einer JSON schlägt sie still. Darum
+fällt eine ID weg, die rotom ohne die ID-Dateien schon mit **anderer** Nummer auflöst (auf Platin
+DE etwa zwölf Trainerklassen mit doppeltem Namen: `TRAINER_CLASS_BIKER` ist bei uns 12, bei rotom
+13); in Scripts gilt dann rotoms Nummer, und der Check meldet `textproject.id-shadowed` am
+Registereintrag. Gleicher Name mit gleicher Nummer bleibt. Ein Name, den schon eine Art davor hat,
+fällt ebenso weg, so dass jeder Name in genau einer Datei steht.
+
+**Was nicht geschieht.** Vorhandene Quellen werden nicht auf IDs umgeschrieben; eine
+Dekompilierung (Zurücksetzen, Übernahme aus DSPRE) schreibt Zahlen oder rotoms eigene Namen, nie
+die IDs. Beide übersetzen zu denselben Bytes. Die Rücknahme lehnt ab, solange eine Quelle eine ID
+nutzt, die nur die ID-Dateien kennen (siehe „Einrichten und Zurücknehmen“).
+
+**Im Referenzindex** (`data/refs.rs`) sind die Script-Quellen eine Quelle: welche Parameter welcher
+Befehle einen Trainer, ein Item, eine Spezies oder eine Attacke nennen, steht je Familie in
+`crates/g4-kernel/metadata/script_refs.yaml`. Ein Argument zählt, wenn es eine Zahl ist oder ein
+Name, den der Build auflöst (`alias` der Datei, die IDs, rotoms eigene Namen); ein Wert ab
+`0x4000` ist eine Variable, 0 heißt „keiner“. Feld ist der Befehl (rotoms Name, auch für einen
+DSPRE-Namen in der Quelle), `slot` die Zeile.
 
 ## Projektdateien neben dem Textprojekt
 
@@ -705,6 +773,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.unknown-art` | Warnung | ein Ordner unter `data/`, den keine Art kennt; bleibt unberührt |
 | `textproject.reserved` | Info | `schemas` oder `plugins` im Manifest sind nicht leer |
 | `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt |
+| `textproject.id-shadowed` | Warnung | Check: eine ID fehlt in den ID-Dateien für rotom, weil rotom den Namen schon mit anderer Nummer kennt (in Scripts gilt rotoms) oder eine Art davor ihn hat |
 | `textproject.base-unchecked` | Warnung | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
 | `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |
 | `textproject.conflict` | Fehler | Build: JSON und Member einer Einheit sind beide seit dem letzten Build geändert; nichts geschrieben |
@@ -716,4 +785,5 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 mit `/`, sortiert, je wenn vorhanden: `g4-project.json`, alles unter `data/`,
 `expanded/textArchives/*.json`, `expanded/scripts/**`, `rotom.toml`, `.rotom/command_database/**`,
 `g4-world.json`, `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`; versteckte Einträge in den
-Ordnern nicht. Alles andere entsteht aus diesen Dateien und der Basis-ROM.
+Ordnern nicht (also auch nicht die ID-Dateien `.g4-ids-*.json`). Alles andere entsteht aus diesen
+Dateien und der Basis-ROM.

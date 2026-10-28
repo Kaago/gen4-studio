@@ -1,0 +1,46 @@
+# Script command parameters that name a trainer, an item, a species or a move: the script
+# sources' entries in the reference index (`src/data/refs.rs`). Per command database family
+# (`pt`: `scrcmd/platinum_v2.json`, `hgss`: `scrcmd/hgss_v2.json`), each command and parameter
+# spelled exactly as the bundled database names it (canonical name, not the legacy one); the
+# test `script_refs_name_existing_commands_and_params` checks every entry against it. A source
+# may write a legacy name or an alias of the command: rotom's database resolves it to the
+# entry here. Targets: `trainer`, `item`, `species`, `move`.
+pt:
+  SetTrainerFlag: { trainer_id: trainer }
+  ClearTrainerFlag: { trainer_id: trainer }
+  CheckTrainerFlag: { trainer_id: trainer }
+  StartTrainerBattle: { trainer_1: trainer, trainer_2: trainer }
+  StartTagBattle: { partner_trainer_id: trainer, trainer_1_id: trainer, trainer_2_id: trainer }
+  PrintTrainerDialogue: { trainer_id: trainer }
+  PlayTrainerEncounterBGM: { trainer_id: trainer }
+  GetRematchTrainerID: { trainerID: trainer }
+  AddItem: { item: item }
+  RemoveItem: { item: item }
+  CanFitItem: { item: item }
+  CheckItem: { item: item }
+  BufferItemName: { item: item }
+  GivePokemon: { pokémon: species, item: item }
+  GiveEgg: { species: species }
+  StartWildBattle: { pokémon: species }
+  StartLegendaryBattle: { pokémon: species }
+  BufferMoveName: { move: move }
+  CheckPartyMonHasMove: { move_id: move }
+  FindPartySlotWithMove: { move_id: move }
+hgss:
+  SetTrainerFlag: { var_or_trno: trainer }
+  ClearTrainerFlag: { var_or_trno: trainer }
+  CheckTrainerFlag: { var_or_trno: trainer }
+  TrainerBattle: { trainer_1: trainer, trainer_2: trainer }
+  MultiBattle: { partner_trainer_id: trainer, trainer_1_id: trainer, trainer_2_id: trainer }
+  TrainerMessage: { trainer_id: trainer }
+  GiveItem: { item: item }
+  TakeItem: { item: item }
+  HasSpaceForItem: { item: item }
+  HasItem: { item: item }
+  BufferItemName: { item: item }
+  GiveMon: { pokémon: species, item: item }
+  GiveEgg: { pokémon: species }
+  WildBattle: { pokémon: species }
+  BufferMoveName: { move: move }
+  MonHasMove: { move_id: move }
+  GetPartySlotWithMove: { move_id: move }

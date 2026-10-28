@@ -302,6 +302,15 @@ impl Symbols {
         }
     }
 
+    /// Every entry of the register of `kind` as (number, id), ascending by id; nothing for a
+    /// kind with a fixed table.
+    pub fn ids(&self, kind: SymbolKind) -> Vec<(u32, String)> {
+        self.registries
+            .get(&kind)
+            .map(|r| r.ids.iter().map(|(id, &n)| (n, id.clone())).collect())
+            .unwrap_or_default()
+    }
+
     /// The number of `id` of `kind`: from its table or register, else from the fallback form
     /// `PREFIX_NNNN`; `None` for an unknown id.
     pub fn number(&self, kind: SymbolKind, id: &str) -> Option<u32> {

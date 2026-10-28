@@ -37,6 +37,9 @@ pub(crate) const UNKNOWN_ART_CODE: &str = "textproject.unknown-art";
 pub(crate) const RESERVED_CODE: &str = "textproject.reserved";
 /// Hint: a register entry whose number no longer exists; it stays (frozen).
 pub(crate) const ID_DANGLING_CODE: &str = "textproject.id-dangling";
+/// Hint: an id left out of the id files for rotom, because rotom already resolves the name to
+/// another number (or a kind before has it); in scripts the name means rotom's number.
+pub(crate) const ID_SHADOWED_CODE: &str = "textproject.id-shadowed";
 /// Hint: binary members without a file under `data/<art>/` could not be compared with the
 /// base layer (no layer and no base ROM); they stay as they are.
 pub(crate) const BASE_UNCHECKED_CODE: &str = "textproject.base-unchecked";
@@ -52,7 +55,7 @@ pub(crate) const UNSYNCED_CODE: &str = "textproject.unsynced";
 
 /// Every code, for the documentation test.
 #[cfg(test)]
-const ALL: [&str; 19] = [
+const ALL: [&str; 20] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -68,6 +71,7 @@ const ALL: [&str; 19] = [
     UNKNOWN_ART_CODE,
     RESERVED_CODE,
     ID_DANGLING_CODE,
+    ID_SHADOWED_CODE,
     BASE_UNCHECKED_CODE,
     MEMBER_NEWER_CODE,
     CONFLICT_CODE,

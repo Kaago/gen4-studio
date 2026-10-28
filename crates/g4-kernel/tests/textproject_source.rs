@@ -511,3 +511,93 @@ fn recipes_with_ids_apply_on_the_vanilla_project() {
         plan.starter_species
     );
 }
+
+/// Script file 0 of the synthetic project with a battle against `trainer` (number or id).
+fn battle_source(trainer: &str) -> String {
+    format!(
+        "script Main #1:\n    StartTrainerBattle {trainer}, 0\n    End\nscript Second #2:\n    End\n"
+    )
+}
+
+/// A source without any `#include` names a trainer by its id and compiles to the member the
+/// number gives: the kernel's compile loads the id files like `rotom compile` does.
+#[test]
+fn a_script_using_an_id_constant_compiles_to_the_number() {
+    use g4_kernel::test_support::TextFixture;
+    use g4_kernel::text::Severity;
+
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    let compiled = |trainer: &str| {
+        fx.write(
+            "expanded/scripts/0000.rotom",
+            battle_source(trainer).as_bytes(),
+        );
+        let report = g4_kernel::scripts::compile(&p).unwrap();
+        assert!(
+            report
+                .problems
+                .iter()
+                .all(|problem| problem.severity != Severity::Error),
+            "{trainer}: {:?}",
+            report.problems
+        );
+        assert_eq!(report.compiled, [0], "{trainer}");
+        fx.read("unpacked/scripts/0000")
+    };
+    let by_number = compiled("1");
+    let by_id = compiled("TRAINER_YOUNGSTER_KAI");
+    assert_eq!(by_id, by_number);
+    assert_ne!(compiled("2"), by_number, "the trainer is in the member");
+}
+
+/// Gate: on the vanilla project set up as text project the script sources reference trainers
+/// and items (and species); prints the counts, how long the full index took and how many ids
+/// the id files leave out because rotom knows the name with another number.
+#[test]
+fn script_refs_on_the_vanilla_project_are_counted() {
+    use g4_kernel::data::refs::{RefIndex, Target};
+
+    let Some((_tmp, root, base)) = adopted_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let started = Instant::now();
+    let files = g4_kernel::textproject::include::id_files(&project).unwrap();
+    let ids_ms = started.elapsed().as_millis();
+    // Written by the adoption: nothing changes.
+    let started = Instant::now();
+    assert!(!g4_kernel::textproject::include::write_include(&project).unwrap());
+    let write_ms = started.elapsed().as_millis();
+    let store = Store::new(Arc::clone(&project));
+    let mut index = RefIndex::new();
+    let started = Instant::now();
+    index.rebuild_full(&store).unwrap();
+    let ms = started.elapsed().as_millis();
+    let refs = index
+        .refs_where(&store, |_| true)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .collect::<Vec<_>>();
+    let count = |kind: fn(&Target) -> bool| refs.iter().filter(|r| kind(&r.target)).count();
+    let trainer = count(|t| matches!(t, Target::Trainer(_)));
+    let item = count(|t| matches!(t, Target::Item(_)));
+    let species = count(|t| matches!(t, Target::Species(_)));
+    eprintln!(
+        "refs {} scripts trainer={trainer} item={item} species={species} ms={ms}",
+        base.game_code()
+    );
+    let shadowed: Vec<String> = files
+        .shadowed
+        .iter()
+        .map(|s| format!("{}={}/{:?}", s.id, s.number, s.rotom))
+        .collect();
+    eprintln!(
+        "ids {} files={} shadowed={} id_files_ms={ids_ms} write_include_ms={write_ms} {shadowed:?}",
+        base.game_code(),
+        files.files.len(),
+        files.shadowed.len()
+    );
+    assert!(trainer > 0 && item > 0, "trainer={trainer} item={item}");
+}

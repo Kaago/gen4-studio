@@ -49,12 +49,12 @@ use super::schema::header::{HeaderWrite, import_headers};
 use super::schema::{EntitySchema, ImportCtx};
 use super::step::forget_kept;
 
+use super::include::write_include;
 use units::{
     Given, Place, asset_of_member, binary_rel, collect_base_sha1, disk_bytes, disk_member,
     entity_sources, import_art, item_ids, json_rel, key_of, numbered_cached, place_members,
     place_of, read_optional, store_bytes,
 };
-use writers::write_include;
 
 #[cfg(test)]
 mod tests;
@@ -83,7 +83,8 @@ pub struct EntityUnit {
 pub(crate) type Sides = (Option<Vec<u8>>, Option<Vec<u8>>);
 
 /// What a write did: the files under `data/` it wrote or deleted (`sources`, sorted), the
-/// registers a baptism changed and whether the include file of the ids changed.
+/// registers a baptism changed and whether that rewrote the id files for rotom (`include`,
+/// named after the plan's include file; see [`include`](super::include)).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct SourceWrite {
     pub sources: Vec<PathBuf>,

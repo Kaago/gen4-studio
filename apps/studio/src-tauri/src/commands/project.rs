@@ -44,6 +44,11 @@ pub fn project_info_of(project: &Project) -> Result<ProjectInfo, CmdError> {
 /// `commands::checks`).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
+    // The id files for rotom, as the registers have them now (a branch switch, a hand edit):
+    // the script editor's language server and the `rotom` CLI read them from disk. Only
+    // written when they change; one that cannot be written now is written by the next
+    // compile, which reports why, so it does not keep the project closed.
+    let _ = g4_kernel::textproject::include::write_include(&project);
     let (ignore, ignore_broken) = super::checks::load_project_ignore(&project);
     let info = project_info_of(&project)?;
     let mut session = Session::new(Arc::new(project));

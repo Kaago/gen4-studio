@@ -1534,7 +1534,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml 0.8.2",
- "toml_edit 0.20.2",
  "uxie",
  "xxhash-rust",
 ]

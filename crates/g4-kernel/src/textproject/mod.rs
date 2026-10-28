@@ -17,9 +17,9 @@
 //! text project, and [`source`] reads and writes one entity at a time for the store (the JSON
 //! as the store's source, new entities christened at once), and [`sync`] keeps what the sources
 //! and members held when last in step; [`adopt`] sets a DSPRE folder up as text project (and
-//! takes it back). The build step `textproject`
-//! ([`step`]) brings the members up to date with the JSON before every build, never over a
-//! newer member. The orchestration lives in
+//! takes it back), and [`include`] writes the ids as rotom constants for the scripts. The
+//! build step `textproject` ([`step`]) brings the members up to date with the JSON before every
+//! build, never over a newer member. The orchestration lives in
 //! `export.rs`, `import.rs` (with the plan the build step reuses) and `check.rs`; `arts.rs`
 //! holds what they share about the folders
 //! under `data/`, `locate.rs` turns the JSON path of an import error into line and column,
@@ -37,6 +37,7 @@ pub(crate) mod codes;
 mod export;
 pub mod ids;
 mod import;
+pub mod include;
 mod locate;
 pub mod manifest;
 pub mod migrate;

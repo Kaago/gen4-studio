@@ -1235,9 +1235,10 @@ mod create_tests {
         assert!(!tmp.path().join(".neu.g4-new").exists());
         let toml = std::fs::read_to_string(dest.join(crate::scripts::ROTOM_TOML)).unwrap();
         assert!(toml.contains("name = \"neu\""), "{toml}");
+        assert!(!toml.contains("include_roots"), "{toml}");
         assert!(
-            toml.contains(crate::textproject::adopt::INCLUDE_ROOT),
-            "{toml}"
+            dest.join(".rotom/command_database/.g4-ids-trainers.json")
+                .is_file()
         );
         assert_eq!(
             *Project::open(&dest).unwrap().source_mode(),

@@ -1279,9 +1279,10 @@ enum TextCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and
-    /// `.g4/include/` to `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync`
-    /// finds something pending.
+    /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and the
+    /// id files for rotom (`.rotom/command_database/.g4-ids-*.json`) to
+    /// `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync` finds something
+    /// pending, or while a script source uses an id only the id files define.
     Revert { project: PathBuf },
     /// Take over what changed on one side since the last record (`dspre <key> <label>`,
     /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,

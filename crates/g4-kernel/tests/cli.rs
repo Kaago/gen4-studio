@@ -1329,7 +1329,11 @@ fn cli_text_adopt_sync_and_revert() {
     assert!(summary.contains(" sync_files="), "{summary}");
     assert!(root.join("g4-project.json").is_file());
     let toml = std::fs::read_to_string(root.join("rotom.toml")).unwrap();
-    assert!(toml.contains(".g4/include"), "{toml}");
+    assert!(!toml.contains("include_roots"), "{toml}");
+    assert!(
+        root.join(".rotom/command_database/.g4-ids-species.json")
+            .is_file()
+    );
 
     // Nothing changed: nothing to take over.
     let out = stdout_of(&text(&["sync"], &root).assert().success());

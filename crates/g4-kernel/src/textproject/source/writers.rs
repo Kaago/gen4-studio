@@ -83,16 +83,6 @@ fn put_files(
     Ok(())
 }
 
-/// Writes the include file of the ids after a register changed; `true` when it changed.
-/// Task 8 replaces this with `include::write_include`.
-#[allow(
-    clippy::unnecessary_wraps,
-    reason = "the include file comes with `include::write_include`"
-)]
-pub(super) fn write_include(_project: &Project) -> Result<bool, KernelError> {
-    Ok(false)
-}
-
 impl EntitySource {
     /// Christens the ids of every entity without one (as the full export does) and writes the
     /// registers that change.

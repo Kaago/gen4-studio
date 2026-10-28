@@ -280,7 +280,12 @@ fn append_of_a_new_trainer_baptizes_and_writes_its_json_and_register() {
     let out = source.append(&p, id(AssetKind::Trainer, 3)).unwrap();
     assert_eq!(out.sources, paths(&["data/trainers/0003.json"]));
     assert_eq!(out.registers, paths(&["data/ids/trainers.json"]));
-    assert!(!out.include);
+    // The baptism rewrote the id files for rotom (hidden, so not in the tree).
+    assert!(out.include);
+    assert!(
+        fx.text(".rotom/command_database/.g4-ids-trainers.json")
+            .contains("\"3\": \"TRAINER_YOUNGSTER_LEA\"")
+    );
     assert_eq!(
         changed(&before, &tree(&fx)),
         paths(&["data/ids/trainers.json", "data/trainers/0003.json"])

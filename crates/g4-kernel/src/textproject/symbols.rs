@@ -63,6 +63,11 @@ impl SymbolTable {
         self.numbers.get(id).copied()
     }
 
+    /// Every entry, ascending by number.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.ids.iter().map(|(&n, id)| (n, id.as_str()))
+    }
+
     /// The number of entries.
     pub fn len(&self) -> usize {
         self.ids.len()

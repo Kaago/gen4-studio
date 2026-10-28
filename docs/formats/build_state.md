@@ -219,7 +219,7 @@ Schritt einmal voll laufen.
 | Schritt | Eingaben | Ausgaben |
 |---|---|---|
 | `textproject` (nur mit `g4-project.json`, vor `rotom`) | `g4-project.json`, `data/ids/`, `data/rotom-quirks.json`, je bekannte Art `data/<art>/`, alle Dateien unter `data/raw/` (rekursiv, vom Schritt gelistet) und je Blob `data/raw/X` die Datei `X`, je abgebildete Art der Member-Ordner unter `unpacked/`, `arm9/arm9.bin`, `files/fielddata/maptable/mapname.bin`, bei angewandtem Dynamic-Headers-Patch `unpacked/dynamicHeaders/` | – |
-| `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
+| `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, die versteckten ID-Dateien `.rotom/command_database/.g4-ids-*.json` einzeln und die Register `data/ids/*.json` des Textprojekts, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts (die ID-Dateien, die der Compile schreibt, zählen als vom Schritt geschrieben) |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
 | `watch:<Ordner>` | `unpacked/<Ordner>/` | – |
