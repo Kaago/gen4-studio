@@ -26,11 +26,12 @@ use g4_kernel::checks::{
     parse_fingerprint,
 };
 use g4_kernel::error::KernelError;
-use g4_kernel::project::AssetId;
+use g4_kernel::project::{AssetId, Project};
+use g4_kernel::textproject::ids::Resolver;
 use serde::{Deserialize, Serialize};
 
 use super::data::{off_main, subject_to_nav};
-use super::{CheckFieldsDto, FixDto, ProblemDto, lock, session};
+use super::{CheckFieldsDto, FixDto, ProblemDto, lock, session, session_ids};
 use crate::errors::CmdError;
 use crate::state::{AppState, ChecksState, PassOutcome, Session};
 
@@ -163,10 +164,11 @@ impl Pass {
     }
 }
 
-/// Reads the ignore file of the project at `root`. A broken one gives an empty set and why
-/// (the parse error, without the file name): the project opens all the same (ruling R15).
-pub fn load_ignore(root: &std::path::Path) -> (IgnoreSet, Option<String>) {
-    match IgnoreSet::load(root) {
+/// Reads the ignore file of the project at `root`, its subjects through `ids`. A broken one
+/// gives an empty set and why (the parse error, without the file name): the project opens all
+/// the same (ruling R15).
+pub fn load_ignore(root: &std::path::Path, ids: &Resolver) -> (IgnoreSet, Option<String>) {
+    match IgnoreSet::load(root, ids) {
         Ok(set) => (set, None),
         Err(e) => {
             let why = match e {
@@ -181,6 +183,15 @@ pub fn load_ignore(root: &std::path::Path) -> (IgnoreSet, Option<String>) {
     }
 }
 
+/// [`load_ignore`] with the resolver of `project`; when there is none (a broken register or
+/// manifest), the file counts as unreadable for that reason.
+pub fn load_project_ignore(project: &Project) -> (IgnoreSet, Option<String>) {
+    match session_ids(project) {
+        Ok(ids) => load_ignore(&project.root, &ids),
+        Err(e) => (IgnoreSet::default(), Some(e.message)),
+    }
+}
+
 /// Refuses a write to the ignore file while it could not be read, so it is never overwritten
 /// unread; reads it again first, and a file that reads now (repaired, or removed) is taken
 /// as the session's list.
@@ -188,7 +199,7 @@ fn refuse_broken_ignore(session: &mut Session) -> Result<(), CmdError> {
     if session.checks.ignore_broken.is_none() {
         return Ok(());
     }
-    let (ignore, broken) = load_ignore(&session.project.root);
+    let (ignore, broken) = load_project_ignore(&session.project);
     match broken {
         None => {
             if let Some(last) = &mut session.checks.last {
@@ -371,7 +382,7 @@ fn change_ignore(
         session.store.change_generation(),
     )?;
     if ignore != session.checks.ignore {
-        ignore.save(&session.project.root)?;
+        ignore.save(&session.project.root, &session_ids(&session.project)?)?;
         if let Some(last) = &mut session.checks.last {
             last.apply_ignore(&ignore);
         }

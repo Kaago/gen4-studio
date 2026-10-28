@@ -474,3 +474,40 @@ fn vanilla_checks_on_the_text_project_have_no_errors() {
     );
     assert!(errors.is_empty(), "{errors:#?}");
 }
+
+/// The recipes name the start town and the starter by id: on the vanilla project set up as
+/// text project the plan finds the town by its internal name (`T01`, `T20`) and the starter
+/// (387, 152), and the town's register id names the same header.
+#[test]
+fn recipes_with_ids_apply_on_the_vanilla_project() {
+    use g4_formats::game::Family;
+    use g4_kernel::textproject::ids::Resolver;
+    use g4_kernel::textproject::symbols::SymbolKind;
+
+    let Some((_tmp, root, base)) = adopted_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let (town, starter) = match project.family {
+        Family::Pt => ("T01", 387),
+        Family::Hgss => ("T20", 152),
+        Family::Dp => return,
+    };
+    let mut store = Store::new(Arc::clone(&project));
+    let plan = g4_kernel::templates::plan_empty_region(&mut store).unwrap();
+    let names = project.internal_names().unwrap();
+    assert_eq!(names[usize::from(plan.start_header)], town);
+    assert_eq!(plan.starter_species, starter);
+    let ids = Resolver::for_project(&project).unwrap();
+    assert!(ids.writes_ids());
+    assert_eq!(
+        ids.parse(SymbolKind::Map, &format!("MAP_{town}")),
+        Ok(u32::from(plan.start_header))
+    );
+    eprintln!(
+        "recipe {} town={town} header={} starter={}",
+        base.game_code(),
+        plan.start_header,
+        plan.starter_species
+    );
+}

@@ -44,7 +44,7 @@ pub fn project_info_of(project: &Project) -> Result<ProjectInfo, CmdError> {
 /// `commands::checks`).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let project = Project::open(path).map_err(CmdError::from)?;
-    let (ignore, ignore_broken) = super::checks::load_ignore(&project.root);
+    let (ignore, ignore_broken) = super::checks::load_project_ignore(&project);
     let info = project_info_of(&project)?;
     let mut session = Session::new(Arc::new(project));
     session.checks.ignore = ignore;

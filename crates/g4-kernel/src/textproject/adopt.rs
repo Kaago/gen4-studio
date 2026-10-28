@@ -15,13 +15,17 @@ use serde::Serialize;
 
 use crate::base::BaseRom;
 use crate::build::state::BuildState;
+use crate::checks::{IGNORE_FILE, IgnoreSet};
 use crate::error::{KernelError, io_at};
+use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::text::record_text_sync;
+use crate::world_meta::{self, WORLD_FILE};
 
 use super::arts::ARTS;
 use super::export::{self, ExportOptions, ExportProgress, ExportReport, ExportStep};
+use super::ids::Resolver;
 use super::manifest::{SchemaState, refusal, schema_state};
 use super::sync::{self, UnitSide};
 use super::{DATA_DIR, MANIFEST_FILE};
@@ -172,8 +176,8 @@ fn write_include(_project: &Project) -> Result<bool, KernelError> {
 }
 
 /// Takes the text project back to a DSPRE folder: refuses while a scan finds a change from
-/// outside, a conflict or a broken file ([`REVERT_PENDING`]); then writes `g4-world.json` and
-/// `g4-checks.json` with numbers, moves `g4-project.json`, `data/` and `.g4/include/` to a new
+/// outside, a conflict or a broken file ([`REVERT_PENDING`]), and while `g4-world.json` or
+/// `g4-checks.json` cannot be read; then writes those two with numbers, moves `g4-project.json`, `data/` and `.g4/include/` to a new
 /// folder `.g4/backup/textproject-<UTC time>/` (the same paths inside) and clears the sync's
 /// record. `rotom.toml` keeps the include root (harmless without the file). Unsaved values are
 /// the app's to check.
@@ -186,7 +190,11 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
     }
     refuse_pending(project)?;
 
-    let rewritten = write_ids_as_numbers(project)?;
+    let mut rewritten = Vec::new();
+    for (path, text) in with_numbers(project)? {
+        write_atomic(root, &path, text.as_bytes())?;
+        rewritten.push(path);
+    }
     let backup = claim_backup(root)?;
     // The manifest first: once it is gone the folder is a DSPRE folder, whatever follows.
     for rel in [MANIFEST_FILE, DATA_DIR, INCLUDE_ROOT] {
@@ -220,10 +228,58 @@ fn refuse_pending(project: &Project) -> Result<(), KernelError> {
     Ok(())
 }
 
-/// Writes `g4-world.json` and `g4-checks.json` with numbers where they hold ids; the files it
-/// wrote. Comes with the writers that know ids (Task 7); until then both stay as they are.
-fn write_ids_as_numbers(_project: &Project) -> Result<Vec<PathBuf>, KernelError> {
-    Ok(Vec::new())
+/// `g4-world.json` and `g4-checks.json` read with the ids of the text project and written with
+/// numbers: the path and the new text of each file that is there and changes (a file with
+/// numbers only stays as it is). A file that cannot be read refuses the revert, as without
+/// the registers its ids might not read again.
+fn with_numbers(project: &Project) -> Result<Vec<(PathBuf, String)>, KernelError> {
+    let root = &project.root;
+    let ids = Resolver::for_project(project)?;
+    let numbers = Resolver::fixed();
+    let unreadable = |file: &str, why: &str| {
+        KernelError::Refused(format!(
+            "{file} ist nicht lesbar ({why}). Erst reparieren, dann zurücknehmen."
+        ))
+    };
+    let mut changed = Vec::new();
+    let world = root.join(WORLD_FILE);
+    if let Some(old) = read_if_there(&world)? {
+        let (meta, broken) = world_meta::load(root, &ids);
+        if let Some(why) = broken {
+            return Err(unreadable(WORLD_FILE, &why));
+        }
+        let text = world_meta::text_of(&meta, &numbers)?;
+        if text != old {
+            changed.push((world, text));
+        }
+    }
+    let checks = root.join(IGNORE_FILE);
+    if let Some(old) = read_if_there(&checks)? {
+        let set = IgnoreSet::load(root, &ids).map_err(|e| match e {
+            KernelError::InvalidProject(why) => {
+                let why = why
+                    .strip_prefix(&format!("{IGNORE_FILE}: "))
+                    .unwrap_or(&why);
+                unreadable(IGNORE_FILE, why)
+            }
+            other => other,
+        })?;
+        let text = set.text(&numbers)?;
+        if text != old {
+            changed.push((checks, text));
+        }
+    }
+    Ok(changed)
+}
+
+/// The text of the file at `path`, `None` when there is none (or it is no UTF-8 text, which
+/// the readers refuse in turn).
+fn read_if_there(path: &Path) -> Result<Option<String>, KernelError> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path)(e)),
+    }
 }
 
 /// Claims a new folder `.g4/backup/textproject-<time>/` (UTC, RFC 3339 without colons, like
@@ -478,7 +534,7 @@ mod tests {
         assert!(!fx.root().join(MANIFEST_FILE).exists());
         assert!(!fx.root().join(DATA_DIR).exists());
         assert!(!fx.root().join(INCLUDE_ROOT).exists());
-        assert!(report.rewritten.is_empty(), "Task 7 rewrites the ids");
+        assert!(report.rewritten.is_empty(), "no world file, no ignore file");
         assert_eq!(std::fs::read(&world).ok(), world_before);
         assert_eq!(fx.read(scripts::ROTOM_TOML), toml, "the include root stays");
         assert_eq!(
@@ -503,6 +559,84 @@ mod tests {
         let again = revert(&fx.project()).unwrap();
         assert_ne!(&again.backup, backup);
         assert!(again.backup.join(MANIFEST_FILE).is_file());
+    }
+
+    #[test]
+    fn revert_writes_world_and_checks_with_numbers() {
+        use std::collections::HashSet;
+
+        use crate::checks::{IGNORE_FILE, IgnoreKey, IgnoreSet, Subject};
+        use crate::textproject::ids::Resolver;
+        use crate::world_meta::{self, WORLD_FILE, WorldMeta};
+
+        let fx = TextFixture::dspre();
+        adopted(&fx);
+        let ids = Resolver::for_project(&fx.project()).unwrap();
+        let mut meta = WorldMeta::default();
+        meta.room_names.insert(1, "Laden".to_owned());
+        meta.room_owner.insert(1, "0".to_owned());
+        world_meta::save(fx.root(), &meta, &ids).unwrap();
+        let ignore = IgnoreSet {
+            disabled: HashSet::new(),
+            ignored: [Subject::Header(1), Subject::Trainer(1)]
+                .into_iter()
+                .map(|subject| IgnoreKey {
+                    code: "warp.never-fires".to_owned(),
+                    subject,
+                    key: "warp:0".to_owned(),
+                    fingerprint: 7,
+                })
+                .collect(),
+        };
+        ignore.save(fx.root(), &ids).unwrap();
+        // The text project wrote ids.
+        assert!(fx.text(WORLD_FILE).contains("\"MAP_T02\": \"MAP_T01\""));
+        assert!(fx.text(IGNORE_FILE).contains("\"TRAINER_YOUNGSTER_KAI\""));
+
+        let report = revert(&fx.project()).unwrap();
+        assert_eq!(
+            report.rewritten,
+            [fx.root().join(WORLD_FILE), fx.root().join(IGNORE_FILE)]
+        );
+        let world = fx.text(WORLD_FILE);
+        assert!(world.contains("\"1\": \"Laden\""), "{world}");
+        assert!(world.contains("\"1\": \"0\""), "{world}");
+        assert!(!world.contains("MAP_"), "{world}");
+        let checks = fx.text(IGNORE_FILE);
+        assert!(
+            !checks.contains("MAP_") && !checks.contains("TRAINER_"),
+            "{checks}"
+        );
+        // The DSPRE folder reads both as they were.
+        let numbers = Resolver::for_project(&fx.project()).unwrap();
+        assert!(!numbers.writes_ids());
+        assert_eq!(world_meta::load(fx.root(), &numbers), (meta, None));
+        assert_eq!(IgnoreSet::load(fx.root(), &numbers).unwrap(), ignore);
+
+        // Files with numbers already are left alone.
+        adopted(&fx);
+        let again = revert(&fx.project()).unwrap();
+        assert!(again.rewritten.is_empty(), "{:?}", again.rewritten);
+    }
+
+    #[test]
+    fn revert_over_a_world_file_it_cannot_read_is_refused_and_moves_nothing() {
+        use crate::world_meta::WORLD_FILE;
+
+        let fx = TextFixture::dspre();
+        adopted(&fx);
+        fx.write(WORLD_FILE, br#"{"roomNames": {"MAP_X": "A"}}"#);
+        let before = tree(&fx);
+        match revert(&fx.project()) {
+            Err(KernelError::Refused(why)) => assert_eq!(
+                why,
+                "g4-world.json ist nicht lesbar (unbekannte ID MAP_X in roomNames). \
+                 Erst reparieren, dann zurücknehmen."
+            ),
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert_eq!(tree(&fx), before, "nothing written or moved");
+        assert!(!fx.root().join(".g4/backup").exists());
     }
 
     #[test]

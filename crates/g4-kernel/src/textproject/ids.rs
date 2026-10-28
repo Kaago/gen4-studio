@@ -34,6 +34,13 @@ pub enum RefInput {
     Id(String),
 }
 
+/// Number 0, as a field that may be left out reads (the project subject of `g4-checks.json`).
+impl Default for RefInput {
+    fn default() -> Self {
+        RefInput::Number(0)
+    }
+}
+
 /// The error code of an id no table, register or internal name knows.
 pub const UNKNOWN_ID_CODE: &str = "unknown_id";
 

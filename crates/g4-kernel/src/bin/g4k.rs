@@ -421,7 +421,8 @@ fn subject_text(subject: Subject) -> String {
 /// `g4k check`: every group on the saved project (no store edits), with its ignore file.
 fn check(path: &Path, json: bool, expectations: &[CountExpectation]) -> Result<(), Failure> {
     let project = Arc::new(Project::open(path)?);
-    let ignore = IgnoreSet::load(&project.root)?;
+    let ids = g4_kernel::textproject::ids::Resolver::for_project(&project)?;
+    let ignore = IgnoreSet::load(&project.root, &ids)?;
     let overlay = Store::new(Arc::clone(&project)).snapshot_overlay();
     let snap = Snapshot::build(Arc::clone(&project), overlay, SnapshotCache::default());
     let report = Runner::run(&snap, Project::limits(), &ignore, &Group::ALL, |_, _, _| {});

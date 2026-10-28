@@ -602,8 +602,11 @@ Speichern und Abgleich die Member stets aktuell. Ein Schnappschuss vor dem Einri
    Änderung von außen (`dspre`, `files`), einen Konflikt oder eine fehlerhafte Datei, wird
    abgelehnt: „Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien
    (Technik › Textprojekt).“ Ungespeicherte Werte prüft die App vorher.
-3. `g4-world.json` und `g4-checks.json` werden mit Nummern statt IDs geschrieben, wo sie IDs
-   tragen (ohne Textprojekt gelten dort nur Nummern sicher).
+3. `g4-world.json` und `g4-checks.json` werden mit den IDs des Textprojekts gelesen und mit
+   Nummern geschrieben (ohne Register gelten dort nur Nummern sicher); eine Datei, die schon nur
+   Nummern trägt, bleibt unberührt, `rewritten` nennt die geschriebenen. Ist eine der beiden nicht
+   lesbar, wird abgelehnt, bevor etwas geschrieben oder verschoben ist: „g4-world.json ist nicht
+   lesbar (<Grund>). Erst reparieren, dann zurücknehmen.“
 4. `g4-project.json` (zuerst: ohne Manifest ist der Ordner sofort wieder ein DSPRE-Ordner),
    `data/` und `.g4/include/` werden per `rename` in einen neuen Ordner
    `.g4/backup/textproject-<UTC-Zeit>/` verschoben (RFC 3339 ohne Doppelpunkte wie bei der
@@ -616,6 +619,59 @@ die Blobs `data/raw/`, die Quirks und die Include-Datei. Die Text-JSON unter
 Basisschicht bleiben, wo sie sind; sie gehören auch zum DSPRE-Ordner. Wer die Rücknahme
 zurücknehmen will, verschiebt die drei Einträge zurück und gleicht ab. Ein Build danach ist der
 eines DSPRE-Ordners und liefert unverändert die Basis-ROM.
+
+## Projektdateien neben dem Textprojekt
+
+`g4-world.json` (Weltbaum: Namen der Weltkarten und Räume, Räume von Hand einem Gebiet zugeordnet)
+und `g4-checks.json` (ausgeblendete Befunde, abgeschaltete Prüfungen) liegen in der Projektwurzel,
+in DSPRE-Ordnern wie in Textprojekten. Seit 4.3b nennen sie Header und Trainer durch **ID oder
+Nummer**; gelesen wird über den `Resolver` des Projekts (`textproject::ids`), geschrieben im
+Textprojekt der aktuellen Schema-Version die ID (wo die Nummer eine hat), sonst die Nummer. Im
+Speicher, in Tauri und MCP bleiben es Nummern. Eine Map-ID gilt auch ohne Textprojekt als
+`MAP_<interner Name>` aus `mapname.bin`; eine Trainer-ID braucht das Register.
+
+**`g4-world.json`** (`world_meta::{load, save}`, `version` bleibt 1): die Schlüssel von `roomNames`
+und `roomOwner` sind Header, ebenso ein Wert von `roomOwner`, der eine Zahl ist oder mit `MAP_`
+beginnt; andere Werte (Gebietsschlüssel wie `w0:3`, `m240`) bleiben, wie sie sind. Geschrieben wird
+in Header-Reihenfolge. Die Matrizen (`worldMaps`, `notWorldMaps`) bleiben Zahlen.
+
+```json
+{
+  "version": 1,
+  "worldMaps": [],
+  "notWorldMaps": [],
+  "roomNames": { "MAP_T01R0101": "Haus von Lucas", "600": "Keller" },
+  "roomOwner": { "MAP_T01R0101": "MAP_T01", "600": "w0:3" }
+}
+```
+
+Eine unbekannte ID, eine Zahl über 65535 oder ein Header, der zweimal steht, macht die Datei
+„nicht lesbar“ mit Grund (`unbekannte ID MAP_X in roomNames`, `70000 in roomNames ist keine
+Header-Nummer`, `Header 0 steht zweimal in roomNames`): der Weltbaum öffnet leer, und die Datei
+wird nicht überschrieben, bis sie wieder lesbar ist (Regel R15).
+
+**`g4-checks.json`** (`checks::IgnoreSet::{load, save}`) hat `version: 1` (`IGNORE_VERSION`, immer
+geschrieben; fehlt das Feld, gilt 1; eine höhere Version wird abgelehnt: „g4-checks.json: Version 2
+stammt aus einer neueren Fassung von Gen4 Studio.“). `subject.index` ist bei `header` und `trainer`
+eine ID oder Nummer, bei allen übrigen Arten eine Nummer (sonst „eventFile nimmt nur eine Nummer,
+nicht …“). Die Listen sind nach Code, Subjekt (Nummer), Schlüssel und Fingerabdruck sortiert.
+
+```json
+{
+  "version": 1,
+  "ignored": [
+    { "code": "header.text-split", "subject": { "kind": "header", "index": "MAP_T01" },
+      "key": "text_archive", "fingerprint": "0c79e202f9ccd0cf" },
+    { "code": "trainer.no-party", "subject": { "kind": "trainer", "index": "TRAINER_YOUNGSTER_KAI" },
+      "key": "party", "fingerprint": "00000000000000ff" }
+  ],
+  "disabled": ["encounter.empty-slot"]
+}
+```
+
+Eine Datei, die nicht lesbar ist (auch eine unbekannte ID), blendet nichts aus, und das Studio
+schreibt sie nicht, bis sie wieder lesbar ist. „Zurücknehmen“ schreibt beide mit Nummern (siehe
+oben).
 
 ## Schema-Version und Migration
 

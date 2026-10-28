@@ -38,7 +38,8 @@ pub(crate) use scripts::ScriptFacts;
 
 pub use fix::{FixChange, FixFileChange, FixPlan, FixResult, apply_fix, plan_fix};
 pub use ignore::{
-    IGNORE_FILE, IgnoreFile, IgnoreKey, IgnoreSet, fingerprint_text, parse_fingerprint,
+    IGNORE_FILE, IGNORE_VERSION, IgnoreFile, IgnoreKey, IgnoreKeyFile, IgnoreSet, SubjectFile,
+    fingerprint_text, parse_fingerprint,
 };
 pub use limits::Limits;
 pub use runner::{ChecksReport, MapCell, Runner};
@@ -72,9 +73,10 @@ struct SubjectRepr {
     index: u16,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+/// The kind of a [`Subject`] as JSON writes it (`eventFile`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum SubjectKind {
+pub enum SubjectKind {
     Header,
     EventFile,
     ScriptFile,
@@ -123,6 +125,17 @@ impl From<SubjectRepr> for Subject {
 }
 
 impl Subject {
+    /// The kind and the number of the subject (the project has 0).
+    pub(crate) fn parts(self) -> (SubjectKind, u16) {
+        let SubjectRepr { kind, index } = self.into();
+        (kind, index)
+    }
+
+    /// The subject of `kind` with number `index` (ignored for the project).
+    pub(crate) fn of(kind: SubjectKind, index: u16) -> Subject {
+        SubjectRepr { kind, index }.into()
+    }
+
     /// A stable number per kind, mixed into [`fingerprint`] (never reorder or reuse).
     fn tag(self) -> (u8, u16) {
         match self {
