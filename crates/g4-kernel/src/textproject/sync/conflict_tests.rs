@@ -567,3 +567,57 @@ fn a_species_with_one_unsaved_part_is_one_unsaved_conflict() {
     assert_eq!(st.current_bytes(LEARNSET_1).unwrap().unwrap(), member_dspre);
     assert!(scan_of(&fx).units.is_empty(), "recorded");
 }
+
+// UI test 4.3b U3: the diff of a unit the store holds unsaved shows the Studio's side as the
+// user sees it in the editor (the store's unsaved value), not the saved source.
+
+#[test]
+fn conflict_diff_of_an_unsaved_unit_shows_the_stores_value() {
+    let fx = recorded();
+    let mut st = store(&fx);
+    set_power(&mut st, 33);
+    dspre_power(&fx, 1, 50);
+    let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+    assert!(outcome.conflicts[0].unsaved, "{outcome:?}");
+    let before = tree(&fx);
+    let diff = conflict_diff_in(&st, MOVE_1_JSON).unwrap();
+    assert_eq!(diff.lines, [line("data.power", "33", "50")]);
+    assert!(diff.unsaved, "the Studio's side is unsaved");
+    assert_eq!(tree(&fx), before, "both sides are exported in memory only");
+    assert!(st.is_dirty(MOVE_1));
+    // Without the store: the saved source.
+    let saved = conflict_diff(&fx.project(), MOVE_1_JSON).unwrap();
+    assert_eq!(saved.lines, [line("data.power", "10", "50")]);
+    assert!(!saved.unsaved);
+
+    // Nothing unsaved in the unit: the source on disk, as without the store.
+    let fx = recorded();
+    let st = store(&fx);
+    move_conflict(&fx);
+    let diff = conflict_diff_in(&st, MOVE_1_JSON).unwrap();
+    assert_eq!(diff.lines, [line("data.power", "45", "50")]);
+    assert!(!diff.unsaved);
+}
+
+#[test]
+fn conflict_diff_of_a_species_with_one_unsaved_part_shows_it_beside_the_saved_parts() {
+    let fx = recorded();
+    let (mut st, _) = species_with_one_unsaved_part(&fx);
+    let attack = st.current_bytes(PERSONAL_1).unwrap().unwrap()[1];
+    sync_store(&mut st, scan_of(&fx)).unwrap();
+    let diff = conflict_diff_in(&st, SPECIES_1_JSON).unwrap();
+    assert!(diff.unsaved);
+    let at = diff
+        .lines
+        .iter()
+        .find(|l| l.path == "personal.attack")
+        .unwrap_or_else(|| panic!("{:?}", diff.lines));
+    assert_eq!(at.studio, attack.to_string(), "{at:?}");
+    assert_eq!(at.dspre, attack.wrapping_sub(1).to_string(), "{at:?}");
+    // The learnset DSPRE changed differs too (its Studio side from the JSON).
+    assert!(
+        diff.lines.iter().any(|l| l.path.starts_with("learnset")),
+        "{:?}",
+        diff.lines
+    );
+}

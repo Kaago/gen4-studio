@@ -1236,7 +1236,8 @@ static TOOLS: &[ToolDef] = &[
         title: "Set up as text project",
         description: "Sets the DSPRE folder up as a text project: adopts the scripts, writes \
                       g4-project.json and one JSON per entity under data/ and records the sync; \
-                      needs a saved project and the base ROM. This cannot be undone; headless \
+                      needs a saved project and the base ROM; a text project is refused at once. \
+                      This cannot be undone; headless \
                       only with --allow-irreversible, without it the call answers \
                       needs_confirmation.",
         input_schema: no_args,

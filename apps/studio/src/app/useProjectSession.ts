@@ -4,7 +4,7 @@ import { acceptDisk, buildRom, closeProject as closeBackendProject, createPatch,
 import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
 import { formatSeconds } from "../technik/stepWords";
-import { BUILD_CONFLICTS } from "../technik/syncWords";
+import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -481,6 +481,11 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    * (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
    */
   async function onBuild(known?: string, fresh = false, play = false): Promise<string | null> {
+    // A text project with an open conflict builds nothing: that is said before the path is asked for (the build's own sync checks again).
+    if (known === undefined && (await conflictsOpen())) {
+      buildError(conflictsMessage());
+      return null;
+    }
     let out: string | null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
@@ -491,6 +496,19 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     }
     if (!out) return null;
     return buildTo(out, fresh, play, false);
+  }
+
+  /** Whether the sync of a text project finds a conflict open (false outside a text project, or when the sync failed). */
+  async function conflictsOpen(): Promise<boolean> {
+    const sync = syncBeforeBuild?.current;
+    if (!sync) return false;
+    const outcome = await sync();
+    return outcome !== null && outcome.conflicts.length > 0;
+  }
+
+  /** A build stopped by conflicts: one message with „Lösen…“, in the place of the sync's conflict message (not stacked below it). */
+  function conflictsMessage(): Message {
+    return { kind: "error", text: BUILD_CONFLICTS, key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: "Lösen…", run: onShowConflicts }] : undefined };
   }
 
   /** Shows an error of a build; the next successful build closes its toast. */
@@ -533,7 +551,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         );
       } else if (isCmdError(e) && e.code === "conflicts") {
         // Conflicts between the Studio and DSPRE (found by the sync before the build, or by the backend's own): the way out is Technik.
-        buildError({ kind: "error", text: BUILD_CONFLICTS, actions: onShowConflicts ? [{ label: "Lösen…", run: onShowConflicts }] : undefined });
+        buildError(conflictsMessage());
       } else if (isCmdError(e) && e.code === "text_conflict" && textConflictArchives(e).length > 0) {
         const archives = textConflictArchives(e);
         if (resolved) {

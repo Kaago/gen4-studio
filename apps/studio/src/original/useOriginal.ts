@@ -17,7 +17,7 @@ export type UseOriginalOptions = {
 };
 
 /** What of the base status says which base ROM is meant and whether it is found; null while it is not known. */
-function baseKey(base: BaseStatus | null): string | null {
+export function baseKey(base: BaseStatus | null): string | null {
   if (base === null) return null;
   switch (base.state) {
     case "found":

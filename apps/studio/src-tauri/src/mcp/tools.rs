@@ -279,6 +279,11 @@ const NOT_IN_BATCH: &[&str] = &[
     "rename_id",
 ];
 
+/// The tools that run long enough for the UI to show them while they run (the hub's `busy`
+/// from start to end, UI test 4.3b U4): setting the project up as text project, about a
+/// minute. Never in a batch ([`NOT_IN_BATCH`]).
+const LONG_TOOLS: &[&str] = &["adopt_text_project"];
+
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
 /// compiles a script file and reloads text archives like `new_script_file`, `apply_fix` with
@@ -750,7 +755,33 @@ impl<'a> Call<'a> {
         let origin = Origin::Agent {
             client: self.client.to_owned(),
         };
+        // A long tool (setting the project up as text project) is shown in the UI while it runs.
+        let long = self.shared.as_ref().filter(|_| LONG_TOOLS.contains(&tool));
+        if let Some(shared) = long {
+            shared
+                .hub
+                .record_busy(self.client, tool, &shared.project.root, true);
+        }
         let result = with_origin(origin, f);
+        self.report_change(before, tool, label, &result, past_store, always);
+        if let Some(shared) = long {
+            shared
+                .hub
+                .record_busy(self.client, tool, &shared.project.root, false);
+        }
+        result
+    }
+
+    /// What [`Call::changing`] reports after the write: `reopened`, or the assets it changed.
+    fn report_change<T>(
+        &self,
+        before: Option<u64>,
+        tool: &str,
+        label: Option<String>,
+        result: &Result<T, ToolError>,
+        past_store: impl FnOnce(&Result<T, ToolError>) -> Vec<AssetId>,
+        always: bool,
+    ) {
         if let Some(shared) = &self.shared
             && self.reopened(shared)
         {
@@ -762,7 +793,7 @@ impl<'a> Call<'a> {
         } else if let (Some(shared), Some(generation)) = (&self.shared, before)
             && let Ok((_, mut assets)) = self.with_session(|s| s.store.changes_since(generation))
         {
-            for asset in past_store(&result) {
+            for asset in past_store(result) {
                 if !assets.contains(&asset) {
                     assets.push(asset);
                 }
@@ -773,7 +804,6 @@ impl<'a> Call<'a> {
                 shared.hub.record_change(self.client, tool, label, assets);
             }
         }
-        result
     }
 
     /// In the app: whether the open session is no longer the one the call was admitted for,
@@ -2728,7 +2758,9 @@ mod tests {
                     assets,
                     ..
                 } => Some((client, tool, label, serde_json::to_value(assets).unwrap())),
-                AgentEvent::Status { .. } | AgentEvent::Reopened { .. } => None,
+                AgentEvent::Status { .. }
+                | AgentEvent::Reopened { .. }
+                | AgentEvent::Busy { .. } => None,
             })
             .collect()
     }
@@ -4001,6 +4033,45 @@ mod tests {
         assert_eq!(reopened[0]["tool"], "adopt_text_project");
         assert_eq!(reopened[0]["root"], fx.root().display().to_string());
         assert!(reopened[0]["seq"].as_u64().unwrap() > 0);
+        // UI test 4.3b U4: while it ran the hub said so (`busy` from the start of the set-up to
+        // its end, after the reopen), so the UI shows the set-up and offers none of its own.
+        let busy: Vec<(&str, bool)> = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "busy" || e["kind"] == "reopened")
+            .map(|e| {
+                (
+                    e["kind"].as_str().unwrap(),
+                    e["running"].as_bool().unwrap_or(false),
+                )
+            })
+            .collect();
+        assert_eq!(
+            busy,
+            [("busy", true), ("reopened", false), ("busy", false)],
+            "{events}"
+        );
+        for e in events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "busy")
+        {
+            assert_eq!(e["client"], AGENT);
+            assert_eq!(e["tool"], "adopt_text_project");
+            assert_eq!(e["root"], fx.root().display().to_string());
+        }
+        // UI test 4.3b U2: setting the text project up again is refused before the question,
+        // at once, and the hub reports nothing running.
+        let seq = state.agents.poll(0).seq;
+        let (code, message, _) = failed(toolbox.call("adopt_text_project", json!({}), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("error", crate::commands::ALREADY_TEXT_PROJECT)
+        );
+        assert_eq!(state.agents.status().question, None);
+        assert!(state.agents.poll(seq).events.is_empty());
     }
 
     #[test]

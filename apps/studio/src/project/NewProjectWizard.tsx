@@ -15,7 +15,7 @@ import { destProblem, megabytes, startMessage } from "./startMessages";
 import styles from "./NewProjectWizard.module.css";
 
 /** What the wizard has chosen so far, for the view above it. */
-export type WizardChoice = { rom: RomInfo | null; template: Template; name: string; dest: string | null };
+export type WizardChoice = { rom: RomInfo | null; template: Template; name: string; dest: string | null; textProject: boolean };
 
 type Props = {
   /**
@@ -308,8 +308,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const choice = useRef(onChoice);
   choice.current = onChoice;
   useEffect(() => {
-    choice.current?.({ rom, template, name, dest });
-  }, [rom, template, name, dest]);
+    choice.current?.({ rom, template, name, dest, textProject });
+  }, [rom, template, name, dest, textProject]);
 
   async function pickRom() {
     const path = await openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });

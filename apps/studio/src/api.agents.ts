@@ -104,8 +104,22 @@ export interface AgentReopenedEvent {
   root: string;
 }
 
+/**
+ * An agent's long `tool` (setting the project up as text project, about a minute) on the folder `root` started (`running`) or ended; the
+ * end follows the `reopened` of the same call. The UI shows it meanwhile and offers no set-up of its own.
+ */
+export interface AgentBusyEvent {
+  kind: "busy";
+  seq: number;
+  client: string;
+  tool: string;
+  /** The project folder (absolute), as `ProjectInfo.root` names it. */
+  root: string;
+  running: boolean;
+}
+
 /** What the UI follows; `seq` counts up from 1 (Tauri may deliver events out of order). */
-export type AgentEvent = AgentChangedEvent | AgentStatusEvent | AgentReopenedEvent;
+export type AgentEvent = AgentChangedEvent | AgentStatusEvent | AgentReopenedEvent | AgentBusyEvent;
 
 /** `agent_poll`: the events after `since` (the hub keeps the last 64), the latest `seq` and the status. */
 export interface AgentPoll {

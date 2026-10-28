@@ -3,6 +3,7 @@ import { adoptTextProject, errorText, isCmdError } from "../api";
 import type { AdoptProgress, AdoptReport } from "../api";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
+import { NBSP } from "../technik/syncWords";
 import styles from "./AdoptDialog.module.css";
 
 /**
@@ -33,7 +34,7 @@ export function adoptProgressText(p: AdoptProgress): string {
 
 /** The message after the set-up: the files of the text project and the seconds it took. */
 export function adoptedText(report: AdoptReport): string {
-  return `Textprojekt eingerichtet: ${report.export.files.toLocaleString("de-DE")} Dateien in ${Math.round(report.ms / 1000)} s.`;
+  return `Textprojekt eingerichtet: ${report.export.files.toLocaleString("de-DE")}${NBSP}Dateien in ${Math.round(report.ms / 1000)}${NBSP}s.`;
 }
 
 export type AdoptDialogProps = {

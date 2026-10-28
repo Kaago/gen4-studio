@@ -183,7 +183,7 @@ describe("TechnikArea", () => {
     expect(onSetUp).toHaveBeenCalledOnce();
   });
 
-  it("textprojekt_subtitle_counts_conflicts", async () => {
+  it("textprojekt_subtitle_counts_conflicts_then_broken_files", async () => {
     const show = (textProject: TechnikAreaProps["textProject"]) => render({ textProject });
     await show(null);
     expect(subtitle("Textprojekt")).toBe("Kein Projekt geöffnet");
@@ -194,9 +194,20 @@ describe("TechnikArea", () => {
     await show(textWith({ sync: syncWith({ running: true }) }));
     expect(subtitle("Textprojekt")).toBe("Gleicht ab …");
     await show(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict()] }) }) }));
-    expect(subtitle("Textprojekt")).toBe("1 Konflikt");
+    expect(subtitle("Textprojekt")).toBe("1\u00a0Konflikt");
     await show(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict(), conflict({ key: "moves/0002" }), conflict({ key: "moves/0003" })] }) }) }));
-    expect(subtitle("Textprojekt")).toBe("3 Konflikte");
+    expect(subtitle("Textprojekt")).toBe("3\u00a0Konflikte");
+    // UI test 4.3b U5: broken files are counted after the conflicts, never „Abgeglichen“.
+    const broken = (key: string) => ({ key, label: key, problems: [] });
+    await show(textWith({ sync: syncWith({ last: outcome({ broken: [broken("moves/0039")] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("1\u00a0fehlerhafte Datei");
+    await show(textWith({ sync: syncWith({ last: outcome({ broken: [broken("moves/0039"), broken("moves/0040")] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("2\u00a0fehlerhafte Dateien");
+    await show(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict()], broken: [broken("moves/0039")] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("1\u00a0Konflikt");
+    // UI test 4.3b U4: an agent sets the DSPRE folder up.
+    await show(textWith({ status: { state: "dspre", adoptable: true, reason: null }, agentSetUp: true }));
+    expect(subtitle("Textprojekt")).toBe("Wird eingerichtet …");
     // A sync under way says so even over the conflicts it found before.
     await show(textWith({ sync: syncWith({ running: true, last: outcome({ conflicts: [conflict()] }) }) }));
     expect(subtitle("Textprojekt")).toBe("Gleicht ab …");

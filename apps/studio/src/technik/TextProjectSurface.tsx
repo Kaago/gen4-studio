@@ -6,7 +6,7 @@ import type { ExternalSyncApi } from "../app/useExternalSync";
 import { ago, useNow } from "../ui/frame/timeAgo";
 import { Badge, Button, EmptyState, Notice, Section, Table } from "../ui/primitives";
 import type { TableColumn } from "../ui/primitives";
-import { FIRST_SYNC_NOTE, conflictCountText, moreText, problemLine, syncProgressText } from "./syncWords";
+import { FIRST_SYNC_NOTE, brokenCountText, conflictCountText, moreText, problemLine, syncProgressText } from "./syncWords";
 import styles from "./TextProjectSurface.module.css";
 
 /** What Technik › Textprojekt shows and does for the open project (held by the app). */
@@ -26,7 +26,12 @@ export type TextProjectView = {
   onSetUp?: () => void;
   /** „Zurücknehmen…“ opens its dialog; without it the button is locked. */
   onRevert?: () => void;
+  /** An agent sets the folder up as text project (the hub's `busy`): shown, and set-up and take-back are locked meanwhile. */
+  agentSetUp?: boolean;
 };
+
+/** What the surface says while an agent sets the folder up. */
+export const AGENT_SETTING_UP = "Wird von einem Agenten eingerichtet …";
 
 const SETUP_LEAD = "Das Projekt liegt im DSPRE-Layout. Als Textprojekt bekommt jeder Eintrag eine lesbare Datei unter data/, bereit für Git; DSPRE öffnet den Ordner weiter.";
 
@@ -37,7 +42,7 @@ export function textProjectSubtitle(text: TextProjectView | null): string {
   if (status === null) return "Wird gelesen …";
   switch (status.state) {
     case "dspre":
-      return "DSPRE-Layout";
+      return text.agentSetUp ? "Wird eingerichtet …" : "DSPRE-Layout";
     case "older":
       return "Schema veraltet";
     case "newer":
@@ -45,8 +50,11 @@ export function textProjectSubtitle(text: TextProjectView | null): string {
       return "Nicht lesbar";
     case "current": {
       if (sync.running) return "Gleicht ab …";
-      const n = sync.last?.conflicts.length ?? 0;
-      return n > 0 ? conflictCountText(n) : "Abgeglichen";
+      // Conflicts first, then broken files: either is open work, never „Abgeglichen“.
+      const conflicts = sync.last?.conflicts.length ?? 0;
+      const broken = sync.last?.broken.length ?? 0;
+      if (conflicts > 0) return conflictCountText(conflicts);
+      return broken > 0 ? brokenCountText(broken) : "Abgeglichen";
     }
   }
 }
@@ -81,7 +89,7 @@ export function TextProjectSurface({ text, onOpenProject }: TextProjectSurfacePr
   }
   switch (status.state) {
     case "dspre":
-      return <SetUp adoptable={status.adoptable} reason={status.reason} busy={text.busy} onSetUp={text.onSetUp} />;
+      return <SetUp adoptable={status.adoptable} reason={status.reason} busy={text.busy} agentSetUp={text.agentSetUp === true} onSetUp={text.onSetUp} />;
     case "current":
       return <Current text={text} schema={status.schema} lastSyncAt={status.last_sync_at} />;
     case "older":
@@ -126,12 +134,12 @@ function Surface({ lead, actions, children }: { lead?: string; actions?: ReactNo
 
 /**
  * A DSPRE folder: what a text project is, and „Als Textprojekt einrichten…“, locked with the reason when it cannot be set up, and while a
- * build or a set-up runs.
+ * build or a set-up runs; an agent's set-up is said.
  */
-function SetUp({ adoptable, reason, busy, onSetUp }: { adoptable: boolean; reason: string | null; busy: boolean; onSetUp?: () => void }) {
+function SetUp({ adoptable, reason, busy, agentSetUp, onSetUp }: { adoptable: boolean; reason: string | null; busy: boolean; agentSetUp: boolean; onSetUp?: () => void }) {
   const reasonId = useId();
-  const locked = !adoptable || busy || onSetUp === undefined;
-  const why = adoptable ? null : reason;
+  const locked = !adoptable || busy || agentSetUp || onSetUp === undefined;
+  const why = agentSetUp || adoptable ? null : reason;
   return (
     <Surface lead={SETUP_LEAD}>
       <div className={styles.actions}>
@@ -141,6 +149,11 @@ function SetUp({ adoptable, reason, busy, onSetUp }: { adoptable: boolean; reaso
         {why !== null && (
           <p id={reasonId} className={styles.note}>
             {why}
+          </p>
+        )}
+        {agentSetUp && (
+          <p role="status" className={styles.note}>
+            {AGENT_SETTING_UP}
           </p>
         )}
       </div>
@@ -153,6 +166,8 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
   const now = useNow();
   const { sync } = text;
   const locked = sync.running || text.busy;
+  // An agent's set-up still reported (the end follows its reopen): nothing is taken back meanwhile.
+  const revertLocked = text.onRevert === undefined || text.busy || text.agentSetUp === true;
   const synced = lastSyncAt === null ? "Noch nicht abgeglichen." : `Zuletzt abgeglichen ${ago(lastSyncAt, now)}.`;
   const conflicts = sync.last?.conflicts ?? [];
   const broken = sync.last?.broken ?? [];
@@ -164,7 +179,7 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
           <Button kind="secondary" aria-disabled={locked || undefined} onClick={() => !locked && void sync.run()}>
             Jetzt abgleichen
           </Button>
-          <Button kind="secondary" aria-disabled={text.onRevert === undefined || text.busy || undefined} onClick={() => !text.busy && text.onRevert?.()}>
+          <Button kind="secondary" aria-disabled={revertLocked || undefined} onClick={() => !revertLocked && text.onRevert?.()}>
             Zurücknehmen…
           </Button>
         </>
@@ -256,9 +271,11 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
     };
   }, [key]);
   const take = other === "files" ? "Geänderte Datei übernehmen" : "DSPRE-Fassung übernehmen";
+  const { diff, error } = read;
+  // The Studio's side of a unit held unsaved is its unsaved value (what the editor shows): the column says so.
   const columns: TableColumn[] = [
     { key: "path", label: "Feld" },
-    { key: "studio", label: "Studio" },
+    { key: "studio", label: diff?.unsaved ? "Studio (ungespeichert)" : "Studio" },
     { key: "other", label: other === "files" ? "Datei" : "DSPRE" },
   ];
   const locked = resolving || busy;
@@ -274,7 +291,6 @@ function ConflictBody({ conflict, busy, onResolved }: { conflict: ConflictEntry;
       setResolving(false);
     }
   };
-  const { diff, error } = read;
   return (
     <>
       {diff === null && error === null && <p className={styles.note}>Lese die Abweichungen …</p>}

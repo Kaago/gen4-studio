@@ -23,6 +23,7 @@ const DIFF: ConflictDiff = {
     { path: "pp", studio: "35", dspre: "30" },
   ],
   more: 3,
+  unsaved: false,
 };
 
 describe("TextProjectSurface", () => {
@@ -100,7 +101,7 @@ describe("TextProjectSurface", () => {
     await render(textWith({ status: { state: "current", schema: 1, last_sync_at: null }, sync: syncWith({ run, running: true, progress: { done: 120, total: 6500 }, last: null }) }));
     expect(surface()?.textContent).toContain("Noch nicht abgeglichen.");
     const status = [...container.querySelectorAll("[role=status]")].map((e) => e.textContent);
-    expect(status).toContain("Gleiche mit DSPRE ab … 120 von 6500 Dateien");
+    expect(status).toContain("Gleiche mit DSPRE ab … 120 von 6500\u00a0Dateien");
     expect(surface()?.textContent).toContain("Das erste Mal dauert länger; danach geht es schnell.");
     expect(button("Jetzt abgleichen")?.getAttribute("aria-disabled")).toBe("true");
     await click(button("Jetzt abgleichen"));
@@ -185,7 +186,7 @@ describe("TextProjectSurface", () => {
       ["power", "40", "45"],
       ["pp", "35", "30"],
     ]);
-    expect(row("moves/0001")?.textContent).toContain("und 3 weitere Abweichungen");
+    expect(row("moves/0001")?.textContent).toContain("und 3\u00a0weitere Abweichungen");
     expect(row("moves/0001")?.textContent).not.toContain("verwirft");
     expect(button("Studio-Fassung behalten", row("moves/0001")!)?.getAttribute("data-kind")).toBe("secondary");
     expect(button("DSPRE-Fassung übernehmen", row("moves/0001")!)?.getAttribute("data-kind")).toBe("secondary");
@@ -194,7 +195,7 @@ describe("TextProjectSurface", () => {
     expect(onResolved).toHaveBeenCalledExactlyOnceWith([{ kind: "Move", index: 1 }]);
 
     // A source changed on disk: the other side is the file.
-    vi.mocked(conflictDiff).mockResolvedValue({ lines: [{ path: "name", studio: '"Pikachu"', dspre: '"Pika"' }], more: 0 });
+    vi.mocked(conflictDiff).mockResolvedValue({ lines: [{ path: "name", studio: '"Pikachu"', dspre: '"Pika"' }], more: 0, unsaved: false });
     await click(button("Pokémon 0025 Pikachu", row("species/0025")!));
     const other = row("species/0025")!;
     expect([...other.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Feld", "Studio", "Datei"]);
@@ -209,6 +210,33 @@ describe("TextProjectSurface", () => {
     vi.mocked(resolveExternalConflict).mockRejectedValue({ code: "error", message: "Für diese Einheit gibt es keinen Konflikt mehr.", asset: null });
     await click(button("Studio-Fassung behalten", row("moves/0001")!));
     expect(row("moves/0001")?.querySelector("[role=alert]")?.textContent).toBe("Für diese Einheit gibt es keinen Konflikt mehr.");
+  });
+
+  it("an_unsaved_conflicts_diff_names_its_studio_column_unsaved", async () => {
+    // UI test 4.3b U3: the backend's Studio side of an unsaved unit is the unsaved value; the column says so.
+    vi.mocked(conflictDiff).mockResolvedValue({ lines: [{ path: "personal.attack", studio: "57", dspre: "60" }], more: 0, unsaved: true });
+    await render(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict({ unsaved: true })] }) }) }));
+    await click(button("Attacke 0001 Pfund", row("moves/0001")!));
+    const table = row("moves/0001")!.querySelector("table");
+    expect([...table!.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Feld", "Studio (ungespeichert)", "DSPRE"]);
+    expect([...table!.querySelectorAll("tbody td")].map((td) => td.textContent)).toEqual(["personal.attack", "57", "60"]);
+  });
+
+  it("an_agent_setting_the_folder_up_is_shown_and_locks_set_up", async () => {
+    // UI test 4.3b U4: while an agent sets the folder up the surface says so and offers nothing of its own.
+    const onSetUp = vi.fn();
+    await render(textWith({ status: { state: "dspre", adoptable: true, reason: null }, agentSetUp: true, onSetUp }));
+    expect([...container.querySelectorAll("[role=status]")].map((e) => e.textContent)).toContain("Wird von einem Agenten eingerichtet …");
+    const setUp = button("Als Textprojekt einrichten…");
+    expect(setUp?.getAttribute("aria-disabled")).toBe("true");
+    await click(setUp);
+    expect(onSetUp).not.toHaveBeenCalled();
+    // A text project whose set-up an agent still reports: „Zurücknehmen…“ waits too.
+    const onRevert = vi.fn();
+    await render(textWith({ agentSetUp: true, onRevert }));
+    expect(button("Zurücknehmen…")?.getAttribute("aria-disabled")).toBe("true");
+    await click(button("Zurücknehmen…"));
+    expect(onRevert).not.toHaveBeenCalled();
   });
 
   it("an_unsaved_conflict_warns_before_dspre", async () => {
@@ -230,6 +258,7 @@ describe("TextProjectSurface", () => {
         problems: [
           { severity: "error" as const, file: "data/moves/0001.json", line: 3, col: 12, message: "Unbekannter Schlüssel „pwr“." },
           { severity: "error" as const, file: "data/moves/0001.json", line: 7, col: 1, message: "Unbekannte ID: TYPE_FIRE2." },
+          { severity: "error" as const, file: "data/moves/0001.json", line: 9, col: 5, message: "textproject.schema: kein gültiges JSON: `,` oder `}` wird erwartet." },
         ],
       },
     ];
@@ -240,6 +269,8 @@ describe("TextProjectSurface", () => {
     expect([...section!.querySelectorAll("code")].map((c) => c.textContent)).toEqual([
       "data/moves/0001.json:3:12: Unbekannter Schlüssel „pwr“.",
       "data/moves/0001.json:7:1: Unbekannte ID: TYPE_FIRE2.",
+      // UI test 4.3b U6: without the kernel's check code.
+      "data/moves/0001.json:9:5: kein gültiges JSON: `,` oder `}` wird erwartet.",
     ]);
   });
 

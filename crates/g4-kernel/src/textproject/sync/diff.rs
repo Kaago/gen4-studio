@@ -1,5 +1,6 @@
 //! The diff of a unit's two sides, for the user's choice: the Studio's side is the unit's
-//! source on disk, DSPRE's side its members, exported into memory as the takeover would write
+//! source on disk (with a store holding the unit unsaved: the store's values, exported into
+//! memory as a save would write them), DSPRE's side its members, exported into memory as the takeover would write
 //! them (never written). JSON (entities, the header table, item files, text archives) by
 //! field path (`data.power`, `learnset.moves[3].move`, `messages[2].text`) with both values in
 //! compact JSON; scripts by line (`Zeile 12`) with three lines of context; binary members,
@@ -12,9 +13,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::error::KernelError;
-use crate::project::Project;
+use crate::project::{AssetId, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
+use crate::store::Store;
 use crate::text::TextArchiveDoc;
 
 use super::super::base_layer::BaseLayer;
@@ -34,11 +36,14 @@ pub struct DiffLine {
     pub dspre: String,
 }
 
-/// The diff of a unit: at most [`MAX_LINES`] lines, `more` counts the rest.
+/// The diff of a unit: at most [`MAX_LINES`] lines, `more` counts the rest. `unsaved`: the
+/// Studio's side is the store's unsaved value of the unit (what the editor shows), not its
+/// saved source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ConflictDiff {
     pub lines: Vec<DiffLine>,
     pub more: u32,
+    pub unsaved: bool,
 }
 
 /// The most lines a diff shows.
@@ -75,7 +80,13 @@ impl Lines {
     }
 }
 
-pub(super) fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, KernelError> {
+/// The diff of unit `key`; with `store`, the Studio's side of a unit with an unsaved asset is
+/// the store's values (exported into memory as a save would write them) and `unsaved` is set.
+pub(super) fn conflict_diff(
+    project: &Project,
+    key: &str,
+    store: Option<&Store>,
+) -> Result<ConflictDiff, KernelError> {
     let watch = Watch::new(project)?;
     let unit = watch
         .of_key(key)
@@ -85,14 +96,55 @@ pub(super) fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff
         .ok_or_else(|| {
             KernelError::InvalidProject(format!("{key} ist keine Einheit des Abgleichs."))
         })?;
+    // The unit's assets the store holds unsaved; their values are the Studio's side.
+    let unsaved: Vec<AssetId> = store.map_or_else(Vec::new, |st| {
+        unit.assets
+            .iter()
+            .copied()
+            .filter(|id| st.is_dirty(*id))
+            .collect()
+    });
+    let held = |id: AssetId| -> Result<Option<Vec<u8>>, KernelError> {
+        match store {
+            Some(st) => st.current_bytes(id),
+            None => Ok(None),
+        }
+    };
     let mut out = Lines::default();
     match &unit.of {
         Of::Asset(id) if is_binary(id.kind) => {
-            let (studio, dspre) = EntitySource::open(project)?.binary_sides(project, *id)?;
+            let (saved, dspre) = EntitySource::open(project)?.binary_sides(project, *id)?;
+            let studio = if unsaved.contains(id) {
+                held(*id)?
+            } else {
+                saved
+            };
             bytes(&mut out, "", studio.as_deref(), dspre.as_deref());
         }
-        Of::Asset(_) => entity(project, &unit, &mut out)?,
-        Of::Text(_) => text(project, &unit, &mut out)?,
+        Of::Asset(_) => {
+            let studio = if unsaved.is_empty() {
+                None
+            } else {
+                let mut writes = Vec::with_capacity(unsaved.len());
+                for &id in &unsaved {
+                    if let Some(bytes) = held(id)? {
+                        writes.push((id, bytes));
+                    }
+                }
+                // The unit's other parts as the store holds them (or their JSON).
+                let current = |id: AssetId| held(id).ok().flatten();
+                Some(EntitySource::open(project)?.export_bytes(project, &writes, &current)?)
+            };
+            entity(project, &unit, studio, &mut out)?;
+        }
+        Of::Text(_) => {
+            // A text archive's bytes in the store are its canonical JSON.
+            let studio = match unsaved.first() {
+                Some(&id) => held(id)?,
+                None => None,
+            };
+            text(project, &unit, studio, &mut out)?;
+        }
         Of::Script(_) => script(project, &unit, &mut out)?,
         Of::Blob(file) => blob(project, file, &unit, &mut out)?,
         // No member side.
@@ -101,6 +153,7 @@ pub(super) fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff
     Ok(ConflictDiff {
         lines: out.lines,
         more: out.more,
+        unsaved: !unsaved.is_empty(),
     })
 }
 
@@ -175,15 +228,27 @@ fn bytes(out: &mut Lines, prefix: &str, studio: Option<&[u8]>, dspre: Option<&[u
 }
 
 /// An entity, the item files of an item member or the header table: the files of its source
-/// against the files DSPRE's members export to.
-fn entity(project: &Project, unit: &Unit, out: &mut Lines) -> Result<(), KernelError> {
+/// (or `unsaved`, the files the store's unsaved values export to) against the files DSPRE's
+/// members export to.
+fn entity(
+    project: &Project,
+    unit: &Unit,
+    unsaved: Option<BTreeMap<PathBuf, Vec<u8>>>,
+    out: &mut Lines,
+) -> Result<(), KernelError> {
     let dspre = EntitySource::open(project)?.export_members(project, &unit.assets)?;
-    let mut studio: BTreeMap<PathBuf, Vec<u8>> = BTreeMap::new();
-    for rel in &unit.sources {
-        if let Some(bytes) = read_optional(&project.root.join(rel))? {
-            studio.insert(rel.clone(), bytes);
+    let studio = match unsaved {
+        Some(files) => files,
+        None => {
+            let mut files: BTreeMap<PathBuf, Vec<u8>> = BTreeMap::new();
+            for rel in &unit.sources {
+                if let Some(bytes) = read_optional(&project.root.join(rel))? {
+                    files.insert(rel.clone(), bytes);
+                }
+            }
+            files
         }
-    }
+    };
     let mut files: Vec<&PathBuf> = studio.keys().chain(dspre.keys()).collect();
     files.sort();
     files.dedup();
@@ -214,11 +279,21 @@ fn entity(project: &Project, unit: &Unit, out: &mut Lines) -> Result<(), KernelE
     Ok(())
 }
 
-/// A text archive: its JSON against its member, both read as messages.
-fn text(project: &Project, unit: &Unit, out: &mut Lines) -> Result<(), KernelError> {
+/// A text archive: its JSON (or `unsaved`, the store's JSON of it) against its member, both
+/// read as messages.
+fn text(
+    project: &Project,
+    unit: &Unit,
+    unsaved: Option<Vec<u8>>,
+    out: &mut Lines,
+) -> Result<(), KernelError> {
     let lang = project.language.locale_key();
     let root = &project.root;
-    let studio = read_optional(&root.join(&unit.sources[0]))?
+    let json = match unsaved {
+        Some(bytes) => Some(bytes),
+        None => read_optional(&root.join(&unit.sources[0]))?,
+    };
+    let studio = json
         .map(|b| TextArchiveDoc::from_json(&b, lang))
         .transpose()?;
     let dspre = read_optional(&root.join(&unit.members[0]))?

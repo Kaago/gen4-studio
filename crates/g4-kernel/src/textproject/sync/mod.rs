@@ -37,7 +37,8 @@
 //! JSON: the build step's sides rely on it), so the next scan finds nothing to take over. One lock per project root keeps scans and takeovers of a project apart.
 //!
 //! With the store, [`sync_store`] keeps every unit with an unsaved asset from being taken over
-//! (a conflict with `unsaved`); [`conflict_diff`] shows a unit's two sides, [`resolve`] (and
+//! (a conflict with `unsaved`); [`conflict_diff`] shows a unit's two sides ([`conflict_diff_in`]
+//! with the store's unsaved values as the Studio's side), [`resolve`] (and
 //! [`resolve_files`] without a store) applies the user's choice (see `conflict.rs`).
 
 use std::collections::BTreeMap;
@@ -51,6 +52,7 @@ use crate::build::state::BuildState;
 use crate::error::KernelError;
 use crate::fsutil::{Noted, Notes};
 use crate::project::{AssetId, Project};
+use crate::store::Store;
 use crate::text::Problem;
 
 use super::arts::slash;
@@ -165,7 +167,14 @@ pub fn apply_one_sided(
 /// exported in memory, never written). Field paths for the JSON of entities and text
 /// archives, lines for scripts, size and xxh3 for binary members and blobs.
 pub fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, KernelError> {
-    diff::conflict_diff(project, key)
+    diff::conflict_diff(project, key, None)
+}
+
+/// [`conflict_diff`] with the Studio's side as `store` holds it: a unit with an unsaved asset
+/// shows the store's values (exported into memory, never written), with `unsaved` set; one
+/// without shows its source on disk.
+pub fn conflict_diff_in(store: &Store, key: &str) -> Result<ConflictDiff, KernelError> {
+    diff::conflict_diff(store.project(), key, Some(store))
 }
 
 /// Records every file the scan watches as it is now, replacing the record: only for a

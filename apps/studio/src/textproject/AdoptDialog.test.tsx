@@ -114,7 +114,8 @@ describe("AdoptDialog", () => {
     await act(async () => finish(report));
     expect(onAdopted).toHaveBeenCalledWith(report);
     expect(onClose).toHaveBeenCalled();
-    expect(adoptedText(report)).toBe("Textprojekt eingerichtet: 6.512 Dateien in 88 s.");
+    // UI test 4.3b U7: no line breaks between a count and its unit.
+    expect(adoptedText(report)).toBe("Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s.");
   });
 
   it("unsaved_locks_set_up", async () => {

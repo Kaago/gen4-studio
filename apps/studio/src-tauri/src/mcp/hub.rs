@@ -56,6 +56,16 @@ pub enum AgentEvent {
         tool: String,
         root: String,
     },
+    /// An agent's long `tool` on the project folder `root` started (`running`) or ended (set
+    /// up as text project, about a minute): the UI shows it meanwhile and offers none of its
+    /// own. The end follows a `reopened` of the same call.
+    Busy {
+        seq: u64,
+        client: String,
+        tool: String,
+        root: String,
+        running: bool,
+    },
 }
 
 impl AgentEvent {
@@ -63,7 +73,8 @@ impl AgentEvent {
         match self {
             AgentEvent::Changed { seq, .. }
             | AgentEvent::Status { seq }
-            | AgentEvent::Reopened { seq, .. } => *seq,
+            | AgentEvent::Reopened { seq, .. }
+            | AgentEvent::Busy { seq, .. } => *seq,
         }
     }
 }
@@ -756,6 +767,21 @@ impl AgentHub {
             client: client.to_owned(),
             tool: tool.to_owned(),
             root: root.display().to_string(),
+        });
+        drop(inner);
+        emit.send();
+    }
+
+    /// An agent's long tool `tool` on the folder `root` started (`running`) or ended
+    /// ([`AgentEvent::Busy`]).
+    pub fn record_busy(&self, client: &str, tool: &str, root: &std::path::Path, running: bool) {
+        let mut inner = self.lock();
+        let emit = inner.push(|seq| AgentEvent::Busy {
+            seq,
+            client: client.to_owned(),
+            tool: tool.to_owned(),
+            root: root.display().to_string(),
+            running,
         });
         drop(inner);
         emit.send();

@@ -5,7 +5,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { adoptTextProject, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
+import { adoptTextProject, assignBase, checkBase, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
+import { check, found } from "./technik/baseTesting";
+import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
@@ -209,6 +211,8 @@ vi.mock("./api", async (importOriginal) => ({
   createProject: vi.fn(),
   agentSettings: vi.fn(),
   baseStatus: vi.fn(),
+  checkBase: vi.fn(),
+  assignBase: vi.fn(),
   createPatch: vi.fn(),
   originalStatus: vi.fn(),
   planReset: vi.fn(),
@@ -2508,8 +2512,8 @@ describe("App wiring", () => {
       );
       // A DSPRE folder never syncs: the beforeEach project ran none.
       expect(externalSync).toHaveBeenCalledOnce();
-      expect(toasts()).toContain("1 Änderung aus DSPRE übernommen");
-      expect(toasts()).toContain("2 geänderte Projektdateien übernommen");
+      expect(toasts()).toContain("1\u00a0Änderung aus DSPRE übernommen");
+      expect(toasts()).toContain("2\u00a0geänderte Projektdateien übernommen");
       // What the sync reloaded is read again as after ⌘Z, and the edit counts.
       await select(listed[0]);
       log.length = 0;
@@ -2532,11 +2536,12 @@ describe("App wiring", () => {
     it("a_build_with_conflicts_is_not_started", async () => {
       await openTextProject();
       vi.mocked(savePath).mockResolvedValue("/out.nds");
-      // The sync before the build finds a conflict: nothing is built, the message offers the way out.
+      // The sync before the build finds a conflict: nothing is built (no path asked for), the message offers the way out.
       vi.mocked(externalSync).mockResolvedValueOnce(outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }], unsaved: false, other: "dspre" }] }));
       await click("Bauen");
       await flush();
       expect(externalSync).toHaveBeenCalledTimes(2);
+      expect(savePath).not.toHaveBeenCalled();
       expect(buildRom).not.toHaveBeenCalled();
       expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
       expect(statusLine()).toContain("Noch nicht gebaut");
@@ -2545,8 +2550,8 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
       expect(container.querySelector('[data-conflict="moves/0001"]')).not.toBeNull();
 
-      // A conflict that came after the sync: the backend's refusal says the same.
-      vi.mocked(externalSync).mockResolvedValueOnce(outcome());
+      // A conflict that came after the sync: the backend's refusal says the same (the sync before the path and the build's own find none).
+      vi.mocked(externalSync).mockResolvedValue(outcome());
       vi.mocked(buildRom).mockRejectedValueOnce({ code: "conflicts", message: "Erst die Konflikte in Technik › Textprojekt lösen.", asset: null, problems: [] });
       await click("Bauen");
       await flush();
@@ -2558,7 +2563,7 @@ describe("App wiring", () => {
       const c = (key: string) => ({ key, label: key, assets: [], unsaved: false, other: "dspre" as const });
       await openTextProject(outcome({ conflicts: [c("a"), c("b"), c("c")] }));
       const warnings = () => listToasts().filter((t) => t.kind === "warning").map((t) => t.text);
-      expect(warnings()).toEqual(["3 Konflikte zwischen Studio und DSPRE"]);
+      expect(warnings()).toEqual(["3\u00a0Konflikte zwischen Studio und DSPRE"]);
       // To Technik › Textprojekt by the list („Lösen…“ would close the warning).
       await act(async () => atlasEntry("Technik")!.click());
       const entry = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Textprojekt"))!;
@@ -2570,18 +2575,18 @@ describe("App wiring", () => {
       };
       // Two resolved, none new: the open warning says what is left, in its place.
       await syncNow(outcome({ conflicts: [c("a")] }));
-      expect(warnings()).toEqual(["1 Konflikt zwischen Studio und DSPRE"]);
+      expect(warnings()).toEqual(["1\u00a0Konflikt zwischen Studio und DSPRE"]);
       // None left: the warning goes.
       await syncNow(outcome());
       expect(warnings()).toEqual([]);
       // A closed warning does not come back for the same conflicts, only for a new one.
       await syncNow(outcome({ conflicts: [c("a")] }));
-      expect(warnings()).toEqual(["1 Konflikt zwischen Studio und DSPRE"]);
+      expect(warnings()).toEqual(["1\u00a0Konflikt zwischen Studio und DSPRE"]);
       toast.dismissKey("sync-conflicts");
       await syncNow(outcome({ conflicts: [c("a")] }));
       expect(warnings()).toEqual([]);
       await syncNow(outcome({ conflicts: [c("a"), c("d")] }));
-      expect(warnings()).toEqual(["2 Konflikte zwischen Studio und DSPRE"]);
+      expect(warnings()).toEqual(["2\u00a0Konflikte zwischen Studio und DSPRE"]);
     });
 
     it("an_agents_resolve_reloads_its_assets_then_syncs", async () => {
@@ -2597,6 +2602,32 @@ describe("App wiring", () => {
       await flush();
       expect(externalSync).toHaveBeenCalledOnce();
       expect(vi.mocked(memberCounts).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(externalSync).mock.invocationCallOrder[0]!);
+    });
+
+    it("building_with_an_open_conflict_says_so_before_asking_for_the_path_in_one_message", async () => {
+      // UI test 4.3b U8: no „Speichern unter“ first, and the refusal takes the place of the open conflict message.
+      const open = outcome({ conflicts: [{ key: "data/moves/0038.json", label: "Attacke 0038", assets: [{ kind: "Move", index: 38 }], unsaved: false, other: "dspre" }] });
+      await openTextProject(open);
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…"))).toHaveLength(1);
+      vi.mocked(savePath).mockClear();
+      vi.mocked(buildRom).mockClear();
+      vi.mocked(externalSync).mockResolvedValue(open);
+      await click("Bauen");
+      await flush();
+      await flush();
+      expect(savePath).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…")).map((t) => [t.kind, t.text])).toEqual([["error", BUILD_CONFLICTS]]);
+      // Resolved: the next „Bauen“ asks for the path and builds.
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 1 } as never);
+      await click("Bauen");
+      await flush();
+      await flush();
+      expect(savePath).toHaveBeenCalledOnce();
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…"))).toEqual([]);
     });
 
     it("a_reopened_session_while_a_sync_runs_drops_its_result_and_syncs_again", async () => {
@@ -2615,7 +2646,7 @@ describe("App wiring", () => {
       await act(async () => answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }] }] })));
       await flush();
       // The old session's answer says nothing; the new session syncs as after opening.
-      expect(toasts()).not.toContain("1 Änderung aus DSPRE übernommen");
+      expect(toasts()).not.toContain("1\u00a0Änderung aus DSPRE übernommen");
       expect(externalSync).toHaveBeenCalledTimes(2);
     });
 
@@ -2865,6 +2896,73 @@ describe("App wiring", () => {
       expect(alerts()).toContain("Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).");
     });
 
+    it("assigning_the_base_rom_unlocks_setting_up_and_the_hint_offers_it", async () => {
+      // UI test 4.3b U1: the way the hint offers (Basis-ROM zuordnen… → Technik › Veröffentlichen → Zuordnen) leads to setting up, without
+      // opening the project again.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+      vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: "/roms/p.nds" });
+      await reopen();
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Basis-ROM zuordnen…", "Nicht mehr fragen"]);
+      await act(async () => hint()!.actions[0]!.onClick());
+      await flush();
+      expect(container.querySelector("[data-base-state]")?.getAttribute("data-base-state")).toBe("unassigned");
+      vi.mocked(checkBase).mockResolvedValue(check());
+      vi.mocked(assignBase).mockResolvedValue(found());
+      vi.mocked(baseStatus).mockResolvedValue(found());
+      vi.mocked(textProjectStatus).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+      await click("Zuordnen…");
+      await flush();
+      await act(async () => dialogButton("Zuordnen")!.click());
+      await flush();
+      await flush();
+      expect(assignBase).toHaveBeenCalledWith("/roms/p.nds");
+      expect(textProjectStatus).toHaveBeenCalled();
+      // The open hint now offers to set it up, and Technik › Textprojekt is unlocked.
+      expect(hint()?.text).toBe(HINT);
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Einrichten…", "Nicht mehr fragen"]);
+      await showTextProjectEntry();
+      const setUp = [...container.querySelectorAll("button")].find((b) => b.textContent === "Als Textprojekt einrichten…");
+      expect(setUp?.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("an_agents_set_up_shows_while_it_runs_then_ends_the_hint_and_set_up_never_opens_on_a_text_project", async () => {
+      env.tauri = true;
+      localStorage.removeItem("g4.textProjectHint./p");
+      await renderFresh();
+      await click("Projekt öffnen");
+      await flush();
+      expect(hint()?.text).toBe(HINT);
+      const setUpOfHint = hint()!.actions[0]!;
+      const agentEvent = (payload: AgentEvent) => act(async () => void tauriEvents.get("agent-event")!({ payload }));
+      const busy = (seq: number, running: boolean) =>
+        agentEvent({ kind: "busy", seq, client: "Claude Code", tool: "adopt_text_project", root: "/p", running } as unknown as AgentEvent);
+      // UI test 4.3b U4: an agent sets the folder up; Technik › Textprojekt says so and offers nothing of its own.
+      await busy(1, true);
+      await showTextProjectEntry();
+      expect(infos()).toContain("Wird von einem Agenten eingerichtet …");
+      const setUp = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Als Textprojekt einrichten…");
+      expect(setUp()?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => setUpOfHint.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Wird von einem Agenten eingerichtet …");
+      // UI test 4.3b U2: set up and reopened by the agent: the hint goes, and its „Einrichten…“ opens nothing on a text project.
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await agentEvent({ kind: "reopened", seq: 2, client: "Claude Code", tool: "adopt_text_project", root: "/p" });
+      await busy(3, false);
+      await flush();
+      await flush();
+      expect(hint()).toBeUndefined();
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain("Wird von einem Agenten eingerichtet …");
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("Textprojekt, Schema-Version 1.");
+      await act(async () => setUpOfHint.onClick());
+      expect(dialog()).toBeNull();
+      expect(adoptTextProject).not.toHaveBeenCalled();
+    });
+
     it("setting_up_runs_modal_then_reads_the_session_again_and_says_so", async () => {
       vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "HeartGold US (Testprojekt)", sha1: "a".repeat(40), counts: {} });
       localStorage.removeItem("g4.textProjectHint./p");
@@ -2903,7 +3001,7 @@ describe("App wiring", () => {
       expect(openProject).not.toHaveBeenCalled();
       expect(listHeaders).toHaveBeenCalledOnce();
       expect(externalSync).toHaveBeenCalled();
-      expect(live().message?.text).toBe("Textprojekt eingerichtet: 6.512 Dateien in 88 s.");
+      expect(live().message?.text).toBe("Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s.");
       // Set up: the hint has gone.
       expect(hint()).toBeUndefined();
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");

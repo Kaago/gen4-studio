@@ -41,6 +41,10 @@ pub const NOT_TEXT_PROJECT: &str =
 /// Why the store refuses writes while the project is set up as text project (code `busy`).
 pub const ADOPTING: &str = "Das Projekt wird gerade als Textprojekt eingerichtet.";
 
+/// The refusal of „Als Textprojekt einrichten“ on a text project (UI test 4.3b U2), code
+/// `error`.
+pub const ALREADY_TEXT_PROJECT: &str = "Das Projekt ist schon ein Textprojekt.";
+
 /// The refusal of a build while the sync has open conflicts.
 pub const CONFLICTS: &str = "Erst die Konflikte in Technik › Textprojekt lösen.";
 
@@ -243,11 +247,16 @@ pub fn text_project_status_impl(state: &AppState) -> Result<TextProjectStatusDto
     Ok(status_of(state, &project))
 }
 
-/// The refusals of [`adopt_text_project_impl`] that need no adoption, in its order: unsaved
-/// changes (`unsaved`), Diamond/Pearl (`error`, before a base ROM is looked for), no found
-/// base ROM (`base_missing`). Writes nothing; over
-/// MCP in the app it runs before the question „Als Textprojekt einrichten“. The open project,
-/// its base mark and where its base ROM lies when nothing refuses.
+/// The refusals of [`adopt_text_project_impl`] that need no adoption, in its order: a text
+/// project already ([`ALREADY_TEXT_PROJECT`], `error`, at once), unsaved changes (`unsaved`),
+/// Diamond/Pearl (`error`, before a base ROM is looked for), no found base ROM
+/// (`base_missing`). Writes nothing; over MCP in the app it runs before the question „Als
+/// Textprojekt einrichten“. The open project, its base mark and where its base ROM lies when
+/// nothing refuses.
+///
+/// A text project is refused although the kernel's `adopt` takes one (an export that writes
+/// nothing plus the sync records, which `g4k text adopt` keeps as a repair): in the Studio it
+/// only re-reads every file for a minute, and the sync records what a text project needs.
 pub(crate) fn check_adopt(
     state: &AppState,
 ) -> Result<(Arc<Project>, g4_kernel::start::BaseMark, std::path::PathBuf), CmdError> {
@@ -256,6 +265,9 @@ pub(crate) fn check_adopt(
         let session = session(&mut guard)?;
         (Arc::clone(&session.project), session.store.dirty().len())
     };
+    if *project.source_mode() != SourceMode::Dspre {
+        return Err(ALREADY_TEXT_PROJECT.into());
+    }
     if unsaved > 0 {
         return Err(CmdError::refused(
             "unsaved",
@@ -272,9 +284,9 @@ pub(crate) fn check_adopt(
 /// Sets the open DSPRE folder up as text project (`textproject::adopt::adopt`: the scripts
 /// adopted, the export with `progress`, the id files, the sync recorded), then opens the
 /// session anew on the same folder, so the store reads and writes the JSON. Refuses before
-/// writing anything what [`check_adopt`] refuses, and every refusal of the kernel (another
-/// base ROM, an older or newer schema, texts in conflict; a text project with a change from
-/// outside is `pending`, one whose JSON holds changes the members lack `unsynced`). Runs without the session lock (10 to 120 s) but with the store busy:
+/// writing anything what [`check_adopt`] refuses (a text project among it), and every refusal
+/// of the kernel (another base ROM, texts in conflict). Runs without the session lock (10 to
+/// 120 s) but with the store busy:
 /// every write meanwhile (edit, save, undo, redo, reset, rename, a new entity) is refused with
 /// `busy` ([`ADOPTING`]). The session is replaced only when it is unchanged since
 /// ([`REOPEN`] otherwise).
@@ -431,10 +443,10 @@ pub fn external_changes_impl(state: &AppState, diff: bool) -> Result<ExternalCha
     scan.units.retain(|unit| unit.side != UnitSide::InSync);
     let mut diffs = BTreeMap::new();
     if diff {
-        let dirty = {
-            let mut guard = lock(state)?;
-            session(&mut guard)?.store.dirty()
-        };
+        // The Studio's side of a unit the store holds unsaved is its unsaved value.
+        let mut guard = lock(state)?;
+        let session = same_session(&mut guard, &project)?;
+        let dirty = session.store.dirty();
         for unit in &scan.units {
             let conflict = match unit.side {
                 UnitSide::Conflict => true,
@@ -444,19 +456,24 @@ pub fn external_changes_impl(state: &AppState, diff: bool) -> Result<ExternalCha
                 UnitSide::InSync | UnitSide::Broken => false,
             };
             if conflict {
-                diffs.insert(unit.key.clone(), sync::conflict_diff(&project, &unit.key)?);
+                diffs.insert(
+                    unit.key.clone(),
+                    sync::conflict_diff_in(&session.store, &unit.key)?,
+                );
             }
         }
     }
     Ok(ExternalChangesDto { scan, diffs })
 }
 
-/// The diff of conflict `key`: the Studio's side (its source) and DSPRE's (its members,
-/// exported in memory). Writes nothing.
+/// The diff of conflict `key`: the Studio's side (its source; the store's unsaved values when
+/// it holds the unit unsaved, with `unsaved` set, so the user sees what the editor shows) and
+/// DSPRE's (its members, exported in memory). Under the session lock; writes nothing.
 pub fn conflict_diff_impl(state: &AppState, key: String) -> Result<ConflictDiff, CmdError> {
-    let project = super::open_project_arc(state)?;
-    text_project(&project, NOT_TEXT_PROJECT)?;
-    Ok(sync::conflict_diff(&project, &key)?)
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    text_project(&session.project, NOT_TEXT_PROJECT)?;
+    Ok(sync::conflict_diff_in(&session.store, &key)?)
 }
 
 /// The user's choice for conflict `key` (`textproject::sync::resolve`): `studio` keeps the
@@ -870,6 +887,44 @@ mod tests {
         assert_eq!(err.message, sync::NO_CONFLICT);
     }
 
+    /// UI test 4.3b U3: the diff of a conflict the store holds unsaved shows the unsaved value
+    /// as the Studio's side (what the editor shows), and says so; MCP's `external_changes`
+    /// answers the same diff.
+    #[test]
+    fn the_diff_of_an_unsaved_conflict_shows_the_unsaved_value() {
+        let t = adopted();
+        data_edit_impl(
+            &t.state,
+            DataKind::Move,
+            1,
+            DataPatch::Move {
+                field: "power".into(),
+                value: 57,
+            },
+            None,
+        )
+        .unwrap();
+        let mut member = t.fx.read(MOVE_1_MEMBER);
+        member[3] = 60;
+        t.fx.write(MOVE_1_MEMBER, &member);
+        let outcome = external_sync_impl(&t.state, &mut |_| {}).unwrap();
+        assert!(outcome.conflicts[0].unsaved, "{outcome:?}");
+        let diff = conflict_diff_impl(&t.state, MOVE_1_JSON.into()).unwrap();
+        let power_line = diff.lines.iter().find(|l| l.path == "data.power").unwrap();
+        assert_eq!(
+            (power_line.studio.as_str(), power_line.dspre.as_str()),
+            ("57", "60")
+        );
+        assert!(diff.unsaved);
+        assert_eq!(
+            external_changes_impl(&t.state, true).unwrap().diffs[MOVE_1_JSON],
+            diff
+        );
+        // Nothing written: the JSON keeps the saved power, the edit stays unsaved.
+        assert_eq!(power(&t.fx), 10);
+        assert_eq!(dirty_impl(&t.state).unwrap().len(), 1);
+    }
+
     #[test]
     fn build_with_a_conflict_is_refused_with_conflicts() {
         let t = adopted();
@@ -1256,41 +1311,43 @@ mod tests {
         assert!(!t.fx.root().join(g4_kernel::checks::IGNORE_FILE).exists());
     }
 
-    /// An adoption of a text project without a sync record (a 4.3a project) whose JSON holds a
-    /// change the members lack: the export's refusal answers `unsynced`, nothing is written
-    /// and the session stays.
+    /// UI test 4.3b U2: setting up a text project again is refused at once with a sentence
+    /// (before the question of an agent, before looking for the base ROM), whether something
+    /// is pending or not, instead of exporting every file anew; nothing is written and the
+    /// session stays.
     #[test]
-    fn adopting_a_text_project_over_unbuilt_json_answers_unsynced() {
+    fn adopting_a_text_project_is_refused_at_once_and_keeps_the_session() {
+        let t = adopted();
+        let before = crate::commands::open_project_arc(&t.state).unwrap();
+        let started = std::time::Instant::now();
+        let err = adopt_text_project_impl(&t.state, &mut |_| panic!("no progress")).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("error", ALREADY_TEXT_PROJECT)
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        assert_eq!(
+            check_adopt(&t.state).unwrap_err().message,
+            ALREADY_TEXT_PROJECT
+        );
+        // Also with the base ROM gone and a change from outside pending.
+        let mut member = t.fx.read(MOVE_1_MEMBER);
+        member[3] += 5;
+        t.fx.write(MOVE_1_MEMBER, &member);
+        t.state.base_roms.set_explicit(None);
+        let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
+        assert_eq!(err.message, ALREADY_TEXT_PROJECT);
+        let after = crate::commands::open_project_arc(&t.state).unwrap();
+        assert!(Arc::ptr_eq(&before, &after), "the session was replaced");
+        assert_eq!(t.fx.read(MOVE_1_MEMBER), member);
+
+        // A 4.3a text project without a sync record whose JSON the members lack: the same.
         let t = adopted();
         g4_kernel::build::state::BuildState::update(t.fx.root(), |s| s.sync = None).unwrap();
         t.fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
         let json = t.fx.read(MOVE_1_JSON);
-        let before = crate::commands::open_project_arc(&t.state).unwrap();
         let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
-        assert_eq!(err.code, "unsynced", "{}", err.message);
-        assert!(
-            err.message
-                .starts_with(g4_kernel::textproject::UNSYNCED_EXPORT),
-            "{}",
-            err.message
-        );
+        assert_eq!(err.message, ALREADY_TEXT_PROJECT);
         assert_eq!(t.fx.read(MOVE_1_JSON), json);
-        let after = crate::commands::open_project_arc(&t.state).unwrap();
-        assert!(Arc::ptr_eq(&before, &after), "the session was replaced");
-    }
-
-    /// A refused adoption of a text project (a change from outside is pending) keeps the
-    /// session: nothing was set up anew.
-    #[test]
-    fn a_refused_adoption_of_a_text_project_keeps_the_session() {
-        let t = adopted();
-        let mut member = t.fx.read(MOVE_1_MEMBER);
-        member[3] += 5;
-        t.fx.write(MOVE_1_MEMBER, &member);
-        let before = crate::commands::open_project_arc(&t.state).unwrap();
-        let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
-        assert_eq!(err.code, "pending", "{}", err.message);
-        let after = crate::commands::open_project_arc(&t.state).unwrap();
-        assert!(Arc::ptr_eq(&before, &after), "the session was replaced");
     }
 }

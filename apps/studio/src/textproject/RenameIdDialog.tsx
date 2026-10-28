@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, planRenameId, renameId } from "../api";
 import type { RenamePlan, RenameResult } from "../api";
+import { count } from "../technik/syncWords";
 import { Dialog, Notice, TextField } from "../ui/primitives";
 import styles from "./RenameIdDialog.module.css";
 
@@ -15,8 +16,8 @@ export function renamedText(plan: RenamePlan): string {
   return `ID umbenannt: ${plan.old_id} → ${plan.new_id}. ⌘Z nimmt es zurück.`;
 }
 
-const filesText = (n: number) => (n === 1 ? "1 Datei" : `${n} Dateien`);
-const refsText = (n: number) => (n === 1 ? "1 Verweis" : `${n} Verweise`);
+const filesText = (n: number) => count(n, "Datei", "Dateien");
+const refsText = (n: number) => count(n, "Verweis", "Verweise");
 
 export type RenameIdDialogProps = {
   /** The register id to rename (`TRAINER_…`, `MAP_…`). */
@@ -102,7 +103,7 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
                     {f.path}
                   </li>
                 ))}
-                {more > 0 && <li className={styles.more}>{`und ${more} weitere`}</li>}
+                {more > 0 && <li className={styles.more}>{`und ${count(more, "weitere", "weitere")}`}</li>}
               </ul>
             )}
           </Notice>

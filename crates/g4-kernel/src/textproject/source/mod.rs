@@ -555,8 +555,30 @@ impl EntitySource {
         project: &Project,
         assets: &[AssetId],
     ) -> Result<BTreeMap<PathBuf, Vec<u8>>, KernelError> {
+        self.dry_run(project, |source| source.take_members(project, assets))
+    }
+
+    /// The files [`EntitySource::write`] would write for `writes` (with `current` for the
+    /// other parts of their units; every file of a unit, changed or not), exported into
+    /// memory: nothing is written, christened on disk or recorded. The Studio's side of a
+    /// unit the store holds unsaved.
+    pub(crate) fn export_bytes(
+        &mut self,
+        project: &Project,
+        writes: &[(AssetId, Vec<u8>)],
+        current: &dyn Fn(AssetId) -> Option<Vec<u8>>,
+    ) -> Result<BTreeMap<PathBuf, Vec<u8>>, KernelError> {
+        self.dry_run(project, |source| source.write(project, writes, current))
+    }
+
+    /// Runs `export` with the writers in memory and answers the files it wrote there.
+    fn dry_run(
+        &mut self,
+        project: &Project,
+        export: impl FnOnce(&mut Self) -> Result<SourceWrite, KernelError>,
+    ) -> Result<BTreeMap<PathBuf, Vec<u8>>, KernelError> {
         self.dry = Some(BTreeMap::new());
-        let exported = self.take_members(project, assets);
+        let exported = export(self);
         let files = self.dry.take().unwrap_or_default();
         // The symbols may hold ids christened in memory only: read again.
         self.stamps = stamps(project);

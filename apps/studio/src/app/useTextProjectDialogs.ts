@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { AdoptReport, AssetId, HeaderSummary, MigrateReport, ProjectInfo, RenameResult, RevertReport, TextProjectStatus } from "../api";
+import { AGENT_SETTING_UP } from "../technik/TextProjectSurface";
 import type { TextProjectView } from "../technik/TextProjectSurface";
 import { adoptedText } from "../textproject/AdoptDialog";
 import { liftedText } from "../textproject/MigrateDialog";
@@ -41,6 +42,8 @@ interface TextProjectDialogsParams {
   showPublish: () => void;
   /** The project was closed (an older schema not lifted): the app shows Start. */
   onClosed: () => void;
+  /** An agent sets the open folder up as text project (the hub's `busy`): set-up and take-back wait. */
+  agentSetUp?: boolean;
 }
 
 /**
@@ -48,10 +51,35 @@ interface TextProjectDialogsParams {
  * an older schema („Abbrechen“ closes the project in the backend too), a rename's message, the cache of the ids the heads show, and the
  * open hint for a DSPRE folder.
  */
-export function useTextProjectDialogs({ session, projectText, sync, onResolved, reloads, resetProject, bumpChanged, idsRevision, bumpIds, canOpen, showPublish, onClosed }: TextProjectDialogsParams) {
-  const [dialog, setDialog] = useState<"adopt" | "revert" | null>(null);
+export function useTextProjectDialogs({
+  session,
+  projectText,
+  sync,
+  onResolved,
+  reloads,
+  resetProject,
+  bumpChanged,
+  idsRevision,
+  bumpIds,
+  canOpen,
+  showPublish,
+  onClosed,
+  agentSetUp = false,
+}: TextProjectDialogsParams) {
+  const [opened, setDialog] = useState<"adopt" | "revert" | null>(null);
+  // „Als Textprojekt einrichten?“ belongs to a DSPRE folder only: once the folder is a text project (an agent set it up, the session was
+  // read anew) the dialog is gone, and a stale „Einrichten…“ opens nothing.
+  const dialog = opened === "adopt" && projectText?.state !== "dspre" ? null : opened;
+  useEffect(() => {
+    if (opened === "adopt" && projectText !== null && projectText.state !== "dspre") setDialog(null);
+  }, [opened, projectText]);
   const open = useStableCallback((which: "adopt" | "revert") => {
     if (session.info === null || !canOpen()) return;
+    if (which === "adopt" && projectText?.state !== "dspre") return;
+    if (agentSetUp) {
+      toast.info(AGENT_SETTING_UP);
+      return;
+    }
     if (session.busy) {
       toast.info(AFTER_BUILD);
       return;
@@ -59,7 +87,7 @@ export function useTextProjectDialogs({ session, projectText, sync, onResolved, 
     setDialog(which);
   });
   const textProject: TextProjectView | null =
-    session.info === null ? null : { status: projectText, sync, busy: session.busy, onResolved, onSetUp: () => open("adopt"), onRevert: () => open("revert") };
+    session.info === null ? null : { status: projectText, sync, busy: session.busy, onResolved, onSetUp: () => open("adopt"), onRevert: () => open("revert"), agentSetUp };
 
   /**
    * The backend opened the session anew after a set-up, a take-back or a lift: read again as after an agent's reopen (in the agents'
@@ -113,13 +141,28 @@ export function useTextProjectDialogs({ session, projectText, sync, onResolved, 
   const root = info?.root ?? null;
   useEffect(() => toast.dismissKey(HINT_TOAST), [root]);
   // A DSPRE folder that opened (not one an agent or a set-up opened anew) hints once per opening that it can be set up, unless the user
-  // said not to ask again; without its base ROM the hint says it needs one and leads to where it is assigned. It stays until answered.
+  // said not to ask again; without its base ROM the hint says it needs one and leads to where it is assigned. It stays until answered,
+  // and follows the status while it is open: it goes once the folder is no DSPRE folder (set up, by an agent too), and offers
+  // „Einrichten…“ once the base ROM is found (assigned meanwhile).
   const hinted = useRef<ProjectInfo | null>(null);
   useEffect(() => {
-    if (info === null || projectText === null || hinted.current === info) return;
+    if (info === null || projectText === null) return;
+    if (projectText.state !== "dspre") {
+      toast.dismissKey(HINT_TOAST);
+      hinted.current = info;
+      return;
+    }
+    if (hinted.current === info) {
+      if (toast.shown(HINT_TOAST)) showHint(info.root, projectText);
+      return;
+    }
     hinted.current = info;
     if (session.isReopened(info) || !shouldHint(info.root, projectText)) return;
-    const { text, setUp } = hintOf(projectText);
+    showHint(info.root, projectText);
+  }, [info, projectText]);
+  /** Shows the hint of the DSPRE folder at `forget` (replacing the one open). */
+  function showHint(forget: string, status: TextProjectStatus) {
+    const { text, setUp } = hintOf(status);
     const first = setUp
       ? { label: "Einrichten…", onClick: () => open("adopt") }
       : {
@@ -128,9 +171,8 @@ export function useTextProjectDialogs({ session, projectText, sync, onResolved, 
             if (canOpen()) showPublish();
           },
         };
-    const forget = info.root;
     toast.lastingInfo(text, { key: HINT_TOAST, actions: [first, { label: "Nicht mehr fragen", onClick: () => dismissHint(forget) }] });
-  }, [info, projectText]);
+  }
 
   return { textProject, dialog, closeDialog: () => setDialog(null), onAdopted, onReverted, onLifted, onCancelLift, onRenamed, idCache };
 }

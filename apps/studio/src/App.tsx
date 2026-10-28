@@ -31,7 +31,7 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
-import { adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
+import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
 import { AdoptDialog } from "./textproject/AdoptDialog";
@@ -39,7 +39,7 @@ import { MigrateDialog } from "./textproject/MigrateDialog";
 import { RevertDialog } from "./textproject/RevertDialog";
 import { TextProjectProvider } from "./textproject/TextProjectContext";
 import { useTextProjectDialogs } from "./app/useTextProjectDialogs";
-import { useOriginal } from "./original/useOriginal";
+import { baseKey, useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
@@ -59,7 +59,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -171,8 +171,8 @@ const BRIDGE_DOWN = "Brücke nicht erreichbar";
 
 /** The key of the progress toast of a text project's first (full) sync. */
 const FULL_SYNC = "external-sync";
-/** The keys of the sync's lasting messages: each is replaced in place and closed when nothing is left. */
-const CONFLICTS_TOAST = "sync-conflicts";
+/** The key of the sync's lasting message about broken files (the one about conflicts is `CONFLICTS_TOAST`, a build's refusal shares it):
+ * each is replaced in place and closed when nothing is left. */
 const BROKEN_TOAST = "sync-broken";
 
 /** A folder path without a trailing separator, to compare the roots the backend names. */
@@ -421,8 +421,12 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
-    // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
-    if (session.info !== null && event.tool === "assign_base") void original.refresh();
+    // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
+    // never have read the base status).
+    if (session.info !== null && event.tool === "assign_base") {
+      void original.refresh();
+      rereadTextStatus();
+    }
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
     // An agent renamed an id, or undid or redid a step (a rename's among them): the heads read the ids again.
@@ -446,9 +450,18 @@ function AppBody() {
       .then(bumpChanged)
       .catch(session.fail);
   });
+  // An agent sets a folder up as text project (the hub's `busy`, from its start to its end, which follows its reopen): the folder, null
+  // while none does. Technik › Textprojekt says so meanwhile and offers no set-up of its own.
+  const [agentSetUpRoot, setAgentSetUpRoot] = useState<string | null>(null);
+  const onAgentBusy = useStableCallback((event: AgentBusyEvent) => {
+    if (event.tool !== "adopt_text_project") return;
+    const root = bareRoot(event.root);
+    setAgentSetUpRoot((before) => (event.running ? root : before === root ? null : before));
+  });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
-  // stale file, in the same queue.
+  // stale file, in the same queue. An agent's set-up whose end may be among them is no longer shown.
   const onAgentGap = useStableCallback(() => {
+    setAgentSetUpRoot(null);
     agentReloads.current = agentReloads.current
       .then(async () => {
         if (session.info === null) return;
@@ -473,7 +486,7 @@ function AppBody() {
     }
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
-  const agents = useAgents({ onChanged: onAgentChanged, onReopened: onAgentReopened, onGap: onAgentGap });
+  const agents = useAgents({ onChanged: onAgentChanged, onReopened: onAgentReopened, onBusy: onAgentBusy, onGap: onAgentGap });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
@@ -705,6 +718,15 @@ function AppBody() {
     if (opened === null) return;
     textProjectStatus().then((status) => status && setTextStatus((before) => (before?.info === opened ? { info: opened, status } : before)), ignoreError);
   });
+  // The base ROM changed from one known state to another (assigned in Technik › Veröffentlichen or by an agent, found again): whether a
+  // DSPRE folder can be set up follows it, so the status is read again (Technik › Textprojekt unlocks, the hint offers „Einrichten…“).
+  const baseSeen = baseKey(base.status);
+  const lastBase = useRef<string | null>(null);
+  useEffect(() => {
+    const before = lastBase.current;
+    lastBase.current = baseSeen;
+    if (baseSeen !== null && before !== null && baseSeen !== before) rereadTextStatus();
+  }, [baseSeen]);
   // The conflicts and broken files the last sync of this project reported: a message only names them when one is new.
   const syncKnown = useRef<{ root: string; conflicts: ReadonlySet<string>; broken: ReadonlySet<string> } | null>(null);
   // A sync went through: what it took over is read again (in the queue of the agents' changes) and said; new conflicts and broken files
@@ -772,6 +794,7 @@ function AppBody() {
       setArea("technik");
     },
     onClosed: () => setArea("start"),
+    agentSetUp: agentSetUpRoot !== null && session.info !== null && bareRoot(session.info.root) === agentSetUpRoot,
   });
   const textProject = text.textProject;
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per

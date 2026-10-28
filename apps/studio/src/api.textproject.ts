@@ -78,10 +78,11 @@ export interface DiffLine {
   dspre: string;
 }
 
-/** At most 40 lines; `more` counts the rest. */
+/** At most 40 lines; `more` counts the rest. `unsaved`: the Studio's side is the store's unsaved value of the unit (what the editor shows). */
 export interface ConflictDiff {
   lines: DiffLine[];
   more: number;
+  unsaved: boolean;
 }
 
 /** „Studio-Fassung behalten“ or the other side („DSPRE-Fassung übernehmen“, „Geänderte Datei übernehmen“). */

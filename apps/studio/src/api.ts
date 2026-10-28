@@ -446,8 +446,8 @@ export interface AssetId {
  * Text project (4.3a/4.3b, mostly over MCP): "unsaved" (`text_export`, adoption: unsaved changes; nothing written), "not_adopted"
  * (`text_export`: the scripts are not adopted), "unsynced" (`text_export`: the text project holds changes the members lack, not built
  * yet, which the export would throw away; nothing written), "busy" (a write while the project is set up as text project),
- * "not_text_project" (a text project command in a DSPRE folder), "pending" (adoption on a text project or taking it back while the
- * sync finds something open), "conflicts" (a build of a text project with an open conflict), "unknown_id" (MCP: a symbolic id
+ * "not_text_project" (a text project command in a DSPRE folder; setting a text project up again is an "error"), "pending" (taking
+ * it back while the sync finds something open), "conflicts" (a build of a text project with an open conflict), "unknown_id" (MCP: a symbolic id
  * nothing knows).
  */
 export interface CmdError {

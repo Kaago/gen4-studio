@@ -133,7 +133,7 @@ describe("NewProjectWizard", () => {
     await settle();
     expect(checkProjectDest).toHaveBeenLastCalledWith("/roms/_testkopien/Neues Platin", SIZE);
     expect(text()).toContain("/roms/_testkopien/Neues Platin");
-    expect(onChoice).toHaveBeenLastCalledWith({ rom: PLATIN, template: "original", name: "Neues Platin", dest: "/roms/_testkopien/Neues Platin" });
+    expect(onChoice).toHaveBeenLastCalledWith({ rom: PLATIN, template: "original", name: "Neues Platin", dest: "/roms/_testkopien/Neues Platin", textProject: false });
     // Enter in a field that holds no typed text moves on.
     await act(async () => field("Name").focus());
     pressKey(field("Name"), "Enter");

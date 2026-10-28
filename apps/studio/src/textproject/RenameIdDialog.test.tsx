@@ -77,7 +77,7 @@ describe("RenameIdDialog", () => {
     await wait(50);
     expect(planRenameId).toHaveBeenCalledOnce();
     expect(planRenameId).toHaveBeenCalledWith("TRAINER_JENS", "TRAINER_JENS_ROUTE201");
-    expect(notices("status")).toEqual(["3 Verweise in 2 Dateien werden nachgezogen.data/trainers/0001.jsong4-checks.json"]);
+    expect(notices("status")).toEqual(["3\u00a0Verweise in 2\u00a0Dateien werden nachgezogen.data/trainers/0001.jsong4-checks.json"]);
     expect(button("Umbenennen")?.disabled).toBe(false);
     // Many files: eight are named, the rest counted.
     const files = Array.from({ length: 11 }, (_, i) => ({ path: `data/f${i}.json`, count: 1 }));
@@ -86,7 +86,7 @@ describe("RenameIdDialog", () => {
     await wait(PLAN_DELAY_MS);
     const listed = [...dialog()!.querySelectorAll("[data-rename-file]")].map((f) => f.textContent);
     expect(listed).toHaveLength(8);
-    expect(dialog()?.textContent).toContain("und 3 weitere");
+    expect(dialog()?.textContent).toContain("und 3\u00a0weitere");
   });
 
   it("a_late_plan_for_older_input_is_not_shown", async () => {
@@ -100,11 +100,11 @@ describe("RenameIdDialog", () => {
     typeInto(field(), "TRAINER_B");
     await wait(PLAN_DELAY_MS);
     expect(planRenameId).toHaveBeenCalledTimes(2);
-    expect(notices("status")[0]).toContain("9 Verweise");
+    expect(notices("status")[0]).toContain("9\u00a0Verweise");
     // The answer for „TRAINER_A“ comes last: it is dropped, the plan for „TRAINER_B“ stays.
     await act(async () => early(plan({ old_id: "TRAINER_JENS", new_id: "TRAINER_A", refusal: "Die ID TRAINER_A ist schon vergeben.", files: [], total: 0 })));
     expect(notices("alert")).toEqual([]);
-    expect(notices("status")[0]).toContain("9 Verweise");
+    expect(notices("status")[0]).toContain("9\u00a0Verweise");
     expect(button("Umbenennen")?.disabled).toBe(false);
   });
 
