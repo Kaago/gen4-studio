@@ -1,13 +1,13 @@
 // The toast store: a plain module (no React) that `ToastHost` reads through `useSyncExternalStore`.
-// Rules: info vanishes after INFO_MS (hover pauses the clock); an error stays until closed, with or without actions;
-// progress stays until `progress(key, null)` and a second one with the same key replaces the first; an error that says what an open
-// error already says (same text, same action labels) bumps that one instead of stacking; at most four toasts.
+// Rules: info vanishes after INFO_MS (hover pauses the clock); an error and a warning stay until closed, with or without actions;
+// progress stays until `progress(key, null)` and a second one with the same key replaces the first; an error (a warning) that says what
+// an open error (warning) already says (same text, same action labels) bumps that one instead of stacking; at most four toasts.
 
 export const INFO_MS = 5000;
 const MAX_TOASTS = 4;
 
 export type ToastAction = { label: string; onClick: () => void };
-export type ToastKind = "info" | "error" | "progress";
+export type ToastKind = "info" | "warning" | "error" | "progress";
 export type Toast = {
   readonly id: string;
   readonly kind: ToastKind;
@@ -43,13 +43,13 @@ function startClock(id: string, ms: number): void {
 }
 
 /**
- * Drop order when more than four are open: the oldest info, then the oldest progress, then the oldest error. The toast that was just
+ * Drop order when more than four are open: the oldest info, then the oldest progress, then the oldest warning, then the oldest error. The toast that was just
  * added (`fresh`) is never the one to go: a full stack of errors makes room for it by dropping its oldest error.
  */
 function trim(list: readonly Toast[], fresh: string): readonly Toast[] {
   const kept = [...list];
   while (kept.length > MAX_TOASTS) {
-    const victim = (["info", "progress", "error"] as const).map((kind) => kept.findIndex((t) => t.kind === kind && t.id !== fresh)).find((i) => i >= 0) ?? 0;
+    const victim = (["info", "progress", "warning", "error"] as const).map((kind) => kept.findIndex((t) => t.kind === kind && t.id !== fresh)).find((i) => i >= 0) ?? 0;
     const [dropped] = kept.splice(victim, 1);
     if (dropped) stopClock(dropped.id);
   }
@@ -70,16 +70,21 @@ function dismiss(id: string): void {
   emit(toasts.filter((t) => t.id !== id));
 }
 
+/** A toast that stays until closed: one equal to an open one of its kind (text and action labels) takes that one's place at the end. */
+function addLasting(kind: "warning" | "error", text: string, options?: ToastOptions): string {
+  const actions = options?.actions ?? [];
+  const same = toasts.find((t) => t.kind === kind && t.text === text && t.actions.length === actions.length && t.actions.every((a, i) => a.label === actions[i]?.label));
+  if (same === undefined) return add(kind, text, options);
+  emit([...toasts.filter((t) => t !== same), { ...same, actions }]);
+  return same.id;
+}
+
 export const toast = {
   info: (text: string, options?: ToastOptions): string => add("info", text, options),
+  /** Something that waits for the user although nothing went wrong (conflicts to resolve); stays like an error. */
+  warning: (text: string, options?: ToastOptions): string => addLasting("warning", text, options),
   /** An error equal to an open one (text and action labels) takes that one's place at the end, with the new actions, and keeps its id. */
-  error(text: string, options?: ToastOptions): string {
-    const actions = options?.actions ?? [];
-    const same = toasts.find((t) => t.kind === "error" && t.text === text && t.actions.length === actions.length && t.actions.every((a, i) => a.label === actions[i]?.label));
-    if (same === undefined) return add("error", text, options);
-    emit([...toasts.filter((t) => t !== same), { ...same, actions }]);
-    return same.id;
-  },
+  error: (text: string, options?: ToastOptions): string => addLasting("error", text, options),
   /** Replaces the toast with the same key; `null` removes it. */
   progress(key: string, text: string | null): void {
     const existing = toasts.find((t) => t.kind === "progress" && t.key === key);

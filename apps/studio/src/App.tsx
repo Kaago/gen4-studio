@@ -31,6 +31,9 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
+import { adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
+import type { TextProjectView } from "./technik/TextProjectSurface";
+import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
 import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
@@ -49,10 +52,10 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, redo, undo } from "./api";
+import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto } from "./api";
+import type { AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -149,6 +152,7 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "add_script",
   "new_script_file",
   "create_trainer",
+  "resolve_external_conflict",
 ]);
 
 /** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
@@ -159,6 +163,12 @@ const SCRIPT_HEIGHT = 400;
 
 /** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
 const BRIDGE_DOWN = "Brücke nicht erreichbar";
+
+/** The key of the progress toast of a text project's first (full) sync. */
+const FULL_SYNC = "external-sync";
+
+/** A folder path without a trailing separator, to compare the roots the backend names. */
+const bareRoot = (path: string) => path.replace(/[\\/]+$/, "");
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
@@ -240,7 +250,17 @@ function AppBody() {
       /* the deck is going away */
     }
   });
-  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
+  // The entry Technik shows; kept while another area shows.
+  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // „Anzeigen“ and „Lösen…“ of the sync's messages: Technik › Textprojekt (not while a wizard holds the frame).
+  const showTextProject = useStableCallback(() => {
+    if (wizardOpen.current || startOpen) return;
+    setTechnikEntry("textprojekt");
+    setArea("technik");
+  });
+  // The sync of a text project, run before a build (set below, once the sync hook exists).
+  const syncBeforeBuild = useRef<(() => Promise<SyncOutcome | null>) | null>(null);
+  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems, syncBeforeBuild, onShowConflicts: showTextProject });
   useToastMirror(session.message, session.setMessage);
   // Writes to the saved project the session does not count (a script file written, an original reset, the header patch, an agent's
   // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
@@ -396,6 +416,16 @@ function AppBody() {
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
     agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
+    // An agent chose a side of a conflict: Technik › Textprojekt lists what is still open.
+    if (event.tool === "resolve_external_conflict" && isTextProject) void sync.run();
+  });
+  // An agent opened the session anew (an adoption, a revert or a lift of the text project): the store, its undo history and the language
+  // server are new. The project is read again as after opening it (the area stays), in the queue of the agents' changes. Another
+  // folder's session is not this project's.
+  const onAgentReopened = useStableCallback((event: AgentReopenedEvent) => {
+    const shown = session.info;
+    if (shown === null || bareRoot(event.root) !== bareRoot(shown.root)) return;
+    agentReloads.current = agentReloads.current.then(() => session.reloadSession(resetProject)).catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
   // stale file, in the same queue.
@@ -424,7 +454,7 @@ function AppBody() {
     }
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
-  const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
+  const agents = useAgents({ onChanged: onAgentChanged, onReopened: onAgentReopened, onGap: onAgentGap });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
@@ -569,6 +599,8 @@ function AppBody() {
     const info = session.info;
     if (info === null) return;
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
+    // The session an agent opened anew is the same project: the app stays where it is.
+    if (session.isReopened(info)) return;
     setArea(openingArea.current);
     openingArea.current = "welt";
     // A project is open: the wizard "Neues Spiel aus ROM" is done, in the same step as the area changes (the rest of opening may still run).
@@ -625,8 +657,65 @@ function AppBody() {
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
   useF6Ring(() => !paletteOpen && !helpOpen);
-  // The entry Technik shows; kept while another area shows.
-  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // The open project as a text project: from the info of the opening (read when the info lacks it), and read again after each sync (the
+  // time of the last one). Tagged with the info it belongs to, so a late answer for another project is dropped.
+  const [textStatus, setTextStatus] = useState<{ info: ProjectInfo; status: TextProjectStatus | null } | null>(null);
+  useEffect(() => {
+    const opened = session.info;
+    if (opened === null) return;
+    if (opened.text_project !== undefined) {
+      setTextStatus({ info: opened, status: opened.text_project });
+      return;
+    }
+    let current = true;
+    textProjectStatus().then((status) => current && setTextStatus({ info: opened, status: status ?? null }), ignoreError);
+    return () => {
+      current = false;
+    };
+  }, [session.info]);
+  const projectText = textStatus !== null && textStatus.info === session.info ? textStatus.status : null;
+  const isTextProject = projectText?.state === "current";
+  const rereadTextStatus = useStableCallback(() => {
+    const opened = session.info;
+    if (opened === null) return;
+    textProjectStatus().then((status) => status && setTextStatus((before) => (before?.info === opened ? { info: opened, status } : before)), ignoreError);
+  });
+  // The conflicts and broken files the last sync of this project reported: a message only names them when one is new.
+  const syncKnown = useRef<{ root: string; conflicts: ReadonlySet<string>; broken: ReadonlySet<string> } | null>(null);
+  // A sync went through: what it took over is read again (in the queue of the agents' changes) and said; new conflicts and broken files
+  // are said too, and the time of the last sync is read again.
+  const onSyncOutcome = useStableCallback((outcome: SyncOutcome) => {
+    const root = session.info?.root ?? null;
+    if (root === null) return;
+    const show = [{ label: "Anzeigen", onClick: showTextProject }];
+    if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show });
+    if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show });
+    const known = syncKnown.current?.root === root ? syncKnown.current : null;
+    if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key))) {
+      toast.warning(conflictsText(outcome.conflicts.length), { actions: [{ label: "Lösen…", onClick: showTextProject }] });
+    }
+    if (outcome.broken.some((b) => !known?.broken.has(b.key))) toast.error(brokenText(outcome.broken.length), { actions: show });
+    syncKnown.current = { root, conflicts: new Set(outcome.conflicts.map((c) => c.key)), broken: new Set(outcome.broken.map((b) => b.key)) };
+    rereadTextStatus();
+    // What came in changed the saved project (Technik › Änderungen compares again) and the store's values (read again as after an agent).
+    if (outcome.adopted.length + outcome.applied.length > 0) bumpChanged();
+    if (outcome.reloaded.length > 0) agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(outcome.reloaded)).catch(session.fail);
+  });
+  // The sync of a text project with DSPRE: when it opens, on window focus, before a build and on „Jetzt abgleichen“.
+  const sync = useExternalSync({ project: session.info?.root ?? null, textProject: isTextProject, busy: session.busy, onOutcome: onSyncOutcome, onError: session.fail });
+  syncBeforeBuild.current = isTextProject ? sync.run : null;
+  // The first sync hashes every file (seconds): the app says how far it is, wherever it shows.
+  const fullSync = isTextProject && projectText.last_sync_at === null && sync.running && sync.progress !== null ? syncProgressText(sync.progress) : null;
+  useEffect(() => toast.progress(FULL_SYNC, fullSync), [fullSync]);
+  // A conflict was resolved in Technik: its assets are read again, then the sync lists what is still open.
+  const onConflictResolved = useStableCallback((assets: AssetId[]) => {
+    bumpChanged();
+    agentReloads.current = agentReloads.current
+      .then(() => reloadAfterAgent(assets))
+      .then(() => void sync.run())
+      .catch(session.fail);
+  });
+  const textProject: TextProjectView | null = session.info === null ? null : { status: projectText, sync, onResolved: onConflictResolved };
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
   // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({
@@ -991,6 +1080,7 @@ function AppBody() {
         base={info ? base : null}
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
+        textProject={textProject}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

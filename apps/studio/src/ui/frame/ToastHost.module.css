@@ -30,6 +30,10 @@
   border-left-color: var(--g4-status-info);
 }
 
+.warning {
+  border-left-color: var(--g4-status-warnung);
+}
+
 .error {
   border-left-color: var(--g4-status-fehler);
 }
@@ -43,6 +47,10 @@
 
 .info .icon {
   color: var(--g4-status-info);
+}
+
+.warning .icon {
+  color: var(--g4-status-warnung);
 }
 
 .error .icon {

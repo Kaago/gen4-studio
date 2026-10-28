@@ -24,12 +24,14 @@ import { PublishSurface, publishSubtitle } from "./PublishSurface";
 import { BuildSteps } from "./BuildSteps";
 import { patchBuildNote } from "./stepWords";
 import { ChangesSurface, changesSubtitle } from "./ChangesSurface";
+import { TextProjectSurface, textProjectSubtitle } from "./TextProjectSurface";
+import type { TextProjectView } from "./TextProjectSurface";
 import styles from "./TechnikArea.module.css";
 import type { BaseApi } from "./useBase";
 import type { ChangesApi } from "./useChanges";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "projekt" | "bauen" | "veroeffentlichen" | "aenderungen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "projekt" | "textprojekt" | "bauen" | "veroeffentlichen" | "aenderungen" | "patches" | "emulator" | "werkzeuge";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -86,10 +88,13 @@ export type TechnikAreaProps = {
   changes: ChangesApi | null;
   /** The store's assets with unsaved edits: Änderungen marks their rows „Ungespeichert“. */
   dirty: readonly AssetId[];
+  /** The project as text project and its sync with DSPRE (Textprojekt), held by the app; null without a project. */
+  textProject: TextProjectView | null;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
   { id: "projekt", label: "Projekt", icon: "open" },
+  { id: "textprojekt", label: "Textprojekt", icon: "textproject" },
   { id: "bauen", label: "Prüfen und Bauen", icon: "build" },
   { id: "veroeffentlichen", label: "Veröffentlichen", icon: "publish" },
   { id: "aenderungen", label: "Änderungen", icon: "changes" },
@@ -142,8 +147,8 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9, phase 4.0 §3.5): a list of seven entries with their state, and the surface of the chosen one. Projekt,
- * Prüfen und Bauen, Veröffentlichen, Änderungen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in
+ * The area Technik (spec 5.9, phase 4.0 §3.5): a list of eight entries with their state, and the surface of the chosen one. Projekt,
+ * Textprojekt, Prüfen und Bauen, Veröffentlichen, Änderungen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in
  * Werkzeuge does). The patch state and the preview picture are read once per project, when the area shows; the base ROM (`base`) and the
  * compare against it (`changes`) come from the app, the status of the base for resetting from `useReset`.
  */
@@ -166,6 +171,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
   useRovingList(list);
   const subtitles: Record<TechnikEntry, string> = {
     projekt: previewSubtitle(preview),
+    textprojekt: textProjectSubtitle(props.textProject),
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
     veroeffentlichen: publishSubtitle(props.base),
     aenderungen: changesSubtitle(props.changes, original),
@@ -184,6 +190,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       </ListPane>
       {entry === "projekt" ? (
         <ProjectSurface project={props.project} preview={preview} startTown={props.startTown} onOpenProject={props.onOpenProject} />
+      ) : entry === "textprojekt" ? (
+        <TextProjectSurface text={props.textProject} onOpenProject={props.onOpenProject} />
       ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (

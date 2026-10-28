@@ -88,6 +88,21 @@ describe("toast store", () => {
     expect(listToasts()).toHaveLength(4);
   });
 
+  it("a_warning_stays_bumps_an_equal_one_and_goes_before_an_error", () => {
+    const first = toast.warning("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] });
+    const error = toast.error("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] });
+    vi.advanceTimersByTime(INFO_MS * 3);
+    expect(listToasts().map((t) => t.kind)).toEqual(["warning", "error"]);
+    // The same warning again takes the open one's place at the end (an error of the same text is another toast).
+    expect(toast.warning("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] })).toBe(first);
+    expect(listToasts().map((t) => t.id)).toEqual([error, first]);
+    // A full stack drops the oldest warning before any error.
+    toast.error("A");
+    toast.error("B");
+    toast.error("C");
+    expect(listToasts().map((t) => t.kind)).toEqual(["error", "error", "error", "error"]);
+  });
+
   it("a_full_stack_of_errors_makes_room_for_a_new_info_by_dropping_its_oldest_error", () => {
     for (const n of [1, 2, 3, 4]) toast.error(`Fehler ${n}`);
     const info = toast.info("Gespeichert");

@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
 import type { CheckFieldsDto } from "./api.checks";
+import type { TextProjectStatus } from "./api.textproject";
 
 export interface ProjectInfo {
   root: string;
@@ -8,6 +9,8 @@ export interface ProjectInfo {
   family: string;
   language: string;
   header_count: number;
+  /** What the folder is as a text project (4.3b); the backend always sends it, older test data leaves it out. */
+  text_project?: TextProjectStatus;
 }
 
 export interface HeaderSummary {
@@ -1007,6 +1010,7 @@ export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";
 export * from "./api.original";
+export * from "./api.textproject";
 export * from "./project/api.preview";
 export * from "./project/api.start";
 export * from "./project/api.templates";

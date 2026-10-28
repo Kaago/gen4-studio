@@ -91,8 +91,21 @@ export interface AgentStatusEvent {
   seq: number;
 }
 
+/**
+ * An agent's `tool` (an adoption, revert or lift of the text project) opened the session of `root` anew: the store, its undo history and
+ * the language server of the old session are gone. The UI reads the project again as after opening it.
+ */
+export interface AgentReopenedEvent {
+  kind: "reopened";
+  seq: number;
+  client: string;
+  tool: string;
+  /** The project folder (absolute), as `ProjectInfo.root` names it. */
+  root: string;
+}
+
 /** What the UI follows; `seq` counts up from 1 (Tauri may deliver events out of order). */
-export type AgentEvent = AgentChangedEvent | AgentStatusEvent;
+export type AgentEvent = AgentChangedEvent | AgentStatusEvent | AgentReopenedEvent;
 
 /** `agent_poll`: the events after `since` (the hub keeps the last 64), the latest `seq` and the status. */
 export interface AgentPoll {

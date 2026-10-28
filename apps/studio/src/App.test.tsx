@@ -5,9 +5,10 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
+import { externalSync, textProjectStatus } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
@@ -213,6 +214,10 @@ vi.mock("./api", async (importOriginal) => ({
   planReset: vi.fn(),
   resetToOriginal: vi.fn(),
   changedFromOriginal: vi.fn(),
+  externalSync: vi.fn(),
+  textProjectStatus: vi.fn(),
+  conflictDiff: vi.fn(),
+  resolveExternalConflict: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -311,6 +316,8 @@ describe("App wiring", () => {
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
     vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
+    // A DSPRE folder: no sync runs.
+    vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -1117,7 +1124,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(7);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(8);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -2460,6 +2467,119 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(1);
       expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Kartentextur 0001." });
       expect(dialog()).toBeNull();
+    });
+  });
+
+  describe("text project", () => {
+    const CURRENT = { state: "current" as const, schema: 1, last_sync_at: null };
+    const outcome = (over: Partial<SyncOutcome> = {}): SyncOutcome => ({ adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: false, ms: 3, ...over });
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    const toasts = () => listToasts().map((t) => t.text);
+    /** Opens a current text project; its first sync answers `first`. */
+    async function openTextProject(first: SyncOutcome = outcome()) {
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValueOnce(first);
+      await click("Projekt öffnen");
+      await flush();
+    }
+
+    it("a_sync_with_adoptions_reloads_and_says_so", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(dirty).mockClear();
+      await openTextProject(
+        outcome({
+          adopted: [{ key: "matrices/0000", label: "Matrix 0000", assets: [{ kind: "Matrix", index: 0 }] }],
+          applied: [
+            { key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }] },
+            { key: "moves/0002", label: "Attacke 0002", assets: [{ kind: "Move", index: 2 }] },
+          ],
+          reloaded: [{ kind: "Matrix", index: 0 }],
+        }),
+      );
+      // A DSPRE folder never syncs: the beforeEach project ran none.
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect(toasts()).toContain("1 Änderung aus DSPRE übernommen");
+      expect(toasts()).toContain("2 geänderte Projektdateien übernommen");
+      // What the sync reloaded is read again as after ⌘Z, and the edit counts.
+      await select(listed[0]);
+      log.length = 0;
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ adopted: [{ key: "matrices/0000", label: "Matrix 0000", assets: [{ kind: "Matrix", index: 0 }] }], reloaded: [{ kind: "Matrix", index: 0 }] }));
+      vi.useFakeTimers();
+      await act(async () => void window.dispatchEvent(new Event("focus")));
+      await act(async () => void (await vi.advanceTimersByTimeAsync(800)));
+      vi.useRealTimers();
+      await flush();
+      expect(externalSync).toHaveBeenCalledTimes(2);
+      expect(log).toEqual([`matrixData@${data().history.current}`, `getMatrix@${data().history.current}`]);
+      expect(dirty).toHaveBeenCalled();
+      // „Anzeigen“ shows Technik › Textprojekt, which lists what came in.
+      await click("Anzeigen");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+      expect(container.querySelector("[data-sync-taken]")?.textContent).toContain("Matrix 0000");
+    });
+
+    it("a_build_with_conflicts_is_not_started", async () => {
+      await openTextProject();
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      // The sync before the build finds a conflict: nothing is built, the message offers the way out.
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }], unsaved: false, other: "dspre" }] }));
+      await click("Bauen");
+      await flush();
+      expect(externalSync).toHaveBeenCalledTimes(2);
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      await click("Lösen…");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+      expect(container.querySelector('[data-conflict="moves/0001"]')).not.toBeNull();
+
+      // A conflict that came after the sync: the backend's refusal says the same.
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome());
+      vi.mocked(buildRom).mockRejectedValueOnce({ code: "conflicts", message: "Erst die Konflikte in Technik › Textprojekt lösen.", asset: null, problems: [] });
+      await click("Bauen");
+      await flush();
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
+    });
+
+    it("an_agents_reopened_session_is_read_again_like_after_opening", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      expect(tauriEvents.has("agent-event")).toBe(true);
+      await act(async () => atlasEntry("Pokémon")!.click());
+      vi.mocked(openProject).mockClear();
+      vi.mocked(listHeaders).mockClear();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(scriptsStatus).mockClear();
+      vi.mocked(dirty).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      const before = data().bus;
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // The backend's new session is read as after opening, without opening the project once more.
+      expect(openProject).not.toHaveBeenCalled();
+      expect(textProjectStatus).toHaveBeenCalled();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(memberCounts).toHaveBeenCalled();
+      expect(dirty).toHaveBeenCalled();
+      // A new project info: the scripts (and with them the language server) start over.
+      expect(scriptsStatus).toHaveBeenCalledOnce();
+      expect(data().bus).toBe(before);
+      // Now a text project: it syncs, and the area stays where it was.
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect([...container.querySelectorAll("nav button")].filter((b) => b.getAttribute("aria-current") === "page").map((b) => b.textContent)).toEqual(["Pokémon"]);
+      // Another folder's session is none of this project's business.
+      vi.mocked(listHeaders).mockClear();
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 2, client: "Claude Code", tool: "adopt_text_project", root: "/q" } satisfies AgentEvent }));
+      await flush();
+      expect(listHeaders).not.toHaveBeenCalled();
     });
   });
 

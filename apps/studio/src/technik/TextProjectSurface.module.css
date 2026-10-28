@@ -1,0 +1,140 @@
+/* Technik › Textprojekt: the same surface as the other entries of Technik (TechnikArea.module.css), the sections in one card. */
+.surface {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+  overflow: auto;
+  padding: var(--g4-raum-32) var(--g4-raum-24);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+}
+
+/* Everything shares one reading width (an empty state centres in it). */
+.surface > * {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 880px;
+}
+
+/* The title and its sentence, the actions beside them (below them when the surface is narrow). */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--g4-raum-8) var(--g4-raum-16);
+}
+
+.headText {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.title {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.text,
+.note {
+  margin: 0;
+}
+
+.text {
+  max-width: 64ch;
+  font: var(--g4-font-text-s);
+}
+
+.note {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+/* The card keeps its content height: `overflow: hidden` would let this flex item shrink to 0, clipping the sections instead of the surface scrolling. */
+.groups {
+  flex-shrink: 0;
+  overflow: hidden;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+/* The last section needs no line below it: the card's edge closes it. */
+.groups > :last-child > section {
+  border-bottom: 0;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-8);
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4);
+}
+
+.rowHead {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* The diff, the warning and the choice below an unfolded conflict, indented under its label. */
+.rowBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) 0 var(--g4-raum-8) var(--g4-raum-24);
+}
+
+.label {
+  font: var(--g4-font-text-s);
+}
+
+.problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.code {
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+}
+
+.inset {
+  padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
+}

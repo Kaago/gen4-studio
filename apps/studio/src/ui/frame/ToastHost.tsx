@@ -4,19 +4,23 @@ import { listToasts, pauseToast, resumeToast, subscribeToasts, toast } from "./t
 import type { Toast } from "./toasts";
 import styles from "./ToastHost.module.css";
 
+/** The look and symbol of each kind: progress looks like info. */
+const LOOK = { info: "info", progress: "info", warning: "warning", error: "error" } as const;
+
 function ToastItem({ item }: { item: Toast }) {
   const isError = item.kind === "error";
+  const look = LOOK[item.kind];
   return (
     <div
       role={isError ? "alert" : "status"}
-      className={`${styles.toast} ${isError ? styles.error : styles.info}`}
+      className={`${styles.toast} ${styles[look]}`}
       onMouseEnter={() => pauseToast(item.id)}
       onMouseLeave={() => resumeToast(item.id)}
       onFocus={() => pauseToast(item.id)}
       onBlur={() => resumeToast(item.id)}
     >
       <span className={styles.icon}>
-        <Icon name={isError ? "error" : "info"} weight="fill" />
+        <Icon name={look} weight="fill" />
       </span>
       <div className={styles.body}>
         <p className={styles.text}>{item.text}</p>

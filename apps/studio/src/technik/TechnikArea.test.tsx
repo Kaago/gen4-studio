@@ -17,6 +17,7 @@ import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
 import type { OriginalStatus } from "../api";
 import { found, missing, patchDto } from "./baseTesting";
 import { changesWith, entry, report } from "./changesTesting";
+import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
 import { useBase } from "./useBase";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
@@ -96,6 +97,7 @@ describe("TechnikArea", () => {
         tools={tools}
         changes={null}
         dirty={[]}
+        textProject={null}
         {...handlers}
         base={project === null ? null : base}
         {...over}
@@ -118,7 +120,7 @@ describe("TechnikArea", () => {
     await render({ lastBuiltAt: Date.now() - 4 * 60_000, lastRom: "/out.nds" });
     await settle();
     expect(container.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Technik");
-    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Prüfen und Bauen", "Veröffentlichen", "Änderungen", "Patches", "Emulator", "Werkzeuge"]);
+    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Textprojekt", "Prüfen und Bauen", "Veröffentlichen", "Änderungen", "Patches", "Emulator", "Werkzeuge"]);
     for (const r of rows()) expect(r.querySelector("svg")).not.toBeNull();
     expect(subtitle("Prüfen und Bauen")).toBe("gebaut vor 4 Minuten");
     expect(subtitle("Veröffentlichen")).toBe("Keine Basis-ROM zugeordnet");
@@ -148,12 +150,12 @@ describe("TechnikArea", () => {
     expect(surface()?.querySelector("h1")?.textContent).toBe("Projekt");
   });
 
-  it("lists_seven_entries_with_aenderungen_after_veroeffentlichen", async () => {
+  it("lists_aenderungen_after_veroeffentlichen", async () => {
     const reset = resetSpy();
     const changes = changesWith({ report: report({ entries: [entry()] }) });
     await act(async () => root.render(withReset(reset, <Host changes={changes} />)));
     const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
-    expect(labels).toHaveLength(7);
+    expect(labels).toHaveLength(8);
     expect(labels.indexOf("Änderungen")).toBe(labels.indexOf("Veröffentlichen") + 1);
     expect(row("Änderungen")?.querySelector("svg")).not.toBeNull();
     await click(row("Änderungen"));
@@ -164,6 +166,48 @@ describe("TechnikArea", () => {
     // The rows reset through the app's dialog.
     await click([...surface()!.querySelectorAll("button")].find((b) => b.textContent === "Auf Original zurücksetzen…"));
     expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "map", index: 3 }, { finalFocus: expect.any(Function) });
+  });
+
+  it("lists_eight_entries_with_textprojekt_after_projekt", async () => {
+    const onSetUp = vi.fn();
+    await render({ textProject: textWith({ status: { state: "dspre", adoptable: true, reason: null }, onSetUp }) });
+    const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
+    expect(labels).toHaveLength(8);
+    expect(labels.indexOf("Textprojekt")).toBe(labels.indexOf("Projekt") + 1);
+    expect(row("Textprojekt")?.querySelector("svg")).not.toBeNull();
+    await click(row("Textprojekt"));
+    expect(row("Textprojekt")?.getAttribute("aria-selected")).toBe("true");
+    expect(surface()?.getAttribute("data-technik")).toBe("textprojekt");
+    expect(surface()?.querySelector("h1")?.textContent).toBe("Textprojekt");
+    await click(button("Als Textprojekt einrichten…"));
+    expect(onSetUp).toHaveBeenCalledOnce();
+  });
+
+  it("textprojekt_subtitle_counts_conflicts", async () => {
+    const show = (textProject: TechnikAreaProps["textProject"]) => render({ textProject });
+    await show(null);
+    expect(subtitle("Textprojekt")).toBe("Kein Projekt geöffnet");
+    await show(textWith({ status: null }));
+    expect(subtitle("Textprojekt")).toBe("Wird gelesen …");
+    await show(textWith({ status: { state: "dspre", adoptable: true, reason: null } }));
+    expect(subtitle("Textprojekt")).toBe("DSPRE-Layout");
+    await show(textWith({ sync: syncWith({ running: true }) }));
+    expect(subtitle("Textprojekt")).toBe("Gleicht ab …");
+    await show(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict()] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("1 Konflikt");
+    await show(textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict(), conflict({ key: "moves/0002" }), conflict({ key: "moves/0003" })] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("3 Konflikte");
+    // A sync under way says so even over the conflicts it found before.
+    await show(textWith({ sync: syncWith({ running: true, last: outcome({ conflicts: [conflict()] }) }) }));
+    expect(subtitle("Textprojekt")).toBe("Gleicht ab …");
+    await show(textWith());
+    expect(subtitle("Textprojekt")).toBe("Abgeglichen");
+    await show(textWith({ status: { state: "older", schema: 0 } }));
+    expect(subtitle("Textprojekt")).toBe("Schema veraltet");
+    await show(textWith({ status: { state: "newer", schema: 9 } }));
+    expect(subtitle("Textprojekt")).toBe("Nicht lesbar");
+    await show(textWith({ status: { state: "broken", reason: "g4-project.json:1:1: kaputt" } }));
+    expect(subtitle("Textprojekt")).toBe("Nicht lesbar");
   });
 
   it("aenderungen_subtitle_counts_the_entries", async () => {
