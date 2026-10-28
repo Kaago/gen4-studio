@@ -608,46 +608,146 @@ fn is_yaml(rel: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
 }
 
+/// The range of the blobs of one project (see the module docs), with what it needs to know
+/// beyond the names: the packed NARCs the build writes and the folders below `unpacked/` it
+/// does not pack. The files the text project owns ([`owned_paths`]) are in it; [`raw_diff`]
+/// leaves them out, the sync watches them as the member side.
+pub(crate) struct BlobRange {
+    not_built: Vec<String>,
+    outputs: BTreeSet<PathBuf>,
+    /// The script folder as the build packs it (DSPRE Avalonia writes `unpacked/Scripts`) and
+    /// as the base layer has it (under the archive's own name).
+    scripts_dir: PathBuf,
+    layer_scripts_dir: PathBuf,
+}
+
+impl BlobRange {
+    pub(crate) fn new(project: &Project) -> Result<BlobRange, KernelError> {
+        let unpacked = Path::new("unpacked");
+        // The script folder as the build packs it (DSPRE Avalonia writes `unpacked/Scripts`).
+        let scripts_dir = relative(project, &scripts::member_dir(project));
+        let mut not_built = build::unpacked_unpacked(project)?;
+        not_built.retain(|name| unpacked.join(name) != scripts_dir);
+        Ok(BlobRange {
+            not_built,
+            outputs: build_outputs(project),
+            scripts_dir,
+            layer_scripts_dir: unpacked.join(project.archives.unpacked_name(AssetKind::Script)),
+        })
+    }
+
+    /// Whether folder `rel` is left out with everything in it.
+    fn skips_dir(&self, rel: &Path) -> bool {
+        outside_range(rel, true)
+            || (rel.parent() == Some(Path::new("unpacked"))
+                && self
+                    .not_built
+                    .iter()
+                    .any(|n| rel.file_name() == Some(n.as_ref())))
+    }
+
+    /// Whether file `rel` (relative to the root) is in the range.
+    pub(crate) fn contains(&self, rel: &Path) -> bool {
+        !outside_range(rel, false)
+            && !self.outputs.contains(rel)
+            && !rel
+                .ancestors()
+                .skip(1)
+                .any(|dir| !dir.as_os_str().is_empty() && self.skips_dir(dir))
+    }
+
+    /// Whether file `rel` of the project (in the range) equals the layer's file, as
+    /// [`raw_diff`] compares them: the layer has the script folder under the archive's own
+    /// name, `arm9/arm9.bin` is compared with each side's header table zeroed, YAML by its
+    /// value. A missing file on either side is not the same.
+    pub(crate) fn layer_has_same(
+        &self,
+        project: &Project,
+        layer: &BaseLayer,
+        rel: &Path,
+    ) -> Result<bool, KernelError> {
+        let theirs = match rel.strip_prefix(&self.scripts_dir) {
+            Ok(rest) if self.scripts_dir != self.layer_scripts_dir => {
+                self.layer_scripts_dir.join(rest)
+            }
+            _ => rel.to_path_buf(),
+        };
+        let arm9 = rel == Path::new("arm9").join("arm9.bin");
+        let masks = if arm9 {
+            (header_slice(project), header_slice(layer.project()?))
+        } else {
+            (None, None)
+        };
+        if !project.root.join(rel).is_file() {
+            return Ok(false);
+        }
+        Ok(!differs(project, layer, rel, &theirs, arm9, masks)?)
+    }
+
+    /// Every file of the range below `root`, relative to it, in name order.
+    pub(crate) fn files(&self, root: &Path) -> Result<Vec<PathBuf>, KernelError> {
+        let mut files = Vec::new();
+        walk(root, Path::new(""), &mut files, &|rel| self.skips_dir(rel))?;
+        files.retain(|rel| !outside_range(rel, false) && !self.outputs.contains(rel));
+        Ok(files)
+    }
+}
+
 /// The files of the project in the range of the blobs (see the module docs) that differ from
 /// the base layer or that it lacks, and the folders below `unpacked/` the build does not
 /// pack. Sizes are compared first, then bytes; `arm9/arm9.bin` with each side's header table
 /// zeroed; `.yaml`/`.yml` by their `serde_yaml::Value` (bytes when either does not parse).
 pub fn raw_diff(project: &Project, layer: &BaseLayer) -> Result<RawDiff, KernelError> {
     let owned = owned_paths(project)?;
-    let unpacked = Path::new("unpacked");
-    // The script folder as the build packs it (DSPRE Avalonia writes `unpacked/Scripts`); the
-    // layer has it under the archive's own name.
-    let scripts_dir = relative(project, &scripts::member_dir(project));
-    let layer_scripts_dir = unpacked.join(project.archives.unpacked_name(AssetKind::Script));
-    let mut not_built = build::unpacked_unpacked(project)?;
-    not_built.retain(|name| unpacked.join(name) != scripts_dir);
-    let outputs = build_outputs(project);
-    let skip_dir = |rel: &Path| {
-        outside_range(rel, true)
-            || (rel.parent() == Some(unpacked)
-                && not_built
-                    .iter()
-                    .any(|n| rel.file_name() == Some(n.as_ref())))
-    };
-    let mut files = Vec::new();
-    walk(&project.root, Path::new(""), &mut files, &skip_dir)?;
-
-    let arm9 = Path::new("arm9").join("arm9.bin");
-    let masks = (header_slice(project), header_slice(layer.project()?));
+    let range = BlobRange::new(project)?;
     let mut changed = Vec::new();
-    for rel in files {
-        if outside_range(&rel, false) || owned.contains(&rel) || outputs.contains(&rel) {
+    for rel in range.files(&project.root)? {
+        if owned.contains(&rel) {
             continue;
         }
-        let theirs = match rel.strip_prefix(&scripts_dir) {
-            Ok(rest) if scripts_dir != layer_scripts_dir => layer_scripts_dir.join(rest),
-            _ => rel.clone(),
-        };
-        if differs(project, layer, &rel, &theirs, rel == arm9, masks)? {
+        if !range.layer_has_same(project, layer, &rel)? {
             changed.push(rel);
         }
     }
-    Ok(RawDiff { changed, not_built })
+    Ok(RawDiff {
+        changed,
+        not_built: range.not_built,
+    })
+}
+
+/// Whether blob bytes `ours` of file `rel` equal `theirs`, both of `project`'s layout (a blob
+/// under `data/raw/` against its file): `arm9/arm9.bin` with the header table zeroed, YAML by
+/// its value, anything else byte for byte.
+pub(crate) fn same_blob(project: &Project, rel: &Path, ours: &[u8], theirs: &[u8]) -> bool {
+    if ours == theirs {
+        return true;
+    }
+    if rel == Path::new("arm9").join("arm9.bin") {
+        let mask = header_slice(project);
+        return masked(ours.to_vec(), mask) == masked(theirs.to_vec(), mask);
+    }
+    if is_yaml(rel) {
+        return match (yaml_value(rel, ours), yaml_value(rel, theirs)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        };
+    }
+    false
+}
+
+/// `base` (bytes of `arm9/arm9.bin`, a blob or the base layer's) with the header table of
+/// `ours` (the project's `arm9.bin`) put in where both have it: the table is the header files',
+/// a blob of `arm9.bin` never brings its own.
+pub(crate) fn keep_header_table(project: &Project, mut base: Vec<u8>, ours: &[u8]) -> Vec<u8> {
+    if let Some((offset, len)) = header_slice(project)
+        && let (Some(to), Some(from)) = (
+            base.get_mut(offset..offset + len),
+            ours.get(offset..offset + len),
+        )
+    {
+        to.copy_from_slice(from);
+    }
+    base
 }
 
 /// Whether file `rel` of the project differs from the layer's file `theirs_rel` (the same

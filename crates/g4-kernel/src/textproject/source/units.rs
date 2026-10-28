@@ -328,14 +328,20 @@ pub(super) fn asset_of_member(
     let ["unpacked", folder, file] = parts.as_slice() else {
         return Ok(None);
     };
-    let Ok(index) = file.parse::<u16>() else {
-        return Ok(None);
-    };
-    if file.len() < 4 || format!("{index:04}") != *file {
-        return Ok(None);
+    Ok(asset_of_unpacked(project, folder, file))
+}
+
+/// The asset of member file `file` (`NNNN`) in folder `unpacked/<folder>`: a trainer for its
+/// properties or party, else the member's own asset; `None` for anything the text project
+/// does not model as an asset of its own (the header table's files are answered by
+/// [`asset_of_member`]).
+pub(crate) fn asset_of_unpacked(project: &Project, folder: &str, file: &str) -> Option<AssetId> {
+    let index = file.parse::<u16>().ok()?;
+    if file.len() < 4 || format!("{index:04}") != file {
+        return None;
     }
     for kind in AssetKind::ALL {
-        if !project.has_archive(kind) || project.archives.unpacked_name(kind) != *folder {
+        if !project.has_archive(kind) || project.archives.unpacked_name(kind) != folder {
             continue;
         }
         let kind = match kind {
@@ -344,10 +350,17 @@ pub(super) fn asset_of_member(
         };
         let id = AssetId { kind, index };
         if place_of(project, id).is_some() {
-            return Ok(Some(id));
+            return Some(id);
         }
     }
-    Ok(None)
+    None
+}
+
+/// The item member the item table names for item id `id`; `None` without a table or entry.
+pub(crate) fn item_member_of(project: &Project, id: u32) -> Option<u16> {
+    item_members(project)?
+        .get(usize::try_from(id).ok()?)
+        .copied()
 }
 
 /// Collects the SHA-1s of every `{"base_sha1"}` part in the JSON `bytes` into `out`.

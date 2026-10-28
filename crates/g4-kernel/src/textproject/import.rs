@@ -1135,6 +1135,15 @@ pub(crate) fn quirks_to_seed(project: &Project) -> Result<Option<QuirksFile>, Ke
     Ok((plan.problems.is_empty() && plan.quirks_path.is_some()).then_some(plan.quirks))
 }
 
+/// The quirks file planned alone (all keys checked): its problems in
+/// [`ImportPlan::problems`], and `quirks_path` set when seeding it would change rotom's
+/// compile state.
+pub(crate) fn plan_quirks_alone(project: &Project) -> Result<ImportPlan, KernelError> {
+    let mut plan = ImportPlan::default();
+    plan_quirks(project, None, &mut plan)?;
+    Ok(plan)
+}
+
 /// What [`apply_import`] wrote: `paths` every file written (relative to the root; rotom's
 /// compile state when the quirks changed it), `raw` the blobs, `members` the members and
 /// header files, `quirks` the compile state entries the quirks changed.

@@ -52,7 +52,7 @@ pub enum Severity {
 
 /// A diagnostic for the Problems list. `line` is 1-based, `col` is 1-based in UTF-16 code
 /// units (like the LSP).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Problem {
     pub severity: Severity,
     pub file: PathBuf,
@@ -397,7 +397,7 @@ pub(crate) fn conflicts(project: &Project) -> Result<Vec<u16>, KernelError> {
 }
 
 /// Whether the JSON at `json` reads and `member` already holds its texts.
-fn json_matches_member(project: &Project, json: &Path, member: &Path) -> bool {
+pub(crate) fn json_matches_member(project: &Project, json: &Path, member: &Path) -> bool {
     std::fs::read(json)
         .ok()
         .and_then(|bytes| TextArchiveDoc::from_json(&bytes, project.language.locale_key()).ok())

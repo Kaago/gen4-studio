@@ -60,7 +60,7 @@ use writers::write_include;
 mod tests;
 mod units;
 
-pub(crate) use units::UnitCache;
+pub(crate) use units::{UnitCache, asset_of_unpacked, item_member_of};
 mod writers;
 
 /// What a store asset is in the text project: its unit and the files of it.
@@ -188,6 +188,9 @@ pub struct EntitySource {
     binary_sha1: HashMap<String, String>,
     /// Names of trainers not on disk yet, for their baptism (see [`EntitySource::append_trainer`]).
     trainer_names: BTreeMap<u16, String>,
+    /// Whether a write of the header table takes every internal name from `mapname.bin`
+    /// instead of the header files ([`EntitySource::take_members`]).
+    names_from_disk: bool,
 }
 
 impl EntitySource {
@@ -209,6 +212,7 @@ impl EntitySource {
             base_sha1: HashMap::new(),
             binary_sha1: HashMap::new(),
             trainer_names: BTreeMap::new(),
+            names_from_disk: false,
         };
         source.refresh(project)?;
         Ok(source)
@@ -460,6 +464,62 @@ impl EntitySource {
             },
         );
         self.trainer_names.remove(&index);
+        written
+    }
+}
+
+impl EntitySource {
+    /// Whether the JSON of `assets` reads to exactly what their members hold on disk (the
+    /// header table with `mapname.bin`): a unit in step. A missing JSON or member is not; a
+    /// JSON that does not read is `KernelError::Compile` with file, line and column.
+    pub(crate) fn matches_members(
+        &mut self,
+        project: &Project,
+        assets: &[AssetId],
+    ) -> Result<bool, KernelError> {
+        self.refresh(project)?;
+        for &id in assets {
+            if id == HEADER_TABLE {
+                let Some(write) = self.headers_json(project)? else {
+                    return Ok(false);
+                };
+                let names = read_optional(&project.mapname_path())?;
+                if write.table != project.read_header_table_bytes()?
+                    || names.as_deref() != Some(write.mapname.as_slice())
+                {
+                    return Ok(false);
+                }
+                continue;
+            }
+            let from_json = self.read(project, id)?;
+            if from_json.is_none() || from_json != disk_bytes(project, id)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Writes the JSON of the units of `assets` from their members on disk, as
+    /// [`after_member_write`] does, but the header table with every internal name from
+    /// `mapname.bin` (a sync takes over what DSPRE wrote, names included). An asset without a
+    /// member on disk is left out.
+    pub(crate) fn take_members(
+        &mut self,
+        project: &Project,
+        assets: &[AssetId],
+    ) -> Result<SourceWrite, KernelError> {
+        let mut writes = Vec::with_capacity(assets.len());
+        for &id in assets {
+            if let Some(bytes) = disk_bytes(project, id)? {
+                writes.push((id, bytes));
+            }
+        }
+        if writes.is_empty() {
+            return Ok(SourceWrite::default());
+        }
+        self.names_from_disk = true;
+        let written = self.write(project, &writes, &|_| None);
+        self.names_from_disk = false;
         written
     }
 }

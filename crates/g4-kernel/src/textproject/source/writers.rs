@@ -246,6 +246,20 @@ impl EntitySource {
     /// The `mapname.bin` records of `count` headers: from the header files as far as they go
     /// without a gap, the rest (headers made just now) from `mapname.bin`.
     fn header_names(&self, project: &Project, count: usize) -> Result<Vec<u8>, KernelError> {
+        if self.names_from_disk {
+            let path = project.mapname_path();
+            let disk = std::fs::read(&path).map_err(io_at(&path))?;
+            return disk
+                .get(..count * NAME_LEN)
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| {
+                    KernelError::InvalidProject(format!(
+                        "{} hat {} Einträge, die Header-Tabelle {count}.",
+                        path.display(),
+                        disk.len() / NAME_LEN
+                    ))
+                });
+        }
         let dir_rel = Art::Headers.dir();
         let dir = self.root.join(&dir_rel);
         let lazy = LazyBase::new(project, None, false);

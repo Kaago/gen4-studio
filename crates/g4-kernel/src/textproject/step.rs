@@ -644,6 +644,10 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
             .map(|dir| relative(p, dir)),
     );
     save_kept(root, &kept)?;
+    // What the step wrote is in step with its JSON: recorded for the sync (a cache like the
+    // store's record, so an error here is not the build's), or the next scan would take the
+    // step's own write for DSPRE's and the next save would find the member changed.
+    let _ = super::sync::record_written(p, &wrote);
     let done = done + usize::from(applied.quirks > 0);
     Ok((
         StepRun {

@@ -347,7 +347,7 @@ pub const SCRIPT_SOURCE: &str =
     "script Main #1:\n    Message 1\n    End\nscript Second #2:\n    End\n";
 
 /// Compiles rotom source against the bundled Platinum command database.
-fn compile_script(source: &str) -> Vec<u8> {
+pub fn compile_script(source: &str) -> Vec<u8> {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("platinum_v2.json");
     std::fs::write(

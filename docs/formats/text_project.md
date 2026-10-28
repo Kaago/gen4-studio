@@ -436,6 +436,76 @@ wird er als Datei geschrieben. Der nächste volle Export mit Basisschicht normal
 (ein auf die Basis zurückgesetzter Teil wird wieder `base_sha1`, eine der Basis gleiche Datei
 geht).
 
+## DSPRE parallel
+
+DSPRE bleibt neben dem Studio nutzbar: Es liest und schreibt die Member, das Studio die JSON.
+Der Abgleich (`textproject::sync`) findet, was sich seit der letzten Aufzeichnung (`sync` in
+`.g4/build/state.json`, siehe [build_state.md](build_state.md)) auf welcher Seite geändert hat,
+übernimmt Einseitiges und meldet Beidseitiges.
+
+**Beobachtete Dateien.** Quellseite: `g4-project.json`, alles unter `data/`,
+`expanded/textArchives/*.json`, alles unter `expanded/scripts/`. DSPRE-Seite: jede Datei im
+Bereich der Blobs (siehe „Basisschicht und Blobs“: Member, `arm9/`, Overlays, `files/`,
+`unpacked/**`), ohne die gepackten NARCs, deren `unpacked/`-Ordner es gibt (der Build schreibt sie),
+und ohne die Ordner unter `unpacked/`, die der Build nicht packt. Versteckte Einträge (`.g4/`,
+`.rotom/`) nie. Ein Scan nimmt von jeder Datei den `stat`; gehasht wird nur, wo der `stat` vom
+aufgezeichneten abweicht (bei gleicher Größe) oder der Eintrag racy ist. So kostet ein Scan ohne
+Änderung nur die `stat`-Aufrufe; eine DSPRE-Änderung in einem nicht abgebildeten Ordner wird ein
+Blob statt still verloren.
+
+**Einheiten** (Schlüssel und Label, deutsch):
+
+| Einheit | Schlüssel | Quellen ↔ Member | Label |
+|---|---|---|---|
+| Entität | `data/<art>/NNNN.json` | JSON und Beifiles ↔ ihre Member | `Pokémon 0025 · SPECIES_PIKACHU`, `Attacke 0001 · MOVE_POUND`, `Trainer 0001 · TRAINER_…`, `Karte 0003`, `Matrix 0000`, `Gebietsdaten 0001`, `Eventdatei 0000`, `Begegnungsdatei 0000`, `Trainertexte 0000`, `Trainertext-Offsets 0000` |
+| Item-Member | `data/items/@MMMM` | Dateien aller Item-IDs mit diesem Member ↔ der Member | `Item 0004 · ITEM_POKE_BALL` (die erste ID) |
+| Header-Tabelle | `data/headers/` | alle Header-Dateien ↔ Tabelle in `arm9.bin` bzw. Dynamic-Header-Dateien und `mapname.bin` | `Header-Tabelle` |
+| Binärmember | `data/<art>/NNNN.<ext>` | die Datei (ohne sie: der Member der Basis) ↔ der Member | `Kartentextur 0003`, `Gebäudetextur …`, `Gebäudemodell …`, `Innenraum-Gebäudemodell …` |
+| Blob | `data/raw/<pfad>` | `data/raw/<pfad>` (ohne sie: die Datei der Basisschicht) ↔ `<pfad>` | `Datei <pfad>` |
+| Quirks | `data/rotom-quirks.json` | die Datei ↔ rotoms Compile-Zustand | `rotom-Eigenheiten` |
+| Textarchiv | `expanded/textArchives/NNNN.json` | JSON ↔ Member | `Textarchiv 0012` |
+| Scriptdatei | `expanded/scripts/NNNN` | `.rotom` bzw. `.json` ↔ Member (nur mit übernommenen Scripts) | `Scriptdatei 0101` |
+
+`arm9.bin` gehört der Header-Tabelle und als Blob sich selbst (verglichen ohne die Tabelle). Eine
+Datei, die keine Einheit entscheidet (Register, Manifest, ein unbekannter Ordner unter `data/`,
+eine Include-Datei der Scripts), wird nur aufgezeichnet; eine Änderung am Manifest oder an einem
+Register beurteilt alle Entitäten neu und zählt für jede abweichende als Änderung der Quellseite.
+
+**Regeltabelle.** Für jede Einheit mit einer geänderten Datei:
+
+| Quellseite | Member-Seite | Bytes aus der Quelle gleich den Membern | Seite | Übernahme |
+|---|---|---|---|---|
+| Inhalt gleich | Inhalt gleich | – (nur der `stat` wanderte) | abgeglichen | neu aufzeichnen |
+| – | – | ja | abgeglichen | neu aufzeichnen |
+| unverändert | geändert | nein | **aus DSPRE** | Quelle aus dem Member schreiben |
+| geändert | unverändert | nein | **aus Datei** | Member aus der Quelle schreiben |
+| geändert | geändert | nein | **Konflikt** | nichts; Wahl in Technik › Textprojekt |
+| nicht lesbar | – | – | **fehlerhaft** | nichts; Datei, Zeile, Spalte |
+
+Ohne `sync` (erster Abgleich) gelten beide Seiten als geändert: Gleiche Einheiten werden
+aufgezeichnet, abweichende sind Konflikte. Eine Einheit mit Membern und ganz ohne JSON (ein von
+DSPRE angehängter Member) ist aus DSPRE, eine mit JSON und ohne Member aus Datei. Ein seit der
+Aufzeichnung gelöschter Member oder eine gelöschte JSON, deren Member bleibt, ist fehlerhaft: Der
+Abgleich löscht keine Entität, Löschen kommt mit der Referenzsperre. Ein gelöschter Blob unter
+`data/raw/` setzt die Datei auf die Fassung der Basisschicht zurück (ohne Schicht fehlerhaft).
+
+**Übernahme.** Aus DSPRE: Entitäten, Items, Header (mit den internen Namen aus `mapname.bin`) und
+Binärmember über `EntitySource` wie ein Speichern (neue Entitäten getauft), ein Blob als Kopie nach
+`data/raw/` (gleicht die Datei der Basisschicht, geht der Blob), ein Text über
+`resolve_conflict(…, Member)`, ein Script über `decompile_member` und `reset_script` (Quelle und
+Compile-Eintrag; dekompiliert rotom den Member nicht, ist die Einheit fehlerhaft mit diesem Grund).
+Aus Datei: der Import-Plan nur dieser Einheiten (`plan_import` mit ihren Quellen) und
+`apply_import`; ein Blob über `place_raw` (`arm9.bin` behält seine Header-Tabelle); ein Text wird
+kodiert; ein Script bleibt (rotom kompiliert es beim Build). Danach zeichnet der Abgleich die
+übernommenen und alle abgeglichenen Einheiten auf und nimmt die Member aus der Liste der als neuer
+behaltenen (`.g4/build/textproject.json`). Texte folgen den Fingerabdrücken unter `texts` (4.2):
+`MemberNewer` ist aus DSPRE, `JsonNewer` aus Datei, `Conflict` ein Konflikt; Texte mit gleichem
+Inhalt auf beiden Seiten sind abgeglichen, nicht übernommen. Scripts sind abgeglichen, wo rotoms
+Compile-Zustand die Hashes von Quelle und Member nennt; ein Member, den rotom selbst schrieb, ist
+keine Änderung von außen.
+
+Scan und Übernahme eines Projekts laufen nacheinander (eine Sperre je Projektwurzel im Prozess).
+
 ## Schema-Version und Migration
 
 `schemaVersion` zählt die Dateiformate unter `data/` und das Manifest. Jede Namensänderung eines
