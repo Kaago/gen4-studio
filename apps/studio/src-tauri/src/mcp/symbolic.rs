@@ -175,13 +175,7 @@ fn kind_at(arg: &ArgRef, args: &Value, wildcard: Option<&str>) -> Option<SymbolK
 
 /// The `unknown_id` error with `message`.
 fn unknown(message: String) -> ToolError {
-    CmdError {
-        code: UNKNOWN_ID_CODE,
-        message,
-        asset: None,
-        problems: Vec::new(),
-    }
-    .into()
+    CmdError::refused(UNKNOWN_ID_CODE, message).into()
 }
 
 /// `args` of `command` with every id at a place of [`SYMBOLIC_ARGS`] replaced by its number

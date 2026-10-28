@@ -851,7 +851,7 @@ pub fn dispatch(
         "create_patch" => run!(json, "create_patch", args, {}, |_a| {
             // The targets are fixed (build/<Name>.nds and .xdelta); the policy still has the
             // last word on them once the base ROM is found (and makes build/ when it may).
-            create_patch_checked(state, &|targets| {
+            create_patch_checked(state, false, &|targets| {
                 policy.check_output(&path_text(&targets.rom)?)?;
                 policy.check_output(&path_text(&targets.patch)?)?;
                 Ok(())

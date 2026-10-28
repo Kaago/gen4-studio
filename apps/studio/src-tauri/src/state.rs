@@ -131,11 +131,15 @@ impl Session {
     }
 
     /// Tells the running language server (`rotom-lsp`) which id files for rotom changed since
-    /// they were last seen (`workspace/didChangeWatchedFiles`, on which rotom-lsp drops its
-    /// cached command database and constants and checks the open scripts again), so the
-    /// script editor knows new and renamed ids; answers their paths (relative to the root).
-    /// Reads the id files (a few hundred KB at most). Call it after anything that may write them (a rename and its undo or redo, a
-    /// sync that christened, a choice of a conflict).
+    /// they were last seen, so the script editor knows new and renamed ids; answers their
+    /// paths (relative to the root).
+    ///
+    /// The notification is `workspace/didChangeWatchedFiles`: rotom-lsp drops its cached
+    /// command database and constants on it and checks the open scripts again. A change is a
+    /// new size, modification time or content hash (the hash is only kept in memory, so the
+    /// std hasher does). Reads the id files, a few hundred KB at most. Call it after anything
+    /// that may write them: a rename and its undo or redo, a sync that christened, the choice
+    /// of a conflict.
     pub fn id_files_changed(&mut self) -> Vec<PathBuf> {
         let now = id_stamps(&self.project);
         let changes: Vec<(PathBuf, u8)> = now

@@ -37,6 +37,8 @@ pub fn world_meta_get_impl(state: &AppState) -> Result<WorldMetaDto, CmdError> {
 pub fn world_meta_set_impl(state: &AppState, meta: WorldMeta) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    // Setting up the text project rewrites the world file.
+    session.writable()?;
     let root = session.project.root.clone();
     let root = &root;
     let ids = session.ids()?;

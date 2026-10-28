@@ -732,7 +732,9 @@ impl<'a> Call<'a> {
     /// the assets it changed (also when it failed and was rolled back) are then reported as
     /// tool `tool`'s with `label`, with the files `past_store` names that it wrote past the
     /// store; with `always` also when there are none (the UI then reads its unsaved count
-    /// again). When the project changed meanwhile, nothing is reported.
+    /// again). When the command opened the session of the same folder anew (an adoption), the
+    /// hub gets `reopened` instead; when another project was opened meanwhile, nothing is
+    /// reported.
     fn changing<T>(
         &self,
         tool: &str,

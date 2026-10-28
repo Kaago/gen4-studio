@@ -374,6 +374,8 @@ fn change_ignore(
 ) -> Result<ChecksReportDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    // Setting up the text project rewrites the ignore file.
+    session.writable()?;
     refuse_broken_ignore(session)?;
     let mut ignore = session.checks.ignore.clone();
     change(

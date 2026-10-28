@@ -207,15 +207,18 @@ pub fn register_base_rom_impl(state: &AppState, path: &str) -> Result<BaseStatus
 
 /// Builds the open project to `build/<Name>.nds` (as `build_rom`) and writes the patch
 /// against its base ROM to `build/<Name>.xdelta`. Without a found base ROM it is
-/// `base_missing` with the status's reason (or [`NO_MARK`]) and nothing is built.
+/// `base_missing` with the status's reason (or [`NO_MARK`]) and nothing is built. The user's
+/// patch (the Tauri command): the sync before the build takes the agents' turn.
 pub fn create_patch_impl(state: &AppState) -> Result<PatchDto, CmdError> {
-    create_patch_checked(state, &|_| Ok(()))
+    create_patch_checked(state, true, &|_| Ok(()))
 }
 
 /// [`create_patch_impl`] with `check` asked about the targets once the base ROM is found,
-/// before anything is built (the policy of the dispatch caller).
+/// before anything is built (the policy of the dispatch caller). `turn`: the sync before the
+/// build takes the agents' turn (the user's patch; an agent's call holds it already).
 pub(crate) fn create_patch_checked(
     state: &AppState,
+    turn: bool,
     check: &dyn Fn(&PatchTargets) -> Result<(), CmdError>,
 ) -> Result<PatchDto, CmdError> {
     let project = super::open_project_arc(state)?;
@@ -228,7 +231,8 @@ pub(crate) fn create_patch_checked(
             targets.rom.display()
         ))
     })?;
-    let build = super::build_rom_impl(state, rom, false)?;
+    super::sync_before_build(state, turn)?;
+    let build = super::build_synced(state, rom, false)?;
     // The build takes the session as it is then: another project opened meanwhile was built.
     if !Arc::ptr_eq(&super::open_project_arc(state)?, &project) {
         return Err(

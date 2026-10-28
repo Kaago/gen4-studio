@@ -282,9 +282,12 @@ pub fn adopt_text_project_impl(
     let base = BaseRom::open(&path, Some(&mark.sha1))?;
     let (busy, generation) = Busy::begin(state, &project)?;
     let adopted = adopt::adopt(&project, &base, progress).map_err(text_error);
-    // Also after a failure once the manifest is there (the export wrote it, a later step
-    // failed): the store must not go on saving members only.
-    let reopened = if adopted.is_ok() || g4_kernel::textproject::is_text_project(&project.root) {
+    // Also after a failure of a DSPRE folder whose manifest is there now (the export wrote it,
+    // a later step failed): the store must not go on saving members only. A refused adoption
+    // of a text project (`pending`) changed nothing: its session stays.
+    let half_adopted = *project.source_mode() == SourceMode::Dspre
+        && g4_kernel::textproject::is_text_project(&project.root);
+    let reopened = if adopted.is_ok() || half_adopted {
         Some(reopen(state, &project, generation))
     } else {
         None
@@ -1216,5 +1219,51 @@ mod tests {
         let err = adopt_text_project_impl(&state, &mut |_| panic!("no progress")).unwrap_err();
         assert_eq!(err.message, NO_DP);
         assert!(!fixture.dir.path().join(MANIFEST_FILE).exists());
+    }
+
+    /// The writes that do not go through the store's own guard refuse a busy session too:
+    /// a build (and the patch, which builds), the world file and the ignore list.
+    #[test]
+    fn builds_and_project_files_are_refused_while_busy() {
+        let t = dspre();
+        lock(&t.state)
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .store
+            .set_busy(Some(ADOPTING.to_owned()));
+        let out = t.fx.root().join("build/out.nds");
+        let busy = |err: CmdError| assert_eq!((err.code, err.message.as_str()), ("busy", ADOPTING));
+        busy(build_rom_impl(&t.state, out.to_str().unwrap(), false).unwrap_err());
+        busy(crate::commands::create_patch_impl(&t.state).unwrap_err());
+        busy(
+            crate::commands::world_meta_set_impl(
+                &t.state,
+                g4_kernel::world_meta::WorldMeta::default(),
+            )
+            .unwrap_err(),
+        );
+        busy(
+            crate::commands::set_check_enabled_impl(&t.state, "encounter.empty-slot", false)
+                .unwrap_err(),
+        );
+        assert!(!out.exists());
+        assert!(!t.fx.root().join(g4_kernel::world_meta::WORLD_FILE).exists());
+        assert!(!t.fx.root().join(g4_kernel::checks::IGNORE_FILE).exists());
+    }
+
+    /// A refused adoption of a text project (a change from outside is pending) keeps the
+    /// session: nothing was set up anew.
+    #[test]
+    fn a_refused_adoption_of_a_text_project_keeps_the_session() {
+        let t = adopted();
+        let mut member = t.fx.read(MOVE_1_MEMBER);
+        member[3] += 5;
+        t.fx.write(MOVE_1_MEMBER, &member);
+        let before = crate::commands::open_project_arc(&t.state).unwrap();
+        let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
+        assert_eq!(err.code, "pending", "{}", err.message);
+        let after = crate::commands::open_project_arc(&t.state).unwrap();
+        assert!(Arc::ptr_eq(&before, &after), "the session was replaced");
     }
 }

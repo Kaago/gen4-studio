@@ -115,10 +115,7 @@ pub struct BuildDto {
 /// unpacked members, or parses the whole NARC of a kind that is not unpacked yet), so it
 /// runs without the state lock.
 pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>, CmdError> {
-    let project = {
-        let mut guard = lock(state)?;
-        Arc::clone(&session(&mut guard)?.project)
-    };
+    let project = super::open_project_arc(state)?;
     // `member_count` fails for kinds without an archive in this family and for the store-only
     // `DynamicHeaders` kind (its files exist only once the patch is applied), so both are left out.
     Ok(AssetKind::ALL
@@ -316,12 +313,15 @@ pub fn build_rom_impl(state: &AppState, out: &str, fresh: bool) -> Result<BuildD
     build_synced(state, out, fresh)
 }
 
-/// [`build_rom_impl`] once the sync before it ran.
-fn build_synced(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
+/// [`build_rom_impl`] once the sync before it ran. Refused with `busy` while the project is
+/// set up as text project: the compile and the text encoding write members, text JSON and
+/// the build state.
+pub(crate) fn build_synced(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
     let out = Path::new(out);
     let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
+        session.writable()?;
         if fresh {
             clear_cache(&session.project)?;
         }

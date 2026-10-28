@@ -25,7 +25,6 @@ pub use dto::*;
 use fields::FieldSpanDto;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use g4_formats::data::encounter::{HgssEncounters, PtEncounters};
 use g4_formats::data::evolution::Evolution;
@@ -770,7 +769,7 @@ pub fn name_tables_impl(state: &AppState) -> Result<NameTablesDto, CmdError> {
 
 /// The arm9 item table, or `None` when it is not available (no verified offset, implausible).
 pub fn item_table_impl(state: &AppState) -> Result<Option<Vec<ItemEntryDto>>, CmdError> {
-    let project = project_of(state)?;
+    let project = crate::commands::open_project_arc(state)?;
     Ok(project.item_table().map(|t| {
         t.entries
             .iter()
@@ -786,7 +785,7 @@ pub fn item_table_impl(state: &AppState) -> Result<Option<Vec<ItemEntryDto>>, Cm
 
 /// The moves of TM01..TM92 and HM01..HM08, or `None` when the table is not available.
 pub fn machine_table_impl(state: &AppState) -> Result<Option<Vec<u16>>, CmdError> {
-    let project = project_of(state)?;
+    let project = crate::commands::open_project_arc(state)?;
     Ok(project.machine_table().map(|t| t.moves.clone()))
 }
 
@@ -795,22 +794,16 @@ pub fn refs_impl(state: &AppState, target: TargetDto) -> Result<Vec<RefDto>, Cmd
     refs::refs(session(&mut guard)?, target)
 }
 
-/// The open project, taken out of the lock so slow reads (arm9, icon archives) run without it.
-fn project_of(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = lock(state)?;
-    Ok(Arc::clone(&session(&mut guard)?.project))
-}
-
 /// The bag icon of item id `item` as PNG; empty when it has none (no item table, an id
 /// outside it, a missing member).
 pub fn get_item_icon_impl(state: &AppState, item: u16) -> Result<Vec<u8>, CmdError> {
-    let project = project_of(state)?;
+    let project = crate::commands::open_project_arc(state)?;
     Ok(icons::item_icon(&project, item)?.unwrap_or_default())
 }
 
 /// The menu icon of personal member `species` as PNG; empty when it has none.
 pub fn get_mon_icon_impl(state: &AppState, species: u16) -> Result<Vec<u8>, CmdError> {
-    let project = project_of(state)?;
+    let project = crate::commands::open_project_arc(state)?;
     Ok(icons::mon_icon(&project, species)?.unwrap_or_default())
 }
 
