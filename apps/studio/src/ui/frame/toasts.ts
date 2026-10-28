@@ -13,10 +13,11 @@ export type Toast = {
   readonly kind: ToastKind;
   readonly text: string;
   readonly actions: readonly ToastAction[];
-  /** Progress toasts only: the key that identifies the toast across updates. */
+  /** The key that identifies a progress toast (or a keyed warning or error) across updates. */
   readonly key?: string;
 };
-export type ToastOptions = { actions?: readonly ToastAction[] };
+/** `key` (a warning or an error): a toast open with the same key is replaced in place instead of another one stacking. */
+export type ToastOptions = { actions?: readonly ToastAction[]; key?: string };
 
 type Clock = { timer: ReturnType<typeof setTimeout> | undefined; startedAt: number; remaining: number };
 
@@ -73,6 +74,15 @@ function dismiss(id: string): void {
 /** A toast that stays until closed: one equal to an open one of its kind (text and action labels) takes that one's place at the end. */
 function addLasting(kind: "warning" | "error", text: string, options?: ToastOptions): string {
   const actions = options?.actions ?? [];
+  const key = options?.key;
+  if (key !== undefined) {
+    const keyed = toasts.find((t) => t.key === key && t.kind !== "progress");
+    if (keyed !== undefined) {
+      emit(toasts.map((t) => (t === keyed ? { ...keyed, kind, text, actions } : t)));
+      return keyed.id;
+    }
+    return add(kind, text, options, key);
+  }
   const same = toasts.find((t) => t.kind === kind && t.text === text && t.actions.length === actions.length && t.actions.every((a, i) => a.label === actions[i]?.label));
   if (same === undefined) return add(kind, text, options);
   emit([...toasts.filter((t) => t !== same), { ...same, actions }]);
@@ -99,6 +109,13 @@ export const toast = {
     add("progress", text, undefined, key);
   },
   dismiss,
+  /** Closes the warning or error open with `key`; nothing when none is. */
+  dismissKey(key: string): void {
+    const keyed = toasts.find((t) => t.key === key && t.kind !== "progress");
+    if (keyed !== undefined) dismiss(keyed.id);
+  },
+  /** Whether a warning or an error with `key` is open. */
+  shown: (key: string): boolean => toasts.some((t) => t.key === key && t.kind !== "progress"),
 };
 
 /** Holds the 5 s clock of an info toast (hover, focus inside). */

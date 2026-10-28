@@ -118,6 +118,15 @@ describe("TextProjectSurface", () => {
     expect([...container.querySelectorAll("[role=alert]")].map((e) => e.textContent)).toEqual(["data/ nicht lesbar"]);
   });
 
+  it("jetzt_abgleichen_is_locked_while_a_build_runs", async () => {
+    const run = vi.fn(async () => outcome());
+    await render(textWith({ busy: true, sync: syncWith({ run }) }));
+    const button_ = button("Jetzt abgleichen");
+    expect(button_?.getAttribute("aria-disabled")).toBe("true");
+    await click(button_);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("a_conflict_row_shows_the_diff_and_both_choices_resolve", async () => {
     const onResolved = vi.fn();
     const last = outcome({ conflicts: [conflict(), conflict({ key: "species/0025", label: "Pokémon 0025 Pikachu", assets: [{ kind: "Personal", index: 25 }], other: "files" })] });

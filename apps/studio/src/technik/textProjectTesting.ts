@@ -27,6 +27,7 @@ export const CURRENT: TextProjectStatus = { state: "current", schema: 1, last_sy
 export const textWith = (over: Partial<TextProjectView> = {}): TextProjectView => ({
   status: CURRENT,
   sync: syncWith(),
+  busy: false,
   onResolved: () => {},
   onSetUp: () => {},
   onRevert: () => {},

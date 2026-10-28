@@ -6,6 +6,7 @@ import { TERMS, id4 } from "../terms";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
 import { ScriptDocuments, lineOffset } from "./documents";
+import { toast } from "../../ui/frame/toasts";
 
 /** What the rest of the app sees of the open scripts: the project session saves them before a build and counts them as unsaved. */
 export interface ScriptBridge {
@@ -71,6 +72,11 @@ interface ScriptsParams {
   onError: (e: unknown) => void;
   /** Script files were written (a save of the editor or the level-script form, „Script anfügen“, „Übernehmen“): their members are on disk now. */
   onSaved?: () => void;
+  /**
+   * Whether `info` is the open project's session opened anew behind the app's back (an agent's adoption, revert or lift): then the open
+   * documents stay, typed text included, since nobody was asked whether it may go. Without it every new info starts over.
+   */
+  reopened?: (info: ProjectInfo) => boolean;
 }
 
 const lf = (text: string) => text.replace(/\r\n?/g, "\n");
@@ -96,7 +102,14 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * not in the Script panel, because the toolbar counts unsaved scripts and a build saves them first. It does not touch the
  * editor or the language server (those, with CodeMirror, load with the panel).
  */
-export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsParams): ScriptsController {
+/** The warning when unsaved documents kept across a reopen have no file any more: the text stays in the editor. */
+export function goneText(names: readonly string[]): string {
+  const [first] = names;
+  const what = names.length === 1 && first !== undefined ? `fehlt die ${first}` : `fehlen ${names.join(", ")}`;
+  return `Nach dem Neuöffnen ${what}; ihr ungespeicherter Text bleibt im Editor.`;
+}
+
+export function useScripts({ info, bus, problems, onError, onSaved, reopened }: ScriptsParams): ScriptsController {
   // Another project: nothing of the old one stays open. Reset while rendering, so no render pairs the old documents with the new project.
   // `saving`: the saves in flight of this project, so a second one (Cmd+S reaches the editor and the app) joins the first.
   // It belongs to the project: a save of the same file number in the next project must not join the old one.
@@ -105,11 +118,17 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
   const [status, setStatus] = useState<ScriptsStatusDto | null>(null);
   const [active, setActive] = useState<number | null>(null);
   let owned = owner;
+  // The info a reopen of the same folder kept the documents for: they are checked against the new session once it is there.
+  const keptFor = useRef<ProjectInfo | null>(null);
   if (owner.info !== info) {
-    owned = fresh();
+    const same = info !== null && owner.info !== null && info.root === owner.info.root && (reopened?.(info) ?? false);
+    owned = same ? { ...owner, info } : fresh();
     setOwner(owned);
-    setStatus(null);
-    setActive(null);
+    if (same) keptFor.current = info;
+    else {
+      setStatus(null);
+      setActive(null);
+    }
   }
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
@@ -125,10 +144,35 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
       (next) => current && setStatus(next),
       (e: unknown) => current && latest.current.onError(e),
     );
+    if (keptFor.current === info) {
+      keptFor.current = null;
+      void warnGone();
+    }
     return () => {
       current = false;
     };
   }, [info]);
+
+  /**
+   * After a reopen kept the documents: a document with typed text whose file the new session no longer has (it cannot be read, or has no
+   * source) keeps its text, and a lasting warning names it, so nothing vanishes unseen.
+   */
+  async function warnGone() {
+    const docs = latest.current.documents;
+    const names: string[] = [];
+    for (const file of docs.dirty()) {
+      const doc = docs.get(file);
+      if (!doc) continue;
+      let there: boolean;
+      try {
+        there = (await readScript(file)).kind !== "binary";
+      } catch {
+        there = false;
+      }
+      if (!there) names.push(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`);
+    }
+    if (latest.current.documents === docs && names.length > 0) toast.warning(goneText(names));
+  }
 
   const open = useCallback(async (file: number, line?: number) => {
     const docs = latest.current.documents;

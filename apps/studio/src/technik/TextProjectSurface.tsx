@@ -15,6 +15,8 @@ export type TextProjectView = {
   status: TextProjectStatus | null;
   /** The sync with DSPRE (`useExternalSync`). */
   sync: ExternalSyncApi;
+  /** A build or a save runs: „Jetzt abgleichen“ waits (the build syncs first on its own). */
+  busy: boolean;
   /** A conflict was resolved: the assets the store loaded anew (the app reads them again and syncs once more). */
   onResolved: (assets: AssetId[]) => void;
   /** „Als Textprojekt einrichten…“ opens its dialog; without it the button is locked. */
@@ -144,6 +146,7 @@ function SetUp({ adoptable, reason, onSetUp }: { adoptable: boolean; reason: str
 function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: number; lastSyncAt: number | null }) {
   const now = useNow();
   const { sync } = text;
+  const locked = sync.running || text.busy;
   const synced = lastSyncAt === null ? "Noch nicht abgeglichen." : `Zuletzt abgeglichen ${ago(lastSyncAt, now)}.`;
   const conflicts = sync.last?.conflicts ?? [];
   const broken = sync.last?.broken ?? [];
@@ -152,7 +155,7 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
       lead={`Textprojekt, Schema-Version ${schema}. ${synced}`}
       actions={
         <>
-          <Button kind="secondary" aria-disabled={sync.running || undefined} onClick={() => !sync.running && void sync.run()}>
+          <Button kind="secondary" aria-disabled={locked || undefined} onClick={() => !locked && void sync.run()}>
             Jetzt abgleichen
           </Button>
           <Button kind="secondary" aria-disabled={text.onRevert === undefined || undefined} onClick={() => text.onRevert?.()}>

@@ -134,6 +134,13 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   // The info of the session `reloadSession` installed last: the app tells it from an opening by it (`isReopened`).
   const reopenedInfo = useRef<ProjectInfo | null>(null);
   const isReopened = useCallback((shown: ProjectInfo) => reopenedInfo.current === shown, []);
+  // The info shown now, for work that runs later than the render that started it.
+  const infoRef = useRef<ProjectInfo | null>(info);
+  infoRef.current = info;
+  // The folder whose session the backend has: set as soon as an opening answered, before the UI has swapped to it (`currentRoot`).
+  const backendRoot = useRef<string | null>(null);
+  /** The folder the backend's session is of now (null before the first opening); a result for another one is stale. */
+  const currentRoot = useCallback(() => backendRoot.current, []);
 
   /**
    * Reads the unsaved edits again. Every write the app makes ends here, so it announces `edited`: the checks run again (all of them, 300 ms
@@ -233,7 +240,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   /** Opens the project at `path` (no question asked); see `onOpen` for `resetProject`. False when it could not be opened. */
   async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
     try {
-      await installSession(await openProject(path), resetProject);
+      const opened = await openProject(path);
+      backendRoot.current = opened.root;
+      await installSession(opened, resetProject);
       return true;
     } catch (e) {
       fail(e);
@@ -247,9 +256,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    * (that would drop what an agent did since): a new info object, with the text project's state read now, makes the scripts, the
    * language server and the checks start over.
    */
-  async function reloadSession(resetProject: (headers: HeaderSummary[]) => void): Promise<void> {
-    const shown = info;
-    if (shown === null) return;
+  async function reloadSession(root: string, resetProject: (headers: HeaderSummary[]) => void): Promise<void> {
+    // Read when it runs (it waits in the agents' queue): another project opened meanwhile is not reloaded.
+    const shown = infoRef.current;
+    if (shown === null || shown.root !== root) return;
     let status: TextProjectStatus | undefined;
     let statusError: unknown = null;
     try {
@@ -289,6 +299,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     }
     resetProject(listing?.headers ?? []);
     setCounts(loadedCounts);
+    infoRef.current = opened;
     setInfo(opened);
     setLastRom(null);
     setLastBuiltAt(null);
@@ -601,6 +612,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     openProjectAt,
     reloadSession,
     isReopened,
+    currentRoot,
     onSave,
     onBuild,
     buildPatch,

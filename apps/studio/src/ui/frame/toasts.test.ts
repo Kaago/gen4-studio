@@ -103,6 +103,26 @@ describe("toast store", () => {
     expect(listToasts().map((t) => t.kind)).toEqual(["error", "error", "error", "error"]);
   });
 
+  it("a_keyed_lasting_toast_is_replaced_in_place_and_dismissed_by_its_key", () => {
+    const before = toast.info("davor");
+    const first = toast.warning("3 Konflikte zwischen Studio und DSPRE", { key: "sync-conflicts", actions: [{ label: "Lösen…", onClick: () => {} }] });
+    const after = toast.error("danach");
+    // The same key: the text changes where the toast stands, with the same id; nothing stacks.
+    expect(toast.warning("1 Konflikt zwischen Studio und DSPRE", { key: "sync-conflicts", actions: [{ label: "Lösen…", onClick: () => {} }] })).toBe(first);
+    expect(listToasts().map((t) => [t.id, t.text])).toEqual([
+      [before, "davor"],
+      [first, "1 Konflikt zwischen Studio und DSPRE"],
+      [after, "danach"],
+    ]);
+    expect(toast.shown("sync-conflicts")).toBe(true);
+    toast.dismissKey("sync-conflicts");
+    expect(listToasts().map((t) => t.id)).toEqual([before, after]);
+    expect(toast.shown("sync-conflicts")).toBe(false);
+    // Nothing open with the key: nothing happens.
+    toast.dismissKey("sync-conflicts");
+    expect(listToasts()).toHaveLength(2);
+  });
+
   it("a_full_stack_of_errors_makes_room_for_a_new_info_by_dropping_its_oldest_error", () => {
     for (const n of [1, 2, 3, 4]) toast.error(`Fehler ${n}`);
     const info = toast.info("Gespeichert");

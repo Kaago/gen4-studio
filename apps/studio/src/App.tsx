@@ -166,6 +166,9 @@ const BRIDGE_DOWN = "Brücke nicht erreichbar";
 
 /** The key of the progress toast of a text project's first (full) sync. */
 const FULL_SYNC = "external-sync";
+/** The keys of the sync's lasting messages: each is replaced in place and closed when nothing is left. */
+const CONFLICTS_TOAST = "sync-conflicts";
+const BROKEN_TOAST = "sync-broken";
 
 /** A folder path without a trailing separator, to compare the roots the backend names. */
 const bareRoot = (path: string) => path.replace(/[\\/]+$/, "");
@@ -266,7 +269,7 @@ function AppBody() {
   // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
   const [changedRevision, setChangedRevision] = useState(0);
   const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
-  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged });
+  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
@@ -415,9 +418,12 @@ function AppBody() {
     if (session.info !== null && event.tool === "assign_base") void original.refresh();
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
-    agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
-    // An agent chose a side of a conflict: Technik › Textprojekt lists what is still open.
-    if (event.tool === "resolve_external_conflict" && isTextProject) void sync.run();
+    // An agent chose a side of a conflict: after its assets were read again, the sync lists what is still open (as after the user's choice).
+    const resolved = event.tool === "resolve_external_conflict" && isTextProject;
+    agentReloads.current = agentReloads.current
+      .then(() => reloadAfterAgent(event.assets))
+      .then(() => void (resolved && sync.run()))
+      .catch(session.fail);
   });
   // An agent opened the session anew (an adoption, a revert or a lift of the text project): the store, its undo history and the language
   // server are new. The project is read again as after opening it (the area stays), in the queue of the agents' changes. Another
@@ -425,7 +431,11 @@ function AppBody() {
   const onAgentReopened = useStableCallback((event: AgentReopenedEvent) => {
     const shown = session.info;
     if (shown === null || bareRoot(event.root) !== bareRoot(shown.root)) return;
-    agentReloads.current = agentReloads.current.then(() => session.reloadSession(resetProject)).catch(session.fail);
+    agentReloads.current = agentReloads.current
+      .then(() => session.reloadSession(shown.root, resetProject))
+      // The files may differ from the saved project before (an adoption writes data/, a revert moves it): Änderungen compares again.
+      .then(bumpChanged)
+      .catch(session.fail);
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
   // stale file, in the same queue.
@@ -684,17 +694,22 @@ function AppBody() {
   const syncKnown = useRef<{ root: string; conflicts: ReadonlySet<string>; broken: ReadonlySet<string> } | null>(null);
   // A sync went through: what it took over is read again (in the queue of the agents' changes) and said; new conflicts and broken files
   // are said too, and the time of the last sync is read again.
-  const onSyncOutcome = useStableCallback((outcome: SyncOutcome) => {
-    const root = session.info?.root ?? null;
-    if (root === null) return;
+  const onSyncOutcome = useStableCallback((outcome: SyncOutcome, root: string) => {
+    // A sync of a project the backend no longer has open (another one opened, its UI not swapped yet): nothing of it is this one's.
+    if (root !== session.currentRoot() || root !== session.info?.root) return;
     const show = [{ label: "Anzeigen", onClick: showTextProject }];
     if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show });
     if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show });
     const known = syncKnown.current?.root === root ? syncKnown.current : null;
-    if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key))) {
-      toast.warning(conflictsText(outcome.conflicts.length), { actions: [{ label: "Lösen…", onClick: showTextProject }] });
+    // A new conflict (broken file) says so; an open message follows the count without coming back once closed, and goes when none is left.
+    if (outcome.conflicts.length === 0) toast.dismissKey(CONFLICTS_TOAST);
+    else if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key)) || toast.shown(CONFLICTS_TOAST)) {
+      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: "Lösen…", onClick: showTextProject }] });
     }
-    if (outcome.broken.some((b) => !known?.broken.has(b.key))) toast.error(brokenText(outcome.broken.length), { actions: show });
+    if (outcome.broken.length === 0) toast.dismissKey(BROKEN_TOAST);
+    else if (outcome.broken.some((b) => !known?.broken.has(b.key)) || toast.shown(BROKEN_TOAST)) {
+      toast.error(brokenText(outcome.broken.length), { key: BROKEN_TOAST, actions: show });
+    }
     syncKnown.current = { root, conflicts: new Set(outcome.conflicts.map((c) => c.key)), broken: new Set(outcome.broken.map((b) => b.key)) };
     rereadTextStatus();
     // What came in changed the saved project (Technik › Änderungen compares again) and the store's values (read again as after an agent).
@@ -702,8 +717,15 @@ function AppBody() {
     if (outcome.reloaded.length > 0) agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(outcome.reloaded)).catch(session.fail);
   });
   // The sync of a text project with DSPRE: when it opens, on window focus, before a build and on „Jetzt abgleichen“.
-  const sync = useExternalSync({ project: session.info?.root ?? null, textProject: isTextProject, busy: session.busy, onOutcome: onSyncOutcome, onError: session.fail });
-  syncBeforeBuild.current = isTextProject ? sync.run : null;
+  const sync = useExternalSync({ project: session.info?.root ?? null, textProject: isTextProject, busy: session.busy, opened: session.info, onOutcome: onSyncOutcome, onError: session.fail });
+  // The build's own sync: the one that runs while the build holds `busy`.
+  syncBeforeBuild.current = isTextProject ? () => sync.run({ duringBuild: true }) : null;
+  // Another project: the old one's conflicts and broken files are not this one's.
+  const syncRoot = session.info?.root ?? null;
+  useEffect(() => {
+    toast.dismissKey(CONFLICTS_TOAST);
+    toast.dismissKey(BROKEN_TOAST);
+  }, [syncRoot]);
   // The first sync hashes every file (seconds): the app says how far it is, wherever it shows.
   const fullSync = isTextProject && projectText.last_sync_at === null && sync.running && sync.progress !== null ? syncProgressText(sync.progress) : null;
   useEffect(() => toast.progress(FULL_SYNC, fullSync), [fullSync]);
@@ -715,7 +737,7 @@ function AppBody() {
       .then(() => void sync.run())
       .catch(session.fail);
   });
-  const textProject: TextProjectView | null = session.info === null ? null : { status: projectText, sync, onResolved: onConflictResolved };
+  const textProject: TextProjectView | null = session.info === null ? null : { status: projectText, sync, busy: session.busy, onResolved: onConflictResolved };
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
   // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({

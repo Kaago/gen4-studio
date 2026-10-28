@@ -92,7 +92,7 @@ describe("useExternalSync", () => {
     expect(shown.progress).toBeNull();
     expect(shown.last).toBe(done);
     expect(shown.error).toBeNull();
-    expect(onOutcome).toHaveBeenCalledExactlyOnceWith(done);
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith(done, "/p");
     // Rendering again with the same project runs nothing more.
     await show();
     expect(externalSync).toHaveBeenCalledOnce();
@@ -195,5 +195,73 @@ describe("useExternalSync", () => {
     await act(async () => void shown.run().then((o) => (answered = o)));
     expect(answered).toBeNull();
     expect(shown.error).toBe("kaputt");
+  });
+
+  it("a_user_run_while_building_waits_for_the_build_and_the_build_run_does_not", async () => {
+    await show();
+    expect(externalSync).toHaveBeenCalledOnce();
+    await show({ busy: true });
+    // „Jetzt abgleichen“, a resolve or an agent while a build runs: nothing beside the backend's own sync before the build.
+    let answered: SyncOutcome | null | undefined;
+    await act(async () => void shown.run().then((o) => (answered = o)));
+    await act(async () => void shown.run());
+    expect(externalSync).toHaveBeenCalledOnce();
+    expect(answered).toBeUndefined();
+    // The build's own sync runs at once.
+    const built = outcome({ ms: 7 });
+    vi.mocked(externalSync).mockResolvedValueOnce(built);
+    let before: SyncOutcome | null | undefined;
+    await act(async () => void shown.run({ duringBuild: true }).then((o) => (before = o)));
+    expect(externalSync).toHaveBeenCalledTimes(2);
+    expect(before).toBe(built);
+    // The build ends: the waiting runs make one sync, and both answer it.
+    const after = outcome({ ms: 9 });
+    vi.mocked(externalSync).mockResolvedValueOnce(after);
+    await show({ busy: false });
+    expect(externalSync).toHaveBeenCalledTimes(3);
+    expect(answered).toBe(after);
+  });
+
+  it("a_project_switch_while_a_sync_runs_drops_the_old_result_and_syncs_the_new_one", async () => {
+    const old = pending();
+    await show();
+    const next = pending();
+    await show({ project: "/q" });
+    // The old sync still answers first (the backend runs one scan at a time); its result is not the new project's.
+    await old.answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [] }] }));
+    expect(onOutcome).not.toHaveBeenCalled();
+    expect(shown.last).toBeNull();
+    expect(shown.taken).toBeNull();
+    expect(externalSync).toHaveBeenCalledTimes(2);
+    expect(shown.running).toBe(true);
+    const mine = outcome({ ms: 11 });
+    await next.answer(mine);
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith(mine, "/q");
+    expect(shown.last).toBe(mine);
+    expect(shown.running).toBe(false);
+  });
+
+  it("a_session_opened_anew_drops_the_running_result_and_syncs_again", async () => {
+    const first = { root: "/p" };
+    const old = pending();
+    await show({ opened: first });
+    const next = pending();
+    // The same folder in a new session (an agent's adoption): as after opening.
+    await show({ opened: { root: "/p" } });
+    await old.answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [] }] }));
+    expect(onOutcome).not.toHaveBeenCalled();
+    expect(externalSync).toHaveBeenCalledTimes(2);
+    await next.answer();
+    expect(onOutcome).toHaveBeenCalledOnce();
+  });
+
+  it("a_late_answer_after_unmount_reports_nothing", async () => {
+    const run = pending();
+    await show();
+    act(() => root.unmount());
+    await run.answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [] }] }));
+    expect(onOutcome).not.toHaveBeenCalled();
+    // The afterEach unmounts again.
+    root = createRoot(container);
   });
 });

@@ -12,7 +12,7 @@ import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, Matr
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
-import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { INFO_MS, listToasts, resetToasts, toast } from "./ui/frame/toasts";
 import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
 import { readShellState, writeShellState } from "./ui/frame/shellState";
 import type { RecentProject } from "./ui/frame/shellState";
@@ -2544,6 +2544,111 @@ describe("App wiring", () => {
       await flush();
       expect(buildRom).toHaveBeenCalledOnce();
       expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
+    });
+
+    it("the_conflict_warning_follows_the_count_and_goes_when_none_are_left", async () => {
+      const c = (key: string) => ({ key, label: key, assets: [], unsaved: false, other: "dspre" as const });
+      await openTextProject(outcome({ conflicts: [c("a"), c("b"), c("c")] }));
+      const warnings = () => listToasts().filter((t) => t.kind === "warning").map((t) => t.text);
+      expect(warnings()).toEqual(["3 Konflikte zwischen Studio und DSPRE"]);
+      // To Technik › Textprojekt by the list („Lösen…“ would close the warning).
+      await act(async () => atlasEntry("Technik")!.click());
+      const entry = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Textprojekt"))!;
+      await act(async () => entry.click());
+      const syncNow = async (next: SyncOutcome) => {
+        vi.mocked(externalSync).mockResolvedValueOnce(next);
+        await click("Jetzt abgleichen");
+        await flush();
+      };
+      // Two resolved, none new: the open warning says what is left, in its place.
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual(["1 Konflikt zwischen Studio und DSPRE"]);
+      // None left: the warning goes.
+      await syncNow(outcome());
+      expect(warnings()).toEqual([]);
+      // A closed warning does not come back for the same conflicts, only for a new one.
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual(["1 Konflikt zwischen Studio und DSPRE"]);
+      toast.dismissKey("sync-conflicts");
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual([]);
+      await syncNow(outcome({ conflicts: [c("a"), c("d")] }));
+      expect(warnings()).toEqual(["2 Konflikte zwischen Studio und DSPRE"]);
+    });
+
+    it("an_agents_resolve_reloads_its_assets_then_syncs", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await openTextProject();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(externalSync).mockClear().mockResolvedValue(outcome());
+      await act(async () =>
+        void tauriEvents.get("agent-event")!({ payload: { kind: "changed", seq: 1, client: "Claude Code", tool: "resolve_external_conflict", label: null, assets: [{ kind: "Move", index: 1 }] } satisfies AgentEvent }),
+      );
+      await flush();
+      await flush();
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect(vi.mocked(memberCounts).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(externalSync).mock.invocationCallOrder[0]!);
+    });
+
+    it("a_reopened_session_while_a_sync_runs_drops_its_result_and_syncs_again", async () => {
+      env.tauri = true;
+      await renderFresh();
+      let answer: (o: SyncOutcome) => void = () => {};
+      vi.mocked(externalSync).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await click("Projekt öffnen");
+      await flush();
+      expect(externalSync).toHaveBeenCalledOnce();
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "migrate_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await act(async () => answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }] }] })));
+      await flush();
+      // The old session's answer says nothing; the new session syncs as after opening.
+      expect(toasts()).not.toContain("1 Änderung aus DSPRE übernommen");
+      expect(externalSync).toHaveBeenCalledTimes(2);
+    });
+
+    it("an_agents_reopen_keeps_unsaved_script_text_and_warns_when_its_file_is_gone", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      await act(async () => data().scripts.open(42));
+      const doc = data().scripts.documents.get(42)!;
+      doc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+      const reopen = (seq: number) =>
+        act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await reopen(1);
+      await flush();
+      await flush();
+      // The typed text stays, still unsaved; nothing asked, nothing warned (the file is there).
+      expect(ask).not.toHaveBeenCalled();
+      expect(data().scripts.documents.get(42)?.text).toBe(doc.text);
+      expect(data().scripts.documents.get(42)?.text).toContain("// edit");
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+      expect(listToasts().filter((t) => t.kind === "warning")).toEqual([]);
+      // The file is gone in the new session: the text stays and a lasting warning names the file.
+      vi.mocked(readScript).mockRejectedValue({ code: "error", message: "expanded/scripts/0042.rotom fehlt", asset: null });
+      await reopen(2);
+      await flush();
+      await flush();
+      expect(data().scripts.documents.get(42)?.text).toContain("// edit");
+      const warning = listToasts().find((t) => t.kind === "warning");
+      expect(warning?.text).toBe("Nach dem Neuöffnen fehlt die Scriptdatei 0042; ihr ungespeicherter Text bleibt im Editor.");
+      vi.useFakeTimers();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(INFO_MS * 2)));
+      vi.useRealTimers();
+      expect(listToasts().some((t) => t.kind === "warning")).toBe(true);
+      // The user opening the folder again (and saying the text may go) starts the scripts over, as before.
+      vi.mocked(ask).mockResolvedValue(true);
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(ask).toHaveBeenCalledOnce();
+      expect(data().scripts.documents.list()).toEqual([]);
     });
 
     it("an_agents_reopened_session_is_read_again_like_after_opening", async () => {
