@@ -52,7 +52,7 @@ const REGISTER_KINDS: [SymbolKind; 4] = [
 ];
 
 /// Size and modification time of a file, `None` when it is missing.
-type Stamp = Option<(u64, SystemTime)>;
+pub(crate) type Stamp = Option<(u64, SystemTime)>;
 
 /// Resolves ids of every kind for one project; [`Resolver::is_current`] tells when to make
 /// a new one.
@@ -209,7 +209,7 @@ impl Resolver {
 
 /// The files a resolver reads, relative to the root: the manifest, the registers and
 /// `mapname.bin`.
-fn watched(project: &Project) -> Vec<PathBuf> {
+pub(crate) fn watched(project: &Project) -> Vec<PathBuf> {
     let mut files = vec![PathBuf::from(MANIFEST_FILE)];
     files.extend(
         REGISTER_KINDS
@@ -227,7 +227,7 @@ fn watched(project: &Project) -> Vec<PathBuf> {
     files
 }
 
-fn stamp(path: &Path) -> Stamp {
+pub(crate) fn stamp(path: &Path) -> Stamp {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.len(), meta.modified().ok()?))
 }

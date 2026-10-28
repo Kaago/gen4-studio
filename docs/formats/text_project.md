@@ -389,6 +389,50 @@ Member). Die Quirks gehen immer in den Compile-Zustand (rotoms Cache); ist der S
 wird geschrieben. Ohne Basismarke oder Basisschicht darf ein voller Lauf nur fehlende Member
 schreiben.
 
+## Bearbeiten im Studio
+
+Im Textprojekt ist die JSON die Quelle des Stores (`textproject::source::EntitySource`). Der
+Store behält seine Byte-Form, die der Member (ein Trainer als Eigenschaften und Party in einem,
+die Header-Tabelle als ihre 24-Byte-Datensätze); Laden liest die JSON und importiert sie gegen
+die Member auf der Platte. Eine JSON, die sich nicht lesen lässt, lehnt das Laden ab, mit Datei,
+Zeile, Spalte und JSON-Pfad wie der Import.
+
+**Einheit und Schlüssel.** Gespeichert wird je Einheit, wie im Import: eine Entität aus ganzen
+Membern (eine Spezies sind Personal, Lernset und Entwicklung), die Item-Dateien aller IDs, deren
+Eintrag in der Item-Tabelle auf denselben Member zeigt, die Header-Tabelle (alle
+`data/headers/*.json`) oder ein Binärmember. Der Schlüssel einer Einheit (im Abgleich und in den
+Antworten der App) ist der Pfad ihrer JSON (`data/species/0025.json`), `data/items/@<Member>`,
+`data/headers/` oder `data/<art>/NNNN.<ext>`; außerhalb der Store-Assets `data/raw/<pfad>`,
+`data/rotom-quirks.json`, `expanded/textArchives/NNNN.json` und `expanded/scripts/NNNN` (beide
+Quellformen). Texte und Scripts behalten ihre eigene Quelle.
+
+**Reihenfolge beim Speichern.** Erst die JSON der Einheit (mit Beifiles, jede Datei nur, wenn sie
+sich ändert, alte Beifiles der Entität fort), dann der Member wie in einem DSPRE-Ordner (er ist
+Build-Zwischenstand, den Szene, Prüfungen und DSPRE lesen), dann die Aufzeichnung beider für den
+Abgleich. Die Einheit fällt aus der Liste der als neuer behaltenen Member
+(`.g4/build/textproject.json`). Die JSON entsteht aus den Bytes des gespeicherten Teils und den
+übrigen Teilen der Einheit (ungespeicherte Werte des Stores, sonst gespeicherte, sonst aus der JSON
+gelesen, sonst der Member) genau so, wie sie ein voller Export schriebe: Speichern von Personal 25
+ändert nur `data/species/0025.json`, Speichern der Header-Tabelle nur die Header, deren JSON sich
+ändert. Die internen Namen der Header kommen dabei aus den Header-Dateien, nur für eben angelegte
+Header aus `mapname.bin`. Binärmember, die am Store vorbei geschrieben werden (Zurücksetzen von
+Texturen und Modellen, Kartenimport), exportiert `after_member_write` ebenso: die Datei unter
+`data/<art>/` entsteht, wo der Member von der Basisschicht abweicht, und geht, wo er ihr wieder
+gleicht.
+
+**Neue Entitäten.** Ein angehängter Member (neuer Trainer, neue Map, neuer Header) bekommt seine
+JSON sofort, nicht erst beim nächsten Export: fehlt der Entität ihre ID im Register, tauft das
+Speichern wie der Export (Trainer aus Klasse und Name, Maps aus dem internen Namen) und schreibt
+das geänderte Register gleich mit. Diese Schritte sind wie das Anhängen selbst nicht rückgängig zu
+machen.
+
+**Teile ohne Basisschicht.** Speichern legt die Basisschicht nie an und braucht weder sie noch die
+Basis-ROM. Fehlt sie, bleibt ein Teil `{"base_sha1"}`, solange seine Bytes die SHA-1 behalten, die
+die JSON nannte; ein geänderter Teil wird Beifile oder `{"hex"}`. Ein Binärmember ohne Basisschicht
+wird immer als Datei geschrieben. Der nächste volle Export mit Basisschicht normalisiert beides
+(ein auf die Basis zurückgesetzter Teil wird wieder `base_sha1`, eine der Basis gleiche Datei
+geht).
+
 ## Schema-Version und Migration
 
 `schemaVersion` zählt die Dateiformate unter `data/` und das Manifest. Jede Namensänderung eines

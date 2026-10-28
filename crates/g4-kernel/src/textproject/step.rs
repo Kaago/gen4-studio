@@ -292,6 +292,23 @@ pub(crate) fn clear_kept(root: &Path) -> Result<(), KernelError> {
     save_kept(root, &BTreeSet::new())
 }
 
+/// Forgets `members` (relative to the root) among the members kept as newer: Studio wrote
+/// their JSON from them, so JSON and member agree again. Leaves [`SYNC_FILE`] alone when it
+/// is missing or unreadable (then the kept members are unknown anyway) or names none of them.
+pub(crate) fn forget_kept(root: &Path, members: &[PathBuf]) -> Result<(), KernelError> {
+    let Some(mut kept) = load_kept(root) else {
+        return Ok(());
+    };
+    let before = kept.len();
+    for member in members {
+        kept.remove(&slash(member));
+    }
+    if kept.len() != before {
+        save_kept(root, &kept)?;
+    }
+    Ok(())
+}
+
 /// Puts the quirks file into rotom's compile state when that would change it (a compile state
 /// deleted or reset while the quirks file stayed, so the step was skipped). `prepare` calls it
 /// before `rotom`; a broken quirks file is left to the step's report.

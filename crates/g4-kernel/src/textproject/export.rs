@@ -34,7 +34,7 @@ use super::schema::data::{
     EncounterEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity, TrainerTextTableEntity,
     export_items,
 };
-use super::schema::header::{NO_DP, export_headers};
+use super::schema::header::{HeaderHgssEntity, HeaderPtEntity, NO_DP, export_headers};
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
@@ -295,7 +295,7 @@ fn sync_texts(project: &Project, report: &mut ExportReport) -> Result<(), Kernel
 
 /// Christens the ids of maps (internal names), trainer classes, trainers (class and name)
 /// and places (location names) that have none yet, in the project language.
-fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> {
+pub(crate) fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> {
     let german = project.language == Language::German;
     let some =
         |texts: Vec<String>| -> Vec<Option<String>> { texts.into_iter().map(Some).collect() };
@@ -402,20 +402,16 @@ fn art_files(
                 }
             }
         }
-        Art::Matrices => entities::<MatrixEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Maps => entities::<MapEntity>(project, art, &mut ctx, &mut out)?,
-        Art::AreaData => entities::<AreaDataEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Events => entities::<EventEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Encounters => entities::<EncounterEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Species => entities::<SpeciesEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Moves => entities::<MoveEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Trainers => entities::<TrainerEntity>(project, art, &mut ctx, &mut out)?,
-        Art::TrainerTextTable => {
-            entities::<TrainerTextTableEntity>(project, art, &mut ctx, &mut out)?;
-        }
-        Art::TrainerTextOffsets => {
-            entities::<TrainerTextOffsetsEntity>(project, art, &mut ctx, &mut out)?;
-        }
+        Art::Matrices
+        | Art::Maps
+        | Art::AreaData
+        | Art::Events
+        | Art::Encounters
+        | Art::Species
+        | Art::Moves
+        | Art::Trainers
+        | Art::TrainerTextTable
+        | Art::TrainerTextOffsets => entities(project, art, &mut ctx, &mut out)?,
     }
     for (name, bytes) in ctx.side {
         out.files.insert(name, bytes);
@@ -423,9 +419,9 @@ fn art_files(
     Ok(Some(out))
 }
 
-/// The entities of an art made of whole members (`art.kinds()`), one per member index; the
-/// side files collect in `ctx.side`.
-fn entities<E: EntitySchema>(
+/// The entities of an art made of whole members (`art.kinds()`), one per member index, each
+/// with its side files ([`entity_files`]).
+fn entities(
     project: &Project,
     art: Art,
     ctx: &mut ExportCtx<'_>,
@@ -448,12 +444,56 @@ fn entities<E: EntitySchema>(
             .map(|m| m.get(i).cloned().flatten())
             .collect();
         let index = u32::try_from(i).unwrap_or(u32::MAX);
-        let entity = E::export(index, &parts, ctx)?;
-        out.files
-            .insert(format!("{i:04}.json"), to_canonical(&entity));
+        out.files.extend(entity_files(art, index, &parts, ctx)?);
         out.entities += 1;
     }
     Ok(())
+}
+
+/// The files of entity `index` of `art` from its members `parts` (in the order of
+/// `art.kinds()`; a header: its 24 bytes and its `mapname.bin` record): `NNNN.json` and the
+/// side files its parts need, name in the art's folder → bytes, as the full export writes
+/// them. Items (one entity per item id, [`export_items`]) and the binary kinds (no JSON) are
+/// no arts of whole members and refused.
+pub(crate) fn entity_files(
+    art: Art,
+    index: u32,
+    parts: &[Option<Vec<u8>>],
+    ctx: &mut ExportCtx<'_>,
+) -> Result<Vec<(String, Vec<u8>)>, KernelError> {
+    fn json<E: EntitySchema>(
+        index: u32,
+        parts: &[Option<Vec<u8>>],
+        ctx: &mut ExportCtx<'_>,
+    ) -> Result<Vec<u8>, KernelError> {
+        Ok(to_canonical(&E::export(index, parts, ctx)?))
+    }
+    let side_before = ctx.side.len();
+    let json = match art {
+        Art::Headers => match ctx.family {
+            Family::Hgss => json::<HeaderHgssEntity>(index, parts, ctx)?,
+            Family::Pt | Family::Dp => json::<HeaderPtEntity>(index, parts, ctx)?,
+        },
+        Art::Matrices => json::<MatrixEntity>(index, parts, ctx)?,
+        Art::Maps => json::<MapEntity>(index, parts, ctx)?,
+        Art::AreaData => json::<AreaDataEntity>(index, parts, ctx)?,
+        Art::Events => json::<EventEntity>(index, parts, ctx)?,
+        Art::Encounters => json::<EncounterEntity>(index, parts, ctx)?,
+        Art::Species => json::<SpeciesEntity>(index, parts, ctx)?,
+        Art::Moves => json::<MoveEntity>(index, parts, ctx)?,
+        Art::Trainers => json::<TrainerEntity>(index, parts, ctx)?,
+        Art::TrainerTextTable => json::<TrainerTextTableEntity>(index, parts, ctx)?,
+        Art::TrainerTextOffsets => json::<TrainerTextOffsetsEntity>(index, parts, ctx)?,
+        Art::Items | Art::Binary(_) => {
+            return Err(KernelError::InvalidProject(format!(
+                "{}: keine Art aus ganzen Membern",
+                art.name()
+            )));
+        }
+    };
+    let mut files = vec![(format!("{index:04}.json"), json)];
+    files.extend(ctx.side.drain(side_before..));
+    Ok(files)
 }
 
 /// Writes `files` into folder `rel` (each only when it changes) and deletes every other
@@ -485,7 +525,7 @@ fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, K
 }
 
 /// Deletes folder `dir` when it holds nothing (a missing folder is fine).
-fn remove_if_empty(dir: &Path) -> Result<(), KernelError> {
+pub(crate) fn remove_if_empty(dir: &Path) -> Result<(), KernelError> {
     let empty = std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
     if empty {
         std::fs::remove_dir(dir).map_err(io_at(dir))?;

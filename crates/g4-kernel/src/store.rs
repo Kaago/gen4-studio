@@ -297,7 +297,7 @@ pub fn trainer_pair_bytes(props: &[u8], party: &[u8]) -> Vec<u8> {
 }
 
 /// The properties and the party of the bytes of a trainer ([`trainer_pair_bytes`]).
-fn split_pair(bytes: &[u8]) -> Result<(&[u8], &[u8]), KernelError> {
+pub(crate) fn split_pair(bytes: &[u8]) -> Result<(&[u8], &[u8]), KernelError> {
     let malformed = || {
         KernelError::InvalidProject(format!(
             "{} bytes are no trainer pair (u32 length of the properties, properties, party)",
