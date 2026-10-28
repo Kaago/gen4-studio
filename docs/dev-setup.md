@@ -559,7 +559,7 @@ target/release/g4k text import <Kopie>    # prüft alles, bevor es den ersten Me
 target/release/g4k text sources <Kopie>   # die Dateien des Textprojekts, eine je Zeile (für git add)
 target/release/g4k text migrate <Kopie>   # ältere Schema-Version mit Schnappschuss unter .g4/backup/
 target/release/g4k text adopt <Kopie>     # als Textprojekt einrichten (Scripts, Export, rotom.toml, Aufzeichnung); phase=… ms=… je Phase
-target/release/g4k text sync <Kopie>      # Einseitiges übernehmen; conflict/broken <schlüssel> <label>, Exit 1 bei Konflikten; --keep studio|dspre <schlüssel>
+target/release/g4k text sync <Kopie>      # Einseitiges übernehmen; conflict/broken <schlüssel> <label>, Exit 1, solange Konflikte oder fehlerhafte Dateien bleiben; --keep studio|dspre <schlüssel>
 target/release/g4k text revert <Kopie>    # zurücknehmen: Manifest, data/, .g4/include/ nach .g4/backup/textproject-<Zeit>/
 ```
 

@@ -386,11 +386,34 @@ pub(crate) fn adopt_as(
 /// string becomes a list); the rest of the file stays as it is, comments too. Whether it
 /// wrote. Needs `rotom.toml`.
 pub(crate) fn ensure_include_root(project: &Project, root: &str) -> Result<bool, KernelError> {
+    let path = project.root.join(ROTOM_TOML);
+    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+    match with_include_root(&text, root)? {
+        Some(edited) => {
+            write_atomic(&project.root, &path, edited.as_bytes())?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Whether [`ensure_include_root`] can add `root` to the project's `rotom.toml`, without
+/// writing: a refusal for a file that does not parse or an `include_roots` that is neither a
+/// list nor a path. `Ok` without `rotom.toml` (adopting the scripts writes one).
+pub(crate) fn check_include_root(project: &Project, root: &str) -> Result<(), KernelError> {
+    let path = project.root.join(ROTOM_TOML);
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+    with_include_root(&text, root).map(|_| ())
+}
+
+/// `text` (a `rotom.toml`) with `root` in `include_roots`; `None` when it is there already.
+fn with_include_root(text: &str, root: &str) -> Result<Option<String>, KernelError> {
     use toml_edit::{Array, Document, value};
 
-    let path = project.root.join(ROTOM_TOML);
     let invalid = |why: String| KernelError::InvalidProject(format!("{ROTOM_TOML}: {why}"));
-    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
     let mut doc: Document = text.parse().map_err(|e| invalid(format!("{e}")))?;
     let norm = |r: &str| r.replace('\\', "/").trim_end_matches('/').to_owned();
     let wanted = norm(root);
@@ -409,12 +432,12 @@ pub(crate) fn ensure_include_root(project: &Project, root: &str) -> Result<bool,
                     .iter()
                     .any(|r| r.as_str().map(norm) == Some(wanted.clone()))
                 {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 list.push(wanted.as_str());
             } else if let Some(one) = item.as_str().map(str::to_owned) {
                 if norm(&one) == wanted {
-                    return Ok(false);
+                    return Ok(None);
                 }
                 *item = value(Array::from_iter([one.as_str(), wanted.as_str()]));
             } else {
@@ -424,8 +447,7 @@ pub(crate) fn ensure_include_root(project: &Project, root: &str) -> Result<bool,
             }
         }
     }
-    write_atomic(&project.root, &path, doc.to_string().as_bytes())?;
-    Ok(true)
+    Ok(Some(doc.to_string()))
 }
 
 // ---------------------------------------------------------------------------------------

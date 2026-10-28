@@ -141,17 +141,29 @@ pub fn export_reported(
     run(project, base, opts, progress, true)
 }
 
-/// The export; `record` records the sync afterwards (the adoption records it itself, after
-/// the files it writes besides).
-pub(super) fn run(
+/// The export after its checks; `record` records the sync afterwards.
+fn run(
     project: &Project,
     base: &BaseRom,
     opts: &ExportOptions,
     progress: &mut dyn FnMut(ExportProgress),
     record: bool,
 ) -> Result<ExportReport, KernelError> {
-    let start = Instant::now();
     let keep = preflight(project, base)?;
+    run_checked(project, base, opts, keep.as_ref(), progress, record)
+}
+
+/// The export once [`preflight`] passed and gave `keep`; `record` records the sync afterwards
+/// (the adoption records it itself, after the files it writes besides).
+pub(super) fn run_checked(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    keep: Option<&Manifest>,
+    progress: &mut dyn FnMut(ExportProgress),
+    record: bool,
+) -> Result<ExportReport, KernelError> {
+    let start = Instant::now();
     let mut report = ExportReport::default();
     if !scripts::is_adopted(project) {
         if !opts.adopt_scripts {
@@ -180,7 +192,7 @@ pub(super) fn run(
     progress(step(1));
     report.base_layer_ms = ms_since(layer_start);
     report.base_layer_created = created;
-    export_with(project, &layer, keep.as_ref(), &mut report, progress)?;
+    export_with(project, &layer, keep, &mut report, progress)?;
     // Every JSON equals its member now: the build step forgets the members it kept as newer,
     // and the sync records the project as it is.
     super::step::clear_kept(&project.root)?;

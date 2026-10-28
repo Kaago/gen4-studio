@@ -28,11 +28,13 @@ use super::{DATA_DIR, MANIFEST_FILE};
 
 /// The folder of the generated include file, as `rotom.toml` names it (relative to the root).
 pub const INCLUDE_ROOT: &str = ".g4/include";
-/// The refusal of [`revert`] while the sync finds something pending.
+/// The refusal of [`revert`] (and of [`adopt`] on a text project) while the sync finds
+/// something pending.
 pub const REVERT_PENDING: &str = "Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien (Technik › Textprojekt).";
 
 /// A phase of [`adopt`]: adopting the scripts (`total` 0 when they are adopted already), the
-/// base layer, the entities (the art folders, then the blobs) and the records.
+/// base layer, the entities (the art folders, then the blobs) and the records (`total` the
+/// watched files).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AdoptPhase {
@@ -79,7 +81,10 @@ fn ms_since(start: Instant) -> u64 {
 /// newer schema version, texts in conflict, missing item members). Then: the scripts adopted
 /// (when they are not), the export with its progress, the include root in `rotom.toml`, the
 /// include file, and the sync and every text archive recorded as they are now. On a text
-/// project it is an export that writes nothing, plus the records.
+/// project it is an export that writes nothing, plus the records; a change the sync has not
+/// settled yet (from outside, a conflict, a broken file) refuses it with [`REVERT_PENDING`]
+/// first, as the export would overwrite the JSON from the members. A `rotom.toml` whose
+/// include roots cannot be added to is refused before anything is written too.
 pub fn adopt(
     project: &Project,
     base: &BaseRom,
@@ -97,7 +102,13 @@ pub(crate) fn adopt_as(
     progress: &mut dyn FnMut(AdoptProgress),
 ) -> Result<AdoptReport, KernelError> {
     let start = Instant::now();
-    export::preflight(project, base)?;
+    let keep = export::preflight(project, base)?;
+    scripts::check_include_root(project, INCLUDE_ROOT)?;
+    // On a text project the export writes the JSON from the members: a change from outside
+    // (a hand-edited JSON, one side of a conflict) is settled first, never overwritten.
+    if keep.is_some() && BuildState::load(&project.root).sync.is_some() {
+        refuse_pending(project)?;
+    }
 
     let mut report = |phase, done, total| progress(AdoptProgress { phase, done, total });
     let adopted = if scripts::is_adopted(project) {
@@ -115,10 +126,11 @@ pub(crate) fn adopt_as(
     let opts = ExportOptions {
         adopt_scripts: false,
     };
-    let mut export = export::run(
+    let mut export = export::run_checked(
         project,
         base,
         &opts,
+        keep.as_ref(),
         &mut |p: ExportProgress| match p.step {
             // Not reached: the scripts are adopted above.
             ExportStep::Scripts => report(AdoptPhase::Scripts, p.done, p.total),
@@ -130,16 +142,21 @@ pub(crate) fn adopt_as(
     )?;
     export.adopted = adopted;
 
-    report(AdoptPhase::Sync, 0, 1);
+    // The sync counts the watched files it records (the include root and file before them
+    // take no time worth a step; the text records after them neither).
     scripts::ensure_include_root(project, INCLUDE_ROOT)?;
     let include_written = write_include(project)?;
-    let sync_files = sync::record_all(project)?;
+    let mut last = (0, 0);
+    let sync_files = sync::record_all_reported(project, &mut |p| {
+        last = (p.done, p.total);
+        report(AdoptPhase::Sync, p.done, p.total);
+    })?;
     if project.has_archive(AssetKind::TextArchive) {
         let count = project.member_count(AssetKind::TextArchive)?;
         let archives: Vec<u16> = (0..count).filter_map(|n| u16::try_from(n).ok()).collect();
         record_text_sync(project, &archives)?;
     }
-    report(AdoptPhase::Sync, 1, 1);
+    report(AdoptPhase::Sync, last.1, last.1);
     Ok(AdoptReport {
         export,
         include_written,
@@ -167,12 +184,7 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
     if state != SchemaState::Current {
         return Err(KernelError::Refused(refusal(state).unwrap_or_default()));
     }
-    // What is in step is recorded (also when something is pending), nothing taken over.
-    let scan = sync::scan(project, &mut |_| {})?;
-    sync::apply_one_sided(project, &scan, &|_| true)?;
-    if scan.units.iter().any(|u| u.side != UnitSide::InSync) {
-        return Err(KernelError::Refused(REVERT_PENDING.to_owned()));
-    }
+    refuse_pending(project)?;
 
     let rewritten = write_ids_as_numbers(project)?;
     let backup = claim_backup(root)?;
@@ -194,6 +206,18 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
         rewritten,
         ms: ms_since(start),
     })
+}
+
+/// Refuses with [`REVERT_PENDING`] when a scan finds a unit that is not in step (a change
+/// from outside, a conflict, a broken file). What is in step is recorded first (also when
+/// something is pending), nothing is taken over.
+fn refuse_pending(project: &Project) -> Result<(), KernelError> {
+    let scan = sync::scan(project, &mut |_| {})?;
+    sync::apply_one_sided(project, &scan, &|_| true)?;
+    if scan.units.iter().any(|u| u.side != UnitSide::InSync) {
+        return Err(KernelError::Refused(REVERT_PENDING.to_owned()));
+    }
+    Ok(())
 }
 
 /// Writes `g4-world.json` and `g4-checks.json` with numbers where they hold ids; the files it
@@ -297,6 +321,16 @@ mod tests {
             .find(|p| p.phase == AdoptPhase::Scripts)
             .unwrap();
         assert!(scripts.total > 0, "the scripts were adopted: {seen:?}");
+        // The records count the watched files, moving in between.
+        let records: Vec<&AdoptProgress> = seen
+            .iter()
+            .filter(|p| p.phase == AdoptPhase::Sync)
+            .collect();
+        assert_eq!(records[0].total, report.sync_files);
+        assert!(
+            records.iter().any(|p| p.done > 0 && p.done < p.total),
+            "{records:?}"
+        );
 
         // The text project, with the scripts adopted.
         let p = fx.project();
@@ -362,6 +396,55 @@ mod tests {
                 total: 0
             }]
         );
+    }
+
+    #[test]
+    fn a_second_adopt_over_a_pending_change_is_refused_and_writes_nothing() {
+        let fx = TextFixture::dspre();
+        adopted(&fx);
+        // A hand edit of move 2's JSON the sync has not taken over yet: the export would
+        // write the JSON from the member again.
+        fx.edit("data/moves/0002.json", "\"power\": 20", "\"power\": 99");
+        let before = tree(&fx);
+        let mut seen = Vec::new();
+        match adopt(&fx.project(), &fx.base(), &mut |p| seen.push(p)) {
+            Err(KernelError::Refused(why)) => assert_eq!(why, REVERT_PENDING),
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert!(seen.is_empty(), "{seen:?}");
+        assert_eq!(tree(&fx), before, "nothing written");
+        assert!(fx.text("data/moves/0002.json").contains("\"power\": 99"));
+
+        // Taken over, the adoption goes through and keeps the edit.
+        let p = fx.project();
+        let scan = sync::scan(&p, &mut |_| {}).unwrap();
+        sync::apply_one_sided(&p, &scan, &|_| false).unwrap();
+        adopted(&fx);
+        assert!(fx.text("data/moves/0002.json").contains("\"power\": 99"));
+        assert_eq!(fx.read("unpacked/moveData/0002")[3], 99);
+    }
+
+    #[test]
+    fn adopt_over_a_rotom_toml_it_cannot_edit_is_refused_and_writes_nothing() {
+        let fx = TextFixture::dspre();
+        scripts::adopt(&fx.project(), &mut |_| {}).unwrap();
+        let toml = fx.text(scripts::ROTOM_TOML);
+        fx.write(
+            scripts::ROTOM_TOML,
+            toml.replace("[paths]\n", "[paths]\ninclude_roots = 3\n")
+                .as_bytes(),
+        );
+        let before = tree(&fx);
+        let mut seen = Vec::new();
+        match adopt(&fx.project(), &fx.base(), &mut |p| seen.push(p)) {
+            Err(KernelError::InvalidProject(why)) => {
+                assert!(why.contains("include_roots"), "{why}");
+            }
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert!(seen.is_empty(), "{seen:?}");
+        assert_eq!(tree(&fx), before, "nothing written");
+        assert!(!fx.root().join(MANIFEST_FILE).exists());
     }
 
     #[test]

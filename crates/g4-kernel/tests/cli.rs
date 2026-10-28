@@ -1385,6 +1385,26 @@ fn cli_text_adopt_sync_and_revert() {
         .assert()
         .code(1);
 
+    // A broken JSON is not settled either: listed, exit 1, until it is fixed.
+    let json_path = root.join("data/moves/0003.json");
+    let good = std::fs::read(&json_path).unwrap();
+    std::fs::write(&json_path, b"{ broken").unwrap();
+    let assert = text(&["sync"], &root).assert().code(1);
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("broken data/moves/0003.json Attacke 0003")),
+        "{out}"
+    );
+    assert!(
+        String::from_utf8_lossy(&assert.get_output().stderr).contains("broken file"),
+        "{:?}",
+        assert.get_output()
+    );
+    std::fs::write(&json_path, good).unwrap();
+    text(&["sync"], &root).assert().success();
+
     // Taken back: the manifest and data/ are in the backup.
     let assert = text(&["revert"], &root).assert().success();
     let out = stdout_of(&assert);

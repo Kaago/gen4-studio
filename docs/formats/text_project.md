@@ -443,6 +443,11 @@ Der Abgleich (`textproject::sync`) findet, was sich seit der letzten Aufzeichnun
 `.g4/build/state.json`, siehe [build_state.md](build_state.md)) auf welcher Seite geändert hat,
 übernimmt Einseitiges und meldet Beidseitiges.
 
+Kopflos gleicht `g4k text sync` ab: Einseitiges wird übernommen (Zeilen `dspre <schlüssel> <label>`,
+`files …`), Konflikte und fehlerhafte Dateien werden gelistet (`conflict …`, `broken …`, die
+Probleme auf stderr); solange eines davon bleibt, endet der Befehl mit Exit 1.
+`g4k text sync --keep studio|dspre <schlüssel>` löst einen Konflikt.
+
 **Beobachtete Dateien.** Quellseite: `g4-project.json`, alles unter `data/`,
 `expanded/textArchives/*.json`, alles unter `expanded/scripts/`. DSPRE-Seite: jede Datei im
 Bereich der Blobs (siehe „Basisschicht und Blobs“: Member, `arm9/`, Overlays, `files/`,
@@ -560,7 +565,12 @@ Voraussetzungen wie beim Export: Platin oder HGSS (nicht Diamant/Perl), eine Bas
 gefundene Basis-ROM dieser Marke (`--base-rom`, sonst die `.nds` daneben, sonst
 `G4_BASE_ROM_DIR`; fehlt sie, sagt es `base::missing_text`), kein Manifest einer älteren oder
 neueren Schema-Version, keine Texte im Konflikt, keine fehlenden Item-Member. Eine Ablehnung kommt,
-bevor etwas geschrieben wird, mit dem Satz des Exports. Die App verlangt dazu gespeicherten Stand.
+bevor etwas geschrieben wird, mit dem Satz des Exports. Ebenso vorher abgelehnt: ein `rotom.toml`,
+das sich nicht lesen lässt oder dessen `include_roots` weder Liste noch Pfad ist. Auf einem
+Textprojekt mit Aufzeichnung prüft ein Scan zuerst, dass alles abgeglichen ist; eine Änderung von
+außen (etwa eine von Hand bearbeitete JSON), ein Konflikt oder eine fehlerhafte Datei lehnt mit
+dem Satz der Rücknahme ab, denn der Export schriebe die JSON aus den Membern neu. Die App verlangt
+dazu gespeicherten Stand.
 Der Fortschritt kommt in vier Phasen (`AdoptProgress`, je von `done` 0 bis `done` = `total`):
 
 | Phase | Was geschieht | `total` |
@@ -568,7 +578,7 @@ Der Fortschritt kommt in vier Phasen (`AdoptProgress`, je von `done` 0 bis `done
 | `scripts` | Scripts übernehmen (`scripts::adopt`), wenn sie es nicht sind | Script-Member; 0, wenn schon übernommen |
 | `base_layer` | Basisschicht unter `.g4/cache/base-layer/<sha1>/`, nur wenn sie fehlt | 1 |
 | `entities` | der Export: Text-JSON, Taufe, je Art ihr Ordner unter `data/`, Register, Quirks, dann die Blobs | 17 (16 Arten, eine auch, wenn das Spiel sie nicht hat, und die Blobs) |
-| `sync` | `rotom.toml` bekommt `.g4/include` in `include_roots`, die Include-Datei, dann `sync` und `texts` in `.g4/build/state.json` voll aufgezeichnet | 1 |
+| `sync` | `rotom.toml` bekommt `.g4/include` in `include_roots`, die Include-Datei, dann `sync` und `texts` in `.g4/build/state.json` voll aufgezeichnet | die beobachteten Dateien (gemeldet alle 128) |
 
 `rotom.toml` wird nur ergänzt: fehlt `include_roots`, kommt der Schlüssel dazu; steht dort eine
 andere Liste (oder ein einzelner Pfad), wird `.g4/include` angehängt; Kommentare und Reihenfolge
@@ -577,7 +587,8 @@ aus; ohne Datei ist der Eintrag harmlos. Ein zweites Einrichten auf einem Textpr
 Export, der nichts schreibt, und eine neue Aufzeichnung. Danach baut ein unverändertes Projekt
 SHA-1-gleich zur Basis-ROM. Der Assistent richtet mit dem Häkchen nach der Phase `check` (die
 Basismarke steht) und vor dem Umbenennen des Staging-Ordners ein, mit der gewählten ROM als Basis
-(`start::create_project_with_options`, Phase `text_project`).
+(`start::create_project_with_options`, Phase `text_project`; ihr Fortschritt ist ein Zähler bis
+1000 über die vier Phasen, gewichtet 5 / 5 / 50 / 40 %, der nie zurückgeht).
 
 **Zurücknehmen** (`textproject::adopt::revert`, `g4k text revert`, in der App „Zurücknehmen…“)
 verschiebt das Manifest, statt einen Schnappschuss zurückzuspielen. Das ist sofort und verlustfrei

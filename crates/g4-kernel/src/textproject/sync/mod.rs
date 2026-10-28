@@ -166,8 +166,20 @@ pub fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, Kerne
 
 /// Records every file the scan watches as it is now (adoption, import, export).
 pub fn record_all(project: &Project) -> Result<u32, KernelError> {
-    locked(&project.root, || apply::record_all(project))
+    record_all_reported(project, &mut |_| {})
 }
+
+/// [`record_all`], telling `progress` how many of the watched files it hashed: `done` 0
+/// first, then every [`RECORD_STEP`] files, `done` = `total` last.
+pub fn record_all_reported(
+    project: &Project,
+    progress: &mut dyn FnMut(SyncProgress),
+) -> Result<u32, KernelError> {
+    locked(&project.root, || apply::record_all(project, progress))
+}
+
+/// How many files [`record_all_reported`] hashes between two reports.
+pub const RECORD_STEP: u32 = 128;
 
 /// One lock per project root (`Arc` so a root's lock outlives the list's lock).
 type RootLock = (PathBuf, Arc<Mutex<()>>);

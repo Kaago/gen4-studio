@@ -20,7 +20,7 @@ use super::super::import::{ImportPlan, LazyBase, PlannedWrite, apply_import, pla
 use super::super::source::EntitySource;
 use super::super::step::forget_kept;
 use super::watch::{Of, Watch, of_unit};
-use super::{ApplyReport, ScanReport, SyncUnit, UnitSide, key};
+use super::{ApplyReport, RECORD_STEP, ScanReport, SyncProgress, SyncUnit, UnitSide, key};
 
 fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -492,13 +492,22 @@ fn record_sync(
     })
 }
 
-pub(super) fn record_all(project: &Project) -> Result<u32, KernelError> {
+pub(super) fn record_all(
+    project: &Project,
+    progress: &mut dyn FnMut(SyncProgress),
+) -> Result<u32, KernelError> {
     let watch = Watch::new(project)?;
     let at = now_ns();
     let mut files = BTreeMap::new();
-    for rel in watch.files()? {
+    let watched = watch.files()?;
+    let total = u32::try_from(watched.len()).unwrap_or(u32::MAX);
+    progress(SyncProgress { done: 0, total });
+    for (done, rel) in (1..).zip(watched) {
         if let Some(fp) = capture_hashed(&project.root.join(&rel))? {
             files.insert(key(&rel), fp);
+        }
+        if done % RECORD_STEP == 0 || done == total {
+            progress(SyncProgress { done, total });
         }
     }
     let n = u32::try_from(files.len()).unwrap_or(u32::MAX);

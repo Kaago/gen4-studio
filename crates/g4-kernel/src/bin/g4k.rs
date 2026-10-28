@@ -1284,8 +1284,9 @@ enum TextCommand {
     Revert { project: PathBuf },
     /// Take over what changed on one side since the last record (`dspre <key> <label>`,
     /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,
-    /// `broken <key> <label>`); exit 1 on a conflict. With `--keep studio|dspre <key>`: resolve
-    /// that conflict instead.
+    /// `broken <key> <label>`, the problems on stderr); exit 1 while a conflict or a broken
+    /// file is left (both are not settled). With `--keep studio|dspre <key>`: resolve that
+    /// conflict instead.
     Sync {
         project: PathBuf,
         /// Resolve one conflict: the side to keep (`studio` or `dspre`) and the unit's key.
@@ -1510,7 +1511,7 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
 }
 
 /// `g4k text sync`: scan and take over the one-sided units, or with `keep` resolve one
-/// conflict; exit 1 while conflicts are left.
+/// conflict; exit 1 while conflicts or broken files are left.
 fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
     use g4_kernel::textproject::sync::{self, Keep, UnitSide};
 
@@ -1537,7 +1538,7 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
     for unit in &applied.files {
         println!("files {} {}", unit.key, unit.label);
     }
-    let mut conflicts = 0;
+    let (mut conflicts, mut broken) = (0, 0);
     for unit in &scan.units {
         match unit.side {
             UnitSide::Conflict => {
@@ -1545,6 +1546,7 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
                 println!("conflict {} {}", unit.key, unit.label);
             }
             UnitSide::Broken => {
+                broken += 1;
                 println!("broken {} {}", unit.key, unit.label);
                 print_problems(&unit.problems);
             }
@@ -1558,9 +1560,10 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
         applied.written.len(),
         scan.ms + applied.ms
     );
-    if conflicts > 0 {
+    if conflicts > 0 || broken > 0 {
         return Err(Failure::Message(format!(
-            "text sync: {conflicts} conflict(s); g4k text sync --keep studio|dspre <key>"
+            "text sync: {conflicts} conflict(s) (g4k text sync --keep studio|dspre <key>), \
+             {broken} broken file(s) (fix them, then sync again)"
         )));
     }
     Ok(())

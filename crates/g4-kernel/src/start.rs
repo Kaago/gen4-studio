@@ -463,8 +463,8 @@ pub fn create_project(
 
 /// [`create_project`] with `opts`: with `text_project` the project is set up as text project
 /// (`textproject::adopt` against the ROM itself) after the check, before the staging folder
-/// is renamed, reported as [`Phase::TextProject`] (`done` of `total` of the adoption's
-/// current phase).
+/// is renamed, reported as [`Phase::TextProject`] (one count over the adoption's phases that
+/// only goes up, see `text_project_step`).
 pub fn create_project_with_options(
     rom: &Path,
     dest: &Path,
@@ -589,14 +589,17 @@ pub(crate) fn create_project_with(
         phases.push((Phase::Check, t.elapsed().as_millis()));
 
         if opts.text_project {
-            let t = report(Phase::TextProject, 0, 1);
+            let t = report(Phase::TextProject, 0, TEXT_PROJECT_STEPS);
             let base = crate::base::BaseRom::open(rom, Some(&info.sha1))?;
+            let mut shown = 0;
             text_project = Some(crate::textproject::adopt::adopt_as(
                 &project,
                 &base,
                 Some(&name),
                 &mut |p| {
-                    report(Phase::TextProject, p.done, p.total);
+                    // One count over the four phases that never goes back.
+                    shown = shown.max(text_project_step(p));
+                    report(Phase::TextProject, shown, TEXT_PROJECT_STEPS);
                 },
             )?);
             phases.push((Phase::TextProject, t.elapsed().as_millis()));
@@ -643,6 +646,31 @@ fn apply_template(
     store.save()?;
     report(Phase::Template, total, total);
     Ok(started)
+}
+
+/// The steps [`Phase::TextProject`] counts to.
+const TEXT_PROJECT_STEPS: u32 = 1000;
+
+/// Where the adoption's progress `p` stands in [`Phase::TextProject`]: each phase of the
+/// adoption has a share of [`TEXT_PROJECT_STEPS`] after the times measured on Platinum
+/// (scripts 5 %, base layer 5 %, entities 50 %, records 40 %), filled by its `done` of
+/// `total` (a phase without steps counts as done).
+fn text_project_step(p: crate::textproject::adopt::AdoptProgress) -> u32 {
+    use crate::textproject::adopt::AdoptPhase;
+
+    let (from, share) = match p.phase {
+        AdoptPhase::Scripts => (0, 50),
+        AdoptPhase::BaseLayer => (50, 50),
+        AdoptPhase::Entities => (100, 500),
+        AdoptPhase::Sync => (600, 400),
+    };
+    let filled = if p.total == 0 {
+        share
+    } else {
+        let part = u64::from(share) * u64::from(p.done.min(p.total)) / u64::from(p.total);
+        u32::try_from(part).unwrap_or(share)
+    };
+    from + filled
 }
 
 /// The secure area CRC from the header and the SHA-1 of the secure area itself.
@@ -1179,6 +1207,22 @@ mod create_tests {
             .filter(|p| p.phase == Phase::TextProject)
             .collect();
         assert!(text.len() > 2, "the adoption's progress: {text:?}");
+        assert!(
+            text.windows(2).all(|w| w[0].done <= w[1].done),
+            "never back: {text:?}"
+        );
+        assert!(
+            text.iter().all(|p| p.total == TEXT_PROJECT_STEPS),
+            "{text:?}"
+        );
+        assert_eq!(text[0].done, 0);
+        assert_eq!(text.last().unwrap().done, TEXT_PROJECT_STEPS, "{text:?}");
+        // The records move in between (one report per 128 files).
+        assert!(
+            text.iter()
+                .any(|p| p.done > 600 && p.done < TEXT_PROJECT_STEPS),
+            "{text:?}"
+        );
         let timed: Vec<Phase> = created.phases.iter().map(|(p, _)| *p).collect();
         assert_eq!(timed.last(), Some(&Phase::TextProject), "{timed:?}");
         let report = created.text_project.expect("the adoption's report");
