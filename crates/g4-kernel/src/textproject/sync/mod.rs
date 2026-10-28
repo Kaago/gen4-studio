@@ -33,6 +33,10 @@
 //! import, export). A save of the store records what it wrote ([`record_paths`]), and so does
 //! the build step `textproject` ([`record_written`]), so the next scan finds nothing to take
 //! over. One lock per project root keeps scans and takeovers of a project apart.
+//!
+//! With the store, [`sync_store`] keeps every unit with an unsaved asset from being taken over
+//! (a conflict with `unsaved`); [`conflict_diff`] shows a unit's two sides, [`resolve`] (and
+//! [`resolve_files`] without a store) applies the user's choice (see `conflict.rs`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -49,10 +53,20 @@ use super::arts::slash;
 use super::base_layer::walk;
 
 mod apply;
+mod conflict;
+#[cfg(all(test, feature = "test-support"))]
+mod conflict_tests;
+mod diff;
 mod scan;
 #[cfg(all(test, feature = "test-support"))]
 mod tests;
 mod watch;
+
+pub use conflict::{
+    BrokenEntry, ConflictEntry, Keep, NO_CONFLICT, Other, SyncEntry, SyncOutcome, resolve,
+    resolve_files, sync_store,
+};
+pub use diff::{ConflictDiff, DiffLine, MAX_LINES};
 
 /// Which side of a unit changed since the last record, see the module documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -141,6 +155,13 @@ pub fn apply_one_sided(
     held: &dyn Fn(&SyncUnit) -> bool,
 ) -> Result<ApplyReport, KernelError> {
     locked(&project.root, || apply::apply(project, scan, held))
+}
+
+/// The diff of unit `key`'s two sides: the Studio's (its source) and DSPRE's (its members,
+/// exported in memory, never written). Field paths for the JSON of entities and text
+/// archives, lines for scripts, size and xxh3 for binary members and blobs.
+pub fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, KernelError> {
+    diff::conflict_diff(project, key)
 }
 
 /// Records every file the scan watches as it is now (adoption, import, export).

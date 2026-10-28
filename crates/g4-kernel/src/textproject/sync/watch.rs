@@ -292,6 +292,45 @@ impl<'a> Watch<'a> {
         vec![blob()]
     }
 
+    /// The unit a reported key names (see [`label`]): `None` for a key no unit has.
+    pub(super) fn of_key(&self, key: &str) -> Option<Of> {
+        let numbered_in = |prefix: &str, rest_ok: &dyn Fn(&str) -> bool| {
+            let name = key.strip_prefix(prefix)?;
+            let (n, rest) = numbered(name)?;
+            rest_ok(rest).then_some(n)
+        };
+        if let Some(member) =
+            numbered_in(&format!("{}/@", slash(&Art::Items.dir()).display()), &|r| {
+                r.is_empty()
+            })
+        {
+            let id = AssetId {
+                kind: AssetKind::Item,
+                index: member,
+            };
+            return self.has_unit(id).then_some(Of::Asset(id));
+        }
+        if key == format!("{}/", slash(&Art::Headers.dir()).display()) {
+            return self
+                .has_unit(HEADER_TABLE)
+                .then_some(Of::Asset(HEADER_TABLE));
+        }
+        if let Some(n) = numbered_in(&format!("{}/", scripts::SOURCE_ROOT), &|r| r.is_empty()) {
+            return self
+                .scripts
+                .as_ref()
+                .is_some_and(|s| s.contains(&n))
+                .then_some(Of::Script(n));
+        }
+        let rel = Path::new(key);
+        if !self.watches(rel) {
+            return None;
+        }
+        self.of(rel)
+            .into_iter()
+            .find(|of| !matches!(of, Of::Other(_)))
+    }
+
     /// The store's unit of `id`, looked up once.
     fn entity_unit(&self, id: AssetId) -> Result<Option<EntityUnit>, KernelError> {
         if let Some(unit) = self.units.borrow().get(&id) {

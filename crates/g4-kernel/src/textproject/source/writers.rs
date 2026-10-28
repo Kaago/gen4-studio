@@ -1,8 +1,8 @@
 //! The writers of each kind of unit: an entity of whole members, the item files of one item
 //! member, the header files, a binary member.
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
@@ -51,14 +51,21 @@ impl BasePart for SaveBase<'_> {
 
 /// Writes `files` (name → bytes) into folder `dir` (relative), each only when it changes, and
 /// deletes the other files of the entities `stems` there (old side files); every path written
-/// or deleted lands in `out.sources`.
+/// or deleted lands in `out.sources`. With `dry` the files only land there.
 fn put_files(
     root: &Path,
     dir: &Path,
     stems: &[u32],
     files: &[(String, Vec<u8>)],
     out: &mut SourceWrite,
+    dry: Option<&mut BTreeMap<PathBuf, Vec<u8>>>,
 ) -> Result<(), KernelError> {
+    if let Some(dry) = dry {
+        for (name, bytes) in files {
+            dry.insert(dir.join(name), bytes.clone());
+        }
+        return Ok(());
+    }
     for (name, bytes) in files {
         let rel = dir.join(name);
         if write_if_changed(root, &rel, bytes)? {
@@ -91,6 +98,9 @@ impl EntitySource {
     /// registers that change.
     fn christen(&mut self, project: &Project, out: &mut SourceWrite) -> Result<(), KernelError> {
         baptize_named(project, &mut self.symbols, &self.trainer_names)?;
+        if self.dry.is_some() {
+            return Ok(());
+        }
         for kind in REGISTERS {
             if self.symbols.registry_mut(kind).save(&self.root)?
                 && let Some(file) = registry_file(kind)
@@ -191,7 +201,14 @@ impl EntitySource {
             side: Vec::new(),
         };
         let files = entity_files(art, u32::from(index), &parts, &mut ctx)?;
-        put_files(&self.root, &art.dir(), &[u32::from(index)], &files, out)
+        put_files(
+            &self.root,
+            &art.dir(),
+            &[u32::from(index)],
+            &files,
+            out,
+            self.dry.as_mut(),
+        )
     }
 
     /// Writes the files of the item ids naming `member` from its bytes.
@@ -240,7 +257,14 @@ impl EntitySource {
             })
             .collect();
         files.append(&mut ctx.side);
-        put_files(&self.root, &Art::Items.dir(), &ids, &files, out)
+        put_files(
+            &self.root,
+            &Art::Items.dir(),
+            &ids,
+            &files,
+            out,
+            self.dry.as_mut(),
+        )
     }
 
     /// The `mapname.bin` records of `count` headers: from the header files as far as they go
@@ -353,7 +377,9 @@ impl EntitySource {
             let index = u32::try_from(i).unwrap_or(u32::MAX);
             for (file, bytes) in entity_files(Art::Headers, index, &parts, &mut ctx)? {
                 let rel = dir.join(file);
-                if write_if_changed(&self.root, &rel, &bytes)? {
+                if let Some(dry) = self.dry.as_mut() {
+                    dry.insert(rel, bytes);
+                } else if write_if_changed(&self.root, &rel, &bytes)? {
                     out.sources.push(rel);
                 }
             }
@@ -365,7 +391,7 @@ impl EntitySource {
     /// layer's, and deletes it where it equals it. Without base layer the base is the member a
     /// read found without file (its SHA-1), else unknown: the file is written.
     pub(super) fn write_binary(
-        &self,
+        &mut self,
         project: &Project,
         kind: AssetKind,
         index: u16,
@@ -376,6 +402,10 @@ impl EntitySource {
             return Ok(());
         };
         let rel = binary_rel(kind, index);
+        if let Some(dry) = self.dry.as_mut() {
+            dry.insert(rel, bytes.to_vec());
+            return Ok(());
+        }
         let is_base = match &self.layer {
             Some(layer) => layer.member(project, kind, index)?.as_deref() == Some(bytes),
             None => self

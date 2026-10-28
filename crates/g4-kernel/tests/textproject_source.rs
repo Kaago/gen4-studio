@@ -11,9 +11,12 @@ use std::time::Instant;
 
 use g4_kernel::base::BaseRom;
 use g4_kernel::build;
-use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::store::Store;
-use g4_kernel::textproject::sync::{UnitSide, apply_one_sided, record_all, scan};
+use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::store::{Store, trainer_pair_bytes};
+use g4_kernel::textproject::source::EntitySource;
+use g4_kernel::textproject::sync::{
+    Keep, UnitSide, apply_one_sided, conflict_diff, record_all, resolve, scan, sync_store,
+};
 use g4_kernel::textproject::{ExportOptions, export, sources};
 
 /// The xxh3 of every source file of the text project at `root`.
@@ -217,4 +220,124 @@ fn simulated_dspre_change_is_adopted_one_sided() {
         assert!(stat_ms <= 500, "focus scan: {stat_ms} ms > 500 ms");
         assert!(one_ms <= 1000, "one change: {one_ms} ms > 1000 ms");
     }
+}
+
+/// The level of trainer 1's first party Pokémon in its JSON.
+fn json_level(path: &Path) -> u64 {
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    json["data"]["party"][0]["level"].as_u64().unwrap()
+}
+
+#[test]
+fn simulated_change_on_both_sides_is_a_conflict_and_both_choices_work() {
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let (check, _mark) = g4_kernel::start::assign_base(&root, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    let base = BaseRom::open(&nds, None).unwrap();
+    export(
+        &Project::open(&root).unwrap(),
+        &base,
+        &ExportOptions {
+            adopt_scripts: true,
+        },
+    )
+    .unwrap();
+    let project = Arc::new(Project::open(&root).unwrap());
+    record_all(&project).unwrap();
+    // As on opening the project: one scan, taken over (nothing to take).
+    let first = scan(&project, &mut |_| {}).unwrap();
+    apply_one_sided(&project, &first, &|_| false).unwrap();
+    let mut store = Store::new(Arc::clone(&project));
+    let trainer = AssetId {
+        kind: AssetKind::Trainer,
+        index: 1,
+    };
+    store.trainer(1).unwrap();
+
+    let key = "data/trainers/0001.json";
+    let json = root.join(key);
+    let props = project.member_path(AssetKind::TrainerProperties, 1);
+    let party = project.member_path(AssetKind::TrainerParty, 1);
+    let member_level = || {
+        let bytes = std::fs::read(&party).unwrap();
+        u64::from(u16::from_le_bytes([bytes[2], bytes[3]]))
+    };
+    for keep in [Keep::Studio, Keep::Dspre] {
+        // The JSON and DSPRE give the first Pokémon different levels.
+        let level = json_level(&json);
+        let (studio, dspre) = (level + 1, level + 2);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&json).unwrap()).unwrap();
+        value["data"]["party"][0]["level"] = studio.into();
+        let mut text = serde_json::to_vec_pretty(&value).unwrap();
+        text.push(b'\n');
+        std::fs::write(&json, text).unwrap();
+        let mut bytes = std::fs::read(&party).unwrap();
+        bytes[2..4].copy_from_slice(&u16::try_from(dspre).unwrap().to_le_bytes());
+        std::fs::write(&party, bytes).unwrap();
+
+        let found = scan(&project, &mut |_| {}).unwrap();
+        let outcome = sync_store(&mut store, found).unwrap();
+        assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+        assert_eq!(outcome.conflicts[0].key, key);
+        assert!(!outcome.conflicts[0].unsaved);
+        let diff = conflict_diff(&project, key).unwrap();
+        eprintln!("conflict {keep:?} {:?}", diff.lines);
+        assert!(
+            diff.lines.iter().any(|l| l.path == "data.party[0].level"
+                && l.studio == studio.to_string()
+                && l.dspre == dspre.to_string()),
+            "{diff:?}"
+        );
+
+        let reloaded = resolve(&mut store, key, keep).unwrap();
+        assert_eq!(reloaded, [trainer], "the loaded trainer is loaded anew");
+        match keep {
+            Keep::Studio => {
+                assert_eq!(member_level(), studio);
+                assert_eq!(json_level(&json), studio);
+                // The members are the import of the JSON.
+                let from_json = EntitySource::open(&project)
+                    .unwrap()
+                    .read(&project, trainer)
+                    .unwrap()
+                    .unwrap();
+                let on_disk = trainer_pair_bytes(
+                    &std::fs::read(&props).unwrap(),
+                    &std::fs::read(&party).unwrap(),
+                );
+                assert_eq!(from_json, on_disk);
+            }
+            Keep::Dspre => {
+                assert_eq!(json_level(&json), dspre);
+                assert_eq!(member_level(), dspre);
+                // The JSON is the export of the members.
+                let diff = conflict_diff(&project, key).unwrap();
+                assert!(diff.lines.is_empty(), "{diff:?}");
+            }
+        }
+        assert_eq!(
+            store.current_bytes(trainer).unwrap(),
+            EntitySource::open(&project)
+                .unwrap()
+                .read(&project, trainer)
+                .unwrap()
+        );
+        let after = scan(&project, &mut |_| {}).unwrap();
+        let open: Vec<_> = after
+            .units
+            .iter()
+            .filter(|u| u.side != UnitSide::InSync)
+            .collect();
+        assert!(open.is_empty(), "{open:?}");
+        apply_one_sided(&project, &after, &|_| false).unwrap();
+    }
+
+    let out = tmp.path().join("resolved.nds");
+    build::build(&Project::open(&root).unwrap(), &out).unwrap();
 }

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::build::fingerprint::{Fp, capture_hashed, now_ns, same_stat, stat};
+use crate::build::fingerprint::{Fp, capture_hashed, hash, is_racy, now_ns, same_stat, stat};
 use crate::build::state::{BuildState, SyncRecord};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, Project};
@@ -43,6 +43,16 @@ pub(super) fn apply(
     scan: &ScanReport,
     held: &dyn Fn(&SyncUnit) -> bool,
 ) -> Result<ApplyReport, KernelError> {
+    apply_keys(project, scan, held).map(|(report, _)| report)
+}
+
+/// [`apply`], with the keys of every unit taken over (also those recorded without being
+/// reported, a script source rotom compiles).
+pub(super) fn apply_keys(
+    project: &Project,
+    scan: &ScanReport,
+    held: &dyn Fn(&SyncUnit) -> bool,
+) -> Result<(ApplyReport, Vec<String>), KernelError> {
     let start = Instant::now();
     let watch = Watch::new(project)?;
     let layer = OnceCell::new();
@@ -131,26 +141,34 @@ pub(super) fn apply(
         }
     }
     report.ms = ms_since(start);
-    Ok(report)
+    let keys = taken.iter().map(|u| u.key.clone()).collect();
+    Ok((report, keys))
 }
 
-/// Whether a file of `unit` has another `stat` than the scan saw (written since, by DSPRE
-/// or by hand): the unit is not taken over and stays unrecorded, the next scan judges it
-/// anew.
+/// Whether a file of `unit` is no longer what the scan saw (written since, by DSPRE or by
+/// hand): the unit is not taken over and stays unrecorded, the next scan judges it anew.
 fn moved_since(project: &Project, scan: &ScanReport, unit: &SyncUnit) -> Result<bool, KernelError> {
     for rel in unit.sources.iter().chain(&unit.members) {
         let seen = scan.seen.get(&key(rel)).copied().flatten();
-        let now = stat(&project.root.join(rel))?;
-        let moved = match (seen, now) {
-            (None, None) => false,
-            (Some(seen), Some(now)) => !same_stat(&seen, &now),
-            _ => true,
-        };
-        if moved {
+        if moved(&project.root.join(rel), seen, scan.scanned_at_ns)? {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+/// Whether file `path` moved since a scan at `scanned_at_ns` saw it as `seen` (`None`: no
+/// file): another `stat`, or a `stat` in the scan's racy window (a write in the same
+/// timestamp keeps it) whose content is not the hash the scan took; without that hash it
+/// counts as moved.
+fn moved(path: &Path, seen: Option<Fp>, scanned_at_ns: i128) -> Result<bool, KernelError> {
+    Ok(match (seen, stat(path)?) {
+        (None, None) => false,
+        (Some(seen), Some(now)) if same_stat(&seen, &now) => {
+            is_racy(&seen, scanned_at_ns) && seen.xxh3 != Some(hash(path)?)
+        }
+        _ => true,
+    })
 }
 
 /// A script member DSPRE changed: decompiled into its source, with the compile state entry
@@ -302,8 +320,8 @@ fn record(
 ) -> Result<(), KernelError> {
     let mut entries: BTreeMap<String, Option<Fp>> = BTreeMap::new();
     let mut capture: BTreeSet<PathBuf> = BTreeSet::new();
-    // Files of units in step the scan saw without a hash (a full scan, a new size): hashed
-    // now, recorded only while their `stat` is still the one the scan judged.
+    // Files of units in step, as the scan saw them: recorded only while they are still what
+    // the scan judged.
     let mut confirm: BTreeMap<PathBuf, Option<Fp>> = BTreeMap::new();
     // Every file of a unit that stays unrecorded (a conflict, a broken or held unit, one not
     // taken over): another unit sharing the file (`arm9.bin` is the header table's and a
@@ -335,20 +353,7 @@ fn record(
             if held_back.contains(&k) {
                 continue;
             }
-            match scan.seen.get(&k) {
-                Some(Some(fp)) if fp.xxh3.is_some() => {
-                    entries.insert(k, Some(*fp));
-                }
-                Some(None) => {
-                    entries.insert(k, None);
-                }
-                Some(Some(fp)) => {
-                    confirm.insert(rel.clone(), Some(*fp));
-                }
-                None => {
-                    confirm.insert(rel.clone(), None);
-                }
-            }
+            confirm.insert(rel.clone(), scan.seen.get(&k).copied().flatten());
         }
     }
     for unit in taken {
@@ -364,16 +369,23 @@ fn record(
         if !watch.watches(&rel) {
             continue;
         }
-        let now = capture_hashed(&project.root.join(&rel))?;
-        let unchanged = match (&seen, &now) {
-            (None, None) => true,
-            (Some(seen), Some(now)) => same_stat(seen, now),
-            _ => false,
+        let path = project.root.join(&rel);
+        let entry = match (seen, stat(&path)?) {
+            (None, None) => None,
+            (Some(seen), Some(now)) if same_stat(&seen, &now) => match seen.xxh3 {
+                // The content the scan judged (racy or not: a racy entry is compared by
+                // content next time).
+                Some(_) => Some(seen),
+                // A racy `stat` without the content's hash proves nothing: as moved.
+                None if is_racy(&seen, scan.scanned_at_ns) => None,
+                None => capture_hashed(&path)?,
+            },
+            // Gone since the scan: the old entry stays, the next scan finds it removed.
+            (Some(_), None) => continue,
+            // Written since the scan: no entry, the next scan judges the file as added.
+            (_, Some(_)) => None,
         };
-        // Written since the scan: left as it was recorded, the next scan judges it.
-        if unchanged {
-            entries.insert(key(&rel), now);
-        }
+        entries.insert(key(&rel), entry);
     }
     capture.extend(written.iter().cloned());
     for rel in capture {
@@ -382,10 +394,29 @@ fn record(
         }
     }
     entries.retain(|k, _| watch.watches(Path::new(k)));
+    let records = entries.values().any(Option::is_some);
+    if !entries.is_empty() || scan.scanned_at_ns != 0 {
+        record_sync(project, scan.scanned_at_ns, entries, records)?;
+    }
+    record_text_sync(project, &scan.texts)
+}
+
+/// Writes `entries` (`None` removes one) into the sync record, and the scan time `at_ns`
+/// unless it is 0. A project without a sync record gets one only when an entry is recorded
+/// (`records`): a record that holds nothing would make the next scan look partial.
+fn record_sync(
+    project: &Project,
+    at_ns: i128,
+    entries: BTreeMap<String, Option<Fp>>,
+    records: bool,
+) -> Result<(), KernelError> {
     BuildState::update(&project.root, |state| {
+        if state.sync.is_none() && !records {
+            return;
+        }
         let sync = state.sync.get_or_insert_with(SyncRecord::default);
-        if scan.scanned_at_ns != 0 {
-            sync.scanned_at_ns = scan.scanned_at_ns;
+        if at_ns != 0 {
+            sync.scanned_at_ns = at_ns;
         }
         for (k, fp) in entries {
             match fp {
@@ -397,8 +428,7 @@ fn record(
                 }
             }
         }
-    })?;
-    record_text_sync(project, &scan.texts)
+    })
 }
 
 pub(super) fn record_all(project: &Project) -> Result<u32, KernelError> {

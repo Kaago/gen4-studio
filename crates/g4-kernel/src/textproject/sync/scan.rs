@@ -31,12 +31,15 @@ const PROGRESS_EVERY: usize = 256;
 
 /// How file `path` compares with its `recorded` fingerprint (of the scan at
 /// `recorded_scan_ns`), the fingerprint seen now and whether the file was hashed: like
-/// [`compare`](crate::build::fingerprint::compare), but a file without a record is not hashed
-/// (the record hashes it), and the hashing is counted.
+/// [`compare`](crate::build::fingerprint::compare) for this scan at `at_ns`, and the hashing
+/// is counted. A file without a record or with a new size is hashed only when its `stat` is
+/// racy for this scan, so the takeover can tell a write after the scan in the same timestamp
+/// (the record hashes the others).
 fn judge(
     path: &Path,
     recorded: Option<&Fp>,
     recorded_scan_ns: i128,
+    at_ns: i128,
 ) -> Result<(Seen, Option<Fp>, bool), KernelError> {
     let Some(mut now) = stat(path)? else {
         let seen = if recorded.is_some() {
@@ -46,12 +49,22 @@ fn judge(
         };
         return Ok((seen, None, false));
     };
-    let Some(recorded) = recorded else {
-        return Ok((Seen::Added, Some(now), false));
+    let recorded = match recorded {
+        Some(recorded) if recorded.size == now.size => recorded,
+        // No record, or a new size: changed outright.
+        _ => {
+            let racy = is_racy(&now, at_ns);
+            if racy {
+                now.xxh3 = Some(hash(path)?);
+            }
+            let seen = if recorded.is_some() {
+                Seen::Changed
+            } else {
+                Seen::Added
+            };
+            return Ok((seen, Some(now), racy));
+        }
     };
-    if now.size != recorded.size {
-        return Ok((Seen::Changed, Some(now), false));
-    }
     if same_stat(&now, recorded) && !is_racy(recorded, recorded_scan_ns) {
         return Ok((Seen::Same, Some(*recorded), false));
     }
@@ -125,7 +138,8 @@ pub(super) fn scan(
         }
         let k = key(rel);
         let recorded = record.and_then(|r| r.files.get(&k));
-        let (verdict, fp, was_hashed) = judge(&project.root.join(rel), recorded, recorded_scan)?;
+        let (verdict, fp, was_hashed) =
+            judge(&project.root.join(rel), recorded, recorded_scan, at)?;
         hashed += u32::from(was_hashed);
         if verdict != Seen::Same || fp.as_ref() != recorded {
             changed.push(rel);
@@ -306,7 +320,7 @@ fn what(of: &Of) -> &'static str {
 }
 
 /// Whether `kind` is one of the binary kinds (no JSON, `data/<art>/NNNN.<ext>`).
-fn is_binary(kind: AssetKind) -> bool {
+pub(super) fn is_binary(kind: AssetKind) -> bool {
     matches!(
         kind,
         AssetKind::MapTexture
@@ -316,7 +330,7 @@ fn is_binary(kind: AssetKind) -> bool {
     )
 }
 
-fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+pub(super) fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

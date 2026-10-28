@@ -509,7 +509,11 @@ mit **allen** seinen Dateien: Eine abgeglichene Einheit, die eine davon teilt (`
 Header-Tabelle und als Blob sich selbst), zeichnet sie nicht auf, und ein geändertes Manifest oder
 Register bleibt unaufgezeichnet, solange eine Entität offen ist. Eine Einheit, deren Dateien seit
 dem Scan einen anderen `stat` haben, übernimmt der Abgleich nicht und zeichnet sie nicht auf; der
-nächste Scan urteilt neu. Eine Script-Quelle gilt als geändert, solange ihr Hash nicht der ist, den
+nächste Scan urteilt neu; ebenso eine Datei, deren `stat` im racy Fenster des Scans liegt und deren
+Inhalt nicht mehr der Hash ist, den der Scan nahm (eine neue oder in der Größe geänderte Datei mit
+racy `stat` hasht der Scan dafür gleich). Eine abgeglichene Datei, die seit dem Scan geschrieben
+wurde, verliert ihren Eintrag, sodass der nächste Scan sie als neu beurteilt. Eine Übernahme, die
+nichts aufzeichnet, legt keine leere Aufzeichnung an. Eine Script-Quelle gilt als geändert, solange ihr Hash nicht der ist, den
 rotoms Compile-Zustand nennt (noch nicht übersetzt): Ändert DSPRE inzwischen den Member, ist das ein
 Konflikt, kein Dekompilieren über die Bearbeitung; eine geänderte Quelle allein wird aufgezeichnet,
 aber nicht als übernommen gemeldet. Ein Register oder Manifest, das sich nicht lesen lässt, ist
@@ -520,6 +524,29 @@ Aufzeichnung vor, sodass kurz vorher aufgezeichnete (racy) Einträge danach alle
 verglichen werden. Der Fortschritt zählt die Dateien und danach die Einheiten.
 
 Scan und Übernahme eines Projekts laufen nacheinander (eine Sperre je Projektwurzel im Prozess).
+
+**Ungespeicherte Werte.** Mit dem Store (`sync_store`) wird eine Einheit mit einem ungespeicherten
+Asset nie übernommen und das Asset nie neu geladen: Jede Änderung von außen daran ist ein Konflikt
+mit `unsaved`. Übernommene Einheiten laden ihre geladenen, sauberen Assets neu (`reloaded`).
+
+**Konflikte und Wahl.** Konflikt ist eine Einheit, die auf beiden Seiten geändert ist, oder eine
+einseitig geänderte mit ungespeichertem Asset. `other` ist `files`, wenn nur die Quelle von außen
+geändert ist (mit ungespeichertem Asset), sonst `dspre`. `conflict_diff` zeigt beide Seiten: die
+Quelle auf der Platte gegen die Member, in den Speicher exportiert (nie geschrieben); JSON nach
+Feldpfad (`data.power`, `messages[2].text`, bei Einheiten mit mehreren Dateien mit dem Dateinamen
+davor: `0003.json · data.music_day_id`) mit beiden Werten als kompaktes JSON (`fehlt` für eine
+fehlende Seite), Scripts zeilenweise (`Zeile 12`, drei Zeilen Umgebung), Binärmember, Beifiles und
+Blobs nach `Größe` und `xxh3`; höchstens 40 Zeilen, der Rest als Zahl (`more`). Die Wahl
+(`resolve`, ohne Store `resolve_files`) prüft mit einem Scan, dass die Einheit noch Konflikt ist
+(sonst „Für diese Einheit gibt es keinen Konflikt mehr.“), und zeichnet die Einheit danach auf:
+
+| Konflikt | Studio-Fassung behalten | andere Fassung übernehmen |
+|---|---|---|
+| beide Seiten, oder DSPRE mit ungespeichertem Asset (`other = dspre`) | Member aus der Quelle; Ungespeichertes bleibt ungespeichert; saubere geladene Assets, deren Quelle sich änderte, werden neu geladen | Quelle aus den Membern; alle geladenen Assets werden neu geladen, Ungespeichertes fällt weg |
+| Quelle mit ungespeichertem Asset (`other = files`) | Member aus der geänderten Quelle, die der neue Stand des Stores wird (`accept_disk_as_base`): Das nächste Speichern überschreibt sie ohne `Stale` | Member aus der geänderten Quelle; die Assets werden neu geladen, Ungespeichertes fällt weg |
+
+Ein Text folgt `resolve_conflict` (`Json` bzw. `Member`), ein Script behält seine Quelle (rotom
+übersetzt sie beim Build) bzw. wird aus dem Member dekompiliert, ein Blob wird kopiert.
 
 ## Schema-Version und Migration
 

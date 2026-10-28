@@ -1193,6 +1193,15 @@ pub fn decompile_member(
     Ok(Some((source, decompiled.quirks)))
 }
 
+/// The source rotom decompiles member `bytes` to, as the text a reset writes; `None` when it
+/// does not decompile them.
+pub(crate) fn decompiled_text(
+    project: &Project,
+    bytes: &[u8],
+) -> Result<Option<String>, KernelError> {
+    Ok(decompile_text(project, bytes)?.map(|d| d.text))
+}
+
 /// rotom's compile state of the project (`<status_dir>/compile-state.json`).
 fn state_path(project: &Project) -> Result<PathBuf, KernelError> {
     Ok(load_config(project)?

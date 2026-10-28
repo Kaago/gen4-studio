@@ -1009,6 +1009,11 @@ impl Store {
         &self.project
     }
 
+    /// The store's project, shared (for work on its files while the store changes).
+    pub(crate) fn project_arc(&self) -> Arc<Project> {
+        Arc::clone(&self.project)
+    }
+
     /// Locale key of the text language shown in the editor.
     fn lang(&self) -> &'static str {
         self.project.language.locale_key()

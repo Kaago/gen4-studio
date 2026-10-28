@@ -79,6 +79,9 @@ pub struct EntityUnit {
     pub assets: Vec<AssetId>,
 }
 
+/// The bytes of an asset's two sides, its source's and its member's (`None`: none).
+pub(crate) type Sides = (Option<Vec<u8>>, Option<Vec<u8>>);
+
 /// What a write did: the files under `data/` it wrote or deleted (`sources`, sorted), the
 /// registers a baptism changed and whether the include file of the ids changed.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -191,6 +194,9 @@ pub struct EntitySource {
     /// Whether a write of the header table takes every internal name from `mapname.bin`
     /// instead of the header files ([`EntitySource::take_members`]).
     names_from_disk: bool,
+    /// While a write only exports into memory ([`EntitySource::export_members`]): the files
+    /// it would write (relative to the root); nothing is written, deleted or recorded.
+    dry: Option<BTreeMap<PathBuf, Vec<u8>>>,
 }
 
 impl EntitySource {
@@ -213,6 +219,7 @@ impl EntitySource {
             binary_sha1: HashMap::new(),
             trainer_names: BTreeMap::new(),
             names_from_disk: false,
+            dry: None,
         };
         source.refresh(project)?;
         Ok(source)
@@ -426,6 +433,9 @@ impl EntitySource {
             }
             members.extend(place_members(project, place)?);
         }
+        if self.dry.is_some() {
+            return Ok(out);
+        }
         if !out.registers.is_empty() {
             out.include = write_include(project)?;
         }
@@ -521,6 +531,40 @@ impl EntitySource {
         let written = self.write(project, &writes, &|_| None);
         self.names_from_disk = false;
         written
+    }
+
+    /// The two sides of binary asset `id`: its file under `data/` (the base's member when
+    /// there is none) and its member on disk.
+    pub(crate) fn binary_sides(
+        &mut self,
+        project: &Project,
+        id: AssetId,
+    ) -> Result<Sides, KernelError> {
+        Ok((self.read(project, id)?, disk_bytes(project, id)?))
+    }
+
+    /// The files [`EntitySource::take_members`] would write for the units of `assets`
+    /// (relative to the root, with their bytes; every file of a unit, changed or not), exported
+    /// into memory: nothing is written, christened on disk or recorded.
+    pub(crate) fn export_members(
+        &mut self,
+        project: &Project,
+        assets: &[AssetId],
+    ) -> Result<BTreeMap<PathBuf, Vec<u8>>, KernelError> {
+        self.dry = Some(BTreeMap::new());
+        let exported = self.take_members(project, assets);
+        let files = self.dry.take().unwrap_or_default();
+        // The symbols may hold ids christened in memory only: read again.
+        self.stamps = stamps(project);
+        match Symbols::load(&self.root) {
+            Ok(symbols) => self.symbols = symbols,
+            Err(e) => {
+                exported?;
+                return Err(e);
+            }
+        }
+        exported?;
+        Ok(files)
     }
 }
 
