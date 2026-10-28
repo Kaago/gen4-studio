@@ -83,7 +83,8 @@ pub(super) fn scan(
         Err(KernelError::Compile(problems)) => {
             return Ok(ScanReport {
                 units: vec![manifest_unit(problems)],
-                scanned_at_ns: now_ns(),
+                // Nothing was compared: the record's scan time stays.
+                scanned_at_ns: 0,
                 ms: ms_since(start),
                 ..ScanReport::default()
             });
@@ -384,14 +385,14 @@ impl Judge<'_> {
             Of::Script(n) => self.script(unit, n, source, member)?,
             Of::Blob(file) => self.blob(unit, &file, source, member)?,
             Of::Quirks => self.quirks()?,
-            Of::Global(file) => self.global_file(&file),
+            Of::Global(file) => self.global_file(&file)?,
             Of::Other(_) => (UnitSide::InSync, Vec::new()),
         }))
     }
 
     /// A changed manifest or register: broken with its problems when it does not read.
-    fn global_file(&mut self, file: &Path) -> Judged {
-        let problems = match self.entities() {
+    fn global_file(&mut self, file: &Path) -> Result<Judged, KernelError> {
+        let problems = match self.entities()? {
             Ok(_) => Vec::new(),
             Err(problems) => problems.clone(),
         };
@@ -400,27 +401,28 @@ impl Judge<'_> {
             .filter(|p| p.file == file)
             .cloned()
             .collect();
-        if mine.is_empty() {
+        Ok(if mine.is_empty() {
             (UnitSide::InSync, Vec::new())
         } else {
             (UnitSide::Broken, mine)
-        }
+        })
     }
 
     /// The entities' source, opened once; the problems of a register or manifest that does
-    /// not read.
-    fn entities(&mut self) -> Result<&mut EntitySource, &Vec<Problem>> {
+    /// not read. Any other failure to open it (reading a file) fails the scan.
+    #[allow(clippy::type_complexity)]
+    fn entities(&mut self) -> Result<Result<&mut EntitySource, &Vec<Problem>>, KernelError> {
         if self.source.is_none() {
             self.source = Some(match EntitySource::open(self.project) {
                 Ok(source) => Ok(source),
                 Err(KernelError::Compile(problems)) => Err(problems),
-                Err(e) => Err(vec![plain(Path::new(MANIFEST_FILE), e.to_string())]),
+                Err(e) => return Err(e),
             });
         }
-        match self.source.as_mut().expect("opened") {
+        Ok(match self.source.as_mut().expect("opened") {
             Ok(source) => Ok(source),
             Err(problems) => Err(problems),
-        }
+        })
     }
 
     /// A JSON source of `unit` deleted since the record while its members stay: deleting is
@@ -478,7 +480,7 @@ impl Judge<'_> {
             }
         }
         let project = self.project;
-        let entities = match self.entities() {
+        let entities = match self.entities()? {
             Ok(entities) => entities,
             // Without readable registers nothing reads; an entity of its own change is broken
             // with their problems, one judged only for the register waits.

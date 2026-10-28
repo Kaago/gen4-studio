@@ -302,6 +302,9 @@ fn record(
 ) -> Result<(), KernelError> {
     let mut entries: BTreeMap<String, Option<Fp>> = BTreeMap::new();
     let mut capture: BTreeSet<PathBuf> = BTreeSet::new();
+    // Files of units in step the scan saw without a hash (a full scan, a new size): hashed
+    // now, recorded only while their `stat` is still the one the scan judged.
+    let mut confirm: BTreeMap<PathBuf, Option<Fp>> = BTreeMap::new();
     // Every file of a unit that stays unrecorded (a conflict, a broken or held unit, one not
     // taken over): another unit sharing the file (`arm9.bin` is the header table's and a
     // blob) must not record it, or the change would vanish. A changed manifest or register
@@ -339,8 +342,11 @@ fn record(
                 Some(None) => {
                     entries.insert(k, None);
                 }
-                _ => {
-                    capture.insert(rel.clone());
+                Some(Some(fp)) => {
+                    confirm.insert(rel.clone(), Some(*fp));
+                }
+                None => {
+                    confirm.insert(rel.clone(), None);
                 }
             }
         }
@@ -352,6 +358,21 @@ fn record(
         if let Some(now) = watch.unit(&of_unit(&unit.key, &unit.assets))? {
             capture.extend(now.sources);
             capture.extend(now.members);
+        }
+    }
+    for (rel, seen) in confirm {
+        if !watch.watches(&rel) {
+            continue;
+        }
+        let now = capture_hashed(&project.root.join(&rel))?;
+        let unchanged = match (&seen, &now) {
+            (None, None) => true,
+            (Some(seen), Some(now)) => same_stat(seen, now),
+            _ => false,
+        };
+        // Written since the scan: left as it was recorded, the next scan judges it.
+        if unchanged {
+            entries.insert(key(&rel), now);
         }
     }
     capture.extend(written.iter().cloned());

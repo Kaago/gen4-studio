@@ -653,3 +653,40 @@ fn export_and_import_record_the_sync() {
     settle(&fx);
     assert!(scan_of(&fx).units.is_empty());
 }
+
+#[test]
+fn a_file_written_after_a_full_scan_is_not_recorded_as_in_step() {
+    let fx = TextFixture::exported();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    let report = scan_of(&fx);
+    assert!(report.full);
+    // DSPRE saves between the full scan and its takeover.
+    let mut member = fx.read(MOVE_1_MEMBER);
+    member[3] += 1;
+    fx.write(MOVE_1_MEMBER, &member);
+    apply_of(&fx, &report);
+    let sync = sync_of(&fx);
+    assert!(sync.files.contains_key(MOVE_1_JSON));
+    assert!(
+        !sync.files.contains_key(MOVE_1_MEMBER),
+        "the member written after the scan is not recorded"
+    );
+    let again = scan_of(&fx);
+    assert_eq!(
+        side_of(&again, MOVE_1_JSON),
+        Some(UnitSide::Dspre),
+        "{:?}",
+        again.units
+    );
+}
+
+#[test]
+fn a_broken_manifest_leaves_the_scan_time_alone() {
+    let fx = recorded();
+    let before = sync_of(&fx).scanned_at_ns;
+    fx.write("g4-project.json", b"{ not json");
+    let report = scan_of(&fx);
+    assert_eq!(report.scanned_at_ns, 0);
+    apply_of(&fx, &report);
+    assert_eq!(sync_of(&fx).scanned_at_ns, before);
+}
