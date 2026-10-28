@@ -903,6 +903,9 @@ pub struct Store {
     /// The entity JSON of a text project ([`Location::Entity`]), opened on first use; never
     /// outside a text project of the current schema.
     source: Option<EntitySource>,
+    /// While set, every write is refused with [`KernelError::Busy`] and this reason
+    /// ([`Store::set_busy`]).
+    busy: Option<String>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -975,8 +978,29 @@ impl Store {
                 .map(|meta| meta.seen_id()),
             text_sync: Mutex::new(None),
             source: None,
+            busy: None,
             project,
         }
+    }
+
+    /// Refuses every write (edits, appends, new headers, the header patch, undo, redo, save)
+    /// with [`KernelError::Busy`] and `why` while something else writes the project's files
+    /// (the app sets up the text project); `None` lifts it. Reading goes on.
+    pub fn set_busy(&mut self, why: Option<String>) {
+        self.busy = why;
+    }
+
+    /// Why the store refuses writes now ([`Store::set_busy`]).
+    pub fn busy(&self) -> Option<&str> {
+        self.busy.as_deref()
+    }
+
+    /// `Ok` when the store may write: not busy, and the project editable.
+    fn writable(&self) -> Result<(), KernelError> {
+        if let Some(why) = &self.busy {
+            return Err(KernelError::Busy(why.clone()));
+        }
+        self.project.editable()
     }
 
     /// The entity source of the project, opened on first use (see [`EntitySource::open`]).
@@ -1298,7 +1322,7 @@ impl Store {
         barrier: Option<&str>,
         f: impl FnOnce(&mut Tx<'_>) -> Result<T, KernelError>,
     ) -> Result<(T, ChangeId, bool), KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         let mut tx = Tx {
             store: self,
             staged: Vec::new(),
@@ -1487,7 +1511,7 @@ impl Store {
     /// Index and path of the next member of the archive of `kind`, which is unpacked first.
     /// Refuses a full archive and a path that is taken, and a project that may not be edited.
     fn next_member(&mut self, kind: AssetKind) -> Result<(u16, PathBuf), KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         self.ensure_unpacked(kind)?;
         let count = self.member_count(kind)?;
         // Map ids are stored in matrices, where 0xFFFF marks an empty cell.
@@ -1689,7 +1713,7 @@ impl Store {
     /// in `arm9.bin` is no longer the one this store loaded (the patch would otherwise bake
     /// the old table over the newer one). A table that was not loaded yet is read fresh.
     pub fn apply_dynamic_headers(&mut self) -> Result<Option<PathBuf>, KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         let lang = self.lang();
         let saved = match self.assets.get(&HEADER_TABLE) {
             Some(asset) => {
@@ -1734,7 +1758,7 @@ impl Store {
         template: u16,
         internal_name: &str,
     ) -> Result<u16, KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         if !self.dynamic_headers_applied()? {
             return Err(KernelError::InvalidProject(
                 "new headers need the Dynamic Headers patch, apply the patch first".to_owned(),
@@ -2571,7 +2595,7 @@ impl Store {
     /// barrier (see [`Store::barrier_transaction`]) is [`KernelError::Refused`] with its
     /// reason, and nothing changes.
     pub fn undo(&mut self) -> Result<Vec<AssetId>, KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         if let Some(reason) = self.undo.last().and_then(|c| c.barrier.as_ref()) {
             return Err(KernelError::Refused(reason.clone()));
         }
@@ -2596,7 +2620,7 @@ impl Store {
     /// to redo. Errors as with [`Store::undo`]: a file changed since the undo drops the
     /// changeset, any other error keeps it on the redo stack.
     pub fn redo(&mut self) -> Result<Vec<AssetId>, KernelError> {
-        self.project.editable()?;
+        self.writable()?;
         let Some(change) = self.redo.pop() else {
             return Ok(Vec::new());
         };
@@ -2782,6 +2806,9 @@ impl Store {
     /// now), and then both are recorded for the sync ([`record_paths`]).
     pub fn save(&mut self) -> Result<SaveReport, KernelError> {
         let family = self.project.family;
+        if let Some(why) = &self.busy {
+            return Err(KernelError::Busy(why.clone()));
+        }
         if !self.dirty().is_empty() {
             self.project.editable()?;
         }

@@ -138,20 +138,20 @@ pub(crate) fn found_base(state: &AppState, root: &Path) -> Result<(BaseMark, Loc
 
 /// The base ROM of the open project; searches it like the patch does.
 pub fn base_status_impl(state: &AppState) -> Result<BaseStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(base_of(state, &project.root).dto(&project))
 }
 
 /// Checks the `.nds` at `nds` as the base ROM of the open project; writes nothing.
 pub fn check_base_impl(state: &AppState, nds: &str) -> Result<BaseCheck, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(start::check_base(&project.root, Path::new(nds))?)
 }
 
 /// Whether `assign_base_impl` would take the `.nds` at `nds` (its check, or the refusal it
 /// would answer); writes nothing.
 pub fn check_assign_impl(state: &AppState, nds: &str) -> Result<BaseCheck, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(start::check_assign(&project.root, Path::new(nds))?)
 }
 
@@ -160,7 +160,7 @@ pub fn check_assign_impl(state: &AppState, nds: &str) -> Result<BaseCheck, CmdEr
 /// A ROM that cannot be remembered is searched for again later; a grant that cannot be moved
 /// is `partial`, since the mark is written.
 pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let root = &project.root;
     let before = ProjectKey::of(root)?;
     let nds = Path::new(nds);
@@ -183,7 +183,7 @@ pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, Cm
 /// only when it has the SHA-1 of the mark; another ROM is refused and the remembered entry
 /// stays as it was.
 pub fn register_base_rom_impl(state: &AppState, path: &str) -> Result<BaseStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let mark = match start::mark_state(&project.root) {
         MarkState::Present(mark) => mark,
         MarkState::Missing => return Err(NO_MARK.into()),
@@ -218,7 +218,7 @@ pub(crate) fn create_patch_checked(
     state: &AppState,
     check: &dyn Fn(&PatchTargets) -> Result<(), CmdError>,
 ) -> Result<PatchDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let (mark, hit) = found_base(state, &project.root)?;
     let targets = patch::default_targets(&project);
     check(&targets)?;
@@ -230,7 +230,7 @@ pub(crate) fn create_patch_checked(
     })?;
     let build = super::build_rom_impl(state, rom, false)?;
     // The build takes the session as it is then: another project opened meanwhile was built.
-    if !Arc::ptr_eq(&open_project(state)?, &project) {
+    if !Arc::ptr_eq(&super::open_project_arc(state)?, &project) {
         return Err(
             "Das Projekt wurde während des Exports gewechselt; kein Patch erstellt.".into(),
         );
@@ -248,26 +248,21 @@ pub(crate) fn create_patch_checked(
 /// Where `create_patch` writes in the open project (`build/<Name>.nds`, `.xdelta`).
 #[cfg(test)]
 pub(crate) fn patch_targets(state: &AppState) -> Result<PatchTargets, CmdError> {
-    Ok(patch::default_targets(&*open_project(state)?))
+    Ok(patch::default_targets(&*super::open_project_arc(state)?))
 }
 
 /// The `.nds` DSPRE unpacked the open project from, canonical, unless it is an original.
 #[cfg(test)]
 pub(crate) fn suggested_base(state: &AppState) -> Option<PathBuf> {
-    suggestion(state, &open_project(state).ok()?.root)
+    suggestion(state, &super::open_project_arc(state).ok()?.root)
 }
 
 /// [`suggested_base`], if `nds` (relative to the project folder) names it.
 pub(crate) fn suggested_base_named(state: &AppState, nds: &str) -> Option<PathBuf> {
-    let project = open_project(state).ok()?;
+    let project = super::open_project_arc(state).ok()?;
     let suggested = suggestion(state, &project.root)?;
     let given = project.root.join(nds).canonicalize().ok()?;
     (given == suggested).then_some(suggested)
-}
-
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = super::lock(state)?;
-    Ok(Arc::clone(&super::session(&mut guard)?.project))
 }
 
 #[tauri::command]
@@ -447,7 +442,7 @@ mod tests {
         assert_eq!(*source, BaseSource::Known);
         assert_eq!(
             patch_name,
-            &patch::patch_name(&open_project(&d.state).unwrap())
+            &patch::patch_name(&crate::commands::open_project_arc(&d.state).unwrap())
         );
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["state"], "found", "{json}");

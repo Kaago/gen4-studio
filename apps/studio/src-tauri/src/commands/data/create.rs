@@ -69,6 +69,7 @@ fn creating_trainer(
 ) -> Result<CreateTrainerReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     unlocked_family(&session.project)?;
     let project = std::sync::Arc::clone(&session.project);
     let report = create(&project, &mut session.store, &mut session.names);

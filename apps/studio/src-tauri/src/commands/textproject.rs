@@ -16,7 +16,7 @@ use crate::state::AppState;
 /// schema state, every problem with file, line and column, the members an import would
 /// write. Writes nothing.
 pub fn text_check_impl(state: &AppState) -> Result<CheckReport, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(textproject::check(&project)?)
 }
 
@@ -34,11 +34,11 @@ pub fn check_text_export(
         (Arc::clone(&session.project), session.store.dirty().len())
     };
     if unsaved > 0 {
-        return Err(refusal("unsaved", unsaved_message(unsaved)));
+        return Err(CmdError::refused("unsaved", unsaved_message(unsaved)));
     }
     let (mark, hit) = super::found_base(state, &project.root)?;
     if !g4_kernel::scripts::is_adopted(&project) {
-        return Err(refusal("not_adopted", NOT_ADOPTED.to_owned()));
+        return Err(CmdError::refused("not_adopted", NOT_ADOPTED.to_owned()));
     }
     Ok((project, mark, hit.path))
 }
@@ -54,7 +54,9 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
         adopt_scripts: false,
     };
     textproject::export(&project, &base, &opts).map_err(|e| match e {
-        KernelError::Refused(message) if message == NOT_ADOPTED => refusal("not_adopted", message),
+        KernelError::Refused(message) if message == NOT_ADOPTED => {
+            CmdError::refused("not_adopted", message)
+        }
         other => other.into(),
     })
 }
@@ -65,20 +67,6 @@ pub(crate) fn unsaved_message(n: usize) -> String {
         1 => "Erst speichern: 1 ungespeicherte Änderung.".to_owned(),
         n => format!("Erst speichern: {n} ungespeicherte Änderungen."),
     }
-}
-
-fn refusal(code: &'static str, message: String) -> CmdError {
-    CmdError {
-        code,
-        message,
-        asset: None,
-        problems: Vec::new(),
-    }
-}
-
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = super::lock(state)?;
-    Ok(Arc::clone(&super::session(&mut guard)?.project))
 }
 
 #[tauri::command]

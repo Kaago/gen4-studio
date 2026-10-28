@@ -24,6 +24,7 @@ pub fn plan_empty_region_impl(state: &AppState) -> Result<RegionPlan, CmdError> 
 pub fn apply_empty_region_impl(state: &AppState) -> Result<RegionReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     let report = templates::apply_empty_region(&mut session.store);
     session.after_write();
     // The border map, the level script and the start script are written past the store

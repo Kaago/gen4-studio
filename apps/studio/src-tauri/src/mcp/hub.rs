@@ -47,12 +47,23 @@ pub enum AgentEvent {
     Status {
         seq: u64,
     },
+    /// An agent's `tool` opened the session of the project folder `root` anew (setting it up
+    /// as text project): the store, its history and the language server are new, so the UI
+    /// reloads as after opening the project.
+    Reopened {
+        seq: u64,
+        client: String,
+        tool: String,
+        root: String,
+    },
 }
 
 impl AgentEvent {
     pub fn seq(&self) -> u64 {
         match self {
-            AgentEvent::Changed { seq, .. } | AgentEvent::Status { seq } => *seq,
+            AgentEvent::Changed { seq, .. }
+            | AgentEvent::Status { seq }
+            | AgentEvent::Reopened { seq, .. } => *seq,
         }
     }
 }
@@ -732,6 +743,19 @@ impl AgentHub {
             tool: tool.to_owned(),
             label,
             assets,
+        });
+        drop(inner);
+        emit.send();
+    }
+
+    /// An agent's tool `tool` opened the session of `root` anew ([`AgentEvent::Reopened`]).
+    pub fn record_reopened(&self, client: &str, tool: &str, root: &std::path::Path) {
+        let mut inner = self.lock();
+        let emit = inner.push(|seq| AgentEvent::Reopened {
+            seq,
+            client: client.to_owned(),
+            tool: tool.to_owned(),
+            root: root.display().to_string(),
         });
         drop(inner);
         emit.send();

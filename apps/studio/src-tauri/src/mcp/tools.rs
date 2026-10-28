@@ -749,7 +749,15 @@ impl<'a> Call<'a> {
             client: self.client.to_owned(),
         };
         let result = with_origin(origin, f);
-        if let (Some(shared), Some(generation)) = (&self.shared, before)
+        if let Some(shared) = &self.shared
+            && self.reopened(shared)
+        {
+            // The command opened the session anew (an adoption): no asset of the old store
+            // means anything to the UI any more; it reloads the project.
+            shared
+                .hub
+                .record_reopened(self.client, tool, &shared.project.root);
+        } else if let (Some(shared), Some(generation)) = (&self.shared, before)
             && let Ok((_, mut assets)) = self.with_session(|s| s.store.changes_since(generation))
         {
             for asset in past_store(&result) {
@@ -764,6 +772,15 @@ impl<'a> Call<'a> {
             }
         }
         result
+    }
+
+    /// In the app: whether the open session is no longer the one the call was admitted for,
+    /// but a new one of the same folder (a command opened it anew).
+    fn reopened(&self, shared: &Shared<'_>) -> bool {
+        self.state.lock_session().as_ref().is_some_and(|session| {
+            !Arc::ptr_eq(&session.project, shared.project)
+                && session.project.root == shared.project.root
+        })
     }
 
     /// Checks the keys of `args` against the tool's schema and turns them into what its
@@ -1397,11 +1414,6 @@ fn assign_question(file: &str, check: &BaseCheck) -> String {
     format!("Basis-ROM zuordnen: {file} ({label}, SHA-1 {sha1}{differs})")
 }
 
-/// The question before `resolve_text_conflicts` overwrites a version of each archive in
-/// `args`: „<why>: Textarchiv 0012 (die Spieldatei gilt, die JSON wird überschrieben)“, several
-/// joined with „; “. The version that applies is the one `keep` names: the JSON is the
-/// editor's text, the member the game file. Args that cannot be read leave the generic `why`
-/// (the command refuses them itself).
 /// The question before `resolve_external_conflict`: the unit and which version stays.
 fn conflict_question(why: &str, args: &Value) -> String {
     let key = args.get("key").and_then(Value::as_str).unwrap_or_default();
@@ -1413,6 +1425,11 @@ fn conflict_question(why: &str, args: &Value) -> String {
     format!("{why}: {key} ({rule})")
 }
 
+/// The question before `resolve_text_conflicts` overwrites a version of each archive in
+/// `args`: „<why>: Textarchiv 0012 (die Spieldatei gilt, die JSON wird überschrieben)“, several
+/// joined with „; “. The version that applies is the one `keep` names: the JSON is the
+/// editor's text, the member the game file. Args that cannot be read leave the generic `why`
+/// (the command refuses them itself).
 fn resolve_question(why: &str, args: &Value) -> String {
     let choices = args
         .get("choices")
@@ -2709,7 +2726,7 @@ mod tests {
                     assets,
                     ..
                 } => Some((client, tool, label, serde_json::to_value(assets).unwrap())),
-                AgentEvent::Status { .. } => None,
+                AgentEvent::Status { .. } | AgentEvent::Reopened { .. } => None,
             })
             .collect()
     }
@@ -3899,5 +3916,40 @@ mod tests {
             text.contains(&format!("\"attack\": {}", attack + 1)),
             "{text}"
         );
+    }
+
+    /// An agent's `adopt_text_project` in the app opens the session anew: the hub tells the
+    /// UI with a `reopened` event (client, tool, project folder), so it reloads.
+    #[test]
+    fn an_agents_adoption_reports_the_reopened_session() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        let user = answer_next(&state, "allow");
+        toolbox
+            .call("adopt_text_project", json!({}), AGENT)
+            .unwrap();
+        assert_eq!(
+            user.join().unwrap().what.as_deref(),
+            Some("Als Textprojekt einrichten")
+        );
+        let events = serde_json::to_value(state.agents.poll(0).events).unwrap();
+        let reopened: Vec<&Value> = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "reopened")
+            .collect();
+        assert_eq!(reopened.len(), 1, "{events}");
+        assert_eq!(reopened[0]["client"], AGENT);
+        assert_eq!(reopened[0]["tool"], "adopt_text_project");
+        assert_eq!(reopened[0]["root"], fx.root().display().to_string());
+        assert!(reopened[0]["seq"].as_u64().unwrap() > 0);
     }
 }

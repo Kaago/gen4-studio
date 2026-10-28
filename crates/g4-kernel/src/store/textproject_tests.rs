@@ -539,3 +539,38 @@ fn after_a_failed_member_write_the_saved_json_is_not_stale() {
     assert!(!st.is_dirty(PERSONAL_1));
     assert!(st.save().unwrap().written.is_empty());
 }
+
+#[test]
+fn a_busy_store_refuses_every_write_and_names_why() {
+    let fx = TextFixture::dspre();
+    let mut st = store(&fx);
+    st.edit_event(0, "warp", |e| {
+        e.warp_events.push(crate::store::WarpEvent {
+            x: 1,
+            z: 1,
+            dest_header_id: 1,
+            dest_warp_id: 0,
+            height: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    let depth = st.undo_depth();
+    assert!(depth > 0);
+    let why = "Das Projekt wird gerade als Textprojekt eingerichtet.";
+    st.set_busy(Some(why.to_owned()));
+    assert_eq!(st.busy(), Some(why));
+    let busy = |r: Result<(), KernelError>| match r {
+        Err(KernelError::Busy(text)) => assert_eq!(text, why),
+        other => panic!("{other:?}"),
+    };
+    busy(st.edit_event(0, "x", |_| Ok(())).map(|_| ()));
+    busy(st.undo().map(|_| ()));
+    busy(st.save().map(|_| ()));
+    busy(st.append_encounter(&[0; 424]).map(|_| ()));
+    assert_eq!(st.undo_depth(), depth, "nothing recorded or undone");
+    // Lifted: writes again.
+    st.set_busy(None);
+    assert_eq!(st.undo().unwrap().len(), 1);
+}

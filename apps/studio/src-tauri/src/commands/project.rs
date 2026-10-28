@@ -309,10 +309,16 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 /// runs first (without the agents' turn, which an agent's build holds already): what DSPRE
 /// changed is taken over, and an open conflict refuses the build with `conflicts`.
 pub fn build_rom_impl(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
-    let out = Path::new(out);
     // A text project takes over what DSPRE changed first; an open conflict stops the build
-    // before anything is saved or written (`conflicts`).
-    sync_before_build(state)?;
+    // before anything is saved or written (`conflicts`). The agents' turn is the caller's
+    // (an agent's build holds it).
+    sync_before_build(state, false)?;
+    build_synced(state, out, fresh)
+}
+
+/// [`build_rom_impl`] once the sync before it ran.
+fn build_synced(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
+    let out = Path::new(out);
     let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
@@ -428,6 +434,7 @@ pub fn resolve_text_conflicts_impl(
 ) -> Result<Vec<u16>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     let project = Arc::clone(&session.project);
     let sync = TextSync::load(&project);
     for choice in &choices {
@@ -526,7 +533,9 @@ pub fn accept_disk(state: State<AppState>, kind: AssetKind, index: u16) -> Resul
 }
 
 /// The ds-rom build takes seconds, so it runs on a blocking worker, off the main thread and
-/// without holding the state lock. `fresh` (default false) drops the build cache first.
+/// without holding the state lock. `fresh` (default false) drops the build cache first. The
+/// user's build takes the agents' turn for the sync before it (no agent call writes while it
+/// takes changes over).
 #[tauri::command]
 pub async fn build_rom(
     app: tauri::AppHandle,
@@ -534,7 +543,9 @@ pub async fn build_rom(
     fresh: Option<bool>,
 ) -> Result<BuildDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
-        build_rom_impl(&app.state::<AppState>(), &out, fresh.unwrap_or(false))
+        let state = app.state::<AppState>();
+        sync_before_build(&state, true)?;
+        build_synced(&state, &out, fresh.unwrap_or(false))
     })
     .await
     .map_err(|e| CmdError::from(e.to_string()))?

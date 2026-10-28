@@ -36,13 +36,16 @@ pub struct Session {
     /// The id resolver of the project (an id or a number in `g4-world.json`, `g4-checks.json`
     /// and the MCP arguments); made anew by [`Session::ids`] when its registers changed.
     ids: Resolver,
-    /// The id files for rotom as they were last seen (size and modification time per path),
+    /// The id files for rotom as they were last seen (size, modification time and content
+    /// hash per path),
     /// to tell the language server when they change ([`Session::id_files_changed`]).
     id_stamps: Vec<(PathBuf, IdStamp)>,
 }
 
-/// Size and modification time of an id file, `None` when it is missing.
-type IdStamp = Option<(u64, SystemTime)>;
+/// Size, modification time and a hash of the content of an id file, `None` when it is
+/// missing (the content too: a rename and its undo keep the length and may fall into one tick
+/// of the modification time).
+type IdStamp = Option<(u64, SystemTime, u64)>;
 
 impl Session {
     /// A session of `project` with a fresh store and empty caches.
@@ -89,6 +92,16 @@ impl Session {
         self.refs = RefIndex::new();
     }
 
+    /// `Ok` while the store takes writes; `busy` with its reason while the project is set up
+    /// as text project ([`g4_kernel::store::Store::set_busy`]). The store refuses its own
+    /// writes itself; the commands that write files past it ask here first.
+    pub fn writable(&self) -> Result<(), CmdError> {
+        match self.store.busy() {
+            Some(why) => Err(CmdError::refused("busy", why)),
+            None => Ok(()),
+        }
+    }
+
     /// Notes a write to the project's files that does not go through the store (a script
     /// source or member, a new script file, the adoption, `create_script`, the members of a
     /// new trainer): the checks read those from the disk, so their last report and a pass
@@ -118,9 +131,10 @@ impl Session {
     }
 
     /// Tells the running language server (`rotom-lsp`) which id files for rotom changed since
-    /// they were last seen (`workspace/didChangeWatchedFiles`), so the script editor knows new
-    /// and renamed ids; answers their paths (relative to the root). Cheap: one `stat` per id
-    /// file. Call it after anything that may write them (a rename and its undo or redo, a
+    /// they were last seen (`workspace/didChangeWatchedFiles`, on which rotom-lsp drops its
+    /// cached command database and constants and checks the open scripts again), so the
+    /// script editor knows new and renamed ids; answers their paths (relative to the root).
+    /// Reads the id files (a few hundred KB at most). Call it after anything that may write them (a rename and its undo or redo, a
     /// sync that christened, a choice of a conflict).
     pub fn id_files_changed(&mut self) -> Vec<PathBuf> {
         let now = id_stamps(&self.project);
@@ -179,9 +193,17 @@ fn id_stamps(project: &Project) -> Vec<(PathBuf, IdStamp)> {
     id_file_paths(project)
         .into_iter()
         .map(|rel| {
-            let stamp = std::fs::metadata(project.root.join(&rel))
-                .ok()
-                .and_then(|m| Some((m.len(), m.modified().ok()?)));
+            let path = project.root.join(&rel);
+            let stamp = std::fs::metadata(&path).ok().and_then(|m| {
+                let bytes = std::fs::read(&path).ok()?;
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hasher::write(&mut hasher, &bytes);
+                Some((
+                    m.len(),
+                    m.modified().ok()?,
+                    std::hash::Hasher::finish(&hasher),
+                ))
+            });
             (rel, stamp)
         })
         .collect()
@@ -913,6 +935,19 @@ mod tests {
         assert_eq!(session.id_files_changed(), [paths[0].clone()]);
         assert!(session.id_files_changed().is_empty(), "told once");
         std::fs::remove_file(&file).unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        // The same length within one modification time (a rename and its undo): noticed by
+        // the content.
+        std::fs::write(&file, "{}\n").unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        let mtime = std::fs::metadata(&file).unwrap().modified().unwrap();
+        std::fs::write(&file, "[]\n").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
         assert_eq!(session.id_files_changed(), [paths[0].clone()]);
         let body =
             watched_files_changed(Path::new("/Projekte/Mein Hack#1"), &[(paths[0].clone(), 1)]);

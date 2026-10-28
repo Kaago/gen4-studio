@@ -42,16 +42,10 @@ pub enum OriginalStatusDto {
     Unavailable { reason: String },
 }
 
-/// The open project (its `Arc`; the session lock is released again).
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = super::lock(state)?;
-    Ok(Arc::clone(&super::session(&mut guard)?.project))
-}
-
 /// The open project and its base ROM, read without the session lock (the search may hash a
 /// whole ROM, reading it takes a while): `base_missing` with the reason when it is not found.
 fn open_original(state: &AppState) -> Result<(Arc<Project>, BaseRom), CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let (mark, hit) = found_base(state, &project.root)?;
     let base = BaseRom::open_unchecked(&hit.path, &mark.sha1)?;
     Ok((project, base))
@@ -89,7 +83,7 @@ fn reset_error(e: KernelError) -> CmdError {
 /// counts of the base per target kind, else `unavailable` with the reason. Reads the base ROM
 /// once (the frontend asks once per project).
 pub fn original_status_impl(state: &AppState) -> Result<OriginalStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let (mark, hit) = match found_base(state, &project.root) {
         Ok(found) => found,
         Err(e) if e.code == "base_missing" => {
@@ -143,7 +137,7 @@ pub(crate) fn reset_with_original(
     target: ResetTarget,
     fields: Option<Vec<String>>,
 ) -> Result<ResetResult, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     reset_in_session(state, &project, original, target, fields)
 }
 
@@ -158,6 +152,8 @@ fn reset_in_session(
 ) -> Result<ResetResult, CmdError> {
     let mut guard = super::lock(state)?;
     let session = same_project(super::session(&mut guard)?, project)?;
+    // Scripts, textures and models are written past the store.
+    session.writable()?;
     let result = original::reset(&mut session.store, base, &target, fields.as_deref());
     // A refusal (unavailable, locked) writes nothing; any other failure may come after a
     // file was written.

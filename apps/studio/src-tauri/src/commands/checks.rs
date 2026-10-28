@@ -613,6 +613,7 @@ pub fn apply_fix_impl(
     let key = finding.key()?;
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix);
     if matches!(fix, FixId::CreateScript | FixId::RemoveHidden) {
         // Written at once, past the store; also a compile that failed after the write.

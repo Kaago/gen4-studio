@@ -29,7 +29,8 @@ use crate::commands::ProblemDto;
 /// folder), `"pending"` (`adopt_text_project` on a text project and `revert_text_project`
 /// while the sync finds a change from outside, a conflict or a broken file), `"conflicts"`
 /// (`build_rom` of a text project with an open conflict; nothing was saved or built) and
-/// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), or `"error"`;
+/// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), `"busy"` (a write
+/// while the project is set up as text project; nothing was changed), or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`.
@@ -86,6 +87,8 @@ impl From<KernelError> for CmdError {
             KernelError::Restore { asset, .. } => ("error", Some(*asset)),
             KernelError::ToolMissing { .. } => ("tool_missing", None),
             KernelError::FindingStale => ("finding_stale", None),
+            // The store refuses writes while the project is set up as text project.
+            KernelError::Busy(_) => ("busy", None),
             // Something was written before the failure and stays; the text names it.
             KernelError::Partial(_) => ("partial", None),
             _ => ("error", None),
@@ -164,6 +167,16 @@ impl CmdError {
                     check: None,
                 })
                 .collect(),
+        }
+    }
+
+    /// A refusal with its own `code` and `message`, nothing else.
+    pub fn refused(code: &'static str, message: impl Into<String>) -> Self {
+        CmdError {
+            code,
+            message: message.into(),
+            asset: None,
+            problems: Vec::new(),
         }
     }
 

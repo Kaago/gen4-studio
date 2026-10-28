@@ -106,6 +106,7 @@ pub fn adopt_scripts_impl(
 ) -> Result<AdoptReportDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     let adopted = scripts::adopt(&session.project, &mut |p| progress(p.into()));
     // Also a failed adoption may have written sources: past the history, so the file steps
     // of the scripts (resets to the original) could no longer be undone.
@@ -233,6 +234,7 @@ fn save_source(
 ) -> Result<SaveScriptDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     refuse_dirty_text(&session.store)?;
     let written = scripts::write_source(&session.project, file, &source);
     session.files_written(&[]);
@@ -257,6 +259,7 @@ pub fn new_script_file_impl(state: &AppState, kind: String) -> Result<u16, CmdEr
     };
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     refuse_dirty_text(&session.store)?;
     let created = scripts::new_script_file_reported(&session.project, kind);
     session.files_written(&[]);
@@ -269,6 +272,7 @@ pub fn new_script_file_impl(state: &AppState, kind: String) -> Result<u16, CmdEr
 pub fn add_script_impl(state: &AppState, file: u16) -> Result<u16, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     refuse_dirty_text(&session.store)?;
     let added = scripts::add_script_reported(&session.project, file);
     session.files_written(&[]);

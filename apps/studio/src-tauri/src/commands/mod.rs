@@ -75,6 +75,14 @@ pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdEr
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
+/// The open project (its `Arc`; the session lock is released again).
+pub(crate) fn open_project_arc(
+    state: &AppState,
+) -> Result<std::sync::Arc<g4_kernel::project::Project>, CmdError> {
+    let mut guard = lock(state)?;
+    Ok(std::sync::Arc::clone(&session(&mut guard)?.project))
+}
+
 /// The id resolver of `project`, for the project files that take an id or a number
 /// (`g4-world.json`, `g4-checks.json`) before a session keeps it ([`Session::ids`]): outside
 /// a text project the fixed tables when it cannot be made.

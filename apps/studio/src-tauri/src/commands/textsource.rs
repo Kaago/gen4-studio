@@ -38,6 +38,9 @@ use crate::state::AppState;
 pub const NOT_TEXT_PROJECT: &str =
     "Kein Textprojekt: der Abgleich mit DSPRE beginnt erst nach „Als Textprojekt einrichten…“.";
 
+/// Why the store refuses writes while the project is set up as text project (code `busy`).
+pub const ADOPTING: &str = "Das Projekt wird gerade als Textprojekt eingerichtet.";
+
 /// The refusal of a build while the sync has open conflicts.
 pub const CONFLICTS: &str = "Erst die Konflikte in Technik › Textprojekt lösen.";
 
@@ -75,15 +78,6 @@ pub struct ExternalChangesDto {
     pub diffs: BTreeMap<String, ConflictDiff>,
 }
 
-fn refusal(code: &'static str, message: impl Into<String>) -> CmdError {
-    CmdError {
-        code,
-        message: message.into(),
-        asset: None,
-        problems: Vec::new(),
-    }
-}
-
 /// The status of `project` (`state` finds the base ROM of a DSPRE folder; that may hash it
 /// once).
 pub fn status_of(state: &AppState, project: &Project) -> TextProjectStatusDto {
@@ -113,22 +107,16 @@ pub fn status_of(state: &AppState, project: &Project) -> TextProjectStatusDto {
     }
 }
 
-/// The open project (its `Arc`; the session lock is released again).
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = lock(state)?;
-    Ok(Arc::clone(&session(&mut guard)?.project))
-}
-
 /// `project`, when it is a text project of the current schema: `not_text_project` for a
 /// DSPRE folder (with `message`), the refusal of its schema for any other.
 fn text_project(project: &Project, message: &str) -> Result<(), CmdError> {
     match project.source_mode() {
         SourceMode::TextProject => Ok(()),
-        SourceMode::Dspre => Err(refusal("not_text_project", message)),
-        _ => Err(project
-            .editable()
-            .err()
-            .map_or_else(|| refusal("not_text_project", message), CmdError::from)),
+        SourceMode::Dspre => Err(CmdError::refused("not_text_project", message)),
+        _ => Err(project.editable().err().map_or_else(
+            || CmdError::refused("not_text_project", message),
+            CmdError::from,
+        )),
     }
 }
 
@@ -137,34 +125,123 @@ fn text_project(project: &Project, message: &str) -> Result<(), CmdError> {
 /// `not_text_project`; anything else as everywhere.
 fn text_error(e: KernelError) -> CmdError {
     match e {
-        KernelError::Refused(why) if why == REVERT_PENDING => refusal("pending", why),
-        KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT => refusal("not_text_project", why),
+        KernelError::Refused(why) if why == REVERT_PENDING => CmdError::refused("pending", why),
+        KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT => {
+            CmdError::refused("not_text_project", why)
+        }
         other => other.into(),
     }
 }
 
-/// Opens the session of `root` anew, in the mode its files have now (after an adoption, a
-/// revert or a migration). Without the agents' turn: the caller holds it (the Tauri command,
-/// an agent's call), and `open_project_impl` would wait for it.
-fn reopen(state: &AppState, root: &std::path::Path) -> Result<(), CmdError> {
-    let path = root.to_str().ok_or_else(|| {
-        CmdError::from(format!("Pfad ist kein gültiger Text: {}", root.display()))
-    })?;
-    let (session, _info) = super::new_session(state, path)?;
-    let old = lock(state)?.replace(session);
+/// The message when a session cannot be replaced after an adoption, a revert or a migration
+/// because it was changed meanwhile.
+pub const REOPEN: &str = "Die Dateien sind umgestellt, aber die offene Sitzung wurde \
+                          inzwischen geändert und bleibt, wie sie ist; das Projekt bitte neu \
+                          öffnen.";
+
+/// The store of the session of `project` refuses writes ([`ADOPTING`], code `busy`) from
+/// [`Busy::begin`] until this is dropped.
+struct Busy<'a> {
+    state: &'a AppState,
+    project: Arc<Project>,
+}
+
+impl<'a> Busy<'a> {
+    /// Under the session lock: the session must still be of `project` and hold no unsaved
+    /// value (`unsaved`); marks its store busy and answers its change generation.
+    fn begin(state: &'a AppState, project: &Arc<Project>) -> Result<(Busy<'a>, u64), CmdError> {
+        let mut guard = lock(state)?;
+        let session = same_session(&mut guard, project)?;
+        let unsaved = session.store.dirty().len();
+        if unsaved > 0 {
+            return Err(CmdError::refused(
+                "unsaved",
+                super::textproject::unsaved_message(unsaved),
+            ));
+        }
+        session.store.set_busy(Some(ADOPTING.to_owned()));
+        let generation = session.store.change_generation();
+        Ok((
+            Busy {
+                state,
+                project: Arc::clone(project),
+            },
+            generation,
+        ))
+    }
+}
+
+impl Drop for Busy<'_> {
+    /// Lifts the refusal, when the session is still the one it was set on (also after a
+    /// failure or a panic).
+    fn drop(&mut self) {
+        let mut guard = self.state.lock_session();
+        if let Some(session) = guard
+            .as_mut()
+            .filter(|s| Arc::ptr_eq(&s.project, &self.project))
+        {
+            session.store.set_busy(None);
+        }
+    }
+}
+
+/// The session of `project` under `guard`; an error when another project is open.
+fn same_session<'g>(
+    guard: &'g mut Option<crate::state::Session>,
+    project: &Arc<Project>,
+) -> Result<&'g mut crate::state::Session, CmdError> {
+    match session(guard) {
+        Ok(session) if Arc::ptr_eq(&session.project, project) => Ok(session),
+        Ok(_) => Err("Das Projekt wurde gewechselt.".into()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Replaces the session of `project` by `fresh` (the same folder, opened anew after an
+/// adoption, a revert or a migration), but only while it is unchanged: still open, no
+/// unsaved value, its change generation still `generation`. Else [`REOPEN`] and the session
+/// stays as it is: nothing is lost, the files were only written past it. Without the agents'
+/// turn: the caller holds it (the Tauri command, an agent's call).
+fn replace_if_unchanged(
+    state: &AppState,
+    project: &Arc<Project>,
+    generation: u64,
+    fresh: crate::state::Session,
+) -> Result<(), CmdError> {
+    let mut guard = lock(state)?;
+    let unchanged = same_session(&mut guard, project).is_ok_and(|session| {
+        session.store.dirty().is_empty() && session.store.change_generation() == generation
+    });
+    if !unchanged {
+        return Err(REOPEN.into());
+    }
+    let old = guard.replace(fresh);
+    drop(guard);
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(())
 }
 
+/// Opens `project`'s folder anew and puts it in place of the session if that is unchanged
+/// since `generation` ([`replace_if_unchanged`]).
+fn reopen(state: &AppState, project: &Arc<Project>, generation: u64) -> Result<(), CmdError> {
+    let root = &project.root;
+    let path = root.to_str().ok_or_else(|| {
+        CmdError::from(format!("Pfad ist kein gültiger Text: {}", root.display()))
+    })?;
+    let (fresh, _info) = super::new_session(state, path)?;
+    replace_if_unchanged(state, project, generation, fresh)
+}
+
 /// What the project is as a source; see [`TextProjectStatusDto`].
 pub fn text_project_status_impl(state: &AppState) -> Result<TextProjectStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(status_of(state, &project))
 }
 
 /// The refusals of [`adopt_text_project_impl`] that need no adoption, in its order: unsaved
-/// changes (`unsaved`), no found base ROM (`base_missing`), Diamond/Pearl. Writes nothing; over
+/// changes (`unsaved`), Diamond/Pearl (`error`, before a base ROM is looked for), no found
+/// base ROM (`base_missing`). Writes nothing; over
 /// MCP in the app it runs before the question „Als Textprojekt einrichten“. The open project,
 /// its base mark and where its base ROM lies when nothing refuses.
 pub(crate) fn check_adopt(
@@ -176,15 +253,15 @@ pub(crate) fn check_adopt(
         (Arc::clone(&session.project), session.store.dirty().len())
     };
     if unsaved > 0 {
-        return Err(refusal(
+        return Err(CmdError::refused(
             "unsaved",
             super::textproject::unsaved_message(unsaved),
         ));
     }
-    let (mark, hit) = found_base(state, &project.root)?;
     if project.family == Family::Dp {
         return Err(NO_DP.into());
     }
+    let (mark, hit) = found_base(state, &project.root)?;
     Ok((project, mark, hit.path))
 }
 
@@ -193,31 +270,48 @@ pub(crate) fn check_adopt(
 /// session anew on the same folder, so the store reads and writes the JSON. Refuses before
 /// writing anything what [`check_adopt`] refuses, and every refusal of the kernel (another
 /// base ROM, an older or newer schema, texts in conflict; a text project with a change from
-/// outside is `pending`). Runs without the session lock (10 to 120 s); the caller keeps
-/// edits out meanwhile (the Tauri command holds the agents' turn, the app shows the progress).
+/// outside is `pending`). Runs without the session lock (10 to 120 s) but with the store busy:
+/// every write meanwhile (edit, save, undo, redo, reset, rename, a new entity) is refused with
+/// `busy` ([`ADOPTING`]). The session is replaced only when it is unchanged since
+/// ([`REOPEN`] otherwise).
 pub fn adopt_text_project_impl(
     state: &AppState,
     progress: &mut dyn FnMut(AdoptProgress),
 ) -> Result<AdoptReport, CmdError> {
     let (project, mark, path) = check_adopt(state)?;
     let base = BaseRom::open(&path, Some(&mark.sha1))?;
+    let (busy, generation) = Busy::begin(state, &project)?;
     let adopted = adopt::adopt(&project, &base, progress).map_err(text_error);
     // Also after a failure once the manifest is there (the export wrote it, a later step
     // failed): the store must not go on saving members only.
-    if adopted.is_ok()
-        || (*project.source_mode() == SourceMode::Dspre
-            && g4_kernel::textproject::is_text_project(&project.root))
-    {
-        reopen(state, &project.root)?;
+    let reopened = if adopted.is_ok() || g4_kernel::textproject::is_text_project(&project.root) {
+        Some(reopen(state, &project, generation))
+    } else {
+        None
+    };
+    drop(busy);
+    match (adopted, reopened) {
+        (Ok(report), None | Some(Ok(()))) => Ok(report),
+        (Ok(_), Some(Err(e))) => Err(e),
+        // The adoption's error is the answer; the session that could not be replaced is
+        // only logged (the next open reads the manifest).
+        (Err(e), Some(Err(reopen))) => {
+            eprintln!(
+                "Sitzung nach gescheitertem Einrichten nicht neu geöffnet: {}",
+                reopen.message
+            );
+            Err(e)
+        }
+        (Err(e), _) => Err(e),
     }
-    adopted
 }
 
 /// Takes the text project back to a DSPRE folder (`textproject::adopt::revert`: the manifest,
 /// `data/` and the id files moved to `.g4/backup/textproject-<time>/`), then opens the
-/// session anew as DSPRE folder. Under the session lock: refused with `unsaved` while the store
-/// holds unsaved values, with `pending` while the sync finds a change from outside, a conflict
-/// or a broken file, and while a script uses an id only the text project knows.
+/// session anew as DSPRE folder, when it is unchanged since ([`REOPEN`] otherwise). The revert
+/// runs under the session lock: refused with `unsaved` while the store holds unsaved values,
+/// with `pending` while the sync finds a change from outside, a conflict or a broken file, and
+/// while a script uses an id only the text project knows.
 pub fn revert_text_project_impl(state: &AppState) -> Result<RevertReport, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -225,30 +319,34 @@ pub fn revert_text_project_impl(state: &AppState) -> Result<RevertReport, CmdErr
     text_project(&project, NOT_TEXT_PROJECT)?;
     let unsaved = session.store.dirty().len();
     if unsaved > 0 {
-        return Err(refusal(
+        return Err(CmdError::refused(
             "unsaved",
             super::textproject::unsaved_message(unsaved),
         ));
     }
+    let generation = session.store.change_generation();
     let report = adopt::revert(&project).map_err(text_error)?;
     drop(guard);
-    reopen(state, &project.root)?;
+    reopen(state, &project, generation)?;
     Ok(report)
 }
 
 /// Lifts a text project of an older schema to the current one (`textproject::migrate`, with
-/// its snapshot of the old files), then opens the session anew. A current one is left alone;
-/// a DSPRE folder is `not_text_project`, a newer schema refused.
+/// its snapshot of the old files), then opens the session anew when it is unchanged since
+/// ([`REOPEN`] otherwise). A current one is left alone; a DSPRE folder is `not_text_project`,
+/// a newer schema refused.
 pub fn migrate_text_project_impl(state: &AppState) -> Result<MigrateReport, CmdError> {
     let mut guard = lock(state)?;
-    let project = Arc::clone(&session(&mut guard)?.project);
+    let session = session(&mut guard)?;
+    let project = Arc::clone(&session.project);
     if *project.source_mode() == SourceMode::Dspre {
-        return Err(refusal("not_text_project", NOT_TEXT_PROJECT));
+        return Err(CmdError::refused("not_text_project", NOT_TEXT_PROJECT));
     }
+    let generation = session.store.change_generation();
     let report = migrate::migrate(&project.root)?;
     drop(guard);
     if !report.changed.is_empty() || report.from != report.to {
-        reopen(state, &project.root)?;
+        reopen(state, &project, generation)?;
     }
     Ok(report)
 }
@@ -272,7 +370,7 @@ fn sync_session(
     progress: &mut dyn FnMut(SyncProgress),
     turn: bool,
 ) -> Result<SyncOutcome, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     text_project(&project, NOT_TEXT_PROJECT)?;
     let report = sync::scan(&project, progress)?;
     let _turn = turn.then(|| state.agents.agent_turn());
@@ -297,29 +395,29 @@ fn sync_session(
     Ok(outcome)
 }
 
-/// Before a build: in a text project the sync (without the agents' turn, which an agent's
-/// build holds already), refused with `conflicts` while a conflict is open. Nothing outside a
-/// text project.
-pub(crate) fn sync_before_build(state: &AppState) -> Result<(), CmdError> {
-    let project = open_project(state)?;
+/// Before a build: in a text project the sync, refused with `conflicts` while a conflict is
+/// open; nothing outside a text project. `turn`: take the agents' turn for the takeover (the
+/// user's build; an agent's build holds it already).
+pub(crate) fn sync_before_build(state: &AppState, turn: bool) -> Result<(), CmdError> {
+    let project = super::open_project_arc(state)?;
     if *project.source_mode() != SourceMode::TextProject {
         return Ok(());
     }
-    let outcome = sync_session(state, &mut |_| {}, false)?;
+    let outcome = sync_session(state, &mut |_| {}, turn)?;
     if outcome.conflicts.is_empty() {
         Ok(())
     } else {
-        Err(refusal("conflicts", CONFLICTS))
+        Err(CmdError::refused("conflicts", CONFLICTS))
     }
 }
 
 /// What changed outside the open text project since the last sync, without taking anything
 /// over: the units that are not in step, and with `diff` the diff of every conflict (both
-/// sides changed, or one side of a unit the store holds unsaved). Writes no source and no
-/// member; the scan is applied to the record without a takeover, so the entries in step
-/// settle. `not_text_project` outside a text project.
+/// sides changed, or one side of a unit the store holds unsaved). Takes nothing over and
+/// writes no source and no member; it records only the units already in step (the scan is
+/// applied without a takeover, so their entries settle). `not_text_project` outside a text project.
 pub fn external_changes_impl(state: &AppState, diff: bool) -> Result<ExternalChangesDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     text_project(&project, NOT_TEXT_PROJECT)?;
     let mut scan = sync::scan(&project, &mut |_| {})?;
     sync::apply_one_sided(&project, &scan, &|_| true)?;
@@ -349,7 +447,7 @@ pub fn external_changes_impl(state: &AppState, diff: bool) -> Result<ExternalCha
 /// The diff of conflict `key`: the Studio's side (its source) and DSPRE's (its members,
 /// exported in memory). Writes nothing.
 pub fn conflict_diff_impl(state: &AppState, key: String) -> Result<ConflictDiff, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     text_project(&project, NOT_TEXT_PROJECT)?;
     Ok(sync::conflict_diff(&project, &key)?)
 }
@@ -368,6 +466,7 @@ pub fn resolve_external_conflict_impl(
 ) -> Result<Vec<AssetId>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     text_project(&session.project, NOT_TEXT_PROJECT)?;
     let result = sync::resolve(&mut session.store, &key, keep);
     if !matches!(result, Err(KernelError::Refused(_))) {
@@ -388,7 +487,7 @@ pub fn plan_rename_id_impl(
     id: String,
     new_id: String,
 ) -> Result<RenamePlan, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     text_project(&project, NOT_A_TEXT_PROJECT)?;
     rename::plan_rename(&project, &id, &new_id).map_err(text_error)
 }
@@ -404,6 +503,7 @@ pub fn rename_id_impl(
 ) -> Result<RenameResult, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     text_project(&session.project, NOT_A_TEXT_PROJECT)?;
     let result = rename::rename_id(&mut session.store, &id, &new_id).map_err(text_error)?;
     // The JSON, the project files and the script sources were written past the store.
@@ -738,10 +838,18 @@ mod tests {
         // It wrote nothing.
         assert_eq!(power(&t.fx), 12);
         assert_eq!(t.fx.read(MOVE_1_MEMBER), member);
-        // The Studio's version stays: the member is written from the JSON.
+        // The Studio's version stays: the member is written from the JSON, and the move the
+        // store holds unedited shows the JSON's value, loaded anew.
+        crate::commands::data_get_impl(&t.state, DataKind::Move, 1).unwrap();
         let reloaded =
             resolve_external_conflict_impl(&t.state, MOVE_1_JSON.into(), Keep::Studio).unwrap();
-        assert!(reloaded.is_empty() || reloaded[0].kind == AssetKind::Move);
+        assert_eq!(
+            reloaded,
+            [AssetId {
+                kind: AssetKind::Move,
+                index: 1
+            }]
+        );
         assert_eq!(power(&t.fx), 12);
         assert!(
             external_changes_impl(&t.state, false)
@@ -948,7 +1056,23 @@ mod tests {
 
     #[test]
     fn a_dspre_folder_with_an_unreadable_mapname_keeps_its_ids_and_ignore_list() {
-        let (fixture, state) = open_synthetic();
+        use g4_kernel::checks::{IgnoreKey, IgnoreSet, Subject};
+        let fixture = synthetic_project();
+        let ignored = IgnoreKey {
+            code: "trainer.no-party".to_owned(),
+            subject: Subject::Trainer(1),
+            key: "party".to_owned(),
+            fingerprint: 0xff,
+        };
+        IgnoreSet {
+            disabled: ["encounter.empty-slot".to_owned()].into_iter().collect(),
+            ignored: [ignored.clone()].into_iter().collect(),
+        }
+        .save(
+            fixture.dir.path(),
+            &g4_kernel::textproject::ids::Resolver::fixed(),
+        )
+        .unwrap();
         // `mapname.bin` there but not readable (a folder of that name).
         let project = g4_kernel::project::Project::open(fixture.dir.path()).unwrap();
         let mapname = project.mapname_path();
@@ -957,9 +1081,140 @@ mod tests {
         }
         std::fs::create_dir_all(&mapname).unwrap();
         assert!(g4_kernel::textproject::ids::Resolver::for_project(&project).is_err());
+        let state = AppState::default();
+        open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         let mut guard = lock(&state).unwrap();
         let session = session(&mut guard).unwrap();
+        // The ignore list read with the fixed tables: nothing broken, both entries kept.
+        assert_eq!(session.checks.ignore_broken, None);
+        assert!(session.checks.ignore.ignored.contains(&ignored));
+        assert!(
+            session
+                .checks
+                .ignore
+                .disabled
+                .contains("encounter.empty-slot")
+        );
         let ids = session.ids().unwrap();
         assert_eq!(ids.parse(SymbolKind::Species, "SPECIES_PIKACHU"), Ok(25));
+    }
+
+    #[test]
+    fn adopt_refuses_edits_saves_and_undo_while_it_runs() {
+        let t = dspre();
+        set_matrix_cell_impl(&t.state, 0, 0, 0, Some(1), None, None).unwrap();
+        save_impl(&t.state).unwrap();
+        let mut refused = Vec::new();
+        adopt_text_project_impl(&t.state, &mut |_| {
+            if !refused.is_empty() {
+                return;
+            }
+            let edit = data_edit_impl(
+                &t.state,
+                DataKind::Move,
+                1,
+                DataPatch::Move {
+                    field: "power".into(),
+                    value: 12,
+                },
+                None,
+            );
+            for err in [
+                edit.map(|_| ()).unwrap_err(),
+                save_impl(&t.state).map(|_| ()).unwrap_err(),
+                undo_impl(&t.state).map(|_| ()).unwrap_err(),
+                set_matrix_cell_impl(&t.state, 0, 0, 0, Some(2), None, None)
+                    .map(|_| ())
+                    .unwrap_err(),
+            ] {
+                refused.push((err.code, err.message));
+            }
+            // Reading goes on.
+            crate::commands::get_header_impl(&t.state, 0).unwrap();
+        })
+        .unwrap();
+        assert_eq!(refused.len(), 4);
+        for (code, message) in &refused {
+            assert_eq!((*code, message.as_str()), ("busy", ADOPTING));
+        }
+        // Afterwards the new session writes the JSON.
+        assert!(dirty_impl(&t.state).unwrap().is_empty());
+        data_edit_impl(
+            &t.state,
+            DataKind::Move,
+            1,
+            DataPatch::Move {
+                field: "power".into(),
+                value: 12,
+            },
+            None,
+        )
+        .unwrap();
+        save_impl(&t.state).unwrap();
+        assert_eq!(power(&t.fx), 12);
+    }
+
+    #[test]
+    fn a_session_changed_meanwhile_is_not_replaced() {
+        let t = dspre();
+        let (project, generation) = {
+            let mut guard = lock(&t.state).unwrap();
+            let session = session(&mut guard).unwrap();
+            (
+                Arc::clone(&session.project),
+                session.store.change_generation(),
+            )
+        };
+        set_matrix_cell_impl(&t.state, 0, 0, 0, Some(1), None, None).unwrap();
+        let path = t.fx.root().to_str().unwrap();
+        let (fresh, _) = super::super::new_session(&t.state, path).unwrap();
+        let err = replace_if_unchanged(&t.state, &project, generation, fresh).unwrap_err();
+        assert!(err.message.contains("neu öffnen"), "{}", err.message);
+        // The edit is still there, in the same session.
+        assert_eq!(dirty_impl(&t.state).unwrap().len(), 1);
+        {
+            let mut guard = lock(&t.state).unwrap();
+            assert!(Arc::ptr_eq(&session(&mut guard).unwrap().project, &project));
+        }
+        // Unchanged: replaced.
+        save_impl(&t.state).unwrap();
+        let generation = {
+            let mut guard = lock(&t.state).unwrap();
+            session(&mut guard).unwrap().store.change_generation()
+        };
+        let (fresh, _) = super::super::new_session(&t.state, path).unwrap();
+        replace_if_unchanged(&t.state, &project, generation, fresh).unwrap();
+        let mut guard = lock(&t.state).unwrap();
+        assert!(!Arc::ptr_eq(
+            &session(&mut guard).unwrap().project,
+            &project
+        ));
+    }
+
+    #[test]
+    fn diamond_and_pearl_are_not_adoptable() {
+        let fixture = synthetic_project();
+        let header = fixture.dir.path().join("header.yaml");
+        let yaml = std::fs::read_to_string(&header)
+            .unwrap()
+            .replace("CPUE", "ADAE");
+        std::fs::write(&header, yaml).unwrap();
+        // Long enough for the Diamond header table (zeros: empty headers).
+        let arm9 = fixture.dir.path().join("arm9/arm9.bin");
+        let mut bytes = std::fs::read(&arm9).unwrap();
+        bytes.resize(0x10_0000, 0);
+        std::fs::write(&arm9, bytes).unwrap();
+        let state = AppState::default();
+        let info = open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&info).unwrap()["text_project"],
+            json!({ "state": "dspre", "adoptable": false, "reason": NO_DP })
+        );
+        // Refused before the base ROM is even looked for, and nothing written.
+        let err = check_adopt(&state).unwrap_err();
+        assert_eq!((err.code, err.message.as_str()), ("error", NO_DP));
+        let err = adopt_text_project_impl(&state, &mut |_| panic!("no progress")).unwrap_err();
+        assert_eq!(err.message, NO_DP);
+        assert!(!fixture.dir.path().join(MANIFEST_FILE).exists());
     }
 }
