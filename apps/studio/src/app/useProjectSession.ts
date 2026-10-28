@@ -104,6 +104,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   // The assets with unsaved changes (the inspector badges the record it shows); the same array while the list did not change.
   const [dirtyAssets, setDirtyAssets] = useState<readonly AssetId[]>([]);
   const [busy, setBusy] = useState(false);
+  // `busy` as `exclusive` reads it before the next render.
+  const busyRef = useRef(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
@@ -275,6 +277,44 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       if (statusError !== null) fail(statusError);
     } catch (e) {
       fail(e);
+    }
+  }
+
+  /**
+   * Closes the project in the UI (a text project of an older schema the user did not lift): no project shows, as before the first opening.
+   * The backend keeps its read-only session until another project opens.
+   */
+  function closeProject(resetProject: (headers: HeaderSummary[]) => void): void {
+    backendRoot.current = null;
+    reopenedInfo.current = null;
+    resetProject([]);
+    setCounts({});
+    infoRef.current = null;
+    setInfo(null);
+    setDirtyCount(0);
+    setDirtyAssets([]);
+    setLastRom(null);
+    setLastBuiltAt(null);
+    setLastSteps(null);
+    setLastBuildFresh(false);
+    setLastPatchRom(null);
+    setTextConflicts(null);
+    setMessage(null);
+  }
+
+  /**
+   * Runs `work` (setting the project up as text project, taking it back, lifting it) with the session `busy`, like a build: open, save,
+   * build, undo and redo wait, and so do the set-up's and take-back's buttons. Throws on without running when something else holds it.
+   */
+  async function exclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (busyRef.current || busy) throw new Error("Das Projekt ist gerade beschäftigt.");
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      return await work();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   }
 
@@ -611,6 +651,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     onOpen,
     openProjectAt,
     reloadSession,
+    closeProject,
+    exclusive,
     isReopened,
     currentRoot,
     onSave,

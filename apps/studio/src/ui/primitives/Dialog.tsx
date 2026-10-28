@@ -35,15 +35,24 @@ export type DialogProps = {
    * `null` leaves it to Base UI, which returns focus to the element that had it when the dialog opened.
    */
   finalFocus?: () => HTMLElement | null;
+  /**
+   * False while the dialog must stay (work that cannot be left runs in it): no close button, and Escape and a click outside do nothing.
+   * Default true.
+   */
+  dismissible?: boolean;
 };
 
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
-export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus, dismissible = true }: DialogProps) {
   const palette = variant === "palette";
   return (
     <BaseDialog.Root
       open={open}
       onOpenChange={(next, details) => {
+        if (!next && !dismissible) {
+          details.cancel();
+          return;
+        }
         // A field inside that used Escape to take back typed text has called `preventDefault`: the dialog stays open.
         if (!next && details.reason === "escape-key" && details.event.defaultPrevented) {
           details.cancel();
@@ -68,7 +77,7 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
             </div>
           )}
           {/* After the content in the DOM so the first Tab stop is content, not the cross; placed top right by CSS. */}
-          {!palette && (
+          {!palette && dismissible && (
             <BaseDialog.Close className={styles.close} aria-label="Schließen">
               <Icon name="close" />
             </BaseDialog.Close>

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { EventKind } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
+import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { Badge, Icon, Menu } from "../../ui/primitives";
 import type { IconName, MenuEntry } from "../../ui/primitives";
 import styles from "./InspectorHead.module.css";
@@ -34,6 +35,8 @@ export interface InspectorHeadProps {
   title: string;
   /** The record in the words of the ROM, grey and in mono below the title ("Objekt 2 · Eventdatei 0390"). */
   ident?: string;
+  /** In a text project: the record's id, as a quiet line below the ident with a button that copies it. */
+  entityId?: string | null;
   /** The record has changes that are not saved yet. */
   unsaved?: boolean;
   /** The record cannot be changed (a read-only event file). */
@@ -49,7 +52,7 @@ export interface InspectorHeadProps {
 }
 
 /** The head every inspector view shares: the kind as an eyebrow with its symbol, the title, the ident, the badges and the actions. */
-export function InspectorHead({ kind, title, ident, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
+export function InspectorHead({ kind, title, ident, entityId, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
   const { word, tinker, icon } = KINDS[kind];
   const badges = unsaved || locked || irreversible || more != null;
   return (
@@ -65,6 +68,7 @@ export function InspectorHead({ kind, title, ident, unsaved, locked, irreversibl
             {ident}
           </span>
         )}
+        {entityId != null && <EntityIdLine id={entityId} />}
       </div>
       {badges && (
         <div className={styles.badges}>

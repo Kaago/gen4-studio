@@ -15,7 +15,10 @@ export type TextProjectView = {
   status: TextProjectStatus | null;
   /** The sync with DSPRE (`useExternalSync`). */
   sync: ExternalSyncApi;
-  /** A build or a save runs: „Jetzt abgleichen“ waits (the build syncs first on its own). */
+  /**
+   * A build, a save or a set-up runs: „Jetzt abgleichen“ waits (the build syncs first on its own), „Als Textprojekt einrichten…“ and
+   * „Zurücknehmen…“ are locked.
+   */
   busy: boolean;
   /** A conflict was resolved: the assets the store loaded anew (the app reads them again and syncs once more). */
   onResolved: (assets: AssetId[]) => void;
@@ -78,7 +81,7 @@ export function TextProjectSurface({ text, onOpenProject }: TextProjectSurfacePr
   }
   switch (status.state) {
     case "dspre":
-      return <SetUp adoptable={status.adoptable} reason={status.reason} onSetUp={text.onSetUp} />;
+      return <SetUp adoptable={status.adoptable} reason={status.reason} busy={text.busy} onSetUp={text.onSetUp} />;
     case "current":
       return <Current text={text} schema={status.schema} lastSyncAt={status.last_sync_at} />;
     case "older":
@@ -121,10 +124,13 @@ function Surface({ lead, actions, children }: { lead?: string; actions?: ReactNo
   );
 }
 
-/** A DSPRE folder: what a text project is, and „Als Textprojekt einrichten…“, locked with the reason when it cannot be set up. */
-function SetUp({ adoptable, reason, onSetUp }: { adoptable: boolean; reason: string | null; onSetUp?: () => void }) {
+/**
+ * A DSPRE folder: what a text project is, and „Als Textprojekt einrichten…“, locked with the reason when it cannot be set up, and while a
+ * build or a set-up runs.
+ */
+function SetUp({ adoptable, reason, busy, onSetUp }: { adoptable: boolean; reason: string | null; busy: boolean; onSetUp?: () => void }) {
   const reasonId = useId();
-  const locked = !adoptable || onSetUp === undefined;
+  const locked = !adoptable || busy || onSetUp === undefined;
   const why = adoptable ? null : reason;
   return (
     <Surface lead={SETUP_LEAD}>
@@ -158,7 +164,7 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
           <Button kind="secondary" aria-disabled={locked || undefined} onClick={() => !locked && void sync.run()}>
             Jetzt abgleichen
           </Button>
-          <Button kind="secondary" aria-disabled={text.onRevert === undefined || undefined} onClick={() => text.onRevert?.()}>
+          <Button kind="secondary" aria-disabled={text.onRevert === undefined || text.busy || undefined} onClick={() => !text.busy && text.onRevert?.()}>
             Zurücknehmen…
           </Button>
         </>

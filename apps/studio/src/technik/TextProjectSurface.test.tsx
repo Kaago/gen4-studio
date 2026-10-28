@@ -127,6 +127,26 @@ describe("TextProjectSurface", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("set_up_and_take_back_are_locked_while_a_build_or_a_set_up_runs", async () => {
+    const onSetUp = vi.fn();
+    const onRevert = vi.fn();
+    await render(textWith({ status: { state: "dspre", adoptable: true, reason: null }, busy: true, onSetUp }));
+    const setUp = button("Als Textprojekt einrichten…");
+    expect(setUp?.getAttribute("aria-disabled")).toBe("true");
+    await click(setUp);
+    expect(onSetUp).not.toHaveBeenCalled();
+    await render(textWith({ busy: true, onRevert }));
+    const revert = button("Zurücknehmen…");
+    expect(revert?.getAttribute("aria-disabled")).toBe("true");
+    await click(revert);
+    expect(onRevert).not.toHaveBeenCalled();
+    // While nothing runs, both answer.
+    await render(textWith({ onRevert }));
+    expect(button("Zurücknehmen…")?.hasAttribute("aria-disabled")).toBe(false);
+    await click(button("Zurücknehmen…"));
+    expect(onRevert).toHaveBeenCalledOnce();
+  });
+
   it("the_choices_of_a_conflict_are_locked_while_a_build_runs", async () => {
     await render(textWith({ busy: true, sync: syncWith({ last: outcome({ conflicts: [conflict(), conflict({ key: "species/0025", label: "Pokémon 0025", other: "files" })] }) }) }));
     await click(button("Attacke 0001 Pfund", row("moves/0001")!));

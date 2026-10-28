@@ -5,10 +5,10 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
-import { externalSync, textProjectStatus } from "./api";
+import { adoptTextProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
@@ -218,6 +218,12 @@ vi.mock("./api", async (importOriginal) => ({
   textProjectStatus: vi.fn(),
   conflictDiff: vi.fn(),
   resolveExternalConflict: vi.fn(),
+  adoptTextProject: vi.fn(),
+  revertTextProject: vi.fn(),
+  migrateTextProject: vi.fn(),
+  planRenameId: vi.fn(),
+  renameId: vi.fn(),
+  entityIds: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -316,8 +322,9 @@ describe("App wiring", () => {
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
     vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
-    // A DSPRE folder: no sync runs.
+    // A DSPRE folder: no sync runs. Its hint („Als Textprojekt einrichten“) was dismissed, so the tests of other toasts see only theirs.
     vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+    localStorage.setItem("g4.textProjectHint./p", "dismissed");
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -743,7 +750,7 @@ describe("App wiring", () => {
         await click("Weiter");
         await click("Anlegen");
         await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, expect.any(Function));
+        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, false, expect.any(Function));
         // The backend hands out a new info object for every project it opens.
         vi.mocked(openProject).mockClear().mockImplementation(async (root) => ({ root, game_code: "CPUD", family: "Platinum", language: "de", header_count: 2 }));
         await click("Öffnen");
@@ -2640,6 +2647,30 @@ describe("App wiring", () => {
       expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
     });
 
+    it("an_agents_reopen_names_two_rewritten_unsaved_scripts_in_one_note", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Main #${file}:\n\tEnd\n` }));
+      for (const file of [42, 43]) {
+        await act(async () => data().scripts.open(file));
+        data().scripts.documents.get(file)!.text += "// edit\n";
+        await act(async () => data().scripts.onChange(file));
+      }
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Neu #${file}:\n\tEnd\n` }));
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // Both files changed under typed text: one note names both (two notes would replace each other).
+      expect(alerts().filter((a) => a.includes("außerhalb des Editors"))).toEqual([
+        "Scriptdatei 0042, Scriptdatei 0043 wurden außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern",
+      ]);
+      for (const file of [42, 43]) {
+        expect(data().scripts.documents.get(file)?.text).toContain("// edit");
+        expect(data().scripts.documents.get(file)?.savedText).toBe(`script Neu #${file}:\n\tEnd\n`);
+      }
+    });
+
     it("an_agents_reopen_keeps_unsaved_script_text_and_warns_when_its_file_is_gone", async () => {
       env.tauri = true;
       await renderFresh();
@@ -2714,6 +2745,147 @@ describe("App wiring", () => {
       await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 2, client: "Claude Code", tool: "adopt_text_project", root: "/q" } satisfies AgentEvent }));
       await flush();
       expect(listHeaders).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("setting up a text project", () => {
+    const CURRENT = { state: "current" as const, schema: 1, last_sync_at: null };
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    const HINT = "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. DSPRE öffnet den Ordner weiter.";
+    const hint = () => listToasts().find((t) => t.text.startsWith("Dieses Projekt lässt sich als Textprojekt einrichten"));
+    const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+    const dialogButton = (text: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === text);
+    const outcome = (): SyncOutcome => ({ adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: true, ms: 3 });
+    async function showTextProjectEntry() {
+      await act(async () => atlasEntry("Technik")!.click());
+      const entry = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Textprojekt"))!;
+      await act(async () => entry.click());
+    }
+
+    /** Opens "/p" once more; the backend hands out a new info object for every opening. */
+    async function reopen(text_project?: TextProjectStatus) {
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, ...(text_project && { text_project }) });
+      await click("Projekt öffnen");
+      await flush();
+    }
+
+    it("opening_a_dspre_folder_hints_and_an_older_schema_asks_to_lift", async () => {
+      // A DSPRE folder with its base ROM, its hint not dismissed: opening it offers to set it up.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      await reopen();
+      expect(hint()?.text).toBe(HINT);
+      expect(hint()?.kind).toBe("info");
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Einrichten…", "Nicht mehr fragen"]);
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Als Textprojekt einrichten?");
+      await act(async () => dialogButton("Abbrechen")!.click());
+      await flush();
+      // Not dismissed: the next opening hints again. „Nicht mehr fragen“: then the folder says nothing more.
+      resetToasts();
+      await reopen();
+      expect(hint()).toBeDefined();
+      await act(async () => hint()!.actions[1]!.onClick());
+      resetToasts();
+      await reopen();
+      expect(hint()).toBeUndefined();
+      // Without its base ROM the hint says what it needs and leads to where it is assigned.
+      localStorage.removeItem("g4.textProjectHint./p");
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+      await reopen();
+      expect(hint()?.text).toBe("Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis-ROM.");
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Basis-ROM zuordnen…", "Nicht mehr fragen"]);
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("veroeffentlichen");
+
+      // An older schema: the lift is asked for; „Abbrechen“ closes the project.
+      resetToasts();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "older", schema: 0 });
+      await reopen({ state: "older", schema: 0 });
+      expect(hint()).toBeUndefined();
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Textprojekt anheben?");
+      await act(async () => dialogButton("Abbrechen")!.click());
+      await flush();
+      expect(migrateTextProject).not.toHaveBeenCalled();
+      expect(titleBar()).toContain("Kein Projekt geöffnet");
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      // Opened again and lifted: the session is read anew as a current text project, which syncs.
+      vi.mocked(migrateTextProject).mockResolvedValue({ from: 0, to: 1, changed: ["data/moves/0001.json"], snapshot: null });
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await reopen({ state: "older", schema: 0 });
+      vi.mocked(openProject).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await act(async () => dialogButton("Anheben")!.click());
+      await flush();
+      await flush();
+      expect(migrateTextProject).toHaveBeenCalledOnce();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(dialog()).toBeNull();
+      expect(titleBar()).not.toContain("Kein Projekt geöffnet");
+      expect(externalSync).toHaveBeenCalled();
+      expect(live().message?.text).toBe("Textprojekt angehoben: Schema-Version 0 → 1.");
+
+      // A newer schema or a broken manifest is refused when opening, with the kernel's sentence; nothing opens.
+      vi.mocked(openProject).mockRejectedValue({ code: "error", message: "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).", asset: null });
+      await click("Projekt öffnen");
+      await flush();
+      expect(alerts()).toContain("Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).");
+    });
+
+    it("setting_up_runs_modal_then_reads_the_session_again_and_says_so", async () => {
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "HeartGold US (Testprojekt)", sha1: "a".repeat(40), counts: {} });
+      localStorage.removeItem("g4.textProjectHint./p");
+      await renderFresh();
+      await click("Projekt öffnen");
+      await flush();
+      // Opening hinted; the reloads after the set-up and the take-back below are no openings and hint nothing.
+      expect(hint()).toBeDefined();
+      resetToasts();
+      await showTextProjectEntry();
+      let finish: (r: Awaited<ReturnType<typeof adoptTextProject>>) => void = () => {};
+      vi.mocked(adoptTextProject).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+      await click("Als Textprojekt einrichten…");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Als Textprojekt einrichten?");
+      expect([...dialog()!.querySelectorAll("[data-check]")].map((r) => r.textContent)).toEqual(["Alles gespeichert", "Basis-ROM gefunden: HeartGold US (Testprojekt)", "Scripts werden dabei übernommen"]);
+      await act(async () => dialogButton("Einrichten")!.click());
+      expect(adoptTextProject).toHaveBeenCalledOnce();
+      // While it runs nothing writes: ⌘S and ⌘Z do nothing, the project is busy.
+      vi.mocked(save).mockClear();
+      vi.mocked(undo).mockClear();
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true })));
+      await pressUndo();
+      expect(save).not.toHaveBeenCalled();
+      expect(undo).not.toHaveBeenCalled();
+      // Done: the backend's new session is read again as after an agent's reopen, and syncs as a text project.
+      vi.mocked(openProject).mockClear();
+      vi.mocked(listHeaders).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      const files = { arts: [], raw_blobs: 0, raw_bytes: 0, raw_ms: 0, not_built: [], texts: 0, text_json_written: 0, scripts: 0, adopted: null, registries_written: 0, base_layer_ms: 0, base_layer_created: true, files: 6512, bytes: 0, written: 6512, removed: 0, problems: [], ms: 1 };
+      await act(async () => finish({ export: files, include_written: true, sync_files: 9000, ms: 88400 }));
+      await flush();
+      await flush();
+      expect(dialog()).toBeNull();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(externalSync).toHaveBeenCalled();
+      expect(live().message?.text).toBe("Textprojekt eingerichtet: 6.512 Dateien in 88 s.");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+
+      // Taken back: the same reload, and the backup is named.
+      vi.mocked(revertTextProject).mockResolvedValue({ backup: "/p/.g4/backup/textproject-1", rewritten: [], ms: 3 });
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+      vi.mocked(listHeaders).mockClear();
+      await click("Zurücknehmen…");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Textprojekt zurücknehmen?");
+      await act(async () => dialogButton("Zurücknehmen")!.click());
+      await flush();
+      await flush();
+      expect(revertTextProject).toHaveBeenCalledOnce();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(live().message?.text).toBe("Textprojekt zurückgenommen. Sicherung: /p/.g4/backup/textproject-1");
+      // A reload after the revert is no opening: no hint.
+      expect(listToasts().some((t) => t.text.startsWith("Dieses Projekt lässt sich"))).toBe(false);
     });
   });
 

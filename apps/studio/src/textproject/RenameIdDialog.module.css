@@ -1,0 +1,29 @@
+/* The body of „ID umbenennen“: the field, then the plan (the files whose references follow) or why the new id is refused. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.sentence {
+  margin: 0;
+}
+
+/* The files of the plan, one per line in mono; at most eight, the rest counted. */
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  margin: var(--g4-raum-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+}
+
+.more {
+  color: var(--g4-text-sekundaer);
+}

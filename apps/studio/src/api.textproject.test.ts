@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 
-import { conflictDiff, externalSync, resolveExternalConflict, textProjectStatus } from "./api";
+import { adoptTextProject, conflictDiff, entityIds, externalSync, migrateTextProject, planRenameId, renameId, resolveExternalConflict, revertTextProject, textProjectStatus } from "./api";
 import type { SyncOutcome } from "./api";
 
 const outcome: SyncOutcome = { adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: true, ms: 40 };
@@ -49,5 +49,33 @@ describe("text project commands", () => {
     await expect(externalSync(later)).resolves.toBe(outcome);
     expect(invoke.mock.calls).toEqual([["external_sync"]]);
     expect(later).not.toHaveBeenCalled();
+  });
+
+  it("set_up_take_back_lift_rename_and_ids_send_the_documented_arguments", async () => {
+    // The set-up reports its phases over a channel in the app.
+    const onProgress = vi.fn();
+    await adoptTextProject(onProgress);
+    const [cmd, args] = invoke.mock.calls[invoke.mock.calls.length - 1]!;
+    expect(cmd).toBe("adopt_text_project");
+    args.progress.onmessage({ phase: "entities", done: 3, total: 17 });
+    expect(onProgress).toHaveBeenCalledWith({ phase: "entities", done: 3, total: 17 });
+    await revertTextProject();
+    expect(invoke).toHaveBeenLastCalledWith("revert_text_project");
+    await migrateTextProject();
+    expect(invoke).toHaveBeenLastCalledWith("migrate_text_project");
+    await planRenameId("TRAINER_JENS", "TRAINER_JENS_2");
+    expect(invoke).toHaveBeenLastCalledWith("plan_rename_id", { id: "TRAINER_JENS", newId: "TRAINER_JENS_2" });
+    await renameId("TRAINER_JENS", "TRAINER_JENS_2");
+    expect(invoke).toHaveBeenLastCalledWith("rename_id", { id: "TRAINER_JENS", newId: "TRAINER_JENS_2" });
+    invoke.mockResolvedValueOnce({ "25": "SPECIES_PIKACHU" });
+    const ids = await entityIds("Species");
+    expect(invoke).toHaveBeenLastCalledWith("entity_ids", { kind: "Species" });
+    expect(ids[25]).toBe("SPECIES_PIKACHU");
+    // The dev bridge: no channel, no progress.
+    inTauri.mockReturnValue(false);
+    invoke.mockReset();
+    invoke.mockResolvedValueOnce(null);
+    await adoptTextProject(onProgress);
+    expect(invoke.mock.calls).toEqual([["adopt_text_project"]]);
   });
 });

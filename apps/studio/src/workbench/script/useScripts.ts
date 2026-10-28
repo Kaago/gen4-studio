@@ -103,6 +103,14 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * not in the Script panel, because the toolbar counts unsaved scripts and a build saves them first. It does not touch the
  * editor or the language server (those, with CodeMirror, load with the panel).
  */
+/**
+ * The note when a file changed outside the editor under typed text (`names`: „Scriptdatei 0042“): saving writes over it. Several at once
+ * (a reopen that rewrote them) are named in one note, so none replaces another.
+ */
+export function changedOutsideText(names: readonly string[]): string {
+  return `${names.join(", ")} ${names.length === 1 ? "wurde" : "wurden"} außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`;
+}
+
 /** The warning when unsaved documents kept across a reopen have no file any more: the text stays in the editor. */
 export function goneText(names: readonly string[]): string {
   const [first] = names;
@@ -163,6 +171,9 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
   async function checkKept() {
     const docs = latest.current.documents;
     const names: string[] = [];
+    // The files rewritten under typed text: one note for all of them, after the loop.
+    const changed: string[] = [];
+    const note = (name: string) => void changed.push(name);
     for (const doc of [...docs.list()]) {
       const { file } = doc;
       let source: ScriptSourceDto | null;
@@ -177,12 +188,13 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       if (source === null || source.kind === "binary") {
         if (dirty) names.push(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`);
         // A clean document without a source has nothing to edit; one whose file did not read stays as it is.
-        else if (source !== null) applyDisk(file, doc, source, false);
+        else if (source !== null) applyDisk(file, doc, source, false, note);
         continue;
       }
       const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
-      if (source.kind !== doc.kind || text !== doc.savedText) applyDisk(file, doc, source, false);
+      if (source.kind !== doc.kind || text !== doc.savedText) applyDisk(file, doc, source, false, note);
     }
+    if (changed.length > 0) latest.current.onError(refusal(changedOutsideText(changed)));
     if (names.length > 0) toast.warning(goneText(names));
   }
 
@@ -302,17 +314,16 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
 
   /**
    * The open `doc` of `file` gets what `source`, just read from disk, holds: a document without typed text (or with `discard`) shows it,
-   * typed text stays and `onError` says that saving it overwrites what is on disk now. A file that now has a source of the other kind gets
-   * a document of that kind in the same place, one without a source any more (binary) is closed.
+   * typed text stays and `onError` says that saving it overwrites what is on disk now (or, with `note`, the file's name goes there, for one
+   * note over several files). A file that now has a source of the other kind gets a document of that kind in the same place, one without a
+   * source any more (binary) is closed.
    */
   const applyDisk = useCallback(
-    (file: number, doc: ScriptDocument, source: ScriptSourceDto, discard: boolean) => {
+    (file: number, doc: ScriptDocument, source: ScriptSourceDto, discard: boolean, note?: (name: string) => void) => {
       const { documents: docs, bus } = latest.current;
       const dirty = lf(doc.text) !== doc.savedText;
-      const refuse = () =>
-        latest.current.onError(
-          refusal(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
-        );
+      const name = `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`;
+      const refuse = () => (note ? note(name) : latest.current.onError(refusal(changedOutsideText([name]))));
       if (source.kind === "binary") {
         // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.
         if (discard || !dirty) close(file);

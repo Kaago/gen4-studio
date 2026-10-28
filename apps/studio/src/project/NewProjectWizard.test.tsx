@@ -65,7 +65,7 @@ describe("NewProjectWizard", () => {
     // The browser's way: the phases arrive done, after the work.
     vi.mocked(createProject)
       .mockReset()
-      .mockImplementation(async (_rom, dest, template, onProgress) => {
+      .mockImplementation(async (_rom, dest, template, _textProject, onProgress) => {
         const made = created(dest, template);
         for (const { phase } of made.phases) onProgress({ phase, done: 1, total: 1 });
         return made;
@@ -144,13 +144,60 @@ describe("NewProjectWizard", () => {
     await click(button("Anlegen"));
     await flush();
 
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", false, expect.any(Function));
     expect(text()).toContain("Projekt angelegt");
     expect(text()).toContain("Basis-ROM SHA-1 d40f19ac…");
     expect(text()).toContain("Öffnen lädt das Projekt.");
     expect(button("Hier spielen")).toBeUndefined();
     await click(button("Öffnen"));
     expect(onOpen).toHaveBeenCalledExactlyOnceWith(created("/roms/_testkopien/Neues Platin"));
+  });
+
+  it("text_project_checkbox_is_off_and_passes_through_with_its_phase", async () => {
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    expect(current()).toBe("2. Vorlage");
+    const box = () => [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((b) => b.closest("label")?.textContent === "Als Textprojekt einrichten");
+    expect(box()?.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Eine lesbare Datei je Eintrag, bereit für Git; das Anlegen dauert etwas länger.");
+    // Off: no phase for it in the summary.
+    await next();
+    await settle();
+    await next();
+    expect(phase("text_project")).toBeNull();
+    expect(text()).not.toContain("als Textprojekt");
+    // On: the summary says so and lists the phase after „Prüfen“.
+    await click(button("Zurück"));
+    await click(button("Zurück"));
+    await click(box());
+    expect(box()?.getAttribute("aria-checked")).toBe("true");
+    await next();
+    await settle();
+    await next();
+    expect(text()).toContain("Original, als Textprojekt");
+    expect(text()).toContain("mit der Vorlage Original an, als Textprojekt, in /roms/_testkopien/Neues Platin.");
+    const ids = [...container.querySelectorAll<HTMLElement>("[data-check]")].map((r) => r.dataset.check);
+    expect(ids).toEqual(["read", "extract", "template", "check", "text_project"]);
+    expect(phase("text_project")?.textContent).toContain("Textprojekt einrichten");
+    let progress: (p: CreateProgress) => void = () => {};
+    let finish: () => void = () => {};
+    vi.mocked(createProject).mockImplementationOnce((_rom, dest, template, _textProject, onProgress) => {
+      progress = onProgress;
+      return new Promise<Created>((resolve) => (finish = () => resolve(created(dest, template))));
+    });
+    await click(button("Anlegen"));
+    await act(async () => {
+      progress({ phase: "check", done: 1, total: 1 });
+      progress({ phase: "text_project", done: 3, total: 10 });
+    });
+    expect(phase("check")?.dataset.phase).toBe("done");
+    expect(phase("text_project")?.dataset.phase).toBe("running");
+    expect(phase("text_project")?.textContent).toContain("läuft 3/10");
+    await act(async () => finish());
+    await flush();
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", true, expect.any(Function));
+    expect(text()).toContain("Projekt angelegt");
   });
 
   it("creates_with_the_dspre_ending_and_only_data", async () => {
@@ -169,7 +216,7 @@ describe("NewProjectWizard", () => {
     expect(text()).toContain("mit der Vorlage Nur Daten an, in /Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents.");
     await click(button("Anlegen"));
     await flush();
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", "data_only", expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", "data_only", false, expect.any(Function));
     expect(text()).toContain("Öffnen startet im Bereich Pokémon.");
   });
 
@@ -310,7 +357,7 @@ describe("NewProjectWizard", () => {
     expect(text()).toContain("Legt „Neues Platin“ aus Platin (Deutsch) mit der Vorlage Leere Region an, in /roms/_testkopien/Neues Platin. Scripts werden übernommen. Die ROM bleibt unverändert.");
     await click(button("Anlegen"));
     await flush();
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "empty_region", expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "empty_region", false, expect.any(Function));
     expect(text()).toContain("Projekt angelegt");
   });
 
@@ -358,7 +405,7 @@ describe("NewProjectWizard", () => {
     let fail: (e: unknown) => void = () => {};
     let progress: (p: CreateProgress) => void = () => {};
     // The Tauri way: each event says a phase starts.
-    vi.mocked(createProject).mockImplementation((_rom, _dest, _template, onProgress) => {
+    vi.mocked(createProject).mockImplementation((_rom, _dest, _template, _textProject, onProgress) => {
       progress = onProgress;
       onProgress({ phase: "read", done: 0, total: 1 });
       return new Promise<Created>((_, reject) => (fail = reject));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
@@ -35,6 +35,12 @@ import { adoptedText, appliedText, brokenText, conflictsText, syncProgressText }
 import type { TextProjectView } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
+import { AdoptDialog, adoptedText as setUpText } from "./textproject/AdoptDialog";
+import { MigrateDialog, liftedText } from "./textproject/MigrateDialog";
+import { renamedText } from "./textproject/RenameIdDialog";
+import { RevertDialog, revertedText } from "./textproject/RevertDialog";
+import { EntityIdCache, TextProjectProvider } from "./textproject/TextProjectContext";
+import { dismissHint, hintOf, shouldHint } from "./textproject/textProjectHint";
 import { useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
@@ -55,7 +61,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { AdoptReport, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, MigrateReport, ProjectInfo, RegionReport, RenameResult, ResetResult, RevertReport, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -153,6 +159,7 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "new_script_file",
   "create_trainer",
   "resolve_external_conflict",
+  "rename_id",
 ]);
 
 /** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
@@ -269,6 +276,8 @@ function AppBody() {
   // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
   const [changedRevision, setChangedRevision] = useState(0);
   const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
+  // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
+  const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
@@ -418,6 +427,8 @@ function AppBody() {
     if (session.info !== null && event.tool === "assign_base") void original.refresh();
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
+    // An agent renamed an id, or undid or redid a step (a rename's among them): the heads read the ids again.
+    if (event.tool === "rename_id" || event.tool === "undo" || event.tool === "redo") bumpIds();
     // An agent chose a side of a conflict: after its assets were read again, the sync lists what is still open (as after the user's choice).
     const resolved = event.tool === "resolve_external_conflict" && isTextProject;
     agentReloads.current = agentReloads.current
@@ -472,10 +483,16 @@ function AppBody() {
   const [historyFeed] = useState(() => new HistoryFeed());
   useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);
   // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo; the first one that fails ends it.
-  const onUndoTo = useStableCallback(async (stepsBack: number) => {
-    for (let i = 0; i < stepsBack; i++) if (!(await step(undo))) return;
+  // An undo or redo may take back a rename of an id (a file step): the heads read the ids again after each.
+  const stepAndIds = useStableCallback(async (action: typeof undo): Promise<boolean> => {
+    const done = await step(action);
+    if (done) bumpIds();
+    return done;
   });
-  const onRedo = useStableCallback(() => void step(redo));
+  const onUndoTo = useStableCallback(async (stepsBack: number) => {
+    for (let i = 0; i < stepsBack; i++) if (!(await stepAndIds(undo))) return;
+  });
+  const onRedo = useStableCallback(() => void stepAndIds(redo));
   // "Hier spielen": saves and builds; inside the app it then runs the ROM (asking for an emulator first when none is set). In the browser mode it only builds.
   // It builds to the path of the last build without asking; only the first play asks for one (the title bar's "Bauen" always asks).
   const playing = useRef(false);
@@ -550,7 +567,7 @@ function AppBody() {
     onPlay,
     onOpenProject: () => openProject(),
     onPalette: openPalette,
-    step,
+    step: stepAndIds,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
@@ -713,7 +730,10 @@ function AppBody() {
     syncKnown.current = { root, conflicts: new Set(outcome.conflicts.map((c) => c.key)), broken: new Set(outcome.broken.map((b) => b.key)) };
     rereadTextStatus();
     // What came in changed the saved project (Technik › Änderungen compares again) and the store's values (read again as after an agent).
-    if (outcome.adopted.length + outcome.applied.length > 0) bumpChanged();
+    if (outcome.adopted.length + outcome.applied.length > 0) {
+      bumpChanged();
+      bumpIds();
+    }
     if (outcome.reloaded.length > 0) agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(outcome.reloaded)).catch(session.fail);
   });
   // The sync of a text project with DSPRE: when it opens, on window focus, before a build and on „Jetzt abgleichen“.
@@ -737,7 +757,75 @@ function AppBody() {
       .then(() => void sync.run())
       .catch(session.fail);
   });
-  const textProject: TextProjectView | null = session.info === null ? null : { status: projectText, sync, busy: session.busy, onResolved: onConflictResolved };
+  // „Als Textprojekt einrichten…“ (Technik, the hint) and „Zurücknehmen…“: their dialogs.
+  const [textDialog, setTextDialog] = useState<"adopt" | "revert" | null>(null);
+  const openTextDialog = useStableCallback((which: "adopt" | "revert") => {
+    if (!session.busy && session.info !== null && !wizardOpen.current && !startOpen) setTextDialog(which);
+  });
+  const textProject: TextProjectView | null =
+    session.info === null
+      ? null
+      : { status: projectText, sync, busy: session.busy, onResolved: onConflictResolved, onSetUp: () => openTextDialog("adopt"), onRevert: () => openTextDialog("revert") };
+  /**
+   * The backend opened the session anew after a set-up, a take-back or a lift: read again as after an agent's reopen (in the queue of the
+   * agents' changes), then `said`.
+   */
+  const afterSwap = useStableCallback(async (said: string) => {
+    const root = session.info?.root;
+    if (root === undefined) return;
+    const reloaded = agentReloads.current.then(() => session.reloadSession(root, resetProject)).then(bumpChanged);
+    agentReloads.current = reloaded.catch(session.fail);
+    await agentReloads.current;
+    bumpIds();
+    session.setMessage({ kind: "info", text: said });
+  });
+  const onAdopted = useStableCallback((report: AdoptReport) => afterSwap(setUpText(report)));
+  const onReverted = useStableCallback((report: RevertReport) => afterSwap(revertedText(report)));
+  const onLifted = useStableCallback((report: MigrateReport) => afterSwap(`${liftedText(report)}${report.snapshot === null ? "" : ` Sicherung: ${report.snapshot}`}`));
+  // A rename went in (one undo step that wrote files): the history and the ids are read again, Änderungen compares again.
+  const onRenamed = useStableCallback((result: RenameResult) => {
+    session.setMessage({ kind: "info", text: renamedText(result.plan) });
+    for (const warning of result.warnings) toast.warning(warning);
+    bumpIds();
+    bumpChanged();
+    void session.refreshDirty();
+  });
+  const idCache = useMemo(() => new EntityIdCache(), [session.info, idsRevision]);
+  // A DSPRE folder that opened (not one an agent or a set-up opened anew) hints once per opening that it can be set up, unless the user
+  // said not to ask again; without its base ROM the hint says it needs one and leads to where it is assigned.
+  const hinted = useRef<ProjectInfo | null>(null);
+  useEffect(() => {
+    const opened = session.info;
+    if (opened === null || projectText === null || hinted.current === opened) return;
+    hinted.current = opened;
+    if (session.isReopened(opened) || !shouldHint(opened.root, projectText)) return;
+    const { text, setUp } = hintOf(projectText);
+    const first = setUp
+      ? { label: "Einrichten…", onClick: () => openTextDialog("adopt") }
+      : {
+          label: "Basis-ROM zuordnen…",
+          onClick: () => {
+            if (wizardOpen.current || startOpen) return;
+            setTechnikEntry("veroeffentlichen");
+            setArea("technik");
+          },
+        };
+    toast.info(text, { actions: [first, { label: "Nicht mehr fragen", onClick: () => dismissHint(opened.root) }] });
+  }, [session.info, projectText]);
+  // A text project of a newer schema or with a broken manifest is refused when it opens; should a session of one come up anew (an agent's
+  // reopen), it is closed with the kernel's sentence.
+  useEffect(() => {
+    if (projectText?.state !== "newer" && projectText?.state !== "broken") return;
+    const why = projectText.state === "newer" ? `Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version ${projectText.schema}).` : projectText.reason;
+    session.closeProject(resetProject);
+    setArea("start");
+    session.setMessage({ kind: "error", text: why });
+  }, [projectText]);
+  // An older schema is lifted or the project closes: „Abbrechen“ closes it (unlifted it could only be read).
+  const onCancelLift = useStableCallback(() => {
+    session.closeProject(resetProject);
+    setArea("start");
+  });
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
   // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({
@@ -1153,109 +1241,136 @@ function AppBody() {
 
   return (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
-      <Workbench data={data} live={live}>
-        {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
-        <TextAreaHost onShown={setTextShown}>
-          <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
-            <Shell
-              title={
-                <TitleBar
-                  projectName={info ? projectName(info.root) : null}
-                  game={info ? gameLabel(info) : null}
-                  dirtyCount={session.dirtyCount + scripts.dirtyCount}
-                  // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
-                  busy={session.busy || showsWizard || startOpen}
-                  onOpen={openProject}
-                  onSave={() => void session.onSave()}
-                  onBuild={() => void session.onBuild()}
-                  onHelp={onHelp}
-                  onPalette={openPalette}
-                  paletteDisabled={showsWizard || startOpen}
-                  theme={shell.theme}
-                  onToggleTheme={shell.toggleTheme}
-                />
-              }
-              atlas={
-                <Atlas
-                  area={area}
-                  onArea={setArea}
-                  onHelp={onHelp}
-                  locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
-                  lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
-                  density={shell.density}
-                />
-              }
-              area={area}
-              areas={Object.fromEntries(DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: AREA_LISTS[a], deck: deckOf(a, trails[a]) }]))}
-              pane={pane}
-              status={
-                <StatusLine
-                  left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
-                  middle={
-                    showsWizard || startOpen ? (
-                      <WizardStep />
-                    ) : area === "texte" ? (
-                      <TextStatus />
-                    ) : area === "pokemon" ? (
-                      <PokemonStatus />
-                    ) : area === "gegenstaende" ? (
-                      <ItemsStatus />
-                    ) : area === "einstellungen" ? (
-                      "Änderungen gelten sofort und für alle Projekte"
-                    ) : area === "welt" ? (
-                      context
-                    ) : null
-                  }
-                  right={<ProblemCount store={problems} />}
-                  bridge={bridge}
-                  density={shell.density}
-                  onToggleDensity={shell.toggleDensity}
-                  build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-                  agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
-                />
-              }
-            />
-          </DataAreaHost>
-        </TextAreaHost>
-      </Workbench>
-      <WizardHost
-        wizards={wizards}
-        world={live.world.world}
-        headers={scene.headers}
-        matrices={overview.matrices}
-        matricesLoaded={overview.loaded}
-        matricesFailed={overview.failed}
-        links={overview.links}
-        counts={session.counts}
-        selected={selectedHeader}
-        shownMatrix={scene.matrix?.index ?? null}
-        lastTile={world.lastMatrixTile}
-        onHeaderPatch={onHeaderPatch}
-        onHeaderPatchRepaired={session.patchRepaired}
-        onError={session.fail}
-        onPlay={() => void onPlay()}
-        scripts={scripts.api.status}
-        onAdoptScripts={scripts.api.adopt}
-        unsaved={session.dirtyCount + scripts.dirtyCount}
-        onSave={session.onSave}
-        onRegionApplied={onRegionApplied}
-      />
-      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-      <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
-      {session.textConflicts !== null && (
-        <TextConflictDialog
-          key={session.textConflicts.archives.join(",")}
-          archives={session.textConflicts.archives}
-          onResolve={(choices) => void onResolveConflicts(choices)}
-          onCancel={session.cancelConflicts}
-          busy={session.textConflicts.resolving}
+      <TextProjectProvider active={isTextProject} ids={idCache} onRenamed={onRenamed}>
+        <Workbench data={data} live={live}>
+          {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
+          <TextAreaHost onShown={setTextShown}>
+            <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
+              <Shell
+                title={
+                  <TitleBar
+                    projectName={info ? projectName(info.root) : null}
+                    game={info ? gameLabel(info) : null}
+                    dirtyCount={session.dirtyCount + scripts.dirtyCount}
+                    // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
+                    busy={session.busy || showsWizard || startOpen}
+                    onOpen={openProject}
+                    onSave={() => void session.onSave()}
+                    onBuild={() => void session.onBuild()}
+                    onHelp={onHelp}
+                    onPalette={openPalette}
+                    paletteDisabled={showsWizard || startOpen}
+                    theme={shell.theme}
+                    onToggleTheme={shell.toggleTheme}
+                  />
+                }
+                atlas={
+                  <Atlas
+                    area={area}
+                    onArea={setArea}
+                    onHelp={onHelp}
+                    locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
+                    lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
+                    density={shell.density}
+                  />
+                }
+                area={area}
+                areas={Object.fromEntries(DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: AREA_LISTS[a], deck: deckOf(a, trails[a]) }]))}
+                pane={pane}
+                status={
+                  <StatusLine
+                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                    middle={
+                      showsWizard || startOpen ? (
+                        <WizardStep />
+                      ) : area === "texte" ? (
+                        <TextStatus />
+                      ) : area === "pokemon" ? (
+                        <PokemonStatus />
+                      ) : area === "gegenstaende" ? (
+                        <ItemsStatus />
+                      ) : area === "einstellungen" ? (
+                        "Änderungen gelten sofort und für alle Projekte"
+                      ) : area === "welt" ? (
+                        context
+                      ) : null
+                    }
+                    right={<ProblemCount store={problems} />}
+                    bridge={bridge}
+                    density={shell.density}
+                    onToggleDensity={shell.toggleDensity}
+                    build={{ builtAt: session.lastBuiltAt, building: session.busy }}
+                    agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
+                  />
+                }
+              />
+            </DataAreaHost>
+          </TextAreaHost>
+        </Workbench>
+        <WizardHost
+          wizards={wizards}
+          world={live.world.world}
+          headers={scene.headers}
+          matrices={overview.matrices}
+          matricesLoaded={overview.loaded}
+          matricesFailed={overview.failed}
+          links={overview.links}
+          counts={session.counts}
+          selected={selectedHeader}
+          shownMatrix={scene.matrix?.index ?? null}
+          lastTile={world.lastMatrixTile}
+          onHeaderPatch={onHeaderPatch}
+          onHeaderPatchRepaired={session.patchRepaired}
+          onError={session.fail}
+          onPlay={() => void onPlay()}
+          scripts={scripts.api.status}
+          onAdoptScripts={scripts.api.adopt}
+          unsaved={session.dirtyCount + scripts.dirtyCount}
+          onSave={session.onSave}
+          onRegionApplied={onRegionApplied}
         />
-      )}
-      {importMap !== null && (
-        <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
-      )}
-      <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
-      {!inTauri() && <WebDialogHost />}
+        <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+        <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
+        {session.textConflicts !== null && (
+          <TextConflictDialog
+            key={session.textConflicts.archives.join(",")}
+            archives={session.textConflicts.archives}
+            onResolve={(choices) => void onResolveConflicts(choices)}
+            onCancel={session.cancelConflicts}
+            busy={session.textConflicts.resolving}
+          />
+        )}
+        {importMap !== null && (
+          <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
+        )}
+        <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
+        {textDialog === "adopt" && session.info !== null && (
+          <AdoptDialog
+            unsaved={session.dirtyCount + scripts.dirtyCount}
+            baseLabel={original.status?.state === "ready" ? original.status.label : null}
+            baseReason={original.status?.state === "unavailable" ? original.status.reason : projectText?.state === "dspre" && !projectText.adoptable ? projectText.reason : null}
+            scriptsAdopted={scripts.api.status?.adopted ?? false}
+            exclusive={session.exclusive}
+            onClose={() => {
+              setTextDialog(null);
+              rereadTextStatus();
+            }}
+            onAdopted={onAdopted}
+          />
+        )}
+        {textDialog === "revert" && session.info !== null && (
+          <RevertDialog
+            unsaved={session.dirtyCount + scripts.dirtyCount}
+            exclusive={session.exclusive}
+            onClose={() => setTextDialog(null)}
+            onReverted={onReverted}
+          />
+        )}
+        {projectText?.state === "older" && session.info !== null && (
+          <MigrateDialog key={session.info.root} schema={projectText.schema} exclusive={session.exclusive} onCancel={onCancelLift} onLifted={onLifted} />
+        )}
+        {!inTauri() && <WebDialogHost />}
+      </TextProjectProvider>
     </OriginalProvider>
   );
 }

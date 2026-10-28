@@ -53,10 +53,10 @@ describe("api.start", () => {
   it("createProject_passes_a_channel_that_feeds_the_progress_callback_and_resolves_to_the_result", async () => {
     invoke.mockResolvedValue(created);
     const onProgress = vi.fn();
-    await expect(createProject("/roms/pt.nds", "/p/neu", "data_only", onProgress)).resolves.toBe(created);
+    await expect(createProject("/roms/pt.nds", "/p/neu", "data_only", true, onProgress)).resolves.toBe(created);
     const [cmd, args] = invoke.mock.calls[0]!;
     expect(cmd).toBe("create_project");
-    expect(args).toMatchObject({ rom: "/roms/pt.nds", dest: "/p/neu", template: "data_only" });
+    expect(args).toMatchObject({ rom: "/roms/pt.nds", dest: "/p/neu", template: "data_only", textProject: true });
     args.progress.onmessage({ phase: "extract", done: 0, total: 1 });
     expect(onProgress).toHaveBeenCalledWith({ phase: "extract", done: 0, total: 1 });
   });
@@ -65,8 +65,8 @@ describe("api.start", () => {
     inTauri.mockReturnValue(false);
     invoke.mockResolvedValue(created);
     const onProgress = vi.fn();
-    await expect(createProject("/roms/pt.nds", "/p/neu", "original", onProgress)).resolves.toBe(created);
-    expect(invoke.mock.calls).toEqual([["create_project", { rom: "/roms/pt.nds", dest: "/p/neu", template: "original" }]]);
+    await expect(createProject("/roms/pt.nds", "/p/neu", "original", false, onProgress)).resolves.toBe(created);
+    expect(invoke.mock.calls).toEqual([["create_project", { rom: "/roms/pt.nds", dest: "/p/neu", template: "original", textProject: false }]]);
     expect(onProgress.mock.calls.map(([p]) => p)).toEqual([
       { phase: "read", done: 0, total: 0 },
       { phase: "read", done: 1, total: 1 },
@@ -83,7 +83,7 @@ describe("api.start", () => {
     let answer: (value: Created) => void = () => {};
     invoke.mockReturnValue(new Promise<Created>((resolve) => (answer = resolve)));
     const onProgress = vi.fn();
-    const pending = createProject("/roms/pt.nds", "/p/neu", "original", onProgress);
+    const pending = createProject("/roms/pt.nds", "/p/neu", "original", false, onProgress);
     expect(onProgress.mock.calls.map(([p]) => p)).toEqual([{ phase: "read", done: 0, total: 0 }]);
     answer(created);
     await expect(pending).resolves.toBe(created);
@@ -93,7 +93,7 @@ describe("api.start", () => {
     inTauri.mockReturnValue(false);
     invoke.mockRejectedValue({ code: "error", message: "destination is not empty", asset: null });
     const onProgress = vi.fn();
-    await expect(createProject("/r.nds", "/d", "original", onProgress)).rejects.toMatchObject({ message: "destination is not empty" });
+    await expect(createProject("/r.nds", "/d", "original", false, onProgress)).rejects.toMatchObject({ message: "destination is not empty" });
     expect(onProgress.mock.calls.map(([p]) => p)).toEqual([{ phase: "read", done: 0, total: 0 }]);
   });
 });

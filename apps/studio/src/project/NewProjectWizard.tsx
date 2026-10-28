@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import { errorText } from "../api";
 import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template } from "../api";
 import { openPath } from "../platform/dialogs";
-import { Badge, Button, CheckList, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
+import { Badge, Button, CheckList, Checkbox, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
 import type { CheckRow } from "../ui/primitives";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
@@ -59,9 +59,14 @@ const PHASES: { id: CreatePhase; label: string }[] = [
   { id: "extract", label: "Entpacken" },
   { id: "template", label: "Vorlage anwenden" },
   { id: "check", label: "Prüfen" },
+  { id: "text_project", label: "Textprojekt einrichten" },
 ];
 
-const freshPhases = (): PhaseRow[] => PHASES.map((p) => ({ ...p, state: "open", done: 0, total: 0 }));
+/** The phases of a creation; setting it up as text project only when asked for. */
+const freshPhases = (textProject: boolean): PhaseRow[] =>
+  PHASES.filter((p) => textProject || p.id !== "text_project").map((p) => ({ ...p, state: "open", done: 0, total: 0 }));
+
+const TEXT_PROJECT_HINT = "Eine lesbare Datei je Eintrag, bereit für Git; das Anlegen dauert etwas länger.";
 
 /**
  * One progress event: the phases before it are done; the phase itself runs, or is done when the event says so (the dev
@@ -218,6 +223,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const [romError, setRomError] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
   const [template, setTemplate] = useState<Template>("original");
+  // Off by default: DSPRE users decide themselves; it costs 10 to 120 s more.
+  const [textProject, setTextProject] = useState(false);
   const [name, setName] = useState("");
   // A name the user typed is kept when another ROM is read; a proposed one follows the ROM.
   const ownName = useRef(false);
@@ -228,7 +235,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   // Counts up when the destination must be asked again although its path did not change (after a failed create).
   const [recheck, setRecheck] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [phases, setPhases] = useState(freshPhases);
+  const [phases, setPhases] = useState(() => freshPhases(false));
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
 
@@ -320,9 +327,9 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     if (!rom || dest === null) return;
     setBusy(true);
     setError(null);
-    setPhases(freshPhases());
+    setPhases(freshPhases(textProject));
     try {
-      const made = await createProject(romPath, dest, template, (p) => setPhases((rows) => advance(rows, p)));
+      const made = await createProject(romPath, dest, template, textProject, (p) => setPhases((rows) => advance(rows, p)));
       setPhases((rows) => rows.map((r) => ({ ...r, state: "done" })));
       setCreated(made);
     } catch (e) {
@@ -339,7 +346,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const ready = releasable(rom) && dest !== null && destOk;
   // The empty region needs rotom's sources: creating the project adopts the scripts first.
   const adopts = template === "empty_region" ? " Scripts werden übernommen." : "";
-  const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an, in ${dest}.${adopts} Die ROM bleibt unverändert.` : undefined;
+  const asText = textProject ? ", als Textprojekt" : "";
+  const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an${asText}, in ${dest}.${adopts} Die ROM bleibt unverändert.` : undefined;
 
   // Something already lies at the project's own path: a question of the name. Anything else (space, a refusal) is the folder's.
   const taken = current?.result?.state === "not_empty" || current?.result?.state === "not_a_directory";
@@ -390,6 +398,18 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
       content: (
         <section className={`${parts.column} ${parts.wide}`}>
           <TemplateCards value={template} untested={rom?.support.kind === "untested"} onChange={setTemplate} />
+          <div className={parts.group}>
+            <Checkbox
+              label="Als Textprojekt einrichten"
+              checked={textProject}
+              onChange={(on) => {
+                setTextProject(on);
+                // The phase list follows the box (the work has not started on this step).
+                setPhases(freshPhases(on));
+              }}
+            />
+            <p className={parts.note}>{TEXT_PROJECT_HINT}</p>
+          </div>
         </section>
       ),
     },
@@ -452,7 +472,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
               </div>
               <div>
                 <dt>Vorlage</dt>
-                <dd>{TEMPLATE_NAMES[template]}</dd>
+                <dd>{`${TEMPLATE_NAMES[template]}${asText}`}</dd>
               </div>
               <div>
                 <dt>Ordner</dt>

@@ -33,7 +33,8 @@ export interface RomInfo {
 /** What a new project starts as. */
 export type Template = "original" | "data_only" | "empty_region";
 
-export type CreatePhase = "read" | "extract" | "template" | "check";
+/** `text_project`: setting the new project up as text project (only when asked for), after the check. */
+export type CreatePhase = "read" | "extract" | "template" | "check" | "text_project";
 
 /** Reported at the start of each phase. */
 export interface CreateProgress {
@@ -76,18 +77,18 @@ export const defaultProjectParent = () => invoke<ProjectParent>("default_project
 export const checkProjectDest = (dest: string, romSize: number) => invoke<DestCheck>("check_project_dest", { dest, romSize });
 
 /**
- * Unpacks the ROM into a new project at `dest` (missing or an empty folder); `onProgress` is called as each phase starts.
- * Takes seconds. Through the dev bridge (no channel) there are no live progress events: `onProgress` gets the first phase
+ * Unpacks the ROM into a new project at `dest` (missing or an empty folder) and, with `textProject`, sets it up as text project (10 to
+ * 120 s more); `onProgress` is called as each phase starts. Takes seconds. Through the dev bridge (no channel) there are no live progress events: `onProgress` gets the first phase
  * running before the call (the work starts with reading the ROM), then each phase once, done, from the answer.
  */
-export async function createProject(rom: string, dest: string, template: Template, onProgress: (progress: CreateProgress) => void): Promise<Created> {
+export async function createProject(rom: string, dest: string, template: Template, textProject: boolean, onProgress: (progress: CreateProgress) => void): Promise<Created> {
   if (!inTauri()) {
     onProgress({ phase: "read", done: 0, total: 0 });
-    const created = await invoke<Created>("create_project", { rom, dest, template });
+    const created = await invoke<Created>("create_project", { rom, dest, template, textProject });
     for (const { phase } of created.phases) onProgress({ phase, done: 1, total: 1 });
     return created;
   }
   const progress = new Channel<CreateProgress>();
   progress.onmessage = onProgress;
-  return invoke<Created>("create_project", { rom, dest, template, progress });
+  return invoke<Created>("create_project", { rom, dest, template, textProject, progress });
 }

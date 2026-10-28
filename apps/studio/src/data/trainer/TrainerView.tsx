@@ -4,6 +4,10 @@ import type { HeaderSummary, RefDto } from "../../api";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
+import { EntityIdLine } from "../../textproject/EntityIdLine";
+import { renameEntry } from "../../textproject/renameEntry";
+import { useTextProject } from "../../textproject/TextProjectContext";
+import { useEntityIds } from "../../textproject/useEntityIds";
 import { Badge, Button, Notice, PokemonCard, Reference } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
@@ -118,7 +122,11 @@ export function TrainerView() {
   const { row, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useTrainer(selected);
   const reset = useReset();
+  // In a text project the head names the trainer's id and offers to rename it.
+  const text = useTextProject();
+  const ids = useEntityIds("Trainer", text.active);
   if (row === null || selected === null) return null;
+  const entityId = ids?.[selected] ?? null;
   const title = doc && !doc.placeholder && doc.locked === null ? docTitle(doc, names.classes, selected) : labelOf(row);
   return (
     <section className={styles.view} aria-label={`Übersicht ${title}`} data-trainer={selected}>
@@ -126,9 +134,10 @@ export function TrainerView() {
         <header className={styles.head}>
           <h2 className={styles.name}>{title}</h2>
           <span className={styles.tech}>{row.tech}</span>
+          {entityId !== null && <EntityIdLine id={entityId} />}
           {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
           {/* Properties and team; the name and the texts stay (they are text archives). The placeholder is refused with its reason. */}
-          <HeadActions items={[resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open)]} />
+          <HeadActions items={[resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open), ...(entityId !== null ? [renameEntry(entityId, text.renameId)] : [])]} />
         </header>
         {error !== null && <Notice kind="error">{`Dieser Trainer ist nicht lesbar: ${error}`}</Notice>}
         {doc?.placeholder && <Notice kind="info">{`${PLACEHOLDER_TEXT}: hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Er wird nie bearbeitet.`}</Notice>}

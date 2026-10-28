@@ -8,6 +8,7 @@ import { vi } from "vitest";
 import type { DataRowDto, ItemEntryDto, NameArchivesDto, NameTablesDto, ProjectInfo } from "../api";
 import { createEditBus } from "../bus/editBus";
 import { resetSpy, withReset } from "../original/resetTesting";
+import { textProjectSpy, withTextProject } from "../textproject/textProjectTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import type { Crumb } from "../workbench/breadcrumb";
 import { DataStore } from "./dataStore";
@@ -70,7 +71,9 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
   const base = (over: Partial<DataAreaProps> = {}): DataAreaProps => ({ project: projectPt, store, active: true, target: null, dirty: [], bus, headers: [], ...calls, ...over });
   // „Auf Original zurücksetzen…“: a spy whose status a test may change before `show`.
   const reset = resetSpy();
-  const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{withReset(reset, tree(props))}</ShellProvider>));
+  // The text project („ID umbenennen…“, the ids in the heads): a DSPRE folder unless a test sets `text.active` before `show`.
+  const text = textProjectSpy();
+  const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{withReset(reset, withTextProject(text, tree(props)))}</ShellProvider>));
   const q = <E extends Element = HTMLElement>(selector: string) => container.querySelector<E>(selector);
   const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("button")];
   const button = (text: string) => buttons().find((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === text);
@@ -80,5 +83,5 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
     act(() => root.unmount());
     container.remove();
   };
-  return { container, store, bus, calls, reset, base, show, q, button, buttons, trail, lastTrail, unmount };
+  return { container, store, bus, calls, reset, text, base, show, q, button, buttons, trail, lastTrail, unmount };
 }

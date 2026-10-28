@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getEvents } from "../../api";
+import { entityIds, getEvents } from "../../api";
 import { resetIcons } from "../icons";
 import { PLACEHOLDER_DOC, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
 import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
@@ -18,6 +18,7 @@ vi.mock("../../api", async (importOriginal) => ({
   refs: vi.fn(),
   getEvents: vi.fn(),
   createTrainer: vi.fn(),
+  entityIds: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -101,5 +102,28 @@ describe("TrainerView", () => {
     await h.open();
     expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
     expect(contextTexts(h.list().querySelector<HTMLElement>('[data-trainer="12"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+  });
+
+  it("text_project_shows_the_id_and_offers_rename", async () => {
+    vi.mocked(entityIds).mockReset().mockResolvedValue({ 12: "TRAINER_WANDERER_JENS" });
+    h.text.active = true;
+    await h.open();
+    expect(entityIds).toHaveBeenCalledWith("Trainer");
+    const id = h.view().querySelector<HTMLElement>("header [data-entity-id]");
+    expect(id?.textContent).toBe("TRAINER_WANDERER_JENS");
+    expect(h.view().querySelector('button[aria-label="ID kopieren"]')).not.toBeNull();
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…", "ID umbenennen…"]);
+    chooseItem(h.view(), "ID umbenennen…");
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]");
+    expect(dialog?.querySelector("h2")?.textContent).toBe("ID umbenennen");
+    expect(dialog?.querySelector<HTMLInputElement>('input[aria-label="Neue ID"]')?.value).toBe("TRAINER_WANDERER_JENS");
+  });
+
+  it("dspre_layout_shows_neither", async () => {
+    vi.mocked(entityIds).mockReset().mockResolvedValue({});
+    await h.open();
+    expect(entityIds).not.toHaveBeenCalled();
+    expect(h.view().querySelector("[data-entity-id]")).toBeNull();
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
   });
 });

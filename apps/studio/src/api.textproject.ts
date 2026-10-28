@@ -109,3 +109,134 @@ export const conflictDiff = (key: string) => invoke<ConflictDiff>("conflict_diff
  * against a changed source file (`other = files`) takes the file as the base of the unsaved value, which drops that asset's undo history.
  */
 export const resolveExternalConflict = (key: string, keep: Keep) => invoke<AssetId[]>("resolve_external_conflict", { key, keep });
+
+/** A phase of setting the project up as text project; `scripts` has `total` 0 when the scripts were adopted already. */
+export type AdoptPhase = "scripts" | "base_layer" | "entities" | "sync";
+
+/** How far the set-up is: `done` of `total` in `phase` (each phase reports `done` 0 first and `done` = `total` last). */
+export interface AdoptProgress {
+  phase: AdoptPhase;
+  done: number;
+  total: number;
+}
+
+/** One art folder of the export (`data/<art>/`). */
+export interface ArtStats {
+  art: string;
+  entities: number;
+  json_files: number;
+  side_files: number;
+  written: number;
+  removed: number;
+  bytes: number;
+  ms: number;
+}
+
+/** What the export of the set-up wrote (4.3a): `files` counts every file of the text project, `written` the ones it wrote. */
+export interface ExportReport {
+  arts: ArtStats[];
+  raw_blobs: number;
+  raw_bytes: number;
+  raw_ms: number;
+  not_built: string[];
+  texts: number;
+  text_json_written: number;
+  scripts: number;
+  adopted: number | null;
+  registries_written: number;
+  base_layer_ms: number;
+  base_layer_created: boolean;
+  files: number;
+  bytes: number;
+  written: number;
+  removed: number;
+  problems: SyncProblem[];
+  ms: number;
+}
+
+/** What the set-up did: the export, whether the id files for rotom were written, how many files the sync recorded, the milliseconds. */
+export interface AdoptReport {
+  export: ExportReport;
+  include_written: boolean;
+  sync_files: number;
+  ms: number;
+}
+
+/** What taking the text project back did: the backup folder (absolute), the files written with numbers instead of ids, the milliseconds. */
+export interface RevertReport {
+  backup: string;
+  rewritten: string[];
+  ms: number;
+}
+
+/** What lifting an older text project did: the schema versions, the files it changed, and the snapshot folder (absolute) or null. */
+export interface MigrateReport {
+  from: number;
+  to: number;
+  changed: string[];
+  snapshot: string | null;
+}
+
+/** The kinds of symbolic ids (`ids::Resolver`). */
+export type SymbolKind = "Species" | "Move" | "Item" | "Ability" | "Type" | "Map" | "Trainer" | "TrainerClass" | "Place";
+
+/** The kinds whose id a head shows: Pokémon, header (`Map`, by header number) and trainer. */
+export type EntityKind = "Species" | "Trainer" | "Map";
+
+/** One file a rename writes, with the number of references in it. */
+export interface RenameFile {
+  path: string;
+  count: number;
+}
+
+/**
+ * What renaming `old_id` to `new_id` would write: the files and their references (`total`), whether the id files for rotom change
+ * (`id_files`); `refusal` says why it cannot be done (a taken id, a fallback id of another number, wrong characters), nothing written then.
+ * `kind` and `number` are null for an id the project does not know.
+ */
+export interface RenamePlan {
+  kind: SymbolKind | null;
+  number: number | null;
+  old_id: string;
+  new_id: string;
+  files: RenameFile[];
+  total: number;
+  id_files: boolean;
+  refusal: string | null;
+}
+
+/** A rename that went in: its plan, the undo step (`change`), the milliseconds and what did not go as it should (`warnings`). */
+export interface RenameResult {
+  plan: RenamePlan;
+  change: number;
+  ms: number;
+  warnings: string[];
+}
+
+/**
+ * Sets the DSPRE folder up as text project (10 to 120 s); `onProgress` follows its phases. The backend opens the session anew: the app
+ * reads it again as after an agent's reopen. Through the dev bridge (no channel) there are no progress events. Refused with `unsaved`,
+ * `base_missing`, `pending` or `error` (Diamond/Pearl, or the session changed meanwhile: then the files are set up and the project must be
+ * opened anew).
+ */
+export async function adoptTextProject(onProgress: (progress: AdoptProgress) => void): Promise<AdoptReport> {
+  if (!inTauri()) return invoke<AdoptReport>("adopt_text_project");
+  const progress = new Channel<AdoptProgress>();
+  progress.onmessage = onProgress;
+  return invoke<AdoptReport>("adopt_text_project", { progress });
+}
+
+/** Takes the text project back (manifest and `data/` to `.g4/backup/`); the session is opened anew. Refused with `unsaved` or `pending`. */
+export const revertTextProject = () => invoke<RevertReport>("revert_text_project");
+
+/** Lifts a text project of an older schema to the current one; the session is opened anew when something changed. */
+export const migrateTextProject = () => invoke<MigrateReport>("migrate_text_project");
+
+/** The plan of renaming the register id `id` to `newId`; writes nothing. */
+export const planRenameId = (id: string, newId: string) => invoke<RenamePlan>("plan_rename_id", { id, newId });
+
+/** Renames the register id `id` to `newId` with every reference, as one undo step (⌘Z writes all files back). */
+export const renameId = (id: string, newId: string) => invoke<RenameResult>("rename_id", { id, newId });
+
+/** The ids of `kind` by number (`{25: "SPECIES_PIKACHU"}`); a register kind outside a text project has none. */
+export const entityIds = (kind: EntityKind) => invoke<Record<number, string>>("entity_ids", { kind });

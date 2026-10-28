@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataGet, refs } from "../../api";
+import { dataGet, entityIds, refs } from "../../api";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { STARAVIA, pokedexHarness, staraviaDoc, wireApi } from "./pokedexTesting";
@@ -19,6 +19,7 @@ vi.mock("../../api", async (importOriginal) => ({
   dataRaw: vi.fn(),
   refs: vi.fn(),
   machineTable: vi.fn(),
+  entityIds: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -144,5 +145,22 @@ describe("PokedexView", () => {
     await h.open();
     expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
     expect(contextTexts(h.q<HTMLElement>('[data-species="397"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+  });
+
+  it("text_project_shows_the_species_id", async () => {
+    vi.mocked(entityIds).mockReset().mockResolvedValue({ 397: "SPECIES_STARAVIA" });
+    h.text.active = true;
+    await h.open();
+    await flush();
+    expect(entityIds).toHaveBeenCalledWith("Species");
+    expect(h.view().querySelector("header [data-entity-id]")?.textContent).toBe("SPECIES_STARAVIA");
+    // A species keeps its id: no rename in its head.
+    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    // A DSPRE folder shows no id.
+    vi.mocked(entityIds).mockClear();
+    h.text.active = false;
+    await h.open();
+    expect(h.view().querySelector("[data-entity-id]")).toBeNull();
+    expect(entityIds).not.toHaveBeenCalled();
   });
 });
