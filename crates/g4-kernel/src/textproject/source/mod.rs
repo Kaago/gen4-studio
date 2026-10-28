@@ -51,14 +51,16 @@ use super::step::forget_kept;
 
 use units::{
     Given, Place, asset_of_member, binary_rel, collect_base_sha1, disk_bytes, disk_member,
-    entity_sources, import_art, item_ids, json_rel, key_of, place_members, place_of, read_optional,
-    store_bytes,
+    entity_sources, import_art, item_ids, json_rel, key_of, numbered_cached, place_members,
+    place_of, read_optional, store_bytes,
 };
 use writers::write_include;
 
 #[cfg(test)]
 mod tests;
 mod units;
+
+pub(crate) use units::UnitCache;
 mod writers;
 
 /// What a store asset is in the text project: its unit and the files of it.
@@ -123,7 +125,6 @@ pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, Ker
     let Some(place) = place_of(project, id) else {
         return Ok(None);
     };
-    let root = &project.root;
     let (sources, assets) = match place {
         Place::Entity { art, index } => {
             let assets = if art == Art::Trainers {
@@ -137,7 +138,10 @@ pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, Ker
                     .map(|&kind| AssetId { kind, index })
                     .collect()
             };
-            (entity_sources(root, &art.dir(), u32::from(index))?, assets)
+            (
+                entity_sources(project, &art.dir(), u32::from(index))?,
+                assets,
+            )
         }
         Place::Item { member } => {
             let Some(ids) = item_ids(project, member).filter(|ids| !ids.is_empty()) else {
@@ -145,13 +149,13 @@ pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, Ker
             };
             let mut sources = Vec::new();
             for id in ids {
-                sources.extend(entity_sources(root, &Art::Items.dir(), id)?);
+                sources.extend(entity_sources(project, &Art::Items.dir(), id)?);
             }
             (sources, vec![id])
         }
         Place::Headers => {
             let dir = Art::Headers.dir();
-            let sources = numbered(&root.join(&dir), "json")?
+            let sources = numbered_cached(project, &dir, "json")?
                 .into_iter()
                 .map(|n| dir.join(format!("{n:04}.json")))
                 .collect();

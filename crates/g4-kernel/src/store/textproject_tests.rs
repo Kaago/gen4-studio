@@ -410,3 +410,132 @@ fn undo_and_redo_in_a_text_project_write_nothing_until_save() {
     assert_eq!(power(&fx), 10);
     assert_eq!(fx.read(MOVE_1_MEMBER)[3], 10);
 }
+
+const PERSONAL_1: AssetId = AssetId {
+    kind: AssetKind::Personal,
+    index: 1,
+};
+const SPECIES_1_JSON: &str = "data/species/0001.json";
+
+fn raise_attack(st: &mut Store) {
+    st.edit_personal(1, "Angriff", |p| p.set_attack(p.attack().wrapping_add(1)))
+        .unwrap()
+        .unwrap();
+}
+
+/// The personal member of species 1, relative to the root.
+fn personal_1_member(fx: &TextFixture) -> String {
+    let p = fx.project();
+    p.member_path(AssetKind::Personal, 1)
+        .strip_prefix(&p.root)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn seed_sync(fx: &TextFixture) {
+    BuildState::update(fx.root(), |state| {
+        state.sync = Some(SyncRecord::default());
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_clean_part_of_the_unit_changed_on_disk_makes_the_save_stale() {
+    let fx = TextFixture::exported();
+    let mut st = store(&fx);
+    // The learnset is loaded and clean; its part of the species JSON changes by hand.
+    st.learnset(1).unwrap();
+    raise_attack(&mut st);
+    let mut species = json(&fx, SPECIES_1_JSON);
+    let level = &mut species["learnset"]["moves"][0]["level"];
+    assert!(level.is_u64(), "{species}");
+    *level = Value::from(level.as_u64().unwrap() + 1);
+    fx.write(
+        SPECIES_1_JSON,
+        &serde_json::to_vec_pretty(&species).unwrap(),
+    );
+    let before = files(&fx, &["data", "unpacked"]);
+    match st.save() {
+        Err(KernelError::Stale(id)) => assert_eq!(
+            id,
+            AssetId {
+                kind: AssetKind::Learnset,
+                index: 1
+            }
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        changed(&before, &files(&fx, &["data", "unpacked"])),
+        paths(&[])
+    );
+    assert!(st.is_dirty(PERSONAL_1));
+}
+
+#[test]
+fn a_save_records_only_what_it_wrote() {
+    let fx = TextFixture::exported();
+    seed_sync(&fx);
+    let mut st = store(&fx);
+    raise_attack(&mut st);
+    st.save().unwrap();
+    let sync = BuildState::load(fx.root()).sync.unwrap();
+    let keys: Vec<&str> = sync.files.keys().map(String::as_str).collect();
+    let member = personal_1_member(&fx);
+    let mut expected = vec![SPECIES_1_JSON, member.as_str()];
+    expected.sort_unstable();
+    assert_eq!(keys, expected, "not the learnset or evolution member");
+}
+
+#[test]
+fn a_member_changed_outside_since_the_sync_makes_the_save_stale() {
+    let fx = TextFixture::exported();
+    seed_sync(&fx);
+    let member = personal_1_member(&fx);
+    let mut st = store(&fx);
+    raise_attack(&mut st);
+    st.save().unwrap();
+    // DSPRE writes the member afterwards.
+    let mut dspre = fx.read(&member);
+    dspre[2] ^= 0x01;
+    fx.write(&member, &dspre);
+    raise_attack(&mut st);
+    let before = files(&fx, &["data", "unpacked"]);
+    match st.save() {
+        Err(KernelError::Stale(id)) => assert_eq!(id, PERSONAL_1),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        changed(&before, &files(&fx, &["data", "unpacked"])),
+        paths(&[])
+    );
+
+    // Without a recorded sync the member is the build's intermediate and simply written.
+    BuildState::update(fx.root(), |state| state.sync = None).unwrap();
+    st.save().unwrap();
+    assert_ne!(fx.read(&member), dspre);
+}
+
+#[cfg(unix)]
+#[test]
+fn after_a_failed_member_write_the_saved_json_is_not_stale() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = TextFixture::exported();
+    let member = personal_1_member(&fx);
+    let mut st = store(&fx);
+    raise_attack(&mut st);
+    let attack = st.personal(1).unwrap().attack();
+    // The member's folder takes no new file: the member cannot be written, only read.
+    let folder = fx.root().join(&member).parent().unwrap().to_path_buf();
+    let mode = |m: u32| std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(m));
+    mode(0o555).unwrap();
+    let failed = st.save();
+    mode(0o755).unwrap();
+    assert!(failed.is_err(), "{failed:?}");
+    // The JSON was written first and is the asset's source now.
+    assert_eq!(json(&fx, SPECIES_1_JSON)["personal"]["attack"], attack);
+    assert!(!st.is_dirty(PERSONAL_1));
+    assert!(st.save().unwrap().written.is_empty());
+}

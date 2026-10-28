@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use g4_kernel::base::BaseRom;
 use g4_kernel::build;
-use g4_kernel::project::Project;
+use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::Store;
 use g4_kernel::textproject::{ExportOptions, export, sources};
 
@@ -38,6 +38,18 @@ fn raise_pikachu_attack(root: &Path) -> u128 {
     let started = Instant::now();
     store.save().unwrap();
     started.elapsed().as_millis()
+}
+
+/// Loads every personal member of the project at `root` through a new store; the time in
+/// milliseconds and the count (each load finds its unit, see `Project::asset_location`).
+fn load_all_personal(root: &Path) -> (u128, usize) {
+    let mut store = Store::new(Arc::new(Project::open(root).unwrap()));
+    let count = store.member_count(AssetKind::Personal).unwrap();
+    let started = Instant::now();
+    for index in 0..count {
+        store.personal(u16::try_from(index).unwrap()).unwrap();
+    }
+    (started.elapsed().as_millis(), count)
 }
 
 /// The SHA-1 of the ROM `root` builds into `out`.
@@ -72,6 +84,7 @@ fn store_on_json_edits_only_the_entity_file_and_builds_like_dspre() {
     )
     .unwrap();
 
+    let (load_ms, loaded) = load_all_personal(&text);
     let before = source_hashes(&text);
     let save_ms = raise_pikachu_attack(&text);
     raise_pikachu_attack(&dspre);
@@ -93,7 +106,10 @@ fn store_on_json_edits_only_the_entity_file_and_builds_like_dspre() {
     );
     assert_ne!(from_text, base.sha1(), "the edit reached the ROM");
 
-    eprintln!("store {} save_ms={save_ms}", base.game_code());
+    eprintln!(
+        "store {} save_ms={save_ms} load_personal={loaded} load_ms={load_ms}",
+        base.game_code()
+    );
     if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
         assert!(save_ms <= 200, "save: {save_ms} ms > 200 ms");
     }

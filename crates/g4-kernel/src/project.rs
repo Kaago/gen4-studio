@@ -12,7 +12,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::text::TextArchiveDoc;
 use crate::textproject::manifest::{SchemaState, refusal, schema_state};
-use crate::textproject::source::{EntityUnit, unit_of};
+use crate::textproject::source::{EntityUnit, UnitCache, unit_of};
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
 const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
@@ -547,6 +547,8 @@ pub struct Project {
     pub(crate) arm9_tables: crate::data::arm9::Arm9Cache,
     /// See [`Project::source_mode`].
     source_mode: SourceMode,
+    /// What [`Project::asset_location`] reads to find an asset's unit in a text project.
+    unit_cache: UnitCache,
 }
 
 impl Project {
@@ -578,6 +580,7 @@ impl Project {
             archives,
             arm9_tables: Default::default(),
             source_mode,
+            unit_cache: UnitCache::default(),
         })
     }
 
@@ -591,16 +594,20 @@ impl Project {
     /// current schema); else [`KernelError::Refused`] with the sentence of the manifest for an
     /// older or newer schema, or the problem of a manifest that does not read.
     pub fn editable(&self) -> Result<(), KernelError> {
-        match &self.source_mode {
-            SourceMode::Dspre | SourceMode::TextProject => Ok(()),
-            SourceMode::Older { schema } => Err(KernelError::Refused(
-                refusal(SchemaState::Older(*schema)).unwrap_or_default(),
-            )),
-            SourceMode::Newer { schema } => Err(KernelError::Refused(
-                refusal(SchemaState::Newer(*schema)).unwrap_or_default(),
-            )),
-            SourceMode::Broken { reason } => Err(KernelError::Refused(reason.clone())),
-        }
+        let state = match &self.source_mode {
+            SourceMode::Dspre | SourceMode::TextProject => return Ok(()),
+            SourceMode::Older { schema } => SchemaState::Older(*schema),
+            SourceMode::Newer { schema } => SchemaState::Newer(*schema),
+            SourceMode::Broken { reason } => return Err(KernelError::Refused(reason.clone())),
+        };
+        Err(KernelError::Refused(refusal(state).unwrap_or_else(|| {
+            "Das Textprojekt hat eine andere Schema-Version; es lässt sich nur lesen.".to_owned()
+        })))
+    }
+
+    /// The listings and the item table [`Project::asset_location`] finds units with.
+    pub(crate) fn unit_cache(&self) -> &UnitCache {
+        &self.unit_cache
     }
 
     /// `root/unpacked/<name>`

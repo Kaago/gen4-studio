@@ -1,19 +1,23 @@
 //! Where an asset lives in the text project: its place, unit key, files and members, and how
 //! an entity's JSON imports.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use g4_formats::game::Family;
 use serde_json::Value;
 
+use crate::build::fingerprint::{Fp, same_stat, stat};
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::{HEADER_TABLE, trainer_pair_bytes};
 
-use super::super::arts::{ARTS, Art, binary_name, file_names, member_rel, read_members, slash};
+use super::super::arts::{
+    ARTS, Art, binary_name, file_names, member_rel, numbered_in, read_members, slash,
+};
 use super::super::canon::json_problem;
 use super::super::codes::SCHEMA_CODE;
 use super::super::locate::located;
@@ -61,9 +65,8 @@ pub(super) fn place_of(project: &Project, id: AssetId) -> Option<Place> {
     let art = match id.kind {
         AssetKind::HeaderTable => return (id.index == 0).then_some(Place::Headers),
         AssetKind::Item => {
-            return (project.has_archive(AssetKind::Item)
-                && project.item_table_to_write().is_some())
-            .then_some(Place::Item { member: id.index });
+            return (project.has_archive(AssetKind::Item) && item_members(project).is_some())
+                .then_some(Place::Item { member: id.index });
         }
         AssetKind::Trainer => Art::Trainers,
         kind => ARTS.into_iter().find(|art| art.kinds().contains(&kind))?,
@@ -164,18 +167,86 @@ pub(super) fn store_bytes(art: Art, kind: AssetKind, parts: &[Option<Vec<u8>>]) 
     parts.get(slot).cloned().flatten()
 }
 
+/// What [`super::unit_of`] reads for every asset, kept per project
+/// ([`Project::unit_cache`](crate::project::Project)) so loading a whole kind does not list a
+/// folder or read `arm9.bin` per asset: the file names of the folders under `data/`, each
+/// with the `stat` of its folder (a file added, removed or renamed there changes it), and the
+/// item table's member per item id, with the `stat` of `arm9.bin` and of the item folder.
+#[derive(Debug, Default)]
+pub(crate) struct UnitCache {
+    dirs: Mutex<HashMap<PathBuf, Listing>>,
+    items: Mutex<Option<ItemsCached>>,
+}
+
+/// A folder's `stat` and its file names.
+type Listing = (Fp, Arc<Vec<String>>);
+
+/// The stamps the item members were read with, and the members (`None`: no item table).
+type ItemsCached = ([Option<Fp>; 2], Option<Arc<Vec<u16>>>);
+
+/// The `stat` of `path`, `None` when it is missing or cannot be read (then nothing is cached).
+fn stamp(path: &Path) -> Option<Fp> {
+    stat(path).ok().flatten()
+}
+
+impl UnitCache {
+    /// The visible file names of folder `dir` (absolute), sorted ([`file_names`]); listed
+    /// again when the folder's `stat` changed. The `stat` is taken before the listing, so a
+    /// change in between lists again next time.
+    pub(super) fn names(&self, dir: &Path) -> Result<Arc<Vec<String>>, KernelError> {
+        let Some(now) = stamp(dir) else {
+            return Ok(Arc::new(file_names(dir)?));
+        };
+        let mut dirs = self.dirs.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((was, names)) = dirs.get(dir)
+            && same_stat(was, &now)
+        {
+            return Ok(Arc::clone(names));
+        }
+        let names = Arc::new(file_names(dir)?);
+        dirs.insert(dir.to_path_buf(), (now, Arc::clone(&names)));
+        Ok(names)
+    }
+}
+
+/// The data member of every item id (the item table's), read again when `arm9.bin` or the
+/// item folder changed; `None` without an item table.
+fn item_members(project: &Project) -> Option<Arc<Vec<u16>>> {
+    let stamps = [
+        stamp(&project.arm9_path()),
+        stamp(&project.unpacked_dir(AssetKind::Item)),
+    ];
+    let cache = &project.unit_cache().items;
+    let mut held = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((was, members)) = &*held
+        && was.iter().zip(&stamps).all(|(a, b)| match (a, b) {
+            (Some(a), Some(b)) => same_stat(a, b),
+            (None, None) => true,
+            _ => false,
+        })
+        && stamps[0].is_some()
+    {
+        return members.clone();
+    }
+    let members = project
+        .item_table_to_write()
+        .map(|table| Arc::new(table.entries.iter().map(|e| e.data).collect::<Vec<u16>>()));
+    *held = Some((stamps, members.clone()));
+    members
+}
+
 /// The files of entity `index` in folder `dir` (relative): its JSON, whether it exists or
 /// not, and every side file with its stem `NNNN.`, sorted.
 pub(super) fn entity_sources(
-    root: &Path,
+    project: &Project,
     dir: &Path,
     index: u32,
 ) -> Result<Vec<PathBuf>, KernelError> {
     let stem = format!("{index:04}.");
     let json = format!("{index:04}.json");
     let mut out = vec![dir.join(&json)];
-    for name in file_names(&root.join(dir))? {
-        if name.starts_with(&stem) && name != json {
+    for name in project.unit_cache().names(&project.root.join(dir))?.iter() {
+        if name.starts_with(&stem) && *name != json {
             out.push(dir.join(name));
         }
     }
@@ -183,15 +254,25 @@ pub(super) fn entity_sources(
     Ok(out)
 }
 
+/// The numbers `N` of the files `NNNN.<ext>` of folder `dir` (relative), sorted, from the
+/// cached listing.
+pub(super) fn numbered_cached(
+    project: &Project,
+    dir: &Path,
+    ext: &str,
+) -> Result<Vec<usize>, KernelError> {
+    let names = project.unit_cache().names(&project.root.join(dir))?;
+    Ok(numbered_in(&names, ext))
+}
+
 /// The item ids whose table entry names `member`; `None` without an item table.
 pub(super) fn item_ids(project: &Project, member: u16) -> Option<Vec<u32>> {
-    let table = project.item_table_to_write()?;
+    let members = item_members(project)?;
     Some(
-        table
-            .entries
+        members
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.data == member)
+            .filter(|&(_, &data)| data == member)
             .map(|(id, _)| u32::try_from(id).unwrap_or(u32::MAX))
             .collect(),
     )

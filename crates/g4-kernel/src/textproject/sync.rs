@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::build::fingerprint::capture_hashed;
+use crate::build::fingerprint::{Seen, capture_hashed, compare, now_ns};
 use crate::build::state::BuildState;
 use crate::error::KernelError;
 use crate::project::Project;
@@ -45,6 +45,37 @@ pub(crate) fn record_paths(project: &Project, paths: &[PathBuf]) -> Result<(), K
             }
         }
     })
+}
+
+/// The first of `paths` (relative to the root, or absolute below it) whose file is no longer
+/// what `sync` recorded for it: written past the Studio since (DSPRE), so a save must not
+/// overwrite it. `None` when every recorded one is unchanged; a path without an entry, or a
+/// project without a sync record, counts as unchanged.
+pub(crate) fn changed_since_record(
+    project: &Project,
+    paths: &[PathBuf],
+) -> Result<Option<PathBuf>, KernelError> {
+    let state = BuildState::load_shared(&project.root);
+    let Some(sync) = &state.sync else {
+        return Ok(None);
+    };
+    let now = now_ns();
+    for path in paths {
+        let rel = path.strip_prefix(&project.root).unwrap_or(path);
+        let Some(recorded) = sync.files.get(&key(rel)) else {
+            continue;
+        };
+        let (seen, _) = compare(
+            &project.root.join(rel),
+            Some(recorded),
+            sync.scanned_at_ns,
+            now,
+        )?;
+        if seen != Seen::Same {
+            return Ok(Some(rel.to_path_buf()));
+        }
+    }
+    Ok(None)
 }
 
 /// The key of a project-relative path in `sync.files`: its components joined with `/`.

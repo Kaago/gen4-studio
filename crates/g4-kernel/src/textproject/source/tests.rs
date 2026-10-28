@@ -742,3 +742,23 @@ fn a_header_appended_to_the_table_gets_its_json_and_a_map_id() {
     assert_eq!(header["area_data_id"], 1);
     assert_eq!(json(&fx, "data/ids/maps.json")["MAP_T03"], 2);
 }
+
+#[test]
+fn the_unit_cache_lists_a_folder_once_until_it_changes() {
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    let dir = fx.root().join("data/moves");
+    let first = p.unit_cache().names(&dir).unwrap();
+    let again = p.unit_cache().names(&dir).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&first, &again), "listed once");
+    fx.write("data/moves/0001.bin", b"side");
+    let after = p.unit_cache().names(&dir).unwrap();
+    assert!(after.contains(&"0001.bin".to_owned()), "{after:?}");
+    assert_eq!(
+        unit_of(&p, id(AssetKind::Move, 1))
+            .unwrap()
+            .unwrap()
+            .sources,
+        paths(&["data/moves/0001.bin", "data/moves/0001.json"])
+    );
+}

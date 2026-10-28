@@ -197,16 +197,18 @@ pub(crate) fn member_rel(project: &Project, kind: AssetKind, index: usize) -> Pa
 /// The numbers of the files `NNNN.<ext>` in folder `dir` (absolute), sorted; none when the
 /// folder is missing.
 pub(crate) fn numbered(dir: &Path, ext: &str) -> Result<Vec<usize>, KernelError> {
-    let mut numbers = Vec::new();
-    for name in file_names(dir)? {
-        if let Some(stem) = name.strip_suffix(&format!(".{ext}"))
-            && let Some(n) = member_number(stem)
-        {
-            numbers.push(n);
-        }
-    }
+    Ok(numbered_in(&file_names(dir)?, ext))
+}
+
+/// [`numbered`] over the file `names` of a folder.
+pub(crate) fn numbered_in(names: &[String], ext: &str) -> Vec<usize> {
+    let suffix = format!(".{ext}");
+    let mut numbers: Vec<usize> = names
+        .iter()
+        .filter_map(|name| member_number(name.strip_suffix(&suffix)?))
+        .collect();
     numbers.sort_unstable();
-    Ok(numbers)
+    numbers
 }
 
 /// The names of the visible files in folder `dir` (absolute), sorted; none when it is

@@ -28,7 +28,7 @@ use crate::fsutil::write_atomic;
 use crate::project::{AssetKind, Location, Project};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
-use crate::textproject::sync::record_paths;
+use crate::textproject::sync::{changed_since_record, record_paths};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -1428,7 +1428,8 @@ impl Store {
     /// [`Store::append_json`]). The new member is not part of the undo history.
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
         let index = self.append_member_file(kind, bytes)?;
-        self.append_json(AssetId { kind, index }, |source, project| {
+        let member = self.project.member_path(kind, index);
+        self.append_json(AssetId { kind, index }, vec![member], |source, project| {
             source.append(project, AssetId { kind, index })
         })?;
         Ok(index)
@@ -1442,27 +1443,26 @@ impl Store {
         Ok(index)
     }
 
-    /// In a text project, writes the JSON of asset `id`, whose members were just appended,
-    /// with `write` (christening it at once) and records the unit's files for the sync;
+    /// In a text project, writes the JSON of asset `id`, whose `members` were just appended,
+    /// with `write` (christening it at once) and records the files written for the sync;
     /// nothing elsewhere. A failure leaves the member without JSON: [`KernelError::Partial`].
     fn append_json(
         &mut self,
         id: AssetId,
+        members: Vec<PathBuf>,
         write: impl FnOnce(&mut EntitySource, &Project) -> Result<SourceWrite, KernelError>,
     ) -> Result<(), KernelError> {
         let Location::Entity { .. } = self.project.asset_location(id.kind, id.index)? else {
             return Ok(());
         };
         let project = Arc::clone(&self.project);
-        let written = Store::source(&mut self.source, &project)
+        let mut written = Store::source(&mut self.source, &project)
             .and_then(|source| write(source, &project))
             .map_err(|e| {
                 KernelError::Partial(format!("{id} was written, its JSON was not: {e}"))
             })?;
-        // The unit as it is now: its JSON exists.
-        if let Location::Entity { unit, .. } = project.asset_location(id.kind, id.index)? {
-            record_saved(&project, &[unit], &written);
-        }
+        written.sources.extend(members);
+        record_saved(&project, &written);
         Ok(())
     }
 
@@ -1523,7 +1523,12 @@ impl Store {
             index,
         };
         self.note_change(id);
-        self.append_json(id, |source, project| {
+        let members = vec![
+            self.project
+                .member_path(AssetKind::TrainerProperties, index),
+            self.project.member_path(AssetKind::TrainerParty, index),
+        ];
+        self.append_json(id, members, |source, project| {
             source.append_trainer(project, index, name)
         })?;
         Ok(index)
@@ -1815,7 +1820,8 @@ impl Store {
                 .get(&HEADER_TABLE)
                 .and_then(|a| a.saved_bytes.clone())
                 .ok_or(KernelError::Stale(HEADER_TABLE))?;
-            self.append_json(HEADER_TABLE, |source, project| {
+            let members = vec![path, names_path];
+            self.append_json(HEADER_TABLE, members, |source, project| {
                 source.write(project, &[(HEADER_TABLE, table)], &|_| None)
             })?;
         }
@@ -2784,18 +2790,21 @@ impl Store {
                 pending.push((id, location, asset.current.to_bytes(family)?));
             }
         }
+        self.check_units(&pending)?;
         let mut report = SaveReport {
             retargeted_scripts: self.retargeted_scripts()?,
             ..SaveReport::default()
         };
-        let (units, sources) = self.write_sources(&pending)?;
+        let mut written = self.write_sources(&pending)?;
+        let mut members = Vec::new();
         for (id, location, bytes) in pending {
             match &location {
-                Location::Entity { members, .. } => {
+                Location::Entity { members: at, .. } => {
                     // The members are the build's intermediate state: written over what they
                     // hold now, not compared with the JSON's bytes the store saw.
-                    let now = read_location(members, self.reading(id)?)?;
-                    self.write_members(id, members, now.as_deref(), &bytes)?;
+                    let now = read_location(at, self.reading(id)?)?;
+                    members.extend(member_targets(at, &bytes)?);
+                    self.write_members(id, at, now.as_deref(), &bytes)?;
                 }
                 Location::TextSource { json, member } => {
                     let Some(Loaded::TextArchive(doc)) = self.assets.get(&id).map(|a| &a.current)
@@ -2806,8 +2815,8 @@ impl Store {
                     report.problems.extend(problems);
                 }
                 location => {
-                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.clone());
-                    self.write_members(id, location, base.as_deref(), &bytes)?;
+                    let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
+                    self.write_members(id, location, base, &bytes)?;
                 }
             }
             if let Some(asset) = self.assets.get_mut(&id) {
@@ -2816,43 +2825,88 @@ impl Store {
             report.written.push(id);
             self.drop_text_index(id);
         }
-        record_saved(&self.project, &units, &sources);
+        written.sources.append(&mut members);
+        record_saved(&self.project, &written);
         self.record_texts(&report.written);
         crate::scripts::mark_stale(&self.project, &report.retargeted_scripts)?;
         Ok(report)
     }
 
+    /// Before a save in a text project writes anything: every other loaded asset of a unit it
+    /// writes must still be what its JSON holds (the write takes those parts from the store),
+    /// and no member it writes may have changed since the sync recorded it (written past the
+    /// Studio, by DSPRE). Else [`KernelError::Stale`] naming that asset.
+    fn check_units(&mut self, pending: &[(AssetId, Location, Vec<u8>)]) -> Result<(), KernelError> {
+        let mut parts: Vec<AssetId> = Vec::new();
+        for (id, location, bytes) in pending {
+            let Location::Entity { unit, members } = location else {
+                continue;
+            };
+            for &part in &unit.assets {
+                let saved = pending.iter().any(|(p, _, _)| *p == part);
+                if !saved && self.assets.contains_key(&part) && !parts.contains(&part) {
+                    parts.push(part);
+                }
+            }
+            if changed_since_record(&self.project, &member_targets(members, bytes)?)?.is_some() {
+                return Err(KernelError::Stale(*id));
+            }
+        }
+        for part in parts {
+            let (_, on_disk) = self.read_disk_as(part, Read::Base)?;
+            if self
+                .assets
+                .get(&part)
+                .is_some_and(|a| a.saved_bytes != on_disk)
+            {
+                return Err(KernelError::Stale(part));
+            }
+        }
+        Ok(())
+    }
+
     /// Writes the JSON of the units of the text project's assets among `pending` (asset,
-    /// location, bytes to save) and returns those units, each once, with what the write did.
+    /// location, bytes to save), one unit after the other; once a unit's JSON is written its
+    /// assets count as saved (the JSON is their source), so a failure later on does not leave
+    /// the store's own write looking changed on disk. Returns what the writes did.
     fn write_sources(
         &mut self,
         pending: &[(AssetId, Location, Vec<u8>)],
-    ) -> Result<(Vec<EntityUnit>, SourceWrite), KernelError> {
-        let mut units: Vec<EntityUnit> = Vec::new();
-        let mut writes = Vec::new();
+    ) -> Result<SourceWrite, KernelError> {
+        let mut units: Vec<(&str, Writes)> = Vec::new();
         for (id, location, bytes) in pending {
             if let Location::Entity { unit, .. } = location {
-                if !units.iter().any(|u| u.key == unit.key) {
-                    units.push(unit.clone());
+                let write = (*id, bytes.clone());
+                match units.iter_mut().find(|(key, _)| *key == unit.key) {
+                    Some((_, writes)) => writes.push(write),
+                    None => units.push((unit.key.as_str(), vec![write])),
                 }
-                writes.push((*id, bytes.clone()));
             }
-        }
-        if writes.is_empty() {
-            return Ok((units, SourceWrite::default()));
         }
         let family = self.project.family;
         let project = Arc::clone(&self.project);
-        let assets = &self.assets;
-        // The other parts of a unit as the store holds them (unsaved values included).
-        let current = |id: AssetId| {
-            assets
-                .get(&id)
-                .and_then(|a| a.current.to_bytes(family).ok())
-        };
-        let written =
-            Store::source(&mut self.source, &project)?.write(&project, &writes, &current)?;
-        Ok((units, written))
+        let mut out = SourceWrite::default();
+        for (_, writes) in units {
+            let assets = &self.assets;
+            // The other parts of a unit as the store holds them (checked against the JSON by
+            // `check_units`).
+            let current = |id: AssetId| {
+                assets
+                    .get(&id)
+                    .and_then(|a| a.current.to_bytes(family).ok())
+            };
+            let written =
+                Store::source(&mut self.source, &project)?.write(&project, &writes, &current)?;
+            out.sources.extend(written.sources);
+            out.registers.extend(written.registers);
+            out.include |= written.include;
+            for (id, bytes) in writes {
+                if let Some(asset) = self.assets.get_mut(&id) {
+                    asset.saved_bytes = Some(bytes);
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Writes `bytes` of asset `id` to its member `location` (not a text archive, not an
@@ -2929,23 +2983,46 @@ fn corrupt(change: Option<&mut Changeset>, part: usize) {
     }
 }
 
-/// Records the files of `units` (their sources and members) and what `written` wrote for the
-/// text project's sync. The record is a cache like the text archives' (see
-/// [`Store::record_texts`]): a file left unrecorded is compared by content next time and found
-/// in step, so an error here is not the save's.
-fn record_saved(project: &Project, units: &[EntityUnit], written: &SourceWrite) {
-    if units.is_empty() {
-        return;
-    }
-    let mut paths: Vec<PathBuf> = units
+/// The assets of one unit a save writes, with their bytes.
+type Writes = Vec<(AssetId, Vec<u8>)>;
+
+/// Records what a save or an append wrote for the text project's sync: `written.sources`
+/// (the JSON and side files, and the members written), `written.registers`. Only what was
+/// written: a member left alone keeps its record, so a change DSPRE makes to it stays visible.
+/// The record is a cache like the text archives' (see [`Store::record_texts`]): a file left
+/// unrecorded is compared by content next time and found in step, so an error here is not
+/// the save's.
+fn record_saved(project: &Project, written: &SourceWrite) {
+    let mut paths: Vec<PathBuf> = written
+        .sources
         .iter()
-        .flat_map(|u| u.sources.iter().chain(&u.members).cloned())
-        .chain(written.sources.iter().cloned())
-        .chain(written.registers.iter().cloned())
+        .chain(&written.registers)
+        .cloned()
         .collect();
     paths.sort();
     paths.dedup();
     let _ = record_paths(project, &paths);
+}
+
+/// The member files a save of `bytes` to member location `location` writes (see
+/// [`Store::write_members`]): the member, both of a pair, `arm9.bin` for the slice, the header
+/// files whose bytes differ from the file now.
+fn member_targets(location: &Location, bytes: &[u8]) -> Result<Vec<PathBuf>, KernelError> {
+    Ok(match location {
+        Location::Member(path) | Location::Slice { path, .. } => vec![path.clone()],
+        Location::MemberPair { props, party } => vec![props.clone(), party.clone()],
+        Location::HeaderFiles { dir, .. } => {
+            let mut out = Vec::new();
+            for (i, chunk) in bytes.chunks(MAP_HEADER_SIZE).enumerate() {
+                let path = dir.join(format!("{i:04}"));
+                if read_file(&path)?.as_deref() != Some(chunk) {
+                    out.push(path);
+                }
+            }
+            out
+        }
+        Location::TextSource { .. } | Location::Entity { .. } => Vec::new(),
+    })
 }
 
 /// The bytes at `location`. `None`: the file does not exist (for header files: one of
