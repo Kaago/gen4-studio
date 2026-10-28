@@ -129,6 +129,10 @@ fn text_error(e: KernelError) -> CmdError {
         KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT => {
             CmdError::refused("not_text_project", why)
         }
+        // The adoption of a text project exports it: changes the members lack refuse it.
+        KernelError::Refused(why) if why.starts_with(g4_kernel::textproject::UNSYNCED_EXPORT) => {
+            CmdError::refused("unsynced", why)
+        }
         other => other.into(),
     }
 }
@@ -270,7 +274,7 @@ pub(crate) fn check_adopt(
 /// session anew on the same folder, so the store reads and writes the JSON. Refuses before
 /// writing anything what [`check_adopt`] refuses, and every refusal of the kernel (another
 /// base ROM, an older or newer schema, texts in conflict; a text project with a change from
-/// outside is `pending`). Runs without the session lock (10 to 120 s) but with the store busy:
+/// outside is `pending`, one whose JSON holds changes the members lack `unsynced`). Runs without the session lock (10 to 120 s) but with the store busy:
 /// every write meanwhile (edit, save, undo, redo, reset, rename, a new entity) is refused with
 /// `busy` ([`ADOPTING`]). The session is replaced only when it is unchanged since
 /// ([`REOPEN`] otherwise).
@@ -1250,6 +1254,29 @@ mod tests {
         assert!(!out.exists());
         assert!(!t.fx.root().join(g4_kernel::world_meta::WORLD_FILE).exists());
         assert!(!t.fx.root().join(g4_kernel::checks::IGNORE_FILE).exists());
+    }
+
+    /// An adoption of a text project without a sync record (a 4.3a project) whose JSON holds a
+    /// change the members lack: the export's refusal answers `unsynced`, nothing is written
+    /// and the session stays.
+    #[test]
+    fn adopting_a_text_project_over_unbuilt_json_answers_unsynced() {
+        let t = adopted();
+        g4_kernel::build::state::BuildState::update(t.fx.root(), |s| s.sync = None).unwrap();
+        t.fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+        let json = t.fx.read(MOVE_1_JSON);
+        let before = crate::commands::open_project_arc(&t.state).unwrap();
+        let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
+        assert_eq!(err.code, "unsynced", "{}", err.message);
+        assert!(
+            err.message
+                .starts_with(g4_kernel::textproject::UNSYNCED_EXPORT),
+            "{}",
+            err.message
+        );
+        assert_eq!(t.fx.read(MOVE_1_JSON), json);
+        let after = crate::commands::open_project_arc(&t.state).unwrap();
+        assert!(Arc::ptr_eq(&before, &after), "the session was replaced");
     }
 
     /// A refused adoption of a text project (a change from outside is pending) keeps the

@@ -31,8 +31,9 @@
 //! blob; from the files the members (through the import), the text member. Then it records
 //! them with every unit in step. [`record_all`] records everything as it is (adoption,
 //! import, export). A save of the store records what it wrote ([`record_paths`]), and so does
-//! the build step `textproject` ([`record_written`]), so the next scan finds nothing to take
-//! over. One lock per project root keeps scans and takeovers of a project apart.
+//! the build step `textproject` ([`record_written`]), each with the sources of the units whose
+//! members it wrote (a member's record never moves alone: the build step's sides rely on it),
+//! so the next scan finds nothing to take over. One lock per project root keeps scans and takeovers of a project apart.
 //!
 //! With the store, [`sync_store`] keeps every unit with an unsaved asset from being taken over
 //! (a conflict with `unsaved`); [`conflict_diff`] shows a unit's two sides, [`resolve`] (and

@@ -369,12 +369,26 @@ was sich seit seinem letzten Stand auf welcher Seite geändert hat:
 - Member-Seite: die Member, die er als neuer behält (`member-newer`);
 - beide Seiten: `conflict`; `unsynced` (voll, Member weicht von der Basis ab) zählt für keine Seite.
 
-Der Abgleich von 4.3b schärft das Urteil, ersetzt es aber nicht: sein Stand (`sync` in
-`.g4/build/state.json`) wird nur aufgezeichnet, wenn JSON und Member gleich sind (Export, Import,
-Speichern, Übernahme, Build-Schritt). Halten alle Dateien einer Seite einer abweichenden Einheit
-noch, was er aufzeichnete, hat sich nur die andere Seite geändert: diese Seite zählt nicht, und ein
-Konflikt oder ein `unsynced` zählt für die andere Seite allein. Speichern und Übernahmen schreiben
-JSON und Member gleich, ihre Einheiten weichen also gar nicht ab.
+Der Abgleich von 4.3b schärft das Urteil, ersetzt es aber nicht. Sein Stand (`sync` in
+`.g4/build/state.json`) hält je Datei den Fingerabdruck aus einem Augenblick, in dem JSON und Member
+der Einheit gleich waren: Export, Import und Einrichten zeichnen alles auf; Speichern, Übernahme,
+Wahl und Build-Schritt zeichnen die Member, die sie schreiben, **mit den Quellen ihrer Einheit** auf
+(nie den neuen Stand eines Members neben einem älteren seiner JSON). Halten alle Dateien einer Seite
+einer abweichenden Einheit noch, was er aufzeichnete, und ist dieser Stand nicht älter als der, den
+der Schritt zuletzt gelesen hat (`ctime` im Eintrag des Schritts), hat sich nur die andere Seite
+geändert:
+
+- beide Seiten seit dem letzten Lauf geändert (Speichern oder Übernahme, dann eine Änderung auf
+  einer Seite): zählt für die geänderte Seite allein; so urteilt auch der Build selbst (Member
+  schreiben bzw. `member-newer`, kein `conflict`), auch kopflos mit `g4k build`;
+- vom Schritt zu schreiben, aber nur die Member geändert (etwa von DSPRE auf die Basis
+  zurückgesetzt): Member-Seite; ein gelöschter Member zählt für keine Seite (der Import holt ihn
+  nur zurück);
+- als neuer behalten, aber nur die JSON geändert: JSON-Seite;
+- `unsynced` (voll): die geänderte Seite, sonst keine.
+
+Eine Datei ohne Aufzeichnung gilt als geändert, dann urteilt der Schritt allein. Speichern und
+Übernahmen schreiben JSON und Member gleich, ihre Einheiten weichen also gar nicht ab.
 
 Der Export lehnt dann JSON-Seite und Konflikte ab (nach der Basisschicht, vor allem anderen, nichts
 geschrieben): `Im Textprojekt sind Änderungen, die noch nicht in den Membern sind (<bis zu zehn,
@@ -410,7 +424,7 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 |---|---|---|---|
 | inkrementell | ja | nein | Member schreiben |
 | inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.` |
-| inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` |
+| inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
 | voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).` |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine

@@ -52,6 +52,8 @@ use std::path::{Path, PathBuf};
 use g4_formats::data::arm9_tables::ItemTable;
 use serde::{Deserialize, Serialize};
 
+use crate::build::fingerprint::{Seen, compare, now_ns};
+use crate::build::state::BuildState;
 use crate::build::step::{Dirty, Step, StepRun, dirty_now};
 use crate::build::{Tool, lock};
 use crate::dynamic_headers;
@@ -566,6 +568,7 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
     if plan_failed && !always {
         return Ok(judged);
     }
+    let records = Records::load(p);
     let base = Base {
         project: p,
         layer: full
@@ -613,6 +616,17 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
                     .find(|(_, keys)| !keys.is_disjoint(&unit.keys))
                     .map(|(m, _)| *m)
             });
+        // Changed on both sides since the step's last run, but the sync's record shows one
+        // side unchanged since JSON and members were last in step (a save or a takeover, then
+        // an edit on the other side): one-sided, see [`Records`].
+        let (json_changed, changed_member) = match (json_changed, changed_member) {
+            (true, Some(member)) => match records.side(unit)? {
+                Some(Side::Json) => (true, None),
+                Some(Side::Members) => (false, Some(member)),
+                None => (true, Some(member)),
+            },
+            other => other,
+        };
         match (json_changed, changed_member) {
             (true, None) => judged.write.push(i),
             (true, Some(member)) => {
@@ -725,8 +739,15 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
     save_kept(root, &judged.kept)?;
     // What the step wrote is in step with its JSON: recorded for the sync (a cache like the
     // store's record, so an error here is not the build's), or the next scan would take the
-    // step's own write for DSPRE's and the next save would find the member changed.
-    let _ = super::sync::record_written(p, &wrote);
+    // step's own write for DSPRE's and the next save would find the member changed. The
+    // sources of the units written are recorded with their members: a member's new record
+    // next to an older one of its JSON would make that older JSON look in step later
+    // ([`Records`]).
+    let mut recorded = wrote.clone();
+    for &i in &judged.write {
+        recorded.extend(judged.units[i].sources.iter().cloned());
+    }
+    let _ = super::sync::record_written(p, &recorded);
     let done = done + usize::from(applied.quirks > 0);
     Ok((
         StepRun {
@@ -763,6 +784,100 @@ fn has_code(problem: &Problem, code: &str) -> bool {
         .is_some_and(|rest| rest.starts_with(':'))
 }
 
+/// Which side of a differing unit alone changed, as the 4.3b sync's record shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Json,
+    Members,
+}
+
+/// The record of the 4.3b sync (`sync.files` in `.g4/build/state.json`) as the step asks it
+/// about a unit whose bytes differ from its members.
+///
+/// The record of a unit's files is taken only while its JSON and members are in step (the
+/// export, the import and the adoption record everything; a save of the store, a takeover, a
+/// choice and a run of this step record the members they wrote with the sources of their
+/// units), so a side whose files all still hold what the record says (and whose record is not
+/// older than the version this step last read, a guard against a record left behind) holds
+/// nothing the other side lacks: only the other side changed. A file without a record, or a
+/// project without one, counts as changed: the answer is then the step's alone.
+struct Records {
+    root: PathBuf,
+    state: std::sync::Arc<BuildState>,
+    now: i128,
+}
+
+impl Records {
+    fn load(p: &Project) -> Records {
+        Records {
+            root: p.root.clone(),
+            state: BuildState::load_shared(&p.root),
+            now: now_ns(),
+        }
+    }
+
+    /// Whether every one of `files` holds what the sync recorded for it, by a record not older
+    /// than the version the step's entry last read (by `ctime`). `false` for none.
+    fn unchanged(&self, files: &[PathBuf]) -> Result<bool, KernelError> {
+        let Some(sync) = &self.state.sync else {
+            return Ok(false);
+        };
+        let entry = self.state.steps.get("textproject");
+        if files.is_empty() {
+            return Ok(false);
+        }
+        for file in files {
+            let key = shown(file);
+            let Some(recorded) = sync.files.get(&key) else {
+                return Ok(false);
+            };
+            if entry
+                .and_then(|e| e.inputs.get(&key))
+                .is_some_and(|read| read.ctime_ns > recorded.ctime_ns)
+            {
+                return Ok(false);
+            }
+            let (seen, _) = compare(
+                &self.root.join(file),
+                Some(recorded),
+                sync.scanned_at_ns,
+                self.now,
+            )?;
+            if seen != Seen::Same {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The side of `unit` that alone changed since the record: `None` when the record proves
+    /// neither (both or neither side unchanged, or no record).
+    fn side(&self, unit: &Unit) -> Result<Option<Side>, KernelError> {
+        Ok(
+            match (
+                self.unchanged(&unit.sources)?,
+                self.unchanged(&unit.members)?,
+            ) {
+                (true, false) => Some(Side::Members),
+                (false, true) => Some(Side::Json),
+                _ => None,
+            },
+        )
+    }
+
+    /// The members of `unit` that changed since the record and are there: a deleted member
+    /// holds nothing an import could overwrite (it only brings it back).
+    fn changed_members(&self, unit: &Unit) -> Result<Vec<String>, KernelError> {
+        let mut out = Vec::new();
+        for member in &unit.members {
+            if self.root.join(member).is_file() && !self.unchanged(std::slice::from_ref(member))? {
+                out.push(shown(member));
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// What the build step would do now, by side ([`Sides`]); `None` without [`SYNC_FILE`] (no
 /// export, import or build ran yet, as in a fresh clone) or without a manifest of the current
 /// schema. A full run (no entry of the step, or [`SYNC_FILE`] unreadable) judges by the base
@@ -770,31 +885,29 @@ fn has_code(problem: &Problem, code: &str) -> bool {
 /// one it reports as `textproject.unsynced` (its member left the base) is on neither, as
 /// either side may have changed.
 ///
-/// The step decides; the record of the 4.3b sync (`sync.files` in `.g4/build/state.json`)
-/// only sharpens it, for the units whose bytes differ: it is taken only while JSON and
-/// members are in step (the export, the import, a save of the store, a takeover, a run of
-/// this step), so a side whose files all still hold what it recorded holds nothing the other
-/// side lacks, and the other side is the one that changed. Such a side does not count: a unit
-/// the step sees changed on both sides since its last run (a save or a takeover, then an
-/// edit on the other side) counts for the other side alone, a JSON-side or member-side unit
-/// whose side is recorded unchanged not at all, and a `textproject.unsynced` unit of a full
-/// run (exported, not built yet) for the side changed since the record (on neither when
-/// both or no record says so).
+/// The step decides; the sync's record ([`Records`]) sharpens it for the units whose bytes
+/// differ, where it proves that only one side changed since JSON and members were last in
+/// step: a unit changed on both sides since the step's last run counts for that side alone
+/// (already in [`judge`], so the build agrees), a unit the step would write counts for the
+/// member side when only the members changed (DSPRE put a member back to the base after the
+/// export; a deleted member counts for neither side, the import only brings it back), one
+/// kept as newer for the JSON side when only the JSON changed, and an
+/// `unsynced` unit for the side that changed (on neither when the record proves neither).
 pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
     if !p.root.join(SYNC_FILE).is_file() || schema_state(&p.root)? != SchemaState::Current {
         return Ok(None);
     }
     let dirty = dirty_now(p, &TextProjectStep::default())?;
     let judged = judge(p, &dirty, true)?;
-    // Whether every one of `files` holds what the sync recorded for it.
-    let recorded = |files: &[PathBuf]| -> Result<bool, KernelError> {
-        Ok(!files.is_empty() && super::sync::in_step(p, files)?.len() == files.len())
-    };
+    let records = Records::load(p);
     let mut sides = Sides::default();
     for &i in &judged.write {
         let unit = &judged.units[i];
-        if !recorded(&unit.sources)? {
-            sides.json.insert(shown(&unit.json()));
+        match records.side(unit)? {
+            Some(Side::Members) => sides.members.extend(records.changed_members(unit)?),
+            _ => {
+                sides.json.insert(shown(&unit.json()));
+            }
         }
     }
     sides.json.extend(
@@ -814,37 +927,30 @@ pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
     }
     let mut kept = judged.kept.clone();
     for &i in &judged.newer {
-        let members = &judged.units[i].members;
-        if recorded(members)? {
-            for member in members {
+        let unit = &judged.units[i];
+        if records.side(unit)? == Some(Side::Json) {
+            for member in &unit.members {
                 kept.remove(member);
             }
+            sides.json.insert(shown(&unit.json()));
         }
     }
-    sides.members = kept.iter().map(|m| shown(m)).collect();
-    for (i, member) in &judged.conflicts {
-        let unit = &judged.units[*i];
-        match (recorded(&unit.sources)?, recorded(&unit.members)?) {
-            (true, true) => {}
-            (true, false) => {
-                sides.members.insert(shown(member));
-            }
-            (false, true) => {
-                sides.json.insert(shown(&unit.json()));
-            }
-            (false, false) => sides.conflicts.push((shown(&unit.json()), shown(member))),
-        }
-    }
+    sides.members.extend(kept.iter().map(|m| shown(m)));
+    sides.conflicts = judged
+        .conflicts
+        .iter()
+        .map(|(i, member)| (shown(&judged.units[*i].json()), shown(member)))
+        .collect();
     for (i, member) in &judged.unsynced {
         let unit = &judged.units[*i];
-        match (recorded(&unit.sources)?, recorded(&unit.members)?) {
-            (true, false) => {
+        match records.side(unit)? {
+            Some(Side::Members) => {
                 sides.members.insert(shown(member));
             }
-            (false, true) => {
+            Some(Side::Json) => {
                 sides.json.insert(shown(&unit.json()));
             }
-            _ => {}
+            None => {}
         }
     }
     Ok(Some(sides))

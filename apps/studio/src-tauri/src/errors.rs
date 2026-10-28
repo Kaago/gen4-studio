@@ -22,8 +22,9 @@ use crate::commands::ProblemDto;
 /// `reset_to_original`: the base ROM has no such entry or message; nothing was reset),
 /// `"unsaved"` (`text_export`: the store has unsaved changes; nothing was written),
 /// `"not_adopted"` (`text_export`: the scripts are not adopted; nothing was written),
-/// `"unsynced"` (`text_export`: the text project holds changes the members lack, not built
-/// yet, which the export would throw away; nothing was written),
+/// `"unsynced"` (`text_export`, `adopt_text_project` on a text project: the text project
+/// holds changes the members lack, not built yet, which the export would throw away; nothing
+/// was written),
 /// `"text_conflict"` (a build or a save met text archives whose JSON and member both changed
 /// since the last build; nothing was written; `problems` holds one error per archive, file
 /// `expanded/textArchives/NNNN.json`, source `"build"`; `resolve_text_conflicts` decides),

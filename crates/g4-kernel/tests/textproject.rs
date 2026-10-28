@@ -1513,6 +1513,85 @@ fn a_sync_takeover_refuses_neither_export_nor_import() {
 }
 
 #[test]
+fn a_json_restored_after_a_build_is_still_newer_than_its_member() {
+    // The build carries a JSON edit into the member; then the JSON goes back to the bytes the
+    // sync recorded at the export (`git checkout -- data/…`). The export must not take the
+    // member over it.
+    let fx = built();
+    let old = fx.read(MOVE_1_JSON);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(step_problems(&prepared.problems).is_empty());
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+    tick();
+    fx.write(MOVE_1_JSON, &old);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(fx.read(MOVE_1_JSON), old, "nothing written");
+
+    // The same with a DSPRE edit after the build: both sides changed.
+    let fx = built();
+    let old = fx.read(MOVE_1_JSON);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    build::prepare(&fx.p()).unwrap();
+    tick();
+    fx.dspre_power(77);
+    fx.write(MOVE_1_JSON, &old);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+    );
+    assert_eq!(fx.read(MOVE_1_JSON), old, "nothing written");
+}
+
+#[test]
+fn a_member_reset_to_the_base_after_the_export_refuses_the_import() {
+    // Exported with a modded move 1, not built: DSPRE resets the member to the base's bytes.
+    let fx = Fx::new();
+    let base = fx.read(MOVE_1);
+    fx.dspre_power(77);
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+    tick();
+    fx.write(MOVE_1, &base);
+    let before = fx.mtimes();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+}
+
+#[test]
+fn the_build_after_a_save_and_an_edit_on_one_side_is_no_conflict() {
+    // A save, then the JSON edited by hand: the build writes the member.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 55", "\"power\": 56");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 56);
+
+    // A save, then DSPRE edits the member: the build keeps it.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.dspre_power(57);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(fx.read(MOVE_1)[3], 57);
+    assert_eq!(fx.json_power(), 55);
+}
+
+#[test]
 fn adopt_and_revert_are_not_refused() {
     use g4_kernel::textproject::adopt::{adopt, revert};
     // A DSPRE folder: no manifest, so nothing to judge, whatever the step's file says.

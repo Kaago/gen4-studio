@@ -2847,11 +2847,15 @@ impl Store {
         let mut members = Vec::new();
         for (id, location, bytes) in pending {
             match &location {
-                Location::Entity { members: at, .. } => {
+                Location::Entity { unit, members: at } => {
                     // The members are the build's intermediate state: written over what they
                     // hold now, not compared with the JSON's bytes the store saw.
                     let now = read_location(at, self.reading(id)?)?;
                     members.extend(member_targets(at, &bytes)?);
+                    // The unit's JSON and side files are in step with what is written now,
+                    // also those the write left alone: recorded with the members, so the
+                    // sync never holds a member's new record next to an older one of its JSON.
+                    members.extend(unit.sources.iter().cloned());
                     self.write_members(id, at, now.as_deref(), &bytes)?;
                 }
                 Location::TextSource { json, member } => {
@@ -3035,7 +3039,8 @@ fn corrupt(change: Option<&mut Changeset>, part: usize) {
 type Writes = Vec<(AssetId, Vec<u8>)>;
 
 /// Records what a save or an append wrote for the text project's sync: `written.sources`
-/// (the JSON and side files, and the members written), `written.registers`. Only what was
+/// (the JSON and side files, the members written, and with them the sources of their units),
+/// `written.registers`. Only what was
 /// written: a member left alone keeps its record, so a change DSPRE makes to it stays visible.
 /// The record is a cache like the text archives' (see [`Store::record_texts`]): a file left
 /// unrecorded is compared by content next time and found in step, so an error here is not
