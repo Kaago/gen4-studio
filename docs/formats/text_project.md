@@ -645,7 +645,9 @@ aus (nur mit einer Decomp-Wurzel; ein Test merkt, wenn sich das ändert), lädt 
 `.rotom/command_database/`) als `{"<Nummer>": "<NAME>"}`. Gen4 Studio schreibt dort je Art eine
 Datei `.g4-ids-<art>.json` (`species` mit den Formen, `moves`, `items`, `abilities`, `types`,
 `maps`, `trainers`, `trainer_classes`, `places`): die IDs der festen Tabellen und der Register,
-ohne Ersatz-IDs (`TRAINER_0005`), aufsteigend nach Nummer, kanonisches JSON.
+aufsteigend nach Nummer, kanonisches JSON. Ersatz-IDs (`TRAINER_0005`) werden nicht für jede
+Nummer erzeugt; ein Registereintrag in der Ersatzform der eigenen Nummer (ein Trainer ohne Namen
+wurde so getauft, oder eine ID wurde so umbenannt) steht aber darin wie jede andere ID.
 
 ```json
 {
@@ -751,7 +753,8 @@ Trainer. Kernel: `textproject::rename::{plan_rename, rename_id, rename_id_files}
 
 **Regeln der neuen ID.** Präfix der Art und `_`, danach nur `A–Z`, `0–9` und `_`, höchstens 64
 Zeichen; nicht vergeben (auch nicht als `MAP_<interner Name>` eines anderen Headers); nicht die
-Ersatz-ID einer anderen Nummer (die eigene, `TRAINER_0005` für Trainer 5, ist erlaubt); nicht ein
+Ersatz-ID einer anderen Nummer (die eigene, `TRAINER_0005` für Trainer 5, ist erlaubt und steht
+als Registereintrag in den ID-Dateien, Scripts übersetzen weiter); nicht ein
 Name, den rotom schon mit anderer Nummer kennt (er fiele aus den ID-Dateien, siehe „IDs in
 Scripts“). Jede Ablehnung kommt, bevor eine Datei geschrieben wird, mit einem dieser Sätze:
 
@@ -783,15 +786,21 @@ den Scripts rotoms Name: die Script-Quellen bleiben dann, wie sie sind. Danach w
 ID-Dateien für rotom neu geschrieben (`include::write_include`); sie sind erzeugt und lokal, also
 kein Teil des Schritts und nicht mitgezählt (der Plan sagt mit `id_files`, dass es sie gibt). Die
 Quellen, die der Abgleich vorher als abgeglichen kannte, werden neu aufgezeichnet: der nächste
-Abgleich hält das Umbenennen nicht für eine Änderung von außen.
+Abgleich hält das Umbenennen nicht für eine Änderung von außen. Das Schreiben (auch bei Undo und
+Redo) hält die Sperre des Abgleichs für das Projekt, ein Abgleich sieht nie einen halb
+umbenannten Stand. Scheitern das Aufzeichnen oder die ID-Dateien, nachdem die Dateien
+geschrieben sind, bleibt der Schritt; `RenameResult.warnings` (bzw. `warning:` auf stderr von
+`g4k`) nennt es, der nächste Abgleich bzw. Compile holt es nach.
 
 **Ein Undo-Schritt.** Alle Dateien sind **ein** Dateischritt (`FileStep`, wie das Zurücksetzen in
 4.1b) mit der Beschriftung `ID umbenannt: {alt} → {neu}`, Asset Trainer `n` bzw. die
 Header-Tabelle. ⌘Z schreibt jede Datei zurück, ⌘⇧Z wieder vor; beide prüfen zuerst jede Datei
 gegen ihre erwartete Seite. Hat ein anderes Werkzeug eine davon seither geändert, wird nichts
-geschrieben, der Schritt fällt aus dem Verlauf, und der Satz von 4.1b sagt warum („Trainer 0005
-wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den Schritt nicht zurück, er
-fällt aus dem Verlauf.“). Nach Undo und Redo liest der Store die Register neu (`EntitySource` und
+geschrieben, der Schritt fällt aus dem Verlauf, und ein Satz nennt die erste geänderte Datei:
+„data/trainers/0005.json wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, der Schritt
+fällt aus dem Verlauf.“ bzw. „… wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z
+schreibt nichts, der Schritt fällt aus dem Verlauf.“ (der Schritt trägt die Art
+`FileStepKind::IdRename`; das Zurücksetzen von 4.1b behält seinen Satz). Nach Undo und Redo liest der Store die Register neu (`EntitySource` und
 `Resolver` sehen sie über `is_current`), und die ID-Dateien werden neu geschrieben.
 
 `plan_rename` zeigt vorher, was geschähe: je Datei die Zahl der Verweise, die Summe, und bei

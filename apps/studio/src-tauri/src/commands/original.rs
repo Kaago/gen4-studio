@@ -386,6 +386,7 @@ mod tests {
             asset,
             files: Vec::new(),
             rotom_entry: None,
+            kind: g4_kernel::store::FileStepKind::Reset,
         };
         {
             let mut guard = crate::commands::lock(&state).unwrap();
@@ -420,6 +421,7 @@ mod tests {
                 asset,
                 files: Vec::new(),
                 rotom_entry: None,
+                kind: g4_kernel::store::FileStepKind::Reset,
             };
             store.record_file_step(&original::asset_label(asset), step);
         }

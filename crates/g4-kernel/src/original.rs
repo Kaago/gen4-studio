@@ -578,6 +578,7 @@ fn file_step(
             after: Some(base),
         }],
         rotom_entry: None,
+        kind: crate::store::FileStepKind::Reset,
     })
 }
 

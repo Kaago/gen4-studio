@@ -1603,6 +1603,7 @@ pub(crate) fn script_step(
                         after: member_now,
                     }],
                     rotom_entry: None,
+                    kind: crate::store::FileStepKind::Reset,
                 });
             }
         }
@@ -1669,6 +1670,7 @@ pub(crate) fn script_step(
         asset,
         files,
         rotom_entry,
+        kind: crate::store::FileStepKind::Reset,
     })
 }
 

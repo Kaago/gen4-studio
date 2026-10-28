@@ -503,6 +503,19 @@ pub struct FileStep {
     pub asset: AssetId,
     pub files: Vec<FileChange>,
     pub rotom_entry: Option<RotomEntryChange>,
+    /// What made the step: it names the step when undo or redo refuses it, and the files of an
+    /// id rename have their follow-ups (see [`FileStepKind::IdRename`]).
+    pub kind: FileStepKind,
+}
+
+/// What made a [`FileStep`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileStepKind {
+    /// A reset to the original (4.1b) and the other steps of files that are no store value.
+    Reset,
+    /// „ID umbenennen“ (`textproject::rename`): undo and redo move its files under the sync's
+    /// lock, record those the sync had in step again and write the id files for rotom anew.
+    IdRename,
 }
 
 /// One undoable step: every asset it changed, each at most once, in the order they were
@@ -2519,20 +2532,17 @@ impl Store {
         let values = self.decode_parts(change, side).map_err(StepError::Keep)?;
         let files = net_files(&self.project.root, &change.files);
         let entries = net_entries(&self.project.root, &change.files);
-        for (asset, file) in &files {
-            let (expected, _) = side.file(file);
-            if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
-                return Err(StepError::Drop(KernelError::Refused(
-                    side.changed_outside(crate::original::asset_label(*asset)),
-                )));
-            }
-        }
-        // A rename of an id (`textproject::rename`): its files the sync had in step.
-        let paths: Vec<&Path> = files.iter().map(|(_, f)| f.path.as_path()).collect();
-        let renamed = crate::textproject::rename::before_move(&self.project, &paths);
-        write_files_and_entries(&self.project, &files, &entries, side).map_err(StepError::Keep)?;
-        if let Some(in_step) = renamed {
-            crate::textproject::rename::after_move(&self.project, &in_step);
+        if change
+            .files
+            .iter()
+            .any(|s| s.kind == FileStepKind::IdRename)
+        {
+            // A scan of the sync never sees a half-renamed tree.
+            crate::textproject::sync::locked(&self.project.root, || {
+                move_files(&self.project, change, &files, &entries, side, true)
+            })?;
+        } else {
+            move_files(&self.project, change, &files, &entries, side, false)?;
         }
         for (id, value) in values.into_iter().rev() {
             // Checked by `decode_parts`: every asset is loaded.
@@ -3118,12 +3128,76 @@ impl Side {
         }
     }
 
+    /// Why an id rename whose file `file` (relative to the root) changed since it was written
+    /// is dropped instead of moved to this side.
+    fn changed_since_rename(self, file: &str) -> String {
+        match self {
+            Side::Before => format!(
+                "{file} wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, der Schritt \
+                 fällt aus dem Verlauf."
+            ),
+            Side::After => format!(
+                "{file} wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z schreibt \
+                 nichts, der Schritt fällt aus dem Verlauf."
+            ),
+        }
+    }
+
     fn other(self) -> Side {
         match self {
             Side::Before => Side::After,
             Side::After => Side::Before,
         }
     }
+}
+
+/// Moves the files and rotom entries of `change` to `side`: every file is checked to hold the
+/// other side first (one that does not is [`StepError::Drop`], nothing is written), then they
+/// are written (a failed write puts the files written before back and is
+/// [`StepError::Keep`]). With `renamed` (the change has an id rename) the files the sync had in
+/// step are recorded again afterwards and the id files for rotom written anew.
+fn move_files(
+    project: &Project,
+    change: &Changeset,
+    files: &[(AssetId, FileChange)],
+    entries: &[RotomEntryChange],
+    side: Side,
+    renamed: bool,
+) -> Result<(), StepError> {
+    let root = &project.root;
+    for (asset, file) in files {
+        let (expected, _) = side.file(file);
+        if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
+            // The step that wrote the file last names it.
+            let kind = change
+                .files
+                .iter()
+                .rev()
+                .find(|s| s.files.iter().any(|f| root.join(&f.path) == file.path))
+                .map_or(FileStepKind::Reset, |s| s.kind);
+            let why = match kind {
+                FileStepKind::Reset => side.changed_outside(crate::original::asset_label(*asset)),
+                FileStepKind::IdRename => {
+                    let rel = file.path.strip_prefix(root).unwrap_or(&file.path);
+                    side.changed_since_rename(&rel.to_string_lossy().replace('\\', "/"))
+                }
+            };
+            return Err(StepError::Drop(KernelError::Refused(why)));
+        }
+    }
+    let paths: Vec<&Path> = files.iter().map(|(_, f)| f.path.as_path()).collect();
+    let in_step = if renamed {
+        crate::textproject::rename::before_move(project, &paths)
+    } else {
+        Vec::new()
+    };
+    write_files_and_entries(project, files, entries, side).map_err(StepError::Keep)?;
+    if renamed {
+        // The step's files are written; what fails here is a cache the next scan or compile
+        // puts right (`rename_id` reports it, undo and redo have no place for it).
+        let _ = crate::textproject::rename::after_move(project, &in_step);
+    }
+    Ok(())
 }
 
 /// Why undo, redo or rollback of a changeset failed, and what becomes of the changeset.
@@ -4142,6 +4216,7 @@ mod tests {
                         after: Some(after.to_vec()),
                     }],
                     rotom_entry: None,
+                    kind: FileStepKind::Reset,
                 },
             )
         }
@@ -4278,6 +4353,7 @@ mod tests {
                         },
                     ],
                     rotom_entry: None,
+                    kind: FileStepKind::Reset,
                 },
             );
             std::fs::write(&a, b"neu").unwrap();

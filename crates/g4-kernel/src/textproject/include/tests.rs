@@ -75,6 +75,8 @@ fn id_files_hold_table_and_register_ids_sorted_by_number() {
         fx.text(TRAINERS)
             .contains("\"1\": \"TRAINER_YOUNGSTER_KAI\"")
     );
+    // The register's own fallback entry of trainer 0 (no name) is an id like the others.
+    assert!(fx.text(TRAINERS).contains("\"0\": \"TRAINER_0000\""));
     assert!(
         fx.text(".rotom/command_database/.g4-ids-maps.json")
             .contains("\"0\": \"MAP_T01\"")
@@ -94,9 +96,14 @@ fn id_files_hold_table_and_register_ids_sorted_by_number() {
             .trim_end_matches(".json")
             .to_owned();
         let kind = KINDS.iter().find(|(_, s)| *s == stem).unwrap().0;
-        // No fallback id.
-        for id in map.values() {
-            assert_eq!(parse_fallback(kind, id.as_str().unwrap()), None, "{id}");
+        // No fallback id of a fixed table; a register's own fallback entry only for its number.
+        for (n, id) in &map {
+            let own = parse_fallback(kind, id.as_str().unwrap());
+            if table(kind).is_some() {
+                assert_eq!(own, None, "{id}");
+            } else {
+                assert!(own.is_none_or(|own| own.to_string() == *n), "{n}: {id}");
+            }
         }
     }
     assert_eq!(id_files(&p).unwrap().files, on_disk(&fx));

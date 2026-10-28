@@ -15,10 +15,12 @@
 //! sources (the id files leave it out, `textproject.id-shadowed`): its sources stay as they are.
 //!
 //! Every refusal ([`RenamePlan::refusal`]) comes before anything is written. Written are the
-//! files of the plan as one [`FileStep`] (asset: trainer `n`, else the header table), atomically
-//! each and put back on a failure; undo and redo check every file against its side first
-//! (rule of 4.1b). Files the sync had in step before are recorded again after each move, so
-//! the next sync takes the rename for no change of another tool.
+//! files of the plan as one [`FileStep`] of kind [`FileStepKind::IdRename`] (asset: trainer
+//! `n`, else the header table), atomically each and put back on a failure, under the sync's lock
+//! of the project; undo and redo check every file against its side first (rule of 4.1b, the
+//! sentence names the file and the rename). Files the sync had in step before are recorded again
+//! after each move, so the next sync takes the rename for no change of another tool; what fails
+//! after the files are written is a warning ([`RenameResult::warnings`]).
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -30,7 +32,9 @@ use crate::checks::IGNORE_FILE;
 use crate::error::{KernelError, guard_panic, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, SourceKind};
-use crate::store::{ChangeId, FileChange, FileStep, HEADER_TABLE, Store, write_file_step};
+use crate::store::{
+    ChangeId, FileChange, FileStep, FileStepKind, HEADER_TABLE, Store, write_file_step,
+};
 use crate::world_meta::WORLD_FILE;
 
 use super::DATA_DIR;
@@ -91,12 +95,24 @@ pub struct RenamePlan {
     pub refusal: Option<String>,
 }
 
-/// What [`rename_id`] did: its plan, the change on the undo stack and how long it took.
+/// What [`rename_id`] did: its plan, the change on the undo stack, how long it took, and what
+/// went wrong after the files were written (`warnings`, empty when nothing did: the sync's
+/// record or the id files for rotom, caches the next scan or compile puts right).
 #[derive(Debug, Clone, Serialize)]
 pub struct RenameResult {
     pub plan: RenamePlan,
     pub change: ChangeId,
     pub ms: u64,
+    pub warnings: Vec<String>,
+}
+
+/// What [`rename_id_files`] did: its plan, how long it took and the `warnings` as in
+/// [`RenameResult`].
+#[derive(Debug, Clone, Serialize)]
+pub struct RenameFilesResult {
+    pub plan: RenamePlan,
+    pub ms: u64,
+    pub warnings: Vec<String>,
 }
 
 /// What [`rename_id`] would change; a refusal is `refusal`, nothing is written. An error is
@@ -122,13 +138,18 @@ pub fn rename_id(
     let project = store.project_arc();
     project.editable()?;
     let (plan, step) = prepared_step(&project, old_id, new_id)?;
-    apply(&project, &step)?;
+    let warnings = apply(&project, &step)?;
     let change = store.record_file_step(&format!("ID umbenannt: {old_id} → {new_id}"), step);
     Ok(RenameResult {
         plan,
         change,
-        ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        ms: ms_since(started),
+        warnings,
     })
+}
+
+fn ms_since(started: Instant) -> u64 {
+    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// [`rename_id`] without a store (`g4k`): the same files, no undo.
@@ -136,11 +157,16 @@ pub fn rename_id_files(
     project: &Project,
     old_id: &str,
     new_id: &str,
-) -> Result<RenamePlan, KernelError> {
+) -> Result<RenameFilesResult, KernelError> {
+    let started = Instant::now();
     project.editable()?;
     let (plan, step) = prepared_step(project, old_id, new_id)?;
-    apply(project, &step)?;
-    Ok(plan)
+    let warnings = apply(project, &step)?;
+    Ok(RenameFilesResult {
+        plan,
+        ms: ms_since(started),
+        warnings,
+    })
 }
 
 /// The plan and its file step; a refusal is [`KernelError::Refused`].
@@ -166,38 +192,49 @@ fn prepared_step(
             asset,
             files,
             rotom_entry: None,
+            kind: FileStepKind::IdRename,
         },
     ))
 }
 
-/// Writes the files of `step` (put back on a failure), then [`after_move`].
-fn apply(project: &Project, step: &FileStep) -> Result<(), KernelError> {
-    let paths: Vec<PathBuf> = step.files.iter().map(|f| f.path.clone()).collect();
-    let in_step = sync::in_step(project, &paths)?;
-    write_file_step(project, step)?;
-    after_move(project, &in_step);
-    Ok(())
+/// Writes the files of `step` (put back on a failure) under the sync's lock, so a scan never
+/// sees a half-renamed tree, then [`after_move`]; its warnings.
+fn apply(project: &Project, step: &FileStep) -> Result<Vec<String>, KernelError> {
+    sync::locked(&project.root, || {
+        let paths: Vec<&Path> = step.files.iter().map(|f| f.path.as_path()).collect();
+        let in_step = before_move(project, &paths);
+        write_file_step(project, step)?;
+        Ok(after_move(project, &in_step))
+    })
 }
 
-/// Before the files of a file step move (undo, redo): when they include a register, the ones
-/// the sync has in step, to record again after the move ([`after_move`]); `None` for a step
-/// without a register.
-pub(crate) fn before_move(project: &Project, paths: &[&Path]) -> Option<Vec<PathBuf>> {
-    let ids = project.root.join(IDS_DIR);
-    let registers = paths.iter().any(|p| project.root.join(p).starts_with(&ids));
-    if !registers {
-        return None;
-    }
+/// Before the files of an id rename move (also undo and redo, [`FileStepKind::IdRename`]):
+/// those the sync has in step, to record again after the move ([`after_move`]). A record that
+/// cannot be read gives none (the next scan judges them).
+pub(crate) fn before_move(project: &Project, paths: &[&Path]) -> Vec<PathBuf> {
     let owned: Vec<PathBuf> = paths.iter().map(|p| p.to_path_buf()).collect();
-    Some(sync::in_step(project, &owned).unwrap_or_default())
+    sync::in_step(project, &owned).unwrap_or_default()
 }
 
-/// After the files of a rename moved: records `in_step` (the files the sync had in step
+/// After the files of an id rename moved: records `in_step` (the files the sync had in step
 /// before) and writes the id files for rotom anew. Both are caches the next scan or compile
-/// puts right, so neither fails the step whose files are written already.
-pub(crate) fn after_move(project: &Project, in_step: &[PathBuf]) {
-    let _ = sync::record_written(project, in_step);
-    let _ = write_include(project);
+/// puts right, so neither fails the step whose files are written already: what fails is a
+/// warning.
+pub(crate) fn after_move(project: &Project, in_step: &[PathBuf]) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if let Err(e) = sync::record_written(project, in_step) {
+        warnings.push(format!(
+            "Der Abgleich ist nicht neu aufgezeichnet ({e}); der nächste Abgleich prüft die \
+             Dateien."
+        ));
+    }
+    if let Err(e) = write_include(project) {
+        warnings.push(format!(
+            "Die ID-Dateien für rotom sind nicht neu geschrieben ({e}); der nächste Compile \
+             schreibt sie."
+        ));
+    }
+    warnings
 }
 
 /// The kind of `id` by its longest prefix followed by `_`: `TRAINER_CLASS_X` is a class,

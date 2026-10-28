@@ -189,7 +189,7 @@ static LOCKS: Mutex<Vec<RootLock>> = Mutex::new(Vec::new());
 
 /// Runs `f` under the lock of project `root`: two scans or takeovers of one project run one
 /// after the other, of two projects side by side.
-fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
+pub(crate) fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
     let lock = {
         let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
         // A root nobody holds right now is forgotten (tests open many).

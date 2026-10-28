@@ -1592,10 +1592,13 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
 
 /// `g4k text rename-id`: [`g4_kernel::textproject::rename::rename_id_files`].
 fn text_rename_id(root: &Path, old: &str, new: &str, json: bool) -> Result<(), Failure> {
-    let started = std::time::Instant::now();
-    let plan = g4_kernel::textproject::rename::rename_id_files(&Project::open(root)?, old, new)?;
+    let result = g4_kernel::textproject::rename::rename_id_files(&Project::open(root)?, old, new)?;
+    for warning in &result.warnings {
+        eprintln!("warning: {warning}");
+    }
+    let plan = &result.plan;
     if json {
-        println!("{}", json_line(&plan)?);
+        println!("{}", json_line(plan)?);
         return Ok(());
     }
     for file in &plan.files {
@@ -1611,7 +1614,7 @@ fn text_rename_id(root: &Path, old: &str, new: &str, json: bool) -> Result<(), F
         plan.files.len(),
         plan.total,
         plan.id_files,
-        started.elapsed().as_millis()
+        result.ms
     );
     Ok(())
 }

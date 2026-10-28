@@ -140,6 +140,7 @@ fn rename_writes_all_files_as_one_undo_step_and_undo_restores_them() {
     let mut st = store(&fx);
     let result = rename_id(&mut st, KAI, "TRAINER_KID_KAI").unwrap();
     assert_eq!(result.plan.total, 4);
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
     let (undo, redo) = st.history();
     assert_eq!(
         undo,
@@ -323,8 +324,8 @@ fn undo_of_a_rename_after_an_outside_edit_writes_nothing() {
     match st.undo() {
         Err(KernelError::Refused(r)) => assert_eq!(
             r,
-            "Trainer 0001 wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt \
-             den Schritt nicht zurück, er fällt aus dem Verlauf."
+            "data/trainers/0001.json wurde seit dem Umbenennen geändert; ⌘Z schreibt nichts, \
+             der Schritt fällt aus dem Verlauf."
         ),
         other => panic!("expected a refusal, got {other:?}"),
     }
@@ -553,4 +554,63 @@ fn the_sync_takes_a_rename_and_its_undo_for_no_outside_change() {
     assert_eq!(pending(&fx), Vec::<String>::new());
     st.undo().unwrap();
     assert_eq!(pending(&fx), Vec::<String>::new());
+}
+
+#[test]
+fn redo_of_a_rename_after_an_outside_edit_writes_nothing() {
+    let fx = fixture();
+    let mut st = store(&fx);
+    rename_id(&mut st, "MAP_T02", "MAP_ROUTE_201").unwrap();
+    st.undo().unwrap();
+    // Another tool changes a header afterwards; the step's asset is the header table, the
+    // sentence names the file.
+    fx.edit(
+        "data/headers/0001.json",
+        "\"weather_id\": 0",
+        "\"weather_id\": 2",
+    );
+    let before = tree(&fx);
+    match st.redo() {
+        Err(KernelError::Refused(r)) => assert_eq!(
+            r,
+            "data/headers/0001.json wurde seit dem Rückgängigmachen des Umbenennens geändert; ⌘⇧Z \
+             schreibt nichts, der Schritt fällt aus dem Verlauf."
+        ),
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+    assert_eq!(tree(&fx), before, "nothing is written");
+    let (undo, redo) = st.history();
+    assert!(undo.is_empty() && redo.is_empty(), "{undo:?} {redo:?}");
+}
+
+#[test]
+fn a_rename_to_the_own_fallback_still_compiles() {
+    let fx = fixture();
+    let mut st = store(&fx);
+    let result = rename_id(&mut st, KAI, "TRAINER_0001").unwrap();
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    assert!(
+        fx.text(SOURCE)
+            .contains("StartTrainerBattle TRAINER_0001, 0")
+    );
+    // The register's own fallback entry is in the id files, so the source still compiles.
+    assert!(fx.text(TRAINER_IDS).contains("\"1\": \"TRAINER_0001\""));
+    let member = fx.read("unpacked/scripts/0000");
+    compile(&fx);
+    assert_eq!(fx.read("unpacked/scripts/0000"), member);
+}
+
+#[test]
+fn what_fails_after_the_files_is_a_warning() {
+    let fx = fixture();
+    let p = fx.project();
+    assert!(after_move(&p, &[]).is_empty());
+    // A rotom.toml that no longer reads: the id files cannot be written.
+    fx.write("rotom.toml", b"[paths\n");
+    let warnings = after_move(&p, &[]);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with("Die ID-Dateien für rotom sind nicht neu geschrieben ("),
+        "{warnings:?}"
+    );
 }

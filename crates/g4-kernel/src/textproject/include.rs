@@ -7,7 +7,9 @@
 //! `{"<number>": "<NAME>"}`: the kernel's compile, the `rotom` CLI and rotom's language server
 //! alike. So the kernel writes one such file per kind, `.g4-ids-<kind>.json`
 //! ([`ID_FILE_PREFIX`]), with the ids of the fixed tables and of the registers (no fallback
-//! ids), ascending by number, and a source uses the ids without an include line. The leading
+//! ids made for numbers; a register entry in the fallback form of its own number, `TRAINER_0000`
+//! of a trainer without a name or after a rename to it, is in), ascending by number, and a
+//! source uses the ids without an include line. The leading
 //! dot keeps the files out of the text project's sources: they are generated and local, never
 //! a blob. DSPRE never reads the folder.
 //!
@@ -219,7 +221,8 @@ pub(crate) type IdTables = Vec<(SymbolKind, BTreeMap<u32, String>)>;
 /// The text of each kind's id file by its name part (`None`: the kind has no ids).
 type Rendered = Vec<(&'static str, Option<Vec<u8>>)>;
 
-/// The ids of every kind, number → id ascending, without fallback ids, without those rotom
+/// The ids of every kind, number → id ascending, without fallback ids made for numbers (a
+/// register's own entries are in, also in fallback form), without those rotom
 /// (`rotom`: its value of a name) resolves to another number and without a name a kind before
 /// has; with the ids left out.
 pub(crate) fn tables(
@@ -233,10 +236,13 @@ pub(crate) fn tables(
         let entries: Vec<(u32, String)> = match table(kind) {
             Some(table) => table.iter().map(|(n, id)| (n, id.to_owned())).collect(),
             None => {
+                // A register entry in the fallback form of its own number (an entity without
+                // a name, or a rename to it) is an id like any other; a fallback is never made
+                // for a number without an entry.
                 let mut entries: Vec<(u32, String)> = symbols
                     .ids(kind)
                     .into_iter()
-                    .filter(|(_, id)| parse_fallback(kind, id).is_none())
+                    .filter(|(n, id)| parse_fallback(kind, id).is_none_or(|own| own == *n))
                     .collect();
                 entries.sort();
                 entries
