@@ -360,7 +360,7 @@ fn remove_tree(dir: &Path) -> Result<(), KernelError> {
 
 /// The bytes at `path`; `None` when there is no file.
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
-    match std::fs::read(path) {
+    match crate::fsutil::read_noted(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_at(path)(e)),
@@ -768,7 +768,7 @@ fn differs(
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(true),
         Err(e) => return Err(io_at(&theirs)(e)),
     };
-    let read = |path: &Path| std::fs::read(path).map_err(io_at(path));
+    let read = |path: &Path| crate::fsutil::read_noted(path).map_err(io_at(path));
     if is_arm9 {
         return Ok(masked(read(&ours)?, ours_mask) != masked(read(&theirs)?, theirs_mask));
     }

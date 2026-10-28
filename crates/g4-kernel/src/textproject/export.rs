@@ -228,8 +228,9 @@ pub(super) fn run_checked(
     // like a JSON-side change next to every later member change); the sync records the
     // project as it is.
     step::clear_kept(&project.root)?;
-    crate::build::step::resync(project, &step::TextProjectStep::default())?;
     let journal = journal.finish();
+    super::sync::before_record("resync");
+    crate::build::step::resync(project, &step::TextProjectStep::default(), Some(&journal))?;
     if record {
         super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     }

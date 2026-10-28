@@ -274,16 +274,20 @@ pub fn import_with(
     {
         return Err(KernelError::Refused(refusal));
     }
+    // Open before the plan: the bytes it reads are the ones the import carries over (a file
+    // read again later with other bytes is a conflict and gets no record).
+    let journal = Journal::start();
     let lazy = LazyBase::new(project, base, true);
     let plan = plan_import(project, &lazy, None)?;
     if plan.has_errors() {
         return Err(KernelError::Compile(plan.problems));
     }
-    let journal = Journal::start();
     let applied = apply_import(project, &plan)?;
     // Every JSON equals its member now: nothing is newer than its JSON.
     clear_kept(&project.root)?;
     let prepared = build::prepare(project)?;
+    // The build compiled the scripts: rotom's compile state proves which are in step.
+    scripts::note_in_step(project)?;
     let journal = journal.finish();
     // Sources and members are in step now (scripts compiled, texts encoded): the sync records
     // them as they are, what the import wrote only while it holds those bytes.
@@ -432,7 +436,7 @@ pub(crate) fn plan_import(
 
 /// The file `rel` (relative to the root), or the problem that it cannot be read.
 fn read_source(root: &Path, rel: &Path) -> Result<Vec<u8>, Problem> {
-    std::fs::read(root.join(rel))
+    crate::fsutil::read_noted(root.join(rel))
         .map_err(|e| problem(rel, SCHEMA_CODE, format!("{ROOT}: nicht lesbar ({e}).")))
 }
 
@@ -843,7 +847,7 @@ fn header_changes(project: &Project, w: &HeaderWrite) -> Result<Vec<PathBuf>, Ke
         let dir = dynamic_headers::unpacked_dir(project);
         for (i, chunk) in w.table.chunks(24).enumerate() {
             let file = dir.join(format!("{i:04}"));
-            if std::fs::read(&file).ok().as_deref() != Some(chunk) {
+            if crate::fsutil::read_noted(&file).ok().as_deref() != Some(chunk) {
                 paths.push(rel(&file));
             }
         }
@@ -851,7 +855,7 @@ fn header_changes(project: &Project, w: &HeaderWrite) -> Result<Vec<PathBuf>, Ke
         paths.push(rel(&project.arm9_path()));
     }
     let names = project.mapname_path();
-    if std::fs::read(&names).ok().as_deref() != Some(w.mapname.as_slice()) {
+    if crate::fsutil::read_noted(&names).ok().as_deref() != Some(w.mapname.as_slice()) {
         paths.push(rel(&names));
     }
     Ok(paths)
@@ -894,7 +898,7 @@ fn plan_binary(
         |i: usize, plan: &mut ImportPlan, stop: &mut bool| -> Result<Option<Vec<u8>>, ()> {
             let file = file_of(i);
             if files.contains(&i) {
-                return std::fs::read(project.root.join(&file))
+                return crate::fsutil::read_noted(project.root.join(&file))
                     .map(Some)
                     .map_err(|e| {
                         plan.problems.push(problem(
@@ -1114,7 +1118,7 @@ fn plan_quirks(
         }
         Err(e) => return Err(e),
     };
-    let bytes = std::fs::read(project.root.join(rel)).unwrap_or_default();
+    let bytes = crate::fsutil::read_noted(project.root.join(rel)).unwrap_or_default();
     let mut valid = true;
     for key in quirks.quirks.keys() {
         let plain = key

@@ -376,6 +376,21 @@ Schreiber selbst geschrieben oder gelesen hat, und nur, solange die Datei sie no
 - Speichern, Build-Schritt, Übernahme, Wahl, „ID umbenennen“, Export, Import und Einrichten
   zeichnen eine Datei, die sie schreiben, nur mit dem Hash der geschriebenen Bytes auf; hält sie
   danach andere (DSPRE oder ein Editor schrieb dazwischen), verliert sie ihren Eintrag;
+- Export, Import und Einrichten zeichnen eine Datei, die sie nur lesen (die Member beim Export,
+  die JSON beim Import), nur mit dem Hash der gelesenen Bytes auf, und nur, solange sie die noch
+  hält; mit zwei verschiedenen Inhalten gelesen, oder von einem Schreiber darin aufgegeben (der
+  Build-Schritt im Import), verliert sie ihren Eintrag; eine Datei, die schon die Bytes hält, die
+  sie schreiben würden, gilt als gelesen; Skriptquellen und ihre Member gelten als gelesen, wenn
+  rotoms Compile-Zustand (aus der Dekompilierung beim Einrichten, dem Compile beim Import) ihre
+  Hashes nennt und nicht `Dirty` ist; eine Datei, die sie weder lesen noch schreiben, behält
+  ihren alten Eintrag (sie wird nie mit ihrem jetzigen Inhalt neu aufgezeichnet; ohne alten
+  Eintrag, etwa beim Import ohne `sync`, bleibt sie ohne, und der nächste Abgleich prüft sie am
+  Inhalt). Ebenso zeichnet der Export den Eintrag des Build-Schritts neu auf: eine Eingabe nur
+  mit den gelesenen oder geschriebenen Bytes, sonst fehlt sie (der nächste Lauf findet sie
+  geändert);
+- Speichern, Build-Schritt und „ID umbenennen“ bürgen nur für ihre Schreibvorgänge: eine Datei,
+  die sie nur lesen (etwa das Member einer Einheit, die der Schritt stehen lässt), zeichnen sie
+  dadurch nicht auf;
 - die Quellen (JSON, Beifiles) einer Einheit, die Speichern oder Build-Schritt nicht selbst
   schreiben, zeichnen sie nur auf, wenn die Einheit danach nachweislich gleich ist (aus der JSON
   erzeugte Bytes gleich den Membern, mit den dafür gelesenen Bytes); sonst verlieren sie ihren

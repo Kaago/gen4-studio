@@ -230,15 +230,15 @@ pub(crate) fn before_move(project: &Project, paths: &[&Path]) -> Vec<PathBuf> {
 pub(crate) fn after_move(
     project: &Project,
     in_step: &[PathBuf],
-    journal: &std::collections::BTreeMap<PathBuf, u64>,
+    journal: &crate::fsutil::Notes,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
+    sync::before_record("rename");
     let known: Vec<(PathBuf, sync::Known)> = in_step
         .iter()
         .filter_map(|rel| {
-            journal
-                .get(&project.root.join(rel))
-                .map(|hash| (rel.clone(), sync::Known::Wrote(*hash)))
+            let known = sync::known_of(*journal.get(&project.root.join(rel))?)?;
+            Some((rel.clone(), known))
         })
         .collect();
     if let Err(e) = sync::record_known(project, &known) {

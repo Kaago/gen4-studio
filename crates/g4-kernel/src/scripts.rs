@@ -438,6 +438,8 @@ pub(crate) fn adopt_as(
         .map_err(|e| KernelError::InvalidProject(format!("{ROTOM_TOML}: {e}")))?;
     write_atomic(root, &root.join(ROTOM_TOML), toml.as_bytes())?;
 
+    note_in_step(project)?;
+
     let mut failed: Vec<(u16, String)> = result
         .failures
         .iter()
@@ -597,7 +599,8 @@ pub(crate) fn materialize_text_json(
         return Ok(false);
     }
     project.ensure_unpacked(AssetKind::TextArchive)?;
-    let Ok(member) = std::fs::read(project.member_path(AssetKind::TextArchive, n)) else {
+    let Ok(member) = crate::fsutil::read_noted(project.member_path(AssetKind::TextArchive, n))
+    else {
         return Ok(false);
     };
     let Ok(doc) = TextArchiveDoc::from_member(&member, project.language.locale_key()) else {
@@ -644,7 +647,7 @@ pub(crate) fn refresh_stale_text_json(
             _ => continue,
         }
         let member = project.member_path(AssetKind::TextArchive, n);
-        let bytes = std::fs::read(&member).map_err(io_at(&member))?;
+        let bytes = crate::fsutil::read_noted(&member).map_err(io_at(&member))?;
         // An undecodable member is left to the text editor to report.
         if let Ok(doc) = TextArchiveDoc::from_member(&bytes, lang) {
             write_atomic(
@@ -809,7 +812,7 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         // An archive in conflict keeps its member: the build's text step asks first.
         for &n in touched_archives.iter().filter(|n| !conflicts.contains(n)) {
             let json = crate::text::json_path(project, n);
-            let bytes = std::fs::read(&json).map_err(io_at(&json))?;
+            let bytes = crate::fsutil::read_noted(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
             let member = project.member_path(AssetKind::TextArchive, n);
             match write_archive(root, &json, &member, &doc) {
@@ -1568,6 +1571,48 @@ fn entry_is_fresh(
     Ok(entry.status != rotom::compile_state::FileStatus::Dirty
         && entry.source_hash == xxh3_64(text)
         && entry.output_hash == xxh3_64(member))
+}
+
+/// Notes in the open [`Journal`](crate::fsutil::Journal) each script source and its member
+/// whose compile state entry proves them in step: not dirty, its source hash that of the
+/// source's bytes, its output hash that of the member's (rotom wrote the entry from the bytes
+/// it wrote and read, decompiling or compiling). A source or member without such an entry is
+/// not noted (an operation then does not record it as read). Nothing without an open journal
+/// or without `rotom.toml`.
+pub(crate) fn note_in_step(project: &Project) -> Result<(), KernelError> {
+    if !crate::fsutil::journal_open() || !is_adopted(project) {
+        return Ok(());
+    }
+    let path = state_path(project)?;
+    // rotom v0.7.0: src/compile_state.rs CompileState::load_or_default, FileState; the fast
+    // path of src/project/compile.rs compile_project (status not Dirty, both hashes equal)
+    let state =
+        rotom::CompileState::load_or_default(&path).map_err(|e| rotom_error("compile state", e))?;
+    let dir = project.expanded_dir(AssetKind::Script);
+    for (ext, kind) in [
+        ("rotom", SourceKind::Script),
+        ("json", SourceKind::LevelScript),
+    ] {
+        for n in numbered_files(&dir, Some(ext))? {
+            let source = source_path(project, n, kind);
+            let Some(entry) = state.entries.get(&state_key(project, &source)) else {
+                continue;
+            };
+            if entry.status == rotom::compile_state::FileStatus::Dirty {
+                continue;
+            }
+            let member = member_file(project, n);
+            let (Some(text), Some(bytes)) = (read_if_present(&source)?, read_if_present(&member)?)
+            else {
+                continue;
+            };
+            if entry.source_hash == xxh3_64(&text) && entry.output_hash == xxh3_64(&bytes) {
+                crate::fsutil::note_read(&source, &text);
+                crate::fsutil::note_read(&member, &bytes);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The step [`reset_script`] writes, without writing it: the sources (`NNNN.rotom`,

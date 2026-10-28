@@ -49,6 +49,7 @@ use serde::Serialize;
 use crate::build::fingerprint::{Fp, Seen, capture_hashed, compare, now_ns};
 use crate::build::state::BuildState;
 use crate::error::KernelError;
+use crate::fsutil::{Noted, Notes};
 use crate::project::{AssetId, Project};
 use crate::text::Problem;
 
@@ -167,7 +168,9 @@ pub fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, Kerne
     diff::conflict_diff(project, key)
 }
 
-/// Records every file the scan watches as it is now (adoption, import, export).
+/// Records every file the scan watches as it is now, replacing the record: only for a
+/// project known to be in step (tests, tools). Export, import and adoption use
+/// [`record_all_written`].
 pub fn record_all(project: &Project) -> Result<u32, KernelError> {
     record_all_reported(project, &mut |_| {})
 }
@@ -178,19 +181,23 @@ pub fn record_all_reported(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
 ) -> Result<u32, KernelError> {
-    record_all_written(project, progress, &BTreeMap::new())
+    locked(&project.root, || apply::record_all(project, progress, None))
 }
 
-/// [`record_all_reported`] after an operation that wrote the files of `journal` (absolute
-/// paths, see [`Journal`](crate::fsutil::Journal)): each of them is recorded only while it
-/// holds the bytes written, else it gets no entry (written past the operation meanwhile).
+/// The record after an operation (export, import, adoption) that read and wrote the files of
+/// `journal` (absolute paths, see [`Journal`](crate::fsutil::Journal)): each of them is
+/// recorded only while it holds the bytes noted, and loses its entry otherwise (written past the
+/// operation meanwhile, seen with two contents, or dropped by a writer inside it); every other
+/// watched file keeps the entry it had (never recorded fresh by its current bytes). The record
+/// is merged, not replaced.
 pub(crate) fn record_all_written(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
-    journal: &BTreeMap<PathBuf, u64>,
+    journal: &Notes,
 ) -> Result<u32, KernelError> {
+    before_record("record_all");
     locked(&project.root, || {
-        apply::record_all(project, progress, journal)
+        apply::record_all(project, progress, Some(journal))
     })
 }
 
@@ -206,6 +213,10 @@ static LOCKS: Mutex<Vec<RootLock>> = Mutex::new(Vec::new());
 /// Runs `f` under the lock of project `root`: two scans or takeovers of one project run one
 /// after the other, of two projects side by side.
 pub(crate) fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
+    // Taken again on the thread that holds it (a rename records under its own lock): runs.
+    if HELD.with(|held| held.borrow().iter().any(|r| r == root)) {
+        return f();
+    }
     let lock = {
         let mut locks = LOCKS.lock().unwrap_or_else(|e| e.into_inner());
         // A root nobody holds right now is forgotten (tests open many).
@@ -220,6 +231,8 @@ pub(crate) fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
         }
     };
     let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    HELD.with(|held| held.borrow_mut().push(root.to_path_buf()));
+    let _mine = Held;
     #[cfg(test)]
     let _inside = probe::enter(root);
     // A pause inside the lock, so two runs that were not kept apart would overlap (tests).
@@ -228,11 +241,50 @@ pub(crate) fn locked<T>(root: &Path, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+thread_local! {
+    /// The project roots whose lock this thread holds ([`locked`]).
+    static HELD: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Lets go of the newest root in [`HELD`] when dropped.
+struct Held;
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        HELD.with(|held| {
+            held.borrow_mut().pop();
+        });
+    }
+}
+
+/// A hook of the tests, called with a writer's name.
+#[cfg(test)]
+pub(crate) type RecordHook = Box<dyn Fn(&str)>;
+
+#[cfg(test)]
+thread_local! {
+    /// Runs when a writer is about to record its files for the sync, with the writer's name
+    /// (`step`, `store`, `takeover`, `rename`, `resync`, `record_all`): tests write in between.
+    pub(crate) static BEFORE_RECORD: std::cell::RefCell<Option<RecordHook>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Runs [`BEFORE_RECORD`] for writer `who` (tests only).
+#[cfg_attr(not(test), allow(unused_variables))]
+pub(crate) fn before_record(who: &str) {
+    #[cfg(test)]
+    BEFORE_RECORD.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook(who);
+        }
+    });
+}
+
 /// What a writer can vouch for about a file it hands to [`record_known`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Known {
     /// It wrote the file with bytes of this xxh3 ([`Journal`](crate::fsutil::Journal)).
-    Wrote(u64),
+    Bytes(u64),
     /// It read the file as this fingerprint (with its hash) and found its unit in step.
     Read(Fp),
     /// Nothing: the file's entry goes (no record counts as changed; the next scan judges it,
@@ -240,16 +292,29 @@ pub(crate) enum Known {
     Drop,
 }
 
-/// The files of `journal` (absolute paths from a [`Journal`](crate::fsutil::Journal)) as
-/// [`Known::Wrote`], relative to the root.
-pub(crate) fn wrote(project: &Project, journal: &BTreeMap<PathBuf, u64>) -> Vec<(PathBuf, Known)> {
+/// What a writer that only vouches for its own writes (the build step, a store save, an id
+/// rename) knows of the files of `journal` (absolute paths from a
+/// [`Journal`](crate::fsutil::Journal)), relative to the root: [`Known::Bytes`] for a file
+/// it wrote, [`Known::Drop`] for a conflict. A file it only read is left out: reading a file
+/// proves nothing about its unit being in step (a member of a unit left alone, newer from
+/// DSPRE, is read as well).
+pub(crate) fn noted(project: &Project, journal: &Notes) -> Vec<(PathBuf, Known)> {
     journal
         .iter()
-        .filter_map(|(path, hash)| {
+        .filter_map(|(path, noted)| {
             let rel = path.strip_prefix(&project.root).ok()?;
-            Some((rel.to_path_buf(), Known::Wrote(*hash)))
+            Some((rel.to_path_buf(), known_of(*noted)?))
         })
         .collect()
+}
+
+/// [`noted`] for one file: its write, a conflict, or nothing for a read.
+pub(crate) fn known_of(noted: Noted) -> Option<Known> {
+    match noted {
+        Noted::Wrote(hash) => Some(Known::Bytes(hash)),
+        Noted::Conflict => Some(Known::Drop),
+        Noted::Read(_) => None,
+    }
 }
 
 /// Records `files` (relative to the root, or absolute below it) for the sync, each only with
@@ -263,6 +328,10 @@ pub(crate) fn record_known(
     project: &Project,
     files: &[(PathBuf, Known)],
 ) -> Result<(), KernelError> {
+    locked(&project.root, || record_known_locked(project, files))
+}
+
+fn record_known_locked(project: &Project, files: &[(PathBuf, Known)]) -> Result<(), KernelError> {
     if files.is_empty() || BuildState::load_shared(&project.root).sync.is_none() {
         return Ok(());
     }
@@ -274,7 +343,7 @@ pub(crate) fn record_known(
             continue;
         }
         let hash = match known {
-            Known::Wrote(hash) => Some(*hash),
+            Known::Bytes(hash) => Some(*hash),
             Known::Read(fp) => fp.xxh3,
             Known::Drop => None,
         };
@@ -295,6 +364,11 @@ pub(crate) fn record_known(
             }
             None => None,
         };
+        if entry.is_none() {
+            // An operation around this writer (an import running the build step) must not
+            // record the file either.
+            crate::fsutil::note_conflict(&project.root.join(&rel));
+        }
         entries.push((k, entry));
     }
     BuildState::update(&project.root, |state| {

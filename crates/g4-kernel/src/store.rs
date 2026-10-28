@@ -2,7 +2,7 @@
 //! byte comparison, and a save that refuses to overwrite files changed on disk.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -24,8 +24,8 @@ use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
-use crate::fsutil::Journal;
 use crate::fsutil::write_atomic;
+use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Location, Project};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
@@ -1470,11 +1470,16 @@ impl Store {
     /// is never overwritten. In a text project the new entity's JSON is written at once (see
     /// [`Store::append_json`]). The new member is not part of the undo history.
     fn append_member(&mut self, kind: AssetKind, bytes: &[u8]) -> Result<u16, KernelError> {
+        // Open before the member is written, so its record carries the bytes written.
+        let journal = Journal::start();
         let index = self.append_member_file(kind, bytes)?;
         let member = self.project.member_path(kind, index);
-        self.append_json(AssetId { kind, index }, vec![member], |source, project| {
-            source.append(project, AssetId { kind, index })
-        })?;
+        self.append_json(
+            AssetId { kind, index },
+            vec![member],
+            journal,
+            |source, project| source.append(project, AssetId { kind, index }),
+        )?;
         Ok(index)
     }
 
@@ -1493,13 +1498,13 @@ impl Store {
         &mut self,
         id: AssetId,
         members: Vec<PathBuf>,
+        journal: Journal,
         write: impl FnOnce(&mut EntitySource, &Project) -> Result<SourceWrite, KernelError>,
     ) -> Result<(), KernelError> {
         let Location::Entity { unit, .. } = self.project.asset_location(id.kind, id.index)? else {
             return Ok(());
         };
         let project = Arc::clone(&self.project);
-        let journal = Journal::start();
         let written = Store::source(&mut self.source, &project)
             .and_then(|source| write(source, &project))
             .map_err(|e| KernelError::Partial(format!("{id} was written, its JSON was not: {e}")));
@@ -1560,6 +1565,7 @@ impl Store {
                 "{index} trainer properties but {party_index} trainer parties"
             )));
         }
+        let journal = Journal::start();
         self.append_member_file(AssetKind::TrainerProperties, props)?;
         if let Err(e) = self.append_member_file(AssetKind::TrainerParty, party) {
             // Best effort: the file was written a moment ago by this call.
@@ -1579,7 +1585,7 @@ impl Store {
                 .member_path(AssetKind::TrainerProperties, index),
             self.project.member_path(AssetKind::TrainerParty, index),
         ];
-        self.append_json(id, members, |source, project| {
+        self.append_json(id, members, journal, |source, project| {
             source.append_trainer(project, index, name)
         })?;
         Ok(index)
@@ -1836,6 +1842,7 @@ impl Store {
         names.extend_from_slice(name);
         names.resize((count + 1) * MAPNAME_RECORD, 0);
 
+        let journal = Journal::start();
         write_atomic(root, &path, &chunk)?;
         if let Err(e) = write_atomic(root, &names_path, &names) {
             let _ = std::fs::remove_file(&path);
@@ -1872,7 +1879,7 @@ impl Store {
                 .and_then(|a| a.saved_bytes.clone())
                 .ok_or(KernelError::Stale(HEADER_TABLE))?;
             let members = vec![path, names_path];
-            self.append_json(HEADER_TABLE, members, |source, project| {
+            self.append_json(HEADER_TABLE, members, journal, |source, project| {
                 source.write(project, &[(HEADER_TABLE, table)], &|_| None)
             })?;
         }
@@ -3080,14 +3087,15 @@ fn record_saved(
     written: &SourceWrite,
     members: &[PathBuf],
     units: &[EntityUnit],
-    journal: &BTreeMap<PathBuf, u64>,
+    journal: &Notes,
 ) {
     let rel = |path: &PathBuf| {
         path.strip_prefix(&project.root)
             .unwrap_or(path)
             .to_path_buf()
     };
-    let mut known = sync::wrote(project, journal);
+    sync::before_record("store");
+    let mut known = sync::noted(project, journal);
     let journaled: BTreeSet<PathBuf> = known.iter().map(|(path, _)| path.clone()).collect();
     for path in written
         .sources

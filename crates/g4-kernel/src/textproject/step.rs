@@ -58,7 +58,7 @@ use crate::build::step::{Dirty, Step, StepRun, dirty_now};
 use crate::build::{Tool, lock};
 use crate::dynamic_headers;
 use crate::error::KernelError;
-use crate::fsutil::Journal;
+use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Project};
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity};
@@ -788,9 +788,10 @@ fn record_run(
     p: &Project,
     units: &[&Unit],
     wrote: &[PathBuf],
-    journal: &BTreeMap<PathBuf, u64>,
+    journal: &Notes,
 ) -> Result<(), KernelError> {
-    let mut known = sync::wrote(p, journal);
+    sync::before_record("step");
+    let mut known = sync::noted(p, journal);
     let journaled: BTreeSet<PathBuf> = known.iter().map(|(rel, _)| rel.clone()).collect();
     for path in wrote {
         for file in sync::files_below(p, path)? {
@@ -912,6 +913,18 @@ impl Records {
         }
         let mut files = vec![PathBuf::from(MANIFEST_FILE)];
         walk(&self.root, Path::new(IDS_DIR), &mut files, &|_| false)?;
+        // Also the registers the record knows: one deleted since is a change.
+        if let Some(sync) = &self.state.sync {
+            let ids = format!("{}/", shown(Path::new(IDS_DIR)));
+            files.extend(
+                sync.files
+                    .keys()
+                    .filter(|k| k.starts_with(&ids))
+                    .map(PathBuf::from),
+            );
+        }
+        files.sort();
+        files.dedup();
         let unchanged = self.unchanged(&files)?;
         let _ = self.globals.set(unchanged);
         Ok(unchanged)
@@ -1224,4 +1237,24 @@ fn count_units(p: &Project) -> Result<u32, KernelError> {
         };
     }
     Ok(u32::try_from(total).unwrap_or(u32::MAX))
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod tests {
+    use super::*;
+    use crate::test_support::TextFixture;
+
+    #[test]
+    fn a_register_deleted_since_the_record_leaves_the_judgement_to_the_step() {
+        let fx = TextFixture::exported();
+        let p = fx.project();
+        assert!(Records::load(&p, false).globals_unchanged().unwrap());
+        let register = std::fs::read_dir(fx.root().join(IDS_DIR))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|path| path.is_file())
+            .expect("a register");
+        std::fs::remove_file(&register).unwrap();
+        assert!(!Records::load(&p, false).globals_unchanged().unwrap());
+    }
 }

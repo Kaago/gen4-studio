@@ -795,7 +795,7 @@ impl Project {
 
     pub(crate) fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
         let path = self.root.join(self.require_packed(kind)?);
-        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        let bytes = crate::fsutil::read_noted(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)
     }
 
@@ -995,7 +995,9 @@ impl Project {
             return Ok(None);
         }
         let path = self.member_path(kind, index);
-        std::fs::read(&path).map(Some).map_err(io_at(&path))
+        crate::fsutil::read_noted(&path)
+            .map(Some)
+            .map_err(io_at(&path))
     }
 
     pub(crate) fn uxie_family(&self) -> uxie::GameFamily {
@@ -1108,7 +1110,7 @@ impl Project {
     /// `files/fielddata/maptable/mapname.bin` (NUL padded, read lossily as UTF-8).
     pub fn internal_names(&self) -> Result<Vec<String>, KernelError> {
         let names_path = self.mapname_path();
-        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        let mapnames = crate::fsutil::read_noted(&names_path).map_err(io_at(&names_path))?;
         Ok(mapnames
             .as_chunks::<MAPNAME_RECORD>()
             .0

@@ -31,7 +31,12 @@ pub(crate) fn to_canonical<T: Serialize>(value: &T) -> Vec<u8> {
 pub(crate) fn write_if_changed(root: &Path, rel: &Path, bytes: &[u8]) -> Result<bool, KernelError> {
     let path = root.join(rel);
     match std::fs::read(&path) {
-        Ok(old) if old == bytes => return Ok(false),
+        Ok(old) if old == bytes => {
+            // Holds the bytes already: as good as written for a journal's operation (noted as
+            // read, so a writer that vouches only for its writes does not take it).
+            crate::fsutil::note_read(&path, &old);
+            return Ok(false);
+        }
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(io_at(&path)(e)),

@@ -74,7 +74,7 @@ impl Registry {
             return Ok(Registry::new(kind));
         };
         let path = root.join(&rel);
-        let bytes = match std::fs::read(&path) {
+        let bytes = match crate::fsutil::read_noted(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Registry::new(kind));

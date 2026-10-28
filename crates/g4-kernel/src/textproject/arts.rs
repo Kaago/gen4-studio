@@ -164,7 +164,7 @@ pub(crate) fn read_members(
             if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
                 continue;
             }
-            let bytes = std::fs::read(entry.path()).map_err(io_at(&entry.path()))?;
+            let bytes = crate::fsutil::read_noted(entry.path()).map_err(io_at(&entry.path()))?;
             if members.len() <= index {
                 members.resize(index + 1, None);
             }
@@ -173,7 +173,7 @@ pub(crate) fn read_members(
         return Ok(members);
     }
     let path = project.root.join(packed);
-    match std::fs::read(&path) {
+    match crate::fsutil::read_noted(&path) {
         Ok(bytes) => Ok(Narc::read(&bytes)?.members.into_iter().map(Some).collect()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(io_at(&path)(e)),

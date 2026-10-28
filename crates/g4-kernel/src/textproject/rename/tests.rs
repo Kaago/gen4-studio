@@ -614,3 +614,31 @@ fn what_fails_after_the_files_is_a_warning() {
         "{warnings:?}"
     );
 }
+
+#[test]
+fn a_json_edited_while_a_rename_records_stays_visible() {
+    let fx = fixture();
+    let p = fx.project();
+    sync::record_all(&p).unwrap();
+    let root = fx.root().to_path_buf();
+    sync::BEFORE_RECORD.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |who: &str| {
+            if who == "rename" {
+                let path = root.join("data/trainers/0000.json");
+                let text = std::fs::read_to_string(&path).unwrap();
+                std::fs::write(&path, text.replacen("\"level\": 5", "\"level\": 7", 1)).unwrap();
+            }
+        }));
+    });
+    let mut st = store(&fx);
+    let renamed = rename_id(&mut st, "TRAINER_CLASS_YOUNGSTER", "TRAINER_CLASS_KID");
+    sync::BEFORE_RECORD.with(|hook| *hook.borrow_mut() = None);
+    renamed.unwrap();
+    let scan = sync::scan(&fx.project(), &mut |_| {}).unwrap();
+    let side = scan
+        .units
+        .iter()
+        .find(|u| u.key == "data/trainers/0000.json")
+        .map(|u| u.side);
+    assert_eq!(side, Some(sync::UnitSide::Files), "{:?}", scan.units);
+}

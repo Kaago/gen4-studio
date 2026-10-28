@@ -426,6 +426,32 @@ fn a_save_over_an_unchanged_recorded_member_is_not_stale() {
 }
 
 #[test]
+fn a_writer_vouches_for_what_it_wrote_not_for_what_it_only_read() {
+    let fx = recorded();
+    let p = fx.project();
+    let journal = crate::fsutil::Journal::start();
+    crate::fsutil::read_noted(fx.root().join(MOVE_1_MEMBER)).unwrap();
+    crate::fsutil::write_atomic(
+        fx.root(),
+        &fx.root().join(MOVE_1_JSON),
+        &fx.read(MOVE_1_JSON),
+    )
+    .unwrap();
+    let journal = journal.finish();
+    // The export and the import vouch for both (`record_all_written`), the build step, a
+    // save and a rename only for the write.
+    assert_eq!(journal.len(), 2);
+    let known = noted(&p, &journal);
+    assert_eq!(
+        known,
+        [(
+            PathBuf::from(MOVE_1_JSON),
+            Known::Bytes(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON)))
+        )]
+    );
+}
+
+#[test]
 fn record_known_records_only_what_the_writer_vouches_for() {
     let fx = TextFixture::exported();
     let p = fx.project();
@@ -433,7 +459,7 @@ fn record_known_records_only_what_the_writer_vouches_for() {
     let gone = PathBuf::from("data/moves/9999.json");
     let hash = xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON));
     BuildState::update(fx.root(), |s| s.sync = None).unwrap();
-    record_known(&p, &[(json.clone(), Known::Wrote(hash))]).unwrap();
+    record_known(&p, &[(json.clone(), Known::Bytes(hash))]).unwrap();
     assert_eq!(BuildState::load(fx.root()).sync, None, "no sync, no record");
 
     BuildState::update(fx.root(), |s| {
@@ -452,7 +478,7 @@ fn record_known_records_only_what_the_writer_vouches_for() {
     record_known(
         &p,
         &[
-            (p.root.join(&json), Known::Wrote(hash)),
+            (p.root.join(&json), Known::Bytes(hash)),
             (gone.clone(), Known::Drop),
         ],
     )
@@ -464,7 +490,7 @@ fn record_known_records_only_what_the_writer_vouches_for() {
 
     // Bytes other than the ones the writer knows (written past it): the entry goes. So it
     // does for a file named twice with two answers.
-    record_known(&p, &[(json.clone(), Known::Wrote(hash ^ 1))]).unwrap();
+    record_known(&p, &[(json.clone(), Known::Bytes(hash ^ 1))]).unwrap();
     assert!(sync_of(&fx).files.is_empty());
     let read = crate::build::fingerprint::capture_hashed(&p.root.join(&json))
         .unwrap()
@@ -681,6 +707,34 @@ fn export_and_import_record_the_sync() {
         Some(xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_MEMBER)))
     );
     settle(&fx);
+    // The import vouches only for what it read or wrote, and there was no record to keep:
+    // the blobs without a file under `data/raw/` (in step with the base layer, which the
+    // import never reads) and the text archives (with their own `texts` record) stay without
+    // an entry. The scan judges their units by content: in step, nothing changed.
+    let sync = sync_of(&fx);
+    let report = scan_of(&fx);
+    assert!(!report.units.is_empty());
+    for unit in &report.units {
+        assert_eq!(unit.side, UnitSide::InSync, "{unit:?}");
+        let unrecorded: Vec<&PathBuf> = unit
+            .sources
+            .iter()
+            .chain(&unit.members)
+            .filter(|rel| !sync.files.contains_key(&key(rel)))
+            .collect();
+        assert!(!unrecorded.is_empty(), "{unit:?}");
+        for rel in unrecorded {
+            // A blob's `data/raw/` file that does not exist has no entry either.
+            let absent = !fx.root().join(rel).exists();
+            let text_json = rel.starts_with("expanded/textArchives");
+            let blob_member =
+                !rel.starts_with("data") && !fx.root().join("data/raw").join(rel).exists();
+            assert!(absent || text_json || blob_member, "{rel:?} of {unit:?}");
+        }
+    }
+    // The first sync confirms them as the scan saw them; then nothing is left.
+    apply_of(&fx, &report);
+    settle(&fx);
     assert!(scan_of(&fx).units.is_empty());
 }
 
@@ -864,4 +918,183 @@ fn a_json_edited_while_the_build_step_writes_is_not_recorded_in_step() {
         "{refused:?}"
     );
     assert_eq!(power(&fx), 13);
+}
+
+/// Sets the hook that runs right before writer `who` records, once.
+fn before_record_of(who: &'static str, f: impl Fn() + 'static) {
+    let done = std::cell::Cell::new(false);
+    BEFORE_RECORD.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |name: &str| {
+            if name == who && !done.replace(true) {
+                f();
+            }
+        }));
+    });
+}
+
+fn no_hook() {
+    BEFORE_RECORD.with(|hook| *hook.borrow_mut() = None);
+}
+
+/// Sets move 1's power in its member, as DSPRE would.
+fn dspre_power(root: &Path, power: u8) {
+    let path = root.join(MOVE_1_MEMBER);
+    let mut member = std::fs::read(&path).unwrap();
+    member[3] = power;
+    std::fs::write(&path, member).unwrap();
+}
+
+/// Replaces move 1's power `from` by `to` in its JSON, by hand.
+fn json_power(root: &Path, from: u8, to: u8) {
+    let path = root.join(MOVE_1_JSON);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let from = format!("\"power\": {from}");
+    assert!(text.contains(&from), "{text}");
+    std::fs::write(&path, text.replacen(&from, &format!("\"power\": {to}"), 1)).unwrap();
+}
+
+/// The sync's hash of `rel`, if it has an entry.
+fn recorded_hash(fx: &TextFixture, rel: &str) -> Option<u64> {
+    sync_of(fx).files.get(rel).and_then(|fp| fp.xxh3)
+}
+
+fn export_refused(fx: &TextFixture) -> bool {
+    matches!(
+        crate::textproject::export(
+            &fx.project(),
+            &fx.base(),
+            &crate::textproject::ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        ),
+        Err(KernelError::Refused(text)) if text.starts_with(crate::textproject::UNSYNCED_EXPORT)
+    )
+}
+
+#[test]
+fn a_json_edited_during_an_import_is_not_recorded() {
+    let fx = recorded();
+    std::thread::sleep(Duration::from_millis(20));
+    json_power(fx.root(), 10, 12);
+    let root = fx.root().to_path_buf();
+    before_record_of("record_all", move || json_power(&root, 12, 13));
+    let imported = crate::textproject::import(&fx.project(), Some(&fx.base()));
+    no_hook();
+    imported.unwrap();
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 12);
+    assert_eq!(power(&fx), 13);
+    let now = xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_JSON));
+    assert_ne!(
+        recorded_hash(&fx, MOVE_1_JSON),
+        Some(now),
+        "the edit is not recorded"
+    );
+
+    // DSPRE edits the member: both sides changed, the build and the export refuse.
+    std::thread::sleep(Duration::from_millis(20));
+    dspre_power(fx.root(), 77);
+    match crate::build::prepare(&fx.project()) {
+        Err(KernelError::Compile(problems)) => assert!(
+            problems
+                .iter()
+                .any(|p| p.message.starts_with("textproject.conflict:")),
+            "{problems:?}"
+        ),
+        other => panic!("expected a conflict, got {other:?}"),
+    }
+    assert!(export_refused(&fx));
+    assert_eq!(power(&fx), 13);
+}
+
+#[test]
+fn a_member_written_during_an_export_is_not_recorded() {
+    let fx = recorded();
+    let root = fx.root().to_path_buf();
+    before_record_of("record_all", move || dspre_power(&root, 77));
+    let exported = crate::textproject::export(
+        &fx.project(),
+        &fx.base(),
+        &crate::textproject::ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    );
+    no_hook();
+    exported.unwrap();
+    assert_eq!(power(&fx), 10, "the export read the member before");
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 77);
+    // The scan still sees DSPRE's change.
+    assert_eq!(side_of(&scan_of(&fx), MOVE_1_JSON), Some(UnitSide::Dspre));
+}
+
+#[test]
+fn a_member_written_before_the_export_resyncs_the_step_stays_changed() {
+    let fx = recorded();
+    crate::build::prepare(&fx.project()).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    let root = fx.root().to_path_buf();
+    before_record_of("resync", move || dspre_power(&root, 77));
+    let exported = crate::textproject::export(
+        &fx.project(),
+        &fx.base(),
+        &crate::textproject::ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    );
+    no_hook();
+    exported.unwrap();
+    assert_eq!(power(&fx), 10);
+    // The step's entry does not take DSPRE's member as read by the export.
+    let prepared = crate::build::prepare(&fx.project()).unwrap();
+    let codes: Vec<&str> = prepared
+        .problems
+        .iter()
+        .filter_map(|p| p.message.split(':').next())
+        .filter(|c| c.starts_with("textproject."))
+        .collect();
+    assert_eq!(
+        codes,
+        ["textproject.member-newer"],
+        "{:?}",
+        prepared.problems
+    );
+}
+
+#[test]
+fn a_member_written_while_the_build_step_records_stays_visible() {
+    let fx = recorded();
+    crate::build::prepare(&fx.project()).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    json_power(fx.root(), 10, 12);
+    let root = fx.root().to_path_buf();
+    before_record_of("step", move || dspre_power(&root, 77));
+    let built = crate::build::prepare(&fx.project());
+    no_hook();
+    built.unwrap();
+    assert_eq!(fx.read(MOVE_1_MEMBER)[3], 77);
+    let now = xxhash_rust::xxh3::xxh3_64(&fx.read(MOVE_1_MEMBER));
+    assert_ne!(
+        recorded_hash(&fx, MOVE_1_MEMBER),
+        Some(now),
+        "DSPRE's bytes as the step's"
+    );
+    let side = side_of(&scan_of(&fx), MOVE_1_JSON);
+    assert!(side.is_some_and(|s| s != UnitSide::InSync), "{side:?}");
+}
+
+#[test]
+fn a_json_edited_while_a_takeover_records_stays_visible() {
+    let fx = recorded();
+    dspre_power(fx.root(), 33);
+    let report = scan_of(&fx);
+    assert_eq!(side_of(&report, MOVE_1_JSON), Some(UnitSide::Dspre));
+    let root = fx.root().to_path_buf();
+    before_record_of("takeover", move || json_power(&root, 33, 44));
+    let applied = apply_one_sided(&fx.project(), &report, &|_| false);
+    no_hook();
+    applied.unwrap();
+    assert_eq!(power(&fx), 44);
+    assert_eq!(side_of(&scan_of(&fx), MOVE_1_JSON), Some(UnitSide::Files));
 }

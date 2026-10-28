@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::build::fingerprint::{Fp, capture_hashed, hash, is_racy, now_ns, same_stat, stat};
 use crate::build::state::{BuildState, SyncRecord};
 use crate::error::{KernelError, io_at};
-use crate::fsutil::Journal;
+use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetId, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
@@ -171,6 +171,7 @@ pub(super) fn apply_keys(
     }
 
     let journal = journal.finish();
+    super::before_record("takeover");
     record(project, &watch, scan, &taken, &written, &journal)?;
     written.sort();
     written.dedup();
@@ -382,7 +383,7 @@ fn record(
     scan: &ScanReport,
     taken: &[&SyncUnit],
     written: &[PathBuf],
-    journal: &BTreeMap<PathBuf, u64>,
+    journal: &Notes,
 ) -> Result<(), KernelError> {
     let mut entries: BTreeMap<String, Option<Fp>> = BTreeMap::new();
     // The files of the units taken over that the build step judges (entities, blobs, the
@@ -456,8 +457,11 @@ fn record(
         }
         let path = project.root.join(&rel);
         let entry = match journal.get(&path) {
-            // Written by the takeover: only while it holds those bytes.
-            Some(&hash) => capture_hashed(&path)?.filter(|now| now.xxh3 == Some(hash)),
+            // Written (or read) by the takeover: only while it holds those bytes.
+            Some(noted) => match noted.hash() {
+                Some(hash) => capture_hashed(&path)?.filter(|now| now.xxh3 == Some(hash)),
+                None => None,
+            },
             // Read by the scan (the side taken over from): only while it is what the scan saw.
             None if strict.contains(&rel) => {
                 let seen = scan.seen.get(&key(&rel)).copied().flatten();
@@ -533,31 +537,47 @@ fn record_sync(
 pub(super) fn record_all(
     project: &Project,
     progress: &mut dyn FnMut(SyncProgress),
-    journal: &BTreeMap<PathBuf, u64>,
+    journal: Option<&Notes>,
 ) -> Result<u32, KernelError> {
     let watch = Watch::new(project)?;
     let at = now_ns();
+    let previous = BuildState::load_shared(&project.root);
+    let previous = previous.sync.as_ref();
     let mut files = BTreeMap::new();
     let watched = watch.files()?;
     let total = u32::try_from(watched.len()).unwrap_or(u32::MAX);
     progress(SyncProgress { done: 0, total });
     for (done, rel) in (1..).zip(watched) {
         let path = project.root.join(&rel);
-        // A file the operation wrote only while it holds those bytes.
-        let wrote = journal.get(&path);
-        if let Some(fp) = capture_hashed(&path)?
-            && wrote.is_none_or(|&hash| fp.xxh3 == Some(hash))
-        {
-            files.insert(key(&rel), fp);
+        let k = key(&rel);
+        let entry = match journal.map(|j| j.get(&path)) {
+            // Everything as it is (a project known to be in step).
+            None => capture_hashed(&path)?,
+            // Read or written by the operation: only while it holds those bytes.
+            Some(Some(noted)) => match noted.hash() {
+                Some(hash) => capture_hashed(&path)?.filter(|fp| fp.xxh3 == Some(hash)),
+                None => None,
+            },
+            // Neither read nor written by it: the entry it had.
+            Some(None) => previous.and_then(|sync| sync.files.get(&k)).copied(),
+        };
+        if let Some(fp) = entry {
+            files.insert(k, fp);
         }
         if done % RECORD_STEP == 0 || done == total {
             progress(SyncProgress { done, total });
         }
     }
     let n = u32::try_from(files.len()).unwrap_or(u32::MAX);
+    // Merged into a record: its scan time stays (the entries kept were taken against it; one
+    // taken now is racy against it and compared by content).
+    let scanned_at_ns = match (journal, previous) {
+        (Some(_), Some(sync)) => sync.scanned_at_ns.min(at),
+        _ => at,
+    };
     BuildState::update(&project.root, |state| {
         state.sync = Some(SyncRecord {
-            scanned_at_ns: at,
+            scanned_at_ns,
             files,
         });
     })?;

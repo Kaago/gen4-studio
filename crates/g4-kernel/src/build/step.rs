@@ -290,8 +290,16 @@ pub(crate) fn dirty_now(project: &Project, step: &dyn Step) -> Result<Dirty, Ker
 /// Records `step`'s entry anew from its inputs and outputs as they are now, as if it had just
 /// run and found nothing to do, but only when it has an entry with its current salt (without
 /// one its next run stays full); whether it did. For a writer that brings the step's inputs
-/// in step with each other by itself (the text project's export).
-pub(crate) fn resync(project: &Project, step: &dyn Step) -> Result<bool, KernelError> {
+/// in step with each other by itself (the text project's export). With `journal` (what the
+/// writer read and wrote, see [`Journal`](crate::fsutil::Journal)) an input is taken as it is
+/// now only while it holds the bytes noted, an input with other bytes (written past the
+/// writer) is left out (so the next run finds it changed), and an input the writer neither
+/// read nor wrote keeps its fingerprint from the entry (left out when it had none).
+pub(crate) fn resync(
+    project: &Project,
+    step: &dyn Step,
+    journal: Option<&crate::fsutil::Notes>,
+) -> Result<bool, KernelError> {
     let root = &project.root;
     let id = step.id();
     let salt = step.salt();
@@ -300,7 +308,29 @@ pub(crate) fn resync(project: &Project, step: &dyn Step) -> Result<bool, KernelE
         return Ok(false);
     };
     let ms = entry.ms;
-    let scan = scan_inputs(project, step, None)?;
+    let scan = match journal {
+        None => scan_inputs(project, step, None)?,
+        Some(journal) => {
+            let at = fingerprint::now_ns();
+            let mut inputs = BTreeMap::new();
+            for file in expand(root, &step.inputs(project)?)? {
+                let path = root.join(&file);
+                let fp = match journal.get(&path) {
+                    Some(noted) => match noted.hash() {
+                        Some(hash) => {
+                            fingerprint::capture_hashed(&path)?.filter(|fp| fp.xxh3 == Some(hash))
+                        }
+                        None => None,
+                    },
+                    None => entry.inputs.get(&file).copied(),
+                };
+                if let Some(fp) = fp {
+                    inputs.insert(file, fp);
+                }
+            }
+            Scan { at, inputs }
+        }
+    };
     let outputs = capture_all(
         root,
         &expand(root, &step.outputs(project)?)?,
@@ -952,7 +982,7 @@ mod tests {
 
         // No entry: a full run, and nothing to record anew.
         assert_eq!(dirty_now(&p, &step).unwrap().full, Some(NO_STATE));
-        assert!(!resync(&p, &step).unwrap());
+        assert!(!resync(&p, &step, None).unwrap());
         assert!(!BuildState::load(root).steps.contains_key("copy"));
 
         run_steps(&p, &[&step]).unwrap();
@@ -971,7 +1001,7 @@ mod tests {
         );
 
         // Recorded anew: the change is the entry's now, the next build skips the step.
-        assert!(resync(&p, &step).unwrap());
+        assert!(resync(&p, &step, None).unwrap());
         assert_eq!(dirty_now(&p, &step).unwrap(), Dirty::default());
         let rows = run_steps(&p, &[&step]).unwrap();
         assert_eq!(rows[0].status, StepStatus::Skipped);
@@ -981,7 +1011,7 @@ mod tests {
             salt: "s#2".into(),
             ..Copy::new()
         };
-        assert!(!resync(&p, &salted).unwrap());
+        assert!(!resync(&p, &salted, None).unwrap());
     }
 
     #[test]

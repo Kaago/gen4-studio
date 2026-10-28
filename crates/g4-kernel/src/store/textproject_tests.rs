@@ -605,3 +605,27 @@ fn a_member_written_past_the_save_before_it_is_recorded_stays_visible() {
         report.units
     );
 }
+
+#[test]
+fn an_appended_member_is_recorded_with_the_bytes_written() {
+    let fx = TextFixture::exported();
+    let mut st = store(&fx);
+    let index = st.create_matrix("NEU").unwrap();
+    let p = fx.project();
+    let member = p.member_path(AssetKind::Matrix, index);
+    let rel = member
+        .strip_prefix(fx.root())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let sync = BuildState::load(fx.root()).sync.unwrap();
+    assert_eq!(
+        sync.files.get(&rel).and_then(|fp| fp.xxh3),
+        Some(xxhash_rust::xxh3::xxh3_64(&std::fs::read(&member).unwrap())),
+        "{rel}"
+    );
+    assert!(
+        sync.files
+            .contains_key(&format!("data/matrices/{index:04}.json"))
+    );
+}
