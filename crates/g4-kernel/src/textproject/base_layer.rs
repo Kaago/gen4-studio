@@ -228,42 +228,57 @@ impl BasePart for BaseLayer {
     /// of its member (none when the member does not decode); an item's member is the one the
     /// layer's item table names for the item id (none without a table).
     fn base_bytes(&self, which: PartKey) -> Result<Option<Vec<u8>>, KernelError> {
-        let Ok(index) = u16::try_from(which.index) else {
+        let project = self.project()?;
+        part_of_members(project, which, &|kind, index| {
+            self.member(project, kind, index)
+        })
+    }
+}
+
+/// The bytes of part `which` among the members `member` gives (kind, index) of `project`:
+/// whole members by [`MEMBER_PARTS`], a map's `model`, `bdhc` and `bgs` as the sections of
+/// its member (none when it does not decode), an item's member through the project's item
+/// table (none without a table). The base layer asks its own members; a write without base
+/// layer asks the project's members on disk.
+pub(crate) fn part_of_members(
+    project: &Project,
+    which: PartKey,
+    member: &dyn Fn(AssetKind, u16) -> Result<Option<Vec<u8>>, KernelError>,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let Ok(index) = u16::try_from(which.index) else {
+        return Ok(None);
+    };
+    if which.art == MapEntity::ART && matches!(which.part, "model" | "bdhc" | "bgs") {
+        let Some(bytes) = member(AssetKind::Map, index)? else {
             return Ok(None);
         };
-        let project = self.project()?;
-        if which.art == MapEntity::ART && matches!(which.part, "model" | "bdhc" | "bgs") {
-            let Some(bytes) = self.member(project, AssetKind::Map, index)? else {
-                return Ok(None);
-            };
-            let Ok(map) = MapFile::read(&bytes, project.family) else {
-                return Ok(None);
-            };
-            return Ok(match which.part {
-                "model" => Some(map.model),
-                "bdhc" => Some(map.bdhc),
-                _ => map.bgs,
-            });
-        }
-        if which.art == ItemEntity::ART && which.part == "item" {
-            // As the import reads the table: members missing from the layer do not hide it.
-            let member = project
-                .item_table_to_write()
-                .as_ref()
-                .and_then(|t| t.entries.get(usize::from(index)))
-                .map(|e| e.data);
-            return match member {
-                Some(m) => self.member(project, AssetKind::Item, m),
-                None => Ok(None),
-            };
-        }
-        match MEMBER_PARTS
-            .iter()
-            .find(|(art, part, _)| *art == which.art && *part == which.part)
-        {
-            Some(&(_, _, kind)) => self.member(project, kind, index),
+        let Ok(map) = MapFile::read(&bytes, project.family) else {
+            return Ok(None);
+        };
+        return Ok(match which.part {
+            "model" => Some(map.model),
+            "bdhc" => Some(map.bdhc),
+            _ => map.bgs,
+        });
+    }
+    if which.art == ItemEntity::ART && which.part == "item" {
+        // As the import reads the table: members missing from the layer do not hide it.
+        let data = project
+            .item_table_to_write()
+            .as_ref()
+            .and_then(|t| t.entries.get(usize::from(index)))
+            .map(|e| e.data);
+        return match data {
+            Some(m) => member(AssetKind::Item, m),
             None => Ok(None),
-        }
+        };
+    }
+    match MEMBER_PARTS
+        .iter()
+        .find(|(art, part, _)| *art == which.art && *part == which.part)
+    {
+        Some(&(_, _, kind)) => member(kind, index),
+        None => Ok(None),
     }
 }
 

@@ -391,7 +391,8 @@ schreiben.
 
 ## Bearbeiten im Studio
 
-Im Textprojekt ist die JSON die Quelle des Stores (`textproject::source::EntitySource`). Der
+Im Textprojekt (Manifest mit der aktuellen Schema-Version, sonst lehnt `EntitySource::open` ab) ist
+die JSON die Quelle des Stores (`textproject::source::EntitySource`). Der
 Store behält seine Byte-Form, die der Member (ein Trainer als Eigenschaften und Party in einem,
 die Header-Tabelle als ihre 24-Byte-Datensätze); Laden liest die JSON und importiert sie gegen
 die Member auf der Platte. Eine JSON, die sich nicht lesen lässt, lehnt das Laden ab, mit Datei,
@@ -428,8 +429,9 @@ machen.
 
 **Teile ohne Basisschicht.** Speichern legt die Basisschicht nie an und braucht weder sie noch die
 Basis-ROM. Fehlt sie, bleibt ein Teil `{"base_sha1"}`, solange seine Bytes die SHA-1 behalten, die
-die JSON nannte; ein geänderter Teil wird Beifile oder `{"hex"}`. Ein Binärmember ohne Basisschicht
-wird immer als Datei geschrieben. Der nächste volle Export mit Basisschicht normalisiert beides
+die JSON nannte; ein geänderter Teil wird Beifile oder `{"hex"}`. Ein Binärmember ohne Datei unter
+`data/` bleibt ohne Datei, solange seine Bytes die SHA-1 behalten, mit der er gelesen wurde; sonst
+wird er als Datei geschrieben. Der nächste volle Export mit Basisschicht normalisiert beides
 (ein auf die Basis zurückgesetzter Teil wird wieder `base_sha1`, eine der Basis gleiche Datei
 geht).
 
