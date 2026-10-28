@@ -27,6 +27,7 @@ mod start;
 mod templates;
 mod text;
 mod textproject;
+mod textsource;
 mod wizards;
 mod world;
 mod world_meta;
@@ -56,6 +57,7 @@ pub use start::*;
 pub use templates::*;
 pub use text::*;
 pub use textproject::*;
+pub use textsource::*;
 pub use wizards::*;
 pub use world::*;
 pub use world_meta::*;
@@ -73,12 +75,13 @@ pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdEr
     guard.as_mut().ok_or_else(|| "no project open".into())
 }
 
-/// The id resolver of the session's project, for the project files that take an id or a
-/// number (`g4-world.json`, `g4-checks.json`). Made per call until the session keeps one.
+/// The id resolver of `project`, for the project files that take an id or a number
+/// (`g4-world.json`, `g4-checks.json`) before a session keeps it ([`Session::ids`]): outside
+/// a text project the fixed tables when it cannot be made.
 pub(crate) fn session_ids(
     project: &g4_kernel::project::Project,
 ) -> Result<g4_kernel::textproject::ids::Resolver, CmdError> {
-    g4_kernel::textproject::ids::Resolver::for_project(project).map_err(CmdError::from)
+    crate::state::project_ids(project)
 }
 
 /// printf argument of a minimal valid GLB (JSON chunk only, no images) for fake apicula scripts:

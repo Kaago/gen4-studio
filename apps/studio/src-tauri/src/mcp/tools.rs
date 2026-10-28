@@ -37,6 +37,7 @@ use crate::mcp::docs;
 use crate::mcp::host::StateSource;
 use crate::mcp::hub::{AgentHub, QUESTION_WAIT};
 use crate::mcp::settings::{GrantLevel, ProjectKey};
+use crate::mcp::symbolic;
 use crate::state::{AppState, Session};
 
 /// Why a tool call or a resource read failed.
@@ -241,7 +242,10 @@ impl ResourceUri {
 /// and reload the text archives a compile touched (which forgets their history); the check
 /// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`,
 /// a map part export and the project preview write a file; resolving a text conflict writes a
-/// text archive's JSON or member past the store and reloads it. `apply_fix` with
+/// text archive's JSON or member past the store and reloads it. The text project's commands
+/// write past the store too: setting it up, taking it back and lifting it open the session
+/// anew, the sync and the choice of a conflict write sources and members, and an id rename is
+/// a file step of its own (its undo writes every file back). `apply_fix` with
 /// `create_script` or `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
@@ -267,6 +271,12 @@ const NOT_IN_BATCH: &[&str] = &[
     "assign_base",
     "create_patch",
     "text_export",
+    "adopt_text_project",
+    "revert_text_project",
+    "migrate_text_project",
+    "external_sync",
+    "resolve_external_conflict",
+    "rename_id",
 ];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -339,8 +349,9 @@ enum Host {
         state: Box<AppState>,
         policy: UserPolicy,
         access: Access,
-        /// The project as it opened.
-        info: ProjectInfo,
+        /// The project as it opened (boxed like the state: it carries the text project's
+        /// status).
+        info: Box<ProjectInfo>,
     },
     /// The user's session; `wait` is how long a call waits for the user's answer.
     Shared {
@@ -379,12 +390,18 @@ impl Toolbox {
             .to_str()
             .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", root.display()))?;
         let info = open_project_impl(&state, path).map_err(|e| e.message)?;
+        // A text project of an older schema opens in the app to be lifted; headless nothing
+        // could edit it, so the server does not start (as for a newer one or a broken
+        // manifest, which do not open at all).
+        if let Some(session) = state.lock_session().as_ref() {
+            session.project.editable().map_err(|e| e.to_string())?;
+        }
         Ok(Toolbox {
             host: Host::Own {
                 state: Box::new(state),
                 policy,
                 access,
-                info,
+                info: Box::new(info),
             },
             turn: Mutex::new(()),
         })
@@ -750,13 +767,16 @@ impl<'a> Call<'a> {
     }
 
     /// Checks the keys of `args` against the tool's schema and turns them into what its
-    /// command takes (defaults, renames, the build target).
+    /// command takes (defaults, renames, the build target, numbers for symbolic ids).
     fn prepare(&self, def: &ToolDef, args: Value) -> Result<Prepared, ToolError> {
         check_keys(def, &args)?;
         Ok(match def.route {
             Route::Command { command, .. } => Prepared::Command {
                 command: command.to_owned(),
-                args: self.with_build_target(command, def.command_args(args)),
+                args: self.with_numbers(
+                    command,
+                    self.with_build_target(command, def.command_args(args)),
+                )?,
             },
             Route::Call => {
                 let Some(command) = args.get("command").and_then(Value::as_str) else {
@@ -770,7 +790,7 @@ impl<'a> Call<'a> {
                 };
                 Prepared::Command {
                     command: command.to_owned(),
-                    args: self.with_build_target(command, inner),
+                    args: self.with_numbers(command, self.with_build_target(command, inner))?,
                 }
             }
             Route::ProjectInfo => Prepared::ProjectInfo,
@@ -779,6 +799,19 @@ impl<'a> Call<'a> {
                 return Err(ToolError::error(NO_NESTED_BATCH));
             }
         })
+    }
+
+    /// `args` of `command` with every symbolic id replaced by its number
+    /// (`symbolic::resolve_args`, with the resolver of the open project); `unknown_id` for an
+    /// id nothing knows. Without an id the project is not asked.
+    fn with_numbers(&self, command: &str, args: Value) -> Result<Value, ToolError> {
+        if !symbolic::has_ids(command, &args) {
+            return Ok(args);
+        }
+        self.with_session(|s| match s.ids() {
+            Ok(ids) => symbolic::resolve_args(command, args, ids),
+            Err(e) => Err(e.into()),
+        })?
     }
 
     /// `build_rom` without a target builds `build/<game code>.nds` in the project.
@@ -840,7 +873,9 @@ impl<'a> Call<'a> {
     /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
     /// and the question names the file and the ROM. `create_patch` names the patch file.
     /// `resolve_text_conflicts` names every archive and the version that applies.
-    /// `text_export` answers `unsaved`, `base_missing` and `not_adopted` unasked.
+    /// `text_export` answers `unsaved`, `base_missing` and `not_adopted` unasked, and
+    /// `adopt_text_project` `unsaved`, `base_missing` and Diamond/Pearl.
+    /// `resolve_external_conflict` names the unit and the version that stays.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -863,6 +898,11 @@ impl<'a> Call<'a> {
                 crate::commands::check_text_export(self.state)?;
                 Ok(why.to_owned())
             }
+            ("adopt_text_project", Some(_)) => {
+                crate::commands::check_adopt(self.state)?;
+                Ok(why.to_owned())
+            }
+            ("resolve_external_conflict", _) => Ok(conflict_question(why, args)),
             _ => Ok(why.to_owned()),
         }
     }
@@ -910,10 +950,18 @@ impl<'a> Call<'a> {
     fn project_info(&self) -> Result<Value, ToolError> {
         let info = match (self.info, &self.shared) {
             (Some(info), _) => serde_json::to_value(info),
-            (None, Some(shared)) => serde_json::to_value(project_info_of(shared.project)?),
+            (None, Some(shared)) => {
+                serde_json::to_value(project_info_of(self.state, shared.project)?)
+            }
             (None, None) => return Err(ToolError::error("no project open")),
         };
         let mut info = info.map_err(|e| ToolError::error(e.to_string()))?;
+        // The project as a source now: an adoption (or a revert) since it opened changed it.
+        let project = self.with_session(|s| Arc::clone(&s.project))?;
+        let status = crate::commands::status_of(self.state, &project);
+        if let Some(fields) = info.as_object_mut() {
+            fields.insert("text_project".to_owned(), json!(status));
+        }
         let Access {
             write,
             irreversible,
@@ -1354,6 +1402,17 @@ fn assign_question(file: &str, check: &BaseCheck) -> String {
 /// joined with „; “. The version that applies is the one `keep` names: the JSON is the
 /// editor's text, the member the game file. Args that cannot be read leave the generic `why`
 /// (the command refuses them itself).
+/// The question before `resolve_external_conflict`: the unit and which version stays.
+fn conflict_question(why: &str, args: &Value) -> String {
+    let key = args.get("key").and_then(Value::as_str).unwrap_or_default();
+    let rule = match args.get("keep").and_then(Value::as_str) {
+        Some("studio") => "die Studio-Fassung gilt, DSPRE wird überschrieben",
+        Some("dspre") => "die andere Fassung gilt, die Studio-Fassung wird überschrieben",
+        _ => return why.to_owned(),
+    };
+    format!("{why}: {key} ({rule})")
+}
+
 fn resolve_question(why: &str, args: &Value) -> String {
     let choices = args
         .get("choices")
@@ -3653,5 +3712,192 @@ mod tests {
         let message = unasked("unsaved");
         assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
         assert!(!d.root.join("g4-project.json").exists());
+    }
+
+    #[test]
+    fn batch_refuses_rename_id() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for call in [
+            json!({ "tool": "rename_id",
+                    "arguments": { "id": "TRAINER_A", "new_id": "TRAINER_B" } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "rename_id",
+                    "args": { "id": "TRAINER_A", "newId": "TRAINER_B" } } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("rename_id geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        assert_eq!(data(&toolbox, "species", 1), species);
+        for command in [
+            "adopt_text_project",
+            "resolve_external_conflict",
+            "external_sync",
+            "revert_text_project",
+            "migrate_text_project",
+        ] {
+            assert!(not_in_batch(command, &json!({})), "{command}");
+        }
+    }
+
+    #[test]
+    fn data_edit_with_species_id_acts_like_the_number() {
+        let edit = |index: Value| {
+            json!({ "kind": "species", "index": index,
+                    "patch": { "Personal": { "field": "attack", "value": 90 } } })
+        };
+        let (_by_id_fixture, by_id) = open_toolbox(ALL);
+        let (_by_number_fixture, by_number) = open_toolbox(ALL);
+        let a = by_id
+            .call("data_edit", edit(json!("SPECIES_BULBASAUR")), AGENT)
+            .unwrap();
+        let b = by_number.call("data_edit", edit(json!(1)), AGENT).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(data(&by_id, "species", 1), data(&by_number, "species", 1));
+        assert_eq!(history(&by_id), history(&by_number));
+        // Reading by id, through g4_call and in a batch: the same.
+        let by_name = by_id
+            .call(
+                "data_get",
+                json!({ "kind": "species", "index": "SPECIES_BULBASAUR" }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(by_name, data(&by_id, "species", 1));
+        let called = by_id
+            .call(
+                "g4_call",
+                json!({ "command": "data_get",
+                        "args": { "kind": "species", "index": "SPECIES_BULBASAUR" } }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(called, by_name);
+        by_id
+            .call(
+                "g4_batch",
+                json!({ "calls": [{ "tool": "data_edit", "arguments": {
+                    "kind": "species", "index": "SPECIES_BULBASAUR",
+                    "patch": { "Personal": { "field": "type1", "value": "TYPE_FIRE" } } } }] }),
+                AGENT,
+            )
+            .unwrap();
+        let personal = &data(&by_id, "species", 1)["personal"];
+        assert_eq!(personal["type1"], 10, "{personal}");
+        // An id nothing knows: unknown_id, nothing changed.
+        let before = history(&by_id);
+        let (code, message, _) =
+            failed(by_id.call("data_edit", edit(json!("SPECIES_NOPE")), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("unknown_id", "Unbekannte ID: SPECIES_NOPE.")
+        );
+        assert_eq!(history(&by_id), before);
+    }
+
+    /// Like `text_export`: the refusals that need no adoption come back unasked.
+    #[test]
+    fn shared_adopt_text_project_refuses_before_asking() {
+        let d = shared_dspre();
+        let unasked = |want: &str| {
+            let (code, message, _) = failed(d.toolbox.call("adopt_text_project", json!({}), AGENT));
+            assert_eq!(code, want, "{message}");
+            assert_eq!(d.state.agents.status().question, None);
+            message
+        };
+        d.toolbox
+            .call(
+                "set_matrix_cell",
+                json!({ "index": 0, "x": 0, "y": 0, "map": 1 }),
+                AGENT,
+            )
+            .unwrap();
+        let message = unasked("unsaved");
+        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        d.toolbox.call("save", json!({}), AGENT).unwrap();
+        unasked("base_missing");
+        assert!(!d.root.join("g4-project.json").exists());
+        // The question names the conflict's unit and the version that stays.
+        assert_eq!(
+            conflict_question(
+                "Eine Fassung überschreiben",
+                &json!({ "key": "data/moves/0001.json", "keep": "studio" })
+            ),
+            "Eine Fassung überschreiben: data/moves/0001.json (die Studio-Fassung gilt, DSPRE \
+             wird überschrieben)"
+        );
+    }
+
+    /// Gate 4.3b: on a copy of the vanilla project set up as text project, `data_edit` of
+    /// Pikachu by `SPECIES_PIKACHU` answers and writes exactly what it does by `25`.
+    #[test]
+    fn mcp_with_ids_acts_like_numbers_on_the_vanilla_copy() {
+        let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+            return;
+        };
+        let Some(base) = g4_kernel::test_support::vanilla_base_rom() else {
+            return;
+        };
+        // The copy has no sibling `.nds`: the vanilla project's is read where it lies (only
+        // read) and assigned as the copy's base ROM.
+        let roms = base.parent().unwrap().to_path_buf();
+        let policy = UserPolicy::new(&root, &[roms], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, ALL, Some(base.clone())).unwrap();
+        if !root.join(".g4/base.json").is_file() {
+            toolbox
+                .call(
+                    "assign_base",
+                    json!({ "nds": base.to_str().unwrap() }),
+                    AGENT,
+                )
+                .unwrap();
+        }
+        let started = std::time::Instant::now();
+        let adopted = toolbox
+            .call("adopt_text_project", json!({}), AGENT)
+            .unwrap();
+        eprintln!(
+            "adopt: {} ms (report {} ms)",
+            started.elapsed().as_millis(),
+            adopted["ms"]
+        );
+        let status = toolbox
+            .call("text_project_status", json!({}), AGENT)
+            .unwrap();
+        assert_eq!(status["state"], "current", "{status}");
+        let info = toolbox.call("project_info", json!({}), AGENT).unwrap();
+        assert_eq!(info["text_project"], status);
+        let attack = data(&toolbox, "species", 25)["personal"]["attack"]
+            .as_u64()
+            .unwrap();
+        let edit = |index: Value| {
+            json!({ "kind": "species", "index": index,
+                    "patch": { "Personal": { "field": "attack", "value": attack + 1 } } })
+        };
+        let json_file = root.join("data/species/0025.json");
+        let by_id = toolbox
+            .call("data_edit", edit(json!("SPECIES_PIKACHU")), AGENT)
+            .unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        let json_by_id = std::fs::read(&json_file).unwrap();
+        toolbox.call("undo", json!({}), AGENT).unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        assert_ne!(std::fs::read(&json_file).unwrap(), json_by_id);
+        let by_number = toolbox.call("data_edit", edit(json!(25)), AGENT).unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        assert_eq!(by_id, by_number);
+        assert_eq!(std::fs::read(&json_file).unwrap(), json_by_id);
+        let text = String::from_utf8(json_by_id).unwrap();
+        assert!(
+            text.contains(&format!("\"attack\": {}", attack + 1)),
+            "{text}"
+        );
     }
 }

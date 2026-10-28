@@ -382,7 +382,8 @@ fn change_ignore(
         session.store.change_generation(),
     )?;
     if ignore != session.checks.ignore {
-        ignore.save(&session.project.root, &session_ids(&session.project)?)?;
+        let root = session.project.root.clone();
+        ignore.save(&root, session.ids()?)?;
         if let Some(last) = &mut session.checks.last {
             last.apply_ignore(&ignore);
         }
@@ -615,7 +616,7 @@ pub fn apply_fix_impl(
     let result = fixes::apply_fix(&mut session.store, &session.project, &key, fix);
     if matches!(fix, FixId::CreateScript | FixId::RemoveHidden) {
         // Written at once, past the store; also a compile that failed after the write.
-        session.files_written();
+        session.files_written(&[]);
     }
     let result = result?;
     session.after_write();

@@ -74,7 +74,7 @@ fn creating_trainer(
     let report = create(&project, &mut session.store, &mut session.names);
     session.after_write();
     // The members and the battle script are written at once, past the store.
-    session.files_written();
+    session.files_written(&[]);
     Ok(report?)
 }
 

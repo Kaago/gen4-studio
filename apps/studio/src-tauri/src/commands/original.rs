@@ -130,9 +130,35 @@ pub fn reset_to_original_impl(
     // where the kernel's reset starts.
     let started = Instant::now();
     let (project, base) = open_original(state)?;
+    let mut result = reset_in_session(state, &project, &base, target, fields)?;
+    result.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    Ok(result)
+}
+
+/// [`reset_to_original_impl`] against `original` (tests: another project's packed archives).
+#[cfg(test)]
+pub(crate) fn reset_with_original(
+    state: &AppState,
+    original: &dyn original::Original,
+    target: ResetTarget,
+    fields: Option<Vec<String>>,
+) -> Result<ResetResult, CmdError> {
+    let project = open_project(state)?;
+    reset_in_session(state, &project, original, target, fields)
+}
+
+/// The reset of [`reset_to_original_impl`] under the session lock, on the session of
+/// `project` only.
+fn reset_in_session(
+    state: &AppState,
+    project: &Arc<Project>,
+    base: &dyn original::Original,
+    target: ResetTarget,
+    fields: Option<Vec<String>>,
+) -> Result<ResetResult, CmdError> {
     let mut guard = super::lock(state)?;
-    let session = same_project(super::session(&mut guard)?, &project)?;
-    let result = original::reset(&mut session.store, &base, &target, fields.as_deref());
+    let session = same_project(super::session(&mut guard)?, project)?;
+    let result = original::reset(&mut session.store, base, &target, fields.as_deref());
     // A refusal (unavailable, locked) writes nothing; any other failure may come after a
     // file was written.
     let refused = matches!(
@@ -140,11 +166,11 @@ pub fn reset_to_original_impl(
         Err(KernelError::Refused(_) | KernelError::ReadOnly { .. })
     );
     if target.writes_files() && !refused {
-        session.files_written();
+        // In a text project the reset texture or model goes to `data/` as well.
+        session.files_written(&target.assets());
     }
-    let mut result = result.map_err(reset_error)?;
+    let result = result.map_err(reset_error)?;
     session.after_write();
-    result.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(result)
 }
 

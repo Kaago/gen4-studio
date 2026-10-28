@@ -40,7 +40,7 @@ pub enum SymRef {
 /// The kind of symbol `field` of `record` names, if it is a reference: `personal` types,
 /// items and abilities, `evolution` targets, `move.move_type`, `item.natural_gift_type` and
 /// every species of an `encounter` (Platinum and HeartGold field names).
-pub(crate) fn ref_kind(record: &str, field: &str) -> Option<SymbolKind> {
+pub fn ref_kind(record: &str, field: &str) -> Option<SymbolKind> {
     match (record, field) {
         ("personal", "type1" | "type2") => Some(SymbolKind::Type),
         ("personal", "item1" | "item2") => Some(SymbolKind::Item),

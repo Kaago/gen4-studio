@@ -24,8 +24,12 @@ use crate::commands::ProblemDto;
 /// `"not_adopted"` (`text_export`: the scripts are not adopted; nothing was written),
 /// `"text_conflict"` (a build or a save met text archives whose JSON and member both changed
 /// since the last build; nothing was written; `problems` holds one error per archive, file
-/// `expanded/textArchives/NNNN.json`, source `"build"`; `resolve_text_conflicts` decides) or
-/// `"error"`;
+/// `expanded/textArchives/NNNN.json`, source `"build"`; `resolve_text_conflicts` decides),
+/// the text project's (4.3b) `"not_text_project"` (a command of the text project in a DSPRE
+/// folder), `"pending"` (`adopt_text_project` on a text project and `revert_text_project`
+/// while the sync finds a change from outside, a conflict or a broken file), `"conflicts"`
+/// (`build_rom` of a text project with an open conflict; nothing was saved or built) and
+/// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`.

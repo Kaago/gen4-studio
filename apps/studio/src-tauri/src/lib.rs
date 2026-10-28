@@ -34,6 +34,11 @@ use commands::{
     update_building, update_event, validate_text, world_meta_get, world_meta_set,
 };
 use commands::{
+    adopt_text_project, conflict_diff, entity_ids, external_changes, external_sync,
+    migrate_text_project, plan_rename_id, rename_id, resolve_external_conflict,
+    revert_text_project, text_project_status,
+};
+use commands::{
     agent_answer, agent_disconnect, agent_poll, agent_remove_grant, agent_set_enabled,
     agent_set_expert, agent_set_grant, agent_set_read_only, agent_settings, agent_status,
 };
@@ -195,7 +200,18 @@ pub fn run() {
             reset_to_original,
             changed_from_original,
             text_check,
-            text_export
+            text_export,
+            text_project_status,
+            adopt_text_project,
+            revert_text_project,
+            migrate_text_project,
+            external_sync,
+            external_changes,
+            conflict_diff,
+            resolve_external_conflict,
+            plan_rename_id,
+            rename_id,
+            entity_ids
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

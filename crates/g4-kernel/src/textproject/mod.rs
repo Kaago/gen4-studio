@@ -59,7 +59,9 @@ pub use export::{
     export_reported,
 };
 pub use import::{ImportReport, import};
+pub use record::ref_kind;
 pub use schema::data::item_owners;
+pub use schema::header::NO_DP;
 
 /// The manifest at the project root; its presence makes a folder a text project.
 pub const MANIFEST_FILE: &str = "g4-project.json";

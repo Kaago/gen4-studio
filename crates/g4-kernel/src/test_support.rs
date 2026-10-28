@@ -650,6 +650,11 @@ impl TextFixture {
         crate::base::BaseRom::open(&self.rom, None).unwrap()
     }
 
+    /// The synthetic ROM, the base ROM of the mark.
+    pub fn rom(&self) -> &Path {
+        &self.rom
+    }
+
     /// The SHA-1 of the synthetic ROM, the base mark's.
     pub fn sha1(&self) -> &str {
         &self.sha1

@@ -185,6 +185,16 @@ impl Resolver {
         }
     }
 
+    /// Every id of `kind` by number: its fixed table, or its register in a text project
+    /// (empty outside one); no fallback ids made for numbers without an entry.
+    pub fn ids(&self, kind: SymbolKind) -> std::collections::BTreeMap<u32, String> {
+        match (table(kind), &self.symbols) {
+            (Some(table), _) => table.iter().map(|(n, id)| (n, id.to_owned())).collect(),
+            (None, Some(symbols)) => symbols.ids(kind).into_iter().collect(),
+            (None, None) => std::collections::BTreeMap::new(),
+        }
+    }
+
     /// Whether project files write ids (a text project of the current schema).
     pub fn writes_ids(&self) -> bool {
         self.symbols.is_some()
@@ -507,5 +517,28 @@ mod tests {
         // A resolver of another project, or one without a project, is not current.
         assert!(!r.is_current(&fx.project()));
         assert!(!Resolver::fixed().is_current(&fx.project()));
+    }
+
+    #[test]
+    fn ids_lists_a_table_everywhere_and_a_register_only_in_a_text_project() {
+        let dspre = Resolver::for_project(&TextFixture::dspre().project()).unwrap();
+        let fx = TextFixture::exported();
+        let exported = Resolver::for_project(&fx.project()).unwrap();
+        for r in [&dspre, &exported, &Resolver::fixed()] {
+            let species = r.ids(SymbolKind::Species);
+            assert_eq!(species[&25], "SPECIES_PIKACHU");
+            assert!(
+                species
+                    .keys()
+                    .all(|&n| r.id(SymbolKind::Species, n).is_some())
+            );
+        }
+        assert!(dspre.ids(SymbolKind::Trainer).is_empty());
+        let trainers = exported.ids(SymbolKind::Trainer);
+        assert_eq!(trainers[&1], "TRAINER_YOUNGSTER_KAI");
+        assert_eq!(
+            exported.ids(SymbolKind::Map).get(&0).map(String::as_str),
+            exported.id(SymbolKind::Map, 0).as_deref()
+        );
     }
 }

@@ -48,7 +48,7 @@ const NAME_LEN: usize = 16;
 /// Bytes of one header.
 const HEADER_LEN: usize = uxie::map_header::MAP_HEADER_SIZE;
 /// The refusal for Diamond/Pearl.
-pub(crate) const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
+pub const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
 
 /// A Platinum header (uxie `MapHeaderPt`, same fields in the same order).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

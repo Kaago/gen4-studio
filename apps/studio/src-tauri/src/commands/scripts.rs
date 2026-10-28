@@ -109,7 +109,7 @@ pub fn adopt_scripts_impl(
     let adopted = scripts::adopt(&session.project, &mut |p| progress(p.into()));
     // Also a failed adoption may have written sources: past the history, so the file steps
     // of the scripts (resets to the original) could no longer be undone.
-    session.files_written();
+    session.files_written(&[]);
     session.store.forget_kind_history(AssetKind::Script);
     let report = adopted?;
     Ok(AdoptReportDto {
@@ -235,7 +235,7 @@ fn save_source(
     let session = session(&mut guard)?;
     refuse_dirty_text(&session.store)?;
     let written = scripts::write_source(&session.project, file, &source);
-    session.files_written();
+    session.files_written(&[]);
     // The file is written past the history: a file step of it (a reset to the original)
     // could no longer be undone, and would block every older step.
     session.store.forget_asset_history(AssetId {
@@ -259,7 +259,7 @@ pub fn new_script_file_impl(state: &AppState, kind: String) -> Result<u16, CmdEr
     let session = session(&mut guard)?;
     refuse_dirty_text(&session.store)?;
     let created = scripts::new_script_file_reported(&session.project, kind);
-    session.files_written();
+    session.files_written(&[]);
     let (file, touched) = created?;
     reload_text_archives(&mut session.store, &touched)?;
     Ok(file)
@@ -271,7 +271,7 @@ pub fn add_script_impl(state: &AppState, file: u16) -> Result<u16, CmdError> {
     let session = session(&mut guard)?;
     refuse_dirty_text(&session.store)?;
     let added = scripts::add_script_reported(&session.project, file);
-    session.files_written();
+    session.files_written(&[]);
     // Written past the history, as a save (`save_source`).
     session.store.forget_asset_history(AssetId {
         kind: AssetKind::Script,

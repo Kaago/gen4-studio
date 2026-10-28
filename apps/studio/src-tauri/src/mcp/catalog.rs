@@ -68,6 +68,17 @@ macro_rules! data_note {
     };
 }
 
+/// The sentence every tool with an argument that takes an id or a number carries
+/// (`crate::mcp::symbolic`).
+macro_rules! ids_note {
+    () => {
+        "Numbers or symbolic ids (SPECIES_PIKACHU, MAP_T01, TRAINER_…) are accepted."
+    };
+}
+
+/// The sentence of [`ids_note!`], for the tests and the guide.
+pub const IDS_NOTE: &str = ids_note!();
+
 /// A closed object schema with these properties, of which `required` must be there.
 fn object(properties: Value, required: &[&str]) -> Value {
     json!({
@@ -123,6 +134,12 @@ fn answers_preview() -> Value {
 
 fn answers_nothing() -> Value {
     answer(json!({ "type": "null" }))
+}
+
+/// A number or a symbolic id (`SPECIES_PIKACHU`, `MAP_T01`) of the command's `u16` or `u8`,
+/// which `symbolic::resolve_args` turns into the number.
+fn id_or_number(description: &str) -> Value {
+    json!({ "type": ["integer", "string"], "minimum": 0, "description": description })
 }
 
 /// An unsigned integer property (`u8`, `u16`, `u32` of the command).
@@ -181,7 +198,10 @@ fn data_kind() -> Value {
 }
 
 fn data_index() -> Value {
-    uint("member index, as data_list returns in index")
+    id_or_number(
+        "member index, as data_list returns in index, or the id of a species, move or item \
+         (SPECIES_PIKACHU)",
+    )
 }
 
 fn finding_args() -> Value {
@@ -275,14 +295,17 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "get_header",
         title: "Get header",
-        description: "Returns one map header (Header: one row of the place table, which \
-                      points at a Raster, an Eventdatei, Area-Data, music and weather) with \
-                      all its fields, tagged by game family ({\"Pt\": {...}}). Its \
-                      event_file_id, matrix_id, text_archive_id and script_file_id lead to \
-                      get_events, get_matrix, get_text_archive and read_script.",
+        description: concat!(
+            "Returns one map header (Header: one row of the place table, which points at a \
+             Raster, an Eventdatei, Area-Data, music and weather) with all its fields, tagged \
+             by game family ({\"Pt\": {...}}); its event_file_id, matrix_id, text_archive_id \
+             and script_file_id lead to get_events, get_matrix, get_text_archive and \
+             read_script. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
-                json!({ "id": uint("header id, as list_places returns in headers[].id") }),
+                json!({ "id": id_or_number("header id, as list_places returns in headers[].id, or MAP_<name>") }),
                 &["id"],
             )
         },
@@ -438,7 +461,9 @@ static TOOLS: &[ToolDef] = &[
             "Returns one data member in full, such as the personal data, learnset and \
              evolutions of a species, a move, an item, a trainer with its party or an \
              encounter file. ",
-            data_note!()
+            data_note!(),
+            " ",
+            ids_note!()
         ),
         input_schema: || {
             object(
@@ -455,14 +480,17 @@ static TOOLS: &[ToolDef] = &[
         description: concat!(
             "Finds where a species, move, item, trainer, trainer class or encounter file is \
              used, each place with a link to it. ",
-            data_note!()
+            data_note!(),
+            " ",
+            ids_note!()
         ),
         input_schema: || {
             object(
                 json!({ "target": nested(
                     "what to look for: {\"kind\": \"species\" | \"move\" | \"trainer\" | \
                      \"trainer_class\" | \"encounter\", \"index\": n} with the index as data_list \
-                     returns it, or {\"kind\": \"item\", \"id\": n} with the item id"
+                     returns it, or {\"kind\": \"item\", \"id\": n} with the item id; n may \
+                     be the id instead (SPECIES_PIKACHU, MOVE_POUND, ITEM_POTION)"
                 ) }),
                 &["target"],
             )
@@ -544,11 +572,14 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "set_header",
         title: "Set header",
-        description: "Replaces the fields of one map header in one undoable step.",
+        description: concat!(
+            "Replaces the fields of one map header in one undoable step. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
-                    "id": uint("header id, as list_places returns in headers[].id"),
+                    "id": id_or_number("header id, as list_places returns in headers[].id, or MAP_<name>"),
                     "header": nested(
                         "the whole header as get_header returns it, tagged by game family \
                          (e.g. {\"Pt\": {...}}), with the fields to change changed"
@@ -690,8 +721,11 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "update_event",
         title: "Update event",
-        description: "Changes fields of one event in one undoable step; fields not in patch \
-                      stay as they are.",
+        description: concat!(
+            "Changes fields of one event in one undoable step; fields not in patch stay as \
+             they are (dest_header_id may be MAP_<name>). ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
@@ -772,8 +806,12 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "data_edit",
         title: "Edit data",
-        description: "Changes one field or part of a data member in one undoable step and \
-                      returns the assets it changed.",
+        description: concat!(
+            "Changes one field or part of a data member in one undoable step and returns the \
+             assets it changed; a value of a field that names a species, move, item, ability, \
+             type or trainer class may be its id. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
@@ -800,14 +838,19 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "create_trainer",
         title: "Create trainer",
-        description: "Creates a new trainer of a class with a name, and the battle script \
-                      slots it needs, and returns its id; this cannot be undone. Headless \
-                      (studio mcp) it needs --allow-irreversible, without it the call answers \
-                      needs_confirmation.",
+        description: concat!(
+            "Creates a new trainer of a class with a name, and the battle script slots it \
+             needs, and returns its id; this cannot be undone, and headless (studio mcp) it \
+             needs --allow-irreversible, without it the call answers needs_confirmation. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
-                    "class": uint("trainer class id, as data_get of a trainer returns in class"),
+                    "class": id_or_number(
+                        "trainer class id, as data_get of a trainer returns in class, or \
+                         TRAINER_CLASS_<name> in a text project"
+                    ),
                     "name": text("the trainer's name"),
                 }),
                 &["class", "name"],
@@ -819,12 +862,18 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "set_trainer_texts",
         title: "Set trainer texts",
-        description: "Sets the battle texts of a trainer in one undoable step and returns the \
-                      warnings about them.",
+        description: concat!(
+            "Sets the battle texts of a trainer in one undoable step and returns the warnings \
+             about them. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
-                    "trainer": uint("trainer index, as data_list of kind trainer returns it"),
+                    "trainer": id_or_number(
+                        "trainer index, as data_list of kind trainer returns it, or \
+                         TRAINER_<name> in a text project"
+                    ),
                     "texts": {
                         "type": "array",
                         "description": "the trainer's battle texts",
@@ -1110,7 +1159,9 @@ static TOOLS: &[ToolDef] = &[
              differs the current and the base value as German lines, for a header the differing \
              fields (field, before, after), same: true when nothing differs; a new entity \
              answers no_original, a locked asset read_only, no base ROM base_missing. ",
-            data_note!()
+            data_note!(),
+            " ",
+            ids_note!()
         ),
         input_schema: target_args,
         output_schema: answers_object,
@@ -1119,11 +1170,14 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "reset_to_original",
         title: "Reset to original",
-        description: "Sets an entity to its state in the base ROM (Basis-ROM) as one undo step: \
-                      maps, event files, text archives, trainers, species, encounters and header \
-                      fields stay unsaved until save, scripts, textures and models are written at \
-                      once (undo writes them back), and those are not allowed in g4_batch. Refused \
-                      like plan_reset, and then nothing is recorded.",
+        description: concat!(
+            "Sets an entity to its state in the base ROM (Basis-ROM) as one undo step: maps, \
+             event files, text archives, trainers, species, encounters and header fields stay \
+             unsaved until save, scripts, textures and models are written at once (undo writes \
+             them back), and those are not allowed in g4_batch; refused like plan_reset, and \
+             then nothing is recorded. ",
+            ids_note!()
+        ),
         input_schema: || {
             object(
                 json!({
@@ -1165,6 +1219,96 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("text_export"),
     },
+    // Text project as the source (4.3b).
+    ToolDef {
+        name: "text_project_status",
+        title: "Text project status",
+        description: "Tells what the project is as a source: a DSPRE folder (adoptable, or the \
+                      reason why not), a text project of the current schema with the time of \
+                      its last sync (Unix milliseconds), or one of an older or newer schema.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("text_project_status"),
+    },
+    ToolDef {
+        name: "adopt_text_project",
+        title: "Set up as text project",
+        description: "Sets the DSPRE folder up as a text project: adopts the scripts, writes \
+                      g4-project.json and one JSON per entity under data/ and records the sync; \
+                      needs a saved project and the base ROM. This cannot be undone; headless \
+                      only with --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("adopt_text_project"),
+    },
+    ToolDef {
+        name: "external_changes",
+        title: "External changes",
+        description: "Lists the units of a text project that changed outside the Studio since \
+                      the last sync (DSPRE, a hand edit, a branch switch): one-sided changes, \
+                      conflicts (changed on both sides) and broken files, with diff each \
+                      conflict's differing fields. It reads, writes nothing; the app takes \
+                      one-sided changes over by itself.",
+        input_schema: || {
+            object(
+                json!({ "diff": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "also the diff of every conflict (default false)",
+                } }),
+                &[],
+            )
+        },
+        output_schema: answers_object,
+        route: command("external_changes"),
+    },
+    ToolDef {
+        name: "resolve_external_conflict",
+        title: "Resolve external conflict",
+        description: "Decides a conflict external_changes lists: studio keeps the Studio's \
+                      version (the JSON) and writes DSPRE's member from it, dspre takes the \
+                      other side and overwrites the JSON (unsaved values of it go). This cannot \
+                      be undone; headless only with --allow-irreversible, without it the call \
+                      answers needs_confirmation.",
+        input_schema: || {
+            object(
+                json!({
+                    "key": text("the unit, as external_changes returns in scan.units[].key"),
+                    "keep": {
+                        "type": "string",
+                        "enum": ["studio", "dspre"],
+                        "description": "which version stays: studio (the JSON) or dspre (the \
+                                        other side)",
+                    },
+                }),
+                &["key", "keep"],
+            )
+        },
+        output_schema: answers_array,
+        route: command("resolve_external_conflict"),
+    },
+    ToolDef {
+        name: "rename_id",
+        title: "Rename id",
+        description: "Renames a register id of a text project (MAP_, TRAINER_, TRAINER_CLASS_, \
+                      PLACE_) with every reference in data/, g4-world.json, g4-checks.json and \
+                      the script sources. It is one undo step; not in g4_batch.",
+        input_schema: || {
+            object(
+                json!({
+                    "id": text("the id to rename, such as TRAINER_YOUNGSTER_KAI"),
+                    "new_id": text(
+                        "the new id: the same prefix, then A-Z, 0-9 and _, at most 64 \
+                         characters, not taken"
+                    ),
+                }),
+                &["id", "new_id"],
+            )
+        },
+        output_schema: answers_object,
+        route: renamed("rename_id", &[("new_id", "newId")]),
+    },
 ];
 
 /// The argument of `plan_reset`.
@@ -1187,11 +1331,11 @@ fn reset_target() -> Value {
                                 one message's text, trainer properties and party (not its \
                                 name), species personal data, learnset and evolution",
             },
-            "index": uint("member index; required for every kind but text_message, header and \
-                           script"),
+            "index": id_or_number("member index; required for every kind but text_message, \
+                                   header and script (species and trainer also by id)"),
             "archive": uint("text_message only: the text archive"),
             "message": uint("text_message only: the message index in the archive"),
-            "id": uint("header only: the header id"),
+            "id": id_or_number("header only: the header id, or MAP_<name>"),
             "file": uint("script only: the script file"),
         }),
         &["kind"],
@@ -1356,6 +1500,8 @@ mod tests {
                 "changed_from_original",
                 "plan_reset",
                 "text_check",
+                "text_project_status",
+                "external_changes",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1401,10 +1547,20 @@ mod tests {
             "resolve_text_conflicts",
             "reset_to_original",
             "text_export",
+            "adopt_text_project",
+            "resolve_external_conflict",
+            "rename_id",
         ]
         .into_iter()
         .collect();
         assert_eq!(write, decided);
+        for name in ["adopt_text_project", "resolve_external_conflict"] {
+            let Route::Command { command, .. } = tool(name).route else {
+                unreachable!()
+            };
+            assert!(matches!(kind_of(command), Kind::Irreversible(_)), "{name}");
+        }
+        assert_eq!(kind_of("rename_id"), Kind::Write);
     }
 
     #[test]
@@ -1534,6 +1690,8 @@ mod tests {
             "create_patch",
             "resolve_text_conflicts",
             "text_export",
+            "adopt_text_project",
+            "resolve_external_conflict",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1548,6 +1706,34 @@ mod tests {
             fix.contains("create_script") && fix.contains("remove_hidden"),
             "{fix}"
         );
+    }
+
+    #[test]
+    fn tools_with_id_arguments_say_they_take_ids() {
+        // Every tool with an argument `symbolic::SYMBOLIC_ARGS` names.
+        for name in [
+            "get_header",
+            "set_header",
+            "data_get",
+            "data_edit",
+            "refs",
+            "update_event",
+            "create_trainer",
+            "set_trainer_texts",
+            "plan_reset",
+            "reset_to_original",
+        ] {
+            assert!(tool(name).description.ends_with(IDS_NOTE), "{name}");
+        }
+        assert_eq!(
+            (tool("data_get").input_schema)()["properties"]["index"]["type"],
+            json!(["integer", "string"])
+        );
+        assert!(!tool("search_text").description.contains(IDS_NOTE));
+        // Every command of the list has a tool or is reached through g4_call.
+        for arg in crate::mcp::symbolic::SYMBOLIC_ARGS {
+            assert!(COMMANDS.contains(&arg.command), "{}", arg.command);
+        }
     }
 
     #[test]
@@ -1572,6 +1758,14 @@ mod tests {
         assert_eq!(
             tool("build_rom").command_args(json!({ "out": "build/a.nds" })),
             json!({ "out": "build/a.nds", "fresh": false })
+        );
+        assert_eq!(
+            tool("rename_id").command_args(json!({ "id": "TRAINER_A", "new_id": "TRAINER_B" })),
+            json!({ "id": "TRAINER_A", "newId": "TRAINER_B" })
+        );
+        assert_eq!(
+            tool("external_changes").command_args(json!({})),
+            json!({ "diff": false })
         );
         // No arguments at all are no arguments.
         assert_eq!(tool("history").command_args(Value::Null), json!({}));
@@ -1693,6 +1887,17 @@ mod tests {
             ),
             ("text_check", json!({})),
             ("text_export", json!({})),
+            ("text_project_status", json!({})),
+            ("adopt_text_project", json!({})),
+            ("external_changes", json!({ "diff": true })),
+            (
+                "resolve_external_conflict",
+                json!({ "key": "data/moves/0001.json", "keep": "studio" }),
+            ),
+            (
+                "rename_id",
+                json!({ "id": "TRAINER_YOUNGSTER_KAI", "new_id": "TRAINER_KID_KAI" }),
+            ),
         ]
     }
 

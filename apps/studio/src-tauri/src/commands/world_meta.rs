@@ -9,7 +9,7 @@ use g4_kernel::world_meta::{self, WORLD_FILE, WorldMeta};
 use serde::Serialize;
 use tauri::State;
 
-use super::{lock, session, session_ids};
+use super::{lock, session};
 use crate::errors::CmdError;
 use crate::state::AppState;
 
@@ -24,8 +24,9 @@ pub struct WorldMetaDto {
 pub fn world_meta_get_impl(state: &AppState) -> Result<WorldMetaDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let (meta, broken) = match session_ids(&session.project) {
-        Ok(ids) => world_meta::load(&session.project.root, &ids),
+    let root = session.project.root.clone();
+    let (meta, broken) = match session.ids() {
+        Ok(ids) => world_meta::load(&root, ids),
         Err(e) => (WorldMeta::default(), Some(e.message)),
     };
     Ok(WorldMetaDto { meta, broken })
@@ -36,15 +37,16 @@ pub fn world_meta_get_impl(state: &AppState) -> Result<WorldMetaDto, CmdError> {
 pub fn world_meta_set_impl(state: &AppState, meta: WorldMeta) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let root = &session.project.root;
-    let ids = session_ids(&session.project)?;
-    if let (_, Some(why)) = world_meta::load(root, &ids) {
+    let root = session.project.root.clone();
+    let root = &root;
+    let ids = session.ids()?;
+    if let (_, Some(why)) = world_meta::load(root, ids) {
         return Err(format!(
             "{WORLD_FILE} ist beschädigt: {why}. Repariere oder lösche die Datei."
         )
         .into());
     }
-    world_meta::save(root, &meta, &ids)?;
+    world_meta::save(root, &meta, ids)?;
     Ok(())
 }
 

@@ -60,7 +60,7 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
 }
 
 /// The `unsaved` message of the export with the German singular for one change.
-fn unsaved_message(n: usize) -> String {
+pub(crate) fn unsaved_message(n: usize) -> String {
     match n {
         1 => "Erst speichern: 1 ungespeicherte Änderung.".to_owned(),
         n => format!("Erst speichern: {n} ungespeicherte Änderungen."),

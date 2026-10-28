@@ -28,7 +28,7 @@ pub fn apply_empty_region_impl(state: &AppState) -> Result<RegionReport, CmdErro
     session.after_write();
     // The border map, the level script and the start script are written past the store
     // (also when a later step failed), so the checks' last report is of an older state.
-    session.files_written();
+    session.files_written(&[]);
     Ok(report?)
 }
 

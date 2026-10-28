@@ -173,6 +173,17 @@ pub const COMMANDS: &[&str] = &[
     "changed_from_original",
     "text_check",
     "text_export",
+    "text_project_status",
+    "adopt_text_project",
+    "revert_text_project",
+    "migrate_text_project",
+    "external_sync",
+    "external_changes",
+    "conflict_diff",
+    "resolve_external_conflict",
+    "plan_rename_id",
+    "rename_id",
+    "entity_ids",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -710,12 +721,19 @@ pub fn dispatch(
         ),
         "create_project" => run!(
             json, "create_project", args,
-            { rom: String, dest: String, template: g4_kernel::start::Template },
+            { rom: String, dest: String, template: g4_kernel::start::Template, text_project: Option<bool> },
             |a| {
                 let rom = policy.read_path(&a.rom)?;
                 let dest = policy.check_new_project(&a.dest)?;
                 // No live progress over HTTP: the answer carries the time of each phase.
-                create_project_impl(state, &path_text(&rom)?, &path_text(&dest)?, a.template, &mut |_| {})
+                create_project_impl(
+                    state,
+                    &path_text(&rom)?,
+                    &path_text(&dest)?,
+                    a.template,
+                    a.text_project.unwrap_or(false),
+                    &mut |_| {},
+                )
             }
         ),
         "plan_empty_region" => run!(json, "plan_empty_region", args, {}, |_a| {
@@ -856,6 +874,46 @@ pub fn dispatch(
         }),
         "text_check" => run!(json, "text_check", args, {}, |_a| text_check_impl(state)),
         "text_export" => run!(json, "text_export", args, {}, |_a| text_export_impl(state)),
+        "text_project_status" => run!(json, "text_project_status", args, {}, |_a| {
+            text_project_status_impl(state)
+        }),
+        // No live progress over HTTP: the report carries the counts and the time.
+        "adopt_text_project" => run!(json, "adopt_text_project", args, {}, |_a| {
+            adopt_text_project_impl(state, &mut |_progress| {})
+        }),
+        "revert_text_project" => run!(json, "revert_text_project", args, {}, |_a| {
+            revert_text_project_impl(state)
+        }),
+        "migrate_text_project" => run!(json, "migrate_text_project", args, {}, |_a| {
+            migrate_text_project_impl(state)
+        }),
+        "external_sync" => run!(json, "external_sync", args, {}, |_a| {
+            external_sync_impl(state, &mut |_progress| {})
+        }),
+        "external_changes" => run!(json, "external_changes", args, { diff: Option<bool> }, |a| {
+            external_changes_impl(state, a.diff.unwrap_or(false))
+        }),
+        "conflict_diff" => run!(json, "conflict_diff", args, { key: String }, |a| {
+            conflict_diff_impl(state, a.key)
+        }),
+        "resolve_external_conflict" => run!(
+            json, "resolve_external_conflict", args,
+            { key: String, keep: g4_kernel::textproject::sync::Keep },
+            |a| resolve_external_conflict_impl(state, a.key, a.keep)
+        ),
+        "plan_rename_id" => {
+            run!(json, "plan_rename_id", args, { id: String, new_id: String }, |a| {
+                plan_rename_id_impl(state, a.id, a.new_id)
+            })
+        }
+        "rename_id" => run!(json, "rename_id", args, { id: String, new_id: String }, |a| {
+            rename_id_impl(state, a.id, a.new_id)
+        }),
+        "entity_ids" => run!(
+            json, "entity_ids", args,
+            { kind: g4_kernel::textproject::symbols::SymbolKind },
+            |a| entity_ids_impl(state, a.kind)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1146,7 +1204,8 @@ mod tests {
             ),
             (
                 "create_project",
-                json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original" }),
+                json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original",
+                        "textProject": true }),
             ),
             ("plan_empty_region", json!({})),
             ("apply_empty_region", json!({})),
@@ -1198,6 +1257,26 @@ mod tests {
             ("changed_from_original", json!({})),
             ("text_check", json!({})),
             ("text_export", json!({})),
+            ("text_project_status", json!({})),
+            ("adopt_text_project", json!({})),
+            ("revert_text_project", json!({})),
+            ("migrate_text_project", json!({})),
+            ("external_sync", json!({})),
+            ("external_changes", json!({ "diff": true })),
+            ("conflict_diff", json!({ "key": "data/moves/0001.json" })),
+            (
+                "resolve_external_conflict",
+                json!({ "key": "data/moves/0001.json", "keep": "studio" }),
+            ),
+            (
+                "plan_rename_id",
+                json!({ "id": "TRAINER_YOUNGSTER_KAI", "newId": "TRAINER_KID_KAI" }),
+            ),
+            (
+                "rename_id",
+                json!({ "id": "TRAINER_YOUNGSTER_KAI", "newId": "TRAINER_KID_KAI" }),
+            ),
+            ("entity_ids", json!({ "kind": "Species" })),
         ];
 
         let tested: BTreeSet<&str> = cases.iter().map(|(name, _)| *name).collect();

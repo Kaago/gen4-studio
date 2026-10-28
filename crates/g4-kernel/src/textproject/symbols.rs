@@ -15,7 +15,7 @@ const ABILITIES_YAML: &str = include_str!("../../metadata/symbols/abilities.yaml
 const TYPES_YAML: &str = include_str!("../../metadata/symbols/types.yaml");
 
 /// What an id names; its prefix starts every id of the kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SymbolKind {
     Species,
     Move,
