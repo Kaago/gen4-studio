@@ -41,5 +41,7 @@ describe("syncWords", () => {
     );
     // A sentence that only has a colon keeps it.
     expect(problemLine({ ...broken, message: "Achtung: die Datei fehlt." })).toBe("data/moves/0039.json:7:5: Achtung: die Datei fehlt.");
+    // Only the text project's own codes go (fix round 1, M5): a dotted word of another kind stays.
+    expect(problemLine({ ...broken, message: "data.power: der Wert passt nicht." })).toBe("data/moves/0039.json:7:5: data.power: der Wert passt nicht.");
   });
 });

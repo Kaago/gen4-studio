@@ -2963,6 +2963,19 @@ describe("App wiring", () => {
       expect(adoptTextProject).not.toHaveBeenCalled();
     });
 
+    it("einrichten_of_an_old_hint_while_the_status_is_read_says_so", async () => {
+      // UI-test fix round 1, M6: the folder opened again, its status not read yet: the old hint's „Einrichten…“ says why nothing opens.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      await reopen();
+      const setUp = hint()!.actions[0]!;
+      vi.mocked(textProjectStatus).mockReturnValue(new Promise(() => {}));
+      await reopen();
+      await act(async () => setUp.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Das Projekt wird noch gelesen.");
+    });
+
     it("setting_up_runs_modal_then_reads_the_session_again_and_says_so", async () => {
       vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "HeartGold US (Testprojekt)", sha1: "a".repeat(40), counts: {} });
       localStorage.removeItem("g4.textProjectHint./p");

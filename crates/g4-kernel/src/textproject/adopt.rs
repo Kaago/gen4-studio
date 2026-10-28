@@ -87,7 +87,8 @@ fn ms_since(start: Instant) -> u64 {
 /// and every text archive recorded as they are now. On a text project it is an export that
 /// writes nothing, plus the records; a change the sync has not settled yet (from outside, a
 /// conflict, a broken file) refuses it with [`REVERT_PENDING`] first, as the export would
-/// overwrite the JSON from the members.
+/// overwrite the JSON from the members. Gen4 Studio refuses a text project before it gets here
+/// („Das Projekt ist schon ein Textprojekt.“); this repair is `g4k text adopt`'s.
 pub fn adopt(
     project: &Project,
     base: &BaseRom,

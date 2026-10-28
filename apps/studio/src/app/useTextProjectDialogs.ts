@@ -20,6 +20,9 @@ export const HINT_TOAST = "text-project-hint";
 /** Why „Einrichten…“ opens nothing while a build runs. */
 export const AFTER_BUILD = "Erst wenn der Build fertig ist.";
 
+/** Why „Einrichten…“ opens nothing while the folder's state as a text project is read. */
+export const STILL_READING = "Das Projekt wird noch gelesen.";
+
 interface TextProjectDialogsParams {
   session: ProjectSession;
   /** The open folder as a text project; null while it is read. */
@@ -75,7 +78,13 @@ export function useTextProjectDialogs({
   }, [opened, projectText]);
   const open = useStableCallback((which: "adopt" | "revert") => {
     if (session.info === null || !canOpen()) return;
-    if (which === "adopt" && projectText?.state !== "dspre") return;
+    if (which === "adopt") {
+      if (projectText === null) {
+        toast.info(STILL_READING);
+        return;
+      }
+      if (projectText.state !== "dspre") return;
+    }
     if (agentSetUp) {
       toast.info(AGENT_SETTING_UP);
       return;

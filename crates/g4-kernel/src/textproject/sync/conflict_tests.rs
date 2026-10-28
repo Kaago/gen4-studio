@@ -621,3 +621,25 @@ fn conflict_diff_of_a_species_with_one_unsaved_part_shows_it_beside_the_saved_pa
         diff.lines
     );
 }
+
+// UI-test fix round 1, I2: a conflict of an unsaved unit whose source changed on disk
+// (`other = files`) shows the changed file as the other side, not DSPRE's member.
+
+#[test]
+fn conflict_diff_of_an_unsaved_unit_with_a_changed_json_shows_the_file() {
+    let fx = recorded();
+    let mut st = store(&fx);
+    set_power(&mut st, 33);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 12");
+    let outcome = sync_store(&mut st, scan_of(&fx)).unwrap();
+    assert_eq!(outcome.conflicts[0].other, Other::Files, "{outcome:?}");
+    let diff = conflict_diff_in(&st, MOVE_1_JSON).unwrap();
+    assert_eq!(diff.lines, [line("data.power", "33", "12")]);
+    assert!(diff.unsaved);
+    // A snapshot of the store's values (taken under its lock) gives the same diff.
+    let values = StoreValues::of(&st, &[MOVE_1]).unwrap();
+    assert_eq!(
+        conflict_diff_with(&fx.project(), MOVE_1_JSON, &values).unwrap(),
+        diff
+    );
+}

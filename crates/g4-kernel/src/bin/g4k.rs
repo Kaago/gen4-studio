@@ -1278,7 +1278,8 @@ enum TextCommand {
     /// Set the DSPRE folder up as text project: adopt the scripts (when they are not), export,
     /// add the include root to `rotom.toml`, record the sync. Needs the base mark and the
     /// base ROM (found like `export`). Prints `phase=<phase> ms=N` per phase, then the
-    /// totals.
+    /// totals. On a text project it writes nothing and records the sync anew (a repair);
+    /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
     Adopt {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.

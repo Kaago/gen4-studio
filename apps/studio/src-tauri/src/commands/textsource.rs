@@ -248,7 +248,8 @@ pub fn text_project_status_impl(state: &AppState) -> Result<TextProjectStatusDto
 }
 
 /// The refusals of [`adopt_text_project_impl`] that need no adoption, in its order: a text
-/// project already ([`ALREADY_TEXT_PROJECT`], `error`, at once), unsaved changes (`unsaved`),
+/// project already ([`ALREADY_TEXT_PROJECT`], `error`, at once; an older or newer schema or a
+/// broken manifest with its own sentence, as `editable` refuses it), unsaved changes (`unsaved`),
 /// Diamond/Pearl (`error`, before a base ROM is looked for), no found base ROM
 /// (`base_missing`). Writes nothing; over MCP in the app it runs before the question „Als
 /// Textprojekt einrichten“. The open project, its base mark and where its base ROM lies when
@@ -265,8 +266,16 @@ pub(crate) fn check_adopt(
         let session = session(&mut guard)?;
         (Arc::clone(&session.project), session.store.dirty().len())
     };
-    if *project.source_mode() != SourceMode::Dspre {
-        return Err(ALREADY_TEXT_PROJECT.into());
+    match project.source_mode() {
+        SourceMode::Dspre => {}
+        SourceMode::TextProject => return Err(ALREADY_TEXT_PROJECT.into()),
+        // An older schema (lift it first), a newer one or a broken manifest: what it is.
+        _ => {
+            return Err(project
+                .editable()
+                .err()
+                .map_or_else(|| ALREADY_TEXT_PROJECT.into(), CmdError::from));
+        }
     }
     if unsaved > 0 {
         return Err(CmdError::refused(
@@ -443,24 +452,32 @@ pub fn external_changes_impl(state: &AppState, diff: bool) -> Result<ExternalCha
     scan.units.retain(|unit| unit.side != UnitSide::InSync);
     let mut diffs = BTreeMap::new();
     if diff {
-        // The Studio's side of a unit the store holds unsaved is its unsaved value.
-        let mut guard = lock(state)?;
-        let session = same_session(&mut guard, &project)?;
-        let dirty = session.store.dirty();
-        for unit in &scan.units {
-            let conflict = match unit.side {
-                UnitSide::Conflict => true,
-                UnitSide::Dspre | UnitSide::Files => {
-                    unit.assets.iter().any(|id| dirty.contains(id))
+        // The Studio's side of a unit the store holds unsaved is its unsaved value: the
+        // store's values of the conflicts are taken under the session lock, the diffs (each
+        // an export into memory) are made outside it.
+        let conflicts = {
+            let mut guard = lock(state)?;
+            let session = same_session(&mut guard, &project)?;
+            let dirty = session.store.dirty();
+            let mut conflicts = Vec::new();
+            for unit in &scan.units {
+                let conflict = match unit.side {
+                    UnitSide::Conflict => true,
+                    UnitSide::Dspre | UnitSide::Files => {
+                        unit.assets.iter().any(|id| dirty.contains(id))
+                    }
+                    UnitSide::InSync | UnitSide::Broken => false,
+                };
+                if conflict {
+                    let values = sync::StoreValues::of(&session.store, &unit.assets)?;
+                    conflicts.push((unit.key.clone(), values));
                 }
-                UnitSide::InSync | UnitSide::Broken => false,
-            };
-            if conflict {
-                diffs.insert(
-                    unit.key.clone(),
-                    sync::conflict_diff_in(&session.store, &unit.key)?,
-                );
             }
+            conflicts
+        };
+        for (key, values) in conflicts {
+            let diff = sync::conflict_diff_with(&project, &key, &values)?;
+            diffs.insert(key, diff);
         }
     }
     Ok(ExternalChangesDto { scan, diffs })
@@ -925,6 +942,36 @@ mod tests {
         assert_eq!(dirty_impl(&t.state).unwrap().len(), 1);
     }
 
+    /// UI-test fix round 1, check: a text project without a sync record (the state an
+    /// interrupted adoption leaves: manifest written, record missing) opened in the app ends
+    /// in step after its first (full) sync, and setting it up again is refused.
+    #[test]
+    fn a_text_project_without_a_sync_record_ends_in_step_after_its_first_sync() {
+        let t = adopted();
+        g4_kernel::build::state::BuildState::update(t.fx.root(), |s| s.sync = None).unwrap();
+        open_project_impl(&t.state, t.fx.root().to_str().unwrap()).unwrap();
+        assert_eq!(status(&t.state)["last_sync_at"], serde_json::Value::Null);
+        let outcome = external_sync_impl(&t.state, &mut |_| {}).unwrap();
+        assert!(outcome.full, "{outcome:?}");
+        assert!(
+            outcome.adopted.is_empty()
+                && outcome.applied.is_empty()
+                && outcome.conflicts.is_empty()
+                && outcome.broken.is_empty(),
+            "{outcome:?}"
+        );
+        assert!(status(&t.state)["last_sync_at"].as_i64().is_some());
+        assert!(
+            external_changes_impl(&t.state, false)
+                .unwrap()
+                .scan
+                .units
+                .is_empty()
+        );
+        let err = adopt_text_project_impl(&t.state, &mut |_| {}).unwrap_err();
+        assert_eq!(err.message, ALREADY_TEXT_PROJECT);
+    }
+
     #[test]
     fn build_with_a_conflict_is_refused_with_conflicts() {
         let t = adopted();
@@ -1060,6 +1107,16 @@ mod tests {
             serde_json::to_value(&info).unwrap()["text_project"],
             json!({ "state": "older", "schema": 0 })
         );
+        // UI-test fix round 1, M3: setting it up is refused with what the schema says (lift
+        // it first), not with „schon ein Textprojekt“.
+        let err = adopt_text_project_impl(&state, &mut |_| panic!("no progress")).unwrap_err();
+        assert!(
+            err.message
+                .starts_with("Das Textprojekt hat Schema-Version 0"),
+            "{}",
+            err.message
+        );
+        assert_ne!(err.message, ALREADY_TEXT_PROJECT);
         // `studio mcp --project` refuses it with the manifest's sentence.
         let policy =
             crate::commands::policy::UserPolicy::new(fixture.dir.path(), &[], None).unwrap();

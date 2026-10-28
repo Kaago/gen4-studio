@@ -15,7 +15,7 @@
 //! themselves lock the session per call).
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -279,9 +279,9 @@ const NOT_IN_BATCH: &[&str] = &[
     "rename_id",
 ];
 
-/// The tools that run long enough for the UI to show them while they run (the hub's `busy`
-/// from start to end, UI test 4.3b U4): setting the project up as text project, about a
-/// minute. Never in a batch ([`NOT_IN_BATCH`]).
+/// The commands that run long enough for the UI to show them while they run (the hub's `busy`
+/// from start to end, UI test 4.3b U4), by command name (so `g4_call` counts too): setting the
+/// project up as text project, about a minute. Never in a batch ([`NOT_IN_BATCH`]).
 const LONG_TOOLS: &[&str] = &["adopt_text_project"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
@@ -649,6 +649,34 @@ struct Shared<'a> {
     read_only: Option<&'static str>,
 }
 
+/// An agent's long command on a project folder, from [`BusyGuard::begin`] (the hub's `busy`
+/// running) until dropped (`busy` ended): after the call's report, or while a panic unwinds.
+struct BusyGuard<'a> {
+    hub: &'a AgentHub,
+    client: &'a str,
+    command: &'a str,
+    root: &'a Path,
+}
+
+impl<'a> BusyGuard<'a> {
+    fn begin(hub: &'a AgentHub, client: &'a str, command: &'a str, root: &'a Path) -> Self {
+        hub.record_busy(client, command, root, true);
+        BusyGuard {
+            hub,
+            client,
+            command,
+            root,
+        }
+    }
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.hub
+            .record_busy(self.client, self.command, self.root, false);
+    }
+}
+
 /// One call (or resource read) of one client: the state, the project's policy, the access
 /// and, in the app, what [`Shared`] holds.
 struct Call<'a> {
@@ -683,6 +711,7 @@ impl<'a> Call<'a> {
             };
             self.changing(
                 def.name,
+                &written.0,
                 None,
                 || self.run(prepared),
                 |result| scripts_written(&written.0, &written.1, result),
@@ -739,10 +768,12 @@ impl<'a> Call<'a> {
     /// store; with `always` also when there are none (the UI then reads its unsaved count
     /// again). When the command opened the session of the same folder anew (an adoption), the
     /// hub gets `reopened` instead; when another project was opened meanwhile, nothing is
-    /// reported.
+    /// reported. `command` is the command the call runs (a batch: its tool): a long one
+    /// ([`LONG_TOOLS`]) is reported `busy` while it runs.
     fn changing<T>(
         &self,
         tool: &str,
+        command: &str,
         label: Option<String>,
         f: impl FnOnce() -> Result<T, ToolError>,
         past_store: impl FnOnce(&Result<T, ToolError>) -> Vec<AssetId>,
@@ -755,20 +786,16 @@ impl<'a> Call<'a> {
         let origin = Origin::Agent {
             client: self.client.to_owned(),
         };
-        // A long tool (setting the project up as text project) is shown in the UI while it runs.
-        let long = self.shared.as_ref().filter(|_| LONG_TOOLS.contains(&tool));
-        if let Some(shared) = long {
-            shared
-                .hub
-                .record_busy(self.client, tool, &shared.project.root, true);
-        }
+        // A long command (setting the project up as text project, also through `g4_call`) is
+        // shown in the UI while it runs; the guard ends it after the report below, and also
+        // when the command panics.
+        let _busy = self
+            .shared
+            .as_ref()
+            .filter(|_| LONG_TOOLS.contains(&command))
+            .map(|shared| BusyGuard::begin(shared.hub, self.client, command, &shared.project.root));
         let result = with_origin(origin, f);
         self.report_change(before, tool, label, &result, past_store, always);
-        if let Some(shared) = long {
-            shared
-                .hub
-                .record_busy(self.client, tool, &shared.project.root, false);
-        }
         result
     }
 
@@ -1072,6 +1099,7 @@ impl<'a> Call<'a> {
         let label = plan.label.clone();
         // The commands that write past the store are not taken in a batch.
         self.changing(
+            def.name,
             def.name,
             Some(label),
             || self.run_batch(plan, run),
@@ -4072,6 +4100,78 @@ mod tests {
         );
         assert_eq!(state.agents.status().question, None);
         assert!(state.agents.poll(seq).events.is_empty());
+    }
+
+    /// The `busy` events so far: tool and whether it runs.
+    fn busy_events(state: &AppState) -> Vec<(String, bool)> {
+        state
+            .agents
+            .poll(0)
+            .events
+            .into_iter()
+            .filter_map(|event| match event {
+                AgentEvent::Busy { tool, running, .. } => Some((tool, running)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// UI-test fix round 1, I1: a long tool that panics still ends `busy` (the drop guard
+    /// sends it while the panic unwinds), so the UI does not stay locked on the agent's
+    /// set-up.
+    #[test]
+    fn a_long_tool_that_panics_still_ends_busy() {
+        let (fixture, state, _toolbox) = shared_app();
+        let key = ProjectKey::of(fixture.dir.path()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let open = OpenProject::of(&state).unwrap();
+        let call = open.call(&state, AGENT, WAIT).unwrap();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            call.changing(
+                "adopt_text_project",
+                "adopt_text_project",
+                None,
+                || -> Result<Value, ToolError> { panic!("Einrichten bricht ab") },
+                |_| Vec::new(),
+                true,
+            )
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(
+            busy_events(&state),
+            [
+                ("adopt_text_project".to_owned(), true),
+                ("adopt_text_project".to_owned(), false)
+            ]
+        );
+    }
+
+    /// UI-test fix round 1, M2: the set-up through `g4_call` is a long tool as well (the
+    /// command decides, not the tool's name).
+    #[test]
+    fn an_adoption_through_g4_call_reports_busy() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.agents.set_expert(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        let user = answer_next(&state, "allow");
+        toolbox
+            .call("g4_call", json!({ "command": "adopt_text_project" }), AGENT)
+            .unwrap();
+        user.join().unwrap();
+        assert_eq!(
+            busy_events(&state),
+            [
+                ("adopt_text_project".to_owned(), true),
+                ("adopt_text_project".to_owned(), false)
+            ]
+        );
     }
 
     #[test]

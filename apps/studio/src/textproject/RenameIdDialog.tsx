@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorText, planRenameId, renameId } from "../api";
 import type { RenamePlan, RenameResult } from "../api";
-import { count } from "../technik/syncWords";
+import { count } from "../words";
 import { Dialog, Notice, TextField } from "../ui/primitives";
 import styles from "./RenameIdDialog.module.css";
 

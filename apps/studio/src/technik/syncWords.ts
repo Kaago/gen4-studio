@@ -1,12 +1,8 @@
 import type { SyncProblem, SyncProgress } from "../api";
+import { NBSP, count } from "../words";
 
 /** The words of the sync with DSPRE (Technik › Textprojekt, the app's messages): each count with its singular and plural. */
 
-/** The no-break space between a count and what it counts: a message never breaks between „57“ and „s“. */
-export const NBSP = "\u00a0";
-
-/** `n` with what it counts, bound by a no-break space: `one` for 1, `many` otherwise. */
-export const count = (n: number, one: string, many: string) => `${n}${NBSP}${n === 1 ? one : many}`;
 
 /** The message after DSPRE's changes were taken over. */
 export const adoptedText = (n: number) => count(n, "Änderung aus DSPRE übernommen", "Änderungen aus DSPRE übernommen");
@@ -35,8 +31,8 @@ export const syncProgressText = ({ done, total }: SyncProgress) => `Gleiche mit 
 /** Below the line of a full sync (the first one hashes every file). */
 export const FIRST_SYNC_NOTE = "Das erste Mal dauert länger; danach geht es schnell.";
 
-/** The kernel's check code in front of a problem's sentence (`textproject.schema: `): a code for tools, no part of the sentence. */
-const CHECK_CODE = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_-]+)+: /;
+/** The text project's check code in front of a problem's sentence (`textproject.schema: `): a code for tools, no part of the sentence. */
+const CHECK_CODE = /^textproject(?:\.[a-z0-9_-]+)+: /;
 
 /** A problem of a broken file with its place: `{file}:{line}:{col}: {sentence}`, without the kernel's check code. */
 export const problemLine = (p: SyncProblem) => `${p.file}:${p.line}:${p.col}: ${p.message.replace(CHECK_CODE, "")}`;

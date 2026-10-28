@@ -72,7 +72,7 @@ pub use conflict::{
     BrokenEntry, ConflictEntry, Keep, NO_CONFLICT, Other, SyncEntry, SyncOutcome, resolve,
     resolve_files, sync_store,
 };
-pub use diff::{ConflictDiff, DiffLine, MAX_LINES};
+pub use diff::{ConflictDiff, DiffLine, MAX_LINES, StoreValues};
 
 /// Which side of a unit changed since the last record, see the module documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -171,10 +171,25 @@ pub fn conflict_diff(project: &Project, key: &str) -> Result<ConflictDiff, Kerne
 }
 
 /// [`conflict_diff`] with the Studio's side as `store` holds it: a unit with an unsaved asset
-/// shows the store's values (exported into memory, never written), with `unsaved` set; one
-/// without shows its source on disk.
+/// shows the store's values (exported into memory, never written), with `unsaved` set, against
+/// what the user's choice would take (the changed source when only it changed, `Other::Files`;
+/// DSPRE's members otherwise); one without shows its source on disk.
 pub fn conflict_diff_in(store: &Store, key: &str) -> Result<ConflictDiff, KernelError> {
-    diff::conflict_diff(store.project(), key, Some(store))
+    diff::conflict_diff(
+        store.project(),
+        key,
+        Some(&|assets: &[AssetId]| StoreValues::of(store, assets)),
+    )
+}
+
+/// [`conflict_diff_in`] with the store's values taken before ([`StoreValues::of`] under the
+/// store's lock, with the unit's assets), so the diff runs without the store.
+pub fn conflict_diff_with(
+    project: &Project,
+    key: &str,
+    values: &StoreValues,
+) -> Result<ConflictDiff, KernelError> {
+    diff::conflict_diff(project, key, Some(&|_: &[AssetId]| Ok(values.clone())))
 }
 
 /// Records every file the scan watches as it is now, replacing the record: only for a

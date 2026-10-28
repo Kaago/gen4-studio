@@ -3,7 +3,7 @@ import { adoptTextProject, errorText, isCmdError } from "../api";
 import type { AdoptProgress, AdoptReport } from "../api";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { NBSP } from "../technik/syncWords";
+import { NBSP } from "../words";
 import styles from "./AdoptDialog.module.css";
 
 /**
