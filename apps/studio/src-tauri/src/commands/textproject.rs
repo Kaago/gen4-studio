@@ -34,10 +34,7 @@ pub fn check_text_export(
         (Arc::clone(&session.project), session.store.dirty().len())
     };
     if unsaved > 0 {
-        return Err(refusal(
-            "unsaved",
-            format!("Erst speichern: {unsaved} ungespeicherte Änderungen."),
-        ));
+        return Err(refusal("unsaved", unsaved_message(unsaved)));
     }
     let (mark, hit) = super::found_base(state, &project.root)?;
     if !g4_kernel::scripts::is_adopted(&project) {
@@ -60,6 +57,14 @@ pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
         KernelError::Refused(message) if message == NOT_ADOPTED => refusal("not_adopted", message),
         other => other.into(),
     })
+}
+
+/// The `unsaved` message of the export with the German singular for one change.
+fn unsaved_message(n: usize) -> String {
+    match n {
+        1 => "Erst speichern: 1 ungespeicherte Änderung.".to_owned(),
+        n => format!("Erst speichern: {n} ungespeicherte Änderungen."),
+    }
 }
 
 fn refusal(code: &'static str, message: String) -> CmdError {
@@ -164,6 +169,22 @@ mod tests {
     }
 
     #[test]
+    fn unsaved_message_has_the_german_plural() {
+        assert_eq!(
+            unsaved_message(1),
+            "Erst speichern: 1 ungespeicherte Änderung."
+        );
+        assert_eq!(
+            unsaved_message(2),
+            "Erst speichern: 2 ungespeicherte Änderungen."
+        );
+        assert_eq!(
+            unsaved_message(7),
+            "Erst speichern: 7 ungespeicherte Änderungen."
+        );
+    }
+
+    #[test]
     fn text_export_refuses_unsaved_changes() {
         let d = dspre();
         d.assign();
@@ -171,13 +192,7 @@ mod tests {
         let n = dirty_impl(&d.state).unwrap().len();
         assert!(n > 0);
         let err = text_export_impl(&d.state).unwrap_err();
-        assert_eq!(
-            (err.code, err.message),
-            (
-                "unsaved",
-                format!("Erst speichern: {n} ungespeicherte Änderungen.")
-            )
-        );
+        assert_eq!((err.code, err.message), ("unsaved", unsaved_message(n)));
         wrote_nothing(&d.root);
         // Saved, the export goes past it (and stops at the scripts).
         save_impl(&d.state).unwrap();

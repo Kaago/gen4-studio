@@ -142,10 +142,11 @@ pub(crate) fn part_in_at(
         Part::File { file } => {
             check_file_name(file).map_err(|e| format!("{SCHEMA_CODE}: {path}.file: {e}"))?;
             std::fs::read(dir.join(file)).map_err(|e| {
-                format!(
-                    "{SIDE_FILE_CODE}: {path}.file: das Beifile `{file}` fehlt oder ist nicht \
-                     lesbar ({e})."
-                )
+                let why = match e.kind() {
+                    std::io::ErrorKind::NotFound => "fehlt.".to_owned(),
+                    _ => format!("ist nicht lesbar ({e})."),
+                };
+                format!("{SIDE_FILE_CODE}: {path}.file: das Beifile `{file}` {why}")
             })
         }
         Part::Base { base_sha1 } => {
@@ -227,8 +228,8 @@ impl<'de> Deserialize<'de> for Part {
                     }
                     if part.is_some() {
                         return Err(de::Error::custom(format_args!(
-                            "a part has exactly one of `hex`, `base_sha1` or `file`, \
-                             found a second key `{key}`"
+                            "ein Teil hat genau eines von `hex`, `base_sha1` oder `file`, \
+                             daneben steht der Schlüssel `{key}`."
                         )));
                     }
                     let text: String = map.next_value()?;
@@ -241,7 +242,9 @@ impl<'de> Deserialize<'de> for Part {
                         Some(checked.map_err(|e| de::Error::custom(format_args!("{key}: {e}")))?);
                 }
                 part.ok_or_else(|| {
-                    de::Error::custom("a part has exactly one of `hex`, `base_sha1` or `file`")
+                    de::Error::custom(
+                        "ein Teil hat genau eines von `hex`, `base_sha1` oder `file`.",
+                    )
                 })
             }
         }
@@ -456,6 +459,24 @@ pub(crate) mod tests {
         };
         let err = part_in(&gone, dir.path(), &KEY, None, &base).unwrap_err();
         assert!(err.starts_with("textproject.side-file: "), "{err}");
+        // A missing file is plain German, no OS error in the sentence.
+        assert_eq!(
+            part_in_at(&gone, "model", dir.path(), &KEY, None, &base).unwrap_err(),
+            "textproject.side-file: model.file: das Beifile `0004.nsbmd` fehlt."
+        );
+        // Another failure keeps its reason.
+        std::fs::create_dir(dir.path().join("0005.nsbmd")).unwrap();
+        let unreadable = Part::File {
+            file: "0005.nsbmd".into(),
+        };
+        let err = part_in_at(&unreadable, "model", dir.path(), &KEY, None, &base).unwrap_err();
+        assert!(
+            err.starts_with(
+                "textproject.side-file: model.file: das Beifile `0005.nsbmd` ist nicht lesbar ("
+            ),
+            "{err}"
+        );
+        assert!(!err.contains("fehlt"), "{err}");
 
         let by_sha = Part::Base {
             base_sha1: sha1_hex(&big),
@@ -499,7 +520,7 @@ pub(crate) mod tests {
         );
 
         let err = serde_json::from_str::<Part>("{\"hex\": \"00\",\n \"file\": \"x\"}").unwrap_err();
-        assert!(err.to_string().contains("exactly one"), "{err}");
+        assert!(err.to_string().contains("genau eines"), "{err}");
         assert_eq!(err.line(), 2);
         let err = serde_json::from_str::<Part>("{\"hexx\": \"00\"}").unwrap_err();
         assert!(err.to_string().contains("`hexx`"), "{err}");
@@ -508,7 +529,7 @@ pub(crate) mod tests {
             "names the keys: {err}"
         );
         let err = serde_json::from_str::<Part>("{}").unwrap_err();
-        assert!(err.to_string().contains("exactly one"), "{err}");
+        assert!(err.to_string().contains("genau eines"), "{err}");
         for bad in [
             "{\"hex\": \"0g\"}",
             "{\"hex\": \"000\"}",
@@ -576,5 +597,67 @@ pub(crate) mod tests {
             serde_json::from_str::<Member<Probe>>("{\"a\": 1, \"b\": \"x\", \"locked\": \"y\"}")
                 .unwrap_err();
         assert!(err.to_string().contains("unknown field `locked`"), "{err}");
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)]
+    struct Holder {
+        model: Member<Probe>,
+        raw: Part,
+    }
+
+    fn holder_problem(text: &str) -> (u32, String) {
+        let p = super::super::canon::parse_json::<Holder>(
+            Path::new("data/a.json"),
+            text.as_bytes(),
+            "textproject.schema",
+        )
+        .unwrap_err();
+        (p.line, p.message)
+    }
+
+    #[test]
+    fn parts_and_members_report_german_sentences_with_their_path() {
+        let (line, msg) =
+            holder_problem("{\"model\": {\"a\": 1, \"b\": \"x\"},\n \"raw\": {\"hexx\": \"00\"}}");
+        assert_eq!(line, 2);
+        assert_eq!(
+            msg,
+            "textproject.schema: raw.hexx: unbekannter Schlüssel (erlaubt: `hex`, `base_sha1`, `file`)."
+        );
+        let (_, msg) =
+            holder_problem("{\"model\": {\"a\": 1, \"b\": \"x\"}, \"raw\": {\"hex\": \"0g\"}}");
+        assert_eq!(
+            msg,
+            "textproject.schema: raw.hex: `g` ist keine Hex-Ziffer."
+        );
+        let (_, msg) = holder_problem(
+            "{\"model\": {\"a\": 1, \"b\": \"x\"}, \"raw\": {\"hex\": \"00\", \"file\": \"x\"}}",
+        );
+        assert_eq!(
+            msg,
+            "textproject.schema: raw: ein Teil hat genau eines von `hex`, `base_sha1` oder `file`, daneben steht der Schlüssel `file`."
+        );
+        let (_, msg) = holder_problem("{\"model\": {\"a\": 1, \"b\": \"x\"}, \"raw\": 5}");
+        assert_eq!(
+            msg,
+            "textproject.schema: raw: erwartet wird ein Objekt mit genau einem von `hex`, `base_sha1` oder `file`, gefunden ist die Zahl 5."
+        );
+        let (_, msg) =
+            holder_problem("{\"model\": {\"a\": 300, \"b\": \"x\"}, \"raw\": {\"hex\": \"00\"}}");
+        assert_eq!(
+            msg,
+            "textproject.schema: model.a: die Zahl 300 passt nicht in u8 (0 bis 255)."
+        );
+        let (_, msg) =
+            holder_problem("{\"model\": {\"a\": 1,\n  \"bb\": \"x\"}, \"raw\": {\"hex\": \"00\"}}");
+        assert_eq!(
+            msg,
+            "textproject.schema: model.bb: unbekannter Schlüssel (erlaubt: `a`, `b`)."
+        );
+        let (_, msg) =
+            holder_problem("{\"model\": {\"locked\": \"why\"}, \"raw\": {\"hex\": \"00\"}}");
+        assert_eq!(msg, "textproject.schema: model: der Schlüssel `raw` fehlt.");
     }
 }

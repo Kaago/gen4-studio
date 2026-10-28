@@ -21,7 +21,7 @@ use crate::error::{KernelError, io_at};
 use crate::project::Project;
 use crate::scripts;
 
-use super::canon::{json_problem, to_canonical, write_if_changed};
+use super::canon::{parse_json, to_canonical, write_if_changed};
 use super::manifest::SCHEMA_CODE;
 
 /// The quirks file, relative to the project root.
@@ -74,14 +74,8 @@ pub fn load_quirks(root: &Path) -> Result<QuirksFile, KernelError> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(QuirksFile::default()),
         Err(e) => return Err(io_at(&path)(e)),
     };
-    serde_json::from_slice(&bytes).map_err(|e| {
-        KernelError::Compile(vec![json_problem(
-            Path::new(QUIRKS_FILE),
-            &bytes,
-            &e,
-            SCHEMA_CODE,
-        )])
-    })
+    parse_json(Path::new(QUIRKS_FILE), &bytes, SCHEMA_CODE)
+        .map_err(|problem| KernelError::Compile(vec![problem]))
 }
 
 /// Writes `file` to [`QUIRKS_FILE`] under `root` in the canonical form, only when that
@@ -408,9 +402,9 @@ mod tests {
         // counts UTF-16 units.
         assert_eq!((problem.line, problem.col), (3, 38));
         assert!(
-            problem
-                .message
-                .starts_with("textproject.schema: unknown field `jump_table_end_marker_cont`"),
+            problem.message.starts_with(
+                "textproject.schema: quirks.ä.jump_table_end_marker_cont: unbekannter Schlüssel"
+            ),
             "{}",
             problem.message
         );

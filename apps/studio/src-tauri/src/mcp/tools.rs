@@ -3651,7 +3651,7 @@ mod tests {
             )
             .unwrap();
         let message = unasked("unsaved");
-        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderungen.");
+        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
         assert!(!d.root.join("g4-project.json").exists());
     }
 }
