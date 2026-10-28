@@ -601,3 +601,175 @@ fn script_refs_on_the_vanilla_project_are_counted() {
     );
     assert!(trainer > 0 && item > 0, "trainer={trainer} item={item}");
 }
+
+/// Replaces the trainer argument `n` (its number, or rotom's own `TRAINER_…` name) in line
+/// `line` (1-based) of `text` by `id`; `None` when the line has neither.
+fn with_trainer_id(text: &str, line: usize, n: u32, id: &str) -> Option<String> {
+    let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
+    let target = lines.get_mut(line.checked_sub(1)?)?;
+    // The words of the line (runs of letters, digits and `_`) with their byte offsets.
+    let mut words: Vec<(usize, &str)> = Vec::new();
+    let mut start = None;
+    for (at, c) in target
+        .char_indices()
+        .chain(std::iter::once((target.len(), ' ')))
+    {
+        let word = c.is_ascii_alphanumeric() || c == '_';
+        match (word, start) {
+            (true, None) => start = Some(at),
+            (false, Some(from)) => {
+                words.push((from, &target[from..at]));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    let number = n.to_string();
+    let (at, len) = words
+        .iter()
+        .find(|(_, w)| *w == number)
+        .or_else(|| {
+            words
+                .iter()
+                .find(|(_, w)| w.starts_with("TRAINER_") && !w.starts_with("TRAINER_CLASS_"))
+        })
+        .map(|(at, w)| (*at, w.len()))?;
+    target.replace_range(at..at + len, id);
+    Some(lines.join("\n"))
+}
+
+/// Gate: on the vanilla project set up as text project, a trainer a script source names by
+/// its id (the argument replaced by the id, without any include line) is renamed with every
+/// reference in one undo step; the plan names the register, the trainer's JSON and the script;
+/// the build stays SHA-1-equal; undo puts every file back. Prints `rename <game_code>
+/// files=<n> refs=<n> ms=<n>`.
+#[test]
+fn rename_id_updates_every_reference_on_the_vanilla_project() {
+    use g4_kernel::data::refs::{RefIndex, Target};
+    use g4_kernel::text::Severity;
+    use g4_kernel::textproject::ids::Resolver;
+    use g4_kernel::textproject::include::id_files;
+    use g4_kernel::textproject::rename::{plan_rename, rename_id};
+    use g4_kernel::textproject::symbols::SymbolKind;
+
+    let Some((tmp, root, base)) = adopted_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let shadowed: std::collections::BTreeSet<String> = id_files(&project)
+        .unwrap()
+        .shadowed
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    let ids = Resolver::for_project(&project).unwrap();
+    let store = Store::new(Arc::clone(&project));
+    let mut index = RefIndex::new();
+    index.rebuild_full(&store).unwrap();
+    let refs = index.refs_where(&store, |_| true).unwrap();
+    drop(store);
+    // A trainer with an id of its own in the id files, named in a script source.
+    let mut chosen = None;
+    for r in refs.iter().filter(|r| r.source.kind == AssetKind::Script) {
+        let Target::Trainer(n) = r.target else {
+            continue;
+        };
+        let n = u32::from(n);
+        let Some(id) = ids.id(SymbolKind::Trainer, n) else {
+            continue;
+        };
+        if shadowed.contains(&id) || id.ends_with(&format!("_{n:04}")) {
+            continue;
+        }
+        let source = root.join(format!("expanded/scripts/{:04}.rotom", r.source.index));
+        let Ok(text) = std::fs::read_to_string(&source) else {
+            continue;
+        };
+        let Some(line) = r.slot else { continue };
+        if let Some(edited) = with_trainer_id(&text, usize::from(line), n, &id) {
+            chosen = Some((r.source.index, n, id, source, text, edited));
+            break;
+        }
+    }
+    let (file, n, old_id, source, text, edited) =
+        chosen.expect("a trainer named in a script source");
+    let member_dir = ["unpacked/scripts", "unpacked/Scripts"]
+        .into_iter()
+        .map(|d| root.join(d))
+        .find(|d| d.is_dir())
+        .unwrap();
+    let member = member_dir.join(format!("{file:04}"));
+    let member_before = std::fs::read(&member).unwrap();
+    std::fs::write(&source, &edited).unwrap();
+    let report = g4_kernel::scripts::compile(&project).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity != Severity::Error),
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(
+        std::fs::read(&member).unwrap(),
+        member_before,
+        "{old_id} compiles to {n}"
+    );
+    assert_ne!(text, edited);
+    let built = built_sha1(&root, &tmp.path().join("before.nds"));
+    assert_eq!(built, base.sha1(), "the id builds the number");
+
+    let mut store = Store::new(Arc::clone(&project));
+    let new_id = "TRAINER_G4_RENAMED_GATE";
+    let planned = plan_rename(&project, &old_id, new_id).unwrap();
+    assert_eq!(planned.refusal, None);
+    let before: BTreeMap<PathBuf, Vec<u8>> = planned
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), std::fs::read(root.join(&f.path)).unwrap()))
+        .collect();
+    let result = rename_id(&mut store, &old_id, new_id).unwrap();
+    let plan = &result.plan;
+    assert_eq!(*plan, planned);
+    let named: Vec<String> = plan
+        .files
+        .iter()
+        .map(|f| f.path.to_string_lossy().replace('\\', "/"))
+        .collect();
+    let script_rel = format!("expanded/scripts/{file:04}.rotom");
+    for expected in [
+        "data/ids/trainers.json",
+        &format!("data/trainers/{n:04}.json"),
+        &script_rel,
+    ] {
+        assert!(named.iter().any(|p| p == expected), "{expected}: {named:?}");
+    }
+    assert!(plan.id_files);
+    let ids_file =
+        std::fs::read_to_string(root.join(".rotom/command_database/.g4-ids-trainers.json"))
+            .unwrap();
+    assert!(ids_file.contains(new_id), "the id files know the new id");
+    assert!(std::fs::read_to_string(&source).unwrap().contains(new_id));
+
+    let after = built_sha1(&root, &tmp.path().join("renamed.nds"));
+    assert_eq!(after, built, "the rename changes the game");
+
+    // One undo puts every file back byte for byte.
+    store.undo().unwrap();
+    for (path, bytes) in &before {
+        assert_eq!(
+            &std::fs::read(root.join(path)).unwrap(),
+            bytes,
+            "{}",
+            path.display()
+        );
+    }
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), edited);
+    eprintln!(
+        "rename {} {old_id} -> {new_id} files={} refs={} ms={}",
+        base.game_code(),
+        plan.files.len(),
+        plan.total,
+        result.ms
+    );
+}

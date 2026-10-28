@@ -2527,7 +2527,13 @@ impl Store {
                 )));
             }
         }
+        // A rename of an id (`textproject::rename`): its files the sync had in step.
+        let paths: Vec<&Path> = files.iter().map(|(_, f)| f.path.as_path()).collect();
+        let renamed = crate::textproject::rename::before_move(&self.project, &paths);
         write_files_and_entries(&self.project, &files, &entries, side).map_err(StepError::Keep)?;
+        if let Some(in_step) = renamed {
+            crate::textproject::rename::after_move(&self.project, &in_step);
+        }
         for (id, value) in values.into_iter().rev() {
             // Checked by `decode_parts`: every asset is loaded.
             if let Some(asset) = self.assets.get_mut(&id) {

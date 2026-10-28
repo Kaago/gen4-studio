@@ -741,6 +741,64 @@ Eine Datei, die nicht lesbar ist (auch eine unbekannte ID), blendet nichts aus, 
 schreibt sie nicht, bis sie wieder lesbar ist. „Zurücknehmen“ schreibt beide mit Nummern (siehe
 oben).
 
+## ID umbenennen
+
+Eine **Register-ID** (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`) lässt sich umbenennen; die
+IDs der festen Tabellen (Spezies, Formen, Attacken, Items, Fähigkeiten, Typen) bleiben fest. Die
+Art einer ID gibt das längste passende Präfix: `TRAINER_CLASS_X` ist eine Trainerklasse, kein
+Trainer. Kernel: `textproject::rename::{plan_rename, rename_id, rename_id_files}`, kopflos
+`g4k text rename-id <projekt> <alt> <neu> [--json]` (ohne Undo).
+
+**Regeln der neuen ID.** Präfix der Art und `_`, danach nur `A–Z`, `0–9` und `_`, höchstens 64
+Zeichen; nicht vergeben (auch nicht als `MAP_<interner Name>` eines anderen Headers); nicht die
+Ersatz-ID einer anderen Nummer (die eigene, `TRAINER_0005` für Trainer 5, ist erlaubt); nicht ein
+Name, den rotom schon mit anderer Nummer kennt (er fiele aus den ID-Dateien, siehe „IDs in
+Scripts“). Jede Ablehnung kommt, bevor eine Datei geschrieben wird, mit einem dieser Sätze:
+
+- `Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.` (eine ältere oder
+  neuere Schema-Version: der Satz des Manifests)
+- `Unbekannte ID: {alt}.`
+- `{alt} steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_).`
+- `Die neue ID muss mit {PRÄFIX}_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten (höchstens 64 Zeichen).`
+- `{neu} wäre eine ID der Art TRAINER_CLASS_; die neue ID muss mit TRAINER_ beginnen, nicht mit TRAINER_CLASS_.`
+- `{neu} gibt es schon (Nummer {n}).`
+- `{neu} ist die Ersatz-ID der Nummer {n}.`
+- `{neu} kennt rotom schon als Nummer {n}.`
+- `Die neue ID ist die alte.`
+- `{datei} lässt sich nicht lesen ({grund}); erst die Datei reparieren, dann umbenennen.` (eine
+  JSON, die die alte ID enthält, aber kein JSON ist)
+
+**Was nachgezogen wird.**
+
+| Datei | was |
+|---|---|
+| `data/ids/<art>.json` | der Eintrag unter dem neuen Namen (kanonisch, Schlüssel sortiert) |
+| `data/**/*.json` (ohne `data/ids/`, ohne die Blobs unter `data/raw/`) | jeder JSON-String, der die alte ID ist, Schlüssel wie Werte: das `id` der Entität, `class` der Trainer, `location_name` der Header, `dest_header_id` der Warps, … |
+| `g4-world.json`, `g4-checks.json` | ebenso (Header-Schlüssel und -Werte, `subject.index`) |
+| `expanded/scripts/*.rotom` | jedes Bezeichner-Token gleich der alten ID (rotoms Lexer: Kommentare und Strings bleiben) |
+
+Die JSON-Dateien werden String für String ersetzt; alles andere behält seine Bytes. Eine alte ID,
+die rotom ohne die ID-Dateien mit **anderer** Nummer auflöst (`textproject.id-shadowed`), ist in
+den Scripts rotoms Name: die Script-Quellen bleiben dann, wie sie sind. Danach werden die
+ID-Dateien für rotom neu geschrieben (`include::write_include`); sie sind erzeugt und lokal, also
+kein Teil des Schritts und nicht mitgezählt (der Plan sagt mit `id_files`, dass es sie gibt). Die
+Quellen, die der Abgleich vorher als abgeglichen kannte, werden neu aufgezeichnet: der nächste
+Abgleich hält das Umbenennen nicht für eine Änderung von außen.
+
+**Ein Undo-Schritt.** Alle Dateien sind **ein** Dateischritt (`FileStep`, wie das Zurücksetzen in
+4.1b) mit der Beschriftung `ID umbenannt: {alt} → {neu}`, Asset Trainer `n` bzw. die
+Header-Tabelle. ⌘Z schreibt jede Datei zurück, ⌘⇧Z wieder vor; beide prüfen zuerst jede Datei
+gegen ihre erwartete Seite. Hat ein anderes Werkzeug eine davon seither geändert, wird nichts
+geschrieben, der Schritt fällt aus dem Verlauf, und der Satz von 4.1b sagt warum („Trainer 0005
+wurde seit dem Zurücksetzen außerhalb des Studios geändert; ⌘Z nimmt den Schritt nicht zurück, er
+fällt aus dem Verlauf.“). Nach Undo und Redo liest der Store die Register neu (`EntitySource` und
+`Resolver` sehen sie über `is_current`), und die ID-Dateien werden neu geschrieben.
+
+`plan_rename` zeigt vorher, was geschähe: je Datei die Zahl der Verweise, die Summe, und bei
+einer Ablehnung `refusal`. `g4k text rename-id` druckt `<datei> <anzahl>` je Datei und
+`renamed <alt> -> <neu> kind=<art> number=<n> files=<n> refs=<n> id_files=true|false ms=<n>`, eine
+Ablehnung auf stderr mit Exit 1.
+
 ## Schema-Version und Migration
 
 `schemaVersion` zählt die Dateiformate unter `data/` und das Manifest. Jede Namensänderung eines

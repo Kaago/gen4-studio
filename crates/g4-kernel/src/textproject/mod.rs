@@ -17,7 +17,8 @@
 //! text project, and [`source`] reads and writes one entity at a time for the store (the JSON
 //! as the store's source, new entities christened at once), and [`sync`] keeps what the sources
 //! and members held when last in step; [`adopt`] sets a DSPRE folder up as text project (and
-//! takes it back), and [`include`] writes the ids as rotom constants for the scripts. The
+//! takes it back), [`include`] writes the ids as rotom constants for the scripts, and
+//! [`rename`] renames a register id with every reference as one undo step. The
 //! build step `textproject` ([`step`]) brings the members up to date with the JSON before every
 //! build, never over a newer member. The orchestration lives in
 //! `export.rs`, `import.rs` (with the plan the build step reuses) and `check.rs`; `arts.rs`
@@ -45,6 +46,7 @@ pub(crate) mod part;
 pub mod quirks;
 pub(crate) mod record;
 pub mod registry;
+pub mod rename;
 pub(crate) mod schema;
 pub mod source;
 pub(crate) mod step;

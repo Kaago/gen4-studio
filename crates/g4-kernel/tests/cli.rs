@@ -1431,3 +1431,65 @@ fn cli_text_adopt_sync_and_revert() {
     assert!(!root.join("g4-project.json").exists());
     assert!(!root.join("data").exists());
 }
+
+#[test]
+fn cli_text_rename_id() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["adopt"], &root).assert().success();
+    let rename = |old: &str, new: &str| {
+        let mut cmd = g4k();
+        cmd.args(["text", "rename-id"]).arg(&root).args([old, new]);
+        cmd
+    };
+
+    // Renamed: one line per file with its count, then the totals.
+    let assert = rename("TRAINER_YOUNGSTER_KAI", "TRAINER_KID_KAI")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines().any(|l| l == "data/ids/trainers.json 1"),
+        "{out}"
+    );
+    assert!(
+        out.lines().any(|l| l == "data/trainers/0001.json 1"),
+        "{out}"
+    );
+    let summary = out.lines().last().unwrap();
+    assert!(
+        summary.starts_with(
+            "renamed TRAINER_YOUNGSTER_KAI -> TRAINER_KID_KAI kind=trainer number=1 files=2 refs=2 \
+             id_files=true ms="
+        ),
+        "{summary}"
+    );
+    let json = std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap();
+    assert!(json.contains("\"id\": \"TRAINER_KID_KAI\""), "{json}");
+    let ids = std::fs::read_to_string(root.join(".rotom/command_database/.g4-ids-trainers.json"))
+        .unwrap();
+    assert!(ids.contains("TRAINER_KID_KAI"), "{ids}");
+
+    // A taken id: refused with the sentence, exit 1, nothing written.
+    rename("TRAINER_KID_KAI", "TRAINER_POKEMON_TRAINER_MIA")
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "TRAINER_POKEMON_TRAINER_MIA gibt es schon (Nummer 2).",
+        ));
+    assert_eq!(
+        std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap(),
+        json
+    );
+
+    // With --json: the plan as one line.
+    let assert = rename("TRAINER_KID_KAI", "TRAINER_KAI")
+        .arg("--json")
+        .assert()
+        .success();
+    let line = stdout_of(&assert);
+    let plan: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(plan["old_id"], "TRAINER_KID_KAI");
+    assert_eq!(plan["new_id"], "TRAINER_KAI");
+    assert_eq!(plan["total"], 2);
+}

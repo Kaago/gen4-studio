@@ -297,6 +297,35 @@ pub(crate) fn changed_since_record(
     Ok(None)
 }
 
+/// Those of `paths` (relative to the root, or absolute below it) that hold what `sync`
+/// recorded for them: a writer outside the store that changes only these and records them
+/// afterwards ([`record_written`]) hides no change of another tool. A path without an entry
+/// is left out (the next scan has not seen it), and so is everything without a sync record.
+pub(crate) fn in_step(project: &Project, paths: &[PathBuf]) -> Result<Vec<PathBuf>, KernelError> {
+    let state = BuildState::load_shared(&project.root);
+    let Some(sync) = &state.sync else {
+        return Ok(Vec::new());
+    };
+    let now = now_ns();
+    let mut found = Vec::new();
+    for path in paths {
+        let rel = path.strip_prefix(&project.root).unwrap_or(path);
+        let Some(recorded) = sync.files.get(&key(rel)) else {
+            continue;
+        };
+        let (seen, _) = compare(
+            &project.root.join(rel),
+            Some(recorded),
+            sync.scanned_at_ns,
+            now,
+        )?;
+        if seen == Seen::Same {
+            found.push(rel.to_path_buf());
+        }
+    }
+    Ok(found)
+}
+
 /// The key of a project-relative path in `sync.files`: its components joined with `/`.
 fn key(rel: &Path) -> String {
     slash(rel).to_string_lossy().into_owned()

@@ -1295,6 +1295,19 @@ enum TextCommand {
         #[arg(long, num_args = 2, value_names = ["SIDE", "KEY"])]
         keep: Option<Vec<String>>,
     },
+    /// Rename a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`) with every
+    /// reference: the register, the JSON under `data/`, `g4-world.json`, `g4-checks.json`, the
+    /// script sources, then the id files for rotom. Prints `<file> <count>` per file and
+    /// `renamed <old> -> <new> kind=… number=… files=… refs=… id_files=… ms=…`; a refusal
+    /// (taken, a fallback of another number, malformed, …) writes nothing (exit 1). No undo.
+    RenameId {
+        project: PathBuf,
+        old: String,
+        new: String,
+        /// Print the plan as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The paths `g4k text check` lists after `differs=N`.
@@ -1325,6 +1338,12 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             base_rom,
             json,
         } => text_adopt(&project, base_rom.as_deref(), json),
+        TextCommand::RenameId {
+            project,
+            old,
+            new,
+            json,
+        } => text_rename_id(&project, &old, &new, json),
         TextCommand::Revert { project } => {
             let report = g4_kernel::textproject::adopt::revert(&Project::open(project)?)?;
             println!(
@@ -1568,6 +1587,32 @@ fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
              {broken} broken file(s) (fix them, then sync again)"
         )));
     }
+    Ok(())
+}
+
+/// `g4k text rename-id`: [`g4_kernel::textproject::rename::rename_id_files`].
+fn text_rename_id(root: &Path, old: &str, new: &str, json: bool) -> Result<(), Failure> {
+    let started = std::time::Instant::now();
+    let plan = g4_kernel::textproject::rename::rename_id_files(&Project::open(root)?, old, new)?;
+    if json {
+        println!("{}", json_line(&plan)?);
+        return Ok(());
+    }
+    for file in &plan.files {
+        println!("{} {}", file.path.display(), file.count);
+    }
+    let kind = plan
+        .kind
+        .map_or_else(|| "?".to_owned(), |k| k.prefix().to_lowercase());
+    println!(
+        "renamed {old} -> {new} kind={kind} number={} files={} refs={} id_files={} ms={}",
+        plan.number
+            .map_or_else(|| "?".to_owned(), |n| n.to_string()),
+        plan.files.len(),
+        plan.total,
+        plan.id_files,
+        started.elapsed().as_millis()
+    );
     Ok(())
 }
 
