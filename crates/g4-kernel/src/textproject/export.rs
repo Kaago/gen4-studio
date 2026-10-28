@@ -96,6 +96,27 @@ fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
+/// A step of the export, as [`export_reported`] reports it: adopting the scripts (only when
+/// it adopts them), the base layer, the art folders (one per entry of the art list, also one
+/// the game lacks) and the blobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportStep {
+    Scripts,
+    BaseLayer,
+    Arts,
+    Blobs,
+}
+
+/// How far the export is: `done` of `total` in `step`. Each step reports `done` 0 first and
+/// `done` = `total` last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ExportProgress {
+    pub step: ExportStep,
+    pub done: u32,
+    pub total: u32,
+}
+
 /// Exports `project` as a text project against base ROM `base`. Refuses (before writing
 /// anything) Diamond/Pearl, a project without base mark or with another base, an older or
 /// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), missing
@@ -107,7 +128,75 @@ pub fn export(
     base: &BaseRom,
     opts: &ExportOptions,
 ) -> Result<ExportReport, KernelError> {
+    export_reported(project, base, opts, &mut |_| {})
+}
+
+/// [`export`], telling `progress` how far it is.
+pub fn export_reported(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    progress: &mut dyn FnMut(ExportProgress),
+) -> Result<ExportReport, KernelError> {
+    run(project, base, opts, progress, true)
+}
+
+/// The export; `record` records the sync afterwards (the adoption records it itself, after
+/// the files it writes besides).
+pub(super) fn run(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    progress: &mut dyn FnMut(ExportProgress),
+    record: bool,
+) -> Result<ExportReport, KernelError> {
     let start = Instant::now();
+    let keep = preflight(project, base)?;
+    let mut report = ExportReport::default();
+    if !scripts::is_adopted(project) {
+        if !opts.adopt_scripts {
+            return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
+        }
+        let adopted = scripts::adopt(project, &mut |p| {
+            progress(ExportProgress {
+                step: ExportStep::Scripts,
+                done: p.done,
+                total: p.total,
+            });
+        })?;
+        report.adopted = Some(adopted.decompiled);
+    }
+    let layer_start = Instant::now();
+    let step = |done| ExportProgress {
+        step: ExportStep::BaseLayer,
+        done,
+        total: 1,
+    };
+    progress(step(0));
+    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
+        Some(layer) => (layer, false),
+        None => BaseLayer::ensure(&project.root, base)?,
+    };
+    progress(step(1));
+    report.base_layer_ms = ms_since(layer_start);
+    report.base_layer_created = created;
+    export_with(project, &layer, keep.as_ref(), &mut report, progress)?;
+    // Every JSON equals its member now: the build step forgets the members it kept as newer,
+    // and the sync records the project as it is.
+    super::step::clear_kept(&project.root)?;
+    if record {
+        super::sync::record_all(project)?;
+    }
+    report.ms = ms_since(start);
+    Ok(report)
+}
+
+/// The refusals of the export, before anything is written (see [`export`], scripts aside):
+/// the manifest to keep (`None` without one).
+pub(super) fn preflight(
+    project: &Project,
+    base: &BaseRom,
+) -> Result<Option<Manifest>, KernelError> {
     if project.family == Family::Dp {
         return Err(KernelError::Refused(NO_DP.to_owned()));
     }
@@ -136,28 +225,7 @@ pub fn export(
     if let Some(refusal) = missing_item_members(project)? {
         return Err(KernelError::Refused(refusal));
     }
-    let mut report = ExportReport::default();
-    if !scripts::is_adopted(project) {
-        if !opts.adopt_scripts {
-            return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
-        }
-        let adopted = scripts::adopt(project, &mut |_| {})?;
-        report.adopted = Some(adopted.decompiled);
-    }
-    let layer_start = Instant::now();
-    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
-        Some(layer) => (layer, false),
-        None => BaseLayer::ensure(&project.root, base)?,
-    };
-    report.base_layer_ms = ms_since(layer_start);
-    report.base_layer_created = created;
-    export_with(project, &layer, keep.as_ref(), &mut report)?;
-    // Every JSON equals its member now: the build step forgets the members it kept as newer,
-    // and the sync records the project as it is.
-    super::step::clear_kept(&project.root)?;
-    super::sync::record_all(project)?;
-    report.ms = ms_since(start);
-    Ok(report)
+    Ok(keep)
 }
 
 /// The refusal when the export's item table is gone but the import's is not: the export's
@@ -214,6 +282,7 @@ fn export_with(
     layer: &BaseLayer,
     keep: Option<&Manifest>,
     report: &mut ExportReport,
+    progress: &mut dyn FnMut(ExportProgress),
 ) -> Result<(), KernelError> {
     let root = &project.root;
     // Every modelled archive unpacked, so the blobs compare members and never a whole NARC.
@@ -224,13 +293,17 @@ fn export_with(
             project.ensure_unpacked(kind)?;
         }
     }
+    let arts = u32::try_from(ARTS.len()).unwrap_or(u32::MAX);
+    let mut step = |step, done, total| progress(ExportProgress { step, done, total });
+    step(ExportStep::Arts, 0, arts);
     sync_texts(project, report)?;
 
     let mut symbols = Symbols::load(root)?;
     baptize(project, &mut symbols)?;
-    for art in ARTS {
+    for (done, art) in (1..).zip(ARTS) {
         let start = Instant::now();
         let Some(files) = art_files(project, art, &mut symbols, layer)? else {
+            step(ExportStep::Arts, done, arts);
             continue;
         };
         let mut stats = write_folder(root, &art.dir(), &files)?;
@@ -240,6 +313,7 @@ fn export_with(
         report.written += stats.written;
         report.removed += stats.removed;
         report.arts.push(stats);
+        step(ExportStep::Arts, done, arts);
     }
     report.registries_written = symbols.save(root)?;
     report.written += report.registries_written;
@@ -248,7 +322,9 @@ fn export_with(
     if write_quirks(root, &quirks_from_state(project)?)? {
         report.written += 1;
     }
+    step(ExportStep::Blobs, 0, 1);
     write_blobs(project, layer, report)?;
+    step(ExportStep::Blobs, 1, 1);
 
     let manifest = manifest_for(project, keep);
     if write_if_changed(root, Path::new(MANIFEST_FILE), &to_canonical(&manifest))? {

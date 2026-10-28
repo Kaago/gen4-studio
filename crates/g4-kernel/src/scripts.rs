@@ -381,6 +381,53 @@ pub(crate) fn adopt_as(
     })
 }
 
+/// Adds `root` to `include_roots` in `[paths]` of `rotom.toml` where it is not there yet:
+/// the key is added when it is missing, `root` appended to a list set otherwise (a single
+/// string becomes a list); the rest of the file stays as it is, comments too. Whether it
+/// wrote. Needs `rotom.toml`.
+pub(crate) fn ensure_include_root(project: &Project, root: &str) -> Result<bool, KernelError> {
+    use toml_edit::{Array, Document, value};
+
+    let path = project.root.join(ROTOM_TOML);
+    let invalid = |why: String| KernelError::InvalidProject(format!("{ROTOM_TOML}: {why}"));
+    let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+    let mut doc: Document = text.parse().map_err(|e| invalid(format!("{e}")))?;
+    let norm = |r: &str| r.replace('\\', "/").trim_end_matches('/').to_owned();
+    let wanted = norm(root);
+    let paths = doc
+        .entry("paths")
+        .or_insert(toml_edit::table())
+        .as_table_like_mut()
+        .ok_or_else(|| invalid("[paths] ist keine Tabelle".to_owned()))?;
+    match paths.get_mut("include_roots") {
+        None => {
+            paths.insert("include_roots", value(Array::from_iter([wanted.as_str()])));
+        }
+        Some(item) => {
+            if let Some(list) = item.as_array_mut() {
+                if list
+                    .iter()
+                    .any(|r| r.as_str().map(norm) == Some(wanted.clone()))
+                {
+                    return Ok(false);
+                }
+                list.push(wanted.as_str());
+            } else if let Some(one) = item.as_str().map(str::to_owned) {
+                if norm(&one) == wanted {
+                    return Ok(false);
+                }
+                *item = value(Array::from_iter([one.as_str(), wanted.as_str()]));
+            } else {
+                return Err(invalid(
+                    "include_roots ist weder eine Liste noch ein Pfad".to_owned(),
+                ));
+            }
+        }
+    }
+    write_atomic(&project.root, &path, doc.to_string().as_bytes())?;
+    Ok(true)
+}
+
 // ---------------------------------------------------------------------------------------
 // Compile
 // ---------------------------------------------------------------------------------------
@@ -3003,6 +3050,51 @@ AlreadyGiven:
             assert!(err.to_string().contains("DSPRE-Layout"), "{err}");
             assert!(err.to_string().contains("expanded/scripts"), "{err}");
         }
+    }
+
+    #[test]
+    fn ensure_include_root_adds_appends_and_keeps_comments() {
+        let (s, p) = adopted();
+        let path = s.dir.path().join(ROTOM_TOML);
+        let roots = || {
+            rotom::project_config::load_config(s.dir.path())
+                .unwrap()
+                .paths
+                .include_roots
+        };
+        // Adopted without the key: it is added, once.
+        let adopted = std::fs::read_to_string(&path).unwrap();
+        assert!(!adopted.contains("include_roots"), "{adopted}");
+        assert!(ensure_include_root(&p, ".g4/include").unwrap());
+        assert_eq!(roots(), [".g4/include"]);
+        let once = std::fs::read(&path).unwrap();
+        assert!(!ensure_include_root(&p, ".g4/include/").unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), once, "written once");
+
+        // A list set otherwise keeps its entries, and a comment stays.
+        let text = format!(
+            "# mine\n{}",
+            adopted.replace(
+                "[paths]\n",
+                "[paths]\ninclude_roots = [\"include\"] # local\n"
+            )
+        );
+        std::fs::write(&path, &text).unwrap();
+        assert!(ensure_include_root(&p, ".g4/include").unwrap());
+        assert_eq!(roots(), ["include", ".g4/include"]);
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.starts_with("# mine\n"), "{after}");
+        assert!(after.contains("# local"), "{after}");
+
+        // A single path becomes a list.
+        std::fs::write(
+            &path,
+            adopted.replace("[paths]\n", "[paths]\ninclude_roots = \"include\"\n"),
+        )
+        .unwrap();
+        // rotom reads only a list; the kernel turns the string into one.
+        assert!(ensure_include_root(&p, ".g4/include").unwrap());
+        assert_eq!(roots(), ["include", ".g4/include"]);
     }
 
     #[test]

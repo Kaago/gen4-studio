@@ -1265,6 +1265,33 @@ enum TextCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Set the DSPRE folder up as text project: adopt the scripts (when they are not), export,
+    /// add the include root to `rotom.toml`, record the sync. Needs the base mark and the
+    /// base ROM (found like `export`). Prints `phase=<phase> ms=N` per phase, then the
+    /// totals.
+    Adopt {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the adoption report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and
+    /// `.g4/include/` to `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync`
+    /// finds something pending.
+    Revert { project: PathBuf },
+    /// Take over what changed on one side since the last record (`dspre <key> <label>`,
+    /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,
+    /// `broken <key> <label>`); exit 1 on a conflict. With `--keep studio|dspre <key>`: resolve
+    /// that conflict instead.
+    Sync {
+        project: PathBuf,
+        /// Resolve one conflict: the side to keep (`studio` or `dspre`) and the unit's key.
+        #[arg(long, num_args = 2, value_names = ["SIDE", "KEY"])]
+        keep: Option<Vec<String>>,
+    },
 }
 
 /// The paths `g4k text check` lists after `differs=N`.
@@ -1290,6 +1317,22 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             Ok(())
         }
         TextCommand::Migrate { project, json } => text_migrate(&project, json),
+        TextCommand::Adopt {
+            project,
+            base_rom,
+            json,
+        } => text_adopt(&project, base_rom.as_deref(), json),
+        TextCommand::Revert { project } => {
+            let report = g4_kernel::textproject::adopt::revert(&Project::open(project)?)?;
+            println!(
+                "backup={} rewritten={} ms={}",
+                report.backup.display(),
+                report.rewritten.len(),
+                report.ms
+            );
+            Ok(())
+        }
+        TextCommand::Sync { project, keep } => text_sync(&project, keep.as_deref()),
     }
 }
 
@@ -1421,6 +1464,106 @@ fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
         );
     }
     fail_on_errors(&report.problems, "text check")
+}
+
+/// `g4k text adopt`: [`g4_kernel::textproject::adopt::adopt`], timing each phase.
+fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    use g4_kernel::textproject::adopt::AdoptPhase;
+
+    let mark = required_mark(root)?;
+    let project = Project::open(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let mut current: Option<(AdoptPhase, std::time::Instant)> = None;
+    let mut timed: Vec<(AdoptPhase, u128)> = Vec::new();
+    let report = g4_kernel::textproject::adopt::adopt(&project, &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, std::time::Instant::now()))
+        {
+            timed.push((phase, at.elapsed().as_millis()));
+        }
+    })?;
+    if let Some((phase, at)) = current {
+        timed.push((phase, at.elapsed().as_millis()));
+    }
+    print_problems(&report.export.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        for (phase, ms) in &timed {
+            println!("phase={} ms={ms}", json_line(phase)?.trim_matches('"'));
+        }
+        println!(
+            "adopted={} files={} written={} removed={} include={} sync_files={} ms={}",
+            report
+                .export
+                .adopted
+                .map_or_else(|| "already".to_owned(), |n| format!("scripts:{n}")),
+            report.export.files,
+            report.export.written,
+            report.export.removed,
+            report.include_written,
+            report.sync_files,
+            report.ms
+        );
+    }
+    fail_on_errors(&report.export.problems, "text adopt")
+}
+
+/// `g4k text sync`: scan and take over the one-sided units, or with `keep` resolve one
+/// conflict; exit 1 while conflicts are left.
+fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
+    use g4_kernel::textproject::sync::{self, Keep, UnitSide};
+
+    let project = Project::open(root)?;
+    if let Some([side, key]) = keep {
+        let keep = match side.as_str() {
+            "studio" => Keep::Studio,
+            "dspre" => Keep::Dspre,
+            other => {
+                return Err(Failure::Message(format!(
+                    "--keep {other}: studio oder dspre"
+                )));
+            }
+        };
+        sync::resolve_files(&project, key, keep)?;
+        println!("kept {side} {key}");
+        return Ok(());
+    }
+    let scan = sync::scan(&project, &mut |_| {})?;
+    let applied = sync::apply_one_sided(&project, &scan, &|_| false)?;
+    for unit in &applied.dspre {
+        println!("dspre {} {}", unit.key, unit.label);
+    }
+    for unit in &applied.files {
+        println!("files {} {}", unit.key, unit.label);
+    }
+    let mut conflicts = 0;
+    for unit in &scan.units {
+        match unit.side {
+            UnitSide::Conflict => {
+                conflicts += 1;
+                println!("conflict {} {}", unit.key, unit.label);
+            }
+            UnitSide::Broken => {
+                println!("broken {} {}", unit.key, unit.label);
+                print_problems(&unit.problems);
+            }
+            _ => {}
+        }
+    }
+    println!(
+        "stat={} hashed={} written={} ms={}",
+        scan.stat_files,
+        scan.hashed,
+        applied.written.len(),
+        scan.ms + applied.ms
+    );
+    if conflicts > 0 {
+        return Err(Failure::Message(format!(
+            "text sync: {conflicts} conflict(s); g4k text sync --keep studio|dspre <key>"
+        )));
+    }
+    Ok(())
 }
 
 /// `g4k text migrate`: [`g4_kernel::textproject::migrate::migrate`].

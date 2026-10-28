@@ -341,3 +341,136 @@ fn simulated_change_on_both_sides_is_a_conflict_and_both_choices_work() {
     let out = tmp.path().join("resolved.nds");
     build::build(&Project::open(&root).unwrap(), &out).unwrap();
 }
+
+/// A copy of the vanilla project with the base mark and the base ROM, set up as text project
+/// with [`adopt`](g4_kernel::textproject::adopt::adopt); prints the time of each phase.
+fn adopted_copy() -> Option<(tempfile::TempDir, PathBuf, BaseRom)> {
+    use g4_kernel::textproject::adopt::{AdoptPhase, adopt};
+
+    let nds = common::vanilla_base_rom()?;
+    let (tmp, root) = common::vanilla_copy()?;
+    let (check, _mark) = g4_kernel::start::assign_base(&root, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    let base = BaseRom::open(&nds, None).unwrap();
+    let mut current: Option<(AdoptPhase, Instant)> = None;
+    let mut timed: Vec<(AdoptPhase, u128)> = Vec::new();
+    let report = adopt(&Project::open(&root).unwrap(), &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, Instant::now()))
+        {
+            timed.push((phase, at.elapsed().as_millis()));
+        }
+    })
+    .unwrap();
+    if let Some((phase, at)) = current {
+        timed.push((phase, at.elapsed().as_millis()));
+    }
+    eprintln!(
+        "adopt {} phases {timed:?} total_ms={} adopted={:?} written={} files={} bytes={} \
+         base_layer_created={} sync_files={}",
+        base.game_code(),
+        report.ms,
+        report.export.adopted,
+        report.export.written,
+        report.export.files,
+        report.export.bytes,
+        report.export.base_layer_created,
+        report.sync_files
+    );
+    Some((tmp, root, base))
+}
+
+/// Gate: a DSPRE folder set up as text project builds the base ROM byte for byte; taken back,
+/// the manifest is in the backup and the DSPRE folder builds it again.
+#[test]
+fn adopt_dspre_folder_builds_byte_equal_and_reverts() {
+    let Some((tmp, root, base)) = adopted_copy() else {
+        return;
+    };
+    assert!(g4_kernel::textproject::is_text_project(&root));
+    let started = Instant::now();
+    let adopted = built_sha1(&root, &tmp.path().join("adopted.nds"));
+    let build_ms = started.elapsed().as_millis();
+    assert_eq!(adopted, base.sha1(), "the text project builds another ROM");
+
+    let report = g4_kernel::textproject::adopt::revert(&Project::open(&root).unwrap()).unwrap();
+    assert!(!root.join("g4-project.json").exists());
+    assert!(!root.join("data").exists());
+    assert!(report.backup.join("g4-project.json").is_file());
+    assert!(report.backup.join("data").is_dir());
+    let started = Instant::now();
+    let reverted = built_sha1(&root, &tmp.path().join("reverted.nds"));
+    let rebuild_ms = started.elapsed().as_millis();
+    assert_eq!(reverted, base.sha1(), "the DSPRE folder builds another ROM");
+    eprintln!(
+        "revert {} ms={} build_after_adopt_ms={build_ms} build_after_revert_ms={rebuild_ms}",
+        base.game_code(),
+        report.ms
+    );
+}
+
+/// After the adoption and one store edit each of a move, a trainer and a header, the check
+/// catalogue (as in `tests/vanilla_checks.rs`) finds no error.
+#[test]
+fn vanilla_checks_on_the_text_project_have_no_errors() {
+    use g4_kernel::checks::{Group, IgnoreSet, Limits, Runner, Severity, Snapshot, SnapshotCache};
+    use uxie::MapHeader;
+
+    let Some((_tmp, root, base)) = adopted_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    let mut store = Store::new(Arc::clone(&project));
+    store
+        .edit_move(1, "Stärke", |m| m.set_power(m.power().wrapping_add(1)))
+        .unwrap()
+        .expect("the power changed");
+    store
+        .edit_trainer(1, "Level", |t| t.party[0].level += 1)
+        .unwrap()
+        .expect("the level changed");
+    store
+        .edit_header(0, "Musik", |h| {
+            match h {
+                MapHeader::Pt(h) => h.music_day_id = h.music_day_id.wrapping_add(1),
+                MapHeader::HGSS(h) => h.music_day_id = h.music_day_id.wrapping_add(1),
+                MapHeader::DP(h) => h.music_day_id = h.music_day_id.wrapping_add(1),
+            }
+            Ok(())
+        })
+        .unwrap();
+    store.save().unwrap();
+    for file in [
+        "data/moves/0001.json",
+        "data/trainers/0001.json",
+        "data/headers/0000.json",
+    ] {
+        assert!(root.join(file).is_file(), "{file}");
+    }
+
+    let snap = Snapshot::build(
+        Arc::clone(&project),
+        store.snapshot_overlay(),
+        SnapshotCache::default(),
+    );
+    let report = Runner::run(
+        &snap,
+        Limits::get(),
+        &IgnoreSet::default(),
+        &Group::ALL,
+        |_, _, _| {},
+    );
+    let errors: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .collect();
+    eprintln!(
+        "checks {} findings={} errors={} skipped={:?}",
+        base.game_code(),
+        report.findings.len(),
+        errors.len(),
+        report.skipped
+    );
+    assert!(errors.is_empty(), "{errors:#?}");
+}

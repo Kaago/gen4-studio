@@ -16,7 +16,8 @@
 //! what an import would find and write without writing, [`sources`] lists the files of the
 //! text project, and [`source`] reads and writes one entity at a time for the store (the JSON
 //! as the store's source, new entities christened at once), and [`sync`] keeps what the sources
-//! and members held when last in step. The build step `textproject`
+//! and members held when last in step; [`adopt`] sets a DSPRE folder up as text project (and
+//! takes it back). The build step `textproject`
 //! ([`step`]) brings the members up to date with the JSON before every build, never over a
 //! newer member. The orchestration lives in
 //! `export.rs`, `import.rs` (with the plan the build step reuses) and `check.rs`; `arts.rs`
@@ -27,6 +28,7 @@
 
 use std::path::Path;
 
+pub mod adopt;
 mod arts;
 pub mod base_layer;
 pub(crate) mod canon;
@@ -49,7 +51,10 @@ pub mod symbols;
 pub mod sync;
 
 pub use check::{CheckReport, check, sources};
-pub use export::{ArtStats, ExportOptions, ExportReport, NOT_ADOPTED, export};
+pub use export::{
+    ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED, export,
+    export_reported,
+};
 pub use import::{ImportReport, import};
 pub use schema::data::item_owners;
 

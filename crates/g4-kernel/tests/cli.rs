@@ -1306,3 +1306,104 @@ fn cli_text_import_refuses_a_broken_or_newer_mark() {
         );
     }
 }
+
+#[test]
+fn cli_text_adopt_sync_and_revert() {
+    let (_tmp, root, _nds) = text_layout();
+    // Set up as text project, each phase timed.
+    let assert = text(&["adopt"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let phases: Vec<&str> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix("phase="))
+        .map(|l| l.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(
+        phases,
+        ["scripts", "base_layer", "entities", "sync"],
+        "{out}"
+    );
+    let summary = out.lines().last().unwrap();
+    assert!(summary.starts_with("adopted=scripts:"), "{summary}");
+    assert!(summary.contains(" sync_files="), "{summary}");
+    assert!(root.join("g4-project.json").is_file());
+    let toml = std::fs::read_to_string(root.join("rotom.toml")).unwrap();
+    assert!(toml.contains(".g4/include"), "{toml}");
+
+    // Nothing changed: nothing to take over.
+    let out = stdout_of(&text(&["sync"], &root).assert().success());
+    assert!(out.lines().all(|l| l.starts_with("stat=")), "{out}");
+
+    // DSPRE changes move 1: taken over into its JSON.
+    let member = root.join("unpacked/moveData/0001");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 44;
+    std::fs::write(&member, &bytes).unwrap();
+    let out = stdout_of(&text(&["sync"], &root).assert().success());
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("dspre data/moves/0001.json Attacke 0001")),
+        "{out}"
+    );
+    let json = std::fs::read_to_string(root.join("data/moves/0001.json")).unwrap();
+    assert!(json.contains("\"power\": 44"), "{json}");
+
+    // Both sides change move 2: a conflict, exit 1, until one side is kept.
+    let json_path = root.join("data/moves/0002.json");
+    let json = std::fs::read_to_string(&json_path).unwrap();
+    std::fs::write(
+        &json_path,
+        json.replacen("\"power\": 20", "\"power\": 99", 1),
+    )
+    .unwrap();
+    let member = root.join("unpacked/moveData/0002");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 55;
+    std::fs::write(&member, &bytes).unwrap();
+    let assert = text(&["sync"], &root).assert().code(1);
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("conflict data/moves/0002.json Attacke 0002")),
+        "{out}"
+    );
+    // Pending: the revert is refused.
+    text(&["revert"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::textproject::adopt::REVERT_PENDING));
+    text(&["sync", "--keep", "studio", "data/moves/0002.json"], &root)
+        .assert()
+        .success()
+        .stdout(contains("kept studio data/moves/0002.json"));
+    assert_eq!(std::fs::read(&member).unwrap()[3], 99, "the JSON's power");
+    text(&["sync"], &root).assert().success();
+    text(&["sync", "--keep", "both", "data/moves/0002.json"], &root)
+        .assert()
+        .code(1);
+
+    // Taken back: the manifest and data/ are in the backup.
+    let assert = text(&["revert"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let backup = out
+        .lines()
+        .find_map(|l| l.strip_prefix("backup="))
+        .and_then(|l| l.split(" rewritten=").next())
+        .unwrap_or_else(|| panic!("no backup line:\n{out}"));
+    assert!(
+        std::path::Path::new(backup)
+            .join("g4-project.json")
+            .is_file()
+    );
+    assert!(
+        std::path::Path::new(backup)
+            .join("data/moves/0001.json")
+            .is_file()
+    );
+    assert!(!root.join("g4-project.json").exists());
+    assert!(!root.join("data").exists());
+}

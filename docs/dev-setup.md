@@ -558,6 +558,9 @@ target/release/g4k text check <Kopie>     # schema=…, Probleme, differs=N; sch
 target/release/g4k text import <Kopie>    # prüft alles, bevor es den ersten Member schreibt
 target/release/g4k text sources <Kopie>   # die Dateien des Textprojekts, eine je Zeile (für git add)
 target/release/g4k text migrate <Kopie>   # ältere Schema-Version mit Schnappschuss unter .g4/backup/
+target/release/g4k text adopt <Kopie>     # als Textprojekt einrichten (Scripts, Export, rotom.toml, Aufzeichnung); phase=… ms=… je Phase
+target/release/g4k text sync <Kopie>      # Einseitiges übernehmen; conflict/broken <schlüssel> <label>, Exit 1 bei Konflikten; --keep studio|dspre <schlüssel>
+target/release/g4k text revert <Kopie>    # zurücknehmen: Manifest, data/, .g4/include/ nach .g4/backup/textproject-<Zeit>/
 ```
 
 **Basisschicht:** Der Export vergleicht mit der Basis-ROM, extrahiert und mit allen Archiven entpackt unter `<Projekt>/.g4/cache/base-layer/<sha1>/` (rund 150 MB und 18 500 Dateien bei Platin, 182 MB und 20 000 Dateien bei HeartGold), einmal je Basis angelegt (6 bis 8 s bei geringer Last) und jederzeit löschbar; sie liegt nie in Git. Ein Ordner neben `data/` in der Projektwurzel (etwa eine Sicherung `data.prev/`) gilt als nicht abgebildete Änderung und wird ein Blob unter `data/raw/`; Sicherungen gehören außerhalb des Projekts.

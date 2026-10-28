@@ -542,7 +542,7 @@ Blobs nach `Größe` und `xxh3`; höchstens 40 Zeilen, der Rest als Zahl (`more`
 
 | Konflikt | Studio-Fassung behalten | andere Fassung übernehmen |
 |---|---|---|
-| beide Seiten, oder DSPRE mit ungespeichertem Asset (`other = dspre`) | Member aus der Quelle; Ungespeichertes bleibt ungespeichert und unberührt (samt Undo; änderte sich die Quelle auch, lehnt sein Speichern mit `Stale` ab); saubere geladene Assets, deren Quelle sich änderte, werden neu geladen | Quelle aus den Membern; alle geladenen Assets werden neu geladen, Ungespeichertes fällt weg |
+| beide Seiten, oder DSPRE mit ungespeichertem Asset (`other = dspre`) | Member aus der Quelle; Ungespeichertes bleibt ungespeichert und unberührt (samt Undo; änderte sich die Quelle auch, wird sein Speichern mit `Stale` abgelehnt); saubere geladene Assets, deren Quelle sich änderte, werden neu geladen | Quelle aus den Membern; alle geladenen Assets werden neu geladen, Ungespeichertes fällt weg |
 | Quelle mit ungespeichertem Asset (`other = files`) | Member aus der geänderten Quelle, die der neue Stand des Stores wird (`accept_disk_as_base`): Das nächste Speichern überschreibt sie ohne `Stale` | Member aus der geänderten Quelle; die Assets werden neu geladen, Ungespeichertes fällt weg |
 
 Ein Text folgt `resolve_conflict` (`Json` bzw. `Member`), ein Script behält seine Quelle (sie wird
@@ -551,6 +551,60 @@ bzw. wird aus dem Member dekompiliert, ein Blob wird kopiert. Lässt sich die Ei
 übernehmen, nennt die Ablehnung den Grund (rotom dekompiliert den Member nicht, die Quelle lässt
 sich nicht importieren, ihre Dateien änderten sich seit dem Scan). Bei Scripts zeigt der Diff
 `fehlt` für eine Zeile, die nur eine Seite hat, und Größe und xxh3, wenn nur Zeilenenden abweichen.
+
+## Einrichten und Zurücknehmen
+
+**Einrichten** (`textproject::adopt::adopt`, `g4k text adopt`, in der App „Als Textprojekt
+einrichten…“ und das Häkchen im Assistenten) macht aus einem DSPRE-Ordner ein Textprojekt.
+Voraussetzungen wie beim Export: Platin oder HGSS (nicht Diamant/Perl), eine Basismarke, die
+gefundene Basis-ROM dieser Marke (`--base-rom`, sonst die `.nds` daneben, sonst
+`G4_BASE_ROM_DIR`; fehlt sie, sagt es `base::missing_text`), kein Manifest einer älteren oder
+neueren Schema-Version, keine Texte im Konflikt, keine fehlenden Item-Member. Eine Ablehnung kommt,
+bevor etwas geschrieben wird, mit dem Satz des Exports. Die App verlangt dazu gespeicherten Stand.
+Der Fortschritt kommt in vier Phasen (`AdoptProgress`, je von `done` 0 bis `done` = `total`):
+
+| Phase | Was geschieht | `total` |
+|---|---|---|
+| `scripts` | Scripts übernehmen (`scripts::adopt`), wenn sie es nicht sind | Script-Member; 0, wenn schon übernommen |
+| `base_layer` | Basisschicht unter `.g4/cache/base-layer/<sha1>/`, nur wenn sie fehlt | 1 |
+| `entities` | der Export: Text-JSON, Taufe, je Art ihr Ordner unter `data/`, Register, Quirks, dann die Blobs | 17 (16 Arten, eine auch, wenn das Spiel sie nicht hat, und die Blobs) |
+| `sync` | `rotom.toml` bekommt `.g4/include` in `include_roots`, die Include-Datei, dann `sync` und `texts` in `.g4/build/state.json` voll aufgezeichnet | 1 |
+
+`rotom.toml` wird nur ergänzt: fehlt `include_roots`, kommt der Schlüssel dazu; steht dort eine
+andere Liste (oder ein einzelner Pfad), wird `.g4/include` angehängt; Kommentare und Reihenfolge
+bleiben (`toml_edit`). Für DSPRE-Projekte wertet rotom die Include-Wurzeln beim Übersetzen nicht
+aus; ohne Datei ist der Eintrag harmlos. Ein zweites Einrichten auf einem Textprojekt ist ein
+Export, der nichts schreibt, und eine neue Aufzeichnung. Danach baut ein unverändertes Projekt
+SHA-1-gleich zur Basis-ROM. Der Assistent richtet mit dem Häkchen nach der Phase `check` (die
+Basismarke steht) und vor dem Umbenennen des Staging-Ordners ein, mit der gewählten ROM als Basis
+(`start::create_project_with_options`, Phase `text_project`).
+
+**Zurücknehmen** (`textproject::adopt::revert`, `g4k text revert`, in der App „Zurücknehmen…“)
+verschiebt das Manifest, statt einen Schnappschuss zurückzuspielen. Das ist sofort und verlustfrei
+möglich, weil der DSPRE-Teil jederzeit vollständig ist: Der Export ändert keinen Member und
+überschreibt nur Text-JSON, die nach 4.2 ohnehin dem geltenden Member gleichen; danach halten
+Speichern und Abgleich die Member stets aktuell. Ein Schnappschuss vor dem Einrichten kostete rund
+150 MB und wäre nach der ersten Bearbeitung veraltet. Ablauf:
+
+1. Nur ein Textprojekt der aktuellen Schema-Version (sonst der Satz von `manifest::refusal`).
+2. Ein Scan des Abgleichs; Abgeglichenes wird aufgezeichnet, nichts übernommen. Findet er eine
+   Änderung von außen (`dspre`, `files`), einen Konflikt oder eine fehlerhafte Datei, wird
+   abgelehnt: „Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien
+   (Technik › Textprojekt).“ Ungespeicherte Werte prüft die App vorher.
+3. `g4-world.json` und `g4-checks.json` werden mit Nummern statt IDs geschrieben, wo sie IDs
+   tragen (ohne Textprojekt gelten dort nur Nummern sicher).
+4. `g4-project.json` (zuerst: ohne Manifest ist der Ordner sofort wieder ein DSPRE-Ordner),
+   `data/` und `.g4/include/` werden per `rename` in einen neuen Ordner
+   `.g4/backup/textproject-<UTC-Zeit>/` verschoben (RFC 3339 ohne Doppelpunkte wie bei der
+   Migration, `-2`, `-3` …, wenn es ihn gibt), mit denselben Pfaden darin.
+5. `sync` in `.g4/build/state.json` wird geleert.
+
+Im Backup liegen also das Manifest, alle Entitäts-JSON mit Beifiles, die Register `data/ids/`,
+die Blobs `data/raw/`, die Quirks und die Include-Datei. Die Text-JSON unter
+`expanded/textArchives/`, die Script-Quellen, `rotom.toml` (mit der Include-Wurzel) und die
+Basisschicht bleiben, wo sie sind; sie gehören auch zum DSPRE-Ordner. Wer die Rücknahme
+zurücknehmen will, verschiebt die drei Einträge zurück und gleicht ab. Ein Build danach ist der
+eines DSPRE-Ordners und liefert unverändert die Basis-ROM.
 
 ## Schema-Version und Migration
 

@@ -285,3 +285,44 @@ fn project_start_incremental_build_matches_the_rom() {
         "build after a map edited and written back"
     );
 }
+
+/// Gated (`G4_TEST_ROM`): a new project set up as text project in the wizard builds the ROM
+/// byte for byte.
+#[test]
+fn project_start_text_project_builds_byte_equal() {
+    use g4_kernel::start::{CreateOptions, Phase, create_project_with_options};
+
+    let Some(nds) = std::env::var_os("G4_TEST_ROM").map(PathBuf::from) else {
+        eprintln!("skipped: G4_TEST_ROM not set");
+        return;
+    };
+    let info = inspect_rom(&nds).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let dest = tmp.path().join("text");
+    let opts = CreateOptions {
+        template: Template::Original,
+        text_project: true,
+    };
+    let mut seen = Vec::new();
+    let created = create_project_with_options(&nds, &dest, &opts, &mut |p| seen.push(p)).unwrap();
+    assert!(seen.iter().any(|p| p.phase == Phase::TextProject));
+    assert!(g4_kernel::textproject::is_text_project(&dest));
+    let report = created
+        .text_project
+        .as_ref()
+        .expect("the adoption's report");
+    let project = g4_kernel::project::Project::open(&dest).unwrap();
+    let out = tmp.path().join("out.nds");
+    let started = std::time::Instant::now();
+    g4_kernel::build::build(&project, &out).unwrap();
+    let build_ms = started.elapsed().as_millis();
+    eprintln!(
+        "{}: phases {:?}, adopt_ms={} written={} sync_files={} build_ms={build_ms}",
+        info.game_code, created.phases, report.ms, report.export.written, report.sync_files
+    );
+    assert_eq!(
+        inspect_rom(&out).unwrap().sha1,
+        info.sha1,
+        "the text project builds another ROM"
+    );
+}
