@@ -5,7 +5,8 @@
 //! This module holds the manifest with its schema version ([`manifest`]), the canonical
 //! JSON form every file is written in ([`canon`]) and the migration chain that lifts an
 //! older project to [`SCHEMA_VERSION`] ([`migrate`]), and the symbolic ids of the data
-//! ([`symbols`]) with the per-project registers of christened ids ([`registry`]), and the
+//! ([`symbols`]) with the per-project registers of christened ids ([`registry`]) and the
+//! resolver of an id or a number of every kind for the files beside them ([`ids`]), and the
 //! base layer every "differs" is measured against, with the blobs of `data/raw/`
 //! ([`base_layer`]), and rotom's binary quirks, kept in `data/rotom-quirks.json` instead of
 //! the compile-state cache ([`quirks`]).
@@ -29,6 +30,7 @@ pub(crate) mod canon;
 mod check;
 pub(crate) mod codes;
 mod export;
+pub mod ids;
 mod import;
 mod locate;
 pub mod manifest;

@@ -15,113 +15,43 @@ use g4_kernel::base::BaseRom;
 use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
 use g4_kernel::text::{Problem, Severity};
 use g4_kernel::textproject::manifest::SchemaState;
 use g4_kernel::textproject::quirks::quirks_from_state;
 use g4_kernel::textproject::{ExportOptions, ExportReport, check, export, import, sources};
 
-use common::{Synthetic, copy_dir, synthetic_map_bytes, synthetic_project, synthetic_rom};
+use common::{TextFixture, synthetic_map_bytes};
 
 const LAYER_DIR: &str = ".g4/cache/base-layer";
 
-/// A synthetic project with a base mark, the base ROM and a base layer copied from the
-/// project as it was before the test changed it.
-struct Fx {
-    project: Synthetic,
-    _rom_dir: tempfile::TempDir,
-    rom: PathBuf,
-    sha1: String,
+/// The shared text-project fixture with the helpers only these tests use.
+struct Fx(TextFixture);
+
+impl std::ops::Deref for Fx {
+    type Target = TextFixture;
+
+    fn deref(&self) -> &TextFixture {
+        &self.0
+    }
 }
 
 impl Fx {
     fn new() -> Fx {
-        Fx::with(|_| {})
+        Fx(TextFixture::dspre())
     }
 
     /// `prepare` changes the project before the base layer is copied from it.
     fn with(prepare: impl FnOnce(&Project)) -> Fx {
-        let fx = Fx::unmarked(prepare);
-        fx.write_mark(&fx.sha1.clone());
-        fx
+        Fx(TextFixture::with(prepare))
     }
 
     /// Like [`Fx::with`], without the base mark.
     fn unmarked(prepare: impl FnOnce(&Project)) -> Fx {
-        let project = synthetic_project();
-        let p = Project::open(project.dir.path()).unwrap();
-        prepare(&p);
-        unpack_all(&p);
-        let (rom_dir, rom) = synthetic_rom();
-        let sha1 = BaseRom::open(&rom, None).unwrap().sha1().to_owned();
-        let fx = Fx {
-            project,
-            _rom_dir: rom_dir,
-            rom,
-            sha1,
-        };
-        fx.place_layer();
-        fx
-    }
-
-    fn root(&self) -> &Path {
-        self.project.dir.path()
+        Fx(TextFixture::unmarked(prepare))
     }
 
     fn p(&self) -> Project {
-        Project::open(self.root()).unwrap()
-    }
-
-    fn base(&self) -> BaseRom {
-        BaseRom::open(&self.rom, None).unwrap()
-    }
-
-    /// Copies the project (without `.g4`) to the base layer of its base ROM.
-    fn place_layer(&self) {
-        let tmp = tempfile::tempdir().unwrap();
-        let copy = tmp.path().join("layer");
-        copy_dir(self.root(), &copy);
-        let _ = std::fs::remove_dir_all(copy.join(".g4"));
-        let layer = self.root().join(LAYER_DIR).join(&self.sha1);
-        copy_dir(&copy, &layer);
-        std::fs::write(layer.join(".complete"), &self.sha1).unwrap();
-    }
-
-    fn remove_layer(&self) {
-        std::fs::remove_dir_all(self.root().join(LAYER_DIR)).unwrap();
-    }
-
-    fn write_mark(&self, sha1: &str) {
-        let mark = BaseMark {
-            version: BASE_MARK_VERSION,
-            origin: ORIGIN_DSPRE.to_owned(),
-            sha1: sha1.to_owned(),
-            game_code: "CPUE".to_owned(),
-            title: "POKEMON PL".to_owned(),
-            revision: 0,
-            size: 0x8000,
-            template: None,
-            created: "2026-10-27T12:00:00Z".to_owned(),
-            assigned: Some("2026-10-27T12:00:00Z".to_owned()),
-            studio_version: "0.0.0".to_owned(),
-            secure_area_crc: 0x1234,
-            secure_area_sha1: "0".repeat(40),
-        };
-        self.write(".g4/base.json", &serde_json::to_vec_pretty(&mark).unwrap());
-    }
-
-    fn write(&self, rel: &str, bytes: &[u8]) {
-        let path = self.root().join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, bytes).unwrap();
-    }
-
-    fn read(&self, rel: &str) -> Vec<u8> {
-        std::fs::read(self.root().join(rel)).unwrap()
-    }
-
-    fn text(&self, rel: &str) -> String {
-        String::from_utf8(self.read(rel)).unwrap()
+        self.project()
     }
 
     fn json(&self, rel: &str) -> serde_json::Value {
@@ -141,13 +71,6 @@ impl Fx {
             },
         )
         .unwrap()
-    }
-
-    /// Replaces `from` by `to` in file `rel` (which must contain it).
-    fn edit(&self, rel: &str, from: &str, to: &str) {
-        let text = self.text(rel);
-        assert!(text.contains(from), "{rel} has no `{from}`:\n{text}");
-        self.write(rel, text.replacen(from, to, 1).as_bytes());
     }
 
     /// Every file below the root except `.g4` and rotom's status, with its mtime.
@@ -186,21 +109,6 @@ fn files(root: &Path, rel: &Path, out: &mut BTreeMap<PathBuf, SystemTime>) {
             files(root, &path, out);
         } else {
             out.insert(path, entry.metadata().unwrap().modified().unwrap());
-        }
-    }
-}
-
-/// Unpacks every archive of the project the way the base layer has them.
-fn unpack_all(p: &Project) {
-    let kinds: Vec<AssetKind> = p.archives.kinds().collect();
-    for kind in kinds {
-        if kind == AssetKind::DynamicHeaders {
-            continue;
-        }
-        if let Some(packed) = p.archives.packed(kind)
-            && p.root.join(packed).is_file()
-        {
-            p.ensure_unpacked(kind).unwrap();
         }
     }
 }
@@ -823,7 +731,7 @@ fn a_failing_base_is_an_error_not_an_unchecked_member() {
     let member = fx
         .root()
         .join(LAYER_DIR)
-        .join(&fx.sha1)
+        .join(fx.sha1())
         .join("unpacked/mapTextures/0000");
     std::fs::remove_file(&member).unwrap();
     std::fs::create_dir(&member).unwrap();
