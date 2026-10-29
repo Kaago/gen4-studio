@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { adoptTextProject, errorText, isCmdError } from "../api";
 import type { AdoptProgress, AdoptReport } from "../api";
+import { templatesNote } from "../git/gitWords";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
 import { NBSP } from "../words";
@@ -32,9 +33,9 @@ export function adoptProgressText(p: AdoptProgress): string {
   }
 }
 
-/** The message after the set-up: the files of the text project and the seconds it took. */
+/** The message after the set-up: the files of the text project and the seconds it took, then what became of the Git templates. */
 export function adoptedText(report: AdoptReport): string {
-  return `Textprojekt eingerichtet: ${report.export.files.toLocaleString("de-DE")}${NBSP}Dateien in ${Math.round(report.ms / 1000)}${NBSP}s.`;
+  return `Textprojekt eingerichtet: ${report.export.files.toLocaleString("de-DE")}${NBSP}Dateien in ${Math.round(report.ms / 1000)}${NBSP}s.${templatesNote(report)}`;
 }
 
 export type AdoptDialogProps = {

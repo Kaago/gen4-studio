@@ -1317,7 +1317,9 @@ enum TextCommand {
     /// Set the DSPRE folder up as text project: adopt the scripts (when they are not), export,
     /// add the include root to `rotom.toml`, record the sync. Needs the base mark and the
     /// base ROM (found like `export`). Prints `phase=<phase> ms=N` per phase, then the
-    /// totals. On a text project it writes nothing and records the sync anew (a repair);
+    /// totals; when the `.gitignore` holds the block of Gen4 Studio, the templates written anew
+    /// as `g4k git templates` prints them (or `warning: …`). On a text project it writes
+    /// nothing and records the sync anew (a repair);
     /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
     Adopt {
         project: PathBuf,
@@ -1330,8 +1332,9 @@ enum TextCommand {
     },
     /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and the
     /// id files for rotom (`.rotom/command_database/.g4-ids-*.json`) to
-    /// `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync` finds something
-    /// pending, or while a script source uses an id only the id files define.
+    /// `.g4/backup/textproject-<time>/`, then rewrites the Git templates like `text adopt`.
+    /// Refused (exit 1) while `text sync` finds something pending, or while a script source
+    /// uses an id only the id files define.
     Revert { project: PathBuf },
     /// Take over what changed on one side since the last record (`dspre <key> <label>`,
     /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,
@@ -1416,6 +1419,10 @@ fn text(command: TextCommand) -> Result<(), Failure> {
                 report.backup.display(),
                 report.rewritten.len(),
                 report.ms
+            );
+            print_rewritten(
+                report.templates.as_ref(),
+                report.templates_warning.as_deref(),
             );
             Ok(())
         }
@@ -1613,6 +1620,10 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
             report.include_written,
             report.sync_files,
             report.ms
+        );
+        print_rewritten(
+            report.templates.as_ref(),
+            report.templates_warning.as_deref(),
         );
     }
     fail_on_errors(&report.export.problems, "text adopt")
@@ -2004,6 +2015,17 @@ fn print_templates(report: &g4_kernel::git::TemplateReport) {
         serde_name(&report.layout),
         report.ignored_archives
     );
+}
+
+/// The Git templates `text adopt` and `text revert` wrote anew (as `git templates` prints
+/// them), or the warning why they could not; nothing for a project without the block.
+fn print_rewritten(templates: Option<&g4_kernel::git::TemplateReport>, warning: Option<&str>) {
+    if let Some(templates) = templates {
+        print_templates(templates);
+    }
+    if let Some(warning) = warning {
+        println!("warning: {warning}");
+    }
 }
 
 /// The serde name of a unit variant (`snake_case` in the kernel's reports).

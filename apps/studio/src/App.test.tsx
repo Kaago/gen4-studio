@@ -3034,7 +3034,7 @@ describe("App wiring", () => {
       vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
       vi.mocked(externalSync).mockResolvedValue(outcome());
       const files = { arts: [], raw_blobs: 0, raw_bytes: 0, raw_ms: 0, not_built: [], texts: 0, text_json_written: 0, scripts: 0, adopted: null, registries_written: 0, base_layer_ms: 0, base_layer_created: true, files: 6512, bytes: 0, written: 6512, removed: 0, problems: [], ms: 1 };
-      await act(async () => finish({ export: files, include_written: true, sync_files: 9000, ms: 88400 }));
+      await act(async () => finish({ export: files, include_written: true, sync_files: 9000, templates: null, templates_warning: null, ms: 88400 }));
       await flush();
       await flush();
       expect(dialog()).toBeNull();
@@ -3047,7 +3047,7 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
 
       // Taken back: the same reload, and the backup is named.
-      vi.mocked(revertTextProject).mockResolvedValue({ backup: "/p/.g4/backup/textproject-1", rewritten: [], ms: 3 });
+      vi.mocked(revertTextProject).mockResolvedValue({ backup: "/p/.g4/backup/textproject-1", rewritten: [], templates: null, templates_warning: null, ms: 3 });
       vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
       vi.mocked(listHeaders).mockClear();
       await click("Zurücknehmen…");

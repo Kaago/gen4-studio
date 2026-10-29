@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { AssetId } from "./api";
+import type { InitReport } from "./api.git";
 import { inTauri, invoke } from "./platform/transport";
 
 /**
@@ -155,16 +156,25 @@ export interface ExportReport {
   ms: number;
 }
 
-/** What the set-up did: the export, whether the id files for rotom were written, how many files the sync recorded, the milliseconds. */
-export interface AdoptReport {
+/**
+ * The Git templates written anew after a set-up or a take-back, in a project whose `.gitignore` holds the block of Gen4 Studio (null
+ * without the block); `templates_warning` the sentence when that failed (the set-up or take-back still went in).
+ */
+export interface TemplatesRewritten {
+  templates: InitReport["templates"] | null;
+  templates_warning: string | null;
+}
+
+/** What the set-up did: the export, whether the id files for rotom were written, how many files the sync recorded, the Git templates, the milliseconds. */
+export interface AdoptReport extends TemplatesRewritten {
   export: ExportReport;
   include_written: boolean;
   sync_files: number;
   ms: number;
 }
 
-/** What taking the text project back did: the backup folder (absolute), the files written with numbers instead of ids, the milliseconds. */
-export interface RevertReport {
+/** What taking the text project back did: the backup folder (absolute), the files written with numbers instead of ids, the Git templates, the milliseconds. */
+export interface RevertReport extends TemplatesRewritten {
   backup: string;
   rewritten: string[];
   ms: number;

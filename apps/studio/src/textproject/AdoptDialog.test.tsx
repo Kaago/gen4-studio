@@ -39,6 +39,8 @@ const report: AdoptReport = {
   },
   include_written: true,
   sync_files: 9000,
+  templates: null,
+  templates_warning: null,
   ms: 88400,
 };
 
@@ -116,6 +118,19 @@ describe("AdoptDialog", () => {
     expect(onClose).toHaveBeenCalled();
     // UI test 4.3b U7: no line breaks between a count and its unit.
     expect(adoptedText(report)).toBe("Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s.");
+  });
+
+  it("names_the_rewritten_git_templates_or_why_not", () => {
+    const templates = { layout: "text_project" as const, files: [{ path: ".gitignore", action: "updated" as const }, { path: ".gitattributes", action: "unchanged" as const }], ignored_archives: 0 };
+    expect(adoptedText({ ...report, templates })).toBe(
+      "Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s. Die .gitignore von Gen4 Studio versioniert jetzt das Textprojekt.",
+    );
+    // Nothing changed in the files: nothing to say.
+    const same = { ...templates, files: templates.files.map((f) => ({ ...f, action: "unchanged" as const })) };
+    expect(adoptedText({ ...report, templates: same })).toBe("Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s.");
+    expect(adoptedText({ ...report, templates_warning: "Die Git-Vorlagen ließen sich nicht umstellen: .gitignore: kaputt." })).toBe(
+      "Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s. Die Git-Vorlagen ließen sich nicht umstellen: .gitignore: kaputt.",
+    );
   });
 
   it("unsaved_locks_set_up", async () => {

@@ -19,7 +19,12 @@ ein Textprojekt jeder Schema-Version (`TextProject`, `Older`, `Newer`) bekommt d
 ein DSPRE-Ordner und ein Manifest, das sich nicht lesen lässt (`Broken`), die DSPRE-Vorlage. Wird ein
 DSPRE-Ordner zum Textprojekt („Als Textprojekt einrichten…“), ersetzt das nächste Schreiben den
 DSPRE-Block durch den Textblock (`updated`): ein umgestelltes Projekt versioniert seine Spieldateien
-nicht weiter.
+nicht weiter. Dieses Schreiben folgt von selbst: Steht der Block von Gen4 Studio schon in der
+`.gitignore`, schreibt `textproject::adopt::adopt` nach dem Einrichten und `revert` nach dem
+Zurücknehmen beide Vorlagen neu (Bericht `templates`, ein Fehler dabei nur als `templates_warning`,
+das Einrichten gilt trotzdem); ein Projekt ohne den Block bekommt keine Vorlagen. Was schon
+committet ist, bleibt verfolgt, bis es mit `git rm -r --cached <Pfad>` aus dem Index genommen ist;
+das tut Gen4 Studio nicht.
 
 ### DSPRE-Layout (`dspre.gitignore`)
 

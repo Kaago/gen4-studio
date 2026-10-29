@@ -1,4 +1,4 @@
-import type { GitStatus, InitReport } from "../api";
+import type { GitStatus, InitReport, TemplatesRewritten } from "../api";
 import { NBSP } from "../words";
 
 /** The changed paths since the last commit: „keine Änderung“, „1 Änderung“, „{n} Änderungen“. */
@@ -41,3 +41,15 @@ export const NOT_INSTALLED = "Git ist nicht installiert. Die Vorlagen sind gesch
 
 /** The message when no `git` is installed: only the templates were written. */
 export const TEMPLATES_ONLY_TEXT = "Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.";
+
+/**
+ * After a set-up or a take-back: what became of the Git templates, as a sentence with a leading space („ Die .gitignore von Gen4 Studio
+ * versioniert jetzt das Textprojekt.“), the kernel's warning when they could not be written, empty when nothing changed or the project
+ * never set up Git.
+ */
+export function templatesNote(report: TemplatesRewritten): string {
+  if (report.templates_warning !== null) return ` ${report.templates_warning}`;
+  const t = report.templates;
+  if (t === null || !t.files.some((f) => f.path === ".gitignore" && f.action !== "unchanged")) return "";
+  return t.layout === "text_project" ? " Die .gitignore von Gen4 Studio versioniert jetzt das Textprojekt." : " Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner.";
+}
