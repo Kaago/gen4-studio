@@ -1073,7 +1073,17 @@ impl Project {
     /// Reads the header table as it is on disk: from `arm9/arm9.bin`, or from the files of
     /// `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied.
     pub fn read_headers(&self) -> Result<Vec<uxie::MapHeader>, KernelError> {
-        self.read_header_table_bytes()?
+        self.headers_from_table_bytes(&self.read_header_table_bytes()?)
+    }
+
+    /// The headers of the header table `table` (24 bytes each, a trailing rest ignored) in
+    /// this project's layout: the table on disk, or one read elsewhere (a commit's
+    /// `arm9.bin` slice, the base ROM).
+    pub(crate) fn headers_from_table_bytes(
+        &self,
+        table: &[u8],
+    ) -> Result<Vec<uxie::MapHeader>, KernelError> {
+        table
             .as_chunks::<MAP_HEADER_SIZE>()
             .0
             .iter()

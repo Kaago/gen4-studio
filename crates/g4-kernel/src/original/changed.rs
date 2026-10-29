@@ -87,7 +87,7 @@ pub struct ChangedProgress {
 const PROGRESS_EVERY: u32 = 256;
 
 /// The groups of the list, in order; folders of no group follow under their own name.
-const GROUPS: [&str; 16] = [
+pub(crate) const GROUPS: [&str; 16] = [
     "Karten",
     "Eventdateien",
     "Textarchive",
@@ -105,10 +105,10 @@ const GROUPS: [&str; 16] = [
     "Attacken",
     "Items",
 ];
-const HEADER_GROUP: usize = 6;
+pub(crate) const HEADER_GROUP: usize = 6;
 
 /// The group (index into [`GROUPS`]) of the archive of `kind`; `None`: no group of its own.
-fn group_of(kind: AssetKind) -> Option<usize> {
+pub(crate) fn group_of(kind: AssetKind) -> Option<usize> {
     Some(match kind {
         AssetKind::Map => 0,
         AssetKind::Event => 1,

@@ -2,6 +2,7 @@ pub mod base;
 pub mod build;
 pub mod checks;
 pub mod data;
+pub mod diff;
 mod disk;
 pub mod dynamic_headers;
 pub mod error;

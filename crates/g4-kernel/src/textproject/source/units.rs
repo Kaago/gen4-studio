@@ -124,7 +124,7 @@ pub(super) fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError>
 
 /// Member `index` of `kind` as it is on disk: the file below `unpacked/` when the archive is
 /// unpacked, else the packed NARC's.
-pub(super) fn disk_member(
+pub(crate) fn disk_member(
     project: &Project,
     kind: AssetKind,
     index: u16,
@@ -354,6 +354,55 @@ pub(crate) fn asset_of_unpacked(project: &Project, folder: &str, file: &str) -> 
         }
     }
     None
+}
+
+/// The entity file `rel` (relative to the root) of an art folder belongs to: its JSON
+/// `data/<art>/NNNN.json` or a side file `NNNN.<ext>` → the art's first kind with `N` (a
+/// trainer's files: `Trainer`; the header files: `HeaderTable` with the header's number; the
+/// item files: `Item` with the item id; a binary kind's `NNNN.<ext>`); `None` for any other
+/// path (registers, blobs, quirks).
+pub(crate) fn entity_of_data_file(rel: &Path) -> Option<(AssetKind, u16)> {
+    let parts: Vec<&str> = rel
+        .components()
+        .map(|c| c.as_os_str().to_str())
+        .collect::<Option<_>>()?;
+    let [data, folder, file] = parts.as_slice() else {
+        return None;
+    };
+    if *data != super::super::DATA_DIR {
+        return None;
+    }
+    let art = ARTS.into_iter().find(|art| art.name() == *folder)?;
+    let (stem, _) = file.split_once('.')?;
+    let index = stem.parse::<u16>().ok()?;
+    if stem.len() < 4 || format!("{index:04}") != stem {
+        return None;
+    }
+    let kind = match art {
+        Art::Headers => AssetKind::HeaderTable,
+        Art::Items => AssetKind::Item,
+        Art::Trainers => AssetKind::Trainer,
+        art => *art.kinds().first()?,
+    };
+    Some((kind, index))
+}
+
+/// The file of entity `index` of the art holding `kind` in the text project: its JSON
+/// (`data/species/0025.json` for personal data, learnset or evolution 25; `data/items/NNNN.json`
+/// for `Item` with item id `index`; `data/headers/NNNN.json` for `HeaderTable` with the
+/// header's number; `data/trainers/NNNN.json` for `Trainer`), a binary kind's
+/// `data/<art>/NNNN.<ext>`; `None` for kinds the text project does not model.
+pub(crate) fn entity_file(kind: AssetKind, index: u16) -> Option<PathBuf> {
+    let art = match kind {
+        AssetKind::HeaderTable => Art::Headers,
+        AssetKind::Item => Art::Items,
+        AssetKind::Trainer => Art::Trainers,
+        kind => ARTS.into_iter().find(|art| art.kinds().contains(&kind))?,
+    };
+    Some(match art {
+        Art::Binary(kind) => binary_rel(kind, index),
+        art => json_rel(art, index),
+    })
 }
 
 /// The item member the item table names for item id `id`; `None` without a table or entry.
