@@ -9,7 +9,7 @@ use crate::dynamic_headers;
 use crate::original::changed::{GROUPS, HEADER_GROUP, group_of};
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind, Project};
-use crate::textproject::source::entity_of_data_file;
+use crate::textproject::source::{entity_of_data_file, item_member_of};
 
 /// The group of a project file.
 const FILES_GROUP: &str = "Projektdateien";
@@ -82,6 +82,71 @@ impl DiffSubject {
             }
         };
         Some(AssetId { kind, index })
+    }
+
+    /// The entity's number (`index`); `None` for a file.
+    pub fn index(&self) -> Option<u16> {
+        match *self {
+            DiffSubject::Map { index }
+            | DiffSubject::Matrix { index }
+            | DiffSubject::AreaData { index }
+            | DiffSubject::EventFile { index }
+            | DiffSubject::Encounter { index }
+            | DiffSubject::Species { index }
+            | DiffSubject::Move { index }
+            | DiffSubject::Item { index }
+            | DiffSubject::Trainer { index }
+            | DiffSubject::Header { index }
+            | DiffSubject::TextArchive { index }
+            | DiffSubject::Script { index }
+            | DiffSubject::MapTexture { index }
+            | DiffSubject::BuildingTexture { index }
+            | DiffSubject::BuildingModel { index }
+            | DiffSubject::InteriorBuildingModel { index }
+            | DiffSubject::Member { index, .. } => Some(index),
+            DiffSubject::File { .. } => None,
+        }
+    }
+
+    /// The store assets of the subject, so the app can mark the unsaved ones: those of its
+    /// reset target (a trainer its pair, a species its three parts, a header the table), an
+    /// item its member, a member that of its folder's kind; none for a file, an item no item
+    /// table names and a folder of no kind.
+    pub fn assets(&self, project: &Project) -> Vec<AssetId> {
+        match self {
+            DiffSubject::Item { index } => item_member_of(project, u32::from(*index))
+                .map(|index| AssetId {
+                    kind: AssetKind::Item,
+                    index,
+                })
+                .into_iter()
+                .collect(),
+            DiffSubject::Member { folder, index } => kind_of_folder(project, folder)
+                .map(|kind| AssetId {
+                    kind,
+                    index: *index,
+                })
+                .into_iter()
+                .collect(),
+            DiffSubject::File { .. } => Vec::new(),
+            _ => match self.reset_target() {
+                Some(target) => target.assets(),
+                None => self.asset().into_iter().collect(),
+            },
+        }
+    }
+
+    /// The folder below `unpacked/` of the subject's (first) member, as 4.1b's list names it
+    /// (a trainer its properties, a species its personal data); `None` for a header and a
+    /// file.
+    pub fn folder(&self, project: &Project) -> Option<String> {
+        let kind = match self {
+            DiffSubject::Header { .. } | DiffSubject::File { .. } => return None,
+            DiffSubject::Member { folder, .. } => return Some(folder.clone()),
+            DiffSubject::Trainer { .. } => AssetKind::TrainerProperties,
+            _ => self.asset()?.kind,
+        };
+        Some(project.archives.unpacked_name(kind).to_owned())
     }
 
     /// The group of the list: the groups of 4.1b's list of changes, the folder's name for a
@@ -213,6 +278,18 @@ fn number(name: &str) -> Option<u16> {
     (name.len() >= 4 && format!("{index:04}") == name).then_some(index)
 }
 
+/// The archive kind whose folder below `unpacked/` is `folder` (not the header table, the
+/// Dynamic Headers or the trainer pair, which have none of their own).
+fn kind_of_folder(project: &Project, folder: &str) -> Option<AssetKind> {
+    AssetKind::ALL.into_iter().find(|&kind| {
+        !matches!(
+            kind,
+            AssetKind::HeaderTable | AssetKind::DynamicHeaders | AssetKind::Trainer
+        ) && project.has_archive(kind)
+            && project.archives.unpacked_name(kind) == folder
+    })
+}
+
 /// The subject of member file `unpacked/<folder>/<name>`: a Dynamic Headers file is its
 /// header, a member of an archive kind that kind's subject, else a `member`.
 fn unpacked(project: &Project, folder: &str, name: &str) -> Option<DiffSubject> {
@@ -221,14 +298,7 @@ fn unpacked(project: &Project, folder: &str, name: &str) -> Option<DiffSubject> 
     if headers.file_name().is_some_and(|dir| dir == folder) {
         return Some(DiffSubject::Header { index });
     }
-    let kind = AssetKind::ALL.into_iter().find(|&kind| {
-        !matches!(
-            kind,
-            AssetKind::HeaderTable | AssetKind::DynamicHeaders | AssetKind::Trainer
-        ) && project.has_archive(kind)
-            && project.archives.unpacked_name(kind) == folder
-    });
-    match kind {
+    match kind_of_folder(project, folder) {
         Some(kind) => DiffSubject::from_asset(project, AssetId { kind, index }),
         None => Some(DiffSubject::Member {
             folder: folder.to_owned(),

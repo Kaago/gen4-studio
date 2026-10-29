@@ -24,6 +24,7 @@ use crate::project::Project;
 use crate::store::Store;
 
 pub mod json;
+mod lists;
 pub(crate) mod side;
 pub mod subject;
 #[cfg(test)]
@@ -31,6 +32,7 @@ mod tests;
 pub mod text;
 
 pub use json::json_changes;
+pub use lists::{head_entries, unsaved_entries};
 pub use subject::DiffSubject;
 pub use text::{line_hunks, word_spans};
 

@@ -201,6 +201,108 @@ Gemessen auf Platin DE (vanilla DSPRE-Ordner, Release, 2026-10-29, `tests/git.rs
 im Index, 36 ignorierte Archive, `git add -A` 8,8 s, Commit 0,2 s, Status danach 75 ms, `.git`
 gepackt 45,2 MiB (Grenze 65 MiB); ein Klon mit `core.autocrlf=true` baut byte-gleich.
 
+## Diff je Entität
+
+`diff::diff_entity` (`crates/g4-kernel/src/diff.rs`, Seiten in `diff/side.rs`, Subjekte in
+`diff/subject.rs`, Listen in `diff/lists.rs`) vergleicht eine Entität semantisch, nie Datei gegen
+Datei. Sie liest nur: nichts wird geschrieben, getauft oder als abgeglichen vermerkt.
+
+**Subjekt** (`DiffSubject`, JSON `{"kind": "trainer", "index": 1}`): die Arten der Studio-Listen
+(`map`, `matrix`, `area_data`, `event_file`, `encounter`, `species`, `move`, `item`, `trainer`,
+`header`, `text_archive`, `script`, `map_texture`, `building_texture`, `building_model`,
+`interior_building_model`) mit einheitlichem `index` (Header-ID, Scriptdatei, Item-ID wie in der
+Item-Liste und in `data/items/`), dazu `member { folder, index }` für einen Ordner unter `unpacked/`
+ohne Studio-Art und `file { path }` für jede andere Projektdatei. Ein Trainer (Eigenschaften und
+Team) und ein Pokémon (Daten, Attacken, Entwicklung) sind je ein Subjekt; ein Pfad wird über
+`DiffSubject::of_path` zum Subjekt, eine Datei der Dynamic Headers zu ihrem Header.
+
+**Drei Vergleiche** (`Against`):
+
+| Vergleich | alte Seite | neue Seite | Ablehnung |
+|---|---|---|---|
+| `base` „Gegen Basis“ | die Basis-ROM | der **gespeicherte** Stand (Dateien) | eine Datei („Für einzelne Dateien gibt es keinen Vergleich mit der Basis-ROM.“), keine Basis-ROM (der Grund der App bzw. die fehlende Marke) |
+| `head` „Gegen letzten Commit“ | der Baum von `HEAD` | der gespeicherte Stand | kein Repository, noch kein Commit |
+| `saved` „Gegen gespeichert“ | der gespeicherte Wert im Store | der **ungespeicherte** Wert im Store | ohne Store („Den ungespeicherten Stand kennt nur die App.“), ein Script (der Editor speichert sofort) |
+
+Ein Store, der die Entität nicht geladen hat, gibt für `saved` zweimal den gespeicherten Stand
+(`Same`); Texturen, Modelle, Member und Dateien haben keinen ungespeicherten Wert.
+
+**Seiten** je Art:
+
+| Subjekt | Basis-ROM | `HEAD` | gespeichert (Platte) |
+|---|---|---|---|
+| Entität aus Membern (Felder, Karte) | Member der Basis, im Speicher exportiert | Textprojekt: `data/<art>/NNNN.json` mit Nebendateien; DSPRE: Member-Blobs (fehlt `unpacked/…`, der Member im gepackten NARC von `HEAD`), im Speicher exportiert | Textprojekt: die Datei; DSPRE: die Member exportiert |
+| Header | Eintrag der Tabelle der Basis mit dem Namen aus `mapname.bin` **der Platte** | Textprojekt: `data/headers/NNNN.json`; DSPRE: die Header-Dateien von `HEAD`, wenn dessen `arm9.bin` den Dynamic-Headers-Patch trägt, sonst der Ausschnitt der Tabelle aus dessen `arm9.bin`; Namen aus dem `mapname.bin` von `HEAD`, ohne die Datei Nullen | die Tabelle des Projekts, Name aus `mapname.bin` (Nullen hinter dem Dateiende) |
+| Textarchiv | Member der Basis | `expanded/textArchives/NNNN.json`, sonst der Member | ebenso |
+| Scriptdatei | Member der Basis, dekompiliert | `.rotom`, sonst Level-Script-`.json`, sonst der Member | ebenso |
+| Textur, Modell | Member der Basis | Textprojekt: Datei unter `data/`, ohne sie „wie in der Basis-ROM“; DSPRE: der Member | ebenso |
+| Member ohne Art | Member im NARC der Basis | Textprojekt: `data/raw/unpacked/<ordner>/NNNN`, ohne ihn „wie in der Basis-ROM“; DSPRE: der Member, sonst im gepackten NARC | ebenso |
+| Datei | — | der Blob des Pfads | die Datei |
+
+Steht bei einem Script auf einer Seite die Quelle und auf der anderen nur der Member (ein Commit vor
+der Übernahme der Scripts), wird der Member dekompiliert wie der der Basis; nur wenn das nicht geht
+(keine rotom-Konfiguration), vergleicht der Diff Bytes.
+
+**DTO.** Beide Seiten werden zu derselben Form, bevor sie verglichen werden: das JSON des
+Textprojekt-Schemas (im Textprojekt die Datei selbst, sonst die Member über den In-Speicher-Export
+`EntitySource::open_for_diff`), die Nachrichten eines Textarchivs, der Quelltext eines Scripts, die
+Bytes eines Members. **Ersatz-IDs im DSPRE-Layout:** ohne Register (kein Textprojekt) tragen
+Trainer, Trainerklassen, Orte und Karten die Ersatz-ID (`TRAINER_0001`, `TRAINER_CLASS_0001`,
+`PLACE_0001`, `MAP_0000`); die Quelle des Diffs tauft nie und schreibt nie (`write` außerhalb eines
+Trockenlaufs wird abgelehnt), denn eine Taufe einer einzelnen Entität ergäbe andere Suffixe als die
+Umstellung zum Textprojekt.
+
+**Normalisierung der Teile.** Jedes Teilobjekt (`{"base_sha1": …}`, `{"file": …}`, `{"hex": …}`,
+auch im `raw` von `{"locked", "raw"}`) wird vor dem Vergleich zu `{"sha1": "<40 hex>"}` der Bytes
+(eine fehlende Nebendatei `{"sha1": null}`). Ein gleicher Teil in zwei Formen (Basis-Verweis gegen
+Datei) ist so gleich. Gegen die Basis gilt ein Member, für den das Textprojekt keine Datei hält,
+als gleich.
+
+**Formen** (`EntityDiff`, nach der Art der Seiten):
+
+| Form | Inhalt | Grenze |
+|---|---|---|
+| `fields` | je abweichendem Wert JSON-Pfad (`data.party[0].level`), alt, neu; Zeichenketten ohne Anführungszeichen, sonst kompaktes JSON, fehlend `None` | 200 Zeilen, Rest als Zahl `more` |
+| `map` | Teile `model`, `permissions`, `buildings`, `bdhc`, `bgs` (`raw` einer gesperrten Karte) geändert ja/nein mit den ersten 8 Hex-Ziffern des SHA-1 je Seite; je abweichende Zelle `x, y` mit `kkcc` alt und neu; Gebäude, Quelle und Rest als Felder | 200 Zellen, 200 Felder |
+| `messages` | je Nachrichtenindex neu, entfernt oder geändert, mit Wort-Spannen beider Texte (`gix::diff::blob`, Histogram; Wörter = Buchstaben/Ziffern, Leerraum, Einzelzeichen) | 200 Nachrichten |
+| `lines` | Hunks mit drei Zeilen Umgebung (Scripts, Textdateien) | 400 Zeilen |
+| `binary` | Größe und SHA-1 je Seite, „wie in der Basis-ROM“ oder fehlt | — |
+
+Zustand (`DiffState`): `changed`, `new` (nur die neue Seite), `removed` (nur die alte), `same`.
+
+**Listen.** Alle drei Vergleiche listen dieselben Zeilen (`ChangedEntry`: Gruppe, Name, Zustand
+`changed`/`new`/`missing`, Ziel von „Auf Original zurücksetzen“, Store-Assets, Ordner, `subject`),
+in der Gruppenfolge von 4.1b (Ordner ohne Gruppe danach, Projektdateien unter „Projektdateien“
+zuletzt), in der Gruppe nach Index:
+
+- gegen Basis: `original::changed_from_original` (4.1b), jede Zeile mit `subject`;
+- gegen `HEAD`: `diff::head_entries` aus den Pfaden von `git status`: geändert und Typwechsel →
+  `changed`, hinzugefügt und unverfolgt → `new`, gelöscht → `missing`; die Pfade einer Entität (zwei
+  Trainer-Member, Textarchiv-Member und seine JSON) sind eine Zeile, in verschiedenen Zuständen
+  `changed`. Im DSPRE-Layout wird eine geänderte `arm9/arm9.bin` zu den Headern, deren Eintrag der
+  Tabelle abweicht, plus `file arm9/arm9.bin`, wenn Bytes außerhalb der Tabelle abweichen; ein
+  geändertes `mapname.bin` zu den Headern, deren Name abweicht;
+- gegen gespeichert: `diff::unsaved_entries` aus `Store::dirty()`, die Header-Tabelle je
+  abweichendem Header.
+
+Die Liste gegen `HEAD` zählt Entitäten; die Statusleiste zählt Pfade wie `git status`.
+
+**Kopflos:** `g4k diff <root> <art> <index|id> [--against base|head] [--base-rom <nds>] [--json]`.
+`<art>` ist das `kind` des Subjekts (`member` mit `<ordner>/<NNNN>`, `file` mit dem Pfad), die ID
+wird über den `Resolver` (4.3b) aufgelöst (Pokémon, Attacken, Items, Trainer, Header als `MAP_…`);
+Standard `head`. Je Zeile `field <pfad> <alt> -> <neu>`, `cell <x>,<y> <alt> -> <neu>`,
+`part <name> changed|same`, `message <i> <state> <alt> -> <neu>`, `line <op> <text>`,
+`binary <alt> -> <neu>` (eine Seite `<größe>:<sha1>`, `base` oder `absent`), ein fehlender Wert
+`—`, Zeilenumbrüche als `\n`; zuletzt `state <state>`. `--json` druckt den `EntityDiffReport`.
+Eine Ablehnung endet mit Rückgabe 1. `g4k git status <root> --entries` druckt nach der Zeile
+`branch …` je Entität `<state> <gruppe> <name>`.
+
+Gemessen auf HeartGold US (vanilla DSPRE-Ordner, Release, 2026-10-29,
+`tests/git.rs::trainer_and_text_changes_show_with_field_names_against_head_and_base`, Last 9–11):
+Trainer 1 und Textarchiv 1 über den Store geändert, drei Pfade im Status, zwei Zeilen in der Liste;
+Status 178 ms, Liste unter 1 ms, beide Diffs gegen `HEAD` 6 ms, gegen die Basis-ROM unter 1 ms.
+Ein Diff dauert auf Platin DE und HeartGold US höchstens 14 ms (Debug, `tests/diff.rs`).
+
 ## `.g4/`
 
 `.g4/` ist lokal, bis auf eine Erlaubnisliste versionierter Dateien (C §5.1):

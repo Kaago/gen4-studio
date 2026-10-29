@@ -1727,3 +1727,93 @@ fn cli_text_restore() {
         .code(1)
         .stderr(contains(g4_kernel::patch::NO_MARK));
 }
+
+/// The synthetic project with its trainers unpacked, committed with gix only, then trainer 1's
+/// first team member one level up and saved.
+fn committed_with_trainer_1_changed() -> common::Synthetic {
+    use g4_kernel::project::{AssetKind, Project};
+
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let project = Project::open(root).unwrap();
+    project
+        .ensure_unpacked(AssetKind::TrainerProperties)
+        .unwrap();
+    project.ensure_unpacked(AssetKind::TrainerParty).unwrap();
+    common::GitFixture::init(root);
+    common::GitFixture::commit_all(root, "Ausgangsstand");
+    let mut store = g4_kernel::store::Store::new(std::sync::Arc::new(project));
+    store
+        .edit_trainer(1, "Level", |t| t.party[0].level += 1)
+        .unwrap()
+        .unwrap();
+    store.save().unwrap();
+    s
+}
+
+#[test]
+fn cli_diff_prints_fields_against_head() {
+    let s = committed_with_trainer_1_changed();
+    let root = s.dir.path();
+    for id in ["1", "TRAINER_0001"] {
+        let assert = g4k()
+            .args(["diff"])
+            .arg(root)
+            .args(["trainer", id])
+            .assert()
+            .success();
+        let out = stdout_of(&assert);
+        let lines: Vec<_> = out.lines().collect();
+        assert_eq!(
+            lines,
+            ["field data.party[0].level 5 -> 6", "state changed"],
+            "{id}: {out}"
+        );
+    }
+    let assert = g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainer", "0", "--against", "head", "--json"])
+        .assert()
+        .success();
+    let report: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(report["state"], "same", "{report}");
+    assert_eq!(report["subject"]["kind"], "trainer", "{report}");
+    assert_eq!(report["diff"]["shape"], "fields", "{report}");
+
+    // Against the base without a base mark: the app's refusal, exit 1.
+    g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainer", "1", "--against", "base"])
+        .assert()
+        .failure()
+        .stderr(contains(g4_kernel::patch::NO_MARK));
+    // An unknown kind.
+    g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainers", "1"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn cli_git_status_lists_entries() {
+    let s = committed_with_trainer_1_changed();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .arg("--entries")
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines[0].starts_with("branch main head "), "{out}");
+    assert!(lines[0].ends_with(" changes 1"), "{out}");
+    assert_eq!(lines[1], "changed Trainer Trainer 0001", "{out}");
+    assert_eq!(lines[2], "git not found", "{out}");
+}

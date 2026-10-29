@@ -8,7 +8,8 @@ use std::sync::Arc;
 use g4_formats::narc::Narc;
 
 use super::*;
-use crate::project::{AssetKind, Project};
+use crate::original::{ChangeState, ChangedEntry};
+use crate::project::{AssetId, AssetKind, Project};
 use crate::store::{MapHeader, Store};
 use crate::test_support::{
     GitFixture, ProjectOriginal, Synthetic, TextFixture, copy_dir, synthetic_project,
@@ -655,4 +656,185 @@ fn a_script_with_source_on_one_side_and_member_on_the_other_diffs_as_text() {
         matches!(report.diff, EntityDiff::Binary { .. }),
         "{report:?}"
     );
+}
+
+/// The archives of `kinds` unpacked, as „Git einrichten“ unpacks them before the commit.
+fn unpacked(kinds: &'static [AssetKind]) -> impl FnOnce(&Path) {
+    move |root| {
+        let project = Project::open(root).unwrap();
+        for &kind in kinds {
+            project.ensure_unpacked(kind).unwrap();
+        }
+    }
+}
+
+/// [`head_entries`] of the project at `root` from its status.
+fn head_list(root: &Path) -> Vec<ChangedEntry> {
+    let project = Project::open(root).unwrap();
+    let repo = GitRepo::discover(root).unwrap().unwrap();
+    let status = repo.status().unwrap();
+    head_entries(&project, &repo, &status).unwrap()
+}
+
+/// `(state, group, label)` of each entry.
+fn rows(entries: &[ChangedEntry]) -> Vec<(ChangeState, &str, &str)> {
+    entries
+        .iter()
+        .map(|e| (e.state, e.group.as_str(), e.label.as_str()))
+        .collect()
+}
+
+fn edit_weather(store: &mut Store, index: u16, weather: u8) {
+    store
+        .edit_header(index, "Wetter", |h| {
+            if let MapHeader::Pt(h) = h {
+                h.weather_id = weather;
+            }
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn head_entries_merge_members_of_one_entity() {
+    let mut fx = Dspre::with(unpacked(&[
+        AssetKind::TrainerProperties,
+        AssetKind::TrainerParty,
+    ]));
+    fx.commit();
+    fx.store
+        .edit_trainer(1, "Klasse und Level", |t| {
+            t.class = 0;
+            t.party[0].level += 1;
+        })
+        .unwrap()
+        .unwrap();
+    fx.store.save().unwrap();
+    let status = GitRepo::discover(fx.root())
+        .unwrap()
+        .unwrap()
+        .status()
+        .unwrap();
+    assert_eq!(status.paths.len(), 2, "{status:?}");
+    let entries = head_list(fx.root());
+    assert_eq!(
+        entries,
+        [ChangedEntry {
+            group: "Trainer".into(),
+            label: "Trainer 0001".into(),
+            state: ChangeState::Changed,
+            target: Some(ResetTarget::Trainer { index: 1 }),
+            assets: vec![AssetId {
+                kind: AssetKind::Trainer,
+                index: 1
+            }],
+            folder: Some(
+                fx.project()
+                    .archives
+                    .unpacked_name(AssetKind::TrainerProperties)
+                    .to_owned()
+            ),
+            subject: TRAINER_1,
+        }]
+    );
+}
+
+#[test]
+fn head_entries_name_new_and_deleted() {
+    let fx = Dspre::with(unpacked(&[AssetKind::Map]));
+    fx.commit();
+    let project = fx.project();
+    std::fs::copy(
+        project.member_path(AssetKind::Map, 0),
+        project.member_path(AssetKind::Map, 3),
+    )
+    .unwrap();
+    std::fs::remove_file(project.member_path(AssetKind::Map, 2)).unwrap();
+    let entries = head_list(fx.root());
+    assert_eq!(
+        rows(&entries),
+        [
+            (ChangeState::Missing, "Karten", "Karte 0002"),
+            (ChangeState::New, "Karten", "Karte 0003"),
+        ]
+    );
+    assert!(entries.iter().all(|e| e.target.is_none()), "{entries:?}");
+    assert_eq!(entries[1].subject, DiffSubject::Map { index: 3 });
+}
+
+#[test]
+fn an_arm9_change_lists_the_headers_that_differ() {
+    let mut fx = Dspre::new();
+    fx.commit();
+    edit_weather(&mut fx.store, 1, 5);
+    fx.store.save().unwrap();
+    let entries = head_list(fx.root());
+    assert_eq!(
+        rows(&entries),
+        [(ChangeState::Changed, "Header", "Header 0001")]
+    );
+    assert_eq!(entries[0].subject, DiffSubject::Header { index: 1 });
+    assert_eq!(entries[0].target, Some(ResetTarget::Header { id: 1 }));
+
+    // A byte outside the table: the file as well.
+    let arm9 = fx.root().join("arm9/arm9.bin");
+    let mut bytes = std::fs::read(&arm9).unwrap();
+    bytes[0] ^= 0xFF;
+    std::fs::write(&arm9, bytes).unwrap();
+    let entries = head_list(fx.root());
+    assert_eq!(
+        rows(&entries),
+        [
+            (ChangeState::Changed, "Header", "Header 0001"),
+            (ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+        ]
+    );
+    assert_eq!(
+        entries[1].subject,
+        DiffSubject::File {
+            path: "arm9/arm9.bin".into()
+        }
+    );
+}
+
+#[test]
+fn unsaved_entries_split_the_header_table_by_header() {
+    let mut fx = Dspre::new();
+    edit_weather(&mut fx.store, 1, 5);
+    level_up(&mut fx.store, 1);
+    let entries = unsaved_entries(&mut fx.store).unwrap();
+    assert_eq!(
+        rows(&entries),
+        [
+            (ChangeState::Changed, "Trainer", "Trainer 0001"),
+            (ChangeState::Changed, "Header", "Header 0001"),
+        ]
+    );
+    assert_eq!(entries[1].subject, DiffSubject::Header { index: 1 });
+    assert_eq!(entries[1].assets, vec![crate::store::HEADER_TABLE]);
+    fx.store.save().unwrap();
+    assert_eq!(unsaved_entries(&mut fx.store).unwrap(), []);
+}
+
+#[test]
+fn project_files_go_last_under_projektdateien() {
+    let mut fx = Dspre::new();
+    fx.commit();
+    std::fs::write(fx.root().join("notizen.txt"), "Route 201\n").unwrap();
+    let yaml = std::fs::read_to_string(fx.root().join("header.yaml")).unwrap();
+    std::fs::write(fx.root().join("header.yaml"), format!("{yaml}# Notiz\n")).unwrap();
+    edit_weather(&mut fx.store, 0, 3);
+    fx.store.save().unwrap();
+    let entries = head_list(fx.root());
+    assert_eq!(
+        rows(&entries),
+        [
+            (ChangeState::Changed, "Header", "Header 0000"),
+            (ChangeState::Changed, "Projektdateien", "header.yaml"),
+            (ChangeState::New, "Projektdateien", "notizen.txt"),
+        ]
+    );
+    assert_eq!(entries[2].target, None);
+    assert_eq!(entries[2].folder, None);
+    assert!(entries[2].assets.is_empty());
 }

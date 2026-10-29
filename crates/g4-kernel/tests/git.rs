@@ -4,7 +4,9 @@
 //! stays within the gate's limit, no game data file falls under an end-of-line rule, and a
 //! clone with `core.autocrlf=true` builds byte-equal. The gate of phase 4: the same copy set up
 //! as text project builds the base ROM byte-equal, also from a clone completed from the base
-//! ROM (`textproject::restore`). Each run prints one line for the gate document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
+//! ROM (`textproject::restore`). A trainer and a text changed through the store show by entity
+//! and field name against `HEAD` and the base ROM. Each run prints one line for the gate
+//! document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
 //! through the environment; repositories only in temp folders, never a remote.
 mod common;
 
@@ -14,10 +16,16 @@ use std::time::Instant;
 
 use g4_kernel::base::BaseRom;
 use g4_kernel::build::build;
+use g4_kernel::diff::{
+    Against, DiffSources, DiffState, DiffSubject, EntityDiff, EntityDiffReport, SpanOp,
+    diff_entity, head_entries,
+};
 use g4_kernel::git::cli::REPO_VARS;
 use g4_kernel::git::{GitCli, GitRepo, InitOptions, InitPhase, git_init};
+use g4_kernel::original::{ResetTarget, reset};
 use g4_kernel::project::Project;
 use g4_kernel::start::assign_base;
+use g4_kernel::store::Store;
 use g4_kernel::textproject::{
     self,
     adopt::adopt,
@@ -494,5 +502,133 @@ fn same_as_fresh_extract(clone: &Path, nds: &Path) {
             std::fs::read(clone.join(rel)).unwrap() == std::fs::read(fresh.join(rel)).unwrap(),
             "{rel} differs"
         );
+    }
+}
+
+/// Trainer 1's diff: one field, the level of its first team member.
+fn assert_trainer_level(report: &EntityDiffReport) {
+    assert_eq!(report.state, DiffState::Changed, "{report:?}");
+    let EntityDiff::Fields { changes, more } = &report.diff else {
+        panic!("expected fields: {report:?}");
+    };
+    assert_eq!(*more, 0);
+    assert_eq!(changes.len(), 1, "{changes:?}");
+    assert!(changes[0].path.ends_with("party[0].level"), "{changes:?}");
+}
+
+/// Text archive 1's diff: message 0 changed, „ Studio“ added at its end.
+fn assert_text_studio(report: &EntityDiffReport) {
+    assert_eq!(report.state, DiffState::Changed, "{report:?}");
+    let EntityDiff::Messages { messages, more } = &report.diff else {
+        panic!("expected messages: {report:?}");
+    };
+    assert_eq!(*more, 0);
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0].index, 0);
+    assert_eq!(messages[0].state, DiffState::Changed);
+    let last = messages[0].new.last().unwrap();
+    assert_eq!(
+        (last.op, last.text.as_str()),
+        (SpanOp::Added, " Studio"),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn trainer_and_text_changes_show_with_field_names_against_head_and_base() {
+    let home = tempfile::tempdir().unwrap();
+    let Some(cli) = git_cli(home.path()) else {
+        eprintln!("skipped: git not found");
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        eprintln!("skipped: no base ROM next to the vanilla project");
+        return;
+    };
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        eprintln!("skipped: no vanilla project to copy");
+        return;
+    };
+    assign_base(&root, &nds).unwrap();
+    let project = Project::open(&root).unwrap();
+    let report = git_init(&project, Some(&cli), &InitOptions::default(), &mut |_| {}).unwrap();
+    assert!(report.committed, "{report:?}");
+    no_remote(&root);
+
+    let mut store = Store::new(std::sync::Arc::new(Project::open(&root).unwrap()));
+    store
+        .edit_trainer(1, "Level", |t| t.party[0].level += 1)
+        .unwrap()
+        .unwrap();
+    store
+        .edit_text_archive(1, "Text", |d| d.messages[0].text.push_str(" Studio"))
+        .unwrap()
+        .unwrap();
+    store.save().unwrap();
+
+    let project = Project::open(&root).unwrap();
+    let started = Instant::now();
+    let repo = GitRepo::discover(&root).unwrap().unwrap();
+    let status = repo.status().unwrap();
+    let status_ms = started.elapsed().as_millis();
+    let started = Instant::now();
+    let entries = head_entries(&project, &repo, &status).unwrap();
+    let entries_ms = started.elapsed().as_millis();
+    let labels: Vec<_> = entries.iter().map(|e| e.label.as_str()).collect();
+    assert!(
+        labels.contains(&"Trainer 0001"),
+        "{labels:?} from {status:?}"
+    );
+    assert!(
+        labels.contains(&"Textarchiv 0001"),
+        "{labels:?} from {status:?}"
+    );
+    eprintln!("entries {labels:?} from {} paths", status.paths.len());
+
+    let base = BaseRom::open(&nds, None).unwrap();
+    let sources = DiffSources {
+        original: Some(&base),
+        base_label: Some("Basis".to_owned()),
+        repo: Some(&repo),
+    };
+    let trainer = DiffSubject::Trainer { index: 1 };
+    let text = DiffSubject::TextArchive { index: 1 };
+    let diff = |store: Option<&mut Store>, subject: &DiffSubject, against| {
+        diff_entity(&project, store, &sources, subject, against).unwrap()
+    };
+    let started = Instant::now();
+    let head = [
+        diff(None, &trainer, Against::Head),
+        diff(None, &text, Against::Head),
+    ];
+    let head_ms = started.elapsed().as_millis();
+    let started = Instant::now();
+    let against_base = [
+        diff(None, &trainer, Against::Base),
+        diff(None, &text, Against::Base),
+    ];
+    let base_ms = started.elapsed().as_millis();
+    for [trainer_report, text_report] in [&head, &against_base] {
+        assert_trainer_level(trainer_report);
+        assert_text_studio(text_report);
+    }
+    assert_eq!(head[0].diff, against_base[0].diff, "the same rows");
+    assert_eq!(head[1].diff, against_base[1].diff, "the same rows");
+    for subject in [&trainer, &text] {
+        let saved = diff(Some(&mut store), subject, Against::Saved);
+        assert_eq!(saved.state, DiffState::Same, "{saved:?}");
+    }
+
+    reset(&mut store, &base, &ResetTarget::Trainer { index: 1 }, None).unwrap();
+    store.save().unwrap();
+    let after = diff(None, &trainer, Against::Base);
+    assert_eq!(after.state, DiffState::Same, "{after:?}");
+
+    println!(
+        "diff {} status_ms={status_ms} entries_ms={entries_ms} head_ms={head_ms} base_ms={base_ms}",
+        project.game_code
+    );
+    if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
+        assert!(status_ms <= 500, "status_ms={status_ms}");
     }
 }
