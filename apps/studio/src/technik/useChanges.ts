@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { changedFromOriginal, errorText } from "../api";
 import type { ChangedProgress, ChangedReport } from "../api";
+import { FOCUS_DELAY_MS } from "../app/useExternalSync";
+import { subscribeWindowFocus } from "../platform/windowFocus";
 
 /**
  * The list „geändert gegenüber Original“ of Technik › Änderungen. `report` is the last compare that went through (it stays while the next
@@ -32,7 +34,9 @@ export type UseChangesOptions = {
 
 /**
  * Held by the app above the areas, so the report survives leaving Technik. Compares when the surface first shows for a project and its base,
- * and again when it shows after a save or a reset (`revision` moved since the last compare), at once when that happens while it shows. Never
+ * and again when it shows after a save or a reset (`revision` moved since the last compare), at once when that happens while it shows. On
+ * window focus after `FOCUS_DELAY_MS` as the Git status (`useGitStatus`) reads again, so a write past the app (a bridge call, another tool)
+ * shows too: at once while the surface shows, else when it shows next. Never
  * two compares side by side: a reason to compare that comes while one runs makes one more run after it. Everything starts over when another
  * project opens or another base is found (already in the render that sees it, so no frame shows the report before); an answer for the
  * project and base before is dropped.
@@ -60,6 +64,9 @@ export function useChanges({ project, shown, base, revision }: UseChangesOptions
   const compared = useRef<number | null>(null);
   const latest = useRef(revision);
   latest.current = revision;
+  const onScreen = useRef(shown);
+  onScreen.current = shown;
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     current.current = key;
@@ -104,6 +111,24 @@ export function useChanges({ project, shown, base, revision }: UseChangesOptions
   useEffect(() => {
     if (key !== null && shown && compared.current !== revision) void compare();
   }, [key, shown, revision, compare]);
+
+  // The window got the focus back (quick changes make one reason): the files may differ without a revision having moved.
+  useEffect(() => {
+    if (key === null) return;
+    const stop = subscribeWindowFocus(() => {
+      clearTimeout(focusTimer.current);
+      focusTimer.current = setTimeout(() => {
+        focusTimer.current = undefined;
+        if (onScreen.current) void compare();
+        else compared.current = null;
+      }, FOCUS_DELAY_MS);
+    });
+    return () => {
+      stop();
+      clearTimeout(focusTimer.current);
+      focusTimer.current = undefined;
+    };
+  }, [key, compare]);
 
   // React renders again at once after the reset above; this pass already shows nothing of the state before.
   if (stale) return { report: null, progress: null, error: null, busy: false, compare };

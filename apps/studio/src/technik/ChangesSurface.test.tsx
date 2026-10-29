@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { diffEntity } from "../api";
-import type { Against, AssetId, ChangedEntry, GitStatus, OriginalStatus } from "../api";
+import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
 import { gitStatusOf, noRepo } from "../git/gitTesting";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { MISSING, READY, readyWith, resetSpy, withReset } from "../original/resetTesting";
@@ -23,9 +23,9 @@ vi.mock("../api", async (importOriginal) => ({
 /** Two maps (one new), a trainer and a matrix that has no reset. */
 const ENTRIES = [
   entry(),
-  entry({ label: "Karte 0700", state: "new", target: { kind: "map", index: 700 }, assets: [{ kind: "Map", index: 700 }] }),
-  entry({ group: "Trainer", label: "Trainer 0001", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties" }),
-  entry({ group: "Matrizen", label: "Matrix 0000", target: null, assets: [], folder: "matrices" }),
+  entry({ label: "Karte 0700", state: "new", target: { kind: "map", index: 700 }, assets: [{ kind: "Map", index: 700 }], subject: { kind: "map", index: 700 } }),
+  entry({ group: "Trainer", label: "Trainer 0001", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties", subject: { kind: "trainer", index: 1 } }),
+  entry({ group: "Matrizen", label: "Matrix 0000", target: null, assets: [], folder: "matrices", subject: { kind: "matrix", index: 0 } }),
 ];
 
 describe("ChangesSurface", () => {
@@ -390,6 +390,9 @@ describe("ChangesSurface", () => {
       expect(surface()?.textContent).not.toContain("Diesem Projekt ist keine Basis-ROM zugeordnet.");
       const setup = button("Git einrichten…")!;
       expect(setup.getAttribute("data-kind")).toBe("secondary");
+      // Not a child of the surface (whose children take its reading width): the button keeps its own width.
+      expect(setup.parentElement).not.toBe(surface());
+      expect(setup.parentElement?.hasAttribute("data-git-offer")).toBe(true);
       await act(async () => setup.click());
       expect(onGitSetup).toHaveBeenCalledOnce();
       expect(container.querySelectorAll("[data-kind=primary]")).toHaveLength(0);
@@ -492,9 +495,63 @@ describe("ChangesSurface", () => {
       expect(detail()?.textContent).toContain("Basis-ROM Platin DE (Testprojekt) → Projekt (gespeichert)");
       // The list and the detail sit in a split that turns into two columns on a wide surface.
       expect(detail()?.closest("[data-changes-split]")).not.toBeNull();
-      // Another comparison forgets the choice.
-      await render({ against: "head", git: gitWith(gitStatusOf({ entries: ENTRIES })), changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      // Another comparison that lists the same entity keeps the choice (found by its subject, not its row).
+      vi.mocked(diffEntity).mockClear();
+      const moved = [{ ...ENTRIES[2]!, label: "Trainer 0001", state: "new" as const }, ENTRIES[0]!];
+      await render({ against: "head", git: gitWith(gitStatusOf({ entries: moved })), changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
+      expect(diffEntity).toHaveBeenCalledExactlyOnceWith(ENTRIES[2]!.subject, "head");
+      // One that does not list it forgets the choice, also for the comparison it came from.
+      await render({ against: "saved", unsaved: [entry()], changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("false");
+      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+    });
+
+    it("a_list_still_read_keeps_the_choice_for_when_it_comes", async () => {
+      await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      await act(async () => change("Trainer 0001")!.click());
+      // „Gegen gespeichert“ while it is read: nothing to find the entity in, nothing forgotten.
+      await render({ against: "saved", unsaved: null, changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      await render({ against: "saved", unsaved: [ENTRIES[2]!], changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("the_app_can_hold_the_choice_across_leaving_technik", async () => {
+      // Held by the app (`chosen`, `onChoose`): a surface mounted anew (after „Öffnen“ and back) shows the entity chosen before.
+      const onChoose = vi.fn();
+      const show = (chosen: DiffSubject | null) =>
+        act(async () =>
+          root.render(
+            withReset(
+              reset,
+              <ChangesSurface
+                changes={changesWith({ report: report({ entries: ENTRIES }) })}
+                status={READY}
+                dirty={[]}
+                onOpenProject={onOpenProject}
+                against="base"
+                onAgainst={onAgainst}
+                git={gitWith(gitStatusOf())}
+                unsaved={null}
+                onGitSetup={onGitSetup}
+                goTo={goTo}
+                revision={0}
+                chosen={chosen}
+                onChoose={onChoose}
+              />,
+            ),
+          ),
+        );
+      await show({ kind: "trainer", index: 1 });
+      expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
+      await act(async () => change("Matrix 0000")!.click());
+      expect(onChoose).toHaveBeenLastCalledWith({ kind: "matrix", index: 0 });
+      // An entity the list does not hold: the app is told to forget it.
+      onChoose.mockClear();
+      await show({ kind: "species", index: 25 });
+      expect(onChoose).toHaveBeenCalledExactlyOnceWith(null);
     });
   });
 });

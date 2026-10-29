@@ -64,7 +64,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -298,6 +298,12 @@ function AppBody() {
   // What Technik › Änderungen compares against, kept for the session (not stored): the base ROM first, the last commit once Git is set up
   // or the status line's item was clicked.
   const [against, setAgainst] = useState<Against>("base");
+  // The entity chosen in Technik › Änderungen, kept for the session as the comparison is (it survives „Öffnen“ and the way back), for the
+  // project it was chosen in.
+  const [changesChoice, setChangesChoice] = useState<{ root: string; subject: DiffSubject } | null>(null);
+  const openRoot = session.info?.root ?? null;
+  const changesChosen = changesChoice !== null && changesChoice.root === openRoot ? changesChoice.subject : null;
+  const chooseChange = useCallback((subject: DiffSubject | null) => setChangesChoice(subject === null || openRoot === null ? null : { root: openRoot, subject }), [openRoot]);
   // The status line's Git item: Technik › Änderungen against the last commit (not while a wizard holds the frame).
   const showChanges = useStableCallback(() => {
     if (wizardOpen.current || startOpen) return;
@@ -1223,6 +1229,8 @@ function AppBody() {
         onReloadUnsaved={unsaved.reload}
         onGitSetup={() => setGitSetupOpen(true)}
         revision={shownRevision}
+        changesChosen={changesChosen}
+        onChangesChosen={chooseChange}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

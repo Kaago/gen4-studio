@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderPatchDto, PreviewDto } from "../api";
-import { applyHeaderPatch, baseStatus, createPatch, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
+import { applyHeaderPatch, baseStatus, createPatch, diffEntity, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
@@ -17,6 +17,7 @@ import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
 import type { OriginalStatus } from "../api";
 import { found, missing, patchDto } from "./baseTesting";
 import { changesWith, entry, report } from "./changesTesting";
+import { diffReport } from "./diffTesting";
 import { gitStatusOf, noRepo } from "../git/gitTesting";
 import type { GitStatus } from "../api";
 import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
@@ -34,6 +35,7 @@ vi.mock("../api", async (importOriginal) => ({
   projectPreviewSet: vi.fn(),
   baseStatus: vi.fn(),
   createPatch: vi.fn(),
+  diffEntity: vi.fn(),
 }));
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
@@ -55,6 +57,7 @@ describe("TechnikArea", () => {
 
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
+    vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -174,6 +177,22 @@ describe("TechnikArea", () => {
     // The rows reset through the app's dialog.
     await click([...surface()!.querySelectorAll("button")].find((b) => b.textContent === "Auf Original zurücksetzen…"));
     expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "map", index: 3 }, { finalFocus: expect.any(Function) });
+  });
+
+  it("aenderungen_shows_the_entity_the_app_holds_after_leaving_and_coming_back", async () => {
+    const onChangesChosen = vi.fn();
+    const changes = changesWith({ report: report({ entries: [entry(), entry({ label: "Karte 0004", subject: { kind: "map", index: 4 } })] }) });
+    const chosen = { kind: "map", index: 4 } as const;
+    await act(async () => root.render(withReset(resetSpy(), <Host changes={changes} changesChosen={chosen} onChangesChosen={onChangesChosen} />)));
+    await click(row("Änderungen"));
+    const selected = () => surface()?.querySelector("[data-change='Karte 0004']")?.getAttribute("aria-selected");
+    expect(selected()).toBe("true");
+    await click(surface()?.querySelector("[data-change='Karte 0003']"));
+    expect(onChangesChosen).toHaveBeenLastCalledWith({ kind: "map", index: 3 });
+    // Away (as „Öffnen“ leads away) and back: the surface is new, the choice the app's.
+    await click(row("Projekt"));
+    await click(row("Änderungen"));
+    expect(selected()).toBe("true");
   });
 
   it("lists_eight_entries_with_textprojekt_after_projekt", async () => {

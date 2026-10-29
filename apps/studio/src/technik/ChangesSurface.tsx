@@ -1,6 +1,6 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
-import type { Against, AssetId, ChangedEntry, GitStatus, OriginalStatus } from "../api";
+import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
@@ -68,6 +68,14 @@ function groupsOf(entries: readonly ChangedEntry[]): [string, ChangedEntry[]][] 
     else list.push(e);
   }
   return [...groups];
+}
+
+/** Whether two subjects name the same entity (the same in all three lists). */
+function sameSubject(a: DiffSubject, b: DiffSubject): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "file") return b.kind === "file" && a.path === b.path;
+  if (a.kind === "member") return b.kind === "member" && a.folder === b.folder && a.index === b.index;
+  return b.kind !== "file" && b.kind !== "member" && a.index === b.index;
 }
 
 /** The key of a row: its group and label (what `GroupList` keys its rows by). */
@@ -205,6 +213,12 @@ export type ChangesSurfaceProps = {
   goTo: (target: NavTarget) => void;
   /** Moves whenever the compared state may differ: the detail reads its diff again. */
   revision: number;
+  /**
+   * The chosen entity, when the app holds it (so it survives „Öffnen“ and the way back to Technik); without it the surface holds its own.
+   * It stays chosen in another comparison that lists it; one whose list lacks it forgets it (`onChoose(null)`).
+   */
+  chosen?: DiffSubject | null;
+  onChoose?: (subject: DiffSubject | null) => void;
 };
 
 /** What a comparison shows: the sentence under the title, the button beside it, what comes before the list, the list and its empty text. */
@@ -225,21 +239,29 @@ function headLead(git: GitStatus): string {
  * where the base is assigned; without a repository „Gegen letzten Commit“ offers „Git einrichten…“. The compares run in the app's hooks;
  * this surface only shows them.
  */
-export function ChangesSurface({ changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, goTo, revision }: ChangesSurfaceProps) {
+export function ChangesSurface(props: ChangesSurfaceProps) {
+  const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, goTo, revision } = props;
   const { where, fallback, ...keep } = useKeepFocus();
-  // The chosen row, for the comparison it was chosen in: another comparison starts without one.
-  const [chosen, setChosen] = useState<{ against: Against; key: string } | null>(null);
-  if (changes === null) {
+  // The chosen entity (by its subject, the same in every comparison): the app's when it holds it, else this surface's.
+  const [own, setOwn] = useState<DiffSubject | null>(null);
+  const chosen = props.chosen !== undefined ? props.chosen : own;
+  const choose = props.onChoose ?? setOwn;
+  const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
+  const entries = shown?.entries ?? null;
+  const entry = chosen === null ? null : (entries?.find((e) => sameSubject(e.subject, chosen)) ?? null);
+  // A list that is read and lacks the chosen entity forgets it (a list still read keeps it for when it comes).
+  const lost = chosen !== null && entries !== null && entry === null;
+  useEffect(() => {
+    if (lost) choose(null);
+  }, [lost, choose]);
+  if (changes === null || shown === null) {
     return (
       <Surface {...keep}>
         <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt Technik hier, was vom Original abweicht." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
       </Surface>
     );
   }
-  const shown = against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
-  const selected = chosen?.against === against ? chosen.key : null;
-  const entries = shown.entries;
-  const entry = entries?.find((e) => rowKey(e.group, e.label) === selected) ?? null;
+  const selected = entry === null ? null : rowKey(entry.group, entry.label);
   return (
     <Surface
       {...keep}
@@ -258,7 +280,7 @@ export function ChangesSurface({ changes, status, dirty, onOpenProject, against,
         ) : (
           <div className={styles.split} data-changes-split="">
             <div className={styles.columns}>
-              <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} status={status} where={where} selected={selected} onSelect={(key) => setChosen({ against, key })} />
+              <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} status={status} where={where} selected={selected} onSelect={(key) => choose(entries.find((e) => rowKey(e.group, e.label) === key)?.subject ?? null)} />
               <EntityDiff entry={entry} against={against} revision={revision} goTo={goTo} finalFocus={fallback} />
             </div>
           </div>
@@ -326,9 +348,11 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void): Shown {
         <>
           <Notice kind="info">Dieses Projekt liegt in keinem Git-Repository.</Notice>
           <p className={styles.text}>Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.</p>
-          <Button kind="secondary" onClick={onGitSetup}>
-            Git einrichten…
-          </Button>
+          <div className={styles.offer} data-git-offer="">
+            <Button kind="secondary" onClick={onGitSetup}>
+              Git einrichten…
+            </Button>
+          </div>
         </>
       ),
       entries: null,

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { ReactNode } from "react";
 import styles from "./ChangeTable.module.css";
 
@@ -57,8 +58,22 @@ function Cell({ value }: { value: ChangeCell }) {
   );
 }
 
+/** A field as shown: a string with a soft break (`<wbr>`) after each `.` and before each `[`, so a JSON path wraps only between its
+ * parts; anything else as given. */
+function Field({ field }: { field: ReactNode }) {
+  if (typeof field !== "string") return field;
+  const parts = field.split(/(?<=\.)|(?=\[)/).filter((part) => part !== "");
+  return parts.map((part, i) => (
+    <Fragment key={i}>
+      {i > 0 && <wbr />}
+      {part}
+    </Fragment>
+  ));
+}
+
 /**
- * „Feld: alt → neu“ as a table of three columns: what changed (the row's header), the old and the new side, all in mono. Word spans that
+ * „Feld: alt → neu“ as a table of three columns: what changed (the row's header, as wide as it needs up to a limit, a path broken only
+ * between its parts), the old and the new side sharing the rest, all in mono. Word spans that
  * went are struck through on the error surface, ones that came underlined on the success surface (not colour alone); a missing side reads
  * „—“, „fehlt“ for a screen reader. Read only: no selection, no tab stop.
  */
@@ -80,8 +95,8 @@ export function ChangeTable({ columns, rows, ariaLabel, more }: ChangeTableProps
           {rows.map((row) => (
             <tr key={row.key}>
               <th scope="row" className={styles.field}>
-                <code className={styles.value} title={row.title}>
-                  {row.field}
+                <code className={`${styles.value} ${styles.path}`} title={row.title}>
+                  <Field field={row.field} />
                 </code>
               </th>
               <td>

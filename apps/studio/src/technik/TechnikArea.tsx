@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { Against, AssetId, BuildStep, ChangedEntry, HeaderPatchDto } from "../api";
+import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
@@ -106,6 +106,9 @@ export type TechnikAreaProps = {
   onGitSetup: () => void;
   /** Moves whenever the compared state may differ (a save, a reset, an edit): the detail of Änderungen reads its diff again. */
   revision: number;
+  /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
+  changesChosen?: DiffSubject | null;
+  onChangesChosen?: (subject: DiffSubject | null) => void;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -227,6 +230,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           onGitSetup={props.onGitSetup}
           goTo={props.goTo}
           revision={props.revision}
+          chosen={props.changesChosen}
+          onChoose={props.onChangesChosen}
         />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />

@@ -71,7 +71,7 @@ describe("GitInitDialog", () => {
     await show();
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Git einrichten?");
     expect(document.getElementById(dialog()?.getAttribute("aria-describedby") ?? "")?.textContent).toBe(DESCRIPTION);
-    expect(rows()).toEqual(["ok: Alles gespeichert", "ok: Git gefunden: git version 2.47.1", `info: ${DSPRE_IGNORED}`]);
+    expect(rows()).toEqual(["ok: Alles gespeichert", "ok: Git gefunden: 2.47.1", `info: ${DSPRE_IGNORED}`]);
     expect(labels()).toEqual(["Abbrechen", "Einrichten"]);
     expect(button("Einrichten")?.dataset.kind).toBe("primary");
     expect(button("Abbrechen")?.dataset.kind).not.toBe("primary");

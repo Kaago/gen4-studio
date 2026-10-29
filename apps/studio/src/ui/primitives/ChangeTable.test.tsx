@@ -94,4 +94,44 @@ describe("ChangeTable", () => {
     // No footer without `more`.
     expect(container.querySelector("[data-change-table-more]")).toBeNull();
   });
+
+  it("breaks_a_path_only_at_dots_and_brackets", () => {
+    act(() =>
+      root.render(
+        <ChangeTable
+          columns={["Feld", "Commit", "Projekt"]}
+          ariaLabel="Trainer 0001"
+          rows={[
+            { key: "a", field: "data.party[0].level", old: "5", new: "6" },
+            { key: "b", field: <span>Wetter</span>, old: "1", new: "2" },
+          ]}
+        />,
+      ),
+    );
+    const [first, second] = [...container.querySelectorAll("tbody th code")];
+    // A soft break after each dot and before each bracket, nowhere else; the text stays the path.
+    expect(first?.innerHTML).toBe("data.<wbr>party<wbr>[0].<wbr>level");
+    expect(first?.textContent).toBe("data.party[0].level");
+    // A field that is no string is shown as given.
+    expect(second?.innerHTML).toBe("<span>Wetter</span>");
+  });
+
+  it("sizes_the_field_column_to_its_content_and_lets_the_sides_share_the_rest", () => {
+    const css = readCss("./ChangeTable.module.css", import.meta.url);
+    // Auto layout: a fixed layout gives every column a third whatever it holds.
+    expect(ruleBody(css, ".table")).not.toMatch(/table-layout:\s*fixed/);
+    // The field column as narrow as allowed: its path at its own width up to a limit, broken only where a <wbr> allows (or a segment
+    // longer than the limit), never mid-word as `anywhere` would.
+    expect(ruleBody(css, ".table tbody th")).toMatch(/width:\s*1%/);
+    expect(ruleBody(css, ".table tbody th")).not.toMatch(/overflow-wrap:\s*anywhere/);
+    const path = ruleBody(css, ".path");
+    expect(path).toMatch(/width:\s*max-content/);
+    // The limit: so many characters, at most a share of the table (its wrapper is the container), so a narrow detail keeps room for the sides.
+    expect(ruleBody(css, ".wrap")).toMatch(/container-type:\s*inline-size/);
+    expect(path).toMatch(/max-width:\s*min\(\d+ch,\s*\d+cqi\)/);
+    expect(path).toMatch(/word-break:\s*normal/);
+    expect(path).toMatch(/overflow-wrap:\s*break-word/);
+    // A long value (a SHA-1) still wraps inside its side instead of widening the table.
+    expect(ruleBody(css, ".table td")).toMatch(/overflow-wrap:\s*anywhere/);
+  });
 });

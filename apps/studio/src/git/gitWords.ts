@@ -25,6 +25,11 @@ export function statusTooltip(s: GitStatus): string {
   return `Git: ${files} seit dem letzten Commit „${s.head.summary}“. Klick zeigt sie in Technik › Änderungen.`;
 }
 
+/** The checklist's row for a found `git`: its version without the „git version “ that `git --version` puts first. */
+export function gitFoundText(version: string): string {
+  return `Git gefunden: ${version.replace(/^git version /, "")}`;
+}
+
 /** The message after a first commit: how many files it holds, and when Git knew no name, why the author is Gen4 Studio. */
 export function initDoneText(report: InitReport): string {
   const done = `Git eingerichtet: ${report.files.toLocaleString("de-DE")}${NBSP}Dateien im ersten Commit „Ausgangsstand“.`;

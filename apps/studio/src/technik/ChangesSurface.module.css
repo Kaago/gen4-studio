@@ -19,6 +19,11 @@
   max-width: 880px;
 }
 
+/* „Git einrichten…“ in a row of its own: the row takes the reading width, the button its content's. */
+.offer {
+  display: flex;
+}
+
 /* The title and its sentence, „Neu vergleichen“ beside them (below them when the surface is narrow). */
 .head {
   display: flex;

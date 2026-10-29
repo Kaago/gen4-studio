@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { gitStatusOf, noRepo } from "./gitTesting";
-import { NOT_INSTALLED, changesWord, statusText, statusTooltip } from "./gitWords";
+import { NOT_INSTALLED, changesWord, gitFoundText, statusText, statusTooltip } from "./gitWords";
 
 describe("gitWords", () => {
   it("changes_have_none_singular_and_plural", () => {
@@ -21,6 +21,13 @@ describe("gitWords", () => {
     // Detached: the short id instead of the branch.
     expect(statusText(gitStatusOf({ branch: null, detached: true, changes: 2 }))).toBe("4c1d2e3 (losgelöst) · 2 Änderungen");
     expect(statusText(noRepo())).toBeNull();
+  });
+
+  it("git_found_names_the_version_without_git_version", () => {
+    expect(gitFoundText("git version 2.54.0 (Apple Git-157)")).toBe("Git gefunden: 2.54.0 (Apple Git-157)");
+    expect(gitFoundText("git version 2.47.1.windows.1")).toBe("Git gefunden: 2.47.1.windows.1");
+    // Anything else stays as git said it.
+    expect(gitFoundText("2.47.1")).toBe("Git gefunden: 2.47.1");
   });
 
   it("the_tooltip_names_the_count_and_the_last_commit", () => {

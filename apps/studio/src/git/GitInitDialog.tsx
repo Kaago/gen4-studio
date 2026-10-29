@@ -4,7 +4,7 @@ import type { GitStatus, InitPhase, InitReport } from "../api";
 import { toast } from "../ui/frame/toasts";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, initDoneText } from "./gitWords";
+import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, gitFoundText, initDoneText } from "./gitWords";
 import styles from "./GitInitDialog.module.css";
 
 /** Always in the dialog: the project holds the game's data, so it does not belong in a public repository. */
@@ -72,7 +72,7 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
       ? { id: "git", state: "info", text: "Git wird gesucht …" }
       : git === null
         ? { id: "git", state: "warning", text: "Git ist nicht installiert: nur die Vorlagen werden geschrieben" }
-        : { id: "git", state: "ok", text: `Git gefunden: ${git.version}` },
+        : { id: "git", state: "ok", text: gitFoundText(git.version) },
     { id: "ignored", state: "info", text: IGNORED[layout] },
     ...(status?.templates ?? []).map((file): CheckRow => ({ id: `template-${file}`, state: "info", text: `${file} vorhanden: der Block von Gen4 Studio kommt dazu` })),
   ];

@@ -13,6 +13,11 @@ describe("the Änderungen surface", () => {
     expect(groups).toMatch(/flex-shrink:\s*0|flex:\s*none|flex:\s*0\s+0/);
   });
 
+  it("keeps_the_git_setup_button_at_its_own_width", () => {
+    // `.surface > *` stretches every child to the reading width; the offer is a flex row, so its button sizes to its content.
+    expect(ruleBody(css, ".offer")).toMatch(/display:\s*flex/);
+  });
+
   it("puts_the_detail_beside_the_list_from_760px_of_the_split", () => {
     // The split is the container its columns ask; below 760 px one column (the detail under the list), from 760 px two.
     expect(ruleBody(css, ".surface > .split")).toMatch(/container-type:\s*inline-size/);
