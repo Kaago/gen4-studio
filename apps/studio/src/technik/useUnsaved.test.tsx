@@ -40,7 +40,7 @@ describe("useUnsaved", () => {
     await show({ shown: false });
     await show({ project: null });
     expect(unsavedChanges).not.toHaveBeenCalled();
-    expect(shown).toEqual({ entries: null, error: null });
+    expect(shown).toMatchObject({ entries: null, error: null });
     // Shown: read.
     await show();
     expect(unsavedChanges).toHaveBeenCalledOnce();
@@ -59,6 +59,14 @@ describe("useUnsaved", () => {
     vi.mocked(unsavedChanges).mockRejectedValueOnce({ code: "error", message: "Kein Projekt geöffnet.", asset: null });
     await show({ revision: 3 });
     expect(shown.error).toBe("Kein Projekt geöffnet.");
+    // The failed read is not the last word: a retry reads at once (without a move of the revision), and so does showing it again.
+    vi.mocked(unsavedChanges).mockRejectedValueOnce({ code: "error", message: "Kein Projekt geöffnet.", asset: null });
+    await act(async () => shown.reload());
+    expect(unsavedChanges).toHaveBeenCalledTimes(5);
+    await show({ revision: 3, shown: false });
+    await show({ revision: 3 });
+    expect(unsavedChanges).toHaveBeenCalledTimes(6);
+    expect(shown.error).toBeNull();
     // Another project forgets the list before; an answer for the old one that comes late is dropped.
     let late: (e: ChangedEntry[]) => void = () => {};
     vi.mocked(unsavedChanges).mockImplementationOnce(() => new Promise((resolve) => (late = resolve)));

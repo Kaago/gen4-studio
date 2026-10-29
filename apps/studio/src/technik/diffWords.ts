@@ -1,4 +1,5 @@
-import type { Against, ChangeState, DiffSubject, EntityDiff, EventKind } from "../api";
+import type { Against, ChangedEntry, ChangeState, DiffSubject, EntityDiff, EventKind, OriginalStatus } from "../api";
+import { whyNot } from "../original/resetEntry";
 import type { BadgeKind } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 
@@ -23,6 +24,17 @@ const BADGES: Record<Exclude<Against, "saved">, Record<ChangeState, { kind: Badg
 /** The badge of a row: its state in the words of the comparison; against the saved state every row is „Ungespeichert“. */
 export function stateBadge(against: Against, state: ChangeState): { kind: BadgeKind; text: string } {
   return against === "saved" ? { kind: "unsaved", text: "Ungespeichert" } : BADGES[against][state];
+}
+
+/**
+ * Why a row's reset is locked; null when it can be used. Besides the row's own state and kind the base ROM decides (`whyNot`: read,
+ * missing, or without the entry): the lists against the last commit and the saved state show without one, and their state says nothing
+ * about the base.
+ */
+export function rowResetLock(entry: ChangedEntry, status: OriginalStatus | null): string | null {
+  if (entry.state !== "changed") return "Kein Original";
+  if (entry.target === null) return "Für diese Art gibt es kein Zurücksetzen.";
+  return whyNot(entry.target, status);
 }
 
 /** The lists of an event file's JSON (`schema/world.rs` `EventsJson`) and the kind of event each holds. */

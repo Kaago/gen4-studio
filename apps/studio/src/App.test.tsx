@@ -770,6 +770,24 @@ describe("App wiring", () => {
         await click("Öffnen");
       }
 
+      it("a_project_created_with_git_compares_against_the_last_commit", async () => {
+        const againstShown = () => container.querySelector("[data-technik=aenderungen] [data-against]")?.getAttribute("data-against");
+        const showAenderungen = async () => {
+          await act(async () => atlasEntry("Technik")!.click());
+          const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Änderungen"))!;
+          await act(async () => row.click());
+        };
+        // Created without Git: the base ROM, as ever.
+        await createGame("original");
+        await showAenderungen();
+        expect(againstShown()).toBe("base");
+        // Created with Git committed (the wizard's checkbox): the last commit.
+        vi.mocked(createProject).mockImplementation(async (_rom, dest, template) => ({ root: dest, game_code: "CPUD", template, sha1: ROM.sha1, phases: [], git: initReportOf() }));
+        await createGame("original");
+        await showAenderungen();
+        expect(againstShown()).toBe("head");
+      });
+
       it("data_only_opens_in_pokemon", async () => {
         await createGame("data_only");
         expect(openProject).toHaveBeenCalledWith("/roms/_testkopien/Neues Platin");

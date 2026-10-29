@@ -136,3 +136,11 @@
   color: var(--g4-text-primaer);
   text-decoration: underline;
 }
+
+/* Rows the kernel cut, below the map's sections. */
+.more {
+  margin: 0;
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

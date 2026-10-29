@@ -1,13 +1,13 @@
 import { useId, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
-import type { Against, BlobSide, ChangedEntry, EntityDiff as Diff, EntityDiffReport, FieldChange, HeaderFamily, WordSpan } from "../api";
+import type { Against, BlobSide, ChangedEntry, EntityDiff as Diff, EntityDiffReport, FieldChange, OriginalStatus, WordSpan } from "../api";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
 import { Badge, Button, ChangeTable, Notice, Section, Tooltip } from "../ui/primitives";
 import type { ChangeCell, ChangeTableRow } from "../ui/primitives";
 import { headerFieldSpecs } from "../workbench/inspector/fields";
 import type { NavTarget } from "../workbench/navigation";
-import { navTargetOf, sideWords } from "./diffWords";
+import { navTargetOf, rowResetLock, sideWords } from "./diffWords";
 import styles from "./EntityDiff.module.css";
 import { useEntityDiff } from "./useEntityDiff";
 
@@ -15,7 +15,7 @@ import { useEntityDiff } from "./useEntityDiff";
 const NO_PLACE = "Für diese Art gibt es keinen Ort in der App.";
 
 /** The German names of a map's parts, in the kernel's order. */
-const PART_NAMES: Record<string, string> = { model: "Modell", permissions: "Bewegungsrechte", buildings: "Gebäude", bdhc: "BDHC", bgs: "BGS" };
+const PART_NAMES: Record<string, string> = { model: "Modell", permissions: "Bewegungsrechte", buildings: "Gebäude", bdhc: "BDHC", bgs: "BGS", raw: "Rohdaten" };
 
 export type EntityDiffProps = {
   /** The row chosen in the list; null: nothing chosen yet. */
@@ -29,11 +29,14 @@ export type EntityDiffProps = {
   finalFocus?: () => HTMLElement | null;
 };
 
-/** Why reset is locked: as on the entity's row (4.1b), and „Kein Original“ for an entity that is new on the compared side. */
-function resetLock(entry: ChangedEntry, report: EntityDiffReport | null): string | null {
-  if (entry.state !== "changed" || report?.state === "new") return "Kein Original";
-  if (entry.target === null || (report !== null && report.reset === null)) return "Für diese Art gibt es kein Zurücksetzen.";
-  return null;
+/**
+ * Why reset is locked: as on the entity's row (its state, its kind, the base ROM: read, missing, or without the entry), and „Kein Original“
+ * for an entity that is new on the compared side.
+ */
+function resetLock(entry: ChangedEntry, report: EntityDiffReport | null, status: OriginalStatus | null): string | null {
+  if (report?.state === "new") return "Kein Original";
+  if (report !== null && report.reset === null) return "Für diese Art gibt es kein Zurücksetzen.";
+  return rowResetLock(report?.reset ? { ...entry, target: report.reset } : entry, status);
 }
 
 /**
@@ -64,11 +67,15 @@ export function EntityDiff({ entry, against, revision, goTo, finalFocus }: Entit
   );
 }
 
-/** A secondary button that may be locked: then focusable all the same, its reason the description and the tooltip (as on the rows). */
-function LockableButton({ why, onClick, children, ref }: { why: string | null; onClick: () => void; children: ReactNode; ref?: Ref<HTMLButtonElement> }) {
+/**
+ * A secondary button that may be locked: then focusable all the same, its reason the description and the tooltip (as on the rows).
+ * `waiting` locks it without a reason (what it does is not known yet).
+ */
+function LockableButton({ why, waiting = false, onClick, children, ref }: { why: string | null; waiting?: boolean; onClick: () => void; children: ReactNode; ref?: Ref<HTMLButtonElement> }) {
   const noteId = useId();
+  const off = waiting || why !== null;
   const button = (
-    <Button ref={ref} kind="secondary" size="s" aria-disabled={why !== null || undefined} aria-describedby={why !== null ? noteId : undefined} onClick={() => why === null && onClick()}>
+    <Button ref={ref} kind="secondary" size="s" aria-disabled={off || undefined} aria-describedby={why !== null ? noteId : undefined} onClick={() => !off && onClick()}>
       {children}
     </Button>
   );
@@ -84,11 +91,13 @@ function LockableButton({ why, onClick, children, ref }: { why: string | null; o
 }
 
 function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report: EntityDiffReport | null; goTo: (t: NavTarget) => void; finalFocus?: () => HTMLElement | null }) {
-  const { open } = useReset();
+  const { open, status } = useReset();
   const resetButton = useRef<HTMLButtonElement>(null);
   const place = navTargetOf(entry.subject, report?.diff ?? null);
+  // An event file's place follows from its diff: until that is read, „Öffnen“ waits without a reason.
+  const waiting = report === null && entry.subject.kind === "event_file";
   const target = report?.reset ?? entry.target;
-  const locked = resetLock(entry, report);
+  const locked = resetLock(entry, report, status);
   return (
     <header className={styles.head}>
       <div className={styles.headText}>
@@ -100,7 +109,7 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
         )}
       </div>
       <div className={styles.actions}>
-        <LockableButton why={place === null ? NO_PLACE : null} onClick={() => place !== null && goTo(place)}>
+        <LockableButton why={place === null && !waiting ? NO_PLACE : null} waiting={waiting} onClick={() => place !== null && goTo(place)}>
           Öffnen
         </LockableButton>
         <LockableButton
@@ -121,9 +130,8 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
 /** Spans as a cell; none (a side without the message) as missing. */
 const spans = (list: readonly WordSpan[], absent: boolean): ChangeCell => (absent ? null : list);
 
-/** The rows of field changes; a header's field by its German name with the path as tooltip. */
-function fieldRows(changes: readonly FieldChange[], family: HeaderFamily | null | undefined, header: boolean): ChangeTableRow[] {
-  const specs = header && family ? headerFieldSpecs(family) : [];
+/** The rows of field changes; with `specs` (a header's) a field by its German name, the path as tooltip. */
+function fieldRows(changes: readonly FieldChange[], specs: readonly { key: string; label: string }[] = []): ChangeTableRow[] {
   return changes.map((c) => {
     const name = specs.find((s) => s.key === c.path)?.label;
     return { key: c.path, field: name ?? c.path, ...(name !== undefined && { title: c.path }), old: c.old, new: c.new };
@@ -143,7 +151,7 @@ function Body({ report, against }: { report: EntityDiffReport; against: Against 
         <ChangeTable
           columns={["Feld", words.old, words.new]}
           ariaLabel={report.label}
-          rows={fieldRows(diff.changes, family, report.subject.kind === "header")}
+          rows={fieldRows(diff.changes, report.subject.kind === "header" && family ? headerFieldSpecs(family) : [])}
           more={moreText(diff.more, "Felder")}
         />
       );
@@ -196,36 +204,38 @@ function MapDiff({ diff, label, words }: { diff: Extract<Diff, { shape: "map" }>
       if (!next.delete(name)) next.add(name);
       return next;
     });
-  const family = useReset().family;
   return (
-    <div className={styles.sections}>
-      <Section title="Teile" open={!folded.has("parts")} onToggle={() => toggle("parts")}>
-        <ul className={styles.parts} data-map-parts="">
-          {diff.parts.map((p) => (
-            <li key={p.part} className={styles.part}>
-              <span>{PART_NAMES[p.part] ?? p.part}</span>
-              {p.changed ? <Badge kind="warning">geändert</Badge> : <Badge kind="neutral">gleich</Badge>}
-            </li>
-          ))}
-        </ul>
-      </Section>
-      {diff.cells.length > 0 && (
-        <Section title="Zellen der Bewegungsrechte" count={diff.cells.length} open={!folded.has("cells")} onToggle={() => toggle("cells")}>
-          <ChangeTable
-            columns={["Zelle", words.old, words.new]}
-            ariaLabel={`${label}: Zellen der Bewegungsrechte`}
-            // A side without such a cell (the map grew or shrank) is missing.
-            rows={diff.cells.map((c) => ({ key: `${c.x},${c.y}`, field: `${c.x}, ${c.y}`, old: c.old === "" ? null : c.old, new: c.new === "" ? null : c.new }))}
-            more={moreText(diff.more, "Zellen")}
-          />
+    <>
+      <div className={styles.sections}>
+        <Section title="Teile" open={!folded.has("parts")} onToggle={() => toggle("parts")}>
+          <ul className={styles.parts} data-map-parts="">
+            {diff.parts.map((p) => (
+              <li key={p.part} className={styles.part}>
+                <span>{PART_NAMES[p.part] ?? p.part}</span>
+                {p.changed ? <Badge kind="warning">geändert</Badge> : <Badge kind="neutral">gleich</Badge>}
+              </li>
+            ))}
+          </ul>
         </Section>
-      )}
-      {diff.buildings.length > 0 && (
-        <Section title="Gebäude" count={diff.buildings.length} open={!folded.has("buildings")} onToggle={() => toggle("buildings")}>
-          <ChangeTable columns={["Feld", words.old, words.new]} ariaLabel={`${label}: Gebäude`} rows={fieldRows(diff.buildings, family, false)} />
-        </Section>
-      )}
-    </div>
+        {diff.cells.length > 0 && (
+          <Section title="Zellen der Bewegungsrechte" count={diff.cells.length} open={!folded.has("cells")} onToggle={() => toggle("cells")}>
+            <ChangeTable
+              columns={["Zelle", words.old, words.new]}
+              ariaLabel={`${label}: Zellen der Bewegungsrechte`}
+              // A side without such a cell (the map grew or shrank) is missing.
+              rows={diff.cells.map((c) => ({ key: `${c.x},${c.y}`, field: `${c.x}, ${c.y}`, old: c.old === "" ? null : c.old, new: c.new === "" ? null : c.new }))}
+            />
+          </Section>
+        )}
+        {diff.buildings.length > 0 && (
+          <Section title="Gebäude" count={diff.buildings.length} open={!folded.has("buildings")} onToggle={() => toggle("buildings")}>
+            <ChangeTable columns={["Feld", words.old, words.new]} ariaLabel={`${label}: Gebäude`} rows={fieldRows(diff.buildings)} />
+          </Section>
+        )}
+      </div>
+      {/* The kernel cuts cells and building fields together: one count below both. */}
+      {diff.more > 0 && <p className={styles.more}>{`und ${diff.more} weitere Einträge`}</p>}
+    </>
   );
 }
 

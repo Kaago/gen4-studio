@@ -697,6 +697,8 @@ function AppBody() {
     openingArea.current = created.template === "data_only" ? "pokemon" : "welt";
     const result = await session.onOpen(resetProject, created.root);
     if (result !== "opened") openingArea.current = "welt";
+    // Created with Git and its first commit (the wizard's checkbox): Technik › Änderungen compares against it, as after „Git einrichten“.
+    else if (created.git?.committed) setAgainst("head");
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.
@@ -1217,6 +1219,8 @@ function AppBody() {
         onAgainst={setAgainst}
         git={info ? git : null}
         unsaved={unsaved.entries}
+        unsavedError={unsaved.error}
+        onReloadUnsaved={unsaved.reload}
         onGitSetup={() => setGitSetupOpen(true)}
         revision={shownRevision}
       />

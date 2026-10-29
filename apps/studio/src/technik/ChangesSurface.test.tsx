@@ -7,7 +7,7 @@ import { diffEntity } from "../api";
 import type { Against, AssetId, ChangedEntry, GitStatus, OriginalStatus } from "../api";
 import { gitStatusOf, noRepo } from "../git/gitTesting";
 import type { GitStatusApi } from "../git/useGitStatus";
-import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
+import { MISSING, READY, readyWith, resetSpy, withReset } from "../original/resetTesting";
 import { changesWith, entry, report } from "./changesTesting";
 import { diffReport } from "./diffTesting";
 import { ChangesSurface } from "./ChangesSurface";
@@ -38,6 +38,7 @@ describe("ChangesSurface", () => {
     onOpenProject.mockClear();
     onAgainst.mockClear();
     onGitSetup.mockClear();
+    onReloadUnsaved.mockClear();
     goTo.mockClear();
     vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
     reset = resetSpy();
@@ -54,8 +55,17 @@ describe("ChangesSurface", () => {
   const onGitSetup = vi.fn();
   const goTo = vi.fn();
   const gitWith = (status: GitStatus | null, over: Partial<GitStatusApi> = {}): GitStatusApi => ({ status, error: null, refresh: vi.fn(async () => {}), ...over });
-  type RenderOptions = { changes?: ChangesApi | null; status?: OriginalStatus | null; dirty?: AssetId[]; against?: Against; git?: GitStatusApi | null; unsaved?: ChangedEntry[] | null };
-  const render = ({ changes = changesWith(), status = READY, dirty = [], against = "base", git = gitWith(gitStatusOf()), unsaved = null }: RenderOptions = {}) =>
+  const onReloadUnsaved = vi.fn();
+  type RenderOptions = {
+    changes?: ChangesApi | null;
+    status?: OriginalStatus | null;
+    dirty?: AssetId[];
+    against?: Against;
+    git?: GitStatusApi | null;
+    unsaved?: ChangedEntry[] | null;
+    unsavedError?: string | null;
+  };
+  const render = ({ changes = changesWith(), status = READY, dirty = [], against = "base", git = gitWith(gitStatusOf()), unsaved = null, unsavedError = null }: RenderOptions = {}) =>
     act(async () =>
       root.render(
         withReset(
@@ -69,6 +79,8 @@ describe("ChangesSurface", () => {
             onAgainst={onAgainst}
             git={git}
             unsaved={unsaved}
+            unsavedError={unsavedError}
+            onReloadUnsaved={onReloadUnsaved}
             onGitSetup={onGitSetup}
             goTo={goTo}
             revision={0}
@@ -433,6 +445,38 @@ describe("ChangesSurface", () => {
       expect(surface()?.textContent).toContain("Nichts ungespeichert.");
       await render({ against: "saved", unsaved: null });
       expect(surface()?.textContent).toContain("Wird gelesen …");
+    });
+
+    it("head_and_saved_rows_lock_reset_by_the_base_rom", async () => {
+      const trainer = entry({ group: "Trainer", label: "Trainer 0001", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], subject: { kind: "trainer", index: 1 } });
+      const map = entry({ label: "Karte 0700", target: { kind: "map", index: 700 }, assets: [{ kind: "Map", index: 700 }], subject: { kind: "map", index: 700 } });
+      const fresh = entry({ label: "Karte 0701", state: "new", target: { kind: "map", index: 701 }, assets: [], subject: { kind: "map", index: 701 } });
+      // Without a base ROM the lists show, but nothing can be reset.
+      await render({ against: "head", status: MISSING, git: gitWith(gitStatusOf({ entries: [trainer, fresh] })) });
+      expect(isLocked(resetButton("Trainer 0001"))).toBe(true);
+      expect(reason(resetButton("Trainer 0001"))).toBe("Basis-ROM fehlt");
+      expect(reason(resetButton("Karte 0701"))).toBe("Kein Original");
+      await render({ against: "saved", status: MISSING, unsaved: [trainer] });
+      expect(reason(resetButton("Trainer 0001"))).toBe("Basis-ROM fehlt");
+      // While the base is read.
+      await render({ against: "saved", status: null, unsaved: [trainer] });
+      expect(reason(resetButton("Trainer 0001"))).toBe("Wird gelesen …");
+      // Past the base's entries: no original.
+      await render({ against: "head", status: readyWith({ map: 600, trainer: 900 }), git: gitWith(gitStatusOf({ entries: [trainer, map] })) });
+      expect(isLocked(resetButton("Trainer 0001"))).toBe(false);
+      expect(reason(resetButton("Karte 0700"))).toBe("Kein Original");
+    });
+
+    it("a_failed_unsaved_read_says_why_and_can_be_retried", async () => {
+      await render({ against: "saved", unsaved: null, unsavedError: "Kein Projekt geöffnet." });
+      expect(container.querySelector("[role=alert]")?.textContent).toContain("Kein Projekt geöffnet.");
+      expect(surface()?.textContent).not.toContain("Wird gelesen …");
+      await act(async () => button("Neu vergleichen")!.click());
+      expect(onReloadUnsaved).toHaveBeenCalledOnce();
+      // A list read before stays shown below the reason.
+      await render({ against: "saved", unsaved: [entry()], unsavedError: "Kein Projekt geöffnet." });
+      expect(container.querySelector("[role=alert]")).not.toBeNull();
+      expect(change("Karte 0003")).not.toBeNull();
     });
 
     it("selecting_a_row_shows_its_diff", async () => {

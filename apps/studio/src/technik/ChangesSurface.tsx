@@ -8,7 +8,7 @@ import { Badge, Button, EmptyState, ListRow, Notice, Section, Segmented, Tooltip
 import type { SegmentedOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import styles from "./ChangesSurface.module.css";
-import { stateBadge } from "./diffWords";
+import { rowResetLock, stateBadge } from "./diffWords";
 import { EntityDiff } from "./EntityDiff";
 import type { ChangesApi } from "./useChanges";
 
@@ -19,12 +19,6 @@ const AGAINST: readonly SegmentedOption<Against>[] = [
   { value: "saved", label: "Gegen gespeichert" },
 ];
 
-/** Why the row's reset button is locked; null when it can be used. */
-function locked(entry: ChangedEntry): string | null {
-  if (entry.state !== "changed") return "Kein Original";
-  if (entry.target === null) return "Für diese Art gibt es kein Zurücksetzen.";
-  return null;
-}
 
 /** At most this many folders are named in „Noch nicht gebaut“; the others are counted. */
 const UNBUILT_NAMED = 5;
@@ -201,6 +195,10 @@ export type ChangesSurfaceProps = {
   git: GitStatusApi | null;
   /** The unsaved edits as entities (the list against the saved state); null while they are read. */
   unsaved: readonly ChangedEntry[] | null;
+  /** Why the last read of the unsaved edits failed; null when it went through. */
+  unsavedError?: string | null;
+  /** Reads the unsaved edits again („Neu vergleichen“ after a failed read). */
+  onReloadUnsaved?: () => void;
   /** „Git einrichten…“: the app's dialog. */
   onGitSetup: () => void;
   /** „Öffnen“ in the detail. */
@@ -227,7 +225,7 @@ function headLead(git: GitStatus): string {
  * where the base is assigned; without a repository „Gegen letzten Commit“ offers „Git einrichten…“. The compares run in the app's hooks;
  * this surface only shows them.
  */
-export function ChangesSurface({ changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, onGitSetup, goTo, revision }: ChangesSurfaceProps) {
+export function ChangesSurface({ changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, goTo, revision }: ChangesSurfaceProps) {
   const { where, fallback, ...keep } = useKeepFocus();
   // The chosen row, for the comparison it was chosen in: another comparison starts without one.
   const [chosen, setChosen] = useState<{ against: Against; key: string } | null>(null);
@@ -238,7 +236,7 @@ export function ChangesSurface({ changes, status, dirty, onOpenProject, against,
       </Surface>
     );
   }
-  const shown = against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved) : baseShown(changes, status);
+  const shown = against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
   const selected = chosen?.against === against ? chosen.key : null;
   const entries = shown.entries;
   const entry = entries?.find((e) => rowKey(e.group, e.label) === selected) ?? null;
@@ -260,7 +258,7 @@ export function ChangesSurface({ changes, status, dirty, onOpenProject, against,
         ) : (
           <div className={styles.split} data-changes-split="">
             <div className={styles.columns}>
-              <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} where={where} selected={selected} onSelect={(key) => setChosen({ against, key })} />
+              <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} status={status} where={where} selected={selected} onSelect={(key) => setChosen({ against, key })} />
               <EntityDiff entry={entry} against={against} revision={revision} goTo={goTo} finalFocus={fallback} />
             </div>
           </div>
@@ -351,11 +349,25 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void): Shown {
   };
 }
 
-/** „Gegen gespeichert“: the store's unsaved edits as entities. */
-function savedShown(unsaved: readonly ChangedEntry[] | null): Shown {
+/** „Gegen gespeichert“: the store's unsaved edits as entities; a failed read names its reason and offers to read again. */
+function savedShown(unsaved: readonly ChangedEntry[] | null, error: string | null, onReload: () => void): Shown {
   const empty = "Nichts ungespeichert.";
+  const lead = "Was ungespeichert vom gespeicherten Stand abweicht.";
+  if (error !== null) {
+    return {
+      lead,
+      action: (
+        <Button kind="secondary" data-compare-again="" onClick={onReload}>
+          Neu vergleichen
+        </Button>
+      ),
+      before: <Notice kind="error">{error}</Notice>,
+      entries: unsaved,
+      empty,
+    };
+  }
   if (unsaved === null) return { before: <p className={styles.note}>Wird gelesen …</p>, entries: null, empty };
-  return { lead: "Was ungespeichert vom gespeicherten Stand abweicht.", entries: unsaved, empty };
+  return { lead, entries: unsaved, empty };
 }
 
 /** The surface: the title „Änderungen“, below it `lead` and beside it `action`, then the switch of the comparison and what it holds. */
@@ -379,10 +391,18 @@ function Surface({ lead, action, toggle, children, ref, onFocus }: { lead?: stri
   );
 }
 
-type GroupsProps = { entries: readonly ChangedEntry[]; dirty: readonly AssetId[]; against: Against; where: KeepFocus["where"]; selected: string | null; onSelect: (key: string) => void };
+type GroupsProps = {
+  entries: readonly ChangedEntry[];
+  dirty: readonly AssetId[];
+  against: Against;
+  status: OriginalStatus | null;
+  where: KeepFocus["where"];
+  selected: string | null;
+  onSelect: (key: string) => void;
+};
 
 /** The groups of the list, each a section (open until folded) holding a list of its rows. */
-function ChangeGroups({ entries, dirty, against, where, selected, onSelect }: GroupsProps) {
+function ChangeGroups({ entries, dirty, against, status, where, selected, onSelect }: GroupsProps) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const toggle = (group: string) =>
     setFolded((before) => {
@@ -395,7 +415,7 @@ function ChangeGroups({ entries, dirty, against, where, selected, onSelect }: Gr
       {groupsOf(entries).map(([group, list]) => (
         <div key={group} data-changes-group={group}>
           <Section title={group} count={list.length} open={!folded.has(group)} onToggle={() => toggle(group)}>
-            <GroupList group={group} entries={list} dirty={dirty} against={against} where={where} selected={selected} onSelect={onSelect} />
+            <GroupList group={group} entries={list} dirty={dirty} against={against} status={status} where={where} selected={selected} onSelect={onSelect} />
           </Section>
         </div>
       ))}
@@ -403,7 +423,7 @@ function ChangeGroups({ entries, dirty, against, where, selected, onSelect }: Gr
   );
 }
 
-function GroupList({ group, entries, dirty, against, where, selected, onSelect }: Omit<GroupsProps, "entries"> & { group: string; entries: readonly ChangedEntry[] }) {
+function GroupList({ group, entries, dirty, against, status, where, selected, onSelect }: Omit<GroupsProps, "entries"> & { group: string; entries: readonly ChangedEntry[] }) {
   const { open } = useReset();
   const list = useRef<HTMLDivElement>(null);
   const noteBase = useId();
@@ -414,7 +434,7 @@ function GroupList({ group, entries, dirty, against, where, selected, onSelect }
         const key = rowKey(group, entry.label);
         const badge = stateBadge(against, entry.state);
         const unsaved = entry.assets.some((a) => dirty.some((d) => sameAsset(a, d)));
-        const why = locked(entry);
+        const why = rowResetLock(entry, status);
         const target = entry.target;
         const noteId = `${noteBase}${entries.indexOf(entry)}`;
         // A locked button stays focusable (aria-disabled): the reason is its description and the tooltip, which keyboard focus opens too.

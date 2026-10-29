@@ -98,6 +98,10 @@ export type TechnikAreaProps = {
   git: GitStatusApi | null;
   /** The unsaved edits as entities (Änderungen against the saved state); null while they are read. */
   unsaved: readonly ChangedEntry[] | null;
+  /** Why the last read of the unsaved edits failed; null when it went through. */
+  unsavedError?: string | null;
+  /** Reads the unsaved edits again (after a failed read). */
+  onReloadUnsaved?: () => void;
   /** „Git einrichten…“ (Änderungen against the last commit without a repository): the app's dialog. */
   onGitSetup: () => void;
   /** Moves whenever the compared state may differ (a save, a reset, an edit): the detail of Änderungen reads its diff again. */
@@ -218,6 +222,8 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           onAgainst={props.onAgainst}
           git={props.git}
           unsaved={props.unsaved}
+          unsavedError={props.unsavedError}
+          onReloadUnsaved={props.onReloadUnsaved}
           onGitSetup={props.onGitSetup}
           goTo={props.goTo}
           revision={props.revision}

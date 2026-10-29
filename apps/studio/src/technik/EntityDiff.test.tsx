@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { diffEntity } from "../api";
 import type { Against, ChangedEntry, EntityDiffReport } from "../api";
 import { ResetProvider } from "../original/OriginalContext";
-import { resetSpy } from "../original/resetTesting";
+import { MISSING, readyWith, resetSpy } from "../original/resetTesting";
 import { entry } from "./changesTesting";
 import { diffReport } from "./diffTesting";
 import { EntityDiff } from "./EntityDiff";
@@ -130,20 +130,21 @@ describe("EntityDiff", () => {
             { part: "buildings", changed: true, old: "dddddddd", new: "eeeeeeee" },
             { part: "bdhc", changed: false, old: "ffffffff", new: "ffffffff" },
             { part: "bgs", changed: false, old: null, new: null },
+            { part: "raw", changed: false, old: null, new: null },
           ],
           cells: [
             { x: 4, y: 7, old: "0000", new: "0080" },
             { x: 5, y: 7, old: "", new: "0001" },
           ],
           buildings: [{ path: "buildings[0].x", old: "4", new: "5" }],
-          more: 0,
+          more: 5,
         },
       }),
       { row: map },
     );
     const parts = detail()!.querySelector<HTMLElement>("[data-map-parts]")!;
     const partRows = [...parts.querySelectorAll("li")].map((li) => li.textContent);
-    expect(partRows).toEqual(["Modellgleich", "Bewegungsrechtegeändert", "Gebäudegeändert", "BDHCgleich", "BGSgleich"]);
+    expect(partRows).toEqual(["Modellgleich", "Bewegungsrechtegeändert", "Gebäudegeändert", "BDHCgleich", "BGSgleich", "Rohdatengleich"]);
     expect(parts.querySelector("[class*=warning]")?.textContent).toBe("geändert");
     const titles = [...detail()!.querySelectorAll("h3")].map((h) => h.textContent);
     expect(titles.some((t) => t?.startsWith("Teile"))).toBe(true);
@@ -156,6 +157,15 @@ describe("EntityDiff", () => {
     ]);
     expect(head(tables()[1])).toEqual(["Feld", "Commit", "Projekt"]);
     expect(body(tables()[1])).toEqual([["buildings[0].x", "4", "5"]]);
+    // Cut rows count cells and building fields together: one line below the map, not in a table.
+    expect(detail()?.querySelector("table [data-change-table-more]")).toBeNull();
+    expect(detail()?.lastElementChild?.textContent).toBe("und 5 weitere Einträge");
+    // Only building fields cut, no cell changed: the line is there all the same.
+    await render(
+      diffReport({ subject: { kind: "map", index: 4 }, label: "Karte 0004", diff: { shape: "map", parts: [], cells: [], buildings: [{ path: "buildings[0].x", old: "4", new: "5" }], more: 2 } }),
+      { row: { ...map, subject: { kind: "map", index: 4 } } },
+    );
+    expect(detail()?.textContent).toContain("und 2 weitere Einträge");
   });
 
   it("messages_show_word_spans", async () => {
@@ -262,6 +272,14 @@ describe("EntityDiff", () => {
     expect(reason(locked)).toBe("Für diese Art gibt es keinen Ort in der App.");
     await act(async () => locked.click());
     expect(goTo).not.toHaveBeenCalled();
+    // An event file whose diff is still read: locked without a reason (the place follows from the diff).
+    vi.mocked(diffEntity).mockReset().mockImplementationOnce(() => new Promise(() => {}));
+    const events = entry({ group: "Ereignisse", label: "Ereignisdatei 0005", target: { kind: "event_file", index: 5 }, assets: [], subject: { kind: "event_file", index: 5 } });
+    await render(null, { row: events });
+    const waiting = button("Öffnen")!;
+    expect(waiting.getAttribute("aria-disabled")).toBe("true");
+    expect(waiting.hasAttribute("aria-describedby")).toBe(false);
+    expect(detail()?.textContent).not.toContain("Für diese Art gibt es keinen Ort in der App.");
     // No primary button in the detail.
     expect(container.querySelectorAll("[data-kind=primary]")).toHaveLength(0);
   });
@@ -283,5 +301,12 @@ describe("EntityDiff", () => {
     // A kind without a reset: as on its row.
     await render(diffReport({ subject: { kind: "matrix", index: 0 }, label: "Matrix 0000", reset: null }), { row: entry({ group: "Matrizen", label: "Matrix 0000", target: null, assets: [], subject: { kind: "matrix", index: 0 } }) });
     expect(reason(button("Auf Original zurücksetzen…"))).toBe("Für diese Art gibt es kein Zurücksetzen.");
+    // Against the last commit without a base ROM, and past the base's entries: as the entry of a menu says.
+    reset = resetSpy(MISSING);
+    await render(diffReport({ subject: { kind: "trainer", index: 2 } }), { row: { ...TRAINER, subject: { kind: "trainer", index: 2 } } });
+    expect(reason(button("Auf Original zurücksetzen…"))).toBe("Basis-ROM fehlt");
+    reset = resetSpy(readyWith({ trainer: 1 }));
+    await render(diffReport({ subject: { kind: "trainer", index: 3 } }), { row: { ...TRAINER, subject: { kind: "trainer", index: 3 } } });
+    expect(reason(button("Auf Original zurücksetzen…"))).toBe("Kein Original");
   });
 });

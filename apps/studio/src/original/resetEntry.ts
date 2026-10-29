@@ -5,8 +5,11 @@ import type { MenuItemSpec } from "../ui/primitives";
 /** The entry's label where one target stands alone; where two stand side by side the caller names which one. */
 export const RESET_LABEL = "Auf Original zurücksetzen…";
 
-/** Why the entry is disabled, as its quiet detail; null when it can be used. */
-function whyNot(target: ResetTarget, status: OriginalStatus | null): string | null {
+/**
+ * Why resetting `target` is not possible, as a menu entry's quiet detail or a locked button's reason: the base ROM is read, missing, or does
+ * not have the entry. Null when it can be used.
+ */
+export function whyNot(target: ResetTarget, status: OriginalStatus | null): string | null {
   if (status === null) return "Wird gelesen …";
   if (status.state === "unavailable") return "Basis-ROM fehlt";
   // A kind the base has no archive for counts 0. A message itself is checked by the plan.
