@@ -58,6 +58,10 @@ pub enum KernelError {
     /// the user as it is.
     #[error("{0}")]
     Refused(String),
+    /// The store refuses every write for now (the project is being set up as text project);
+    /// the text says why. Nothing was changed.
+    #[error("{0}")]
+    Busy(String),
     /// A fix was asked for a finding the checks no longer report as it was sent (its subject
     /// changed since it was found, or it is gone); nothing was changed. Not [`KernelError::Stale`],
     /// which is a file that changed on disk.

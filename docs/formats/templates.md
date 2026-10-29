@@ -12,13 +12,17 @@ Kernel ab („Diamant/Perl: ohne Testprojekt nicht freigegeben“).
 
 | Feld | Platin | HeartGold/SoulSilver | Inhalt |
 |---|---|---|---|
-| `start_town` | `T01` | `T20` | interner Name (`mapname.bin`) des Headers der Startstadt; er muss `matrix_id 0` haben |
-| `starter.species`, `starter.level` | 387, 5 | 152, 5 | das Pokémon, das das Start-Script gibt (Chelast, Endivie) |
+| `start_town` | `MAP_T01` | `MAP_T20` | `MAP_` und der interne Name (`mapname.bin`) des Headers der Startstadt; er muss `matrix_id 0` haben. Der bloße interne Name (`T01`, die Form vor 4.3b) gilt auch |
+| `starter.species`, `starter.level` | `SPECIES_TURTWIG`, 5 | `SPECIES_CHIKORITA`, 5 | das Pokémon, das das Start-Script gibt (Chelast 387, Endivie 152): ID der festen Tabelle oder Nummer (`387`, die Form vor 4.3b) |
 | `done_var` | `VAR_UNUSED_0x406C` | `VAR_UNK_4031` | Variable (Name der Befehlsdatenbank), die das Start-Script auf 1 setzt; kein übernommenes Vanilla-Script benutzt sie |
 | `message.de`, `message.en` | | | Text des Start-Scripts: deutsche Spiele `de`, alle anderen `en` |
 
 Orte, Variablen und Flags stehen als Namen im Rezept; die Nummern rechnet der Kernel aus der
-mitgelieferten Befehlsdatenbank (`metadata/scrcmd/`).
+mitgelieferten Befehlsdatenbank (`metadata/scrcmd/`). Die Spezies löst `Resolver::fixed()` auf (feste
+Tabelle, Fallback `SPECIES_NNNN`, Nummer), so dass das Rezept auch in einem DSPRE-Ordner gilt; eine
+unbekannte ID ist ein Fehler der Metadaten (`templates.yaml: Unbekannte ID: …`). Die Startstadt bleibt
+im Kernel der interne Name (`RegionRecipe::start_town`, `templates::start_town` geben `T01` bzw. `T20`):
+`MAP_<interner Name>` heißt der Header auch ohne Textprojekt und nach einem Umbenennen im Register.
 
 ## Plan (`plan_empty_region`)
 

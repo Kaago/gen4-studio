@@ -39,7 +39,7 @@ pub(crate) use super::super::codes::HEADER_COUNT_CODE;
 /// `mapname.bin`, …).
 pub(crate) use super::super::codes::HEADER_TABLE_CODE;
 /// A member (here: a header) the import would have to delete because no JSON names it;
-/// deleting is 4.3b.
+/// deleting is 3d.
 pub(crate) use super::super::codes::MEMBER_WITHOUT_JSON_CODE;
 /// The folder of the header files under `data/`.
 pub(crate) const HEADERS_ART: &str = "headers";
@@ -48,7 +48,7 @@ const NAME_LEN: usize = 16;
 /// Bytes of one header.
 const HEADER_LEN: usize = uxie::map_header::MAP_HEADER_SIZE;
 /// The refusal for Diamond/Pearl.
-pub(crate) const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
+pub const NO_DP: &str = "Kein Textprojekt für Diamant/Perl in Phase 4.";
 
 /// A Platinum header (uxie `MapHeaderPt`, same fields in the same order).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -608,7 +608,7 @@ pub(crate) fn import_headers(
                     format!(
                         "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
                          Einträge, data/headers {count} Dateien); der Import entfernt keine \
-                         Header, Löschen ist 4.3b."
+                         Header, Löschen kommt mit Phase 3d."
                     ),
                 ));
             } else if dynamic && count > MAX_HEADERS {
@@ -621,7 +621,7 @@ pub(crate) fn import_headers(
             // Without the patch the table is a slice of arm9.bin, which must hold it. With
             // it, a missing `unpacked/dynamicHeaders` is fine: the headers own that folder
             // and `write_headers` writes every file.
-            if !dynamic && let Err(e) = project.asset_location(AssetKind::HeaderTable, 0) {
+            if !dynamic && let Err(e) = project.member_location(AssetKind::HeaderTable, 0) {
                 problems.push(problem(
                     &rel(&project.arm9_path()),
                     HEADER_TABLE_CODE,
@@ -666,7 +666,7 @@ pub(crate) fn import_headers(
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
 /// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
 /// `unpacked/dynamicHeaders` is created with every header file, and a table shorter than
-/// `mapname.bin` is refused (deleting headers is 4.3b); without it the table must have the
+/// `mapname.bin` is refused (deleting headers is 3d); without it the table must have the
 /// length of the slice in `arm9.bin`.
 pub(crate) fn write_headers(
     project: &Project,
@@ -690,7 +690,7 @@ pub(crate) fn write_headers(
         if count < old {
             return Err(KernelError::InvalidProject(format!(
                 "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import \
-                 entfernt keine Header, Löschen ist 4.3b."
+                 entfernt keine Header, Löschen kommt mit Phase 3d."
             )));
         }
         let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
@@ -705,7 +705,7 @@ pub(crate) fn write_headers(
         }
         return Ok(wrote);
     }
-    match project.asset_location(AssetKind::HeaderTable, 0)? {
+    match project.member_location(AssetKind::HeaderTable, 0)? {
         Location::Slice { path, offset, len } => {
             if len != w.table.len() {
                 return Err(KernelError::InvalidProject(format!(
@@ -734,7 +734,8 @@ pub(crate) fn write_headers(
         Location::HeaderFiles { .. }
         | Location::Member(_)
         | Location::TextSource { .. }
-        | Location::MemberPair { .. } => {
+        | Location::MemberPair { .. }
+        | Location::Entity { .. } => {
             return Err(KernelError::InvalidProject(
                 "the header table is not a slice of arm9.bin".to_owned(),
             ));
@@ -1088,7 +1089,7 @@ mod project_tests {
             arm9
         );
 
-        // Back to two is refused: deleting a header is 4.3b, and nothing is written.
+        // Back to two is refused: deleting a header is 3d, and nothing is written.
         let three = import_headers(&project, &files, &sym).unwrap();
         files.pop();
         let problems = import_headers(&project, &files, &sym).unwrap_err();
@@ -1102,7 +1103,7 @@ mod project_tests {
             problems[0].message
         );
         assert!(
-            problems[0].message.ends_with("Löschen ist 4.3b."),
+            problems[0].message.ends_with("Löschen kommt mit Phase 3d."),
             "{}",
             problems[0].message
         );
@@ -1160,7 +1161,7 @@ mod project_tests {
             if patched {
                 assert!(
                     message.starts_with("textproject.member-without-json: $: ")
-                        && message.ends_with("Löschen ist 4.3b."),
+                        && message.ends_with("Löschen kommt mit Phase 3d."),
                     "{message}"
                 );
             } else {

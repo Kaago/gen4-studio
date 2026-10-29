@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { addScript, adoptScripts, readScript, saveLevelScript, saveScript, scriptsStatus } from "../../api";
-import type { AdoptProgressDto, AdoptReportDto, CmdError, LevelScriptDoc, ProjectInfo, SaveScriptDto, ScriptsStatusDto } from "../../api";
+import type { AdoptProgressDto, AdoptReportDto, CmdError, LevelScriptDoc, ProjectInfo, SaveScriptDto, ScriptSourceDto, ScriptsStatusDto } from "../../api";
 import type { EditBus } from "../../bus/editBus";
 import { TERMS, id4 } from "../terms";
 import { scriptPath } from "../problems/problems";
 import type { ProblemsStore } from "../problems/problems";
 import { ScriptDocuments, lineOffset } from "./documents";
+import type { ScriptDocument } from "./documents";
+import { toast } from "../../ui/frame/toasts";
 
 /** What the rest of the app sees of the open scripts: the project session saves them before a build and counts them as unsaved. */
 export interface ScriptBridge {
@@ -71,6 +73,11 @@ interface ScriptsParams {
   onError: (e: unknown) => void;
   /** Script files were written (a save of the editor or the level-script form, „Script anfügen“, „Übernehmen“): their members are on disk now. */
   onSaved?: () => void;
+  /**
+   * Whether `info` is the open project's session opened anew behind the app's back (an agent's adoption, revert or lift): then the open
+   * documents stay, typed text included, since nobody was asked whether it may go. Without it every new info starts over.
+   */
+  reopened?: (info: ProjectInfo) => boolean;
 }
 
 const lf = (text: string) => text.replace(/\r\n?/g, "\n");
@@ -96,7 +103,22 @@ function parseLevelScript(file: number, text: string): LevelScriptDoc {
  * not in the Script panel, because the toolbar counts unsaved scripts and a build saves them first. It does not touch the
  * editor or the language server (those, with CodeMirror, load with the panel).
  */
-export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsParams): ScriptsController {
+/**
+ * The note when a file changed outside the editor under typed text (`names`: „Scriptdatei 0042“): saving writes over it. Several at once
+ * (a reopen that rewrote them) are named in one note, so none replaces another.
+ */
+export function changedOutsideText(names: readonly string[]): string {
+  return `${names.join(", ")} ${names.length === 1 ? "wurde" : "wurden"} außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`;
+}
+
+/** The warning when unsaved documents kept across a reopen have no file any more: the text stays in the editor. */
+export function goneText(names: readonly string[]): string {
+  const [first] = names;
+  const what = names.length === 1 && first !== undefined ? `fehlt die ${first}` : `fehlen ${names.join(", ")}`;
+  return `Nach dem Neuöffnen ${what}; ihr ungespeicherter Text bleibt im Editor.`;
+}
+
+export function useScripts({ info, bus, problems, onError, onSaved, reopened }: ScriptsParams): ScriptsController {
   // Another project: nothing of the old one stays open. Reset while rendering, so no render pairs the old documents with the new project.
   // `saving`: the saves in flight of this project, so a second one (Cmd+S reaches the editor and the app) joins the first.
   // It belongs to the project: a save of the same file number in the next project must not join the old one.
@@ -105,11 +127,17 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
   const [status, setStatus] = useState<ScriptsStatusDto | null>(null);
   const [active, setActive] = useState<number | null>(null);
   let owned = owner;
+  // The info a reopen of the same folder kept the documents for: they are checked against the new session once it is there.
+  const keptFor = useRef<ProjectInfo | null>(null);
   if (owner.info !== info) {
-    owned = fresh();
+    const same = info !== null && owner.info !== null && info.root === owner.info.root && (reopened?.(info) ?? false);
+    owned = same ? { ...owner, info } : fresh();
     setOwner(owned);
-    setStatus(null);
-    setActive(null);
+    if (same) keptFor.current = info;
+    else {
+      setStatus(null);
+      setActive(null);
+    }
   }
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
@@ -125,10 +153,50 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
       (next) => current && setStatus(next),
       (e: unknown) => current && latest.current.onError(e),
     );
+    if (keptFor.current === info) {
+      keptFor.current = null;
+      void checkKept();
+    }
     return () => {
       current = false;
     };
   }, [info]);
+
+  /**
+   * After a reopen kept the documents, each is held against its file in the new session. A file rewritten meanwhile (an adoption that
+   * decompiled anew) is handled like any change outside the editor (`applyDisk`): a clean document shows it, typed text stays and the user
+   * hears that saving overwrites it. A document with typed text whose file is gone (it cannot be read, or has no source) keeps its text,
+   * and a lasting warning names it, so nothing vanishes unseen.
+   */
+  async function checkKept() {
+    const docs = latest.current.documents;
+    const names: string[] = [];
+    // The files rewritten under typed text: one note for all of them, after the loop.
+    const changed: string[] = [];
+    const note = (name: string) => void changed.push(name);
+    for (const doc of [...docs.list()]) {
+      const { file } = doc;
+      let source: ScriptSourceDto | null;
+      try {
+        source = await readScript(file);
+      } catch {
+        source = null;
+      }
+      if (latest.current.documents !== docs) return;
+      if (docs.get(file) !== doc) continue;
+      const dirty = lf(doc.text) !== doc.savedText;
+      if (source === null || source.kind === "binary") {
+        if (dirty) names.push(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`);
+        // A clean document without a source has nothing to edit; one whose file did not read stays as it is.
+        else if (source !== null) applyDisk(file, doc, source, false, note);
+        continue;
+      }
+      const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
+      if (source.kind !== doc.kind || text !== doc.savedText) applyDisk(file, doc, source, false, note);
+    }
+    if (changed.length > 0) latest.current.onError(refusal(changedOutsideText(changed)));
+    if (names.length > 0) toast.warning(goneText(names));
+  }
 
   const open = useCallback(async (file: number, line?: number) => {
     const docs = latest.current.documents;
@@ -244,6 +312,41 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
     [save],
   );
 
+  /**
+   * The open `doc` of `file` gets what `source`, just read from disk, holds: a document without typed text (or with `discard`) shows it,
+   * typed text stays and `onError` says that saving it overwrites what is on disk now (or, with `note`, the file's name goes there, for one
+   * note over several files). A file that now has a source of the other kind gets a document of that kind in the same place, one without a
+   * source any more (binary) is closed.
+   */
+  const applyDisk = useCallback(
+    (file: number, doc: ScriptDocument, source: ScriptSourceDto, discard: boolean, note?: (name: string) => void) => {
+      const { documents: docs, bus } = latest.current;
+      const dirty = lf(doc.text) !== doc.savedText;
+      const name = `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`;
+      const refuse = () => (note ? note(name) : latest.current.onError(refusal(changedOutsideText([name]))));
+      if (source.kind === "binary") {
+        // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.
+        if (discard || !dirty) close(file);
+        else refuse();
+        return;
+      }
+      const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
+      if (source.kind !== doc.kind) {
+        // The file has a source of the other kind now (a reset to original decompiled to it): the language server hears of both.
+        bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, source.kind), type: 2 }] });
+        if (discard || !dirty) docs.replace(file, source.kind, text);
+        else refuse();
+        bump();
+        return;
+      }
+      if (discard || !dirty) doc.text = text;
+      else refuse();
+      doc.savedText = text;
+      bump();
+    },
+    [close],
+  );
+
   const reload = useCallback(
     async (file: number, { discard = false }: { discard?: boolean } = {}): Promise<void> => {
       const { documents: docs, bus } = latest.current;
@@ -254,35 +357,12 @@ export function useScripts({ info, bus, problems, onError, onSaved }: ScriptsPar
       try {
         const source = await readScript(file);
         if (latest.current.documents !== docs || docs.get(file) !== doc) return;
-        const dirty = lf(doc.text) !== doc.savedText;
-        const refuse = () =>
-          latest.current.onError(
-            refusal(`${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)} wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern`),
-          );
-        if (source.kind === "binary") {
-          // No source any more (rotom could not decompile what was written): nothing to edit. Typed text stays unless it was given up.
-          if (discard || !dirty) close(file);
-          else refuse();
-          return;
-        }
-        const text = lf(source.kind === "script" ? source.text : levelScriptText(source.doc));
-        if (source.kind !== doc.kind) {
-          // The file has a source of the other kind now (a reset to original decompiled to it): the language server hears of both.
-          bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, source.kind), type: 2 }] });
-          if (discard || !dirty) docs.replace(file, source.kind, text);
-          else refuse();
-          bump();
-          return;
-        }
-        if (discard || !dirty) doc.text = text;
-        else refuse();
-        doc.savedText = text;
-        bump();
+        applyDisk(file, doc, source, discard);
       } catch (e) {
         latest.current.onError(e);
       }
     },
-    [close],
+    [applyDisk],
   );
 
   const onLevelScriptSaved = useCallback((project: ProjectInfo | null, file: number, doc: LevelScriptDoc, dto: SaveScriptDto) => {

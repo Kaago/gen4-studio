@@ -15,7 +15,7 @@
 //! themselves lock the session per call).
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -37,6 +37,7 @@ use crate::mcp::docs;
 use crate::mcp::host::StateSource;
 use crate::mcp::hub::{AgentHub, QUESTION_WAIT};
 use crate::mcp::settings::{GrantLevel, ProjectKey};
+use crate::mcp::symbolic;
 use crate::state::{AppState, Session};
 
 /// Why a tool call or a resource read failed.
@@ -241,7 +242,10 @@ impl ResourceUri {
 /// and reload the text archives a compile touched (which forgets their history); the check
 /// settings (baseline, ignored findings, switched off checks) are written to `g4-checks.json`,
 /// a map part export and the project preview write a file; resolving a text conflict writes a
-/// text archive's JSON or member past the store and reloads it. `apply_fix` with
+/// text archive's JSON or member past the store and reloads it. The text project's commands
+/// write past the store too: setting it up, taking it back and lifting it open the session
+/// anew, the sync and the choice of a conflict write sources and members, and an id rename is
+/// a file step of its own (its undo writes every file back). `apply_fix` with
 /// `create_script` or `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
@@ -267,7 +271,18 @@ const NOT_IN_BATCH: &[&str] = &[
     "assign_base",
     "create_patch",
     "text_export",
+    "adopt_text_project",
+    "revert_text_project",
+    "migrate_text_project",
+    "external_sync",
+    "resolve_external_conflict",
+    "rename_id",
 ];
+
+/// The commands that run long enough for the UI to show them while they run (the hub's `busy`
+/// from start to end, UI test 4.3b U4), by command name (so `g4_call` counts too): setting the
+/// project up as text project, about a minute. Never in a batch ([`NOT_IN_BATCH`]).
+const LONG_TOOLS: &[&str] = &["adopt_text_project"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
@@ -339,8 +354,9 @@ enum Host {
         state: Box<AppState>,
         policy: UserPolicy,
         access: Access,
-        /// The project as it opened.
-        info: ProjectInfo,
+        /// The project as it opened (boxed like the state: it carries the text project's
+        /// status).
+        info: Box<ProjectInfo>,
     },
     /// The user's session; `wait` is how long a call waits for the user's answer.
     Shared {
@@ -379,12 +395,18 @@ impl Toolbox {
             .to_str()
             .ok_or_else(|| format!("Pfad ist kein gültiger Text: {}", root.display()))?;
         let info = open_project_impl(&state, path).map_err(|e| e.message)?;
+        // A text project of an older schema opens in the app to be lifted; headless nothing
+        // could edit it, so the server does not start (as for a newer one or a broken
+        // manifest, which do not open at all).
+        if let Some(session) = state.lock_session().as_ref() {
+            session.project.editable().map_err(|e| e.to_string())?;
+        }
         Ok(Toolbox {
             host: Host::Own {
                 state: Box::new(state),
                 policy,
                 access,
-                info,
+                info: Box::new(info),
             },
             turn: Mutex::new(()),
         })
@@ -627,6 +649,34 @@ struct Shared<'a> {
     read_only: Option<&'static str>,
 }
 
+/// An agent's long command on a project folder, from [`BusyGuard::begin`] (the hub's `busy`
+/// running) until dropped (`busy` ended): after the call's report, or while a panic unwinds.
+struct BusyGuard<'a> {
+    hub: &'a AgentHub,
+    client: &'a str,
+    command: &'a str,
+    root: &'a Path,
+}
+
+impl<'a> BusyGuard<'a> {
+    fn begin(hub: &'a AgentHub, client: &'a str, command: &'a str, root: &'a Path) -> Self {
+        hub.record_busy(client, command, root, true);
+        BusyGuard {
+            hub,
+            client,
+            command,
+            root,
+        }
+    }
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        self.hub
+            .record_busy(self.client, self.command, self.root, false);
+    }
+}
+
 /// One call (or resource read) of one client: the state, the project's policy, the access
 /// and, in the app, what [`Shared`] holds.
 struct Call<'a> {
@@ -661,6 +711,7 @@ impl<'a> Call<'a> {
             };
             self.changing(
                 def.name,
+                &written.0,
                 None,
                 || self.run(prepared),
                 |result| scripts_written(&written.0, &written.1, result),
@@ -715,10 +766,14 @@ impl<'a> Call<'a> {
     /// the assets it changed (also when it failed and was rolled back) are then reported as
     /// tool `tool`'s with `label`, with the files `past_store` names that it wrote past the
     /// store; with `always` also when there are none (the UI then reads its unsaved count
-    /// again). When the project changed meanwhile, nothing is reported.
+    /// again). When the command opened the session of the same folder anew (an adoption), the
+    /// hub gets `reopened` instead; when another project was opened meanwhile, nothing is
+    /// reported. `command` is the command the call runs (a batch: its tool): a long one
+    /// ([`LONG_TOOLS`]) is reported `busy` while it runs.
     fn changing<T>(
         &self,
         tool: &str,
+        command: &str,
         label: Option<String>,
         f: impl FnOnce() -> Result<T, ToolError>,
         past_store: impl FnOnce(&Result<T, ToolError>) -> Vec<AssetId>,
@@ -731,11 +786,41 @@ impl<'a> Call<'a> {
         let origin = Origin::Agent {
             client: self.client.to_owned(),
         };
+        // A long command (setting the project up as text project, also through `g4_call`) is
+        // shown in the UI while it runs; the guard ends it after the report below, and also
+        // when the command panics.
+        let _busy = self
+            .shared
+            .as_ref()
+            .filter(|_| LONG_TOOLS.contains(&command))
+            .map(|shared| BusyGuard::begin(shared.hub, self.client, command, &shared.project.root));
         let result = with_origin(origin, f);
-        if let (Some(shared), Some(generation)) = (&self.shared, before)
+        self.report_change(before, tool, label, &result, past_store, always);
+        result
+    }
+
+    /// What [`Call::changing`] reports after the write: `reopened`, or the assets it changed.
+    fn report_change<T>(
+        &self,
+        before: Option<u64>,
+        tool: &str,
+        label: Option<String>,
+        result: &Result<T, ToolError>,
+        past_store: impl FnOnce(&Result<T, ToolError>) -> Vec<AssetId>,
+        always: bool,
+    ) {
+        if let Some(shared) = &self.shared
+            && self.reopened(shared)
+        {
+            // The command opened the session anew (an adoption): no asset of the old store
+            // means anything to the UI any more; it reloads the project.
+            shared
+                .hub
+                .record_reopened(self.client, tool, &shared.project.root);
+        } else if let (Some(shared), Some(generation)) = (&self.shared, before)
             && let Ok((_, mut assets)) = self.with_session(|s| s.store.changes_since(generation))
         {
-            for asset in past_store(&result) {
+            for asset in past_store(result) {
                 if !assets.contains(&asset) {
                     assets.push(asset);
                 }
@@ -746,17 +831,28 @@ impl<'a> Call<'a> {
                 shared.hub.record_change(self.client, tool, label, assets);
             }
         }
-        result
+    }
+
+    /// In the app: whether the open session is no longer the one the call was admitted for,
+    /// but a new one of the same folder (a command opened it anew).
+    fn reopened(&self, shared: &Shared<'_>) -> bool {
+        self.state.lock_session().as_ref().is_some_and(|session| {
+            !Arc::ptr_eq(&session.project, shared.project)
+                && session.project.root == shared.project.root
+        })
     }
 
     /// Checks the keys of `args` against the tool's schema and turns them into what its
-    /// command takes (defaults, renames, the build target).
+    /// command takes (defaults, renames, the build target, numbers for symbolic ids).
     fn prepare(&self, def: &ToolDef, args: Value) -> Result<Prepared, ToolError> {
         check_keys(def, &args)?;
         Ok(match def.route {
             Route::Command { command, .. } => Prepared::Command {
                 command: command.to_owned(),
-                args: self.with_build_target(command, def.command_args(args)),
+                args: self.with_numbers(
+                    command,
+                    self.with_build_target(command, def.command_args(args)),
+                )?,
             },
             Route::Call => {
                 let Some(command) = args.get("command").and_then(Value::as_str) else {
@@ -770,7 +866,7 @@ impl<'a> Call<'a> {
                 };
                 Prepared::Command {
                     command: command.to_owned(),
-                    args: self.with_build_target(command, inner),
+                    args: self.with_numbers(command, self.with_build_target(command, inner))?,
                 }
             }
             Route::ProjectInfo => Prepared::ProjectInfo,
@@ -779,6 +875,19 @@ impl<'a> Call<'a> {
                 return Err(ToolError::error(NO_NESTED_BATCH));
             }
         })
+    }
+
+    /// `args` of `command` with every symbolic id replaced by its number
+    /// (`symbolic::resolve_args`, with the resolver of the open project); `unknown_id` for an
+    /// id nothing knows. Without an id the project is not asked.
+    fn with_numbers(&self, command: &str, args: Value) -> Result<Value, ToolError> {
+        if !symbolic::has_ids(command, &args) {
+            return Ok(args);
+        }
+        self.with_session(|s| match s.ids() {
+            Ok(ids) => symbolic::resolve_args(command, args, ids),
+            Err(e) => Err(e.into()),
+        })?
     }
 
     /// `build_rom` without a target builds `build/<game code>.nds` in the project.
@@ -840,7 +949,9 @@ impl<'a> Call<'a> {
     /// the base check, the mark), without writing: a refusal goes back to the agent unasked,
     /// and the question names the file and the ROM. `create_patch` names the patch file.
     /// `resolve_text_conflicts` names every archive and the version that applies.
-    /// `text_export` answers `unsaved`, `base_missing` and `not_adopted` unasked.
+    /// `text_export` answers `unsaved`, `base_missing`, `not_adopted` and `unsynced` unasked, and
+    /// `adopt_text_project` `unsaved`, `base_missing` and Diamond/Pearl.
+    /// `resolve_external_conflict` names the unit and the version that stays.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -863,6 +974,11 @@ impl<'a> Call<'a> {
                 crate::commands::check_text_export(self.state)?;
                 Ok(why.to_owned())
             }
+            ("adopt_text_project", Some(_)) => {
+                crate::commands::check_adopt(self.state)?;
+                Ok(why.to_owned())
+            }
+            ("resolve_external_conflict", _) => Ok(conflict_question(why, args)),
             _ => Ok(why.to_owned()),
         }
     }
@@ -910,10 +1026,18 @@ impl<'a> Call<'a> {
     fn project_info(&self) -> Result<Value, ToolError> {
         let info = match (self.info, &self.shared) {
             (Some(info), _) => serde_json::to_value(info),
-            (None, Some(shared)) => serde_json::to_value(project_info_of(shared.project)?),
+            (None, Some(shared)) => {
+                serde_json::to_value(project_info_of(self.state, shared.project)?)
+            }
             (None, None) => return Err(ToolError::error("no project open")),
         };
         let mut info = info.map_err(|e| ToolError::error(e.to_string()))?;
+        // The project as a source now: an adoption (or a revert) since it opened changed it.
+        let project = self.with_session(|s| Arc::clone(&s.project))?;
+        let status = crate::commands::status_of(self.state, &project);
+        if let Some(fields) = info.as_object_mut() {
+            fields.insert("text_project".to_owned(), json!(status));
+        }
         let Access {
             write,
             irreversible,
@@ -975,6 +1099,7 @@ impl<'a> Call<'a> {
         let label = plan.label.clone();
         // The commands that write past the store are not taken in a batch.
         self.changing(
+            def.name,
             def.name,
             Some(label),
             || self.run_batch(plan, run),
@@ -1347,6 +1472,17 @@ fn assign_question(file: &str, check: &BaseCheck) -> String {
         [first @ .., last] => format!("; {} und {last} weichen vom Projekt ab", first.join(", ")),
     };
     format!("Basis-ROM zuordnen: {file} ({label}, SHA-1 {sha1}{differs})")
+}
+
+/// The question before `resolve_external_conflict`: the unit and which version stays.
+fn conflict_question(why: &str, args: &Value) -> String {
+    let key = args.get("key").and_then(Value::as_str).unwrap_or_default();
+    let rule = match args.get("keep").and_then(Value::as_str) {
+        Some("studio") => "die Studio-Fassung gilt, DSPRE wird überschrieben",
+        Some("dspre") => "die andere Fassung gilt, die Studio-Fassung wird überschrieben",
+        _ => return why.to_owned(),
+    };
+    format!("{why}: {key} ({rule})")
 }
 
 /// The question before `resolve_text_conflicts` overwrites a version of each archive in
@@ -2650,7 +2786,9 @@ mod tests {
                     assets,
                     ..
                 } => Some((client, tool, label, serde_json::to_value(assets).unwrap())),
-                AgentEvent::Status { .. } => None,
+                AgentEvent::Status { .. }
+                | AgentEvent::Reopened { .. }
+                | AgentEvent::Busy { .. } => None,
             })
             .collect()
     }
@@ -3653,5 +3791,410 @@ mod tests {
         let message = unasked("unsaved");
         assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
         assert!(!d.root.join("g4-project.json").exists());
+    }
+
+    /// 4.3a I1: in a text project `text_export` asks and exports; a JSON edit the members
+    /// lack (not built yet) comes back as `unsynced` before the question, and nothing is
+    /// written.
+    #[test]
+    fn shared_text_export_asks_then_refuses_unsynced_changes() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        crate::commands::adopt_text_project_impl(&state, &mut |_| {}).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+
+        let user = answer_next(&state, "allow");
+        toolbox.call("text_export", json!({}), AGENT).unwrap();
+        assert_eq!(
+            user.join().unwrap().what.as_deref(),
+            Some("Textprojekt exportieren")
+        );
+
+        let json_file = fx.root().join("data/moves/0001.json");
+        let edited = std::fs::read_to_string(&json_file).unwrap().replacen(
+            "\"power\": 10",
+            "\"power\": 99",
+            1,
+        );
+        std::fs::write(&json_file, &edited).unwrap();
+        let (code, message, _) = failed(toolbox.call("text_export", json!({}), AGENT));
+        assert_eq!(code, "unsynced", "{message}");
+        assert_eq!(
+            message,
+            format!(
+                "{} (data/moves/0001.json); der Export würde sie verwerfen: erst bauen (g4k \
+                 build) oder g4k text import, dann exportieren.",
+                g4_kernel::textproject::UNSYNCED_EXPORT
+            )
+        );
+        assert_eq!(state.agents.status().question, None);
+        assert_eq!(std::fs::read_to_string(&json_file).unwrap(), edited);
+        // The command itself answers the same.
+        let err = crate::commands::text_export_impl(&state).unwrap_err();
+        assert_eq!((err.code, err.message), ("unsynced", message));
+        assert_eq!(std::fs::read_to_string(&json_file).unwrap(), edited);
+    }
+
+    #[test]
+    fn batch_refuses_rename_id() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for call in [
+            json!({ "tool": "rename_id",
+                    "arguments": { "id": "TRAINER_A", "new_id": "TRAINER_B" } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "rename_id",
+                    "args": { "id": "TRAINER_A", "newId": "TRAINER_B" } } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("rename_id geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        assert_eq!(data(&toolbox, "species", 1), species);
+        for command in [
+            "adopt_text_project",
+            "resolve_external_conflict",
+            "external_sync",
+            "revert_text_project",
+            "migrate_text_project",
+        ] {
+            assert!(not_in_batch(command, &json!({})), "{command}");
+        }
+    }
+
+    #[test]
+    fn data_edit_with_species_id_acts_like_the_number() {
+        let edit = |index: Value| {
+            json!({ "kind": "species", "index": index,
+                    "patch": { "Personal": { "field": "attack", "value": 90 } } })
+        };
+        let (_by_id_fixture, by_id) = open_toolbox(ALL);
+        let (_by_number_fixture, by_number) = open_toolbox(ALL);
+        let a = by_id
+            .call("data_edit", edit(json!("SPECIES_BULBASAUR")), AGENT)
+            .unwrap();
+        let b = by_number.call("data_edit", edit(json!(1)), AGENT).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(data(&by_id, "species", 1), data(&by_number, "species", 1));
+        assert_eq!(history(&by_id), history(&by_number));
+        // Reading by id, through g4_call and in a batch: the same.
+        let by_name = by_id
+            .call(
+                "data_get",
+                json!({ "kind": "species", "index": "SPECIES_BULBASAUR" }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(by_name, data(&by_id, "species", 1));
+        let called = by_id
+            .call(
+                "g4_call",
+                json!({ "command": "data_get",
+                        "args": { "kind": "species", "index": "SPECIES_BULBASAUR" } }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(called, by_name);
+        by_id
+            .call(
+                "g4_batch",
+                json!({ "calls": [{ "tool": "data_edit", "arguments": {
+                    "kind": "species", "index": "SPECIES_BULBASAUR",
+                    "patch": { "Personal": { "field": "type1", "value": "TYPE_FIRE" } } } }] }),
+                AGENT,
+            )
+            .unwrap();
+        let personal = &data(&by_id, "species", 1)["personal"];
+        assert_eq!(personal["type1"], 10, "{personal}");
+        // An id nothing knows: unknown_id, nothing changed.
+        let before = history(&by_id);
+        let (code, message, _) =
+            failed(by_id.call("data_edit", edit(json!("SPECIES_NOPE")), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("unknown_id", "Unbekannte ID: SPECIES_NOPE.")
+        );
+        assert_eq!(history(&by_id), before);
+    }
+
+    /// Like `text_export`: the refusals that need no adoption come back unasked.
+    #[test]
+    fn shared_adopt_text_project_refuses_before_asking() {
+        let d = shared_dspre();
+        let unasked = |want: &str| {
+            let (code, message, _) = failed(d.toolbox.call("adopt_text_project", json!({}), AGENT));
+            assert_eq!(code, want, "{message}");
+            assert_eq!(d.state.agents.status().question, None);
+            message
+        };
+        d.toolbox
+            .call(
+                "set_matrix_cell",
+                json!({ "index": 0, "x": 0, "y": 0, "map": 1 }),
+                AGENT,
+            )
+            .unwrap();
+        let message = unasked("unsaved");
+        assert_eq!(message, "Erst speichern: 1 ungespeicherte Änderung.");
+        d.toolbox.call("save", json!({}), AGENT).unwrap();
+        unasked("base_missing");
+        assert!(!d.root.join("g4-project.json").exists());
+        // The question names the conflict's unit and the version that stays.
+        assert_eq!(
+            conflict_question(
+                "Eine Fassung überschreiben",
+                &json!({ "key": "data/moves/0001.json", "keep": "studio" })
+            ),
+            "Eine Fassung überschreiben: data/moves/0001.json (die Studio-Fassung gilt, DSPRE \
+             wird überschrieben)"
+        );
+    }
+
+    /// Gate 4.3b: on a copy of the vanilla project set up as text project, `data_edit` of
+    /// Pikachu by `SPECIES_PIKACHU` answers and writes exactly what it does by `25`.
+    #[test]
+    fn mcp_with_ids_acts_like_numbers_on_the_vanilla_copy() {
+        let Some((tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+            return;
+        };
+        let Some(vanilla_rom) = g4_kernel::test_support::vanilla_base_rom() else {
+            return;
+        };
+        // The copy gets a copy of the vanilla ROM beside it, in its temp folder, and only that
+        // folder is allowed: with `G4_ROMS_DIR` set (as in `scripts/gate.sh`, where
+        // `G4_TEST_PROJECT` is the original) the folder of the original ROM is `G4_ROMS_DIR`
+        // itself, which the policy refuses.
+        let base = tmp.path().join("base.nds");
+        std::fs::copy(&vanilla_rom, &base).unwrap();
+        let policy = UserPolicy::new(&root, &[tmp.path().to_path_buf()], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, ALL, Some(base.clone())).unwrap();
+        if !root.join(".g4/base.json").is_file() {
+            toolbox
+                .call(
+                    "assign_base",
+                    json!({ "nds": base.to_str().unwrap() }),
+                    AGENT,
+                )
+                .unwrap();
+        }
+        let started = std::time::Instant::now();
+        let adopted = toolbox
+            .call("adopt_text_project", json!({}), AGENT)
+            .unwrap();
+        eprintln!(
+            "adopt: {} ms (report {} ms)",
+            started.elapsed().as_millis(),
+            adopted["ms"]
+        );
+        let status = toolbox
+            .call("text_project_status", json!({}), AGENT)
+            .unwrap();
+        assert_eq!(status["state"], "current", "{status}");
+        let info = toolbox.call("project_info", json!({}), AGENT).unwrap();
+        assert_eq!(info["text_project"], status);
+        let attack = data(&toolbox, "species", 25)["personal"]["attack"]
+            .as_u64()
+            .unwrap();
+        let edit = |index: Value| {
+            json!({ "kind": "species", "index": index,
+                    "patch": { "Personal": { "field": "attack", "value": attack + 1 } } })
+        };
+        let json_file = root.join("data/species/0025.json");
+        let by_id = toolbox
+            .call("data_edit", edit(json!("SPECIES_PIKACHU")), AGENT)
+            .unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        let json_by_id = std::fs::read(&json_file).unwrap();
+        toolbox.call("undo", json!({}), AGENT).unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        assert_ne!(std::fs::read(&json_file).unwrap(), json_by_id);
+        let by_number = toolbox.call("data_edit", edit(json!(25)), AGENT).unwrap();
+        toolbox.call("save", json!({}), AGENT).unwrap();
+        assert_eq!(by_id, by_number);
+        assert_eq!(std::fs::read(&json_file).unwrap(), json_by_id);
+        let text = String::from_utf8(json_by_id).unwrap();
+        assert!(
+            text.contains(&format!("\"attack\": {}", attack + 1)),
+            "{text}"
+        );
+    }
+
+    /// An agent's `adopt_text_project` in the app opens the session anew: the hub tells the
+    /// UI with a `reopened` event (client, tool, project folder), so it reloads.
+    #[test]
+    fn an_agents_adoption_reports_the_reopened_session() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        let user = answer_next(&state, "allow");
+        toolbox
+            .call("adopt_text_project", json!({}), AGENT)
+            .unwrap();
+        assert_eq!(
+            user.join().unwrap().what.as_deref(),
+            Some("Als Textprojekt einrichten")
+        );
+        let events = serde_json::to_value(state.agents.poll(0).events).unwrap();
+        let reopened: Vec<&Value> = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "reopened")
+            .collect();
+        assert_eq!(reopened.len(), 1, "{events}");
+        assert_eq!(reopened[0]["client"], AGENT);
+        assert_eq!(reopened[0]["tool"], "adopt_text_project");
+        assert_eq!(reopened[0]["root"], fx.root().display().to_string());
+        assert!(reopened[0]["seq"].as_u64().unwrap() > 0);
+        // UI test 4.3b U4: while it ran the hub said so (`busy` from the start of the set-up to
+        // its end, after the reopen), so the UI shows the set-up and offers none of its own.
+        let busy: Vec<(&str, bool)> = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "busy" || e["kind"] == "reopened")
+            .map(|e| {
+                (
+                    e["kind"].as_str().unwrap(),
+                    e["running"].as_bool().unwrap_or(false),
+                )
+            })
+            .collect();
+        assert_eq!(
+            busy,
+            [("busy", true), ("reopened", false), ("busy", false)],
+            "{events}"
+        );
+        for e in events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "busy")
+        {
+            assert_eq!(e["client"], AGENT);
+            assert_eq!(e["tool"], "adopt_text_project");
+            assert_eq!(e["root"], fx.root().display().to_string());
+        }
+        // UI test 4.3b U2: setting the text project up again is refused before the question,
+        // at once, and the hub reports nothing running.
+        let seq = state.agents.poll(0).seq;
+        let (code, message, _) = failed(toolbox.call("adopt_text_project", json!({}), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("error", crate::commands::ALREADY_TEXT_PROJECT)
+        );
+        assert_eq!(state.agents.status().question, None);
+        assert!(state.agents.poll(seq).events.is_empty());
+    }
+
+    /// The `busy` events so far: tool and whether it runs.
+    fn busy_events(state: &AppState) -> Vec<(String, bool)> {
+        state
+            .agents
+            .poll(0)
+            .events
+            .into_iter()
+            .filter_map(|event| match event {
+                AgentEvent::Busy { tool, running, .. } => Some((tool, running)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// UI-test fix round 1, I1: a long tool that panics still ends `busy` (the drop guard
+    /// sends it while the panic unwinds), so the UI does not stay locked on the agent's
+    /// set-up.
+    #[test]
+    fn a_long_tool_that_panics_still_ends_busy() {
+        let (fixture, state, _toolbox) = shared_app();
+        let key = ProjectKey::of(fixture.dir.path()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let open = OpenProject::of(&state).unwrap();
+        let call = open.call(&state, AGENT, WAIT).unwrap();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            call.changing(
+                "adopt_text_project",
+                "adopt_text_project",
+                None,
+                || -> Result<Value, ToolError> { panic!("Einrichten bricht ab") },
+                |_| Vec::new(),
+                true,
+            )
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(
+            busy_events(&state),
+            [
+                ("adopt_text_project".to_owned(), true),
+                ("adopt_text_project".to_owned(), false)
+            ]
+        );
+    }
+
+    /// UI-test fix round 1, M2: the set-up through `g4_call` is a long tool as well (the
+    /// command decides, not the tool's name).
+    #[test]
+    fn an_adoption_through_g4_call_reports_busy() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.agents.set_expert(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        let user = answer_next(&state, "allow");
+        toolbox
+            .call("g4_call", json!({ "command": "adopt_text_project" }), AGENT)
+            .unwrap();
+        user.join().unwrap();
+        assert_eq!(
+            busy_events(&state),
+            [
+                ("adopt_text_project".to_owned(), true),
+                ("adopt_text_project".to_owned(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn after_the_app_closes_the_project_tools_find_none() {
+        let fx = g4_kernel::test_support::TextFixture::dspre();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        assert!(toolbox.call("project_info", json!({}), AGENT).is_ok());
+        crate::commands::close_project_impl(&state).unwrap();
+        // The session is gone: neither reading nor writing reaches the folder any more.
+        assert!(toolbox.call("project_info", json!({}), AGENT).is_err());
+        assert!(
+            toolbox
+                .call("text_project_status", json!({}), AGENT)
+                .is_err()
+        );
     }
 }

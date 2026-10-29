@@ -4,6 +4,9 @@ import type { HeaderSummary, LevelScriptDoc, MapHeader, MatrixSummary, MemberCou
 import type { Created } from "../../app/useWizards";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
+import { renameEntry } from "../../textproject/renameEntry";
+import { useTextProject } from "../../textproject/TextProjectContext";
+import { useEntityIds } from "../../textproject/useEntityIds";
 import { Badge, Button, Section, Tooltip } from "../../ui/primitives";
 import type { Depth } from "../../ui/frame/shellState";
 import type { HeaderIdentity } from "../headerIdentity";
@@ -112,6 +115,9 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
   const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onError } = context;
   const reset = useReset();
+  // In a text project the head names the header's id (`MAP_…`) and offers to rename it.
+  const text = useTextProject();
+  const entityId = useEntityIds("Map", text.active)?.[id] ?? null;
   const [header, setHeaderState] = useState<MapHeader | null>(null);
   // Bumped when an edit is refused, so the fields drop the rejected text they still show.
   const [refused, setRefused] = useState(0);
@@ -232,6 +238,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         kind={identity === null ? "room" : identity.kind === "other" ? "place" : identity.kind}
         title={identity?.name ?? headerId}
         ident={ident}
+        entityId={entityId}
         actions={[
           ...(summary
             ? [
@@ -244,6 +251,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             : []),
           // The header as in the base ROM, field by field (the dialog lists the fields that differ).
           resetEntry({ kind: "header", id }, reset.status, reset.open),
+          ...(entityId !== null ? [renameEntry(entityId, text.renameId)] : []),
         ]}
         badges={
           sharedRoom && (

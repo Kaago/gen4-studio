@@ -14,6 +14,7 @@ mod state;
 /// The state behind the commands (for the dev bridge and the tests of the MCP server).
 pub use state::AppState;
 
+use commands::close_project;
 use commands::resolve_text_conflicts;
 use commands::split_room;
 use commands::{
@@ -32,6 +33,11 @@ use commands::{
     set_check_enabled, set_header, set_matrix_cell, set_matrix_sections, set_permission,
     set_trainer_texts, split_encounter_file, tile_behaviors, undo, unignore_finding,
     update_building, update_event, validate_text, world_meta_get, world_meta_set,
+};
+use commands::{
+    adopt_text_project, conflict_diff, entity_ids, external_changes, external_sync,
+    migrate_text_project, plan_rename_id, rename_id, resolve_external_conflict,
+    revert_text_project, text_project_status,
 };
 use commands::{
     agent_answer, agent_disconnect, agent_poll, agent_remove_grant, agent_set_enabled,
@@ -195,7 +201,19 @@ pub fn run() {
             reset_to_original,
             changed_from_original,
             text_check,
-            text_export
+            text_export,
+            text_project_status,
+            adopt_text_project,
+            revert_text_project,
+            migrate_text_project,
+            external_sync,
+            external_changes,
+            conflict_diff,
+            resolve_external_conflict,
+            plan_rename_id,
+            rename_id,
+            entity_ids,
+            close_project
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

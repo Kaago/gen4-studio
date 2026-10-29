@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentAnswer, agentDisconnect, agentSetReadOnly, agentStatus } from "../api";
-import type { AgentAnswer, AgentChangedEvent, AgentStatus } from "../api";
+import type { AgentAnswer, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AgentStatus } from "../api";
 import { subscribeAgentEvents } from "../platform/agentEvents";
 import { useStableCallback } from "./useStable";
 
@@ -20,23 +20,40 @@ export interface Agents {
 
 /**
  * Follows the agent hub for as long as the app is mounted (a connecting agent shows without a project too): keeps the latest status and
- * calls `onChanged` (its latest value) for each `changed` event, in the order they arrive, then `onGap` when events before them were lost
- * (the browser mode's poll fell behind the hub). The actions read the status afterwards and reject as their command did, so the caller
+ * calls `onChanged` (its latest value) for each `changed` event, `onReopened` for each `reopened` one and `onBusy` for each `busy` one, in
+ * the order they arrive, then
+ * `onGap` when events before them were lost (the browser mode's poll fell behind the hub). The actions read the status afterwards and reject as their command did, so the caller
  * can show the error.
  */
-export function useAgents({ onChanged, onGap }: { onChanged: (event: AgentChangedEvent) => void; onGap?: () => void }): Agents {
+export function useAgents({
+  onChanged,
+  onReopened,
+  onBusy,
+  onGap,
+}: {
+  onChanged: (event: AgentChangedEvent) => void;
+  onReopened?: (event: AgentReopenedEvent) => void;
+  onBusy?: (event: AgentBusyEvent) => void;
+  onGap?: () => void;
+}): Agents {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const changed = useStableCallback(onChanged);
+  const reopened = useStableCallback((event: AgentReopenedEvent) => onReopened?.(event));
+  const busy = useStableCallback((event: AgentBusyEvent) => onBusy?.(event));
   const lost = useStableCallback(() => onGap?.());
 
   useEffect(
     () =>
       subscribeAgentEvents((events, next, gap) => {
         if (next) setStatus(next);
-        for (const event of events) if (event.kind === "changed") changed(event);
+        for (const event of events) {
+          if (event.kind === "changed") changed(event);
+          else if (event.kind === "reopened") reopened(event);
+          else if (event.kind === "busy") busy(event);
+        }
         if (gap) lost();
       }),
-    [changed, lost],
+    [changed, reopened, busy, lost],
   );
 
   const refresh = useCallback(async () => setStatus(await agentStatus()), []);

@@ -42,16 +42,10 @@ pub enum OriginalStatusDto {
     Unavailable { reason: String },
 }
 
-/// The open project (its `Arc`; the session lock is released again).
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = super::lock(state)?;
-    Ok(Arc::clone(&super::session(&mut guard)?.project))
-}
-
 /// The open project and its base ROM, read without the session lock (the search may hash a
 /// whole ROM, reading it takes a while): `base_missing` with the reason when it is not found.
 fn open_original(state: &AppState) -> Result<(Arc<Project>, BaseRom), CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let (mark, hit) = found_base(state, &project.root)?;
     let base = BaseRom::open_unchecked(&hit.path, &mark.sha1)?;
     Ok((project, base))
@@ -89,7 +83,7 @@ fn reset_error(e: KernelError) -> CmdError {
 /// counts of the base per target kind, else `unavailable` with the reason. Reads the base ROM
 /// once (the frontend asks once per project).
 pub fn original_status_impl(state: &AppState) -> Result<OriginalStatusDto, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     let (mark, hit) = match found_base(state, &project.root) {
         Ok(found) => found,
         Err(e) if e.code == "base_missing" => {
@@ -130,9 +124,37 @@ pub fn reset_to_original_impl(
     // where the kernel's reset starts.
     let started = Instant::now();
     let (project, base) = open_original(state)?;
+    let mut result = reset_in_session(state, &project, &base, target, fields)?;
+    result.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    Ok(result)
+}
+
+/// [`reset_to_original_impl`] against `original` (tests: another project's packed archives).
+#[cfg(test)]
+pub(crate) fn reset_with_original(
+    state: &AppState,
+    original: &dyn original::Original,
+    target: ResetTarget,
+    fields: Option<Vec<String>>,
+) -> Result<ResetResult, CmdError> {
+    let project = super::open_project_arc(state)?;
+    reset_in_session(state, &project, original, target, fields)
+}
+
+/// The reset of [`reset_to_original_impl`] under the session lock, on the session of
+/// `project` only.
+fn reset_in_session(
+    state: &AppState,
+    project: &Arc<Project>,
+    base: &dyn original::Original,
+    target: ResetTarget,
+    fields: Option<Vec<String>>,
+) -> Result<ResetResult, CmdError> {
     let mut guard = super::lock(state)?;
-    let session = same_project(super::session(&mut guard)?, &project)?;
-    let result = original::reset(&mut session.store, &base, &target, fields.as_deref());
+    let session = same_project(super::session(&mut guard)?, project)?;
+    // Scripts, textures and models are written past the store.
+    session.writable()?;
+    let result = original::reset(&mut session.store, base, &target, fields.as_deref());
     // A refusal (unavailable, locked) writes nothing; any other failure may come after a
     // file was written.
     let refused = matches!(
@@ -140,11 +162,11 @@ pub fn reset_to_original_impl(
         Err(KernelError::Refused(_) | KernelError::ReadOnly { .. })
     );
     if target.writes_files() && !refused {
-        session.files_written();
+        // In a text project the reset texture or model goes to `data/` as well.
+        session.files_written(&target.assets());
     }
-    let mut result = result.map_err(reset_error)?;
+    let result = result.map_err(reset_error)?;
     session.after_write();
-    result.ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(result)
 }
 
@@ -386,6 +408,7 @@ mod tests {
             asset,
             files: Vec::new(),
             rotom_entry: None,
+            kind: g4_kernel::store::FileStepKind::Reset,
         };
         {
             let mut guard = crate::commands::lock(&state).unwrap();
@@ -420,6 +443,7 @@ mod tests {
                 asset,
                 files: Vec::new(),
                 rotom_entry: None,
+                kind: g4_kernel::store::FileStepKind::Reset,
             };
             store.record_file_step(&original::asset_label(asset), step);
         }

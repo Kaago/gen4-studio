@@ -227,5 +227,11 @@ describe("ProjectStart", () => {
     expect(schau.textContent).toContain("Platin (Deutsch)");
     expect(schau.textContent).toContain("Original");
     expect(schau.textContent).toContain("/roms/_testkopien/Neues Platin");
+    // The box „Als Textprojekt einrichten“ shows in the view as in the summary.
+    const vorlage = () => [...schau.querySelectorAll("dt")].find((dt) => dt.textContent === "Vorlage")?.nextElementSibling?.textContent;
+    expect(vorlage()).toBe("Original");
+    const box = [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((b) => b.closest("label")?.textContent?.includes("Als Textprojekt einrichten"))!;
+    await act(async () => box.click());
+    expect(vorlage()).toBe("Original, als Textprojekt");
   });
 });

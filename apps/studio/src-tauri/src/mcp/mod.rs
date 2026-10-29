@@ -18,6 +18,7 @@ pub mod prompts;
 pub mod proxy;
 pub mod server;
 pub mod settings;
+pub mod symbolic;
 pub mod tools;
 
 use std::ffi::OsString;

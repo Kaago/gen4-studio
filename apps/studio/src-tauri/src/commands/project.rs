@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use g4_kernel::build::{BuildReport, StepReport, build_prepared, clear_cache, prepare_for_build};
-use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::run::launch_emulator;
 use g4_kernel::store::{HistoryEntry, Origin, Store};
 use g4_kernel::text::{TextKeep, TextSide, TextSync, resolve_conflict};
@@ -13,42 +13,45 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
 use super::scripts::reload_text_archives;
+use super::textsource::{TextProjectStatusDto, status_of, sync_before_build};
 use super::{ProblemDto, lock, session};
 use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ProjectInfo {
     pub root: String,
     pub game_code: String,
     pub family: String,
     pub language: String,
     pub header_count: usize,
+    /// What the project is as a source: a DSPRE folder (and whether it can be set up as text
+    /// project), a text project of the current schema or of an older one.
+    pub text_project: TextProjectStatusDto,
 }
 
-/// What `open_project` answers about `project`. Only the header table is read: location
-/// names are cosmetic and must not gate opening.
-pub fn project_info_of(project: &Project) -> Result<ProjectInfo, CmdError> {
+/// What `open_project` answers about `project` (`state` finds the base ROM of a DSPRE
+/// folder). Only the header table is read: location names are cosmetic and must not gate
+/// opening.
+pub fn project_info_of(state: &AppState, project: &Project) -> Result<ProjectInfo, CmdError> {
     Ok(ProjectInfo {
         root: project.root.display().to_string(),
         game_code: project.game_code.clone(),
         family: format!("{:?}", project.family),
         language: format!("{:?}", project.language),
         header_count: project.header_count().map_err(CmdError::from)?,
+        text_project: status_of(state, project),
     })
 }
 
 /// Opens the project at `path` in a fresh session, with its ignore file `g4-checks.json` read.
 /// A broken one does not keep the project closed (ruling R15): nothing is ignored, the checks'
 /// reports name the file, and it is never written until it reads again (see
-/// `commands::checks`).
+/// `commands::checks`). A text project of a newer schema or with a manifest that does not
+/// read is not opened (its sentence, `Project::editable`); one of an older schema opens to be
+/// lifted (`text_project` says `older`, the store refuses every edit until then).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
-    let project = Project::open(path).map_err(CmdError::from)?;
-    let (ignore, ignore_broken) = super::checks::load_ignore(&project.root);
-    let info = project_info_of(&project)?;
-    let mut session = Session::new(Arc::new(project));
-    session.checks.ignore = ignore;
-    session.checks.ignore_broken = ignore_broken;
+    let (session, info) = new_session(state, path)?;
     // Under the agents' turn: an agent call admitted for the old project never runs on the
     // new one (it checks the project after taking the turn). Agent calls take the turn
     // before the session lock and never while waiting for the user, so this waits at most
@@ -59,6 +62,46 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
+}
+
+/// Closes the open project: the session goes, and with it its store, its undo history and its
+/// language server (as when another project opens). The app closes a text project of an older
+/// schema that the user did not lift; afterwards every command and tool answers that no
+/// project is open. Under the agents' turn, like opening: an agent call admitted for the
+/// project finishes first. Nothing open: nothing happens.
+pub fn close_project_impl(state: &AppState) -> Result<(), CmdError> {
+    let turn = state.agents.agent_turn();
+    let old = lock(state)?.take();
+    drop(turn);
+    // The language server ends with its session, outside the state lock.
+    drop(old);
+    Ok(())
+}
+
+/// A fresh session of the project at `path` and what `open_project` answers about it (see
+/// [`open_project_impl`]); nothing is replaced yet.
+pub(crate) fn new_session(
+    state: &AppState,
+    path: &str,
+) -> Result<(Session, ProjectInfo), CmdError> {
+    let project = Project::open(path).map_err(CmdError::from)?;
+    if matches!(
+        project.source_mode(),
+        SourceMode::Newer { .. } | SourceMode::Broken { .. }
+    ) {
+        project.editable()?;
+    }
+    // The id files for rotom, as the registers have them now (a branch switch, a hand edit):
+    // the script editor's language server and the `rotom` CLI read them from disk. Only
+    // written when they change; one that cannot be written now is written by the next
+    // compile, which reports why, so it does not keep the project closed.
+    let _ = g4_kernel::textproject::include::write_include(&project);
+    let (ignore, ignore_broken) = super::checks::load_project_ignore(&project);
+    let info = project_info_of(state, &project)?;
+    let mut session = Session::new(Arc::new(project));
+    session.checks.ignore = ignore;
+    session.checks.ignore_broken = ignore_broken;
+    Ok((session, info))
 }
 
 /// What `build_rom` did: how many dirty assets were saved first, the asset kinds whose pack
@@ -86,10 +129,7 @@ pub struct BuildDto {
 /// unpacked members, or parses the whole NARC of a kind that is not unpacked yet), so it
 /// runs without the state lock.
 pub fn member_counts_impl(state: &AppState) -> Result<HashMap<AssetKind, usize>, CmdError> {
-    let project = {
-        let mut guard = lock(state)?;
-        Arc::clone(&session(&mut guard)?.project)
-    };
+    let project = super::open_project_arc(state)?;
     // `member_count` fails for kinds without an archive in this family and for the store-only
     // `DynamicHeaders` kind (its files exist only once the patch is applied), so both are left out.
     Ok(AssetKind::ALL
@@ -132,10 +172,20 @@ fn is_file_kind(kind: AssetKind) -> bool {
 }
 
 /// After an undo or redo that restored `restored`: a file step wrote the project's files
-/// outside the store ([`crate::state::Session::files_written`]).
+/// outside the store ([`crate::state::Session::files_written`], with the textures and models
+/// it wrote); the step of an id rename (its asset a trainer or the header table) wrote the id
+/// files for rotom with the JSON and the script sources: the language server is told, and
+/// the checks see the files as written.
 fn after_step(session: &mut crate::state::Session, restored: &[AssetId]) {
     if restored.iter().any(|a| is_file_kind(a.kind)) {
-        session.files_written();
+        session.files_written(restored);
+    }
+    if restored
+        .iter()
+        .any(|a| matches!(a.kind, AssetKind::Trainer | AssetKind::HeaderTable))
+        && !session.id_files_changed().is_empty()
+    {
+        session.files_written(&[]);
     }
     session.after_write();
 }
@@ -266,12 +316,26 @@ pub fn accept_disk_impl(state: &AppState, kind: AssetKind, index: u16) -> Result
 /// build. An error in the compile step is `CmdError { code: "compile" }` and nothing is
 /// packed; text archives changed as JSON and as member since the last build stop it as
 /// `CmdError { code: "text_conflict" }` before anything is written. Text archives the
-/// compile appended messages to are loaded again in the store.
+/// compile appended messages to are loaded again in the store. In a text project the sync
+/// runs first (without the agents' turn, which an agent's build holds already): what DSPRE
+/// changed is taken over, and an open conflict refuses the build with `conflicts`.
 pub fn build_rom_impl(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
+    // A text project takes over what DSPRE changed first; an open conflict stops the build
+    // before anything is saved or written (`conflicts`). The agents' turn is the caller's
+    // (an agent's build holds it).
+    sync_before_build(state, false)?;
+    build_synced(state, out, fresh)
+}
+
+/// [`build_rom_impl`] once the sync before it ran. Refused with `busy` while the project is
+/// set up as text project: the compile and the text encoding write members, text JSON and
+/// the build state.
+pub(crate) fn build_synced(state: &AppState, out: &str, fresh: bool) -> Result<BuildDto, CmdError> {
     let out = Path::new(out);
     let (project, prepared, saved, problems) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
+        session.writable()?;
         if fresh {
             clear_cache(&session.project)?;
         }
@@ -384,6 +448,7 @@ pub fn resolve_text_conflicts_impl(
 ) -> Result<Vec<u16>, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    session.writable()?;
     let project = Arc::clone(&session.project);
     let sync = TextSync::load(&project);
     for choice in &choices {
@@ -409,7 +474,7 @@ pub fn resolve_text_conflicts_impl(
     if attempted {
         // The checks read the archives the store does not hold from the disk. Also after a
         // failed first choice: it may have written one of the files before it failed.
-        session.files_written();
+        session.files_written(&[]);
     }
     result.map(|()| resolved)
 }
@@ -437,6 +502,14 @@ pub fn run_rom_impl(emulator: &str, rom: &str) -> Result<u32, CmdError> {
 #[tauri::command]
 pub async fn open_project(app: tauri::AppHandle, path: String) -> Result<ProjectInfo, CmdError> {
     tauri::async_runtime::spawn_blocking(move || open_project_impl(&app.state::<AppState>(), &path))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+/// Closing waits for a running agent call (the agent turn), so it runs on a blocking worker.
+#[tauri::command]
+pub async fn close_project(app: tauri::AppHandle) -> Result<(), CmdError> {
+    tauri::async_runtime::spawn_blocking(move || close_project_impl(&app.state::<AppState>()))
         .await
         .map_err(|e| CmdError::from(e.to_string()))?
 }
@@ -482,7 +555,9 @@ pub fn accept_disk(state: State<AppState>, kind: AssetKind, index: u16) -> Resul
 }
 
 /// The ds-rom build takes seconds, so it runs on a blocking worker, off the main thread and
-/// without holding the state lock. `fresh` (default false) drops the build cache first.
+/// without holding the state lock. `fresh` (default false) drops the build cache first. The
+/// user's build takes the agents' turn for the sync before it (no agent call writes while it
+/// takes changes over).
 #[tauri::command]
 pub async fn build_rom(
     app: tauri::AppHandle,
@@ -490,7 +565,9 @@ pub async fn build_rom(
     fresh: Option<bool>,
 ) -> Result<BuildDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
-        build_rom_impl(&app.state::<AppState>(), &out, fresh.unwrap_or(false))
+        let state = app.state::<AppState>();
+        sync_before_build(&state, true)?;
+        build_synced(&state, &out, fresh.unwrap_or(false))
     })
     .await
     .map_err(|e| CmdError::from(e.to_string()))?
@@ -542,6 +619,22 @@ mod tests {
         let matrix = get_matrix_impl(&state, 0).unwrap();
         assert_eq!((matrix.width, matrix.height), (2, 1));
         assert_eq!(matrix.maps, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn close_project_drops_the_session_and_nothing_answers_for_it() {
+        let (_fixture, state) = open_synthetic();
+        assert!(list_headers_impl(&state).is_ok());
+        close_project_impl(&state).unwrap();
+        assert!(lock(&state).unwrap().is_none());
+        assert_eq!(
+            list_headers_impl(&state).unwrap_err().message,
+            "no project open"
+        );
+        assert_eq!(history_impl(&state).unwrap_err().message, "no project open");
+        assert!(member_counts_impl(&state).is_err());
+        // Nothing open: closing again does nothing.
+        close_project_impl(&state).unwrap();
     }
 
     #[test]

@@ -74,7 +74,7 @@ impl Registry {
             return Ok(Registry::new(kind));
         };
         let path = root.join(&rel);
-        let bytes = match std::fs::read(&path) {
+        let bytes = match crate::fsutil::read_noted(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Registry::new(kind));
@@ -300,6 +300,15 @@ impl Symbols {
                 .and_then(|r| r.id_of(n))
                 .map(str::to_owned),
         }
+    }
+
+    /// Every entry of the register of `kind` as (number, id), ascending by id; nothing for a
+    /// kind with a fixed table.
+    pub fn ids(&self, kind: SymbolKind) -> Vec<(u32, String)> {
+        self.registries
+            .get(&kind)
+            .map(|r| r.ids.iter().map(|(id, &n)| (n, id.clone())).collect())
+            .unwrap_or_default()
     }
 
     /// The number of `id` of `kind`: from its table or register, else from the fallback form

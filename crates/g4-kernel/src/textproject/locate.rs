@@ -9,6 +9,7 @@ use std::path::Path;
 
 use crate::text::{Problem, Severity};
 
+use super::arts::slash;
 use super::schema::ROOT;
 
 /// One step of a path: an object key or an array index.
@@ -268,7 +269,7 @@ pub(crate) fn located(file: &Path, bytes: &[u8], message: &str) -> Problem {
         .unwrap_or((1, 1));
     Problem {
         severity: Severity::Error,
-        file: file.to_path_buf(),
+        file: slash(file),
         line,
         col,
         message: message.to_owned(),

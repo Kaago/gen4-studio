@@ -8,120 +8,57 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use g4_formats::narc::Narc;
 use g4_kernel::base::BaseRom;
+use g4_kernel::build::state::BuildState;
 use g4_kernel::build::{self, StepReport, StepStatus, run_source_and_pack_steps};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
+use g4_kernel::store::{MapHeader, Store};
 use g4_kernel::text::{Problem, Severity};
 use g4_kernel::textproject::manifest::SchemaState;
 use g4_kernel::textproject::quirks::quirks_from_state;
-use g4_kernel::textproject::{ExportOptions, ExportReport, check, export, import, sources};
+use g4_kernel::textproject::sync::{UnitSide, apply_one_sided, scan};
+use g4_kernel::textproject::{
+    ExportOptions, ExportReport, ImportOptions, UNSYNCED_EXPORT, check, export, import,
+    import_with, sources, unsynced_export as unsynced_export_of,
+};
 
-use common::{Synthetic, copy_dir, synthetic_map_bytes, synthetic_project, synthetic_rom};
+use common::{TextFixture, synthetic_map_bytes};
 
 const LAYER_DIR: &str = ".g4/cache/base-layer";
 
-/// A synthetic project with a base mark, the base ROM and a base layer copied from the
-/// project as it was before the test changed it.
-struct Fx {
-    project: Synthetic,
-    _rom_dir: tempfile::TempDir,
-    rom: PathBuf,
-    sha1: String,
+/// The shared text-project fixture with the helpers only these tests use.
+struct Fx(TextFixture);
+
+impl std::ops::Deref for Fx {
+    type Target = TextFixture;
+
+    fn deref(&self) -> &TextFixture {
+        &self.0
+    }
 }
 
 impl Fx {
     fn new() -> Fx {
-        Fx::with(|_| {})
+        Fx(TextFixture::dspre())
     }
 
     /// `prepare` changes the project before the base layer is copied from it.
     fn with(prepare: impl FnOnce(&Project)) -> Fx {
-        let fx = Fx::unmarked(prepare);
-        fx.write_mark(&fx.sha1.clone());
-        fx
+        Fx(TextFixture::with(prepare))
     }
 
     /// Like [`Fx::with`], without the base mark.
     fn unmarked(prepare: impl FnOnce(&Project)) -> Fx {
-        let project = synthetic_project();
-        let p = Project::open(project.dir.path()).unwrap();
-        prepare(&p);
-        unpack_all(&p);
-        let (rom_dir, rom) = synthetic_rom();
-        let sha1 = BaseRom::open(&rom, None).unwrap().sha1().to_owned();
-        let fx = Fx {
-            project,
-            _rom_dir: rom_dir,
-            rom,
-            sha1,
-        };
-        fx.place_layer();
-        fx
-    }
-
-    fn root(&self) -> &Path {
-        self.project.dir.path()
+        Fx(TextFixture::unmarked(prepare))
     }
 
     fn p(&self) -> Project {
-        Project::open(self.root()).unwrap()
-    }
-
-    fn base(&self) -> BaseRom {
-        BaseRom::open(&self.rom, None).unwrap()
-    }
-
-    /// Copies the project (without `.g4`) to the base layer of its base ROM.
-    fn place_layer(&self) {
-        let tmp = tempfile::tempdir().unwrap();
-        let copy = tmp.path().join("layer");
-        copy_dir(self.root(), &copy);
-        let _ = std::fs::remove_dir_all(copy.join(".g4"));
-        let layer = self.root().join(LAYER_DIR).join(&self.sha1);
-        copy_dir(&copy, &layer);
-        std::fs::write(layer.join(".complete"), &self.sha1).unwrap();
-    }
-
-    fn remove_layer(&self) {
-        std::fs::remove_dir_all(self.root().join(LAYER_DIR)).unwrap();
-    }
-
-    fn write_mark(&self, sha1: &str) {
-        let mark = BaseMark {
-            version: BASE_MARK_VERSION,
-            origin: ORIGIN_DSPRE.to_owned(),
-            sha1: sha1.to_owned(),
-            game_code: "CPUE".to_owned(),
-            title: "POKEMON PL".to_owned(),
-            revision: 0,
-            size: 0x8000,
-            template: None,
-            created: "2026-10-27T12:00:00Z".to_owned(),
-            assigned: Some("2026-10-27T12:00:00Z".to_owned()),
-            studio_version: "0.0.0".to_owned(),
-            secure_area_crc: 0x1234,
-            secure_area_sha1: "0".repeat(40),
-        };
-        self.write(".g4/base.json", &serde_json::to_vec_pretty(&mark).unwrap());
-    }
-
-    fn write(&self, rel: &str, bytes: &[u8]) {
-        let path = self.root().join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, bytes).unwrap();
-    }
-
-    fn read(&self, rel: &str) -> Vec<u8> {
-        std::fs::read(self.root().join(rel)).unwrap()
-    }
-
-    fn text(&self, rel: &str) -> String {
-        String::from_utf8(self.read(rel)).unwrap()
+        self.project()
     }
 
     fn json(&self, rel: &str) -> serde_json::Value {
@@ -138,16 +75,10 @@ impl Fx {
             &self.base(),
             &ExportOptions {
                 adopt_scripts: true,
+                force: false,
             },
         )
         .unwrap()
-    }
-
-    /// Replaces `from` by `to` in file `rel` (which must contain it).
-    fn edit(&self, rel: &str, from: &str, to: &str) {
-        let text = self.text(rel);
-        assert!(text.contains(from), "{rel} has no `{from}`:\n{text}");
-        self.write(rel, text.replacen(from, to, 1).as_bytes());
     }
 
     /// Every file below the root except `.g4` and rotom's status, with its mtime.
@@ -186,21 +117,6 @@ fn files(root: &Path, rel: &Path, out: &mut BTreeMap<PathBuf, SystemTime>) {
             files(root, &path, out);
         } else {
             out.insert(path, entry.metadata().unwrap().modified().unwrap());
-        }
-    }
-}
-
-/// Unpacks every archive of the project the way the base layer has them.
-fn unpack_all(p: &Project) {
-    let kinds: Vec<AssetKind> = p.archives.kinds().collect();
-    for kind in kinds {
-        if kind == AssetKind::DynamicHeaders {
-            continue;
-        }
-        if let Some(packed) = p.archives.packed(kind)
-            && p.root.join(packed).is_file()
-        {
-            p.ensure_unpacked(kind).unwrap();
         }
     }
 }
@@ -365,7 +281,14 @@ fn export_removes_files_it_no_longer_writes() {
     fx.write("data/maps/0000.nsbmd", b"old side file");
     fx.write("data/raw/files/x.bin", b"old blob");
     fx.write("data/stories/0000.json", b"{}\n");
-    let report = fx.export();
+    // The blob placed by hand is a change the members lack: refused without `force`. The side
+    // file no JSON names changes no member, so the build step does not see it.
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/raw/files/x.bin")
+    );
+    assert!(fx.exists("data/raw/files/x.bin"));
+    let report = fx.export_forced();
     assert!(!fx.exists("data/maps/0000.nsbmd"));
     assert!(!fx.exists("data/raw/files/x.bin"));
     assert!(!fx.exists("data/raw"), "an empty blob folder goes too");
@@ -387,6 +310,9 @@ fn export_removes_files_it_no_longer_writes() {
     assert_eq!(report.raw_blobs, 1);
     assert_eq!(fx.read("data/raw/files/a/b.bin"), [1, 2, 3]);
     std::fs::remove_file(fx.root().join("files/a/b.bin")).unwrap();
+    // Without a build the step alone cannot tell the deleted file from a blob placed by
+    // hand; the sync's record can: the blob is what the export wrote, so only its file
+    // changed, and the export goes on.
     let report = fx.export();
     assert_eq!(report.raw_blobs, 0);
     assert_eq!(report.removed, 1);
@@ -435,7 +361,11 @@ fn import_after_deleting_members_restores_every_byte() {
     fx.write("files/fielddata/maptable/mapname.bin", &[0x41; 32]);
     std::fs::remove_file(fx.root().join("files/a/b.bin")).unwrap();
 
-    let report = import(&fx.p(), None).unwrap();
+    // The deleted members only come back, but the header table overwritten since the export
+    // is a member-side change the import would throw away: forced.
+    let text = refused(import(&fx.p(), None));
+    assert!(text.contains("arm9/arm9.bin"), "{text}");
+    let report = import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
     assert!(report.members_written > 500, "{report:?}");
     assert_eq!(report.raw_written, 1);
     assert_eq!(fx.contents("unpacked"), unpacked);
@@ -519,11 +449,86 @@ fn import_refuses_members_without_json() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert_eq!(problems[0].file, Path::new("data/moves/0003.json"));
     assert!(
-        problems[0].message.contains("4.3b"),
+        problems[0].message.contains("Phase 3d"),
         "{}",
         problems[0].message
     );
     assert_eq!(fx.mtimes(), before);
+}
+
+/// The end of the sentence for a surplus member of a pair art: neither tool makes the missing
+/// counterpart, so it names DSPRE and not `g4k text export` or `import`.
+const SURPLUS_WAY_OUT: &str = "Weder Export noch Import legen ein Gegenstück an: das Member in \
+                               DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).";
+
+/// A trainer has a properties member and a party member; one that only one archive has (DSPRE
+/// left one archive longer) is no entity, so no JSON names it: the import reports it as
+/// `member-without-json` at the first number no file covers, and the export warns the same.
+#[test]
+fn a_surplus_trainer_member_is_reported_by_import_check_and_export() {
+    let fx = Fx::new();
+    fx.export();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    fx.write("unpacked/trainerProperties/0003", &props);
+    fx.write("unpacked/trainerProperties/0004", &props);
+    let before = fx.mtimes();
+
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert_eq!(problems[0].file, Path::new("data/trainers/0003.json"));
+    assert!(
+        problems[0].message.ends_with(SURPLUS_WAY_OUT),
+        "{}",
+        problems[0].message
+    );
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(
+        codes(&report.problems),
+        ["textproject.member-without-json"],
+        "{:?}",
+        report.problems
+    );
+    assert_eq!(fx.mtimes(), before);
+
+    // The export writes the three trainers and warns about the surplus; nothing is deleted.
+    let exported = fx.export();
+    let warnings: Vec<&Problem> = exported
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-without-json"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{:?}", exported.problems);
+    assert_eq!(warnings[0].severity, Severity::Warning);
+    assert_eq!(warnings[0].file, Path::new("data/trainers/0003.json"));
+    assert!(!fx.exists("data/trainers/0003.json"));
+    assert!(fx.exists("unpacked/trainerProperties/0004"));
+}
+
+/// `differs` and every `Problem.file` name a nested path with `/` on every platform, never
+/// with the platform's separator.
+#[test]
+fn paths_in_check_reports_use_slashes() {
+    let fx = Fx::new();
+    fx.export();
+    fx.edit("data/moves/0002.json", "\"power\": 20", "\"power\": 99");
+    fx.write("data/moves/0001.json", b"{ nope");
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(report.differs, [Path::new("unpacked/moveData/0002")]);
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+    assert_eq!(report.problems[0].file, Path::new("data/moves/0001.json"));
+    for path in report
+        .differs
+        .iter()
+        .chain(report.problems.iter().map(|p| &p.file))
+    {
+        let text = path.to_string_lossy();
+        assert!(text.contains('/') && !text.contains('\\'), "{text}");
+        assert_eq!(
+            path.components().count(),
+            text.split('/').count(),
+            "{text}: one component per `/`"
+        );
+    }
 }
 
 /// Map 2 of the fixture with a model of 100 bytes (`fill`), so its part is a `base_sha1`.
@@ -592,9 +597,14 @@ fn import_needs_the_base_only_for_changed_base_parts() {
     );
     assert_ne!(problems[0].line, 1);
 
-    // With the base layer back, the import restores the base's model.
+    // With the base layer back, the member changed since the last import is newer than its
+    // JSON; forced, the import restores the base's model.
     fx.place_layer_from_original();
-    let report = import(&fx.p(), None).unwrap();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/maps/0002")
+    );
+    let report = import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
     assert_eq!(report.members_written, 1);
     assert_eq!(fx.read("unpacked/maps/0002"), big_model_map(0x11));
 }
@@ -726,6 +736,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &dp.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert_eq!(text, "Kein Textprojekt für Diamant/Perl in Phase 4.");
@@ -737,6 +748,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &unmarked.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.contains(".g4/base.json"), "{text}");
@@ -749,6 +761,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &other.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.starts_with("Das ist eine andere ROM"), "{text}");
@@ -764,6 +777,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &old.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ));
     assert!(text.ends_with("`g4k text migrate` ausführen."), "{text}");
@@ -775,6 +789,7 @@ fn export_refuses_dp_without_mark_another_base_and_an_old_schema() {
         &scripts.base(),
         &ExportOptions {
             adopt_scripts: false,
+            force: false,
         },
     ));
     assert_eq!(
@@ -823,7 +838,7 @@ fn a_failing_base_is_an_error_not_an_unchecked_member() {
     let member = fx
         .root()
         .join(LAYER_DIR)
-        .join(&fx.sha1)
+        .join(fx.sha1())
         .join("unpacked/mapTextures/0000");
     std::fs::remove_file(&member).unwrap();
     std::fs::create_dir(&member).unwrap();
@@ -874,6 +889,7 @@ fn export_refuses_text_in_conflict_and_writes_nothing() {
         &fx.base(),
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     ) {
         Err(KernelError::TextConflict(archives)) => assert_eq!(archives, [433]),
@@ -1207,8 +1223,9 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(found[0].severity, Severity::Warning);
     assert_eq!(
         found[0].message,
-        "textproject.member-newer: unpacked/moveData/0004 ist neuer als data/moves/0004.json; \
-         g4k text export übernimmt ihn, g4k text import verwirft ihn."
+        "textproject.member-newer: unpacked/moveData/0004 hat noch keine data/moves/0004.json; \
+         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht \
+         keine Member)."
     );
     assert_eq!(fx.read("unpacked/moveData/0004"), appended);
 
@@ -1219,14 +1236,51 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(codes(&problems), ["textproject.unsynced"], "{problems:?}");
     assert_eq!(
         problems[0].message,
-        "textproject.unsynced: unpacked/moveData/0004 weicht von data/moves/0004.json und von \
-         der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt)."
+        "textproject.unsynced: unpacked/moveData/0004 hat keine data/moves/0004.json und fehlt \
+         in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das \
+         Member ab (der Import löscht keine Member)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 
     // The import keeps its own rule.
     let problems = compile_problems(import(&fx.p(), None));
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+
+    // The way out the sentences name: the export makes the JSON.
+    fx.export();
+    assert!(fx.exists("data/moves/0004.json"));
+}
+
+/// The build step does not tell a surplus trainer member to run the export (which writes
+/// nothing for it): incremental and full run both keep the import's sentence, an error, and
+/// write nothing.
+#[test]
+fn a_surplus_trainer_member_gets_the_way_out_in_incremental_and_full_runs() {
+    let fx = built();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let before = fx.mtimes();
+
+    for full in [false, true] {
+        if full {
+            build::clear_cache(&fx.p()).unwrap();
+        }
+        let problems = compile_problems(build::prepare(&fx.p()));
+        assert_eq!(
+            codes(&problems),
+            ["textproject.member-without-json"],
+            "full: {full}, {problems:?}"
+        );
+        assert_eq!(problems[0].severity, Severity::Error);
+        let message = &problems[0].message;
+        assert!(
+            message.ends_with(SURPLUS_WAY_OUT)
+                && message.contains("verschieden viele Member")
+                && !message.contains("g4k text"),
+            "full: {full}, {message}"
+        );
+        assert_eq!(fx.mtimes(), before, "nothing written");
+    }
 }
 
 #[test]
@@ -1274,6 +1328,637 @@ fn a_packed_member_without_its_folder_is_judged_by_the_base() {
     assert!(!fx.exists("unpacked/moveData"));
 }
 
+// Export and import refuse when the other side is newer (4.3a I1).
+
+impl Fx {
+    /// The export without `force`: what it answers.
+    fn try_export(&self) -> Result<ExportReport, KernelError> {
+        export(
+            &self.p(),
+            &self.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        )
+    }
+
+    /// The export with `force`.
+    fn export_forced(&self) -> ExportReport {
+        export(
+            &self.p(),
+            &self.base(),
+            &ExportOptions {
+                adopt_scripts: true,
+                force: true,
+            },
+        )
+        .unwrap()
+    }
+
+    /// Move 1's member as DSPRE changes it: its power set to `power`.
+    fn dspre_power(&self, power: u8) {
+        let mut member = self.read(MOVE_1);
+        member[3] = power;
+        self.write(MOVE_1, &member);
+    }
+
+    /// Move 1's power in its JSON.
+    fn json_power(&self) -> u64 {
+        self.json(MOVE_1_JSON)["data"]["power"].as_u64().unwrap()
+    }
+}
+
+/// The refusal of a call that is not an export.
+fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
+    match result {
+        Err(KernelError::Refused(text)) => text,
+        other => panic!("expected Refused, got {other:?}"),
+    }
+}
+
+/// The export's refusal naming `list`.
+fn unsynced_export(list: &str) -> String {
+    format!(
+        "{UNSYNCED_EXPORT} ({list}); der Export würde sie verwerfen: erst bauen (g4k build) \
+         oder g4k text import, dann exportieren."
+    )
+}
+
+/// The import's refusal naming `list`.
+fn unsynced_import(list: &str) -> String {
+    format!(
+        "Member sind neuer als ihre JSON ({list}); der Import würde sie überschreiben: erst \
+         exportieren (g4k text export), dann importieren."
+    )
+}
+
+/// A pause so the next write gets another mtime than the one recorded.
+fn tick() {
+    std::thread::sleep(Duration::from_millis(20));
+}
+
+#[test]
+fn export_refuses_json_side_changes_the_members_lack() {
+    // Exported, not built: the build step would judge every unit by the base layer, and move
+    // 1's member is the base's, so its JSON edit is JSON-side work.
+    let fx = Fx::new();
+    fx.export();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    let sentence = unsynced_export("data/moves/0001.json");
+    assert_eq!(refusal(fx.try_export()), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    // The app asks the same before its question.
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), Some(sentence));
+
+    // Built: a JSON edit and a blob placed by hand are not in the members yet.
+    let fx = built();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    fx.write("data/raw/files/x.bin", b"blob");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json, data/raw/files/x.bin")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // Forced: the members apply, the blob goes.
+    fx.export_forced();
+    assert_eq!(fx.json_power(), 10);
+    assert!(!fx.exists("data/raw/files/x.bin"));
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+
+    // Without the step's side file nothing tells the sides apart: the export runs as before.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 98");
+    std::fs::remove_file(fx.root().join(SYNC_FILE)).unwrap();
+    fx.export();
+    assert_eq!(fx.json_power(), 10);
+}
+
+#[test]
+fn export_after_a_member_edit_takes_the_member() {
+    let fx = built();
+    fx.dspre_power(77);
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+
+    // DSPRE edits it again: the export was a sync point of the build step, so this is only
+    // the member again (no conflict with the JSON the export wrote), for the build and for
+    // the next export.
+    tick();
+    fx.dspre_power(78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(fx.read(MOVE_1)[3], 78);
+    fx.export();
+    assert_eq!(fx.json_power(), 78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+
+    // A JSON edit after the export reaches the member.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 78", "\"power\": 99");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+}
+
+#[test]
+fn import_refuses_members_newer_than_their_json() {
+    // Exported, not built: the build step alone would call the unit unsynced (either side);
+    // the sync's record shows only the member changed since the export.
+    let fx = Fx::new();
+    fx.export();
+    fx.dspre_power(77);
+    let before = fx.mtimes();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+
+    let fx = built();
+    fx.dspre_power(77);
+    let sentence = unsynced_import("unpacked/moveData/0001");
+
+    // Changed since the last build.
+    let before = fx.mtimes();
+    assert_eq!(refused(import(&fx.p(), None)), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // Kept by the build as newer.
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    let before = fx.mtimes();
+    assert_eq!(refused(import(&fx.p(), None)), sentence);
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(fx.read(MOVE_1)[3], 77);
+
+    // Forced: the JSON applies.
+    import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
+    assert_eq!(fx.read(MOVE_1)[3], 10);
+    import(&fx.p(), None).unwrap();
+}
+
+#[test]
+fn a_unit_changed_on_both_sides_refuses_export_and_import() {
+    let fx = built();
+    fx.dspre_power(77);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001 (auch data/moves/0001.json geändert)")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+}
+
+// Phase 4.3b: the Studio's save and the external sync keep JSON and members in step, so
+// neither makes the export or the import refuse.
+
+/// Move 1's power raised to `power` through the store and saved (JSON and member).
+fn store_power(fx: &Fx, power: u8) {
+    let mut store = Store::new(Arc::new(fx.p()));
+    store
+        .edit_move(1, "Stärke", |m| m.set_power(power))
+        .unwrap()
+        .expect("the power changed");
+    store.save().unwrap();
+}
+
+/// One scan and its takeover; the sides of the units it found.
+fn sync_once(fx: &Fx) -> Vec<UnitSide> {
+    let p = fx.p();
+    let found = scan(&p, &mut |_| {}).unwrap();
+    apply_one_sided(&p, &found, &|_| false).unwrap();
+    found.units.iter().map(|u| u.side).collect()
+}
+
+#[test]
+fn a_store_save_refuses_neither_export_nor_import() {
+    // Exported only (the step would judge by the base layer) and built.
+    for fx in [
+        {
+            let fx = Fx::new();
+            fx.export();
+            fx
+        },
+        built(),
+    ] {
+        store_power(&fx, 55);
+        assert_eq!(fx.json_power(), 55);
+        assert_eq!(fx.read(MOVE_1)[3], 55);
+        fx.try_export().unwrap();
+        import(&fx.p(), None).unwrap();
+        assert_eq!(fx.json_power(), 55);
+
+        // After the save DSPRE edits the member: only the import refuses. After a save the
+        // JSON is edited by hand: only the export refuses.
+        tick();
+        store_power(&fx, 56);
+        tick();
+        fx.dspre_power(57);
+        assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+        assert_eq!(
+            refused(import(&fx.p(), None)),
+            unsynced_import("unpacked/moveData/0001")
+        );
+        fx.try_export().unwrap();
+        assert_eq!(fx.json_power(), 57);
+        tick();
+        store_power(&fx, 58);
+        tick();
+        fx.edit(MOVE_1_JSON, "\"power\": 58", "\"power\": 59");
+        assert_eq!(
+            refusal(fx.try_export()),
+            unsynced_export("data/moves/0001.json")
+        );
+        import(&fx.p(), None).unwrap();
+        assert_eq!(fx.read(MOVE_1)[3], 59);
+    }
+}
+
+#[test]
+fn a_sync_takeover_refuses_neither_export_nor_import() {
+    let fx = built();
+    // From DSPRE: the member changed, the sync writes the JSON.
+    fx.dspre_power(77);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    assert_eq!(fx.json_power(), 77);
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+    fx.try_export().unwrap();
+    import(&fx.p(), None).unwrap();
+
+    // From the files: the JSON changed, the sync writes the member.
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 77", "\"power\": 66");
+    assert_eq!(sync_once(&fx), [UnitSide::Files]);
+    assert_eq!(fx.read(MOVE_1)[3], 66);
+    fx.try_export().unwrap();
+    import(&fx.p(), None).unwrap();
+
+    // A takeover from DSPRE, then the JSON edited by hand: the step saw both sides change
+    // since its build, the sync record shows the member is what the JSON had. Only the
+    // export refuses, as the scan says „aus Datei“.
+    let fx = built();
+    fx.dspre_power(77);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 77", "\"power\": 66");
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    import(&fx.p(), None).unwrap();
+    assert_eq!(fx.read(MOVE_1)[3], 66);
+}
+
+#[test]
+fn a_json_restored_after_a_build_is_still_newer_than_its_member() {
+    // The build carries a JSON edit into the member; then the JSON goes back to the bytes the
+    // sync recorded at the export (`git checkout -- data/…`). The export must not take the
+    // member over it.
+    let fx = built();
+    let old = fx.read(MOVE_1_JSON);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(step_problems(&prepared.problems).is_empty());
+    assert_eq!(fx.read(MOVE_1)[3], 99);
+    tick();
+    fx.write(MOVE_1_JSON, &old);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(fx.read(MOVE_1_JSON), old, "nothing written");
+
+    // The same with a DSPRE edit after the build: both sides changed.
+    let fx = built();
+    let old = fx.read(MOVE_1_JSON);
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    build::prepare(&fx.p()).unwrap();
+    tick();
+    fx.dspre_power(77);
+    fx.write(MOVE_1_JSON, &old);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json (auch unpacked/moveData/0001 geändert)")
+    );
+    assert_eq!(fx.read(MOVE_1_JSON), old, "nothing written");
+}
+
+#[test]
+fn a_member_reset_to_the_base_after_the_export_refuses_the_import() {
+    // Exported with a modded move 1, not built: DSPRE resets the member to the base's bytes.
+    let fx = Fx::new();
+    let base = fx.read(MOVE_1);
+    fx.dspre_power(77);
+    fx.export();
+    assert_eq!(fx.json_power(), 77);
+    tick();
+    fx.write(MOVE_1, &base);
+    let before = fx.mtimes();
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+}
+
+#[test]
+fn the_build_after_a_save_and_an_edit_on_one_side_is_no_conflict() {
+    // A save, then the JSON edited by hand: the build writes the member.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.edit(MOVE_1_JSON, "\"power\": 55", "\"power\": 56");
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(MOVE_1)[3], 56);
+
+    // A save, then DSPRE edits the member: the build keeps it.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.dspre_power(57);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(fx.read(MOVE_1)[3], 57);
+    assert_eq!(fx.json_power(), 55);
+}
+
+#[test]
+fn a_save_of_one_part_over_a_hand_edited_part_records_no_json() {
+    // Built; the learnset of species 1 is edited by hand in its JSON, not built.
+    let fx = built();
+    let species = "data/species/0001.json";
+    let mut json = fx.json(species);
+    let level = json["learnset"]["moves"][0]["level"].as_u64().unwrap();
+    json["learnset"]["moves"][0]["level"] = (level + 4).into();
+    fx.write(species, &serde_json::to_vec_pretty(&json).unwrap());
+    // The store saves the personal part alone (its JSON takes the learnset from the file).
+    let mut store = Store::new(Arc::new(fx.p()));
+    store
+        .edit_personal(1, "Angriff", |p| p.set_attack(p.attack().wrapping_add(1)))
+        .unwrap()
+        .expect("the attack changed");
+    store.save().unwrap();
+    tick();
+    // DSPRE edits the learnset member.
+    let learnset = "unpacked/learnsets/0001";
+    let mut bytes = fx.read(learnset);
+    bytes[0] ^= 0x01;
+    fx.write(learnset, &bytes);
+
+    // Both sides of the species changed since they were last in step: nothing is taken over.
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let side = found
+        .units
+        .iter()
+        .find(|u| u.key == species)
+        .map(|u| u.side);
+    assert_eq!(side, Some(UnitSide::Conflict), "{:?}", found.units);
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export(&format!("{species} (auch {learnset} geändert)"))
+    );
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert!(
+        codes(&problems).contains(&"textproject.conflict".to_owned()),
+        "{problems:?}"
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+}
+
+#[test]
+fn a_changed_manifest_leaves_the_judgement_to_the_step() {
+    // After a save the manifest changes (it is read by every JSON), then DSPRE edits the
+    // member: the record of the JSON proves nothing any more.
+    let fx = built();
+    store_power(&fx, 55);
+    tick();
+    fx.edit(
+        "g4-project.json",
+        "\"schemaVersion\": 1",
+        "\"schemaVersion\":  1",
+    );
+    fx.dspre_power(57);
+    let problems = compile_problems(build::prepare(&fx.p()));
+    assert_eq!(codes(&problems), ["textproject.conflict"], "{problems:?}");
+}
+
+#[test]
+fn without_a_sync_record_a_full_judgement_refuses_both_directions() {
+    // Exported, not built, and the sync's record lost: a JSON edit could be over a member
+    // DSPRE changed, so neither direction goes without `force`.
+    let fx = Fx::new();
+    fx.export();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    fx.edit(MOVE_1_JSON, "\"power\": 10", "\"power\": 99");
+    let before = fx.mtimes();
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+    assert_eq!(fx.mtimes(), before, "nothing written");
+
+    // A member that left the base (unsynced): the same.
+    let fx = Fx::new();
+    fx.export();
+    BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+    fx.dspre_power(77);
+    assert_eq!(
+        refusal(fx.try_export()),
+        unsynced_export("data/moves/0001.json")
+    );
+    assert_eq!(
+        refused(import(&fx.p(), None)),
+        unsynced_import("unpacked/moveData/0001")
+    );
+}
+
+#[test]
+fn adopt_and_revert_are_not_refused() {
+    use g4_kernel::textproject::adopt::{adopt, revert};
+    // A DSPRE folder: no manifest, so nothing to judge, whatever the step's file says.
+    let fx = Fx::new();
+    fx.write(
+        SYNC_FILE,
+        br#"{"version":1,"member_newer":["unpacked/moveData/0001"]}"#,
+    );
+    fx.dspre_power(77);
+    adopt(&fx.p(), &fx.base(), &mut |_| {}).unwrap();
+    assert_eq!(fx.json_power(), 77);
+
+    // Built, a member kept as newer and taken over by the sync: the revert goes through.
+    run_source_and_pack_steps(&fx.p()).unwrap();
+    tick();
+    fx.dspre_power(78);
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert_eq!(codes(&prepared.problems), ["textproject.member-newer"]);
+    assert_eq!(sync_once(&fx), [UnitSide::Dspre]);
+    revert(&fx.p()).unwrap();
+    assert!(!fx.exists("g4-project.json"));
+}
+
+// 4.3a I2: `arm9.bin` changed outside the header table is a blob, but the header table in it
+// is the header files'. A header change neither makes the blob differ nor stops a full run.
+
+const ARM9: &str = "arm9/arm9.bin";
+const ARM9_BLOB: &str = "data/raw/arm9/arm9.bin";
+const HEADER_0_JSON: &str = "data/headers/0000.json";
+
+/// `arm9.bin` changed at byte 0x100 (outside the header table) after the base layer was
+/// copied, then exported: `data/raw/arm9/arm9.bin` holds it.
+fn exported_with_an_arm9_blob() -> Fx {
+    let fx = Fx::new();
+    let mut arm9 = fx.read(ARM9);
+    arm9[0x100] ^= 0xFF;
+    fx.write(ARM9, &arm9);
+    fx.export();
+    assert_eq!(fx.read(ARM9_BLOB), arm9);
+    fx
+}
+
+/// [`exported_with_an_arm9_blob`], then built once.
+fn built_with_an_arm9_blob() -> Fx {
+    let fx = exported_with_an_arm9_blob();
+    let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+    assert_eq!(
+        step_row(&rows, "textproject").status,
+        StepStatus::Full,
+        "{rows:?}"
+    );
+    tick();
+    fx
+}
+
+fn level_script_0(fx: &Fx) -> u16 {
+    fx.p().read_headers().unwrap()[0].level_script_id()
+}
+
+#[test]
+fn a_header_edit_beside_an_arm9_blob_leaves_the_blob_in_step() {
+    let fx = built_with_an_arm9_blob();
+    let blob = fx.read(ARM9_BLOB);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(level_script_0(&fx), 2);
+    assert_eq!(fx.read(ARM9)[0x100], blob[0x100]);
+    let report = check(&fx.p()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+
+    // „Neu bauen (ohne Cache)“: the full run finds nothing to judge.
+    build::clear_cache(&fx.p()).unwrap();
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(level_script_0(&fx), 2);
+    assert_eq!(fx.read(ARM9_BLOB), blob, "the blob stays");
+}
+
+#[test]
+fn a_full_run_places_an_arm9_blob_by_the_base_outside_the_header_table() {
+    // The header table differs from the base (a header edit, built), the rest of `arm9.bin`
+    // equals it. A blob with a stale table then reaches `arm9.bin` in a full run, under the
+    // table on disk.
+    let fx = built();
+    let stale = fx.read(ARM9);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    build::prepare(&fx.p()).unwrap();
+    assert_eq!(level_script_0(&fx), 2);
+    let mut blob = stale;
+    blob[0x100] ^= 0xFF;
+    fx.write(ARM9_BLOB, &blob);
+    build::clear_cache(&fx.p()).unwrap();
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(ARM9)[0x100], blob[0x100]);
+    assert_eq!(level_script_0(&fx), 2, "the table stays the header files'");
+    assert!(check(&fx.p()).unwrap().differs.is_empty());
+}
+
+#[test]
+fn a_store_header_save_beside_an_arm9_blob_is_in_step() {
+    // Exported only (the step would judge by the base layer) and built.
+    for fx in [exported_with_an_arm9_blob(), built_with_an_arm9_blob()] {
+        let blob = fx.read(ARM9_BLOB);
+        let mut store = Store::new(Arc::new(fx.p()));
+        store
+            .edit_header(0, "Level-Skript", |h| {
+                if let MapHeader::Pt(h) = h {
+                    h.level_script_id = 2;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store.save().unwrap();
+        assert_eq!(fx.json(HEADER_0_JSON)["level_script_id"], 2);
+        assert_eq!(level_script_0(&fx), 2);
+
+        let report = check(&fx.p()).unwrap();
+        assert!(report.differs.is_empty(), "{:?}", report.differs);
+        let sides = sync_once(&fx);
+        assert!(sides.iter().all(|s| *s == UnitSide::InSync), "{sides:?}");
+        assert_eq!(unsynced_export_of(&fx.p()).unwrap(), None);
+        let prepared = build::prepare(&fx.p()).unwrap();
+        assert!(
+            step_problems(&prepared.problems).is_empty(),
+            "{:?}",
+            prepared.problems
+        );
+        assert_eq!(fx.read(ARM9_BLOB), blob, "the blob stays");
+    }
+}
+
 // Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base
 // ROM next to the original (only read). Deviations are findings in export, import or the
 // build step, never exceptions here.
@@ -1300,6 +1985,7 @@ fn exported_copy() -> Option<(tempfile::TempDir, PathBuf, PathBuf, ExportReport)
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();
@@ -1505,7 +2191,7 @@ fn textproject_round_trip() {
     }
     deletion_was_complete(&project, &deleted);
     use g4_kernel::project::Location;
-    match project.asset_location(AssetKind::HeaderTable, 0).unwrap() {
+    match project.member_location(AssetKind::HeaderTable, 0).unwrap() {
         Location::Slice { path, offset, len } => {
             let mut bytes = std::fs::read(&path).unwrap();
             let offset = usize::try_from(offset).unwrap();
@@ -1516,8 +2202,15 @@ fn textproject_round_trip() {
         other => panic!("header table at {other:?}"),
     }
 
+    // The zeroed header table and names are member-side changes the import refuses without
+    // `force` (4.3a I1); the round trip restores them on purpose.
     let started = std::time::Instant::now();
-    import(&Project::open(&copy).unwrap(), Some(&base)).unwrap();
+    import_with(
+        &Project::open(&copy).unwrap(),
+        Some(&base),
+        &ImportOptions { force: true },
+    )
+    .unwrap();
     let import_ms = ms(started);
     let mut after = BTreeMap::new();
     hashes(&copy, "unpacked", &mut after);
@@ -1575,6 +2268,7 @@ fn textproject_export_idempotent() {
         &base,
         &ExportOptions {
             adopt_scripts: true,
+            force: false,
         },
     )
     .unwrap();

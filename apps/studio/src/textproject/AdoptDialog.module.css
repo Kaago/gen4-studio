@@ -1,0 +1,13 @@
+/* The body of „Als Textprojekt einrichten?“: the checks before, the progress line, a refusal. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* „Scripts übernehmen … 2 von 3“: what the set-up does now. */
+.progress {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

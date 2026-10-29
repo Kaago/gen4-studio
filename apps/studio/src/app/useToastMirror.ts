@@ -22,7 +22,7 @@ export function useToastMirror(message: Message | null, setMessage: Dispatch<Set
     const clear = () => setMessage((shown) => (shown === message ? null : shown));
     if (message.kind === "error") {
       toast.progress(SESSION, null);
-      const id = toast.error(message.text, { actions });
+      const id = toast.error(message.text, { actions, ...(message.key === undefined ? {} : { key: message.key }) });
       return subscribeToasts(() => {
         if (!listToasts().some((t) => t.id === id)) clear();
       });

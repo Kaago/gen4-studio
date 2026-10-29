@@ -172,7 +172,7 @@ fn version_of(bytes: &[u8]) -> Result<u32, Problem> {
 /// The manifest's bytes, `None` when there is none.
 fn read_bytes(root: &Path) -> Result<Option<Vec<u8>>, KernelError> {
     let path = root.join(MANIFEST_FILE);
-    match std::fs::read(&path) {
+    match crate::fsutil::read_noted(&path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_at(&path)(e)),

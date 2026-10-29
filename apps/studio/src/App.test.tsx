@@ -5,13 +5,16 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ask, openPath, savePath } from "./platform/dialogs";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom, projectPreviewGet, projectPreviewSet } from "./api";
+import { adoptTextProject, assignBase, checkBase, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
+import { check, found } from "./technik/baseTesting";
+import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget } from "./api";
+import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
-import { INFO_MS, listToasts, resetToasts } from "./ui/frame/toasts";
+import { INFO_MS, listToasts, resetToasts, toast } from "./ui/frame/toasts";
 import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
 import { readShellState, writeShellState } from "./ui/frame/shellState";
 import type { RecentProject } from "./ui/frame/shellState";
@@ -208,11 +211,24 @@ vi.mock("./api", async (importOriginal) => ({
   createProject: vi.fn(),
   agentSettings: vi.fn(),
   baseStatus: vi.fn(),
+  checkBase: vi.fn(),
+  assignBase: vi.fn(),
   createPatch: vi.fn(),
   originalStatus: vi.fn(),
   planReset: vi.fn(),
   resetToOriginal: vi.fn(),
   changedFromOriginal: vi.fn(),
+  externalSync: vi.fn(),
+  textProjectStatus: vi.fn(),
+  conflictDiff: vi.fn(),
+  resolveExternalConflict: vi.fn(),
+  adoptTextProject: vi.fn(),
+  revertTextProject: vi.fn(),
+  migrateTextProject: vi.fn(),
+  planRenameId: vi.fn(),
+  renameId: vi.fn(),
+  entityIds: vi.fn(),
+  closeProject: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -311,6 +327,9 @@ describe("App wiring", () => {
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
     vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
+    // A DSPRE folder: no sync runs. Its hint („Als Textprojekt einrichten“) was dismissed, so the tests of other toasts see only theirs.
+    vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+    localStorage.setItem("g4.textProjectHint./p", "dismissed");
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -736,7 +755,7 @@ describe("App wiring", () => {
         await click("Weiter");
         await click("Anlegen");
         await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, expect.any(Function));
+        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, false, expect.any(Function));
         // The backend hands out a new info object for every project it opens.
         vi.mocked(openProject).mockClear().mockImplementation(async (root) => ({ root, game_code: "CPUD", family: "Platinum", language: "de", header_count: 2 }));
         await click("Öffnen");
@@ -1117,7 +1136,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(7);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(8);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -2460,6 +2479,560 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(1);
       expect(live().message).toEqual({ kind: "info", text: "Auf Original zurückgesetzt: Kartentextur 0001." });
       expect(dialog()).toBeNull();
+    });
+  });
+
+  describe("text project", () => {
+    const CURRENT = { state: "current" as const, schema: 1, last_sync_at: null };
+    const outcome = (over: Partial<SyncOutcome> = {}): SyncOutcome => ({ adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: false, ms: 3, ...over });
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    const toasts = () => listToasts().map((t) => t.text);
+    /** Opens a current text project; its first sync answers `first`. */
+    async function openTextProject(first: SyncOutcome = outcome()) {
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValueOnce(first);
+      await click("Projekt öffnen");
+      await flush();
+    }
+
+    it("a_sync_with_adoptions_reloads_and_says_so", async () => {
+      await select(listed[0]);
+      const log = record();
+      vi.mocked(dirty).mockClear();
+      await openTextProject(
+        outcome({
+          adopted: [{ key: "matrices/0000", label: "Matrix 0000", assets: [{ kind: "Matrix", index: 0 }] }],
+          applied: [
+            { key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }] },
+            { key: "moves/0002", label: "Attacke 0002", assets: [{ kind: "Move", index: 2 }] },
+          ],
+          reloaded: [{ kind: "Matrix", index: 0 }],
+        }),
+      );
+      // A DSPRE folder never syncs: the beforeEach project ran none.
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect(toasts()).toContain("1\u00a0Änderung aus DSPRE übernommen");
+      expect(toasts()).toContain("2\u00a0geänderte Projektdateien übernommen");
+      // What the sync reloaded is read again as after ⌘Z, and the edit counts.
+      await select(listed[0]);
+      log.length = 0;
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ adopted: [{ key: "matrices/0000", label: "Matrix 0000", assets: [{ kind: "Matrix", index: 0 }] }], reloaded: [{ kind: "Matrix", index: 0 }] }));
+      vi.useFakeTimers();
+      await act(async () => void window.dispatchEvent(new Event("focus")));
+      await act(async () => void (await vi.advanceTimersByTimeAsync(800)));
+      vi.useRealTimers();
+      await flush();
+      expect(externalSync).toHaveBeenCalledTimes(2);
+      expect(log).toEqual([`matrixData@${data().history.current}`, `getMatrix@${data().history.current}`]);
+      expect(dirty).toHaveBeenCalled();
+      // „Anzeigen“ shows Technik › Textprojekt, which lists what came in.
+      await click("Anzeigen");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+      expect(container.querySelector("[data-sync-taken]")?.textContent).toContain("Matrix 0000");
+    });
+
+    it("a_build_with_conflicts_is_not_started", async () => {
+      await openTextProject();
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      // The sync before the build finds a conflict: nothing is built (no path asked for), the message offers the way out.
+      vi.mocked(externalSync).mockResolvedValueOnce(outcome({ conflicts: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }], unsaved: false, other: "dspre" }] }));
+      await click("Bauen");
+      await flush();
+      expect(externalSync).toHaveBeenCalledTimes(2);
+      expect(savePath).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
+      expect(statusLine()).toContain("Noch nicht gebaut");
+      await click("Lösen…");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+      expect(container.querySelector('[data-conflict="moves/0001"]')).not.toBeNull();
+
+      // A conflict that came after the sync: the backend's refusal says the same (the sync before the path and the build's own find none).
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      vi.mocked(buildRom).mockRejectedValueOnce({ code: "conflicts", message: "Erst die Konflikte in Technik › Textprojekt lösen.", asset: null, problems: [] });
+      await click("Bauen");
+      await flush();
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(alerts()).toEqual(["Erst die Konflikte in Technik › Textprojekt lösen.Lösen…"]);
+    });
+
+    it("the_conflict_warning_follows_the_count_and_goes_when_none_are_left", async () => {
+      const c = (key: string) => ({ key, label: key, assets: [], unsaved: false, other: "dspre" as const });
+      await openTextProject(outcome({ conflicts: [c("a"), c("b"), c("c")] }));
+      const warnings = () => listToasts().filter((t) => t.kind === "warning").map((t) => t.text);
+      expect(warnings()).toEqual(["3\u00a0Konflikte zwischen Studio und DSPRE"]);
+      // To Technik › Textprojekt by the list („Lösen…“ would close the warning).
+      await act(async () => atlasEntry("Technik")!.click());
+      const entry = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Textprojekt"))!;
+      await act(async () => entry.click());
+      const syncNow = async (next: SyncOutcome) => {
+        vi.mocked(externalSync).mockResolvedValueOnce(next);
+        await click("Jetzt abgleichen");
+        await flush();
+      };
+      // Two resolved, none new: the open warning says what is left, in its place.
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual(["1\u00a0Konflikt zwischen Studio und DSPRE"]);
+      // None left: the warning goes.
+      await syncNow(outcome());
+      expect(warnings()).toEqual([]);
+      // A closed warning does not come back for the same conflicts, only for a new one.
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual(["1\u00a0Konflikt zwischen Studio und DSPRE"]);
+      toast.dismissKey("sync-conflicts");
+      await syncNow(outcome({ conflicts: [c("a")] }));
+      expect(warnings()).toEqual([]);
+      await syncNow(outcome({ conflicts: [c("a"), c("d")] }));
+      expect(warnings()).toEqual(["2\u00a0Konflikte zwischen Studio und DSPRE"]);
+    });
+
+    it("an_agents_resolve_reloads_its_assets_then_syncs", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await openTextProject();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(externalSync).mockClear().mockResolvedValue(outcome());
+      await act(async () =>
+        void tauriEvents.get("agent-event")!({ payload: { kind: "changed", seq: 1, client: "Claude Code", tool: "resolve_external_conflict", label: null, assets: [{ kind: "Move", index: 1 }] } satisfies AgentEvent }),
+      );
+      await flush();
+      await flush();
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect(vi.mocked(memberCounts).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(externalSync).mock.invocationCallOrder[0]!);
+    });
+
+    it("building_with_an_open_conflict_says_so_before_asking_for_the_path_in_one_message", async () => {
+      // UI test 4.3b U8: no „Speichern unter“ first, and the refusal takes the place of the open conflict message.
+      const open = outcome({ conflicts: [{ key: "data/moves/0038.json", label: "Attacke 0038", assets: [{ kind: "Move", index: 38 }], unsaved: false, other: "dspre" }] });
+      await openTextProject(open);
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…"))).toHaveLength(1);
+      vi.mocked(savePath).mockClear();
+      vi.mocked(buildRom).mockClear();
+      vi.mocked(externalSync).mockResolvedValue(open);
+      await click("Bauen");
+      await flush();
+      await flush();
+      expect(savePath).not.toHaveBeenCalled();
+      expect(buildRom).not.toHaveBeenCalled();
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…")).map((t) => [t.kind, t.text])).toEqual([["error", BUILD_CONFLICTS]]);
+      // Resolved: the next „Bauen“ asks for the path and builds.
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 1 } as never);
+      await click("Bauen");
+      await flush();
+      await flush();
+      expect(savePath).toHaveBeenCalledOnce();
+      expect(buildRom).toHaveBeenCalledOnce();
+      expect(listToasts().filter((t) => t.actions.some((a) => a.label === "Lösen…"))).toEqual([]);
+    });
+
+    it("a_reopened_session_while_a_sync_runs_drops_its_result_and_syncs_again", async () => {
+      env.tauri = true;
+      await renderFresh();
+      let answer: (o: SyncOutcome) => void = () => {};
+      vi.mocked(externalSync).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await click("Projekt öffnen");
+      await flush();
+      expect(externalSync).toHaveBeenCalledOnce();
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "migrate_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await act(async () => answer(outcome({ adopted: [{ key: "moves/0001", label: "Attacke 0001", assets: [{ kind: "Move", index: 1 }] }] })));
+      await flush();
+      // The old session's answer says nothing; the new session syncs as after opening.
+      expect(toasts()).not.toContain("1\u00a0Änderung aus DSPRE übernommen");
+      expect(externalSync).toHaveBeenCalledTimes(2);
+    });
+
+    it("an_agents_reopen_notes_a_script_file_rewritten_meanwhile_and_reloads_a_clean_one", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Main #${file}:\n\tEnd\n` }));
+      await act(async () => data().scripts.open(42));
+      await act(async () => data().scripts.open(43));
+      await act(async () => data().scripts.open(44));
+      const dirtyDoc = data().scripts.documents.get(42)!;
+      dirtyDoc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      // The reopen rewrote 0042 and 0043 (an adoption decompiled them anew); 0044 is as it was.
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: file === 44 ? "script Main #44:\n\tEnd\n" : `script Neu #${file}:\n\tEnd\n` }));
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // The typed text stays, its saved state is the new file, and the user hears that saving overwrites it (as for any outside change).
+      const kept = data().scripts.documents.get(42)!;
+      expect(kept.text).toContain("// edit");
+      expect(kept.savedText).toBe("script Neu #42:\n\tEnd\n");
+      expect(alerts()).toContain("Scriptdatei 0042 wurde außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern");
+      // A clean document shows the new file; an unchanged one says nothing.
+      expect(data().scripts.documents.get(43)?.text).toBe("script Neu #43:\n\tEnd\n");
+      expect(data().scripts.documents.get(43)?.savedText).toBe("script Neu #43:\n\tEnd\n");
+      expect(data().scripts.documents.get(44)?.text).toBe("script Main #44:\n\tEnd\n");
+      expect(alerts().filter((a) => a.includes("außerhalb des Editors"))).toHaveLength(1);
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+    });
+
+    it("an_agents_reopen_names_two_rewritten_unsaved_scripts_in_one_note", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Main #${file}:\n\tEnd\n` }));
+      for (const file of [42, 43]) {
+        await act(async () => data().scripts.open(file));
+        data().scripts.documents.get(file)!.text += "// edit\n";
+        await act(async () => data().scripts.onChange(file));
+      }
+      vi.mocked(readScript).mockImplementation(async (file) => ({ kind: "script", text: `script Neu #${file}:\n\tEnd\n` }));
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // Both files changed under typed text: one note names both (two notes would replace each other).
+      expect(alerts().filter((a) => a.includes("außerhalb des Editors"))).toEqual([
+        "Scriptdatei 0042, Scriptdatei 0043 wurden außerhalb des Editors geändert; deine ungespeicherten Änderungen überschreiben das beim Speichern",
+      ]);
+      for (const file of [42, 43]) {
+        expect(data().scripts.documents.get(file)?.text).toContain("// edit");
+        expect(data().scripts.documents.get(file)?.savedText).toBe(`script Neu #${file}:\n\tEnd\n`);
+      }
+    });
+
+    it("an_agents_reopen_keeps_unsaved_script_text_and_warns_when_its_file_is_gone", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      await act(async () => data().scripts.open(42));
+      const doc = data().scripts.documents.get(42)!;
+      doc.text += "// edit\n";
+      await act(async () => data().scripts.onChange(42));
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+      const reopen = (seq: number) =>
+        act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await reopen(1);
+      await flush();
+      await flush();
+      // The typed text stays, still unsaved; nothing asked, nothing warned (the file is there).
+      expect(ask).not.toHaveBeenCalled();
+      expect(data().scripts.documents.get(42)?.text).toBe(doc.text);
+      expect(data().scripts.documents.get(42)?.text).toContain("// edit");
+      expect(titleBar()).toContain("● 1 Änderung nicht gespeichert");
+      expect(listToasts().filter((t) => t.kind === "warning")).toEqual([]);
+      // The file is gone in the new session: the text stays and a lasting warning names the file.
+      vi.mocked(readScript).mockRejectedValue({ code: "error", message: "expanded/scripts/0042.rotom fehlt", asset: null });
+      await reopen(2);
+      await flush();
+      await flush();
+      expect(data().scripts.documents.get(42)?.text).toContain("// edit");
+      const warning = listToasts().find((t) => t.kind === "warning");
+      expect(warning?.text).toBe("Nach dem Neuöffnen fehlt die Scriptdatei 0042; ihr ungespeicherter Text bleibt im Editor.");
+      vi.useFakeTimers();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(INFO_MS * 2)));
+      vi.useRealTimers();
+      expect(listToasts().some((t) => t.kind === "warning")).toBe(true);
+      // The user opening the folder again (and saying the text may go) starts the scripts over, as before.
+      vi.mocked(ask).mockResolvedValue(true);
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(ask).toHaveBeenCalledOnce();
+      expect(data().scripts.documents.list()).toEqual([]);
+    });
+
+    it("an_agents_reopened_session_is_read_again_like_after_opening", async () => {
+      env.tauri = true;
+      await renderFresh();
+      await click("Projekt öffnen");
+      expect(tauriEvents.has("agent-event")).toBe(true);
+      await act(async () => atlasEntry("Pokémon")!.click());
+      vi.mocked(openProject).mockClear();
+      vi.mocked(listHeaders).mockClear();
+      vi.mocked(memberCounts).mockClear();
+      vi.mocked(scriptsStatus).mockClear();
+      vi.mocked(dirty).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      const before = data().bus;
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 1, client: "Claude Code", tool: "adopt_text_project", root: "/p" } satisfies AgentEvent }));
+      await flush();
+      await flush();
+      // The backend's new session is read as after opening, without opening the project once more.
+      expect(openProject).not.toHaveBeenCalled();
+      expect(textProjectStatus).toHaveBeenCalled();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(memberCounts).toHaveBeenCalled();
+      expect(dirty).toHaveBeenCalled();
+      // A new project info: the scripts (and with them the language server) start over.
+      expect(scriptsStatus).toHaveBeenCalledOnce();
+      expect(data().bus).toBe(before);
+      // Now a text project: it syncs, and the area stays where it was.
+      expect(externalSync).toHaveBeenCalledOnce();
+      expect([...container.querySelectorAll("nav button")].filter((b) => b.getAttribute("aria-current") === "page").map((b) => b.textContent)).toEqual(["Pokémon"]);
+      // Another folder's session is none of this project's business.
+      vi.mocked(listHeaders).mockClear();
+      await act(async () => void tauriEvents.get("agent-event")!({ payload: { kind: "reopened", seq: 2, client: "Claude Code", tool: "adopt_text_project", root: "/q" } satisfies AgentEvent }));
+      await flush();
+      expect(listHeaders).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("setting up a text project", () => {
+    const CURRENT = { state: "current" as const, schema: 1, last_sync_at: null };
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    const HINT = "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. DSPRE öffnet den Ordner weiter.";
+    const hint = () => listToasts().find((t) => t.text.startsWith("Dieses Projekt lässt sich als Textprojekt einrichten"));
+    const toasts = () => listToasts().map((t) => t.text);
+    const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
+    const dialogButton = (text: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === text);
+    const outcome = (): SyncOutcome => ({ adopted: [], applied: [], conflicts: [], broken: [], reloaded: [], full: true, ms: 3 });
+    async function showTextProjectEntry() {
+      await act(async () => atlasEntry("Technik")!.click());
+      const entry = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Textprojekt"))!;
+      await act(async () => entry.click());
+    }
+
+    /** Opens "/p" once more; the backend hands out a new info object for every opening. */
+    async function reopen(text_project?: TextProjectStatus) {
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, ...(text_project && { text_project }) });
+      await click("Projekt öffnen");
+      await flush();
+    }
+
+    it("opening_a_dspre_folder_hints_and_an_older_schema_asks_to_lift", async () => {
+      // A DSPRE folder with its base ROM, its hint not dismissed: opening it offers to set it up.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      await reopen();
+      expect(hint()?.text).toBe(HINT);
+      expect(hint()?.kind).toBe("info");
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Einrichten…", "Nicht mehr fragen"]);
+      // It stays until it is answered or closed.
+      vi.useFakeTimers();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(INFO_MS * 3)));
+      vi.useRealTimers();
+      expect(hint()?.text).toBe(HINT);
+      // During a build it says why nothing opens.
+      vi.mocked(savePath).mockResolvedValue("/out.nds");
+      let built: () => void = () => {};
+      vi.mocked(buildRom).mockImplementationOnce(() => new Promise((resolve) => (built = () => resolve({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 1 } as never))));
+      await click("Bauen");
+      await flush();
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Erst wenn der Build fertig ist.");
+      await act(async () => built());
+      await flush();
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Als Textprojekt einrichten?");
+      await act(async () => dialogButton("Abbrechen")!.click());
+      await flush();
+      // Not dismissed: the next opening hints again. „Nicht mehr fragen“: then the folder says nothing more.
+      resetToasts();
+      await reopen();
+      expect(hint()).toBeDefined();
+      await act(async () => hint()!.actions[1]!.onClick());
+      resetToasts();
+      await reopen();
+      expect(hint()).toBeUndefined();
+      // Without its base ROM the hint says what it needs and leads to where it is assigned.
+      localStorage.removeItem("g4.textProjectHint./p");
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+      await reopen();
+      expect(hint()?.text).toBe("Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis-ROM.");
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Basis-ROM zuordnen…", "Nicht mehr fragen"]);
+      await act(async () => hint()!.actions[0]!.onClick());
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("veroeffentlichen");
+
+      // An older schema: the lift is asked for; „Abbrechen“ closes the project.
+      resetToasts();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "older", schema: 0 });
+      await reopen({ state: "older", schema: 0 });
+      expect(hint()).toBeUndefined();
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Textprojekt anheben?");
+      await act(async () => dialogButton("Abbrechen")!.click());
+      await flush();
+      expect(migrateTextProject).not.toHaveBeenCalled();
+      // The backend's session goes too: no agent acts on it unseen.
+      expect(closeProject).toHaveBeenCalledOnce();
+      expect(titleBar()).toContain("Kein Projekt geöffnet");
+      expect(atlasEntry("Start")?.getAttribute("aria-current")).toBe("page");
+      // Opened again and lifted: the session is read anew as a current text project, which syncs.
+      vi.mocked(migrateTextProject).mockResolvedValue({ from: 0, to: 1, changed: ["data/moves/0001.json"], snapshot: null });
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await reopen({ state: "older", schema: 0 });
+      vi.mocked(openProject).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await act(async () => dialogButton("Anheben")!.click());
+      await flush();
+      await flush();
+      expect(migrateTextProject).toHaveBeenCalledOnce();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(dialog()).toBeNull();
+      expect(titleBar()).not.toContain("Kein Projekt geöffnet");
+      expect(externalSync).toHaveBeenCalled();
+      expect(live().message?.text).toBe("Textprojekt angehoben: Schema-Version 0 → 1.");
+
+      // A lift that found the files lifted already (another Gen4 Studio did it) changed nothing and kept the session: it is opened anew.
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "older", schema: 0 });
+      await reopen({ state: "older", schema: 0 });
+      vi.mocked(migrateTextProject).mockResolvedValue({ from: 1, to: 1, changed: [], snapshot: null });
+      vi.mocked(openProject).mockClear();
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2, text_project: CURRENT });
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      await act(async () => dialogButton("Anheben")!.click());
+      await flush();
+      await flush();
+      expect(openProject).toHaveBeenCalledWith("/p");
+      expect(dialog()).toBeNull();
+
+      // A newer schema or a broken manifest is refused when opening, with the kernel's sentence; nothing opens.
+      vi.mocked(openProject).mockRejectedValue({ code: "error", message: "Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).", asset: null });
+      await click("Projekt öffnen");
+      await flush();
+      expect(alerts()).toContain("Das Textprojekt stammt aus einer neueren Fassung von Gen4 Studio (Schema-Version 2).");
+    });
+
+    it("assigning_the_base_rom_unlocks_setting_up_and_the_hint_offers_it", async () => {
+      // UI test 4.3b U1: the way the hint offers (Basis-ROM zuordnen… → Technik › Veröffentlichen → Zuordnen) leads to setting up, without
+      // opening the project again.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
+      vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: "/roms/p.nds" });
+      await reopen();
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Basis-ROM zuordnen…", "Nicht mehr fragen"]);
+      await act(async () => hint()!.actions[0]!.onClick());
+      await flush();
+      expect(container.querySelector("[data-base-state]")?.getAttribute("data-base-state")).toBe("unassigned");
+      vi.mocked(checkBase).mockResolvedValue(check());
+      vi.mocked(assignBase).mockResolvedValue(found());
+      vi.mocked(baseStatus).mockResolvedValue(found());
+      vi.mocked(textProjectStatus).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+      await click("Zuordnen…");
+      await flush();
+      await act(async () => dialogButton("Zuordnen")!.click());
+      await flush();
+      await flush();
+      expect(assignBase).toHaveBeenCalledWith("/roms/p.nds");
+      expect(textProjectStatus).toHaveBeenCalled();
+      // The open hint now offers to set it up, and Technik › Textprojekt is unlocked.
+      expect(hint()?.text).toBe(HINT);
+      expect(hint()?.actions.map((a) => a.label)).toEqual(["Einrichten…", "Nicht mehr fragen"]);
+      await showTextProjectEntry();
+      const setUp = [...container.querySelectorAll("button")].find((b) => b.textContent === "Als Textprojekt einrichten…");
+      expect(setUp?.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("an_agents_set_up_shows_while_it_runs_then_ends_the_hint_and_set_up_never_opens_on_a_text_project", async () => {
+      env.tauri = true;
+      localStorage.removeItem("g4.textProjectHint./p");
+      await renderFresh();
+      await click("Projekt öffnen");
+      await flush();
+      expect(hint()?.text).toBe(HINT);
+      const setUpOfHint = hint()!.actions[0]!;
+      const agentEvent = (payload: AgentEvent) => act(async () => void tauriEvents.get("agent-event")!({ payload }));
+      const busy = (seq: number, running: boolean) =>
+        agentEvent({ kind: "busy", seq, client: "Claude Code", tool: "adopt_text_project", root: "/p", running } as unknown as AgentEvent);
+      // UI test 4.3b U4: an agent sets the folder up; Technik › Textprojekt says so and offers nothing of its own.
+      await busy(1, true);
+      await showTextProjectEntry();
+      expect(infos()).toContain("Wird von einem Agenten eingerichtet …");
+      const setUp = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Als Textprojekt einrichten…");
+      expect(setUp()?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => setUpOfHint.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Wird von einem Agenten eingerichtet …");
+      // UI test 4.3b U2: set up and reopened by the agent: the hint goes, and its „Einrichten…“ opens nothing on a text project.
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      await agentEvent({ kind: "reopened", seq: 2, client: "Claude Code", tool: "adopt_text_project", root: "/p" });
+      await busy(3, false);
+      await flush();
+      await flush();
+      expect(hint()).toBeUndefined();
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain("Wird von einem Agenten eingerichtet …");
+      expect(container.querySelector("[data-technik]")?.textContent).toContain("Textprojekt, Schema-Version 1.");
+      await act(async () => setUpOfHint.onClick());
+      expect(dialog()).toBeNull();
+      expect(adoptTextProject).not.toHaveBeenCalled();
+    });
+
+    it("einrichten_of_an_old_hint_while_the_status_is_read_says_so", async () => {
+      // UI-test fix round 1, M6: the folder opened again, its status not read yet: the old hint's „Einrichten…“ says why nothing opens.
+      localStorage.removeItem("g4.textProjectHint./p");
+      resetToasts();
+      await reopen();
+      const setUp = hint()!.actions[0]!;
+      vi.mocked(textProjectStatus).mockReturnValue(new Promise(() => {}));
+      await reopen();
+      await act(async () => setUp.onClick());
+      expect(dialog()).toBeNull();
+      expect(toasts()).toContain("Das Projekt wird noch gelesen.");
+    });
+
+    it("setting_up_runs_modal_then_reads_the_session_again_and_says_so", async () => {
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "HeartGold US (Testprojekt)", sha1: "a".repeat(40), counts: {} });
+      localStorage.removeItem("g4.textProjectHint./p");
+      await renderFresh();
+      await click("Projekt öffnen");
+      await flush();
+      // Opening hinted; the reloads after the set-up and the take-back below are no openings and hint nothing.
+      expect(hint()).toBeDefined();
+      await showTextProjectEntry();
+      let finish: (r: Awaited<ReturnType<typeof adoptTextProject>>) => void = () => {};
+      vi.mocked(adoptTextProject).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+      await click("Als Textprojekt einrichten…");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Als Textprojekt einrichten?");
+      expect([...dialog()!.querySelectorAll("[data-check]")].map((r) => r.textContent)).toEqual(["Alles gespeichert", "Basis-ROM gefunden: HeartGold US (Testprojekt)", "Scripts werden dabei übernommen"]);
+      await act(async () => dialogButton("Einrichten")!.click());
+      expect(adoptTextProject).toHaveBeenCalledOnce();
+      // No build runs: the status line does not say so.
+      expect(statusLine()).not.toContain("Baut");
+      // While it runs nothing writes: ⌘S and ⌘Z do nothing, the project is busy.
+      vi.mocked(save).mockClear();
+      vi.mocked(undo).mockClear();
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true })));
+      await pressUndo();
+      expect(save).not.toHaveBeenCalled();
+      expect(undo).not.toHaveBeenCalled();
+      // Done: the backend's new session is read again as after an agent's reopen, and syncs as a text project.
+      vi.mocked(openProject).mockClear();
+      vi.mocked(listHeaders).mockClear();
+      vi.mocked(textProjectStatus).mockResolvedValue(CURRENT);
+      vi.mocked(externalSync).mockResolvedValue(outcome());
+      const files = { arts: [], raw_blobs: 0, raw_bytes: 0, raw_ms: 0, not_built: [], texts: 0, text_json_written: 0, scripts: 0, adopted: null, registries_written: 0, base_layer_ms: 0, base_layer_created: true, files: 6512, bytes: 0, written: 6512, removed: 0, problems: [], ms: 1 };
+      await act(async () => finish({ export: files, include_written: true, sync_files: 9000, ms: 88400 }));
+      await flush();
+      await flush();
+      expect(dialog()).toBeNull();
+      expect(openProject).not.toHaveBeenCalled();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(externalSync).toHaveBeenCalled();
+      expect(live().message?.text).toBe("Textprojekt eingerichtet: 6.512\u00a0Dateien in 88\u00a0s.");
+      // Set up: the hint has gone.
+      expect(hint()).toBeUndefined();
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("textprojekt");
+
+      // Taken back: the same reload, and the backup is named.
+      vi.mocked(revertTextProject).mockResolvedValue({ backup: "/p/.g4/backup/textproject-1", rewritten: [], ms: 3 });
+      vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
+      vi.mocked(listHeaders).mockClear();
+      await click("Zurücknehmen…");
+      expect(dialog()?.querySelector("h2")?.textContent).toBe("Textprojekt zurücknehmen?");
+      await act(async () => dialogButton("Zurücknehmen")!.click());
+      await flush();
+      await flush();
+      expect(revertTextProject).toHaveBeenCalledOnce();
+      expect(listHeaders).toHaveBeenCalledOnce();
+      expect(live().message?.text).toBe("Textprojekt zurückgenommen. Sicherung: /p/.g4/backup/textproject-1");
+      // A reload after the revert is no opening: no hint.
+      expect(listToasts().some((t) => t.text.startsWith("Dieses Projekt lässt sich"))).toBe(false);
     });
   });
 

@@ -8,18 +8,33 @@
 //! top level of `.g4/` is versioned project metadata too (`base.json`, `preview.png`), but its
 //! folders `cache/`, `tmp/`, `build/`, `backup/` and `models/` are local and may be deleted.
 //! It is written whole and atomically on every change.
+//!
+//! Since phase 4.3b the file has a `version` (1; a file without one is version 1, a higher
+//! one is refused), and the subject of a finding about a header or a trainer is an id or a
+//! number: read through the project's [`Resolver`], written as its id in a text project and
+//! as its number elsewhere. Every other subject stays a number. In memory ([`IgnoreKey`],
+//! [`Subject`], and so for Tauri and MCP) it is the number.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ChecksReport, Finding, Registry, Severity, Subject};
+use super::{ChecksReport, Finding, Registry, Severity, Subject, SubjectKind};
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
+use crate::textproject::ids::{RefInput, Resolver};
+use crate::textproject::symbols::SymbolKind;
 
 /// Name of the ignore file in the project root.
 pub const IGNORE_FILE: &str = "g4-checks.json";
+
+/// The version of the ignore file this build reads and writes.
+pub const IGNORE_VERSION: u32 = 1;
+
+fn one() -> u32 {
+    IGNORE_VERSION
+}
 
 /// A fingerprint as it is written in JSON (the ignore file, `g4k check`, the UI): 16 lowercase
 /// hex digits. A JavaScript number holds 53 bits, a fingerprint 64.
@@ -73,13 +88,107 @@ impl IgnoreKey {
     }
 }
 
-/// The ignore file as it is written: both lists sorted, so a change shows as a small diff.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IgnoreFile {
+/// The file form of an [`IgnoreKey`]: `subject.index` as id or number (`Subject` itself stays
+/// numeric for Tauri and MCP).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IgnoreKeyFile {
+    pub code: String,
+    pub subject: SubjectFile,
+    pub key: String,
+    #[serde(with = "fingerprint_serde")]
+    pub fingerprint: u64,
+}
+
+/// The file form of a [`Subject`]: `{kind, index}`, the index of a header or a trainer as id
+/// or number, every other as a number (the project has 0).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubjectFile {
+    pub kind: SubjectKind,
     #[serde(default)]
-    pub ignored: Vec<IgnoreKey>,
+    pub index: RefInput,
+}
+
+/// The kind of symbol a subject of `kind` names by id; `None` for the kinds that stay numbers.
+fn symbol_kind(kind: SubjectKind) -> Option<SymbolKind> {
+    match kind {
+        SubjectKind::Header => Some(SymbolKind::Map),
+        SubjectKind::Trainer => Some(SymbolKind::Trainer),
+        _ => None,
+    }
+}
+
+impl SubjectFile {
+    /// The file form of `subject` as `ids` writes it.
+    fn of(subject: Subject, ids: &Resolver) -> SubjectFile {
+        let (kind, n) = subject.parts();
+        let index = match symbol_kind(kind) {
+            Some(symbol) => ids.output(symbol, u32::from(n)),
+            None => RefInput::Number(u32::from(n)),
+        };
+        SubjectFile { kind, index }
+    }
+
+    /// The subject this names, read through `ids`; why not, without the file name.
+    fn subject(&self, ids: &Resolver) -> Result<Subject, String> {
+        let n = match (symbol_kind(self.kind), &self.index) {
+            (_, RefInput::Number(n)) => *n,
+            (Some(symbol), index) => ids.number(symbol, index)?,
+            (None, RefInput::Id(text)) => {
+                if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+                    let kind = serde_json::to_value(self.kind)
+                        .ok()
+                        .and_then(|v| v.as_str().map(str::to_owned))
+                        .unwrap_or_default();
+                    return Err(format!("{kind} nimmt nur eine Nummer, nicht {text}"));
+                }
+                text.parse().map_err(|_| format!("{text} ist zu groß"))?
+            }
+        };
+        let n = u16::try_from(n).map_err(|_| format!("{n} ist zu groß"))?;
+        Ok(Subject::of(self.kind, n))
+    }
+}
+
+impl IgnoreKeyFile {
+    fn of(key: &IgnoreKey, ids: &Resolver) -> IgnoreKeyFile {
+        IgnoreKeyFile {
+            code: key.code.clone(),
+            subject: SubjectFile::of(key.subject, ids),
+            key: key.key.clone(),
+            fingerprint: key.fingerprint,
+        }
+    }
+
+    fn key(self, ids: &Resolver) -> Result<IgnoreKey, String> {
+        Ok(IgnoreKey {
+            subject: self.subject.subject(ids)?,
+            code: self.code,
+            key: self.key,
+            fingerprint: self.fingerprint,
+        })
+    }
+}
+
+/// The ignore file as it is written: the version, then both lists sorted (by the numbers), so
+/// a change shows as a small diff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IgnoreFile {
+    #[serde(default = "one")]
+    pub version: u32,
+    #[serde(default)]
+    pub ignored: Vec<IgnoreKeyFile>,
     #[serde(default)]
     pub disabled: Vec<String>,
+}
+
+impl Default for IgnoreFile {
+    fn default() -> Self {
+        IgnoreFile {
+            version: IGNORE_VERSION,
+            ignored: Vec::new(),
+            disabled: Vec::new(),
+        }
+    }
 }
 
 /// What a run leaves out: checks switched off by code, and findings the user ignored (read
@@ -100,10 +209,11 @@ impl IgnoreSet {
         finding.severity != Severity::Error && self.ignored.contains(&IgnoreKey::of(finding))
     }
 
-    /// The ignore file of the project at `root`; empty when there is none. A file that is no
-    /// valid ignore file is [`KernelError::InvalidProject`] naming it (it is never
-    /// overwritten unread).
-    pub fn load(root: &Path) -> Result<IgnoreSet, KernelError> {
+    /// The ignore file of the project at `root`, the subjects read through `ids`; empty when
+    /// there is none. A file that is no valid ignore file (not JSON, wrong shape, a newer
+    /// version, an id `ids` does not know) is [`KernelError::InvalidProject`] naming it (it is
+    /// never overwritten unread).
+    pub fn load(root: &Path, ids: &Resolver) -> Result<IgnoreSet, KernelError> {
         let path = root.join(IGNORE_FILE);
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
@@ -112,29 +222,55 @@ impl IgnoreSet {
             }
             Err(e) => return Err(io_at(&path)(e)),
         };
-        let file: IgnoreFile = serde_json::from_str(&text)
-            .map_err(|e| KernelError::InvalidProject(format!("{IGNORE_FILE}: {e}")))?;
+        let invalid = |why: String| KernelError::InvalidProject(format!("{IGNORE_FILE}: {why}"));
+        let file: IgnoreFile = serde_json::from_str(&text).map_err(|e| invalid(e.to_string()))?;
+        if file.version > IGNORE_VERSION {
+            return Err(invalid(format!(
+                "Version {} stammt aus einer neueren Fassung von Gen4 Studio.",
+                file.version
+            )));
+        }
+        let ignored = file
+            .ignored
+            .into_iter()
+            .map(|key| key.key(ids))
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(invalid)?;
         Ok(IgnoreSet {
             disabled: file.disabled.into_iter().collect(),
-            ignored: file.ignored.into_iter().collect(),
+            ignored,
         })
     }
 
-    /// Writes the ignore file of the project at `root` atomically (pretty JSON, sorted).
-    pub fn save(&self, root: &Path) -> Result<(), KernelError> {
-        let mut text = serde_json::to_string_pretty(&self.file())
-            .map_err(|e| KernelError::InvalidProject(format!("{IGNORE_FILE}: {e}")))?;
-        text.push('\n');
+    /// Writes the ignore file of the project at `root` atomically (pretty JSON, sorted), the
+    /// subjects as `ids` writes them.
+    pub fn save(&self, root: &Path, ids: &Resolver) -> Result<(), KernelError> {
+        let text = self.text(ids)?;
         write_atomic(root, &root.join(IGNORE_FILE), text.as_bytes())
     }
 
-    /// The set as it is written.
-    pub fn file(&self) -> IgnoreFile {
-        let mut ignored: Vec<IgnoreKey> = self.ignored.iter().cloned().collect();
+    /// The text [`IgnoreSet::save`] writes (pretty JSON with a final newline).
+    pub(crate) fn text(&self, ids: &Resolver) -> Result<String, KernelError> {
+        let mut text = serde_json::to_string_pretty(&self.file(ids))
+            .map_err(|e| KernelError::InvalidProject(format!("{IGNORE_FILE}: {e}")))?;
+        text.push('\n');
+        Ok(text)
+    }
+
+    /// The set as `ids` writes it.
+    pub fn file(&self, ids: &Resolver) -> IgnoreFile {
+        let mut ignored: Vec<&IgnoreKey> = self.ignored.iter().collect();
         ignored.sort();
         let mut disabled: Vec<String> = self.disabled.iter().cloned().collect();
         disabled.sort();
-        IgnoreFile { ignored, disabled }
+        IgnoreFile {
+            version: IGNORE_VERSION,
+            ignored: ignored
+                .into_iter()
+                .map(|key| IgnoreKeyFile::of(key, ids))
+                .collect(),
+            disabled,
+        }
     }
 
     /// Puts the finding `key` of `severity` on the list; `false` when it already was. An
@@ -260,11 +396,21 @@ mod tests {
         format!("{fingerprint:016x}")
     }
 
+    /// `IgnoreSet::load` without a project: numbers only.
+    fn load(root: &Path) -> Result<IgnoreSet, KernelError> {
+        IgnoreSet::load(root, &Resolver::fixed())
+    }
+
+    /// `IgnoreSet::save` without a project: numbers only.
+    fn save(set: &IgnoreSet, root: &Path) -> Result<(), KernelError> {
+        set.save(root, &Resolver::fixed())
+    }
+
     #[test]
     fn ignore_round_trips_the_file() {
         let dir = tempfile::tempdir().unwrap();
         // No file: nothing ignored, nothing switched off.
-        assert_eq!(IgnoreSet::load(dir.path()).unwrap(), IgnoreSet::default());
+        assert_eq!(load(dir.path()).unwrap(), IgnoreSet::default());
 
         let never = finding(
             "warp.never-fires",
@@ -289,8 +435,8 @@ mod tests {
         assert!(set.ignore(IgnoreKey::of(&split), split.severity).unwrap());
         assert!(set.set_enabled("encounter.empty-slot", false).unwrap());
         assert!(!set.set_enabled("encounter.empty-slot", false).unwrap());
-        set.save(dir.path()).unwrap();
-        assert_eq!(IgnoreSet::load(dir.path()).unwrap(), set);
+        save(&set, dir.path()).unwrap();
+        assert_eq!(load(dir.path()).unwrap(), set);
 
         // Sorted, the subject as {kind, index}, the fingerprint as 16 hex digits (a u64 does
         // not survive a JavaScript number).
@@ -299,6 +445,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
+                "version": 1,
                 "ignored": [
                     { "code": "header.text-split", "subject": { "kind": "scriptFile", "index": 3 },
                       "key": "text_archive", "fingerprint": hex(split.fingerprint) },
@@ -317,8 +464,8 @@ mod tests {
         assert!(!set.unignore(&IgnoreKey::of(&never)));
         assert!(set.unignore(&IgnoreKey::of(&split)));
         assert!(set.set_enabled("encounter.empty-slot", true).unwrap());
-        set.save(dir.path()).unwrap();
-        assert_eq!(IgnoreSet::load(dir.path()).unwrap(), IgnoreSet::default());
+        save(&set, dir.path()).unwrap();
+        assert_eq!(load(dir.path()).unwrap(), IgnoreSet::default());
 
         // A broken file, or a fingerprint that is no hex text, names the file.
         for broken in [
@@ -333,7 +480,7 @@ mod tests {
             .to_string(),
         ] {
             std::fs::write(dir.path().join(IGNORE_FILE), &broken).unwrap();
-            let err = IgnoreSet::load(dir.path()).unwrap_err();
+            let err = load(dir.path()).unwrap_err();
             assert!(matches!(err, KernelError::InvalidProject(_)), "{err}");
             assert!(err.to_string().contains(IGNORE_FILE), "{err}");
         }
@@ -343,10 +490,48 @@ mod tests {
             r#"{ "disabled": ["warp.never-fires"] }"#,
         )
         .unwrap();
-        assert!(
-            IgnoreSet::load(dir.path())
-                .unwrap()
-                .is_disabled("warp.never-fires")
+        assert!(load(dir.path()).unwrap().is_disabled("warp.never-fires"));
+    }
+
+    #[test]
+    fn version_one_is_written_and_a_missing_version_reads_as_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut set = IgnoreSet::default();
+        set.set_enabled("encounter.empty-slot", false).unwrap();
+        save(&set, dir.path()).unwrap();
+        let text = std::fs::read_to_string(dir.path().join(IGNORE_FILE)).unwrap();
+        assert!(text.starts_with("{\n  \"version\": 1,\n"), "{text}");
+        assert_eq!(IGNORE_VERSION, 1);
+        // A file of before the version (3b.4 to 4.3a) reads as version 1.
+        std::fs::write(
+            dir.path().join(IGNORE_FILE),
+            r#"{ "ignored": [], "disabled": ["encounter.empty-slot"] }"#,
+        )
+        .unwrap();
+        assert_eq!(load(dir.path()).unwrap(), set);
+        std::fs::write(
+            dir.path().join(IGNORE_FILE),
+            r#"{ "version": 1, "disabled": ["encounter.empty-slot"] }"#,
+        )
+        .unwrap();
+        assert_eq!(load(dir.path()).unwrap(), set);
+    }
+
+    #[test]
+    fn a_newer_version_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(IGNORE_FILE);
+        std::fs::write(&path, r#"{ "version": 2, "disabled": [] }"#).unwrap();
+        match load(dir.path()) {
+            Err(KernelError::InvalidProject(why)) => assert_eq!(
+                why,
+                "g4-checks.json: Version 2 stammt aus einer neueren Fassung von Gen4 Studio."
+            ),
+            other => panic!("expected the refusal, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{ "version": 2, "disabled": [] }"#
         );
     }
 
@@ -544,6 +729,115 @@ mod tests {
         assert_eq!(parse_fingerprint("FFFFFFFFFFFFFFFF"), Some(u64::MAX));
         for bad in ["", "+ff", "-1", "0x1f", "1ffffffffffffffff", "g"] {
             assert_eq!(parse_fingerprint(bad), None, "{bad}");
+        }
+    }
+}
+
+#[cfg(all(test, feature = "test-support"))]
+#[allow(clippy::unwrap_used)]
+mod id_tests {
+    use super::*;
+    use crate::checks::Subject;
+    use crate::test_support::TextFixture;
+
+    fn key(subject: Subject) -> IgnoreKey {
+        IgnoreKey {
+            code: "warp.never-fires".to_owned(),
+            subject,
+            key: "warp:0".to_owned(),
+            fingerprint: 0xff,
+        }
+    }
+
+    fn set() -> IgnoreSet {
+        IgnoreSet {
+            disabled: HashSet::new(),
+            ignored: [
+                Subject::Header(0),
+                Subject::Trainer(1),
+                Subject::EventFile(3),
+            ]
+            .into_iter()
+            .map(key)
+            .collect(),
+        }
+    }
+
+    fn indices(fx: &TextFixture) -> Vec<serde_json::Value> {
+        let json: serde_json::Value = serde_json::from_slice(&fx.read(IGNORE_FILE)).unwrap();
+        json["ignored"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k["subject"]["index"].clone())
+            .collect()
+    }
+
+    #[test]
+    fn header_and_trainer_subjects_read_and_write_ids_in_a_text_project() {
+        let fx = TextFixture::exported();
+        let ids = Resolver::for_project(&fx.project()).unwrap();
+        set().save(fx.root(), &ids).unwrap();
+        // Sorted as before (by kind, then number); only header and trainer take an id.
+        assert_eq!(
+            indices(&fx),
+            [
+                serde_json::json!("MAP_T01"),
+                serde_json::json!(3),
+                serde_json::json!("TRAINER_YOUNGSTER_KAI"),
+            ]
+        );
+        assert_eq!(IgnoreSet::load(fx.root(), &ids).unwrap(), set());
+
+        // A DSPRE folder writes numbers and reads both (a map also by its internal name).
+        let dspre = TextFixture::dspre();
+        let numbers = Resolver::for_project(&dspre.project()).unwrap();
+        set().save(dspre.root(), &numbers).unwrap();
+        assert_eq!(
+            indices(&dspre),
+            [
+                serde_json::json!(0),
+                serde_json::json!(3),
+                serde_json::json!(1)
+            ]
+        );
+        assert_eq!(IgnoreSet::load(dspre.root(), &numbers).unwrap(), set());
+        let with_map_id =
+            dspre
+                .text(IGNORE_FILE)
+                .replacen("\"index\": 0", "\"index\": \"MAP_T01\"", 1);
+        dspre.write(IGNORE_FILE, with_map_id.as_bytes());
+        assert_eq!(IgnoreSet::load(dspre.root(), &numbers).unwrap(), set());
+
+        // A trainer id needs the register; an unknown id and an id for another kind are
+        // refused with the file's name.
+        for (from, to, why) in [
+            (
+                "\"index\": 1",
+                "\"index\": \"TRAINER_YOUNGSTER_KAI\"",
+                "Unbekannte ID: TRAINER_YOUNGSTER_KAI (kein Textprojekt).",
+            ),
+            (
+                "\"index\": \"MAP_T01\"",
+                "\"index\": \"MAP_X\"",
+                "Unbekannte ID: MAP_X.",
+            ),
+            (
+                "\"index\": 3",
+                "\"index\": \"EVENT_3\"",
+                "eventFile nimmt nur eine Nummer, nicht EVENT_3",
+            ),
+        ] {
+            let text = with_map_id.replacen(from, to, 1);
+            assert_ne!(text, with_map_id, "{from}");
+            dspre.write(IGNORE_FILE, text.as_bytes());
+            match IgnoreSet::load(dspre.root(), &numbers) {
+                Err(KernelError::InvalidProject(e)) => {
+                    assert!(e.starts_with("g4-checks.json: "), "{e}");
+                    assert!(e.contains(why), "{e}");
+                }
+                other => panic!("expected a refusal, got {other:?}"),
+            }
         }
     }
 }

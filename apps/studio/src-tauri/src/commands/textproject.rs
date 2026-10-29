@@ -6,7 +6,9 @@ use std::sync::Arc;
 use g4_kernel::base::BaseRom;
 use g4_kernel::error::KernelError;
 use g4_kernel::project::Project;
-use g4_kernel::textproject::{self, CheckReport, ExportOptions, ExportReport, NOT_ADOPTED};
+use g4_kernel::textproject::{
+    self, CheckReport, ExportOptions, ExportReport, NOT_ADOPTED, UNSYNCED_EXPORT,
+};
 use tauri::Manager;
 
 use crate::errors::CmdError;
@@ -16,16 +18,29 @@ use crate::state::AppState;
 /// schema state, every problem with file, line and column, the members an import would
 /// write. Writes nothing.
 pub fn text_check_impl(state: &AppState) -> Result<CheckReport, CmdError> {
-    let project = open_project(state)?;
+    let project = super::open_project_arc(state)?;
     Ok(textproject::check(&project)?)
 }
 
 /// The refusals of [`text_export_impl`] that need no export, in its order: unsaved changes
 /// (`unsaved`), no found base ROM (`base_missing` with the reason of `base_status`), scripts
-/// that are not adopted (`not_adopted`). Writes nothing; over MCP in the app it runs before
-/// the question „Textprojekt exportieren“, so such a refusal comes back unasked. The open
+/// that are not adopted (`not_adopted`), changes of the text project the members lack, which
+/// the export would throw away (`unsynced`, the build step's judgement without writing,
+/// [`textproject::unsynced_export`]). Writes nothing; over MCP in the app it runs before the
+/// question „Textprojekt exportieren“, so such a refusal comes back unasked. The open
 /// project, its base mark and where its base ROM lies when nothing refuses.
 pub fn check_text_export(
+    state: &AppState,
+) -> Result<(Arc<Project>, g4_kernel::start::BaseMark, std::path::PathBuf), CmdError> {
+    let checked = check_before_export(state)?;
+    if let Some(message) = textproject::unsynced_export(&checked.0)? {
+        return Err(CmdError::refused("unsynced", message));
+    }
+    Ok(checked)
+}
+
+/// [`check_text_export`] up to `not_adopted`: the export judges `unsynced` itself.
+fn check_before_export(
     state: &AppState,
 ) -> Result<(Arc<Project>, g4_kernel::start::BaseMark, std::path::PathBuf), CmdError> {
     let (project, unsaved) = {
@@ -34,51 +49,48 @@ pub fn check_text_export(
         (Arc::clone(&session.project), session.store.dirty().len())
     };
     if unsaved > 0 {
-        return Err(refusal("unsaved", unsaved_message(unsaved)));
+        return Err(CmdError::refused("unsaved", unsaved_message(unsaved)));
     }
     let (mark, hit) = super::found_base(state, &project.root)?;
     if !g4_kernel::scripts::is_adopted(&project) {
-        return Err(refusal("not_adopted", NOT_ADOPTED.to_owned()));
+        return Err(CmdError::refused("not_adopted", NOT_ADOPTED.to_owned()));
     }
     Ok((project, mark, hit.path))
 }
 
 /// Writes the open project as a text project (`g4-project.json`, `data/`) against its base
 /// ROM. Refuses before writing anything: the refusals of [`check_text_export`] (adopting is
-/// its own step, the export never does it here); every other refusal of the kernel comes
-/// with its own message.
+/// its own step, the export never does it here; `unsynced` from the kernel's own check);
+/// every other refusal of the kernel comes with its own message.
 pub fn text_export_impl(state: &AppState) -> Result<ExportReport, CmdError> {
-    let (project, mark, path) = check_text_export(state)?;
+    let (project, mark, path) = check_before_export(state)?;
     let base = BaseRom::open(&path, Some(&mark.sha1))?;
     let opts = ExportOptions {
         adopt_scripts: false,
+        force: false,
     };
-    textproject::export(&project, &base, &opts).map_err(|e| match e {
-        KernelError::Refused(message) if message == NOT_ADOPTED => refusal("not_adopted", message),
+    textproject::export(&project, &base, &opts).map_err(export_error)
+}
+
+/// The kernel's export refusals with a code of their own: `not_adopted`, `unsynced`.
+fn export_error(e: KernelError) -> CmdError {
+    match e {
+        KernelError::Refused(message) if message == NOT_ADOPTED => {
+            CmdError::refused("not_adopted", message)
+        }
+        KernelError::Refused(message) if message.starts_with(UNSYNCED_EXPORT) => {
+            CmdError::refused("unsynced", message)
+        }
         other => other.into(),
-    })
+    }
 }
 
 /// The `unsaved` message of the export with the German singular for one change.
-fn unsaved_message(n: usize) -> String {
+pub(crate) fn unsaved_message(n: usize) -> String {
     match n {
         1 => "Erst speichern: 1 ungespeicherte Änderung.".to_owned(),
         n => format!("Erst speichern: {n} ungespeicherte Änderungen."),
     }
-}
-
-fn refusal(code: &'static str, message: String) -> CmdError {
-    CmdError {
-        code,
-        message,
-        asset: None,
-        problems: Vec::new(),
-    }
-}
-
-fn open_project(state: &AppState) -> Result<Arc<Project>, CmdError> {
-    let mut guard = super::lock(state)?;
-    Ok(Arc::clone(&super::session(&mut guard)?.project))
 }
 
 #[tauri::command]
@@ -199,6 +211,17 @@ mod tests {
         assert_eq!(text_export_impl(&d.state).unwrap_err().code, "not_adopted");
         // No project open: an error.
         assert!(text_export_impl(&AppState::default()).is_err());
+    }
+
+    #[test]
+    fn the_kernels_unsynced_refusal_answers_unsynced() {
+        let message = format!("{UNSYNCED_EXPORT} (data/moves/0001.json); …");
+        let err = export_error(KernelError::Refused(message.clone()));
+        assert_eq!((err.code, err.message), ("unsynced", message));
+        let err = export_error(KernelError::Refused(NOT_ADOPTED.to_owned()));
+        assert_eq!(err.code, "not_adopted");
+        let err = export_error(KernelError::Refused("anders".to_owned()));
+        assert_eq!(err.code, "error");
     }
 
     #[test]

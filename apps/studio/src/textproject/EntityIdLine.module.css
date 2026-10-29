@@ -1,0 +1,15 @@
+/* The id of an entity in a head: quiet, in mono, selectable, with the copy button beside it. */
+.line {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-2);
+}
+
+.id {
+  min-width: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+  user-select: text;
+}

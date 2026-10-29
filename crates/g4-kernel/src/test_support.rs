@@ -347,7 +347,7 @@ pub const SCRIPT_SOURCE: &str =
     "script Main #1:\n    Message 1\n    End\nscript Second #2:\n    End\n";
 
 /// Compiles rotom source against the bundled Platinum command database.
-fn compile_script(source: &str) -> Vec<u8> {
+pub fn compile_script(source: &str) -> Vec<u8> {
     let tmp = tempfile::tempdir().unwrap();
     let db_path = tmp.path().join("platinum_v2.json");
     std::fs::write(
@@ -574,5 +574,170 @@ impl crate::original::Original for ProjectOriginal {
         }
         let bytes = std::fs::read(&path).map_err(crate::error::io_at(&path))?;
         Ok(Some(Narc::read(&bytes)?))
+    }
+}
+
+/// The synthetic Platinum project (`CPUE`) as a text-project fixture: a base mark of the
+/// header-only synthetic ROM ([`synthetic_rom`], its SHA-1 is the mark's) and a base layer,
+/// a copy of the unchanged project with every archive unpacked under
+/// `.g4/cache/base-layer/<sha1>/` with its marker `.complete`, so no test extracts a ROM.
+pub struct TextFixture {
+    project: Synthetic,
+    _rom_dir: tempfile::TempDir,
+    rom: PathBuf,
+    sha1: String,
+}
+
+impl TextFixture {
+    /// The synthetic project with a base mark of the synthetic ROM, not exported.
+    pub fn dspre() -> TextFixture {
+        TextFixture::with(|_| {})
+    }
+
+    /// [`TextFixture::dspre`], then `export` with `adopt_scripts: true`: a text project of
+    /// the current schema.
+    pub fn exported() -> TextFixture {
+        let fx = TextFixture::dspre();
+        crate::textproject::export(
+            &fx.project(),
+            &fx.base(),
+            &crate::textproject::ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        )
+        .unwrap();
+        fx
+    }
+
+    /// Like [`TextFixture::dspre`]; `prepare` changes the project before the base layer is
+    /// copied from it.
+    pub fn with(prepare: impl FnOnce(&crate::project::Project)) -> TextFixture {
+        let fx = TextFixture::unmarked(prepare);
+        fx.write_mark(&fx.sha1.clone());
+        fx
+    }
+
+    /// Like [`TextFixture::with`], without the base mark.
+    pub fn unmarked(prepare: impl FnOnce(&crate::project::Project)) -> TextFixture {
+        let project = synthetic_project();
+        let p = crate::project::Project::open(project.dir.path()).unwrap();
+        prepare(&p);
+        unpack_all(&p);
+        let (rom_dir, rom) = synthetic_rom();
+        let sha1 = crate::base::BaseRom::open(&rom, None)
+            .unwrap()
+            .sha1()
+            .to_owned();
+        let fx = TextFixture {
+            project,
+            _rom_dir: rom_dir,
+            rom,
+            sha1,
+        };
+        fx.place_layer();
+        fx
+    }
+
+    pub fn root(&self) -> &Path {
+        self.project.dir.path()
+    }
+
+    pub fn project(&self) -> crate::project::Project {
+        crate::project::Project::open(self.root()).unwrap()
+    }
+
+    pub fn base(&self) -> crate::base::BaseRom {
+        crate::base::BaseRom::open(&self.rom, None).unwrap()
+    }
+
+    /// The synthetic ROM, the base ROM of the mark.
+    pub fn rom(&self) -> &Path {
+        &self.rom
+    }
+
+    /// The SHA-1 of the synthetic ROM, the base mark's.
+    pub fn sha1(&self) -> &str {
+        &self.sha1
+    }
+
+    /// Copies the project (without `.g4`) to the base layer of its base ROM.
+    pub fn place_layer(&self) {
+        let tmp = tempfile::tempdir().unwrap();
+        let copy = tmp.path().join("layer");
+        copy_dir(self.root(), &copy);
+        let _ = std::fs::remove_dir_all(copy.join(".g4"));
+        let layer = self
+            .root()
+            .join(crate::textproject::base_layer::BASE_LAYER_DIR)
+            .join(&self.sha1);
+        copy_dir(&copy, &layer);
+        std::fs::write(layer.join(".complete"), &self.sha1).unwrap();
+    }
+
+    /// Removes every base layer.
+    pub fn remove_layer(&self) {
+        std::fs::remove_dir_all(
+            self.root()
+                .join(crate::textproject::base_layer::BASE_LAYER_DIR),
+        )
+        .unwrap();
+    }
+
+    /// Writes `.g4/base.json` naming a base ROM of SHA-1 `sha1`.
+    pub fn write_mark(&self, sha1: &str) {
+        use crate::start::{BASE_MARK_VERSION, BaseMark, ORIGIN_DSPRE};
+        let mark = BaseMark {
+            version: BASE_MARK_VERSION,
+            origin: ORIGIN_DSPRE.to_owned(),
+            sha1: sha1.to_owned(),
+            game_code: "CPUE".to_owned(),
+            title: "POKEMON PL".to_owned(),
+            revision: 0,
+            size: 0x8000,
+            template: None,
+            created: "2026-10-27T12:00:00Z".to_owned(),
+            assigned: Some("2026-10-27T12:00:00Z".to_owned()),
+            studio_version: "0.0.0".to_owned(),
+            secure_area_crc: 0x1234,
+            secure_area_sha1: "0".repeat(40),
+        };
+        self.write(".g4/base.json", &serde_json::to_vec_pretty(&mark).unwrap());
+    }
+
+    /// Writes `bytes` to `rel` below the root, creating its folder.
+    pub fn write(&self, rel: &str, bytes: &[u8]) {
+        write_file(self.root(), rel, bytes);
+    }
+
+    pub fn read(&self, rel: &str) -> Vec<u8> {
+        std::fs::read(self.root().join(rel)).unwrap()
+    }
+
+    /// The file `rel` as UTF-8 text.
+    pub fn text(&self, rel: &str) -> String {
+        String::from_utf8(self.read(rel)).unwrap()
+    }
+
+    /// Replaces the first `from` by `to` in file `rel`, which must contain it.
+    pub fn edit(&self, rel: &str, from: &str, to: &str) {
+        let text = self.text(rel);
+        assert!(text.contains(from), "{rel} has no `{from}`:\n{text}");
+        self.write(rel, text.replacen(from, to, 1).as_bytes());
+    }
+}
+
+/// Unpacks every archive of the project the way the base layer has them.
+fn unpack_all(p: &crate::project::Project) {
+    let kinds: Vec<crate::project::AssetKind> = p.archives.kinds().collect();
+    for kind in kinds {
+        if kind == crate::project::AssetKind::DynamicHeaders {
+            continue;
+        }
+        if let Some(packed) = p.archives.packed(kind)
+            && p.root.join(packed).is_file()
+        {
+            p.ensure_unpacked(kind).unwrap();
+        }
     }
 }

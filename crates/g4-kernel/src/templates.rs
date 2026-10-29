@@ -18,6 +18,8 @@ use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, LevelScriptDoc, ScriptSource, SourceKind};
 use crate::start::DP_LOCKED;
 use crate::store::{ChangeId, EventFile, HEADER_TABLE, MapHeader, Store};
+use crate::textproject::ids::{RefInput, Resolver};
+use crate::textproject::symbols::SymbolKind;
 
 const TEMPLATES_YAML: &str = include_str!("../metadata/templates.yaml");
 /// The start script of each family, with the placeholders `{n}` (script number), `{species}`,
@@ -63,14 +65,25 @@ struct EmptyRegionYaml {
 
 #[derive(Debug, Deserialize)]
 struct FamilyYaml {
+    /// `MAP_<internal name>`, or the bare internal name (before 4.3b).
     start_town: String,
     starter: StarterYaml,
     done_var: String,
 }
 
+impl FamilyYaml {
+    /// The internal name of the start town (`MAP_T01` and `T01` are `T01`).
+    fn town(&self) -> &str {
+        self.start_town
+            .strip_prefix("MAP_")
+            .unwrap_or(&self.start_town)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct StarterYaml {
-    species: u16,
+    /// `SPECIES_TURTWIG`, or the number (before 4.3b).
+    species: RefInput,
     level: u8,
 }
 
@@ -80,13 +93,16 @@ struct MessageYaml {
     en: String,
 }
 
+/// A recipe file in the form of `templates.yaml`.
+fn parse_templates(text: &str) -> Result<TemplatesYaml, String> {
+    serde_yaml::from_str(text).map_err(|e| format!("templates.yaml: {e}"))
+}
+
 /// `templates.yaml`, parsed once.
 fn templates() -> Result<&'static TemplatesYaml, KernelError> {
     static TABLE: OnceLock<Result<TemplatesYaml, String>> = OnceLock::new();
     TABLE
-        .get_or_init(|| {
-            serde_yaml::from_str(TEMPLATES_YAML).map_err(|e| format!("templates.yaml: {e}"))
-        })
+        .get_or_init(|| parse_templates(TEMPLATES_YAML))
         .as_ref()
         .map_err(|e| KernelError::InvalidProject(e.clone()))
 }
@@ -122,7 +138,13 @@ pub(crate) fn variable_id(family: Family, name: &str) -> Option<u16> {
 /// The empty-region recipe of `family`. Diamond and Pearl are refused with [`DP_LOCKED`]; a
 /// `done_var` the command database does not know is a metadata error.
 pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
-    let yaml = &templates()?.empty_region;
+    recipe_of(templates()?, family)
+}
+
+/// The empty-region recipe of `family` in the recipe file `yaml`: the start town as its
+/// internal name, the starter's species by number (an id through the fixed table).
+fn recipe_of(yaml: &TemplatesYaml, family: Family) -> Result<RegionRecipe, KernelError> {
+    let yaml = &yaml.empty_region;
     let game = match family {
         Family::Dp => return Err(KernelError::Refused(DP_LOCKED.into())),
         Family::Pt => &yaml.pt,
@@ -134,9 +156,15 @@ pub fn region_recipe(family: Family) -> Result<RegionRecipe, KernelError> {
             game.done_var
         )));
     }
+    let invalid = |why: String| KernelError::InvalidProject(format!("templates.yaml: {why}"));
+    let species = Resolver::fixed()
+        .number(SymbolKind::Species, &game.starter.species)
+        .map_err(invalid)?;
+    let starter_species = u16::try_from(species)
+        .map_err(|_| invalid(format!("species {species} is no species number")))?;
     Ok(RegionRecipe {
-        start_town: game.start_town.clone(),
-        starter_species: game.starter.species,
+        start_town: game.town().to_owned(),
+        starter_species,
         starter_level: game.starter.level,
         done_var: game.done_var.clone(),
         message_de: yaml.message.de.clone(),
@@ -151,8 +179,8 @@ pub fn start_town(family: Family) -> Option<&'static str> {
     let yaml = &templates().ok()?.empty_region;
     match family {
         Family::Dp => None,
-        Family::Pt => Some(&yaml.pt.start_town),
-        Family::Hgss => Some(&yaml.hgss.start_town),
+        Family::Pt => Some(yaml.pt.town()),
+        Family::Hgss => Some(yaml.hgss.town()),
     }
 }
 
@@ -812,6 +840,70 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A recipe file with `start_town` and `species` as given for Platinum.
+    fn recipe_yaml(start_town: &str, species: &str) -> String {
+        TEMPLATES_YAML
+            .replacen(
+                "start_town: MAP_T01",
+                &format!("start_town: {start_town}"),
+                1,
+            )
+            .replacen(
+                "species: SPECIES_TURTWIG",
+                &format!("species: {species}"),
+                1,
+            )
+    }
+
+    #[test]
+    fn recipe_reads_ids_and_the_old_numbers() {
+        for (town, species) in [
+            ("MAP_T01", "SPECIES_TURTWIG"),
+            ("T01", "387"),
+            ("T01", "SPECIES_0387"),
+            ("MAP_T01", "\"387\""),
+        ] {
+            let yaml = parse_templates(&recipe_yaml(town, species)).unwrap();
+            let recipe = recipe_of(&yaml, Family::Pt).unwrap();
+            assert_eq!(recipe.start_town, "T01", "{town}");
+            assert_eq!(recipe.starter_species, 387, "{species}");
+        }
+        // An unknown species, or one out of range, is an error of the recipe file.
+        for species in ["SPECIES_TURTWIGG", "70000"] {
+            let yaml = parse_templates(&recipe_yaml("T01", species)).unwrap();
+            match recipe_of(&yaml, Family::Pt) {
+                Err(KernelError::InvalidProject(why)) => {
+                    assert!(why.starts_with("templates.yaml: "), "{why}");
+                    assert!(why.contains(species), "{why}");
+                }
+                other => panic!("expected an error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn the_bundled_recipe_names_ids() {
+        for line in [
+            "start_town: MAP_T01",
+            "start_town: MAP_T20",
+            "species: SPECIES_TURTWIG",
+            "species: SPECIES_CHIKORITA",
+        ] {
+            assert!(TEMPLATES_YAML.contains(line), "{line}");
+        }
+        let pt = region_recipe(Family::Pt).unwrap();
+        assert_eq!((pt.start_town.as_str(), pt.starter_species), ("T01", 387));
+        let hgss = region_recipe(Family::Hgss).unwrap();
+        assert_eq!(
+            (hgss.start_town.as_str(), hgss.starter_species),
+            ("T20", 152)
+        );
+        // The internal name, as the header listing and the preview compare it.
+        assert_eq!(start_town(Family::Pt), Some("T01"));
+        assert_eq!(start_town(Family::Hgss), Some("T20"));
+        assert_eq!(start_town(Family::Dp), None);
     }
 
     #[test]

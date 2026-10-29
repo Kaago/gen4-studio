@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
 import type { CheckFieldsDto } from "./api.checks";
+import type { TextProjectStatus } from "./api.textproject";
 
 export interface ProjectInfo {
   root: string;
@@ -8,6 +9,8 @@ export interface ProjectInfo {
   family: string;
   language: string;
   header_count: number;
+  /** What the folder is as a text project (4.3b); the backend always sends it, older test data leaves it out. */
+  text_project?: TextProjectStatus;
 }
 
 export interface HeaderSummary {
@@ -251,6 +254,11 @@ function shareInflight<A extends (number | string)[], R>(call: (...args: A) => P
 }
 
 export const openProject = (path: string) => invoke<ProjectInfo>("open_project", { path });
+/**
+ * Closes the open project in the backend: its session, store, undo history and language server go; afterwards every command and agent
+ * tool answers that no project is open (the app closes a text project of an older schema that is not lifted).
+ */
+export const closeProject = () => invoke<void>("close_project");
 export const listHeaders = () => invoke<HeaderListing>("list_headers");
 /** Map header `id` including unsaved edits. */
 export const getHeader = (id: number) => invoke<MapHeader>("get_header", { id });
@@ -435,9 +443,33 @@ export interface AssetId {
  * "text_conflict": a build or a save met text archives whose JSON and member both changed since the last build; nothing was written.
  * `problems` holds one error per archive (source "build", file "expanded/textArchives/0012.json", see `textConflictArchives`), and
  * `resolveTextConflicts` decides which version applies.
+ * Text project (4.3a/4.3b, mostly over MCP): "unsaved" (`text_export`, adoption: unsaved changes; nothing written), "not_adopted"
+ * (`text_export`: the scripts are not adopted), "unsynced" (`text_export`: the text project holds changes the members lack, not built
+ * yet, which the export would throw away; nothing written), "busy" (a write while the project is set up as text project),
+ * "not_text_project" (a text project command in a DSPRE folder; setting a text project up again is an "error"), "pending" (taking
+ * it back while the sync finds something open), "conflicts" (a build of a text project with an open conflict), "unknown_id" (MCP: a symbolic id
+ * nothing knows).
  */
 export interface CmdError {
-  code: "stale" | "read_only" | "tool_missing" | "partial" | "error" | "compile" | "finding_stale" | "base_missing" | "text_conflict" | "no_original";
+  code:
+    | "stale"
+    | "read_only"
+    | "tool_missing"
+    | "partial"
+    | "error"
+    | "compile"
+    | "finding_stale"
+    | "base_missing"
+    | "text_conflict"
+    | "no_original"
+    | "unsaved"
+    | "not_adopted"
+    | "unsynced"
+    | "busy"
+    | "not_text_project"
+    | "pending"
+    | "conflicts"
+    | "unknown_id";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -457,7 +489,15 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "finding_stale" ||
       o.code === "base_missing" ||
       o.code === "text_conflict" ||
-      o.code === "no_original") &&
+      o.code === "no_original" ||
+      o.code === "unsaved" ||
+      o.code === "not_adopted" ||
+      o.code === "unsynced" ||
+      o.code === "busy" ||
+      o.code === "not_text_project" ||
+      o.code === "pending" ||
+      o.code === "conflicts" ||
+      o.code === "unknown_id") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -975,6 +1015,7 @@ export * from "./api.checks";
 export * from "./api.data";
 export * from "./api.import";
 export * from "./api.original";
+export * from "./api.textproject";
 export * from "./project/api.preview";
 export * from "./project/api.start";
 export * from "./project/api.templates";

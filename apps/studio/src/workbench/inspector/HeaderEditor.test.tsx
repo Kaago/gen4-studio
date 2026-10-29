@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignPlace, dataList, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
+import { assignPlace, dataList, entityIds, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -14,6 +14,7 @@ import { HeaderEditor } from "./HeaderEditor";
 import type { HeaderEditorContext } from "./HeaderEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
+import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -27,6 +28,7 @@ vi.mock("../../api", async (importOriginal) => ({
   getTextArchive: vi.fn(),
   assignPlace: vi.fn(),
   splitRoom: vi.fn(),
+  entityIds: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -217,6 +219,30 @@ describe("HeaderEditor scripts", () => {
     expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
+  });
+
+  it("text_project_shows_the_id_and_offers_rename", async () => {
+    vi.mocked(entityIds).mockReset().mockResolvedValue({ 411: "MAP_T01" });
+    const text = textProjectSpy(true);
+    await act(async () => root.render(withReset(reset, withTextProject(text, <HeaderEditor id={411} context={context()} depth="bauen" />))));
+    await flush();
+    expect(entityIds).toHaveBeenCalledWith("Map");
+    expect(container.querySelector("header[data-inspector-kind] [data-entity-id]")?.textContent).toBe("MAP_T01");
+    expect(container.querySelector('header[data-inspector-kind] button[aria-label="ID kopieren"]')).not.toBeNull();
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…", "ID umbenennen…"]);
+    chooseAction(container, "ID umbenennen…");
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]");
+    expect(dialog?.querySelector("h2")?.textContent).toBe("ID umbenennen");
+    expect(dialog?.querySelector<HTMLInputElement>('input[aria-label="Neue ID"]')?.value).toBe("MAP_T01");
+  });
+
+  it("dspre_layout_shows_neither", async () => {
+    vi.mocked(entityIds).mockReset().mockResolvedValue({});
+    await act(async () => root.render(withReset(reset, withTextProject(textProjectSpy(false), <HeaderEditor id={411} context={context()} depth="bauen" />))));
+    await flush();
+    expect(entityIds).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-entity-id]")).toBeNull();
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
   });
 
   it("head_offers_reset_of_the_header_and_locks_a_new_one", async () => {

@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives } from "../api";
-import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, TextKeep } from "../api";
+import { acceptDisk, buildRom, closeProject as closeBackendProject, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
+import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
 import { formatSeconds } from "../technik/stepWords";
+import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
 import { ask, openPath, savePath } from "../platform/dialogs";
 import { inTauri } from "../platform/transport";
 import type { Message } from "./message";
@@ -52,6 +53,9 @@ function saveConflictText(e: CmdError): string {
   return `${archivesText(archives)} ${verb} als Text und als Spieldatei geändert. Wähle beim nächsten „Bauen“, welche Fassung gilt.`;
 }
 
+/** What a build of a text project with open conflicts is refused with (the backend's `conflicts` refusal says the same). */
+const CONFLICTS: CmdError = { code: "conflicts", message: BUILD_CONFLICTS, asset: null, problems: [] };
+
 /** Ends a sentence of the backend with a full stop. */
 const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
 
@@ -78,6 +82,13 @@ interface SessionParams {
   scripts: MutableRefObject<ScriptBridge>;
   /** Brings the problems list to the front; the message of a build that failed to compile offers it as a button. */
   onShowProblems?: () => void;
+  /**
+   * The sync of a text project with DSPRE, run before a build (null outside a text project). A ref: the sync hook is created after this
+   * one (it needs `info` and `busy`).
+   */
+  syncBeforeBuild?: MutableRefObject<(() => Promise<SyncOutcome | null>) | null>;
+  /** Shows Technik › Textprojekt; the message of a build stopped by conflicts offers it („Lösen…“). */
+  onShowConflicts?: () => void;
 }
 
 /**
@@ -86,13 +97,17 @@ interface SessionParams {
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession({ bus, problems, scripts, onShowProblems }: SessionParams) {
+export function useProjectSession({ bus, problems, scripts, onShowProblems, syncBeforeBuild, onShowConflicts }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
   // The assets with unsaved changes (the inspector badges the record it shows); the same array while the list did not change.
   const [dirtyAssets, setDirtyAssets] = useState<readonly AssetId[]>([]);
   const [busy, setBusy] = useState(false);
+  // `busy` as `exclusive` reads it before the next render.
+  const busyRef = useRef(false);
+  // `busy` comes from `exclusive` (a set-up, take-back or lift), not from a build: the status line does not say „Baut …“ then.
+  const [holding, setHolding] = useState(false);
   const [lastRom, setLastRom] = useState<string | null>(null);
   /** When the last ROM was built (null: none since this project was opened). */
   const [lastBuiltAt, setLastBuiltAt] = useState<number | null>(null);
@@ -119,6 +134,17 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   dirtyRef.current = dirtyCount;
 
   const staleRefresh = useRef<() => Promise<void>>(async () => {});
+
+  // The info of the session `reloadSession` installed last: the app tells it from an opening by it (`isReopened`).
+  const reopenedInfo = useRef<ProjectInfo | null>(null);
+  const isReopened = useCallback((shown: ProjectInfo) => reopenedInfo.current === shown, []);
+  // The info shown now, for work that runs later than the render that started it.
+  const infoRef = useRef<ProjectInfo | null>(info);
+  infoRef.current = info;
+  // The folder whose session the backend has: set as soon as an opening answered, before the UI has swapped to it (`currentRoot`).
+  const backendRoot = useRef<string | null>(null);
+  /** The folder the backend's session is of now (null before the first opening); a result for another one is stale. */
+  const currentRoot = useCallback(() => backendRoot.current, []);
 
   /**
    * Reads the unsaved edits again. Every write the app makes ends here, so it announces `edited`: the checks run again (all of them, 300 ms
@@ -219,43 +245,125 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
     try {
       const opened = await openProject(path);
-      // The backend now has the new project. Fetch its listing first, then swap the whole UI
-      // state at once; if the listing fails the UI shows the new, empty project instead of
-      // keeping the old project's headers and matrix.
-      let listing: HeaderListing | null = null;
-      let listError: unknown = null;
-      try {
-        listing = await listHeaders();
-      } catch (e) {
-        listError = e;
-      }
-      let loadedCounts: MemberCounts = {};
-      let countsError: unknown = null;
-      try {
-        loadedCounts = await memberCounts();
-      } catch (e) {
-        countsError = e;
-      }
-      resetProject(listing?.headers ?? []);
-      setCounts(loadedCounts);
-      setInfo(opened);
-      setLastRom(null);
-      setLastBuiltAt(null);
-      setLastSteps(null);
-      setLastBuildFresh(false);
-      setLastPatchRom(null);
-      setTextConflicts(null);
-      if (listError !== null) fail(listError);
-      else if (countsError !== null) fail(countsError);
-      else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
-      await offerPatchRepair();
-      // The checks run for the opened project by themselves (`useChecks`): this read is no edit.
-      await refreshDirty({ edited: false });
+      backendRoot.current = opened.root;
+      await installSession(opened, resetProject);
       return true;
     } catch (e) {
       fail(e);
       return false;
     }
+  }
+
+  /**
+   * The backend opened the session of the open project anew behind the app's back (an agent adopted, took back or lifted the text
+   * project): its store, undo history and language server are new. Reads everything again as after opening, without opening once more
+   * (that would drop what an agent did since): a new info object, with the text project's state read now, makes the scripts, the
+   * language server and the checks start over.
+   */
+  async function reloadSession(root: string, resetProject: (headers: HeaderSummary[]) => void): Promise<void> {
+    // Read when it runs (it waits in the agents' queue): another project opened meanwhile is not reloaded.
+    const shown = infoRef.current;
+    if (shown === null || shown.root !== root) return;
+    let status: TextProjectStatus | undefined;
+    let statusError: unknown = null;
+    try {
+      status = await textProjectStatus();
+    } catch (e) {
+      statusError = e;
+    }
+    try {
+      const next = { ...shown, text_project: status ?? shown.text_project };
+      reopenedInfo.current = next;
+      await installSession(next, resetProject);
+      // After the install, whose message would replace this one.
+      if (statusError !== null) fail(statusError);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /**
+   * Closes the project (a text project of an older schema the user did not lift): the backend drops its session (so no agent acts on it
+   * unseen), then no project shows, as before the first opening. When the backend cannot close it, the project stays shown with the error.
+   */
+  async function closeProject(resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
+    try {
+      await closeBackendProject();
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+    backendRoot.current = null;
+    reopenedInfo.current = null;
+    resetProject([]);
+    setCounts({});
+    infoRef.current = null;
+    setInfo(null);
+    setDirtyCount(0);
+    setDirtyAssets([]);
+    setLastRom(null);
+    setLastBuiltAt(null);
+    setLastSteps(null);
+    setLastBuildFresh(false);
+    setLastPatchRom(null);
+    setTextConflicts(null);
+    setMessage(null);
+    return true;
+  }
+
+  /**
+   * Runs `work` (setting the project up as text project, taking it back, lifting it) with the session `busy`, like a build: open, save,
+   * build, undo and redo wait, and so do the set-up's and take-back's buttons. Throws on without running when something else holds it.
+   */
+  async function exclusive<T>(work: () => Promise<T>): Promise<T> {
+    if (busyRef.current || busy) throw new Error("Das Projekt ist gerade beschäftigt.");
+    busyRef.current = true;
+    setBusy(true);
+    setHolding(true);
+    try {
+      return await work();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      setHolding(false);
+    }
+  }
+
+  /** Swaps the UI's state for the session the backend now has (`opened`); see `onOpen` for `resetProject`. */
+  async function installSession(opened: ProjectInfo, resetProject: (headers: HeaderSummary[]) => void): Promise<void> {
+    // The backend now has the new project. Fetch its listing first, then swap the whole UI
+    // state at once; if the listing fails the UI shows the new, empty project instead of
+    // keeping the old project's headers and matrix.
+    let listing: HeaderListing | null = null;
+    let listError: unknown = null;
+    try {
+      listing = await listHeaders();
+    } catch (e) {
+      listError = e;
+    }
+    let loadedCounts: MemberCounts = {};
+    let countsError: unknown = null;
+    try {
+      loadedCounts = await memberCounts();
+    } catch (e) {
+      countsError = e;
+    }
+    resetProject(listing?.headers ?? []);
+    setCounts(loadedCounts);
+    infoRef.current = opened;
+    setInfo(opened);
+    setLastRom(null);
+    setLastBuiltAt(null);
+    setLastSteps(null);
+    setLastBuildFresh(false);
+    setLastPatchRom(null);
+    setTextConflicts(null);
+    if (listError !== null) fail(listError);
+    else if (countsError !== null) fail(countsError);
+    else setMessage(listing?.names_error ? { kind: "error", text: `Ortsnamen nicht lesbar: ${listing.names_error}` } : null);
+    await offerPatchRepair();
+    // The checks run for the opened project by themselves (`useChecks`): this read is no edit.
+    await refreshDirty({ edited: false });
   }
 
   /**
@@ -337,6 +445,13 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
   ): Promise<{ result: R; storeSaved: number }> {
     setBusy(true);
     try {
+      // A text project takes over what changed outside first (its progress and messages are the sync's); with an open conflict nothing is
+      // built. The backend syncs once more before it builds: that one finds this sync's record and only stats the files.
+      const sync = syncBeforeBuild?.current;
+      if (sync) {
+        const outcome = await sync();
+        if (outcome !== null && outcome.conflicts.length > 0) throw CONFLICTS;
+      }
       const dirtyScripts = scripts.current.dirtyFiles();
       const storeSaved = dirtyScripts.length > 0 ? (await saveStore()).written.length : 0;
       for (const file of dirtyScripts) await scripts.current.save(file);
@@ -366,6 +481,11 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
    * (cancelled, failed to compile or to build, or stopped by text archives in conflict: then `textConflicts` asks).
    */
   async function onBuild(known?: string, fresh = false, play = false): Promise<string | null> {
+    // A text project with an open conflict builds nothing: that is said before the path is asked for (the build's own sync checks again).
+    if (known === undefined && (await conflictsOpen())) {
+      buildError(conflictsMessage());
+      return null;
+    }
     let out: string | null;
     try {
       // The system dialog keeps the bare name; only the in-page dialog of the browser mode is prefilled.
@@ -376,6 +496,19 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     }
     if (!out) return null;
     return buildTo(out, fresh, play, false);
+  }
+
+  /** Whether the sync of a text project finds a conflict open (false outside a text project, or when the sync failed). */
+  async function conflictsOpen(): Promise<boolean> {
+    const sync = syncBeforeBuild?.current;
+    if (!sync) return false;
+    const outcome = await sync();
+    return outcome !== null && outcome.conflicts.length > 0;
+  }
+
+  /** A build stopped by conflicts: one message with „Lösen…“, in the place of the sync's conflict message (not stacked below it). */
+  function conflictsMessage(): Message {
+    return { kind: "error", text: BUILD_CONFLICTS, key: CONFLICTS_TOAST, actions: onShowConflicts ? [{ label: "Lösen…", run: onShowConflicts }] : undefined };
   }
 
   /** Shows an error of a build; the next successful build closes its toast. */
@@ -416,6 +549,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
               ? { kind: "error", text: `${errors} Fehler in Scripts, Build abgebrochen`, actions }
               : { kind: "error", text: `Build abgebrochen: ${e.message}` },
         );
+      } else if (isCmdError(e) && e.code === "conflicts") {
+        // Conflicts between the Studio and DSPRE (found by the sync before the build, or by the backend's own): the way out is Technik.
+        buildError(conflictsMessage());
       } else if (isCmdError(e) && e.code === "text_conflict" && textConflictArchives(e).length > 0) {
         const archives = textConflictArchives(e);
         if (resolved) {
@@ -525,6 +661,8 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     dirtyAssets,
     dirtyRef,
     busy,
+    /** A build (or a patch's build) runs; `busy` without one is a set-up, take-back or lift. */
+    building: busy && !holding,
     lastRom,
     lastBuiltAt,
     lastSteps,
@@ -543,6 +681,11 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems }: Se
     onCountsChanged,
     onOpen,
     openProjectAt,
+    reloadSession,
+    closeProject,
+    exclusive,
+    isReopened,
+    currentRoot,
     onSave,
     onBuild,
     buildPatch,

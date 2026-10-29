@@ -201,6 +201,49 @@ fn mark_stale_wakes_rotom() {
     assert_eq!(rotom.done, 1);
 }
 
+/// In a text project the id files for rotom (hidden, so named one by one) and the registers
+/// they are written from gate the step: a renamed id writes the trainers' id file anew, a
+/// deleted id file is written again.
+#[test]
+fn an_id_file_or_a_register_wakes_rotom() {
+    let fx = common::TextFixture::exported();
+    let p = fx.project();
+    let ids = p.root.join(".rotom/command_database/.g4-ids-trainers.json");
+    let source = "script Main #1:\n    StartTrainerBattle TRAINER_YOUNGSTER_KAI, 0\n    End\n";
+    fx.write("expanded/scripts/0000.rotom", source.as_bytes());
+    let first = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(first.compiled, [0]);
+    let again = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(row(&again.steps, "rotom").status, StepStatus::Skipped);
+
+    // A hand rename of the id (register and entity), the source says `1` now.
+    fx.write(
+        "expanded/scripts/0000.rotom",
+        source.replace("TRAINER_YOUNGSTER_KAI", "1").as_bytes(),
+    );
+    prepare_for_build(&p, &out(&p)).unwrap();
+    for file in ["data/ids/trainers.json", "data/trainers/0001.json"] {
+        fx.edit(file, "TRAINER_YOUNGSTER_KAI", "TRAINER_YOUNGSTER_KAY");
+    }
+    let renamed = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_ne!(row(&renamed.steps, "rotom").status, StepStatus::Skipped);
+    assert!(renamed.compiled.is_empty(), "no source names the old id");
+    assert!(
+        std::fs::read_to_string(&ids)
+            .unwrap()
+            .contains("TRAINER_YOUNGSTER_KAY")
+    );
+    let skipped = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_eq!(row(&skipped.steps, "rotom").status, StepStatus::Skipped);
+
+    let written = std::fs::read(&ids).unwrap();
+    std::fs::remove_file(&ids).unwrap();
+    let healed = prepare_for_build(&p, &out(&p)).unwrap();
+    assert_ne!(row(&healed.steps, "rotom").status, StepStatus::Skipped);
+    assert!(healed.compiled.is_empty(), "nothing changed its meaning");
+    assert_eq!(std::fs::read(&ids).unwrap(), written);
+}
+
 #[test]
 fn a_deleted_script_member_runs_rotom() {
     let (_s, p) = project();

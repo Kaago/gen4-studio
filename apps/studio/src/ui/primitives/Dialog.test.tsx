@@ -116,6 +116,21 @@ describe("Dialog", () => {
     expect(onOpenChange.mock.calls.map((c) => c[0])).toEqual([false]);
   });
 
+  it("a_dialog_that_may_not_be_dismissed_has_no_close_button_and_ignores_escape", () => {
+    const onOpenChange = vi.fn();
+    act(() =>
+      root.render(
+        <Dialog open onOpenChange={onOpenChange} title="Wird eingerichtet" dismissible={false}>
+          <p>Inhalt</p>
+        </Dialog>,
+      ),
+    );
+    expect(dialog()!.querySelector("button[aria-label='Schließen']")).toBeNull();
+    pressKey(dialog()!, "Escape");
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(dialog()).not.toBeNull();
+  });
+
   it("final_focus_names_where_focus_goes_when_it_has_closed", async () => {
     const elsewhere = document.createElement("button");
     document.body.append(elsewhere);

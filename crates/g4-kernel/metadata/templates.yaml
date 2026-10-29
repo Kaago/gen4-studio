@@ -1,17 +1,18 @@
 # Recipes of the world templates (see `src/templates.rs`). Places, variables and flags are
 # named as the game and the command database name them; the kernel resolves the numbers.
 #
-# empty_region: the start town (internal header name, `mapname.bin`), the starter the start
-# script gives, the variable that marks the script as done (one no adopted vanilla script
-# uses), and the message the start script shows (German games: `de`, every other: `en`).
+# empty_region: the start town (`MAP_` and the internal header name of `mapname.bin`; the bare
+# internal name reads too), the starter the start script gives (a species id of the fixed
+# table, or its number), the variable that marks the script as done (one no adopted vanilla
+# script uses), and the message the start script shows (German games: `de`, every other: `en`).
 empty_region:
   pt:
-    start_town: T01
-    starter: { species: 387, level: 5 }
+    start_town: MAP_T01
+    starter: { species: SPECIES_TURTWIG, level: 5 }
     done_var: VAR_UNUSED_0x406C
   hgss:
-    start_town: T20
-    starter: { species: 152, level: 5 }
+    start_town: MAP_T20
+    starter: { species: SPECIES_CHIKORITA, level: 5 }
     done_var: VAR_UNK_4031
   message:
     de: "Willkommen in deiner leeren Region! Hier ist dein erstes Pokémon."

@@ -11,11 +11,12 @@ use g4_formats::narc::Narc;
 use crate::data::names::{Bank, bank_index};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Project};
-use crate::text::{TextArchiveDoc, json_path};
+use crate::text::{Problem, TextArchiveDoc, json_path};
 
 use super::DATA_DIR;
+use super::canon::problem;
+use super::codes::MEMBER_WITHOUT_JSON_CODE;
 use super::registry::IDS_DIR;
-use super::schema::EntitySchema;
 use super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
     TrainerTextTableEntity,
@@ -24,6 +25,7 @@ use super::schema::header::HEADERS_ART;
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
+use super::schema::{EntitySchema, ROOT};
 
 /// One art: a folder under `data/`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,6 +145,42 @@ pub(crate) fn is_known_folder(name: &str) -> bool {
         || name == "raw"
 }
 
+/// The error for the surplus members of a pair art `art` whose archives have `lens` members:
+/// those from the first number that is neither covered by a JSON (`next`: one past the last
+/// one) nor an entity (the shortest archive's length) to the longest archive's end; `None`
+/// when there are none. The file is the JSON the first of them lacks. No tool makes the
+/// missing counterpart (export writes below the shortest archive, import never appends half
+/// an entity), so the sentence names the way out: DSPRE.
+pub(crate) fn surplus_problem(
+    project: &Project,
+    art: Art,
+    lens: &[usize],
+    next: usize,
+) -> Option<Problem> {
+    let shortest = lens.iter().copied().min()?;
+    let top = lens.iter().copied().max()?;
+    let from = next.max(shortest);
+    if from >= top {
+        return None;
+    }
+    let archives: Vec<String> = art
+        .kinds()
+        .iter()
+        .zip(lens)
+        .map(|(&kind, n)| format!("{} {n}", project.archives.unpacked_name(kind)))
+        .collect();
+    Some(problem(
+        &art.dir().join(format!("{from:04}.json")),
+        MEMBER_WITHOUT_JSON_CODE,
+        format!(
+            "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat ein Member \
+             kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in \
+             DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).",
+            archives.join(", ")
+        ),
+    ))
+}
+
 /// The members of `kind` by index, read without writing: from its folder below `unpacked/`
 /// when the folder exists (a missing number is `None`), else from the packed NARC; none
 /// when the game has no such archive or the NARC is missing.
@@ -164,7 +202,7 @@ pub(crate) fn read_members(
             if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
                 continue;
             }
-            let bytes = std::fs::read(entry.path()).map_err(io_at(&entry.path()))?;
+            let bytes = crate::fsutil::read_noted(entry.path()).map_err(io_at(&entry.path()))?;
             if members.len() <= index {
                 members.resize(index + 1, None);
             }
@@ -173,10 +211,84 @@ pub(crate) fn read_members(
         return Ok(members);
     }
     let path = project.root.join(packed);
-    match std::fs::read(&path) {
+    match crate::fsutil::read_noted(&path) {
         Ok(bytes) => Ok(Narc::read(&bytes)?.members.into_iter().map(Some).collect()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(io_at(&path)(e)),
+    }
+}
+
+/// The members of one archive by index as [`read_members`] finds them, but without reading
+/// the files below `unpacked/`: their numbers come from the folder, their bytes are read
+/// (and noted) only when asked for. A packed NARC (no folder) is read whole.
+pub(crate) struct Members {
+    /// The folder below `unpacked/` (absolute); `None` when the members are the NARC's.
+    dir: Option<PathBuf>,
+    /// Per index whether the member is there.
+    present: Vec<bool>,
+    /// The NARC's members when there is no folder.
+    packed: Vec<Option<Vec<u8>>>,
+}
+
+impl Members {
+    /// The members of `kind` without their bytes (see [`Members`]); none when the game has no
+    /// such archive or the NARC is missing.
+    pub(crate) fn list(project: &Project, kind: AssetKind) -> Result<Members, KernelError> {
+        let mut members = Members {
+            dir: None,
+            present: Vec::new(),
+            packed: Vec::new(),
+        };
+        if project.archives.packed(kind).is_none() {
+            return Ok(members);
+        }
+        let dir = project.unpacked_dir(kind);
+        if !dir.is_dir() {
+            members.packed = read_members(project, kind)?;
+            members.present = members.packed.iter().map(Option::is_some).collect();
+            return Ok(members);
+        }
+        for entry in std::fs::read_dir(&dir).map_err(io_at(&dir))? {
+            let entry = entry.map_err(io_at(&dir))?;
+            let Some(index) = member_number(&entry.file_name().to_string_lossy()) else {
+                continue;
+            };
+            if !entry.file_type().map_err(io_at(&entry.path()))?.is_file() {
+                continue;
+            }
+            if members.present.len() <= index {
+                members.present.resize(index + 1, false);
+            }
+            members.present[index] = true;
+        }
+        members.dir = Some(dir);
+        Ok(members)
+    }
+
+    /// One past the highest member there.
+    pub(crate) fn len(&self) -> usize {
+        self.present.len()
+    }
+
+    /// Whether member `index` is there.
+    pub(crate) fn has(&self, index: usize) -> bool {
+        self.present.get(index).copied().unwrap_or(false)
+    }
+
+    /// The bytes of member `index`; `None` when it is not there.
+    pub(crate) fn bytes(&self, index: usize) -> Result<Option<Vec<u8>>, KernelError> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        match &self.dir {
+            Some(dir) => {
+                let path = dir.join(format!("{index:04}"));
+                crate::fsutil::read_noted(&path)
+                    .map(Some)
+                    .map_err(io_at(&path))
+            }
+            None => Ok(self.packed.get(index).cloned().flatten()),
+        }
     }
 }
 
@@ -197,16 +309,18 @@ pub(crate) fn member_rel(project: &Project, kind: AssetKind, index: usize) -> Pa
 /// The numbers of the files `NNNN.<ext>` in folder `dir` (absolute), sorted; none when the
 /// folder is missing.
 pub(crate) fn numbered(dir: &Path, ext: &str) -> Result<Vec<usize>, KernelError> {
-    let mut numbers = Vec::new();
-    for name in file_names(dir)? {
-        if let Some(stem) = name.strip_suffix(&format!(".{ext}"))
-            && let Some(n) = member_number(stem)
-        {
-            numbers.push(n);
-        }
-    }
+    Ok(numbered_in(&file_names(dir)?, ext))
+}
+
+/// [`numbered`] over the file `names` of a folder.
+pub(crate) fn numbered_in(names: &[String], ext: &str) -> Vec<usize> {
+    let suffix = format!(".{ext}");
+    let mut numbers: Vec<usize> = names
+        .iter()
+        .filter_map(|name| member_number(name.strip_suffix(&suffix)?))
+        .collect();
     numbers.sort_unstable();
-    Ok(numbers)
+    numbers
 }
 
 /// The names of the visible files in folder `dir` (absolute), sorted; none when it is

@@ -88,6 +88,53 @@ describe("toast store", () => {
     expect(listToasts()).toHaveLength(4);
   });
 
+  it("a_warning_stays_bumps_an_equal_one_and_goes_before_an_error", () => {
+    const first = toast.warning("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] });
+    const error = toast.error("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] });
+    vi.advanceTimersByTime(INFO_MS * 3);
+    expect(listToasts().map((t) => t.kind)).toEqual(["warning", "error"]);
+    // The same warning again takes the open one's place at the end (an error of the same text is another toast).
+    expect(toast.warning("1 Konflikt zwischen Studio und DSPRE", { actions: [{ label: "Lösen…", onClick: () => {} }] })).toBe(first);
+    expect(listToasts().map((t) => t.id)).toEqual([error, first]);
+    // A full stack drops the oldest warning before any error.
+    toast.error("A");
+    toast.error("B");
+    toast.error("C");
+    expect(listToasts().map((t) => t.kind)).toEqual(["error", "error", "error", "error"]);
+  });
+
+  it("a_keyed_lasting_toast_is_replaced_in_place_and_dismissed_by_its_key", () => {
+    const before = toast.info("davor");
+    const first = toast.warning("3 Konflikte zwischen Studio und DSPRE", { key: "sync-conflicts", actions: [{ label: "Lösen…", onClick: () => {} }] });
+    const after = toast.error("danach");
+    // The same key: the text changes where the toast stands, with the same id; nothing stacks.
+    expect(toast.warning("1 Konflikt zwischen Studio und DSPRE", { key: "sync-conflicts", actions: [{ label: "Lösen…", onClick: () => {} }] })).toBe(first);
+    expect(listToasts().map((t) => [t.id, t.text])).toEqual([
+      [before, "davor"],
+      [first, "1 Konflikt zwischen Studio und DSPRE"],
+      [after, "danach"],
+    ]);
+    expect(toast.shown("sync-conflicts")).toBe(true);
+    toast.dismissKey("sync-conflicts");
+    expect(listToasts().map((t) => t.id)).toEqual([before, after]);
+    expect(toast.shown("sync-conflicts")).toBe(false);
+    // Nothing open with the key: nothing happens.
+    toast.dismissKey("sync-conflicts");
+    expect(listToasts()).toHaveLength(2);
+  });
+
+  it("a_lasting_info_stays_until_closed_and_is_replaced_by_its_key", () => {
+    const id = toast.lastingInfo("Dieses Projekt lässt sich einrichten.", { key: "hint", actions: [{ label: "Einrichten…", onClick: () => {} }] });
+    vi.advanceTimersByTime(INFO_MS * 3);
+    expect(listToasts().map((t) => [t.kind, t.text])).toEqual([["info", "Dieses Projekt lässt sich einrichten."]]);
+    // The same key: replaced in place, not stacked.
+    expect(toast.lastingInfo("Dafür braucht es die Basis-ROM.", { key: "hint" })).toBe(id);
+    expect(listToasts().map((t) => t.text)).toEqual(["Dafür braucht es die Basis-ROM."]);
+    expect(toast.shown("hint")).toBe(true);
+    toast.dismissKey("hint");
+    expect(listToasts()).toEqual([]);
+  });
+
   it("a_full_stack_of_errors_makes_room_for_a_new_info_by_dropping_its_oldest_error", () => {
     for (const n of [1, 2, 3, 4]) toast.error(`Fehler ${n}`);
     const info = toast.info("Gespeichert");

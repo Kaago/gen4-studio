@@ -6,6 +6,9 @@ import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
 import { monIcon, monIconKey, useIcon } from "../icons";
 import { HeadActions } from "../../original/HeadActions";
+import { EntityIdLine } from "../../textproject/EntityIdLine";
+import { useTextProject } from "../../textproject/TextProjectContext";
+import { useEntityIds } from "../../textproject/useEntityIds";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { useDataArea } from "../useDataArea";
@@ -121,8 +124,11 @@ export function PokedexView() {
   const reset = useReset();
   const averages = useMemo(() => statAverages(rows), [rows]);
   const icon = useIcon(selected === null ? null : monIconKey(selected), () => monIcon(selected ?? 0), true);
+  // In a text project the head names the species' id (a fixed one: it is not renamed).
+  const ids = useEntityIds("Species", useTextProject().active);
   if (row === null || selected === null) return null;
   const name = labelOf(row);
+  const entityId = ids?.[selected] ?? null;
   const personalLocked = doc !== null && lockedParts(doc).personal;
   const personal = doc?.personal;
   const abilities = personal ? [personal.ability1, personal.ability2].filter((a, i, all) => a !== 0 && all.indexOf(a) === i) : [];
@@ -133,6 +139,7 @@ export function PokedexView() {
         <div className={styles.headText}>
           <h2 className={styles.name}>{name}</h2>
           <span className={styles.tech}>{row.tech}</span>
+          {entityId !== null && <EntityIdLine id={entityId} />}
         </div>
         {personal && !personalLocked && (
           <div className={styles.headFacts}>

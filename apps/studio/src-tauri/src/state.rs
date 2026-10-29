@@ -1,15 +1,21 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::SystemTime;
 
 use g4_kernel::checks::{ChecksReport, Group, IgnoreSet, Overlay, Runner, Snapshot, SnapshotCache};
 use g4_kernel::data::names::NameTables;
 use g4_kernel::data::refs::RefIndex;
-use g4_kernel::project::Project;
+use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
+use g4_kernel::textproject::ids::Resolver;
+use g4_kernel::textproject::include::id_file_paths;
+use g4_kernel::textproject::source::after_member_write;
 
 use crate::base_roms::BaseRoms;
+use crate::errors::CmdError;
 use crate::lsp::LspProcess;
 use crate::mcp::hub::AgentHub;
 
@@ -27,12 +33,25 @@ pub struct Session {
     pub refs: RefIndex,
     /// The last check run, the one running and the checks' cache.
     pub checks: ChecksState,
+    /// The id resolver of the project (an id or a number in `g4-world.json`, `g4-checks.json`
+    /// and the MCP arguments); made anew by [`Session::ids`] when its registers changed.
+    ids: Resolver,
+    /// The id files for rotom as they were last seen (size, modification time and content
+    /// hash per path),
+    /// to tell the language server when they change ([`Session::id_files_changed`]).
+    id_stamps: Vec<(PathBuf, IdStamp)>,
 }
+
+/// Size, modification time and a hash of the content of an id file, `None` when it is
+/// missing (the content too: a rename and its undo keep the length and may fall into one tick
+/// of the modification time).
+type IdStamp = Option<(u64, SystemTime, u64)>;
 
 impl Session {
     /// A session of `project` with a fresh store and empty caches.
     pub fn new(project: Arc<Project>) -> Session {
         let store = Store::new(Arc::clone(&project));
+        let id_stamps = id_stamps(&project);
         Session {
             project,
             store,
@@ -41,7 +60,22 @@ impl Session {
             names: NameTables::new(),
             refs: RefIndex::new(),
             checks: ChecksState::new(),
+            // Never current: the first use makes the project's.
+            ids: Resolver::fixed(),
+            id_stamps,
         }
+    }
+
+    /// The id resolver of the project, made anew when its registers, its manifest or
+    /// `mapname.bin` changed on disk ([`Resolver::is_current`]). Outside a text project of
+    /// the current schema a project whose resolver cannot be made (an unreadable
+    /// `mapname.bin`) gets the fixed tables, so a DSPRE folder keeps reading its ignore list
+    /// and world file; in a text project the error is the register's.
+    pub fn ids(&mut self) -> Result<&Resolver, CmdError> {
+        if !self.ids.is_current(&self.project) {
+            self.ids = project_ids(&self.project)?;
+        }
+        Ok(&self.ids)
     }
 
     /// Brings the reference index up to date after a command changed the store. Cheap when
@@ -58,13 +92,176 @@ impl Session {
         self.refs = RefIndex::new();
     }
 
+    /// `Ok` while the store takes writes; `busy` with its reason while the project is set up
+    /// as text project ([`g4_kernel::store::Store::set_busy`]). The store refuses its own
+    /// writes itself; the commands that write files past it ask here first.
+    pub fn writable(&self) -> Result<(), CmdError> {
+        match self.store.busy() {
+            Some(why) => Err(CmdError::refused("busy", why)),
+            None => Ok(()),
+        }
+    }
+
     /// Notes a write to the project's files that does not go through the store (a script
     /// source or member, a new script file, the adoption, `create_script`, the members of a
     /// new trainer): the checks read those from the disk, so their last report and a pass
     /// running now are of an older state ([`ChecksState::disk_written`]).
-    pub fn files_written(&mut self) {
+    ///
+    /// `written` names the assets whose files were written: in a text project the binary
+    /// members among them (textures and models, reset to the original or by its undo) are
+    /// exported to `data/` (`textproject::source::after_member_write`), so the next sync finds
+    /// JSON and member in step (and records them) instead of taking the own change for one
+    /// from DSPRE. When that fails the sync takes the member over later (from DSPRE): nothing
+    /// is lost, so it is only logged.
+    pub fn files_written(&mut self, written: &[AssetId]) {
         self.checks.disk_written();
+        let members: Vec<PathBuf> = written
+            .iter()
+            .filter(|id| is_binary_member(id.kind))
+            .map(|id| {
+                self.project
+                    .unpacked_dir(id.kind)
+                    .join(format!("{:04}", id.index))
+            })
+            .collect();
+        if !members.is_empty()
+            && let Err(e) = after_member_write(&self.project, &members)
+        {
+            eprintln!("data/ nach dem Schreiben von Membern nicht nachgezogen: {e}");
+        }
     }
+
+    /// Tells the running language server (`rotom-lsp`) which id files for rotom changed since
+    /// they were last seen, so the script editor knows new and renamed ids; answers their
+    /// paths (relative to the root).
+    ///
+    /// The notification is `workspace/didChangeWatchedFiles`: rotom-lsp drops its cached
+    /// command database and constants on it and checks the open scripts again. A change is a
+    /// new size, modification time or content hash (the hash is only kept in memory, so the
+    /// std hasher does). Reads the id files, a few hundred KB at most. Call it after anything
+    /// that may write them: a rename and its undo or redo, a sync that christened, the choice
+    /// of a conflict.
+    pub fn id_files_changed(&mut self) -> Vec<PathBuf> {
+        let now = id_stamps(&self.project);
+        let changes: Vec<(PathBuf, u8)> = now
+            .iter()
+            .zip(&self.id_stamps)
+            .filter(|((_, new), (_, old))| new != old)
+            .map(|((path, new), (_, old))| {
+                // LSP FileChangeType: 1 created, 2 changed, 3 deleted.
+                let kind = match (old, new) {
+                    (None, _) => 1,
+                    (_, None) => 3,
+                    _ => 2,
+                };
+                (path.clone(), kind)
+            })
+            .collect();
+        self.id_stamps = now;
+        if changes.is_empty() {
+            return Vec::new();
+        }
+        if let Some(lsp) = &self.lsp {
+            let body = watched_files_changed(&self.project.root, &changes);
+            // A server that does not read is restarted by the editor's next request, and
+            // reads the files anew then.
+            let _ = lsp.send(&body);
+        }
+        changes.into_iter().map(|(path, _)| path).collect()
+    }
+}
+
+/// The id resolver of `project`; outside a text project of the current schema the fixed
+/// tables when it cannot be made (see [`Session::ids`]).
+pub fn project_ids(project: &Project) -> Result<Resolver, CmdError> {
+    match Resolver::for_project(project) {
+        Ok(ids) => Ok(ids),
+        Err(_) if *project.source_mode() != SourceMode::TextProject => Ok(Resolver::fixed()),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether assets of `kind` are binary members written past the store (a reset of a texture
+/// or model, and its undo).
+fn is_binary_member(kind: AssetKind) -> bool {
+    matches!(
+        kind,
+        AssetKind::MapTexture
+            | AssetKind::BuildingTexture
+            | AssetKind::BuildingModel
+            | AssetKind::InteriorBuildingModel
+    )
+}
+
+/// The id files of `project` (relative to the root) with their stamps.
+fn id_stamps(project: &Project) -> Vec<(PathBuf, IdStamp)> {
+    id_file_paths(project)
+        .into_iter()
+        .map(|rel| {
+            let path = project.root.join(&rel);
+            let stamp = std::fs::metadata(&path).ok().and_then(|m| {
+                let bytes = std::fs::read(&path).ok()?;
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hasher::write(&mut hasher, &bytes);
+                Some((
+                    m.len(),
+                    m.modified().ok()?,
+                    std::hash::Hasher::finish(&hasher),
+                ))
+            });
+            (rel, stamp)
+        })
+        .collect()
+}
+
+/// The notification `workspace/didChangeWatchedFiles` for `changes` (path relative to `root`,
+/// LSP change type).
+fn watched_files_changed(root: &Path, changes: &[(PathBuf, u8)]) -> String {
+    let changes: Vec<serde_json::Value> = changes
+        .iter()
+        .map(|(path, kind)| serde_json::json!({ "uri": file_uri(&root.join(path)), "type": kind }))
+        .collect();
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "workspace/didChangeWatchedFiles",
+        "params": { "changes": changes },
+    })
+    .to_string()
+}
+
+/// `path` as a `file://` URL, percent-encoded like the script editor's `projectFileUri` (the
+/// WHATWG path set, with `%`, `#` and `?`).
+fn file_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for byte in path.to_string_lossy().bytes() {
+        let keep = byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'/' | b'-'
+                    | b'.'
+                    | b'_'
+                    | b'~'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+                    | b':'
+                    | b'@'
+            );
+        if keep {
+            uri.push(char::from(byte));
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
 }
 
 /// Progress of a running check pass: a short label (`cheap`, `scripts`, `texts`, `load`) the
@@ -727,6 +924,47 @@ mod tests {
         assert_eq!(on.findings.iter().filter(|f| f.code == code).count(), 2);
         let kept = current().unwrap();
         assert_eq!((kept.findings, kept.skipped), (on.findings, on.skipped));
+    }
+
+    #[test]
+    fn id_files_changed_names_new_changed_and_removed_files_once() {
+        let fixture = g4_kernel::test_support::synthetic_project();
+        let state = open_state(&fixture);
+        let mut guard = state.lock_session();
+        let session = guard.as_mut().unwrap();
+        assert!(session.id_files_changed().is_empty());
+        let paths = id_file_paths(&session.project);
+        let file = session.project.root.join(&paths[0]);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "{}\n").unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        assert!(session.id_files_changed().is_empty(), "told once");
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        // The same length within one modification time (a rename and its undo): noticed by
+        // the content.
+        std::fs::write(&file, "{}\n").unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        let mtime = std::fs::metadata(&file).unwrap().modified().unwrap();
+        std::fs::write(&file, "[]\n").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        assert_eq!(session.id_files_changed(), [paths[0].clone()]);
+        let body =
+            watched_files_changed(Path::new("/Projekte/Mein Hack#1"), &[(paths[0].clone(), 1)]);
+        let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(body["method"], "workspace/didChangeWatchedFiles");
+        let change = &body["params"]["changes"][0];
+        assert_eq!(change["type"], 1);
+        let uri = change["uri"].as_str().unwrap();
+        assert!(
+            uri.starts_with("file:///Projekte/Mein%20Hack%231/.rotom/"),
+            "{uri}"
+        );
     }
 
     #[test]

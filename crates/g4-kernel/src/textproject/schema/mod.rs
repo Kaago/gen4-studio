@@ -10,6 +10,9 @@
 //! [`ROOT`] for the entity's object itself, and for a missing key the path of the object that
 //! lacks it. The caller finds line and column from the path.
 //!
+//! `schema.snap` also carries a digest of the fixed symbol tables (`symbolTables`): their ids are
+//! in every file, so a changed table needs a new schema version like a changed key.
+//!
 //! In `schema.snap` a key the export can leave out ends in `?`, a position that can be
 //! `{"locked", "raw"}` is one line `<path> <member>`, and another locked form (trainers) one
 //! line `<path> <locked: keys>`.
@@ -268,7 +271,7 @@ mod tests {
     use serde_json::Value;
 
     use super::super::SCHEMA_VERSION;
-    use super::super::symbols::table;
+    use super::super::symbols::{fixed_tables_digest, table};
     use super::data::{EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity};
     use super::data::{TrainerTextOffsetsEntity, TrainerTextTableEntity};
     use super::header::{HeaderHgssEntity, HeaderPtEntity};
@@ -424,7 +427,10 @@ mod tests {
 
     /// Every key path of every schema type, and the forms of a locked member and a part.
     fn snapshot() -> String {
-        let mut lines = vec![format!("schemaVersion {SCHEMA_VERSION}")];
+        let mut lines = vec![
+            format!("schemaVersion {SCHEMA_VERSION}"),
+            format!("symbolTables {}", fixed_tables_digest()),
+        ];
         lines_of::<SpeciesEntity>(&mut lines);
         lines_of::<MoveEntity>(&mut lines);
         lines_of::<ItemEntity>(&mut lines);
@@ -497,7 +503,7 @@ mod tests {
             .collect();
         if saved_version == Some(SCHEMA_VERSION) {
             panic!(
-                "Schema geändert: schemaVersion erhöhen und eine Migration schreiben (oder \
+                "Schema oder Symboltabellen geändert: schemaVersion erhöhen und eine Migration schreiben (oder \
                  G4_UPDATE_SNAPSHOT=1, wenn die Migration schon da ist)\n{}",
                 diff.join("\n")
             );

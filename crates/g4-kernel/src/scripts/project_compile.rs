@@ -87,7 +87,96 @@ pub(super) fn load_context(
 ) -> Result<rotom::ProjectContext, KernelError> {
     // rotom v0.7.0: src/database.rs DatabaseV2::load
     let db = rotom::DatabaseV2::load(db_path).map_err(|e| rotom_error("database", e))?;
-    context_with(project, config, db, None)
+    context_with(project, config, db, None, IdFileUse::Compile)
+}
+
+/// What [`context_with`] does with the id files of the text project
+/// ([`ID_FILE_PREFIX`](crate::textproject::include::ID_FILE_PREFIX)) in rotom's constant
+/// folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum IdFileUse {
+    /// For a compile: written anew where they changed (a current text project,
+    /// [`include::refresh`](crate::textproject::include::refresh)), then loaded like every
+    /// other constant file, so the kernel compiles what `rotom compile` compiles.
+    Compile,
+    /// For a decompile: left out. rotom names values only by its own symbols, so the
+    /// decompiled text is the same, and a broken id file never stops a reset or the sync.
+    Skip,
+}
+
+/// Whether `name` (a file name in rotom's constant folder) is an id file of the text project.
+pub(crate) fn is_id_file(name: &str) -> bool {
+    name.starts_with(crate::textproject::include::ID_FILE_PREFIX)
+}
+
+/// rotom's constants of the project as rotom v0.7.0 `ProjectContext::load_inner` loads them
+/// for a DSPRE project, but without the id files of the text project: the database's
+/// constants, every other `*.json` at the top of the constant folder (rotom v0.7.0
+/// `ConstantDb::load_directory`: not `*_v2*`, not `commands.json`), the workspace's symbols and
+/// the names rotom derives from the text archives. `strict`: a constant file that does not
+/// load is an error, as for rotom's compile; otherwise it is left out, as rotom's language
+/// server does (`load_tolerant`).
+pub(crate) fn base_constants(
+    project: &Project,
+    config: &RotomConfig,
+    db: &rotom::DatabaseV2,
+    workspace: &uxie::Workspace,
+    strict: bool,
+) -> Result<rotom::ConstantDb, KernelError> {
+    let root = &project.root;
+    // rotom v0.7.0: src/database.rs ConstantDb::load_from_db
+    let mut constants = rotom::ConstantDb::new();
+    constants.load_from_db(db);
+    let database_dir = config.database_dir(root);
+    let mut errors = Vec::new();
+    for path in constant_files(&database_dir)? {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if is_id_file(name) {
+            continue;
+        }
+        // rotom v0.7.0: src/database.rs ConstantDb::load_json
+        if let Err(e) = constants.load_json(&path) {
+            errors.push(format!("{}: {e}", path.display()));
+        }
+    }
+    if strict && !errors.is_empty() {
+        return Err(rotom_error(
+            "constants",
+            format!(
+                "Failed to load one or more constants JSON files from '{}': {}",
+                database_dir.display(),
+                errors.join("; ")
+            ),
+        ));
+    }
+    // rotom v0.7.0: src/project/context.rs load_inner, the Dspre arm
+    constants.load_dspre_symbols((*workspace.symbols).clone());
+    let _ = constants.load_dspre_text_archives(root, workspace.language);
+    Ok(constants)
+}
+
+/// The constant files rotom v0.7.0 `ConstantDb::load_directory` loads from `dir`: every
+/// `*.json` at the top level except `*_v2*` and `commands.json`, in directory order as rotom
+/// takes them (not sorted, a folder named `*.json` included and failing like there), so a name
+/// in two files resolves in the kernel's compile as in `rotom compile` on the same disk.
+pub(crate) fn constant_files(dir: &Path) -> Result<Vec<PathBuf>, KernelError> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_at(dir)(e)),
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(io_at(dir))?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if path.extension().is_some_and(|e| e == "json")
+            && !name.contains("_v2")
+            && name != "commands.json"
+        {
+            files.push(path);
+        }
+    }
+    Ok(files)
 }
 
 /// [`load_context`] with the database `db` already loaded. With `global_ids` the workspace's
@@ -101,18 +190,10 @@ pub(super) fn context_with(
     config: &RotomConfig,
     db: rotom::DatabaseV2,
     global_ids: Option<&std::collections::BTreeSet<u16>>,
+    id_files: IdFileUse,
 ) -> Result<rotom::ProjectContext, KernelError> {
     let root = &project.root;
     let headers = project.read_headers()?;
-    // rotom v0.7.0: src/database.rs ConstantDb::load_from_db, load_directory
-    let mut constants = rotom::ConstantDb::new();
-    constants.load_from_db(&db);
-    let database_dir = config.database_dir(root);
-    if database_dir.exists() {
-        constants
-            .load_directory(&database_dir)
-            .map_err(|e| rotom_error("constants", e))?;
-    }
     // uxie 0.9.7: src/workspace.rs Workspace::open; `provider` and `global_script_table` are
     // public fields.
     let mut workspace = uxie::Workspace::open(root).map_err(io_at(root))?;
@@ -128,9 +209,25 @@ pub(super) fn context_with(
         // uxie 0.9.7: src/script_file/global_script_table.rs GlobalScriptTable::from_entries
         workspace.global_script_table = uxie::script_file::GlobalScriptTable::from_entries(entries);
     }
-    // rotom v0.7.0: src/project/context.rs load_inner, the Dspre arm
-    constants.load_dspre_symbols((*workspace.symbols).clone());
-    let _ = constants.load_dspre_text_archives(root, workspace.language);
+    let mut constants = base_constants(project, config, &db, &workspace, true)?;
+    if id_files == IdFileUse::Compile {
+        let dir = config.database_dir(root);
+        crate::textproject::include::refresh(project, &dir, &constants)?;
+        // JSON constants beat the workspace's symbols (rotom v0.7.0 ConstantDb::get), and the
+        // id files leave out every name the rest resolves otherwise: loaded last, they take
+        // the place rotom's own directory order would give them.
+        for path in constant_files(&dir)? {
+            if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(is_id_file)
+            {
+                constants
+                    .load_json(&path)
+                    .map_err(|e| rotom_error("constants", format!("{}: {e}", path.display())))?;
+            }
+        }
+    }
     // rotom v0.7.0: src/project/context.rs ProjectContext::from_parts
     Ok(rotom::ProjectContext::from_parts(
         root.clone(),

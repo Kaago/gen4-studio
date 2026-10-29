@@ -74,7 +74,7 @@ pub(crate) enum ScriptInput<'a> {
 
 /// The bundled command database of `family` (`scripts::scrcmd_database`), parsed once per
 /// process; `None` when it does not parse (a test parses each).
-fn database(family: Family) -> Option<&'static rotom::DatabaseV2> {
+pub(crate) fn database(family: Family) -> Option<&'static rotom::DatabaseV2> {
     static DATABASES: [OnceLock<Option<rotom::DatabaseV2>>; 3] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let slot = match family {

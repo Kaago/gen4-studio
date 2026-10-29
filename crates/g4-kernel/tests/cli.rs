@@ -1168,6 +1168,47 @@ fn cli_text_import_reports_problems_with_exit_1() {
     assert!(err.contains("powr"), "{err}");
 }
 
+/// 4.3a I1: `text export` refuses JSON changes the members lack, `text import` member changes
+/// the JSON lacks; `--force` goes over them.
+#[test]
+fn cli_text_export_refuses_unbuilt_changes_unless_forced() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["export"], &root).assert().success();
+    let json = root.join("data/moves/0002.json");
+    let edited =
+        std::fs::read_to_string(&json)
+            .unwrap()
+            .replacen("\"power\": 20", "\"power\": 99", 1);
+    std::fs::write(&json, &edited).unwrap();
+
+    // Not built yet: the export would throw the edit away.
+    text(&["export"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::textproject::UNSYNCED_EXPORT))
+        .stderr(contains("data/moves/0002.json"))
+        .stderr(contains("erst bauen (g4k build)"));
+    assert_eq!(std::fs::read_to_string(&json).unwrap(), edited);
+    text(&["export", "--force"], &root).assert().success();
+    assert!(
+        std::fs::read_to_string(&json)
+            .unwrap()
+            .contains("\"power\": 20")
+    );
+
+    // A member changed after the export: the import would throw it away.
+    let member = root.join("unpacked/moveData/0002");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 77;
+    std::fs::write(&member, &bytes).unwrap();
+    text(&["import"], &root).assert().code(1).stderr(contains(
+        "Member sind neuer als ihre JSON (unpacked/moveData/0002)",
+    ));
+    assert_eq!(std::fs::read(&member).unwrap()[3], 77);
+    text(&["import", "--force"], &root).assert().success();
+    assert_eq!(std::fs::read(&member).unwrap()[3], 20);
+}
+
 #[test]
 fn cli_text_sources_lists_manifest_and_data() {
     let (_tmp, root, _nds) = text_layout();
@@ -1305,4 +1346,191 @@ fn cli_text_import_refuses_a_broken_or_newer_mark() {
             "nothing written"
         );
     }
+}
+
+#[test]
+fn cli_text_adopt_sync_and_revert() {
+    let (_tmp, root, _nds) = text_layout();
+    // Set up as text project, each phase timed.
+    let assert = text(&["adopt"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let phases: Vec<&str> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix("phase="))
+        .map(|l| l.split(' ').next().unwrap())
+        .collect();
+    assert_eq!(
+        phases,
+        ["scripts", "base_layer", "entities", "sync"],
+        "{out}"
+    );
+    let summary = out.lines().last().unwrap();
+    assert!(summary.starts_with("adopted=scripts:"), "{summary}");
+    assert!(summary.contains(" sync_files="), "{summary}");
+    assert!(root.join("g4-project.json").is_file());
+    let toml = std::fs::read_to_string(root.join("rotom.toml")).unwrap();
+    assert!(!toml.contains("include_roots"), "{toml}");
+    assert!(
+        root.join(".rotom/command_database/.g4-ids-species.json")
+            .is_file()
+    );
+
+    // Nothing changed: nothing to take over.
+    let out = stdout_of(&text(&["sync"], &root).assert().success());
+    assert!(out.lines().all(|l| l.starts_with("stat=")), "{out}");
+
+    // DSPRE changes move 1: taken over into its JSON.
+    let member = root.join("unpacked/moveData/0001");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 44;
+    std::fs::write(&member, &bytes).unwrap();
+    let out = stdout_of(&text(&["sync"], &root).assert().success());
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("dspre data/moves/0001.json Attacke 0001")),
+        "{out}"
+    );
+    let json = std::fs::read_to_string(root.join("data/moves/0001.json")).unwrap();
+    assert!(json.contains("\"power\": 44"), "{json}");
+
+    // Both sides change move 2: a conflict, exit 1, until one side is kept.
+    let json_path = root.join("data/moves/0002.json");
+    let json = std::fs::read_to_string(&json_path).unwrap();
+    std::fs::write(
+        &json_path,
+        json.replacen("\"power\": 20", "\"power\": 99", 1),
+    )
+    .unwrap();
+    let member = root.join("unpacked/moveData/0002");
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[3] = 55;
+    std::fs::write(&member, &bytes).unwrap();
+    let assert = text(&["sync"], &root).assert().code(1);
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("conflict data/moves/0002.json Attacke 0002")),
+        "{out}"
+    );
+    // Pending: the revert is refused.
+    text(&["revert"], &root)
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::textproject::adopt::REVERT_PENDING));
+    text(&["sync", "--keep", "studio", "data/moves/0002.json"], &root)
+        .assert()
+        .success()
+        .stdout(contains("kept studio data/moves/0002.json"));
+    assert_eq!(std::fs::read(&member).unwrap()[3], 99, "the JSON's power");
+    text(&["sync"], &root).assert().success();
+    text(&["sync", "--keep", "both", "data/moves/0002.json"], &root)
+        .assert()
+        .code(1);
+
+    // A broken JSON is not settled either: listed, exit 1, until it is fixed.
+    let json_path = root.join("data/moves/0003.json");
+    let good = std::fs::read(&json_path).unwrap();
+    std::fs::write(&json_path, b"{ broken").unwrap();
+    let assert = text(&["sync"], &root).assert().code(1);
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines()
+            .any(|l| l.starts_with("broken data/moves/0003.json Attacke 0003")),
+        "{out}"
+    );
+    assert!(
+        String::from_utf8_lossy(&assert.get_output().stderr).contains("broken file"),
+        "{:?}",
+        assert.get_output()
+    );
+    std::fs::write(&json_path, good).unwrap();
+    text(&["sync"], &root).assert().success();
+
+    // Taken back: the manifest and data/ are in the backup.
+    let assert = text(&["revert"], &root).assert().success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let backup = out
+        .lines()
+        .find_map(|l| l.strip_prefix("backup="))
+        .and_then(|l| l.split(" rewritten=").next())
+        .unwrap_or_else(|| panic!("no backup line:\n{out}"));
+    assert!(
+        std::path::Path::new(backup)
+            .join("g4-project.json")
+            .is_file()
+    );
+    assert!(
+        std::path::Path::new(backup)
+            .join("data/moves/0001.json")
+            .is_file()
+    );
+    assert!(!root.join("g4-project.json").exists());
+    assert!(!root.join("data").exists());
+}
+
+#[test]
+fn cli_text_rename_id() {
+    let (_tmp, root, _nds) = text_layout();
+    text(&["adopt"], &root).assert().success();
+    let rename = |old: &str, new: &str| {
+        let mut cmd = g4k();
+        cmd.args(["text", "rename-id"]).arg(&root).args([old, new]);
+        cmd
+    };
+
+    // Renamed: one line per file with its count, then the totals.
+    let assert = rename("TRAINER_YOUNGSTER_KAI", "TRAINER_KID_KAI")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    assert!(
+        out.lines().any(|l| l == "data/ids/trainers.json 1"),
+        "{out}"
+    );
+    assert!(
+        out.lines().any(|l| l == "data/trainers/0001.json 1"),
+        "{out}"
+    );
+    let summary = out.lines().last().unwrap();
+    assert!(
+        summary.starts_with(
+            "renamed TRAINER_YOUNGSTER_KAI -> TRAINER_KID_KAI kind=trainer number=1 files=2 refs=2 \
+             id_files=true ms="
+        ),
+        "{summary}"
+    );
+    let json = std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap();
+    assert!(json.contains("\"id\": \"TRAINER_KID_KAI\""), "{json}");
+    let ids = std::fs::read_to_string(root.join(".rotom/command_database/.g4-ids-trainers.json"))
+        .unwrap();
+    assert!(ids.contains("TRAINER_KID_KAI"), "{ids}");
+
+    // A taken id: refused with the sentence, exit 1, nothing written.
+    rename("TRAINER_KID_KAI", "TRAINER_POKEMON_TRAINER_MIA")
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "TRAINER_POKEMON_TRAINER_MIA gibt es schon (Nummer 2).",
+        ));
+    assert_eq!(
+        std::fs::read_to_string(root.join("data/trainers/0001.json")).unwrap(),
+        json
+    );
+
+    // With --json: the plan as one line.
+    let assert = rename("TRAINER_KID_KAI", "TRAINER_KAI")
+        .arg("--json")
+        .assert()
+        .success();
+    let line = stdout_of(&assert);
+    let plan: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(plan["old_id"], "TRAINER_KID_KAI");
+    assert_eq!(plan["new_id"], "TRAINER_KAI");
+    assert_eq!(plan["total"], 2);
 }

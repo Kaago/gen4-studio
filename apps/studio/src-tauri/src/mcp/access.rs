@@ -179,6 +179,24 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("changed_from_original", Kind::Read),
     ("text_check", Kind::Read),
     ("text_export", Kind::Irreversible("Textprojekt exportieren")),
+    ("text_project_status", Kind::Read),
+    (
+        "adopt_text_project",
+        Kind::Irreversible("Als Textprojekt einrichten"),
+    ),
+    ("revert_text_project", APP_ONLY),
+    ("migrate_text_project", APP_ONLY),
+    ("external_sync", APP_ONLY),
+    ("external_changes", Kind::Read),
+    ("conflict_diff", Kind::Read),
+    (
+        "resolve_external_conflict",
+        Kind::Irreversible("Eine Fassung überschreiben"),
+    ),
+    ("plan_rename_id", Kind::Read),
+    ("rename_id", Kind::Write),
+    ("entity_ids", Kind::Read),
+    ("close_project", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -347,6 +365,10 @@ mod tests {
                     Kind::Irreversible("Ausgangslage übernehmen")
                 ),
                 ("add_script", Kind::Irreversible("Script anlegen")),
+                (
+                    "adopt_text_project",
+                    Kind::Irreversible("Als Textprojekt einrichten")
+                ),
                 ("apply_empty_region", Kind::Irreversible("Welt leeren")),
                 (
                     "apply_header_patch",
@@ -365,6 +387,10 @@ mod tests {
                     Kind::Irreversible("Header-Patch reparieren")
                 ),
                 (
+                    "resolve_external_conflict",
+                    Kind::Irreversible("Eine Fassung überschreiben")
+                ),
+                (
                     "resolve_text_conflicts",
                     Kind::Irreversible("Eine Fassung eines Textarchivs überschreiben")
                 ),
@@ -380,20 +406,24 @@ mod tests {
             unavailable,
             [
                 ("check_project_dest", Kind::Unavailable("Nur in der App")),
+                ("close_project", Kind::Unavailable("Nur in der App")),
                 ("create_project", Kind::Unavailable("Nur in der App")),
                 (
                     "default_project_parent",
                     Kind::Unavailable("Nur in der App")
                 ),
+                ("external_sync", Kind::Unavailable("Nur in der App")),
                 ("force_quit", Kind::Unavailable("Nur in der App")),
                 ("lsp_send", Kind::Unavailable("Nur in der App")),
                 ("lsp_start", Kind::Unavailable("Nur in der App")),
                 ("lsp_stop", Kind::Unavailable("Nur in der App")),
+                ("migrate_text_project", Kind::Unavailable("Nur in der App")),
                 (
                     "open_project",
                     Kind::Unavailable("Das Projekt ist fest (--project)")
                 ),
                 ("register_base_rom", Kind::Unavailable("Nur in der App")),
+                ("revert_text_project", Kind::Unavailable("Nur in der App")),
             ]
         );
         let mut depends: Vec<&str> = of(|k| *k == Kind::Depends)
@@ -727,6 +757,38 @@ mod tests {
             ..writer
         };
         assert!(admit("create_trainer", &class, &confirmed).is_ok());
+    }
+
+    #[test]
+    fn text_project_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in [
+            "text_project_status",
+            "external_changes",
+            "conflict_diff",
+            "plan_rename_id",
+            "entity_ids",
+        ] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step.
+        assert_eq!(kind("rename_id"), Kind::Write);
+        assert_eq!(
+            kind("adopt_text_project"),
+            Kind::Irreversible("Als Textprojekt einrichten")
+        );
+        assert_eq!(
+            kind("resolve_external_conflict"),
+            Kind::Irreversible("Eine Fassung überschreiben")
+        );
+        // The automatic sync is the app's; taking back and lifting are the user's steps.
+        for name in [
+            "external_sync",
+            "revert_text_project",
+            "migrate_text_project",
+        ] {
+            assert_eq!(kind(name), APP_ONLY, "{name}");
+        }
     }
 
     #[test]

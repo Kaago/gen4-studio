@@ -209,7 +209,15 @@ pub enum Template {
     EmptyRegion,
 }
 
-/// A stage of [`create_project`].
+/// What [`create_project_with_options`] makes: the template, and whether the new project is
+/// set up as text project right away (the wizard's check box, off by default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateOptions {
+    pub template: Template,
+    pub text_project: bool,
+}
+
+/// A stage of [`create_project`]. `TextProject` only with [`CreateOptions::text_project`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -217,6 +225,7 @@ pub enum Phase {
     Extract,
     Template,
     Check,
+    TextProject,
 }
 
 /// Reported at the start of each phase.
@@ -428,6 +437,8 @@ pub struct Created {
     pub template: Template,
     /// Each phase with the milliseconds it took.
     pub phases: Vec<(Phase, u128)>,
+    /// The adoption as text project, with [`CreateOptions::text_project`].
+    pub text_project: Option<crate::textproject::adopt::AdoptReport>,
 }
 
 type Extractor<'a> = &'a dyn Fn(&Path, &Path) -> Result<Project, KernelError>;
@@ -443,16 +454,34 @@ pub fn create_project(
     template: Template,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Created, KernelError> {
-    create_project_with(rom, dest, template, progress, &crate::build::extract_rom)
+    let opts = CreateOptions {
+        template,
+        text_project: false,
+    };
+    create_project_with_options(rom, dest, &opts, progress)
+}
+
+/// [`create_project`] with `opts`: with `text_project` the project is set up as text project
+/// (`textproject::adopt` against the ROM itself) after the check, before the staging folder
+/// is renamed, reported as [`Phase::TextProject`] (one count over the adoption's phases that
+/// only goes up, see `text_project_step`).
+pub fn create_project_with_options(
+    rom: &Path,
+    dest: &Path,
+    opts: &CreateOptions,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<Created, KernelError> {
+    create_project_with(rom, dest, opts, progress, &crate::build::extract_rom)
 }
 
 pub(crate) fn create_project_with(
     rom: &Path,
     dest: &Path,
-    template: Template,
+    opts: &CreateOptions,
     progress: &mut dyn FnMut(Progress),
     extract: Extractor<'_>,
 ) -> Result<Created, KernelError> {
+    let template = opts.template;
     let mut phases: Vec<(Phase, u128)> = Vec::new();
     let mut report = |phase: Phase, done: u32, total: u32| {
         progress(Progress { phase, done, total });
@@ -519,6 +548,7 @@ pub(crate) fn create_project_with(
     }
     phases.push((Phase::Read, started.elapsed().as_millis()));
 
+    let mut text_project = None;
     let outcome = (|| -> Result<(), KernelError> {
         let t = report(Phase::Extract, 0, 1);
         extract(rom, &staging)?;
@@ -556,12 +586,29 @@ pub(crate) fn create_project_with(
                 secure_area_sha1,
             },
         )?;
+        phases.push((Phase::Check, t.elapsed().as_millis()));
+
+        if opts.text_project {
+            let t = report(Phase::TextProject, 0, TEXT_PROJECT_STEPS);
+            let base = crate::base::BaseRom::open(rom, Some(&info.sha1))?;
+            let mut shown = 0;
+            text_project = Some(crate::textproject::adopt::adopt_as(
+                &project,
+                &base,
+                Some(&name),
+                &mut |p| {
+                    // One count over the four phases that never goes back.
+                    shown = shown.max(text_project_step(p));
+                    report(Phase::TextProject, shown, TEXT_PROJECT_STEPS);
+                },
+            )?);
+            phases.push((Phase::TextProject, t.elapsed().as_millis()));
+        }
         if dest.is_dir() {
             // Empty (checked above): `remove_dir` refuses anything else.
             std::fs::remove_dir(dest).map_err(io_at(dest))?;
         }
         std::fs::rename(&staging, dest).map_err(io_at(dest))?;
-        phases.push((Phase::Check, t.elapsed().as_millis()));
         Ok(())
     })();
     if let Err(e) = outcome {
@@ -573,6 +620,7 @@ pub(crate) fn create_project_with(
         info,
         template,
         phases,
+        text_project,
     })
 }
 
@@ -598,6 +646,31 @@ fn apply_template(
     store.save()?;
     report(Phase::Template, total, total);
     Ok(started)
+}
+
+/// The steps [`Phase::TextProject`] counts to.
+const TEXT_PROJECT_STEPS: u32 = 1000;
+
+/// Where the adoption's progress `p` stands in [`Phase::TextProject`]: each phase of the
+/// adoption has a share of [`TEXT_PROJECT_STEPS`] after the times measured on Platinum
+/// (scripts 5 %, base layer 5 %, entities 50 %, records 40 %), filled by its `done` of
+/// `total` (a phase without steps counts as done).
+fn text_project_step(p: crate::textproject::adopt::AdoptProgress) -> u32 {
+    use crate::textproject::adopt::AdoptPhase;
+
+    let (from, share) = match p.phase {
+        AdoptPhase::Scripts => (0, 50),
+        AdoptPhase::BaseLayer => (50, 50),
+        AdoptPhase::Entities => (100, 500),
+        AdoptPhase::Sync => (600, 400),
+    };
+    let filled = if p.total == 0 {
+        share
+    } else {
+        let part = u64::from(share) * u64::from(p.done.min(p.total)) / u64::from(p.total);
+        u32::try_from(part).unwrap_or(share)
+    };
+    from + filled
 }
 
 /// The secure area CRC from the header and the SHA-1 of the secure area itself.
@@ -1054,6 +1127,13 @@ mod create_tests {
         Project::open(dest)
     }
 
+    fn opts(template: Template) -> CreateOptions {
+        CreateOptions {
+            template,
+            text_project: false,
+        }
+    }
+
     fn create_fake(
         rom: &Path,
         dest: &Path,
@@ -1062,10 +1142,118 @@ mod create_tests {
         create_project_with(
             rom,
             dest,
-            Template::Original,
+            &opts(Template::Original),
             &mut |p| seen.push(p),
             &fake_extract,
         )
+    }
+
+    #[test]
+    fn create_with_text_project_reports_the_phase_and_leaves_a_text_project() {
+        // ds-rom cannot unpack the synthetic ROM, so neither can the base layer be made from
+        // it: the extractor also places the layer, a copy of the unpacked project as it is.
+        fn extract_with_layer(rom: &Path, dest: &Path) -> Result<Project, KernelError> {
+            let p = fake_extract(rom, dest)?;
+            let kinds: Vec<crate::project::AssetKind> = p.archives.kinds().collect();
+            for kind in kinds {
+                if kind != crate::project::AssetKind::DynamicHeaders
+                    && p.archives
+                        .packed(kind)
+                        .is_some_and(|f| dest.join(f).is_file())
+                {
+                    p.ensure_unpacked(kind)?;
+                }
+            }
+            let sha1 = inspect_rom(rom)?.sha1;
+            let tmp = tempfile::tempdir().unwrap();
+            copy_dir(dest, &tmp.path().join("layer"));
+            let layer = dest
+                .join(crate::textproject::base_layer::BASE_LAYER_DIR)
+                .join(&sha1);
+            copy_dir(&tmp.path().join("layer"), &layer);
+            std::fs::write(layer.join(".complete"), &sha1).unwrap();
+            Project::open(dest)
+        }
+
+        let (tmp, rom) = synthetic_rom();
+        let dest = tmp.path().join("neu");
+        let mut seen = Vec::new();
+        let opts = CreateOptions {
+            template: Template::Original,
+            text_project: true,
+        };
+        let created = create_project_with(
+            &rom,
+            &dest,
+            &opts,
+            &mut |p| seen.push(p),
+            &extract_with_layer,
+        )
+        .unwrap();
+        let mut phases: Vec<Phase> = seen.iter().map(|p| p.phase).collect();
+        phases.dedup();
+        assert_eq!(
+            phases,
+            [
+                Phase::Read,
+                Phase::Extract,
+                Phase::Template,
+                Phase::Check,
+                Phase::TextProject
+            ]
+        );
+        let text: Vec<&Progress> = seen
+            .iter()
+            .filter(|p| p.phase == Phase::TextProject)
+            .collect();
+        assert!(text.len() > 2, "the adoption's progress: {text:?}");
+        assert!(
+            text.windows(2).all(|w| w[0].done <= w[1].done),
+            "never back: {text:?}"
+        );
+        assert!(
+            text.iter().all(|p| p.total == TEXT_PROJECT_STEPS),
+            "{text:?}"
+        );
+        assert_eq!(text[0].done, 0);
+        assert_eq!(text.last().unwrap().done, TEXT_PROJECT_STEPS, "{text:?}");
+        // The records move in between (one report per 128 files).
+        assert!(
+            text.iter()
+                .any(|p| p.done > 600 && p.done < TEXT_PROJECT_STEPS),
+            "{text:?}"
+        );
+        let timed: Vec<Phase> = created.phases.iter().map(|(p, _)| *p).collect();
+        assert_eq!(timed.last(), Some(&Phase::TextProject), "{timed:?}");
+        let report = created.text_project.expect("the adoption's report");
+        assert!(report.export.written > 0 && report.sync_files > 0);
+
+        // The text project at the destination, the staging folder gone; rotom.toml is named
+        // after the destination.
+        assert!(crate::textproject::is_text_project(&dest));
+        assert!(dest.join("data/moves/0001.json").is_file());
+        assert!(!tmp.path().join(".neu.g4-new").exists());
+        let toml = std::fs::read_to_string(dest.join(crate::scripts::ROTOM_TOML)).unwrap();
+        assert!(toml.contains("name = \"neu\""), "{toml}");
+        assert!(!toml.contains("include_roots"), "{toml}");
+        assert!(
+            dest.join(".rotom/command_database/.g4-ids-trainers.json")
+                .is_file()
+        );
+        assert_eq!(
+            *Project::open(&dest).unwrap().source_mode(),
+            crate::project::SourceMode::TextProject
+        );
+        // Recorded in the staging folder, still in step after the rename.
+        let p = Project::open(&dest).unwrap();
+        let scan = crate::textproject::sync::scan(&p, &mut |_| {}).unwrap();
+        assert!(
+            scan.units
+                .iter()
+                .all(|u| u.side == crate::textproject::sync::UnitSide::InSync),
+            "{:?}",
+            scan.units
+        );
     }
 
     #[test]
@@ -1185,7 +1373,7 @@ mod create_tests {
             std::fs::write(d.join("junk"), "x").unwrap();
             Err(KernelError::Build("boom".into()))
         };
-        let result = create_project_with(&rom, &dest, Template::Original, &mut |_| {}, &bad);
+        let result = create_project_with(&rom, &dest, &opts(Template::Original), &mut |_| {}, &bad);
         assert!(matches!(result, Err(KernelError::Build(_))));
         assert!(!dest.exists());
         assert!(!tmp.path().join(".neu.g4-new").exists());
@@ -1238,7 +1426,14 @@ mod create_tests {
     fn data_only_is_recorded_in_the_mark() {
         let (tmp, rom) = synthetic_rom();
         let dest = tmp.path().join("neu");
-        create_project_with(&rom, &dest, Template::DataOnly, &mut |_| {}, &fake_extract).unwrap();
+        create_project_with(
+            &rom,
+            &dest,
+            &opts(Template::DataOnly),
+            &mut |_| {},
+            &fake_extract,
+        )
+        .unwrap();
         assert_eq!(
             read_base_mark(&dest).unwrap().template,
             Some(Template::DataOnly)
@@ -1257,7 +1452,7 @@ mod create_tests {
         let result = create_project_with(
             &rom,
             &dest,
-            Template::EmptyRegion,
+            &opts(Template::EmptyRegion),
             &mut |p| seen.push(p),
             &fake_extract,
         );
@@ -1295,7 +1490,7 @@ mod create_tests {
         create_project_with(
             &rom,
             &dest,
-            Template::EmptyRegion,
+            &opts(Template::EmptyRegion),
             &mut |_| {},
             &fake_extract_world,
         )

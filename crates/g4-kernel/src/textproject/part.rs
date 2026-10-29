@@ -141,7 +141,7 @@ pub(crate) fn part_in_at(
         Part::Hex { hex } => unhex(hex).map_err(|e| format!("{SCHEMA_CODE}: {path}.hex: {e}")),
         Part::File { file } => {
             check_file_name(file).map_err(|e| format!("{SCHEMA_CODE}: {path}.file: {e}"))?;
-            std::fs::read(dir.join(file)).map_err(|e| {
+            crate::fsutil::read_noted(dir.join(file)).map_err(|e| {
                 let why = match e.kind() {
                     std::io::ErrorKind::NotFound => "fehlt.".to_owned(),
                     _ => format!("ist nicht lesbar ({e})."),

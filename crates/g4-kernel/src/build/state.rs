@@ -26,6 +26,20 @@ pub struct BuildState {
     pub texts: BTreeMap<u16, TextRecord>,
     #[serde(default)]
     pub rom: Option<RomRecord>,
+    /// The text project's sync (phase 4.3b): what the files watched by the sync between the
+    /// JSON and the members held when last recorded. Not build cache, so "build without
+    /// cache" keeps it like `texts`; `None` until the whole tree was recorded once.
+    #[serde(default)]
+    pub sync: Option<SyncRecord>,
+}
+
+/// The fingerprints of the files the text project's sync watches (project-relative paths
+/// with `/`), each with its content hash, and the scan they are judged against for the racy
+/// rule (a record added later never moves it forward, so it stays the earliest).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SyncRecord {
+    pub scanned_at_ns: i128,
+    pub files: BTreeMap<String, Fp>,
 }
 
 /// What a step saw when it last succeeded. Paths are project-relative with `/` (absolute for
@@ -205,21 +219,23 @@ impl BuildState {
         Ok(())
     }
 
-    /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`): they are
-    /// not build cache but what decides whether a text's JSON or its member applies (a member
-    /// DSPRE changed since the last sync stays `MemberNewer`), and they are checked by
-    /// content. The state with them alone (no step entries, no ROM) replaces `state.json`
-    /// first, atomically, and only then goes everything else in the folder (the BLZ cache,
-    /// stray files): a crash or an error in between leaves the records, never a state
-    /// without them. Without any records (a missing, broken or empty state) the folder is
-    /// just gone. Under the same lock as [`BuildState::update`], so a sync recorded meanwhile
-    /// is not lost.
+    /// Deletes [`BUILD_DIR`] but keeps the text archives' sync records (`texts`) and the text
+    /// project's sync (`sync`): they are not build cache but what decides whether a text's
+    /// JSON or its member applies (a member DSPRE changed since the last sync stays
+    /// `MemberNewer`) and which side of an entity changed, and they are checked by content.
+    /// The state with them alone (no step entries, no ROM) replaces `state.json` first,
+    /// atomically, and only then goes everything else in the folder (the BLZ cache, stray
+    /// files): a crash or an error in between leaves the records, never a state without
+    /// them. Without any records (a missing, broken or empty state) the folder is just gone.
+    /// Under the same lock as [`BuildState::update`], so a sync recorded meanwhile is not
+    /// lost.
     pub(crate) fn clear_keeping_texts(root: &Path) -> Result<(), KernelError> {
         let mut cache = LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let texts = BuildState::read(&mut cache, root).texts.clone();
+        let state = BuildState::read(&mut cache, root);
+        let (texts, sync) = (state.texts.clone(), state.sync.clone());
         forget(&mut cache, root);
         let dir = root.join(BUILD_DIR);
-        if texts.is_empty() {
+        if texts.is_empty() && sync.is_none() {
             return remove_all(&dir);
         }
         BuildState::write(
@@ -227,6 +243,7 @@ impl BuildState {
             root,
             BuildState {
                 texts,
+                sync,
                 ..BuildState::empty()
             },
         )?;
@@ -373,6 +390,28 @@ mod tests {
         BuildState::update(root, |s| s.texts.clear()).unwrap();
         BuildState::clear_keeping_texts(root).unwrap();
         assert!(!root.join(BUILD_DIR).exists());
+    }
+
+    #[test]
+    fn clearing_keeps_the_sync_of_the_text_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let sync = SyncRecord {
+            scanned_at_ns: 4,
+            files: BTreeMap::from([("data/moves/0001.json".into(), fp(5))]),
+        };
+        BuildState::update(root, |s| {
+            s.steps.insert("rom".into(), StepRecord::default());
+            s.sync = Some(sync.clone());
+        })
+        .unwrap();
+        BuildState::clear_keeping_texts(root).unwrap();
+        let loaded = BuildState::load(root);
+        assert_eq!(loaded.sync, Some(sync));
+        assert!(
+            loaded.steps.is_empty() && loaded.texts.is_empty(),
+            "{loaded:?}"
+        );
     }
 
     #[test]

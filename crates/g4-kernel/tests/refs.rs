@@ -14,6 +14,7 @@ use g4_formats::data::learnset::LearnEntry;
 use g4_kernel::data::refs::{Ref, RefIndex, Target};
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, MapHeader, ObjectEvent, Store};
+use g4_kernel::test_support::TextFixture;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestRunner};
 
@@ -831,6 +832,160 @@ fn incremental_over(fixture: &common::Synthetic, ops: Vec<Op>) -> Result<(), Tes
         prop_assert_eq!(&rebuilt.refs(&st, target).unwrap(), &expected);
     }
     Ok(())
+}
+
+// --- script sources ---
+
+const SCRIPT_0: AssetId = AssetId {
+    kind: AssetKind::Script,
+    index: 0,
+};
+const SOURCE_0: &str = "expanded/scripts/0000.rotom";
+
+/// The synthetic text project (scripts adopted) with `source` as script file 0, and its store.
+fn script_store(source: &str) -> (TextFixture, Store) {
+    let fx = TextFixture::exported();
+    fx.write(SOURCE_0, source.as_bytes());
+    let st = Store::new(Arc::new(fx.project()));
+    (fx, st)
+}
+
+/// The references from script sources to `target`.
+fn script_refs(index: &mut RefIndex, st: &Store, target: Target) -> Vec<Ref> {
+    index
+        .refs(st, target)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .collect()
+}
+
+#[test]
+fn a_trainer_battle_in_a_script_is_a_reference_with_its_line() {
+    let (_fx, st) = script_store(
+        "script Main #1:\n    SetTrainerFlag 3\n    StartTrainerBattle 3, 0\n    End\n\
+         script Second #2:\n    TrainerBattle 4, 0\n    End\n",
+    );
+    let mut index = RefIndex::new();
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Trainer(3)),
+        [
+            r(SCRIPT_0, "SetTrainerFlag", Some(2), Target::Trainer(3)),
+            r(SCRIPT_0, "StartTrainerBattle", Some(3), Target::Trainer(3)),
+        ]
+    );
+    // DSPRE's (legacy) name of the command counts under rotom's.
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Trainer(4)),
+        [r(
+            SCRIPT_0,
+            "StartTrainerBattle",
+            Some(6),
+            Target::Trainer(4)
+        )]
+    );
+    // Trainer 0 as the second trainer is "none".
+    assert!(script_refs(&mut index, &st, Target::Trainer(0)).is_empty());
+}
+
+#[test]
+fn an_id_constant_counts_like_its_number() {
+    let (fx, st) = script_store(
+        "alias 4 as MY_TRAINER\n\
+         script Main #1:\n    StartTrainerBattle TRAINER_YOUNGSTER_KAI, MY_TRAINER\n\
+         \x20   if CheckItem(ITEM_POTION, 1) == 1 then\n        GivePokemon SPECIES_PIKACHU, 5, 0, VAR_RESULT\n    endif\n\
+         \x20   End\nscript Second #2:\n    End\n",
+    );
+    // The id files need not exist: the index resolves what the build would write.
+    assert!(g4_kernel::textproject::include::id_files(&fx.project()).is_ok());
+    let mut index = RefIndex::new();
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Trainer(1)),
+        [r(
+            SCRIPT_0,
+            "StartTrainerBattle",
+            Some(3),
+            Target::Trainer(1)
+        )]
+    );
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Trainer(4)),
+        [r(
+            SCRIPT_0,
+            "StartTrainerBattle",
+            Some(3),
+            Target::Trainer(4)
+        )]
+    );
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Item(17)),
+        [r(SCRIPT_0, "CheckItem", Some(4), Target::Item(17))]
+    );
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Species(25)),
+        [r(SCRIPT_0, "GivePokemon", Some(5), Target::Species(25))]
+    );
+}
+
+#[test]
+fn a_variable_argument_is_no_reference() {
+    let (_fx, st) = script_store(
+        "script Main #1:\n    AddItem 0x8004, 1, VAR_RESULT\n    SetTrainerFlag VAR_RESULT\n\
+         \x20   CheckItem VARS_START, 1, VAR_RESULT\n    StartTrainerBattle UNKNOWN_NAME, 0\n\
+         \x20   End\nscript Second #2:\n    End\n",
+    );
+    let mut index = RefIndex::new();
+    let all = index
+        .refs_where(&st, |_| true)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .collect::<Vec<_>>();
+    assert!(all.is_empty(), "{all:?}");
+}
+
+#[test]
+fn a_script_saved_outside_the_store_is_reread_on_refresh() {
+    let (fx, st) = script_store("script Main #1:\n    StartTrainerBattle 3, 0\n    End\n");
+    let mut index = RefIndex::new();
+    assert_eq!(script_refs(&mut index, &st, Target::Trainer(3)).len(), 1);
+    assert_eq!(index.refresh(&st).unwrap(), []);
+
+    // Saved by the script editor, DSPRE or a branch switch: the store knows nothing of it.
+    fx.write(
+        SOURCE_0,
+        b"script Main #1:\n    End\nscript Other #2:\n    StartTrainerBattle 5, 0\n    End\n",
+    );
+    assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
+    assert!(script_refs(&mut index, &st, Target::Trainer(3)).is_empty());
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Trainer(5)),
+        [r(
+            SCRIPT_0,
+            "StartTrainerBattle",
+            Some(4),
+            Target::Trainer(5)
+        )]
+    );
+
+    // A removed source takes its references with it.
+    std::fs::remove_file(fx.root().join(SOURCE_0)).unwrap();
+    assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
+    assert!(script_refs(&mut index, &st, Target::Trainer(5)).is_empty());
+}
+
+#[test]
+fn without_adopted_scripts_there_is_no_script_source() {
+    let fx = TextFixture::dspre();
+    let st = Store::new(Arc::new(fx.project()));
+    let mut index = RefIndex::new();
+    let from_scripts = index
+        .refs_where(&st, |_| true)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .count();
+    assert_eq!(from_scripts, 0);
 }
 
 // --- gated: the vanilla projects ---

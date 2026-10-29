@@ -6,11 +6,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use g4_formats::area_data::AreaData;
 use g4_formats::game::{Family, Language};
 use g4_formats::narc::Narc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::text::TextArchiveDoc;
+use crate::textproject::manifest::{SchemaState, refusal, schema_state};
+use crate::textproject::source::{EntityUnit, UnitCache, unit_of};
 
 const ARCHIVES_YAML: &str = include_str!("../metadata/archives.yaml");
 const HEADER_TABLES_YAML: &str = include_str!("../metadata/header_tables.yaml");
@@ -263,6 +265,54 @@ pub enum Location {
     /// `TrainerProperties` and `TrainerParty`, same index). The asset's bytes are
     /// `u32 len(props) | props | party` (little endian).
     MemberPair { props: PathBuf, party: PathBuf },
+    /// An asset of a text project ([`SourceMode::TextProject`]): its unit's JSON under `data/`
+    /// is its source, `members` (one of the locations above) the build's intermediate state.
+    /// The asset's bytes are those of `members`, read from the JSON
+    /// ([`crate::textproject::source::EntitySource::read`]).
+    Entity {
+        unit: EntityUnit,
+        members: Box<Location>,
+    },
+}
+
+/// Where the store's assets come from, read once from `g4-project.json` when the project is
+/// opened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SourceMode {
+    /// No manifest: the DSPRE folder's members are the source.
+    Dspre,
+    /// A text project of the current schema: the entity JSON under `data/` is the source.
+    TextProject,
+    /// A text project of an older schema (to migrate first): read from the members, never
+    /// edited.
+    Older { schema: u32 },
+    /// A text project of a newer Studio: read from the members, never edited.
+    Newer { schema: u32 },
+    /// A manifest that does not read; `reason` names file, line and column.
+    Broken { reason: String },
+}
+
+impl SourceMode {
+    /// The mode of the folder at `root`.
+    fn of(root: &Path) -> SourceMode {
+        match schema_state(root) {
+            Ok(SchemaState::Missing) => SourceMode::Dspre,
+            Ok(SchemaState::Current) => SourceMode::TextProject,
+            Ok(SchemaState::Older(schema)) => SourceMode::Older { schema },
+            Ok(SchemaState::Newer(schema)) => SourceMode::Newer { schema },
+            Err(KernelError::Compile(problems)) => SourceMode::Broken {
+                reason: problems
+                    .iter()
+                    .map(|p| format!("{}:{}:{}: {}", p.file.display(), p.line, p.col, p.message))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            },
+            Err(e) => SourceMode::Broken {
+                reason: e.to_string(),
+            },
+        }
+    }
 }
 
 /// Archive locations (packed NARC and unpacked folder name) per asset kind,
@@ -495,6 +545,10 @@ pub struct Project {
     pub archives: ArchiveMap,
     /// The arm9 tables, read once on first use (`data::arm9`).
     pub(crate) arm9_tables: crate::data::arm9::Arm9Cache,
+    /// See [`Project::source_mode`].
+    source_mode: SourceMode,
+    /// What [`Project::asset_location`] reads to find an asset's unit in a text project.
+    unit_cache: UnitCache,
 }
 
 impl Project {
@@ -517,6 +571,7 @@ impl Project {
         let language = Language::from_game_code(&game_code)
             .ok_or_else(|| KernelError::UnknownGame(game_code.clone()))?;
         let archives = ArchiveMap::for_game(family, language, &game_code)?;
+        let source_mode = SourceMode::of(&root);
         Ok(Project {
             root,
             game_code,
@@ -524,7 +579,35 @@ impl Project {
             language,
             archives,
             arm9_tables: Default::default(),
+            source_mode,
+            unit_cache: UnitCache::default(),
         })
+    }
+
+    /// Where the store's assets come from: from `g4-project.json`, read once at
+    /// [`Project::open`] (a project opened again sees a changed manifest).
+    pub fn source_mode(&self) -> &SourceMode {
+        &self.source_mode
+    }
+
+    /// `Ok` when the project's assets may be edited (a DSPRE folder or a text project of the
+    /// current schema); else [`KernelError::Refused`] with the sentence of the manifest for an
+    /// older or newer schema, or the problem of a manifest that does not read.
+    pub fn editable(&self) -> Result<(), KernelError> {
+        let state = match &self.source_mode {
+            SourceMode::Dspre | SourceMode::TextProject => return Ok(()),
+            SourceMode::Older { schema } => SchemaState::Older(*schema),
+            SourceMode::Newer { schema } => SchemaState::Newer(*schema),
+            SourceMode::Broken { reason } => return Err(KernelError::Refused(reason.clone())),
+        };
+        Err(KernelError::Refused(refusal(state).unwrap_or_else(|| {
+            "Das Textprojekt hat eine andere Schema-Version; es lässt sich nur lesen.".to_owned()
+        })))
+    }
+
+    /// The listings and the item table [`Project::asset_location`] finds units with.
+    pub(crate) fn unit_cache(&self) -> &UnitCache {
+        &self.unit_cache
     }
 
     /// `root/unpacked/<name>`
@@ -559,14 +642,35 @@ impl Project {
         dynamic_headers::is_applied(self)
     }
 
-    /// Where the bytes of asset `index` of `kind` live. Archive kinds are whole files (a text
-    /// archive is its JSON source and its member, see [`Location::TextSource`]); the
-    /// header table is the slice of `arm9/arm9.bin` holding every header (its only asset has
-    /// index 0), or, once the Dynamic Headers patch is applied, the files of
+    /// Where the store reads and writes asset `index` of `kind`: in a text project
+    /// ([`SourceMode::TextProject`]) every kind the store edits that has a unit there (all but
+    /// the text archives) is a [`Location::Entity`] around its [`Project::member_location`];
+    /// everywhere else the member location itself.
+    pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+        let members = self.member_location(kind, index)?;
+        if self.source_mode != SourceMode::TextProject
+            || !crate::store::is_store_kind(kind)
+            || kind == AssetKind::TextArchive
+        {
+            return Ok(members);
+        }
+        Ok(match unit_of(self, AssetId { kind, index })? {
+            Some(unit) => Location::Entity {
+                unit,
+                members: Box::new(members),
+            },
+            None => members,
+        })
+    }
+
+    /// Where the bytes of asset `index` of `kind` live in the members. Archive kinds are whole
+    /// files (a text archive is its JSON source and its member, see [`Location::TextSource`]);
+    /// the header table is the slice of `arm9/arm9.bin` holding every header (its only asset
+    /// has index 0), or, once the Dynamic Headers patch is applied, the files of
     /// `unpacked/dynamicHeaders`. Fails with `InvalidProject` for another index, when
     /// `arm9.bin` is too short for the table or the folder is missing, and with
     /// `UnknownGame` when the game has no known table offset.
-    pub fn asset_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+    pub fn member_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
         if kind == AssetKind::TextArchive {
             return Ok(Location::TextSource {
                 json: self.expanded_dir(kind).join(format!("{index:04}.json")),
@@ -691,7 +795,7 @@ impl Project {
 
     pub(crate) fn read_packed(&self, kind: AssetKind) -> Result<Narc, KernelError> {
         let path = self.root.join(self.require_packed(kind)?);
-        let bytes = std::fs::read(&path).map_err(io_at(&path))?;
+        let bytes = crate::fsutil::read_noted(&path).map_err(io_at(&path))?;
         Ok(Narc::read(&bytes)?)
     }
 
@@ -891,7 +995,9 @@ impl Project {
             return Ok(None);
         }
         let path = self.member_path(kind, index);
-        std::fs::read(&path).map(Some).map_err(io_at(&path))
+        crate::fsutil::read_noted(&path)
+            .map(Some)
+            .map_err(io_at(&path))
     }
 
     pub(crate) fn uxie_family(&self) -> uxie::GameFamily {
@@ -948,7 +1054,7 @@ impl Project {
     /// `arm9/arm9.bin`, or the files of `unpacked/dynamicHeaders` concatenated once the
     /// Dynamic Headers patch is applied.
     pub(crate) fn read_header_table_bytes(&self) -> Result<Vec<u8>, KernelError> {
-        match self.asset_location(AssetKind::HeaderTable, 0)? {
+        match self.member_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { dir, count } => dynamic_headers::read_files(&dir, count)?
                 .ok_or_else(|| dynamic_headers::missing_file_error(&dir, count)),
             Location::Slice { path, offset, len } => {
@@ -958,9 +1064,12 @@ impl Project {
                 file.read_exact(&mut bytes).map_err(io_at(&path))?;
                 Ok(bytes)
             }
-            Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
-                KernelError::InvalidProject("the header table is not a member file".to_owned()),
-            ),
+            Location::Member(_)
+            | Location::TextSource { .. }
+            | Location::MemberPair { .. }
+            | Location::Entity { .. } => Err(KernelError::InvalidProject(
+                "the header table is not a member file".to_owned(),
+            )),
         }
     }
 
@@ -968,12 +1077,15 @@ impl Project {
     /// that many (`arm9.bin` is large enough, or `unpacked/dynamicHeaders` exists). Parses
     /// no header and never reads the text archive.
     pub fn header_count(&self) -> Result<usize, KernelError> {
-        match self.asset_location(AssetKind::HeaderTable, 0)? {
+        match self.member_location(AssetKind::HeaderTable, 0)? {
             Location::HeaderFiles { count, .. } => Ok(count),
             Location::Slice { len, .. } => Ok(len / MAP_HEADER_SIZE),
-            Location::Member(_) | Location::TextSource { .. } | Location::MemberPair { .. } => Err(
-                KernelError::InvalidProject("the header table is not a member file".to_owned()),
-            ),
+            Location::Member(_)
+            | Location::TextSource { .. }
+            | Location::MemberPair { .. }
+            | Location::Entity { .. } => Err(KernelError::InvalidProject(
+                "the header table is not a member file".to_owned(),
+            )),
         }
     }
 
@@ -998,7 +1110,7 @@ impl Project {
     /// `files/fielddata/maptable/mapname.bin` (NUL padded, read lossily as UTF-8).
     pub fn internal_names(&self) -> Result<Vec<String>, KernelError> {
         let names_path = self.mapname_path();
-        let mapnames = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        let mapnames = crate::fsutil::read_noted(&names_path).map_err(io_at(&names_path))?;
         Ok(mapnames
             .as_chunks::<MAPNAME_RECORD>()
             .0

@@ -16,7 +16,7 @@ use crate::text::{Problem, Severity};
 use super::arts::{Art, archive_texts, bank_texts, is_known_folder, numbered, slash};
 use super::base_layer::walk;
 use super::canon::problem;
-use super::codes::{ID_DANGLING_CODE, RESERVED_CODE, UNKNOWN_ART_CODE};
+use super::codes::{ID_DANGLING_CODE, ID_SHADOWED_CODE, RESERVED_CODE, UNKNOWN_ART_CODE};
 use super::import::{LazyBase, plan_import};
 use super::locate::key_position;
 use super::manifest::{Manifest, SchemaState, read_manifest, schema_state};
@@ -51,6 +51,7 @@ pub fn check(project: &Project) -> Result<CheckReport, KernelError> {
     if let Ok(manifest) = read_manifest(&project.root) {
         problems.extend(hints(project, &manifest)?);
     }
+    problems.extend(shadowed(project)?);
     Ok(CheckReport {
         schema,
         problems,
@@ -158,6 +159,51 @@ fn hint(file: &Path, code: &str, severity: Severity, message: String) -> Problem
         severity,
         ..problem(file, code, message)
     }
+}
+
+/// The ids left out of the id files for rotom ([`include`](super::include)), one warning each:
+/// at the id's key in its register, or at the id file of a kind with a fixed table. None when
+/// the id files cannot be made (a broken register is the import plan's problem to report, a
+/// constant folder rotom cannot read the compile's).
+fn shadowed(project: &Project) -> Result<Vec<Problem>, KernelError> {
+    let Ok(files) = super::include::id_files(project) else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for id in files.shadowed {
+        let why = match (id.rotom, id.other) {
+            (Some(value), _) => format!("rotom kennt den Namen schon als {value}"),
+            (None, Some(kind)) => format!("der Name ist schon eine ID der Art {}", kind.prefix()),
+            (None, None) => continue,
+        };
+        let meaning = id
+            .rotom
+            .map_or(String::new(), |v| format!("; in Scripts gilt {v}"));
+        let message = format!(
+            "`{}` ({}) fehlt in den ID-Dateien für rotom: {why}{meaning}.",
+            id.id, id.number
+        );
+        let problem = match registry_file(id.kind) {
+            Some(file) => {
+                let rel = Path::new(IDS_DIR).join(file);
+                let bytes = std::fs::read(project.root.join(&rel)).unwrap_or_default();
+                let (line, col) = key_position(&bytes, &id.id, 0);
+                Problem {
+                    line,
+                    col,
+                    ..hint(&rel, ID_SHADOWED_CODE, Severity::Warning, message)
+                }
+            }
+            None => hint(
+                &super::include::id_file_path(project, id.kind),
+                ID_SHADOWED_CODE,
+                Severity::Warning,
+                message,
+            ),
+        };
+        out.push(problem);
+    }
+    Ok(out)
 }
 
 /// The entries of the register of `kind` whose number the project no longer has: maps and

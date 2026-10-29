@@ -106,6 +106,23 @@ describe("ToastHost", () => {
     expect(container.querySelector("[role=alert]")).toBeNull();
   });
 
+  it("a_path_breaks_after_a_slash_not_inside_a_name", () => {
+    // UI test 4.3b U7: a long path wraps at its slashes; the text reads the same.
+    const text = "Textprojekt zurückgenommen. Sicherung: /Users/x/_testkopien/4-3b-web_DSPRE_contents/.g4/backup/textproject-2026-10-28T223744Z";
+    act(() => {
+      toast.info(text);
+    });
+    const shown = container.querySelector("[role=status] p")!;
+    expect(shown.textContent).toBe(text);
+    expect(shown.querySelectorAll("wbr")).toHaveLength(text.split("/").length - 1);
+    for (const wbr of shown.querySelectorAll("wbr")) expect(wbr.previousSibling?.textContent?.endsWith("/")).toBe(true);
+    // Without a slash: the text as it is.
+    act(() => {
+      toast.error("Die Datei fehlt.");
+    });
+    expect(container.querySelector("[role=alert] p")?.innerHTML).toBe("Die Datei fehlt.");
+  });
+
   it("the_close_button_dismisses_the_toast", () => {
     act(() => {
       toast.error("Die Datei fehlt.");

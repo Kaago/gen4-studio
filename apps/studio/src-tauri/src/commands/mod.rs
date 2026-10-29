@@ -27,6 +27,7 @@ mod start;
 mod templates;
 mod text;
 mod textproject;
+mod textsource;
 mod wizards;
 mod world;
 mod world_meta;
@@ -56,6 +57,7 @@ pub use start::*;
 pub use templates::*;
 pub use text::*;
 pub use textproject::*;
+pub use textsource::*;
 pub use wizards::*;
 pub use world::*;
 pub use world_meta::*;
@@ -71,6 +73,23 @@ pub(crate) fn lock(state: &AppState) -> Result<MutexGuard<'_, Option<Session>>, 
 
 pub(crate) fn session(guard: &mut Option<Session>) -> Result<&mut Session, CmdError> {
     guard.as_mut().ok_or_else(|| "no project open".into())
+}
+
+/// The open project (its `Arc`; the session lock is released again).
+pub(crate) fn open_project_arc(
+    state: &AppState,
+) -> Result<std::sync::Arc<g4_kernel::project::Project>, CmdError> {
+    let mut guard = lock(state)?;
+    Ok(std::sync::Arc::clone(&session(&mut guard)?.project))
+}
+
+/// The id resolver of `project`, for the project files that take an id or a number
+/// (`g4-world.json`, `g4-checks.json`) before a session keeps it ([`Session::ids`]): outside
+/// a text project the fixed tables when it cannot be made.
+pub(crate) fn session_ids(
+    project: &g4_kernel::project::Project,
+) -> Result<g4_kernel::textproject::ids::Resolver, CmdError> {
+    crate::state::project_ids(project)
 }
 
 /// printf argument of a minimal valid GLB (JSON chunk only, no images) for fake apicula scripts:

@@ -290,7 +290,7 @@ pub fn create_trainer_with(
     }
     if let Some(slot) = placeholder {
         let index = store
-            .append_trainer(&[0; 20], &[0; 8])
+            .append_trainer(&[0; 20], &[0; 8], None)
             .map_err(|e| progress.failed("writing the placeholder", e))?;
         progress.created.push(index);
         if index != slot {
@@ -301,7 +301,7 @@ pub fn create_trainer_with(
         }
     }
     let index = store
-        .append_trainer(&props, &party)
+        .append_trainer(&props, &party, Some(name))
         .map_err(|e| progress.failed("writing the trainer", e))?;
     progress.created.push(index);
     if index != id {
@@ -934,8 +934,8 @@ mod tests {
         let mut props = [0u8; 20];
         props[1] = 7;
         props[12] = 1;
-        assert_eq!(f.store.append_trainer(&props, &[0; 8]).unwrap(), 3);
-        assert_eq!(f.store.append_trainer(&props, &[0; 8]).unwrap(), 4);
+        assert_eq!(f.store.append_trainer(&props, &[0; 8], None).unwrap(), 3);
+        assert_eq!(f.store.append_trainer(&props, &[0; 8], None).unwrap(), 4);
         f.store.trainer(4).unwrap();
         // Learning the sight slot ID with the trainer loaded does not lock it ...
         f.store.set_placeholder_trainer(Some(4)).unwrap();

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use g4_kernel::start::{self, DestCheck, Phase, Progress, RomInfo, Template};
+use g4_kernel::start::{self, CreateOptions, DestCheck, Phase, Progress, RomInfo, Template};
 use serde::Serialize;
 use tauri::{Manager, ipc::Channel};
 
@@ -60,16 +60,23 @@ pub fn check_project_dest_impl(dest: &str, rom_size: u64) -> DestCheck {
     start::check_destination(Path::new(dest), rom_size)
 }
 
-/// Creates the project, then remembers its ROM as a base ROM (`base-roms.json`); a ROM that
+/// Creates the project (with `text_project` set up as text project after the check, phase
+/// `text_project`), then remembers its ROM as a base ROM (`base-roms.json`); a ROM that
 /// cannot be remembered does not fail the project, it is searched for again later.
 pub fn create_project_impl(
     state: &AppState,
     rom: &str,
     dest: &str,
     template: Template,
+    text_project: bool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<CreatedDto, CmdError> {
-    let created = start::create_project(Path::new(rom), Path::new(dest), template, progress)?;
+    let opts = CreateOptions {
+        template,
+        text_project,
+    };
+    let created =
+        start::create_project_with_options(Path::new(rom), Path::new(dest), &opts, progress)?;
     if let Err(e) = state.base_roms.register(Path::new(rom), &created.info) {
         eprintln!("Basis-ROM nicht gemerkt: {e}");
     }
@@ -107,20 +114,30 @@ pub fn check_project_dest(dest: String, rom_size: u64) -> DestCheck {
     check_project_dest_impl(&dest, rom_size)
 }
 
-/// Unpacks a ROM (seconds) on a blocking worker and reports each phase over `progress`.
+/// Unpacks a ROM (seconds; set up as text project with `text_project`, default off, 10 to
+/// 120 s more) on a blocking worker and reports each phase over `progress`.
 #[tauri::command]
 pub async fn create_project(
     app: tauri::AppHandle,
     rom: String,
     dest: String,
     template: Template,
+    text_project: Option<bool>,
     progress: Channel<Progress>,
 ) -> Result<CreatedDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
-        create_project_impl(&app.state::<AppState>(), &rom, &dest, template, &mut |p| {
-            // A closed channel only means nobody watches the progress any more.
-            let _ = progress.send(p);
-        })
+        let text_project = text_project.unwrap_or(false);
+        create_project_impl(
+            &app.state::<AppState>(),
+            &rom,
+            &dest,
+            template,
+            text_project,
+            &mut |p| {
+                // A closed channel only means nobody watches the progress any more.
+                let _ = progress.send(p);
+            },
+        )
     })
     .await
     .map_err(|e| CmdError::from(e.to_string()))?
@@ -168,6 +185,7 @@ mod tests {
             rom.to_str().unwrap(),
             dest.to_str().unwrap(),
             Template::Original,
+            false,
             &mut |_| {},
         )
         .unwrap_err();
@@ -185,6 +203,7 @@ mod tests {
             rom.to_str().unwrap(),
             tmp.path().join("neu").to_str().unwrap(),
             Template::DataOnly,
+            true,
             &mut |_| {},
         )
         .unwrap_err();

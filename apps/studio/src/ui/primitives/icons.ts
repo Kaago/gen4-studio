@@ -25,6 +25,7 @@ import {
   Door,
   DotsSixVertical,
   DotsThree,
+  FileCode,
   FloppyDisk,
   FolderOpen,
   GameController,
@@ -139,6 +140,8 @@ export const icons = {
   publish: UploadSimple,
   /** Technik › Änderungen (what differs from the base ROM). */
   changes: GitDiff,
+  /** Technik › Textprojekt (the project as readable files, the sync with DSPRE). */
+  textproject: FileCode,
   tools: Toolbox,
   density: Rows,
   agent: Robot,

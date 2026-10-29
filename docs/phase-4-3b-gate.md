@@ -1,0 +1,255 @@
+# Phase 4.3b: Gate prüfen
+
+Stand: 2026-10-29. Branch `phase-4-3b-textprojekt-quelle` (Worktree `.claude/worktrees/phase-4-3b`, Basis `a6933b3` mit 4.3a), nicht nach main gemergt. Gate vom Agenten bestanden: (1) Automatik mit den gated Tests im Release-Profil auf Platin DE, HeartGold DE und HeartGold US und (2) Szenario kopflos über `g4k` und `studio mcp` auf dem Stand `9775467`; (3) Browser-Teil und MCP über die Brücke im UI-Test am 2026-10-28 auf `3578645`, seine acht Befunde (U1 bis U8) behoben in `fdb3483` und `9775467` und U1, U2, U3, U8 im Gate-Lauf nachgeprüft. Ein Befund des Gate-Laufs (G1, ein gated Test unter `scripts/gate.sh`) ist in `891e1e3` behoben; danach ist `scripts/gate.sh` grün auf `891e1e3` in 8 324 s (Abschnitt „Ergebnis“). Die Nachträge I1 bis I3 aus dem Review von 4.3a sind hier behoben (Abschnitt „Nachträge aus 4.3a“). Beim Nutzer offen: die DSPRE-Gegenprobe auf einem eingerichteten Ordner, der Fokuswechsel im gepackten Tauri-Fenster, die Fortschrittsphasen beim Einrichten (Hand), der Blick auf die Bilder des UI-Tests und die `.fig`; Abschnitte „Hand“ und „Blick“.
+
+Phase 4.3b macht das Textprojekt zur Quelle des Studios: In einem Projekt mit `g4-project.json` liest und schreibt der Store die Entitäts-JSON unter `data/` (`Location::Entity`, `EntitySource`), die Member unter `unpacked/` sind nur noch Build-Zwischenstand. Ein DSPRE-Ordner lässt sich über „Als Textprojekt einrichten…“ (Technik › Textprojekt, Hinweis beim Öffnen, Häkchen im Assistenten „Neues Spiel aus ROM“, MCP `adopt_text_project`, `g4k text adopt`) umstellen und über „Zurücknehmen…“ (`g4k text revert`) wieder zurücknehmen. DSPRE bleibt parallel nutzbar: beim Öffnen und beim Fensterfokus gleicht das Studio über die Fingerabdrücke in `.g4/build/state.json` (`sync`) ab, übernimmt einseitige Änderungen und meldet sie, zeigt beidseitige als Konflikt mit Diff und Wahl je Entität in Technik › Textprojekt und überschreibt nie still. Symbolische IDs (ID oder Nummer) gelten in `g4-world.json`, `g4-checks.json` (jetzt mit `version: 1`), den Rezepten der Vorlagen, den MCP-Argumenten und in Scripts (über versteckte ID-Dateien für rotom, siehe „Hinweise“); „ID umbenennen“ zieht jeden Verweis als ein Undo-Schritt nach. Roadmap: [docs/ROADMAP.md](ROADMAP.md), Abschnitt „Phase 4“, Punkt „4.3b Textprojekt als Quelle“. Entscheidungen: [entscheidungen.md](research/2026-10-27-phase-4/entscheidungen.md), Abschnitt „Textprojekt (Gutachten A, 4.3)“ (besonders „DSPRE parallel“, „Umstellung eines DSPRE-Ordners“, „Referenzindex und Scripts“, „Kollisionen, Umbenennen“). Plan: [2026-10-28-phase-4-3b-textprojekt-quelle.md](superpowers/plans/2026-10-28-phase-4-3b-textprojekt-quelle.md). Format: [docs/formats/text_project.md](formats/text_project.md); Werkzeuge: [mcp.md](mcp.md) (`text_project_status`, `adopt_text_project`, `external_changes`, `resolve_external_conflict`, `rename_id`).
+
+Gate-Text der Roadmap (Punkt 4.3b):
+
+> Gate (über die Test-Umgebung und MCP): Spezies im Studio ändern, nur `data/species/NNNN.json` ändert sich; einen Member „von DSPRE“ ändern, beim Fokus erkannt und übernommen; beide Seiten ändern, Konfliktliste, beide Wahlen wirken; ein MCP-Aufruf mit `SPECIES_PIKACHU` wirkt wie mit `25`; ROM in melonDS spielbar, `vanilla_checks` 0 Fehler; `scripts/gate.sh` grün.
+
+Wer was prüft: Die Spalte „Wer“ sagt **Agent** (die Test-Umgebung aus [docs/agent-gate.md](agent-gate.md): Browser-Fenster mit `studio-bridge`, `call.sh`, `mcp.sh`, dazu `g4k`, `studio mcp` kopflos und die gated Tests), **Agent + Blick** (der Agent prüft und beschreibt Ort und Zahlen, der Nutzer bestätigt kurz am Bild) oder **Hand** (der Nutzer). Befehle: [docs/agent-gate.md](agent-gate.md), Abschnitt „Phase 4.3b“.
+
+Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
+
+- **Technik › Textprojekt** (`[data-technik=textprojekt]`), Untertitel in der Liste „DSPRE-Layout“, „Abgeglichen“, „1 Konflikt“ / „{n} Konflikte“, „1 fehlerhafte Datei“ / „{n} fehlerhafte Dateien“, „Wird eingerichtet …“. DSPRE-Layout: Kopftext und „Als Textprojekt einrichten…“ (primär; ohne Basis-ROM gesperrt mit „Diesem Projekt ist keine Basis-ROM zugeordnet.“, während ein Agent einrichtet `role=status` „Wird von einem Agenten eingerichtet …“). Textprojekt: „Textprojekt, Schema-Version 1. Zuletzt abgeglichen …“, „Jetzt abgleichen“, „Zurücknehmen…“, Abschnitt „Zuletzt übernommen“ (Zeilen wie „Attacke 0033 · MOVE_TACKLE“ mit Plakette „aus DSPRE“, sonst „Nichts von außen geändert.“).
+- **Konflikte** `[data-sync-conflicts]` „Auf zwei Seiten geändert“, je Einheit `[data-conflict=<schlüssel>]` (etwa `data/moves/0038.json`) mit Plakette „Konflikt“ oder „Ungespeichert“; aufgeklappt die Tabelle Feld / Studio / DSPRE (bei ungespeicherten Werten heißt die Spalte „Studio (ungespeichert)“), die Tasten „Studio-Fassung behalten“ und „DSPRE-Fassung übernehmen“, bei ungespeicherten Werten die Warnung „„DSPRE-Fassung übernehmen“ verwirft die ungespeicherten Änderungen an diesem Eintrag.“
+- **Fehlerhafte Dateien** `[data-sync-broken]`, je Zeile `{datei}:{zeile}:{spalte}: {satz}` (ohne Prüfcode, seit U6).
+- **Meldungen:** „1 Änderung aus DSPRE übernommen“ / „{n} Änderungen …“ (+ „Anzeigen“), „1 Konflikt zwischen Studio und DSPRE“ (+ „Lösen…“), „1 Projektdatei ist fehlerhaft“, „Erst die Konflikte in Technik › Textprojekt lösen.“ (beim Bauen, ersetzt die Konfliktmeldung an derselben Stelle), „Textprojekt eingerichtet: 6.574 Dateien in 57 s.“, „Textprojekt zurückgenommen. Sicherung: …“, „ID umbenannt: … → …. ⌘Z nimmt es zurück.“, „Das Projekt ist schon ein Textprojekt.“
+- **Hinweis beim Öffnen** eines DSPRE-Ordners: „… DSPRE öffnet den Ordner weiter.“ mit „Einrichten…“, ohne Basis-ROM „… Dafür braucht es die Basis-ROM.“ mit „Basis-ROM zuordnen…“, dazu „Nicht mehr fragen“; er bleibt stehen, bis er beantwortet ist oder das Projekt kein DSPRE-Ordner mehr ist.
+- **Dialoge:** „Als Textprojekt einrichten?“ (Prüfliste ✓ „Alles gespeichert“, ✓ „Basis-ROM gefunden: …“, (i) „Scripts werden dabei übernommen“; „Abbrechen“ / „Einrichten“; im Lauf „Wird eingerichtet …“), „Textprojekt zurücknehmen?“ (mit Ungespeichertem „Erst speichern.“), „ID umbenennen“ (Feld „Neue ID“, Plan „2 Verweise in 2 Dateien werden nachgezogen.“ mit den Pfaden, Ablehnungen „… gibt es schon (Nummer 2).“ und „Die neue ID muss mit TRAINER_ beginnen …“).
+- **IDs in Köpfen:** Trainer, Pokédex und Header zeigen die ID als `[data-entity-id]` in Mono mit „ID kopieren“; „ID umbenennen…“ im Menü „Aktionen“.
+- **Assistent:** Kästchen „Als Textprojekt einrichten“ im Schritt „Vorlage“, Zusammenfassung „Original, als Textprojekt“, Phase „Textprojekt einrichten“ im Ablauf.
+- **Agent:** Frage `[data-agent-question]` „Als Textprojekt einrichten“ („Agent möchte etwas Unumkehrbares tun“).
+
+## Vorbereitung
+
+So durchgeführt am 2026-10-29 auf dem Stand `9775467` (01:00 bis 05:45):
+
+1. **Frische Kopien** unter `Roms/_testkopien/` per `cp -cR` (Ordner) und `cp -c` (`.nds`) aus den Originalen, die dabei nur gelesen wurden; Ordner `4-3b-<zweck>_DSPRE_contents` und `.nds` `4-3b-<zweck>.nds` direkt nebeneinander:
+   - `4-3b-pt` (Platin DE), `4-3b-hgde` (HeartGold DE), `4-3b-hgus` (HeartGold US) für (1); sie werden nur gelesen, die Tests schreiben auf `vanilla_copy()`, die Basis-ROM ist die Nachbar-`.nds`;
+   - `4-3b-kpt`, `4-3b-khgde`, `4-3b-khgus` für (2), je mit `g4k base assign` auf die Nachbar-`.nds`; die gebauten ROMs in `4-3b-k<spiel>-out/`;
+   - `4-3b-ui` (Platin DE, ohne Basismarke) und `4-3b-mcp` (Platin DE, Basis zugeordnet) für die Nachprüfung von U1, U2, U3 und U8; der Browser-Teil (3) selbst lief im UI-Test am 2026-10-28 auf `4-3b-ui`, `-ui2`, `-web`, `-mcp`, `-wiz`.
+
+   Alle `4-3b-*`-Kopien sind nach dem Gate gelöscht; `Manual` und `_saves` bleiben.
+2. **Werkzeuge:** `cargo build --release -p g4-kernel --bin g4k`, `cargo build --release -p studio --bin studio` und die Release-Testbinaries (`--no-run`), im Worktree ohne rotom-Download (`-p` ging). `tools/` ist der Symlink auf den Haupt-Checkout (nie einchecken). `G4_ROMS_DIR` absolut, `G4_BASE_ROM_DIR=<Roms>/_testkopien`. Vor dem Lauf `target/debug/incremental` gelöscht (Platte: 6 GB frei, danach 16 GB).
+3. **Test-Umgebung** für die Nachprüfung: `G4_ROMS_DIR=<Roms> G4_VITE_PORT=1580 G4_BRIDGE_PORT=1581 bash scripts/agent/studio-web.sh`, Browser-Fenster der Desktop-App (1024 × 768), Fokus über `window.dispatchEvent(new Event("focus"))`.
+4. **Ausgaben** unter `target/agent/gate-2026-10-29/4-3b/` im Worktree: `gated-{source,studio,start}-<k>.log` (1), `kopflos-k<spiel>.log` (2; `kopflos-kpt-lauf1.log` ist der erste vollständige Platin-Lauf mit knapperem Protokoll), `emu-k<spiel>/` (g4emu-Bilder), `recheck-mcp-adopt*.out`, `build-release.log`; `scripts/gate.sh` nach `target/agent/gate-sh-4-3b.log`. Die Skripte für (1) und (2) (Bash, Python über JSON-RPC/stdio) lagen im Scratchpad. Die Bilder des UI-Tests liegen unter `target/agent/gate-2026-10-28/4-3b/`. Beide Ordner vor `git worktree remove` sichern.
+5. **Last:** `uptime` vor und nach jedem Lauf (Spalte „Last“ unten). Zu Beginn lief eine andere Sitzung (1-Minuten-Last 18 bis 27), danach 3 bis 8. Die gated Läufe liefen nacheinander, nie parallel zu (2) oder zum Gate-Skript.
+
+## (1) Automatik
+
+- [x] 1. **Gated Tests** `crates/g4-kernel/tests/textproject_source.rs` auf `4-3b-{pt,hgde,hgus}`, Release, `--nocapture --test-threads 1`: je 9/9 bestanden (Platin DE 798 s, HeartGold DE 938 s, HeartGold US 845 s):
+   - `store_on_json_edits_only_the_entity_file_and_builds_like_dspre`: Pikachu Angriff +1 über den Store, gespeichert: unter den Quellen ändert sich nur `data/species/0025.json`; das Textprojekt und der DSPRE-Ordner mit derselben Änderung bauen dieselbe ROM (nicht die Basis). Speichern 9 / 20 / 9 ms, alle 508 Personal-Einträge laden 236 / 1 952 / 184 ms.
+   - `simulated_dspre_change_is_adopted_one_sided`: voller Abgleich ohne Aufzeichnung (16 509 / 18 239 / 18 239 Einheiten, 0 nicht im Gleichstand) 51,4 / 36,6 / 38,6 s; Fokus-Abgleich ohne Änderung 86 / 88 / 82 ms über 25 018 / 26 286 / 26 286 Dateien; ein Byte in `unpacked/moveData/0001` gefunden und übernommen („Attacke 0001 · MOVE_POUND“, nur `data/moves/0001.json` geschrieben) in 118 / 144 / 113 ms; `g4k check-data --expect move:1:power=…` auf der gebauten ROM grün.
+   - `simulated_change_on_both_sides_is_a_conflict_and_both_choices_work`: JSON und Member von Trainer 1 verschieden, ein Konflikt `data/trainers/0001.json` mit Diff `data.party[0].level` (Platin `6`/`7`, dann `7`/`8`; HeartGold `15`/`16`, dann `16`/`17`); „Studio“ schreibt die Member aus der JSON, „DSPRE“ die JSON aus den Membern, danach ist alles im Gleichstand und der Build läuft.
+   - `adopt_dspre_folder_builds_byte_equal_and_reverts`: Umstellung (Phasen in der Zeittabelle), der Build danach hat die SHA-1 der Basis (22,5 / 22,1 / 22,1 s), die Rücknahme 963 / 1 289 / 903 ms, der Build danach ebenso SHA-1-gleich (529 / 610 / 584 ms).
+   - `vanilla_checks_on_the_text_project_have_no_errors`: 111 / 145 / 153 Befunde, **0 Fehler** (übersprungen nur `script.message-missing` für die gemeinsamen Scriptdateien, Platin 28, HeartGold 25, wie vor 4.3b).
+   - `recipes_with_ids_apply_on_the_vanilla_project`: die Vorlage mit IDs wirkt (Platin Stadt `T01`, Header 411, Starter 387; HeartGold `T20`, 60, 152).
+   - `script_refs_on_the_vanilla_project_are_counted`: Verweise aus Scripts Trainer / Item / Spezies Platin 279 / 109 / 19 (296 ms), HeartGold je 202 / 75 / 28 (235, 239 ms); Platin 9 ID-Dateien, 12 von rotom verdeckte IDs (`TRAINER_CLASS_BIKER` …), ID-Dateien 72 ms.
+   - `a_script_using_an_id_constant_compiles_to_the_number`: ein Script mit einer Trainer-ID übersetzt zur Nummer.
+   - `rename_id_updates_every_reference_on_the_vanilla_project`: `TRAINER_GALAKTIKER_RUEPEL_9` (Platin), `TRAINER_RIVALE_SILBER_15` (HeartGold DE), `TRAINER_RIVAL_SILVER_15` (HeartGold US) → `TRAINER_G4_RENAMED_GATE`, je 3 Dateien und 3 Verweise in 523 / 517 / 518 ms.
+- [x] 2. **Gated Studio-Test** `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` (`apps/studio/src-tauri/src/mcp/tools.rs`), Release: 1/1 auf allen drei (90 / 94 / 77 s); Umstellung über MCP 57,3 / 59,6 / 53,0 s; `data_edit` mit `"SPECIES_PIKACHU"` antwortet und schreibt genau wie mit `25` (gleiche Antwort, gleiche Bytes von `data/species/0025.json`).
+- [x] 3. **Gated Projektstart** `project_start_text_project_builds_byte_equal` (`G4_TEST_ROM` = die Nachbar-`.nds`), Release: 1/1 auf allen drei (53 / 56 / 57 s). Der Assistent mit „als Textprojekt“: Phase `TextProject` 22,4 / 23,5 / 25,6 s (5 447 / 5 334 / 5 334 Dateien geschrieben), der Build danach (22,9 / 25,4 / 24,3 s) hat die SHA-1 der ROM.
+- [x] 4. **I3 (Nachtrag aus 4.3a)** auf der eingerichteten Platin-DE-Kopie `4-3b-kpt` (Release-`g4k`, ein Byte in `data/species/0025.json`, `"attack": 55,` ↔ `56,`, `g4k build --timings`, je sechs Läufe, alle `incremental`): Schritt `textproject` 78 bis 82 ms, gesamt 303 bis 342 ms (Last 4,4); Wiederholung 80 bis 85 ms und 316 bis 357 ms (Last 5,6). Das bestätigt die Messung von Task 10c (rund 0,08 s / 0,33 s bei Last 5,5).
+- [x] 5. **`scripts/gate.sh`:** grün auf `891e1e3` in 8 324 s (03:26 bis 05:45, Last 3,7 bis 11,7; Log `target/agent/gate-sh-4-3b.log`, mit `G4_ROMS_DIR=<Roms>` und `UV_NATIVE_TLS=1`, Exit 0). „build graph (timings)“ war auf allen drei Projekten im ersten Versuch grün (keine Wiederholung). Der erste Lauf auf `9775467` scheiterte nach 3 195 s im Schritt der gated Tests auf HeartGold DE an G1 (Abschnitt „Befunde“); alle Schritte davor und alle Kernel-Suiten dieses Schritts waren grün (Log `target/agent/gate-sh-4-3b-lauf1.log`).
+
+   | Schritt | Sekunden |
+   |---|---|
+   | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo deny` | 0, 1, 3 |
+   | `cargo test` ohne ROM | 853 |
+   | mcp | 26 |
+   | `pnpm test` | 105 |
+   | tokens, styles | 0, 2 |
+   | `pnpm build`, dist ohne Brücke | 26, 0 |
+   | g4emu unit, integration | 19, 7 |
+   | gated `cargo test` HeartGold DE, HeartGold US, Platin DE | 2 340, 2 321, 2 168 |
+   | build graph (timings) HeartGold DE, HeartGold US, Platin DE | 83, 74, 42 |
+   | gated Projektstart HeartGold DE, HeartGold US, Platin DE | 105, 75, 74 |
+
+Befehle: [docs/agent-gate.md](agent-gate.md), „Phase 4.3b“. Auf stderr stehen `store …`, `sync-full …`, `sync …`, `conflict …`, `adopt <Spielcode> phases …`, `revert …`, `checks …`, `recipe …`, `refs …`, `ids …`, `rename …`, im Studio-Test `adopt: … ms` und im Projektstart `<Spielcode>: phases …`.
+
+## (2) Szenario kopflos
+
+Je Spiel auf `4-3b-k<spiel>` mit Release-`g4k` und Release-`studio mcp --project <Kopie> --base-rom <nds>` über JSON-RPC (stdio; Skript im Scratchpad). Platin DE 01:56 bis 01:58, HeartGold DE 01:58 bis 01:59, HeartGold US 01:59 bis 02:01; Last 2,3 bis 7,7. Alles bestanden, auf allen drei:
+
+- [x] 1. `g4k base assign` (137 bis 177 ms); MCP `text_project_status` → `{"state":"dspre","adoptable":true,"reason":null}`.
+- [x] 2. `adopt_text_project` ohne `--allow-irreversible` → `needs_confirmation`; mit → der Bericht (`sync_files` 25 018 bzw. 26 286, `include_written: true`) nach 48,2 / 58,5 / 57,5 s; danach `text_project_status` → `current`.
+- [x] 3. `g4k build` → SHA-1 gleich der `.nds` (`d40f19ac…`, `13b6853a…`, `4fcded0e…`), 22,0 / 23,8 / 23,4 s (erster Build).
+- [x] 4. `git init` in der Kopie, `g4k text sources .` (6 574 / 6 302 / 6 302 Dateien) committet, `git status --porcelain --untracked-files=no` leer.
+- [x] 5. MCP `data_edit` Pikachu `attack` 55 → 56 mit `"index": "SPECIES_PIKACHU"` (21 bis 26 ms), `save` (16 / 23 / 23 ms) → `git status` nennt nur ` M data/species/0025.json` (Diff `"attack": 55,` → `56,`); `undo`, `save` → leer; dasselbe mit `"index": 25` → dieselbe Antwort `[{"kind":"Personal","index":25}]` und derselbe Diff; `undo`, `save` → leer.
+- [x] 6. Byte 3 von `unpacked/moveData/0001` (Stärke 40 → 41) wie DSPRE geschrieben → `g4k text sync` übernimmt: `dspre data/moves/0001.json Attacke 0001 · MOVE_POUND`, `stat=25018 hashed=4 written=1` (159 / 137 / 153 ms Prozesszeit); `data/moves/0001.json` hat `power` 41.
+- [x] 7. JSON (`party[0].level` +1) und Member (`trainerParty/0001` Byte 2..3, +2) von Trainer 1 verschieden geändert → `g4k text sync` Exit 1 mit `conflict data/trainers/0001.json Trainer 0001 · TRAINER_TEENAGER_GUNTHER` (HeartGold `TRAINER_RIVALE_SILBER` / `TRAINER_RIVAL_SILVER`); MCP `external_changes {"diff": true}` (124 bis 145 ms) zeigt die Einheit (`side: conflict`, Quellen und beide Member) und `diffs` `data.party[0].level` Studio `6` / DSPRE `7` (HeartGold `15`/`16`); `resolve_external_conflict` `studio` (109 bis 112 ms) → JSON und Member `6`; erneut herbeigeführt (`8`/`9`, HeartGold `17`/`18`), `dspre` (95 bis 101 ms) → beide `9`; `g4k text sync` danach jeweils Exit 0.
+- [x] 8. MCP `rename_id` von Trainer 2 (`TRAINER_TEENAGER_LOGAN`, `TRAINER_RIVALE_SILBER_2`, `TRAINER_RIVAL_SILVER_2` → `…_GATE`, 596 / 559 / 553 ms, Plan mit `id_files: true`) → `git diff --stat` nennt `data/ids/trainers.json` und `data/trainers/0002.json` (je 1 Zeile; `g4-checks.json` gibt es in den Kopien nicht); `undo` (112 bis 116 ms) → `git status` leer.
+- [x] 9. `g4k build` → ROM (1,6 bis 2,3 s); `uv run g4emu run --rom … new-game shot nach-intro`: Platin Header 415, x 4, y 6 nach 10 376 Bildern (9,7 s), HeartGold DE Header 64, x 6, y 6 nach 4 860 Bildern (5,4 s), beide Bilder zeigen das Spielerzimmer (`emu-kpt/nach-intro.png`, `emu-khgde/nach-intro.png`). HeartGold US hat kein `intro` in `games.yaml`: `wait 1800 shot titel` zeigt den laufenden Titelvorspann (`emu-khgus/titel.png`).
+- [x] 10. Die alten Member-Bytes (Attacke 1, Trainer 1) wie DSPRE zurückgeschrieben, `g4k text sync` übernimmt beide (`written=2`), `g4k build` → SHA-1 der `.nds`; `g4k text revert` (1 086 / 1 138 / 759 ms) → `backup=…/.g4/backup/textproject-<Zeit>` mit `g4-project.json`, kein Manifest mehr in der Wurzel; `g4k build` → SHA-1 der `.nds` (757 / 566 / 568 ms).
+
+Ein erster Versuch auf Platin brach an einem Fehler des eigenen Skripts ab (die Antwort steckt in `structuredContent.result`); das Skript beendete dabei den Server mitten in der Umstellung, die Kopie wurde verworfen und frisch angelegt. Das ist kein Befund des Produkts.
+
+## (3) Browser-Teil
+
+Gelaufen im UI-Test am 2026-10-28, 23:13 bis 23:48, auf `3578645` (Test-Umgebung, Chrome headless über CDP, 1440 × 900, Hell, Dunkel, Kompakt; Bericht `.superpowers/sdd/2026-10-28-phase-4-3b-textprojekt-quelle/ui-test-report.md`). Ergebnis: bestanden mit acht Befunden (0 Hoch, 3 Mittel, 5 Gering), alle behoben (Abschnitt „Befunde“), U1, U2, U3 und U8 im Gate-Lauf nachgeprüft.
+
+| Schritt | Ergebnis |
+|---|---|
+| Öffnen zeigt den Hinweis | ja, „Einrichten…“-Variante (`gate3-01`) |
+| „Einrichten…“ mit Prüfliste und Fortschritt | Prüfliste vollständig (`gate3-02`); Fortschritt nur „Wird eingerichtet …“ (`gate3-03`, keine Phasen, siehe „Nicht möglich“); `adopt_text_project` 59,0 s, „Textprojekt eingerichtet: 6.574 Dateien in 59 s.“ |
+| `git init` und Commit der Quellen | 6 574 Dateien, `git status --untracked-files=no` leer |
+| Pokédex › Pikachu zeigt `SPECIES_PIKACHU`, Angriff ändern, speichern | `[data-entity-id]` „SPECIES_PIKACHU“ (`gate3-04`); 55 → 56, Speichern 154 ms; `git status` nur ` M data/species/0025.json` (`gate3-05`) |
+| Byte im Member von außen, Fokus | `personalPokeData/0026` 90 → 91: „1 Änderung aus DSPRE übernommen“ (`gate3-06`), „Anzeigen“ → „Zuletzt übernommen“ „Pokémon 0026 · SPECIES_RAICHU“ „aus DSPRE“ (`gate3-07`); JSON 91 |
+| beide Seiten ändern | 0027 JSON 80, Member 78: „1 Konflikt zwischen Studio und DSPRE“ (`gate3-08`), Diff `personal.attack 80 78` (`gate3-09`), „Studio-Fassung behalten“ → Member 80; erneut, „DSPRE-Fassung übernehmen“ → JSON 82 (`gate3-10`) |
+| ungespeichert plus Member von außen | Plakette „Ungespeichert“ und Warnung (`gate3-11`); der Diff zeigte den gespeicherten Wert (U3, behoben) |
+| JSON mit Tippfehler | `data/species/0028.json:6:19: …` unter „Fehlerhafte Dateien“ (`gate3-12`; Prüfcode in der Zeile U6, Untertitel U5, behoben) |
+| „ID umbenennen…“ eines Trainers, ⌘Z | Plan 2 Verweise / 2 Dateien (`gate3-13`), Meldung, Kopf neu (`gate3-14`), `git status` zwei Dateien; ⌘Z: beide zurück (`gate3-15`) |
+| „Hier spielen“ mit offenem Konflikt | nicht gebaut, „Erst die Konflikte in Technik › Textprojekt lösen.“ (`gate3-16`; vorher Pfadfrage, U8, behoben) |
+| „Zurücknehmen…“ | mit Ungespeichertem „Erst speichern.“ (`gate3-18`); Dialog (`gate3-19`), „Textprojekt zurückgenommen. Sicherung: …“, 2,8 s, wieder DSPRE-Layout (`gate3-20`) |
+| Assistent mit Häkchen | `create_project` 30,0 s, Technik › Textprojekt „Abgeglichen“ (`gate3-21`) |
+| MCP über die Brücke (`4-3b-mcp`, „Lesen und bearbeiten“) | `adopt_text_project` fragt „Als Textprojekt einrichten“ (`mcp-01`), nach „Zulassen“ 72,1 s, die Oberfläche lädt ohne Neuladen nach (`mcp-03`); `data_edit` mit `SPECIES_PIKACHU` ohne Frage (0,12 s); `rename_id` mit `undo_agents: ["agent-gate","agent-gate"]` und beiden Einträgen im Verlaufsmenü (`mcp-06`, `mcp-07`) |
+| „Hier spielen“ eines kleinen Hacks | nach dem Lösen gebaut (6,46 s), `g4k check-data` „4 expectation(s) met“, g4emu `new-game` im Spielerzimmer (`emu/nach-intro.png`) |
+
+Zeiten des UI-Tests (Debug-Brücke):
+
+| Messung | Wert | Last |
+|---|---|---|
+| `g4k text adopt` (CLI) | 48,6 s; Scripts 0,8, Basisschicht 3,3, Einträge 27,3, Abgleich 17,2 s; 6 574 Dateien, 25 018 aufgezeichnet | 13,1 → 8,3 |
+| Einrichten in der Oberfläche | 57 s / 59,0 s | 2,4 → 4,5 / 1,7 → 7,9 |
+| Einrichten per MCP (mit Klick „Zulassen“) | 72,1 s, `ms` 57 327 | 4,7 / 3,7 |
+| Fokus-Abgleich ohne Änderung | 219 bis 235 ms Rundlauf (innen 214 bis 230 ms), 7 Läufe | 1,1 bis 1,9 |
+| Fokus-Abgleich mit einer Änderung | 247 bis 677 ms (innen 239 bis 637 ms); Meldung 1,07 bis 1,55 s nach dem Fokus (mit `FOCUS_DELAY_MS` 800) | 1,1 bis 3,9 |
+| Abgleich beim Öffnen | 3,4 bis 3,9 s Rundlauf (wartet hinter dem Laden), innen 184 bis 288 ms | 4,7 |
+| Speichern einer Art | 147 / 154 ms | 2 bis 4 |
+| `conflict_diff` / `resolve_external_conflict` | 18 bis 21 ms / 268 bis 320 ms | 2 bis 4 |
+| `plan_rename_id` / `rename_id` / ⌘Z | 1 136 ms / 1 359 ms (innen 982) / 789 ms | 3,4 |
+| `revert_text_project` | 2 786 ms | 2,5 |
+| `build_rom` über „Hier spielen“ | 6,74 s | 1,9 → 2,2 |
+| `create_project` mit Textprojekt | 30,0 s, Öffnen 1,6 s | 1,1 → 4,7 |
+| MCP `data_edit` / `rename_id` | 0,12 s / 1,48 s | ~4 |
+
+Der Fokus-Abgleich der Oberfläche (214 bis 230 ms innen) liegt über dem Kernel-Wert (82 bis 88 ms), weil die Brücke ein Debug-Build ist und die Anfrage über HTTP geht; beides unter 0,5 s.
+
+**Nicht möglich** im Browser-Modus (Hand-Punkte):
+
+- Die **Fortschrittsphasen beim Einrichten** („Scripts übernehmen … {n} von {m}“, „Basisschicht anlegen …“, „Einträge schreiben …“, „Abgleich vorbereiten …“) und die **laufende Phase „Textprojekt einrichten“ im Assistenten**: die Brücke reicht keine Tauri-`Channel` durch; der Dialog zeigt die ganze Zeit „Wird eingerichtet …“, der Assistent „Lesen · läuft“.
+- Der **volle Abgleich „Gleiche mit DSPRE ab … {done} von {total} Dateien“**: braucht ein Textprojekt ohne Aufzeichnung und Fortschritt über `Channel`; CLI, Oberfläche und Assistent schreiben die Aufzeichnung schon beim Einrichten.
+- **„Hier spielen“ startet das Spiel**: im Browser-Modus wird nur gebaut; Ersatz war g4emu.
+
+**Nachprüfung im Gate-Lauf** (2026-10-29, 02:02 bis 02:27, `9775467`, Test-Umgebung auf 1580/1581, Browser-Fenster der Desktop-App):
+
+| Befund | Ergebnis |
+|---|---|
+| U1 | `4-3b-ui` ohne Basismarke: Hinweis „… Dafür braucht es die Basis-ROM.“, „Basis-ROM zuordnen…“ → Technik › Veröffentlichen, „Zuordnen…“ → „Zuordnen“: Technik › Textprojekt zeigt sofort „Als Textprojekt einrichten…“ freigegeben (kein `aria-disabled`), ohne Neuöffnen. **Behoben.** Der Hinweis selbst ist danach weg: jede Taste einer Meldung schließt sie (`ToastHost`), das Ersetzen an derselben Stelle zeigt sich nur, wenn die Basis auf anderem Weg zugeordnet wird (Agent, Technik direkt). |
+| U2 | `4-3b-mcp` (Basis zugeordnet, Hinweis „Einrichten…“ steht, nicht angeklickt): `mcp.sh call adopt_text_project`, Frage „Als Textprojekt einrichten“, „Zulassen“; nach 35,0 s (`ms`) ist der Hinweis weg, Technik › Textprojekt „Abgeglichen“, `text_project_status` `current`. Ein zweites `adopt_text_project` über MCP: nach 390 ms abgelehnt, ohne Frage, `{"code":"error","message":"Das Projekt ist schon ein Textprojekt."}`; über den Befehl der Oberfläche (`call.sh adopt_text_project`) ebenso. **Behoben.** Auf `4-3b-ui` dazu U4: während des Laufs Untertitel „Wird eingerichtet …“, „Als Textprojekt einrichten…“ gesperrt mit „Wird von einem Agenten eingerichtet …“; „Einrichten…“ des Hinweises öffnet keinen Dialog, nur diese Info. |
+| U3 | `4-3b-ui` nach dem Einrichten: `data_edit` Pikachu Angriff 57 ungespeichert, Member `personalPokeData/0025` Byte 1 → 60, Fokus: Konflikt „Pokémon 0025 · SPECIES_PIKACHU“ mit „Ungespeichert“, aufgeklappt `Feld | Studio (ungespeichert) | DSPRE`, `personal.attack | 57 | 60`, Warnung; MCP `external_changes {"diff":true}` dasselbe (`"studio": "57", "dspre": "60", "unsaved": true`). **Behoben.** |
+| U8 | Derselbe offene Konflikt, „Bauen“ in der Titelleiste: kein Dialog „Speichern unter“, kein `build_rom`, genau eine Meldung „Erst die Konflikte in Technik › Textprojekt lösen.“ mit „Lösen…“ an der Stelle der Konfliktmeldung. **Behoben.** |
+
+## (4) Hand und Blick
+
+Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): die DSPRE-Gegenprobe auf einem eingerichteten Ordner (Hand), der Fokuswechsel im gepackten Tauri-Fenster (Hand), die Fortschrittsphasen beim Einrichten und im Assistenten (Hand), der Blick auf die Bilder des UI-Tests.
+
+## Ergebnis
+
+| Punkt | Wer | Ergebnis | Datum |
+|---|---|---|---|
+| (1) 1 gated `textproject_source` | Agent | bestanden: je 9/9 auf Platin DE, HeartGold DE, HeartGold US (Release); nur `data/species/0025.json` geändert, DSPRE-Änderung übernommen, Konflikt mit beiden Wahlen, Umstellung und Rücknahme byte-gleich, `vanilla_checks` 0 Fehler | 2026-10-29 |
+| (1) 2 gated Studio-Test MCP mit IDs | Agent | bestanden: 1/1 auf allen drei, `SPECIES_PIKACHU` wie `25` | 2026-10-29 |
+| (1) 3 gated Projektstart als Textprojekt | Agent | bestanden: 1/1 auf allen drei, SHA-1 der ROM | 2026-10-29 |
+| (1) 4 I3 | Agent | bestanden: Schritt 78 bis 85 ms, gesamt 303 bis 357 ms (Last 4,4 bis 5,6) | 2026-10-29 |
+| (1) 5 `scripts/gate.sh` | Agent | bestanden auf `891e1e3`, 8 324 s, alle Schritte im ersten Versuch; der erste Lauf auf `9775467` scheiterte an G1 (behoben in `891e1e3`) | 2026-10-29 |
+| (2) 1 bis 4 Status, Umstellung, Build, Git | Agent | bestanden auf allen drei: `needs_confirmation` ohne Erlaubnis, Bericht mit, SHA-1 der Basis | 2026-10-29 |
+| (2) 5 `SPECIES_PIKACHU` wie `25` | Agent | bestanden: nur `data/species/0025.json`, gleiche Antwort, gleicher Diff | 2026-10-29 |
+| (2) 6 und 7 DSPRE-Änderung, Konflikt, beide Wahlen | Agent | bestanden auf allen drei | 2026-10-29 |
+| (2) 8 ID umbenennen, `undo` | Agent | bestanden: Register und Trainer-JSON, `undo` leer | 2026-10-29 |
+| (2) 9 ROM in melonDS | Agent | bestanden: Platin und HeartGold DE nach dem Intro im Spielerzimmer, HeartGold US Titelvorspann (kein `intro` für IPKE) | 2026-10-29 |
+| (2) 10 Rücknahme | Agent | bestanden: Manifest im Backup, SHA-1 der Basis | 2026-10-29 |
+| (3) Browser-Teil und MCP über die Brücke | Agent | bestanden mit U1 bis U8 (UI-Test), behoben in `fdb3483` und `9775467`; U1, U2, U3, U8 nachgeprüft | 2026-10-28, 2026-10-29 |
+| DSPRE-Gegenprobe | Hand | offen | – |
+| Fokus im gepackten Tauri-Fenster | Hand | offen | – |
+| Fortschrittsphasen beim Einrichten und im Assistenten | Hand | offen | – |
+| Blick auf Technik › Textprojekt, Einrichten, Umbenennen | Agent + Blick | offen: 80 Bilder liegen bereit, vom Agenten angesehen | – |
+| `.fig` | Agent | offen: OpenPencil-MCP antwortete zweimal „RPC timeout (20s)“; Anleitung `design-system/openpencil/NACHTRAG-4-3b.md` | – |
+
+Zeittabelle (Release-Build, gated Tests aus (1) und Szenario aus (2); die Oberfläche steht oben unter (3)):
+
+| Spiel | Umstellung (s, je Phase) | Build danach SHA-1 = Basis | Speichern einer Entität (ms) | Fokus ohne Änderung (ms, Dateien) | mit einer DSPRE-Änderung (ms) | voller Abgleich (s) | Umbenennen (ms) | Rücknahme (ms) | Last |
+|---|---|---|---|---|---|---|---|---|---|
+| Platin DE | 52,3: Scripts 0,8, Basisschicht 3,5, Einträge 29,6, Abgleich 18,4 (MCP kopflos 48,2; Assistent 22,4) | ja (22,5 s; kopflos 22,0 s; Assistent 22,9 s) | 9 (MCP `save` 16) | 86 (25 018) | 118 (`g4k text sync` 159) | 51,4 | 523 (MCP 596) | 963 (CLI 1 086) | 18,0 → 3,9 (1); 3,7 → 7,7 (2) |
+| HeartGold DE | 58,6: 0,7, 3,9, 33,0, 21,0 (MCP 58,5; Assistent 23,5) | ja (22,1 s; 23,8 s; 25,4 s) | 20 (23) | 88 (26 286) | 144 (137) | 36,6 | 517 (559) | 1 289 (1 138) | 4,2 → 3,4 (1); 3,2 → 5,5 (2) |
+| HeartGold US | 58,1: 0,7, 3,4, 32,6, 21,5 (MCP 57,5; Assistent 25,6) | ja (22,1 s; 23,4 s; 24,3 s) | 9 (23) | 82 (26 286) | 113 (153) | 38,6 | 518 (553) | 903 (759) | 3,5 → 3,1 (1); 2,3 → 3,2 (2) |
+
+Die Grenzen der Tests (`G4_TIMING_STRICT=1`: Speichern ≤ 200 ms, Fokus-Abgleich ≤ 500 ms, eine Änderung ≤ 1 000 ms) halten alle Werte mit Abstand ein. Die Umstellung braucht je Spiel rund eine Minute, davon die Hälfte für das Schreiben der Einträge; der volle Abgleich ohne Aufzeichnung (nur nach einem verlorenen Zustand) 37 bis 51 s.
+
+## Befunde
+
+### UI-Test (2026-10-28)
+
+Der UI-Test fand 0 Hoch, 3 Mittel und 5 Gering; alle behoben in `fdb3483` (U1 bis U8) und `9775467` (Fix-Runde nach dem Review), je mit Regressionstest, Review sauber. U1, U2, U3 und U8 sind im Gate-Lauf im Browser nachgeprüft (Abschnitt (3), „Nachprüfung“).
+
+| Nr. | Schwere | Befund | Fix |
+|---|---|---|---|
+| U1 | Mittel | Nach „Basis-ROM zuordnen…“ aus dem Hinweis blieb „Als Textprojekt einrichten…“ gesperrt („Diesem Projekt ist keine Basis-ROM zugeordnet.“), bis das Projekt neu geöffnet wurde. | `fdb3483`: ein Wechsel des Basis-Zustands (Zuordnen, `assign_base` eines Agenten, ROM wieder gefunden) liest `text_project_status` neu; der offene Hinweis wechselt an derselben Stelle auf „Einrichten…“. Test `assigning_the_base_rom_unlocks_setting_up_and_the_hint_offers_it`. |
+| U2 | Mittel | Nachdem ein Agent eingerichtet hatte, blieb der Hinweis stehen; „Einrichten…“ öffnete den Dialog auf dem Textprojekt und ließ die Umstellung noch einmal 58 s laufen. | `fdb3483`: der Hinweis geht, sobald das Projekt kein DSPRE-Ordner mehr ist; der Einrichten-Dialog öffnet nur im DSPRE-Layout; die App lehnt `adopt_text_project` auf jedem Textprojekt sofort ab („Das Projekt ist schon ein Textprojekt.“, Code `error`, auch vor der Frage an den Nutzer). `g4k text adopt` bleibt auf einem Textprojekt eine Reparatur (Export ohne Schreiben, neue Aufzeichnung). |
+| U3 | Mittel | Der Diff eines Konflikts mit ungespeicherter Änderung zeigte in der Spalte „Studio“ den gespeicherten Wert, nicht den im Editor. | `fdb3483`, `9775467`: mit ungespeicherten Assets ist die Studio-Seite der Wert im Store (Export in den Speicher), die Spalte heißt „Studio (ungespeichert)“; `external_changes` (MCP) zeigt denselben Diff; ist bei ungespeicherten Werten die JSON die andere Seite (Dateiänderung), zeigt die zweite Spalte die Datei (`9775467`, I2). |
+| U4 | Gering | Während ein Agent einrichtete (72 s), zeigte die Oberfläche nichts und bot „Einrichten…“ weiter an. | `fdb3483`, `9775467`: Hub-Ereignis `busy` (Anfang und Ende, das Ende auch bei einer Panik); Technik zeigt „Wird von einem Agenten eingerichtet …“ und sperrt Einrichten und Zurücknehmen. |
+| U5 | Gering | Untertitel „Abgeglichen“ bei fehlerhaften Dateien. | `fdb3483`: „1 fehlerhafte Datei“ (Konflikte zuerst). |
+| U6 | Gering | Prüfcode `textproject.schema:` in der Zeile einer fehlerhaften Datei. | `fdb3483`, `9775467`: die Oberfläche lässt einen führenden `textproject.…:`-Code weg. |
+| U7 | Gering | Umbrüche zwischen Zahl und Einheit („57 | s.“) und mitten in Pfaden. | `fdb3483`: geschütztes Leerzeichen in den Zähltexten (`src/words.ts`), `<wbr>` nach jedem `/` in Meldungen. |
+| U8 | Gering | „Hier spielen“ mit offenem Konflikt fragte zuerst nach dem Pfad, dann stapelten sich zwei Meldungen mit „Lösen…“. | `fdb3483`: ohne bekannten Pfad gleicht „Bauen“ vorher ab und lehnt ohne Pfadfrage ab; die Ablehnung ersetzt die Konfliktmeldung an derselben Stelle (`CONFLICTS_TOAST`). |
+
+Dazu aus derselben Runde: die Vorschau des Assistenten zeigt „Original, als Textprojekt“.
+
+### Gate-Lauf (2026-10-29)
+
+| Nr. | Schwere | Befund | Fix |
+|---|---|---|---|
+| G1 | Mittel (Test, nicht Produkt) | Im ersten Lauf von `scripts/gate.sh` scheiterte der gated Studio-Test `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` im Schritt der gated Tests (HeartGold DE, nach 3 195 s): „Originale sind gesperrt, nur Kopien unter _testkopien: …/Roms“. Das Skript setzt `G4_ROMS_DIR` und nimmt das Original als `G4_TEST_PROJECT`; der Test erlaubte den Ordner der Vanilla-`.nds`, und das ist dort `G4_ROMS_DIR` selbst, den `UserPolicy` zu Recht ablehnt. Die Einzelläufe in (1) liefen ohne `G4_ROMS_DIR` auf Kopien und sahen es nicht. Alle Kernel-Suiten desselben Schritts waren grün (`textproject_source` 9/9 im Debug-Build, 303 s). | `891e1e3`: der Test klont die Vanilla-ROM in seinen Temp-Ordner neben die Kopie und erlaubt nur diesen Ordner. Regressionstest ist der gated Test selbst im Aufbau von `gate.sh` (ein Ersatz-`G4_ROMS_DIR` unter `_testkopien/4-3b-red` mit Projekt und `.nds`): rot mit der Ablehnung in `tools.rs:3978`, danach grün (72 s), ohne `G4_ROMS_DIR` weiter grün (78 s). |
+
+Beobachtung ohne Befund: Jede Taste einer Meldung schließt sie (`ToastHost`), auch „Basis-ROM zuordnen…“ des Hinweises; das Ersetzen des offenen Hinweises durch die „Einrichten…“-Fassung (U1) zeigt sich darum nur, wenn die Basis auf anderem Weg zugeordnet wird. Der Weg über den Hinweis endet in Technik › Textprojekt mit freigegebener Taste.
+
+## Nachträge aus 4.3a
+
+Das abschließende Review von 4.3a ließ drei Punkte (I1 bis I3) auf main offen ([phase-4-3a-gate.md](phase-4-3a-gate.md)); sie sind hier als eigene Tasks behoben, je mit Tests:
+
+- **I1 (Task 10a, `b48c22d` bis `3a20e51`):** `g4k text export` lehnt ab, solange JSON neuer als ihre Member sind, `g4k text import`, solange Member neuer als ihre JSON sind („Im Textprojekt sind Änderungen …“, „Member sind neuer als ihre JSON …“); `--force` verwirft die andere Seite. Der Export zeichnet den Schritt neu auf; der Abgleich zeichnet nur Bytes auf, die sein Schreiber gelesen oder geschrieben hat (Schreib- und Lese-Journal). Rundlauf Platin DE 216 s (Export 87,7, Import 35,6, Build 16,4, Basisschicht 9,0 s).
+- **I2 (Task 10b, `19ca881`):** der ARM9-Blob wird ohne die Header-Tabelle verglichen und gesetzt.
+- **I3 (Task 10c, `b6b5064`):** ein inkrementeller Plan liest nur die Member, die seine geänderten Dateien nennen. Messung damals auf derselben Platin-DE-Kopie, ein Byte in `data/species/0025.json`, `g4k build --timings`, Last 5,5: vorher (`19ca881`) Schritt `textproject` rund 0,93 s, gesamt rund 1,15 s; nachher (`b6b5064`) rund 0,08 s und 0,33 s; der erste Lauf nach der Umstellung 4,5 bis 7,3 s → 135 ms; Trockenlauf von Export und Import 0,8 bis 1,9 s → 0,3 s. Nicht mit den „4,75 s“ aus 4.3a vergleichen (anderer Code vor I1 und I2, Last 14). Im Gate-Lauf neu gemessen: Platin DE auf `4-3b-kpt` (Stand `9775467`, Release-`g4k`), Schritt `textproject` 78 bis 85 ms, gesamt 303 bis 357 ms bei Last 4,4 bis 5,6, alle Läufe `incremental` (siehe (1) 4).
+- **Kleinere Punkte (Task 10d, `6aa8ec8`, `7766a1d`):** „Löschen kommt mit Phase 3d.“ statt eines Fehlers ohne Weg; überzählige Trainer-Member werden gemeldet (im Build ein Fehler); die Symboltabellen sind an `schema.snap` gebunden; Pfade in Berichten mit `/`.
+
+Das Szenario von 4.3a (`git checkout -- data/; g4k text import .` über geänderte Member) braucht seit I1 `--force` (`g4k text import --force .`); [phase-4-3a-gate.md](phase-4-3a-gate.md) bleibt als Protokoll unverändert.
+
+## Hinweise
+
+- **ID-Dateien statt Include-Datei:** Der Plan sah eine rotom-Include-Datei `.g4/include/g4_ids.rotom` mit `#include`/`#define` vor. rotom v0.7.0 ignoriert `#include` und `#define` im DSPRE-Modus (geprüft, `rotom-include-research.md`, Ruling in Task 8). Ersetzt durch versteckte JSON-ID-Dateien `.rotom/command_database/.g4-ids-<art>.json` in rotoms Befehlsdatenbank (Compiler, CLI und LSP lesen sie): mit Kollisionsfilter (`textproject.id-shadowed`, in Vanilla Platin 12 IDs), nur bei Änderung atomar geschrieben, vor jedem Kompilieren erneuert, als Eingaben des rotom-Schritts; die Rücknahme lehnt ab, solange Scripts reine Studio-IDs benutzen. `.g4/include/` und `include_roots` gibt es nicht.
+- **Für 4.4:** die `.gitignore`-Vorlage muss `/.rotom/command_database/.g4-ids-*.json` nennen (erzeugt) sowie `.g4/backup/`; das Einrichten schreibt keine `.gitignore`, nach dem Einrichten zeigt `git status` `.g4/build/`, `.g4/cache/`, `.g4/models/` (und `.DS_Store`) ungetrackt. Die Gate-Prüfungen nutzen `--untracked-files=no`.
+- **`g4k text adopt` auf einem Textprojekt** ist eine Reparatur (Export ohne Schreiben, neue Aufzeichnung); die App und MCP lehnen es ab (U2).
+- **Design-System:** Task 13 (`a81b2db`): README „Nachtrag 4.3b“, `textprojekt.body.js`, Audit. Die `.fig` ist nicht angefasst: der OpenPencil-MCP antwortete zweimal „RPC timeout (20s)“; offen, Anleitung `design-system/openpencil/NACHTRAG-4-3b.md`.
+
+## Hand
+
+- [ ] **DSPRE-Gegenprobe** (Windows): DSPRE öffnet einen eingerichteten Ordner (nach „Einrichten…“), ändert eine Attacke und einen Trainer und speichert; in der App beim Fensterfokus „2 Änderungen aus DSPRE übernommen“, die JSON tragen die Werte, `g4k build` baut sie. Dazu festhalten, was DSPRE beim Speichern schreibt (nur `unpacked/`, auch NARCs, auch `expanded/scripts/`) und ob ein gelöschter Member als fehlerhaft gemeldet wird.
+- [ ] **Fokus in der gepackten Tauri-App:** ein anderes Programm in den Vordergrund, eine Datei außen ändern, zurück ins Studio: Abgleich und Meldung ohne Neuladen (im Browser-Modus nur über das `focus`-Ereignis geprüft).
+- [ ] **Fortschritt beim Einrichten** in der App: die Phasen „Scripts übernehmen … {n} von {m}“, „Basisschicht anlegen …“, „Einträge schreiben …“, „Abgleich vorbereiten …“ und die laufende Phase „Textprojekt einrichten“ im Assistenten (die Brücke hat keinen `Channel`); ebenso „Gleiche mit DSPRE ab … {done} von {total} Dateien“ beim vollen Abgleich.
+
+## Blick
+
+Bilder unter `target/agent/gate-2026-10-28/4-3b/` im Worktree (80 Oberflächen-Bilder, 1440 × 900, Hell, Dunkel, Kompakt, dazu `emu/nach-intro.png`), aufgenommen im UI-Test vor `fdb3483`; Liste mit Inhalt je Bild im Abschnitt (3). Der Agent hat alle angesehen: keine abgeschnittenen Texte, kein Überlauf, Dunkel mit Tokens, Kompakt ohne Bruch; optisch nur U7 (behoben). Vor dem Worktree-Entfernen `target/agent/gate-2026-10-28/` und `target/agent/gate-2026-10-29/` sichern.
+
+- [ ] Technik › Textprojekt: `blick-textprojekt-dspre-*`, `-abgeglichen-*`, `-konflikt-diff-*`, `-fehlerhaft-*` (Untertitel dort noch „Abgeglichen“, U5), `-ungespeichert-dunkel` (Spalte dort noch „Studio“, U3).
+- [ ] Meldungen: `blick-meldung-uebernommen-*`, `blick-textprojekt-konflikt-meldung-hell`.
+- [ ] Einrichten: `blick-hinweis-ohnebasis-*`, `blick-hinweis-einrichten-*`, `blick-einrichten-pruefliste-*`, `-fortschritt-dunkel`, `-fertig-hell` (Umbruch „57 | s.“, U7).
+- [ ] Umbenennen und IDs: `blick-trainer-kopf-id-*`, `blick-umbenennen-plan-*`, `-ablehnung-*`, `blick-header-id-hell`.
+- [ ] Assistent: `blick-assistent-vorlage-haekchen-*`, `-zusammenfassung-hell`.
+- [ ] Agent: `blick-mcp-frage-dunkel`, `mcp-02-waehrend-hell` (vor U4), `mcp-03-nach-adopt-hell` (vor U2).
+
+Vergleich mit dem Design-System: `design-system/README.md`, Abschnitt „Nachtrag 4.3b“.
+
+## Geparkt
+
+Offen für später, ohne Einfluss auf das Gate (aus den Reviews der Tasks, für das abschließende Review):
+
+- **Kernel, Abgleich:** `sync/tests.rs` Prädikat `blob_member` trifft alle Member; `write_blobs` mit plain `fs::read` und frühem Längenvergleich kann nach einem Export eine einseitige Blob-Einheit melden; ein zusammengeführter Eintrag behält das alte `scanned_at_ns` (erster Scan hasht neu); CLI-Export parallel zum Studio kann ein Verwerfen zurücknehmen (Sperren je Prozess); ABA-Fenster im Millisekundenbereich; Speichern wartet auf einen laufenden Scan; eine Datei ohne Namen auf der Hand-Seite löscht der Export; ein Projekt ohne Aufzeichnung lehnt den JSON-Import ohne `--force` ab (dokumentiert); `mark_source_stale` nach dem Lösen der Sperre; `UnitCache` ohne racy-Schutz.
+- **Kernel, Umstellung und IDs:** ein abgelehntes zweites `adopt` zeichnet InSync-Einheiten auf; ein aktuelles Manifest ohne Aufzeichnung überspringt den Schutz; `write_include` schluckt Fehler beim Erneuern; der zwischengespeicherte `ScriptLookup` kennt Änderungen an Textarchiven nicht; Namen in `world_meta` bei zu großen Nummern; `before_move` schluckt einen Fehler von `in_step`; Undo und Redo eines Umbenennens verwerfen dessen Warnungen; gepackte NARCs ohne `unpacked/` werden ganz gelesen (I3).
+- **Löschen von Entitäten:** kommt mit 3d (Referenzsperre); ein von Hand gelöschtes letztes JSON legt der Export wieder an; ein Kombinationstest „überzähliger Member plus JSON-Änderung“ fehlt.
+- **App:** `rename_id` hält das Sitzungsschloss die ganze Umbenennung (kalt 7,8 s auf HeartGold); ein Fehler in `after_member_write` wird nur geloggt; `sync_session`/`external_changes` sehen „busy“ des Stores nicht; `conflict_diff_impl` läuft unter dem Sitzungsschloss (einige 10 ms).
+- **Oberfläche:** eine benannte Meldung, die die Grenze von vier Meldungen verdrängt, gilt als geschlossen (auch der bleibende Hinweis); `useExternalSync` lässt wartende Promises beim Aushängen offen; „Abbrechen“ beim Anheben zeigt kein „busy“, solange das Schließen wartet; Bauen speichert ungespeicherte Scripts auch über eine vom Reopen neu geschriebene Datei.
+- **Design-System:** lange Zeilen im README-Nachtrag 4.3b, Namen der Entscheidungen im Plan-Link, eine ungerenderte Konstante der Meldungsposition; `.fig` (siehe „Hinweise“).
+

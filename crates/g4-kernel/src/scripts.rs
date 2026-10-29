@@ -24,6 +24,8 @@ use crate::text::{
 
 mod project_compile;
 
+pub(crate) use project_compile::constant_files;
+
 pub const ROTOM_TOML: &str = "rotom.toml";
 
 pub(crate) const DATABASE_DIR: &str = ".rotom/command_database";
@@ -133,6 +135,74 @@ pub(crate) fn watched_paths(project: &Project) -> (PathBuf, Vec<PathBuf>) {
             Vec::new(),
         ),
     }
+}
+
+/// rotom's constant folder (`database_dir` of `rotom.toml`) relative to the project root;
+/// [`DATABASE_DIR`] without a configuration that loads.
+pub(crate) fn database_dir(project: &Project) -> PathBuf {
+    match load_config(project) {
+        Ok(config) => relative(&project.root, &config.database_dir(&project.root)),
+        Err(_) => PathBuf::from(DATABASE_DIR),
+    }
+}
+
+/// rotom's constants of the adopted project without the id files of the text project, as the
+/// kernel's compile loads them (`project_compile::base_constants`); `strict` as there.
+pub(crate) fn base_constants(
+    project: &Project,
+    strict: bool,
+) -> Result<rotom::ConstantDb, KernelError> {
+    let config = load_config(project)?;
+    let db_path = config
+        .database_file(&project.root)
+        .ok_or_else(|| rotom_error("constants", "keine Befehlsdatenbank in rotom.toml"))?;
+    // rotom v0.7.0: src/database.rs DatabaseV2::load
+    let db = rotom::DatabaseV2::load(&db_path).map_err(|e| rotom_error("database", e))?;
+    guard_panic("rotom", || {
+        // uxie 0.9.7: src/workspace.rs Workspace::open (the symbols and the language)
+        let workspace = uxie::Workspace::open(&project.root).map_err(io_at(&project.root))?;
+        project_compile::base_constants(project, &config, &db, &workspace, strict)
+    })?
+}
+
+/// The numbers of the `.rotom` sources of an adopted project (none without one).
+pub(crate) fn rotom_sources(project: &Project) -> Result<Vec<u16>, KernelError> {
+    if !is_adopted(project) {
+        return Ok(Vec::new());
+    }
+    numbered_files(&project.expanded_dir(AssetKind::Script), Some("rotom"))
+}
+
+/// Whether `text` holds `name` as a whole identifier: not inside a longer one. Comments and
+/// strings count too (cheap, and for staleness one compile too many does no harm).
+pub(crate) fn names_identifier(text: &str, name: &str) -> bool {
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = text.as_bytes();
+    text.match_indices(name).any(|(at, _)| {
+        let end = at + name.len();
+        (at == 0 || !word(bytes[at - 1])) && (end == bytes.len() || !word(bytes[end]))
+    })
+}
+
+/// Makes the `.rotom` sources stale that name one of `names` as an identifier
+/// ([`names_identifier`]), so the next [`compile`] compiles them again; their numbers.
+pub(crate) fn mark_stale_naming(
+    project: &Project,
+    names: &BTreeSet<String>,
+) -> Result<Vec<u16>, KernelError> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for file in rotom_sources(project)? {
+        let path = source_path(project, file, SourceKind::Script);
+        let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+        if names.iter().any(|name| names_identifier(&text, name)) {
+            files.push(file);
+        }
+    }
+    mark_stale(project, &files)?;
+    Ok(files)
 }
 
 /// `unpacked/scripts`, or `unpacked/Scripts` where DSPRE (Avalonia) wrote the folder that
@@ -368,6 +438,8 @@ pub(crate) fn adopt_as(
         .map_err(|e| KernelError::InvalidProject(format!("{ROTOM_TOML}: {e}")))?;
     write_atomic(root, &root.join(ROTOM_TOML), toml.as_bytes())?;
 
+    note_in_step(project)?;
+
     let mut failed: Vec<(u16, String)> = result
         .failures
         .iter()
@@ -527,7 +599,8 @@ pub(crate) fn materialize_text_json(
         return Ok(false);
     }
     project.ensure_unpacked(AssetKind::TextArchive)?;
-    let Ok(member) = std::fs::read(project.member_path(AssetKind::TextArchive, n)) else {
+    let Ok(member) = crate::fsutil::read_noted(project.member_path(AssetKind::TextArchive, n))
+    else {
         return Ok(false);
     };
     let Ok(doc) = TextArchiveDoc::from_member(&member, project.language.locale_key()) else {
@@ -574,7 +647,7 @@ pub(crate) fn refresh_stale_text_json(
             _ => continue,
         }
         let member = project.member_path(AssetKind::TextArchive, n);
-        let bytes = std::fs::read(&member).map_err(io_at(&member))?;
+        let bytes = crate::fsutil::read_noted(&member).map_err(io_at(&member))?;
         // An undecodable member is left to the text editor to report.
         if let Ok(doc) = TextArchiveDoc::from_member(&bytes, lang) {
             write_atomic(
@@ -598,6 +671,25 @@ pub(crate) fn refresh_stale_text_json(
 /// its quirks. A file without a rotom source (binary, level script) or without an entry
 /// (rotom compiles it anyway) is skipped; so is a project that is not adopted.
 pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
+    mark_stale_kinds(project, files, &[SourceKind::Script])
+}
+
+/// [`mark_stale`] of script file `file`'s source of either kind (`.rotom` or the level
+/// script's `.json`): the next compile writes its member from the source, whatever the member
+/// holds now (a sync that kept the Studio's source over DSPRE's member).
+pub(crate) fn mark_source_stale(project: &Project, file: u16) -> Result<(), KernelError> {
+    mark_stale_kinds(
+        project,
+        &[file],
+        &[SourceKind::Script, SourceKind::LevelScript],
+    )
+}
+
+fn mark_stale_kinds(
+    project: &Project,
+    files: &[u16],
+    kinds: &[SourceKind],
+) -> Result<(), KernelError> {
     if files.is_empty() || !is_adopted(project) {
         return Ok(());
     }
@@ -609,17 +701,20 @@ pub fn mark_stale(project: &Project, files: &[u16]) -> Result<(), KernelError> {
         .map_err(|e| rotom_error("compile state", e))?;
     let mut changed = false;
     for &file in files {
-        let source = source_path(project, file, SourceKind::Script);
-        if !source.is_file() {
-            continue;
-        }
-        // rotom v0.7.0: src/project/compile.rs compile_project keys the state by the source
-        // path relative to the project root and compiles an entry whose source_hash differs.
-        if let Some(entry) = state.entries.get_mut(&relative(root, &source))
-            && entry.source_hash != 0
-        {
-            entry.source_hash = 0;
-            changed = true;
+        for &kind in kinds {
+            let source = source_path(project, file, kind);
+            if !source.is_file() {
+                continue;
+            }
+            // rotom v0.7.0: src/project/compile.rs compile_project keys the state by the
+            // source path relative to the project root and compiles an entry whose
+            // source_hash differs.
+            if let Some(entry) = state.entries.get_mut(&relative(root, &source))
+                && entry.source_hash != 0
+            {
+                entry.source_hash = 0;
+                changed = true;
+            }
         }
     }
     if changed {
@@ -717,7 +812,7 @@ pub fn compile(project: &Project) -> Result<CompileReport, KernelError> {
         // An archive in conflict keeps its member: the build's text step asks first.
         for &n in touched_archives.iter().filter(|n| !conflicts.contains(n)) {
             let json = crate::text::json_path(project, n);
-            let bytes = std::fs::read(&json).map_err(io_at(&json))?;
+            let bytes = crate::fsutil::read_noted(&json).map_err(io_at(&json))?;
             let doc = TextArchiveDoc::from_json(&bytes, lang)?;
             let member = project.member_path(AssetKind::TextArchive, n);
             match write_archive(root, &json, &member, &doc) {
@@ -959,6 +1054,168 @@ pub(crate) fn parse_source(
     Ok(parsed.ok())
 }
 
+/// One thing [`visit`] meets in a parsed source.
+pub(crate) enum AstItem<'a> {
+    /// A command with its arguments: a statement, or a call in a condition or an argument
+    /// (`if CheckItem(ITEM_POTION, 1) …`).
+    Command {
+        name: &'a str,
+        args: &'a [rotom::compiler::ast::Expression],
+    },
+    /// `alias <value> as <name>`, visible from byte `at` on.
+    Alias {
+        name: &'a str,
+        value: &'a rotom::compiler::ast::Expression,
+        at: usize,
+    },
+    /// A name the file declares: a script, an action or a label.
+    Declared(&'a str),
+    /// An expression; nested ones (operands, call arguments, command arguments) each too.
+    Expression(&'a rotom::compiler::ast::Expression),
+}
+
+/// Calls `f` with every [`AstItem`] of the parsed source `file`, in source order (the
+/// top-level aliases first), nested blocks and expressions included.
+pub(crate) fn visit<'a>(
+    file: &'a rotom::compiler::ast::ScriptFile,
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    visit_statements(&file.aliases, f);
+    visit_statements(&file.items, f);
+}
+
+fn visit_statements<'a>(
+    statements: &'a [rotom::compiler::ast::Statement],
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    use rotom::compiler::ast::StatementKind;
+    for statement in statements {
+        match &statement.node {
+            StatementKind::Function { headers, body } => {
+                for header in headers {
+                    f(AstItem::Declared(&header.name));
+                }
+                visit_statements(body, f);
+            }
+            StatementKind::Action { name, body } => {
+                f(AstItem::Declared(name));
+                visit_statements(body, f);
+            }
+            StatementKind::AliasStatement { value, name } => {
+                f(AstItem::Alias {
+                    name,
+                    value,
+                    at: statement.span.start,
+                });
+                visit_expression(value, f);
+            }
+            StatementKind::Define { value, .. } => visit_expression(value, f),
+            StatementKind::IfStatement {
+                condition,
+                body,
+                elseblock,
+            } => {
+                visit_expression(condition, f);
+                visit_statements(body, f);
+                visit_statements(elseblock.as_deref().unwrap_or_default(), f);
+            }
+            StatementKind::WhileStatement { condition, body } => {
+                visit_expression(condition, f);
+                visit_statements(body, f);
+            }
+            StatementKind::MatchStatement {
+                subject,
+                cases,
+                default,
+            } => {
+                visit_expression(subject, f);
+                for case in cases {
+                    for value in &case.values {
+                        visit_expression(value, f);
+                    }
+                    visit_statements(&case.body, f);
+                }
+                visit_statements(default.as_deref().unwrap_or_default(), f);
+            }
+            StatementKind::ScriptCommand { command, args } => {
+                f(AstItem::Command {
+                    name: command,
+                    args,
+                });
+                for arg in args {
+                    visit_expression(arg, f);
+                }
+            }
+            StatementKind::MenuBuilder {
+                entries, config, ..
+            } => {
+                for entry in entries {
+                    visit_expression(&entry.label, f);
+                    if let Some(hover) = &entry.hover {
+                        visit_expression(hover, f);
+                    }
+                    visit_expression(&entry.target, f);
+                }
+                let config = &**config;
+                let position = config.position.iter().flat_map(|(x, y)| [x, y]);
+                for value in [
+                    &config.cursor,
+                    &config.prompt,
+                    &config.width,
+                    &config.columns,
+                    &config.cancel,
+                ]
+                .into_iter()
+                .flatten()
+                .chain(position)
+                {
+                    visit_expression(value, f);
+                }
+            }
+            StatementKind::Label(name) => f(AstItem::Declared(name)),
+            StatementKind::Jump(target) => visit_expression(target, f),
+            StatementKind::Include { .. }
+            | StatementKind::Break
+            | StatementKind::Return
+            | StatementKind::End
+            | StatementKind::EndMovement
+            | StatementKind::Error => {}
+        }
+    }
+}
+
+fn visit_expression<'a>(
+    expression: &'a rotom::compiler::ast::Expression,
+    f: &mut dyn FnMut(AstItem<'a>),
+) {
+    use rotom::compiler::ast::ExpressionKind;
+    f(AstItem::Expression(expression));
+    match &expression.node {
+        ExpressionKind::Prefix { id, .. } => visit_expression(id, f),
+        ExpressionKind::Infix { left, right, .. } => {
+            visit_expression(left, f);
+            visit_expression(right, f);
+        }
+        ExpressionKind::Call { function, args } => {
+            if let ExpressionKind::Identifier(name) = &function.node {
+                f(AstItem::Command { name, args });
+            } else {
+                visit_expression(function, f);
+            }
+            for arg in args {
+                visit_expression(arg, f);
+            }
+        }
+        ExpressionKind::InlineAction { body } => visit_statements(body, f),
+        ExpressionKind::Number(_)
+        | ExpressionKind::Identifier(_)
+        | ExpressionKind::Label(_)
+        | ExpressionKind::ModuleRef { .. }
+        | ExpressionKind::String(_)
+        | ExpressionKind::Error => {}
+    }
+}
+
 /// The script slots (`#n`) the parsed source `file` declares, with the span of their statement.
 pub(crate) fn slots_in(
     file: &rotom::compiler::ast::ScriptFile,
@@ -1140,7 +1397,13 @@ fn decompile_text(project: &Project, bytes: &[u8]) -> Result<Option<Decompiled>,
     };
     let ids = global_script_ids(&output, &db);
     let context = guard_panic("rotom", || {
-        project_compile::context_with(project, &config, db, Some(&ids))
+        project_compile::context_with(
+            project,
+            &config,
+            db,
+            Some(&ids),
+            project_compile::IdFileUse::Skip,
+        )
     })??;
     // rotom v0.7.0: src/lib.rs decompile_file_from_ir, the quirks
     let mut quirks = rotom::BinaryQuirk::default();
@@ -1191,6 +1454,15 @@ pub fn decompile_member(
         _ => ScriptSource::Rotom(decompiled.text),
     };
     Ok(Some((source, decompiled.quirks)))
+}
+
+/// The source rotom decompiles member `bytes` to, as the text a reset writes; `None` when it
+/// does not decompile them.
+pub(crate) fn decompiled_text(
+    project: &Project,
+    bytes: &[u8],
+) -> Result<Option<String>, KernelError> {
+    Ok(decompile_text(project, bytes)?.map(|d| d.text))
 }
 
 /// rotom's compile state of the project (`<status_dir>/compile-state.json`).
@@ -1301,6 +1573,48 @@ fn entry_is_fresh(
         && entry.output_hash == xxh3_64(member))
 }
 
+/// Notes in the open [`Journal`](crate::fsutil::Journal) each script source and its member
+/// whose compile state entry proves them in step: not dirty, its source hash that of the
+/// source's bytes, its output hash that of the member's (rotom wrote the entry from the bytes
+/// it wrote and read, decompiling or compiling). A source or member without such an entry is
+/// not noted (an operation then does not record it as read). Nothing without an open journal
+/// or without `rotom.toml`.
+pub(crate) fn note_in_step(project: &Project) -> Result<(), KernelError> {
+    if !crate::fsutil::journal_open() || !is_adopted(project) {
+        return Ok(());
+    }
+    let path = state_path(project)?;
+    // rotom v0.7.0: src/compile_state.rs CompileState::load_or_default, FileState; the fast
+    // path of src/project/compile.rs compile_project (status not Dirty, both hashes equal)
+    let state =
+        rotom::CompileState::load_or_default(&path).map_err(|e| rotom_error("compile state", e))?;
+    let dir = project.expanded_dir(AssetKind::Script);
+    for (ext, kind) in [
+        ("rotom", SourceKind::Script),
+        ("json", SourceKind::LevelScript),
+    ] {
+        for n in numbered_files(&dir, Some(ext))? {
+            let source = source_path(project, n, kind);
+            let Some(entry) = state.entries.get(&state_key(project, &source)) else {
+                continue;
+            };
+            if entry.status == rotom::compile_state::FileStatus::Dirty {
+                continue;
+            }
+            let member = member_file(project, n);
+            let (Some(text), Some(bytes)) = (read_if_present(&source)?, read_if_present(&member)?)
+            else {
+                continue;
+            };
+            if entry.source_hash == xxh3_64(&text) && entry.output_hash == xxh3_64(&bytes) {
+                crate::fsutil::note_read(&source, &text);
+                crate::fsutil::note_read(&member, &bytes);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The step [`reset_script`] writes, without writing it: the sources (`NNNN.rotom`,
 /// `NNNN.json`) and the member with their bytes now and after the reset, and the compile state
 /// entry of the source (the one written, else the one removed). Without `rotom.toml` only the
@@ -1334,6 +1648,7 @@ pub(crate) fn script_step(
                         after: member_now,
                     }],
                     rotom_entry: None,
+                    kind: crate::store::FileStepKind::Reset,
                 });
             }
         }
@@ -1400,6 +1715,7 @@ pub(crate) fn script_step(
         asset,
         files,
         rotom_entry,
+        kind: crate::store::FileStepKind::Reset,
     })
 }
 

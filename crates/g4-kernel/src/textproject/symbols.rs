@@ -15,7 +15,7 @@ const ABILITIES_YAML: &str = include_str!("../../metadata/symbols/abilities.yaml
 const TYPES_YAML: &str = include_str!("../../metadata/symbols/types.yaml");
 
 /// What an id names; its prefix starts every id of the kind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SymbolKind {
     Species,
     Move,
@@ -61,6 +61,11 @@ impl SymbolTable {
     /// The number of `id`, if the table has it.
     pub fn number(&self, id: &str) -> Option<u32> {
         self.numbers.get(id).copied()
+    }
+
+    /// Every entry, ascending by number.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.ids.iter().map(|(&n, id)| (n, id.as_str()))
     }
 
     /// The number of entries.
@@ -141,6 +146,39 @@ fn load(kind: SymbolKind) -> Result<SymbolTable, String> {
         }
     }
     Ok(table)
+}
+
+/// A digest (16 hex digits, xxh3) of the fixed tables `tables`: every kind's prefix and every
+/// entry (number, id) in ascending order, each field length-prefixed so no two tables give the
+/// same bytes. `schema.snap` carries the digest of [`fixed_tables_digest`]: the ids are in
+/// every JSON file, so a changed table needs a new schema version like a changed key.
+#[cfg(test)]
+pub(crate) fn tables_digest(tables: &[(SymbolKind, &SymbolTable)]) -> String {
+    let mut bytes = Vec::new();
+    let mut field = |text: &str| {
+        bytes.extend_from_slice(&(text.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(text.as_bytes());
+    };
+    for (kind, table) in tables {
+        field(kind.prefix());
+        field(&table.len().to_string());
+        for (n, id) in table.iter() {
+            field(&n.to_string());
+            field(id);
+        }
+    }
+    format!("{:016x}", xxhash_rust::xxh3::xxh3_64(&bytes))
+}
+
+/// [`tables_digest`] of the five fixed tables the build embeds.
+#[cfg(test)]
+pub(crate) fn fixed_tables_digest() -> String {
+    use SymbolKind::*;
+    let tables: Vec<(SymbolKind, &SymbolTable)> = [Species, Move, Item, Ability, Type]
+        .into_iter()
+        .filter_map(|k| table(k).map(|t| (k, t)))
+        .collect();
+    tables_digest(&tables)
 }
 
 /// The id of a number without an entry: the prefix and at least four digits (`ITEM_0113`).
@@ -258,6 +296,48 @@ mod tests {
         SymbolKind::Ability,
         SymbolKind::Type,
     ];
+
+    fn small(entries: &[(u32, &str)]) -> SymbolTable {
+        let mut t = SymbolTable::default();
+        for &(n, id) in entries {
+            t.ids.insert(n, id.to_owned());
+            t.numbers.insert(id.to_owned(), n);
+        }
+        t
+    }
+
+    /// The digest that `schema.snap` carries moves with every entry of every fixed table, so
+    /// a table cannot change without the schema version.
+    #[test]
+    fn the_digest_follows_every_entry_of_every_table() {
+        let one = small(&[(1, "SPECIES_A"), (2, "SPECIES_B")]);
+        let other = small(&[(1, "ITEM_A")]);
+        let base = tables_digest(&[(SymbolKind::Species, &one), (SymbolKind::Item, &other)]);
+        assert_eq!(base.len(), 16);
+        assert_eq!(
+            base,
+            tables_digest(&[(SymbolKind::Species, &one), (SymbolKind::Item, &other)])
+        );
+        // A renamed id, a moved number, an entry more or less, a swapped kind.
+        for changed in [
+            small(&[(1, "SPECIES_A"), (2, "SPECIES_C")]),
+            small(&[(1, "SPECIES_A"), (3, "SPECIES_B")]),
+            small(&[(1, "SPECIES_A")]),
+            small(&[(1, "SPECIES_A"), (2, "SPECIES_B"), (3, "SPECIES_C")]),
+        ] {
+            let now = tables_digest(&[(SymbolKind::Species, &changed), (SymbolKind::Item, &other)]);
+            assert_ne!(now, base);
+        }
+        assert_ne!(
+            base,
+            tables_digest(&[(SymbolKind::Move, &one), (SymbolKind::Item, &other)])
+        );
+        // Ids that only differ in where the table ends are no other table.
+        assert_ne!(
+            tables_digest(&[(SymbolKind::Species, &small(&[(1, "SPECIES_A2")]))]),
+            tables_digest(&[(SymbolKind::Species, &small(&[(1, "SPECIES_A"), (2, "")]))])
+        );
+    }
 
     #[test]
     fn embedded_tables_load_without_error() {

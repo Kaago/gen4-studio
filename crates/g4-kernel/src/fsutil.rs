@@ -1,6 +1,8 @@
 //! File helpers shared by the store and the patch module.
 
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{KernelError, io_at};
@@ -58,9 +60,132 @@ pub(crate) fn write_atomic_meta(
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
+    note_written(&project_root.join(path), bytes);
     #[cfg(unix)]
     let meta = file.metadata();
     #[cfg(not(unix))]
     let meta = std::fs::metadata(path);
     Ok(meta.ok())
+}
+
+/// What a [`Journal`] noted of one file: the xxh3 of the bytes read or written last, or that
+/// two reads (or a read after a write) saw different bytes, or a writer gave up on the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Noted {
+    Read(u64),
+    Wrote(u64),
+    /// Seen with different bytes, or dropped by a writer ([`note_conflict`]): no record.
+    Conflict,
+}
+
+impl Noted {
+    /// The hash of the bytes the operation vouches for; `None` for a conflict.
+    pub(crate) fn hash(self) -> Option<u64> {
+        match self {
+            Noted::Read(hash) | Noted::Wrote(hash) => Some(hash),
+            Noted::Conflict => None,
+        }
+    }
+}
+
+/// The files of a [`Journal`]: absolute path → what was noted.
+pub(crate) type Notes = BTreeMap<PathBuf, Noted>;
+
+thread_local! {
+    /// The files read and written on this thread while a [`Journal`] is open.
+    static JOURNAL: RefCell<Option<Notes>> = const { RefCell::new(None) };
+}
+
+/// Notes in the open [`Journal`], if any, what `f` makes of `path`'s entry.
+fn note(path: &Path, f: impl FnOnce(Option<Noted>) -> Noted) {
+    JOURNAL.with(|journal| {
+        if let Some(files) = journal.borrow_mut().as_mut() {
+            let old = files.get(path).copied();
+            files.insert(path.to_path_buf(), f(old));
+        }
+    });
+}
+
+/// Notes a write of `bytes` to `path`: the bytes the file holds now.
+fn note_written(path: &Path, bytes: &[u8]) {
+    let hash = xxhash_rust::xxh3::xxh3_64(bytes);
+    note(path, |_| Noted::Wrote(hash));
+}
+
+/// Notes that `path` was read as `bytes`: a read with other bytes than noted before (written
+/// or read meanwhile by someone else) is a conflict.
+pub(crate) fn note_read(path: &Path, bytes: &[u8]) {
+    let hash = xxhash_rust::xxh3::xxh3_64(bytes);
+    note(path, |old| match old {
+        None => Noted::Read(hash),
+        Some(Noted::Read(h) | Noted::Wrote(h)) if h == hash => old.unwrap_or(Noted::Read(hash)),
+        Some(_) => Noted::Conflict,
+    });
+}
+
+/// Notes that a writer gave `path` up (its sync record dropped): an operation around it must
+/// not record the file either.
+pub(crate) fn note_conflict(path: &Path) {
+    note(path, |_| Noted::Conflict);
+}
+
+/// Whether a [`Journal`] is open on this thread (a check worth noting reads for).
+pub(crate) fn journal_open() -> bool {
+    JOURNAL.with(|journal| journal.borrow().is_some())
+}
+
+/// [`std::fs::read`], noting the bytes in the open [`Journal`].
+pub(crate) fn read_noted(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
+    let path = path.as_ref();
+    let bytes = std::fs::read(path)?;
+    note_read(path, &bytes);
+    Ok(bytes)
+}
+
+/// The files this thread reads ([`read_noted`]) and writes through [`write_atomic`] (and so
+/// `write_if_changed`) from [`Journal::start`] to [`Journal::finish`], each with the xxh3 of
+/// the bytes read or written: what an operation can vouch for when it records its files for
+/// the text project's sync. Journals nest (an outer one gets the inner one's notes too).
+pub(crate) struct Journal {
+    outer: Option<Notes>,
+    open: bool,
+}
+
+impl Journal {
+    pub(crate) fn start() -> Journal {
+        let outer = JOURNAL.with(|journal| journal.replace(Some(BTreeMap::new())));
+        Journal { outer, open: true }
+    }
+
+    /// The files noted since [`Journal::start`] (absolute paths), and the journal closed.
+    pub(crate) fn finish(mut self) -> Notes {
+        self.close()
+    }
+
+    fn close(&mut self) -> Notes {
+        if !self.open {
+            return BTreeMap::new();
+        }
+        self.open = false;
+        let outer = self.outer.take();
+        let files = JOURNAL
+            .with(|journal| journal.replace(outer))
+            .unwrap_or_default();
+        for (path, noted) in &files {
+            let path = path.clone();
+            let noted = *noted;
+            note(&path, |old| match (old, noted) {
+                (_, Noted::Wrote(_) | Noted::Conflict) | (None, _) => noted,
+                (Some(old), Noted::Read(h)) if old.hash() == Some(h) => old,
+                _ => Noted::Conflict,
+            });
+        }
+        files
+    }
+}
+
+impl Drop for Journal {
+    fn drop(&mut self) {
+        self.close();
+    }
 }

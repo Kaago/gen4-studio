@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
@@ -31,8 +31,15 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
+import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
+import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
-import { useOriginal } from "./original/useOriginal";
+import { AdoptDialog } from "./textproject/AdoptDialog";
+import { MigrateDialog } from "./textproject/MigrateDialog";
+import { RevertDialog } from "./textproject/RevertDialog";
+import { TextProjectProvider } from "./textproject/TextProjectContext";
+import { useTextProjectDialogs } from "./app/useTextProjectDialogs";
+import { baseKey, useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
@@ -49,10 +56,10 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, redo, undo } from "./api";
+import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentChangedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto } from "./api";
+import type { AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -149,6 +156,8 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "add_script",
   "new_script_file",
   "create_trainer",
+  "resolve_external_conflict",
+  "rename_id",
 ]);
 
 /** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
@@ -159,6 +168,15 @@ const SCRIPT_HEIGHT = 400;
 
 /** What the transport says when the dev bridge does not answer (see `platform/transport.ts`). */
 const BRIDGE_DOWN = "Brücke nicht erreichbar";
+
+/** The key of the progress toast of a text project's first (full) sync. */
+const FULL_SYNC = "external-sync";
+/** The key of the sync's lasting message about broken files (the one about conflicts is `CONFLICTS_TOAST`, a build's refusal shares it):
+ * each is replaced in place and closed when nothing is left. */
+const BROKEN_TOAST = "sync-broken";
+
+/** A folder path without a trailing separator, to compare the roots the backend names. */
+const bareRoot = (path: string) => path.replace(/[\\/]+$/, "");
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
@@ -240,13 +258,25 @@ function AppBody() {
       /* the deck is going away */
     }
   });
-  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems });
+  // The entry Technik shows; kept while another area shows.
+  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // „Anzeigen“ and „Lösen…“ of the sync's messages: Technik › Textprojekt (not while a wizard holds the frame).
+  const showTextProject = useStableCallback(() => {
+    if (wizardOpen.current || startOpen) return;
+    setTechnikEntry("textprojekt");
+    setArea("technik");
+  });
+  // The sync of a text project, run before a build (set below, once the sync hook exists).
+  const syncBeforeBuild = useRef<(() => Promise<SyncOutcome | null>) | null>(null);
+  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems, syncBeforeBuild, onShowConflicts: showTextProject });
   useToastMirror(session.message, session.setMessage);
   // Writes to the saved project the session does not count (a script file written, an original reset, the header patch, an agent's
   // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
   const [changedRevision, setChangedRevision] = useState(0);
   const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
-  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged });
+  // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
+  const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
+  const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
@@ -391,15 +421,47 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
-    // A base assigned by an agent: what can be reset is read again (Technik may never have read the base status).
-    if (session.info !== null && event.tool === "assign_base") void original.refresh();
+    // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
+    // never have read the base status).
+    if (session.info !== null && event.tool === "assign_base") {
+      void original.refresh();
+      rereadTextStatus();
+    }
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
-    agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(event.assets)).catch(session.fail);
+    // An agent renamed an id, or undid or redid a step (a rename's among them): the heads read the ids again.
+    if (event.tool === "rename_id" || event.tool === "undo" || event.tool === "redo") bumpIds();
+    // An agent chose a side of a conflict: after its assets were read again, the sync lists what is still open (as after the user's choice).
+    const resolved = event.tool === "resolve_external_conflict" && isTextProject;
+    agentReloads.current = agentReloads.current
+      .then(() => reloadAfterAgent(event.assets))
+      .then(() => void (resolved && sync.run()))
+      .catch(session.fail);
+  });
+  // An agent opened the session anew (an adoption, a revert or a lift of the text project): the store, its undo history and the language
+  // server are new. The project is read again as after opening it (the area stays), in the queue of the agents' changes. Another
+  // folder's session is not this project's.
+  const onAgentReopened = useStableCallback((event: AgentReopenedEvent) => {
+    const shown = session.info;
+    if (shown === null || bareRoot(event.root) !== bareRoot(shown.root)) return;
+    agentReloads.current = agentReloads.current
+      .then(() => session.reloadSession(shown.root, resetProject))
+      // The files may differ from the saved project before (an adoption writes data/, a revert moves it): Änderungen compares again.
+      .then(bumpChanged)
+      .catch(session.fail);
+  });
+  // An agent sets a folder up as text project (the hub's `busy`, from its start to its end, which follows its reopen): the folder, null
+  // while none does. Technik › Textprojekt says so meanwhile and offers no set-up of its own.
+  const [agentSetUpRoot, setAgentSetUpRoot] = useState<string | null>(null);
+  const onAgentBusy = useStableCallback((event: AgentBusyEvent) => {
+    if (event.tool !== "adopt_text_project") return;
+    const root = bareRoot(event.root);
+    setAgentSetUpRoot((before) => (event.running ? root : before === root ? null : before));
   });
   // Agent events were lost (the browser mode's poll fell behind): what they changed is unknown, so the world is read again as after a
-  // stale file, in the same queue.
+  // stale file, in the same queue. An agent's set-up whose end may be among them is no longer shown.
   const onAgentGap = useStableCallback(() => {
+    setAgentSetUpRoot(null);
     agentReloads.current = agentReloads.current
       .then(async () => {
         if (session.info === null) return;
@@ -424,7 +486,7 @@ function AppBody() {
     }
   });
   // The hub's status and the agent actions (the status line, the question dialog); it follows the hub for as long as the app runs.
-  const agents = useAgents({ onChanged: onAgentChanged, onGap: onAgentGap });
+  const agents = useAgents({ onChanged: onAgentChanged, onReopened: onAgentReopened, onBusy: onAgentBusy, onGap: onAgentGap });
   // The project checks: all of them when a project opens, after a fix and 300 ms after the last edit (the hinge's light, Problems, Technik,
   // inspector).
   const checks = useChecks({ bus, problems, project: session.info, onError: session.fail, onFixed, onSave: session.onSave });
@@ -432,10 +494,16 @@ function AppBody() {
   const [historyFeed] = useState(() => new HistoryFeed());
   useHistoryReader(historyFeed, bus, session.dirtyRevision, session.info !== null);
   // The hinge's history menu: going back to the n-th entry is n undo steps in a row, each reloading like a single undo; the first one that fails ends it.
-  const onUndoTo = useStableCallback(async (stepsBack: number) => {
-    for (let i = 0; i < stepsBack; i++) if (!(await step(undo))) return;
+  // An undo or redo may take back a rename of an id (a file step): the heads read the ids again after each.
+  const stepAndIds = useStableCallback(async (action: typeof undo): Promise<boolean> => {
+    const done = await step(action);
+    if (done) bumpIds();
+    return done;
   });
-  const onRedo = useStableCallback(() => void step(redo));
+  const onUndoTo = useStableCallback(async (stepsBack: number) => {
+    for (let i = 0; i < stepsBack; i++) if (!(await stepAndIds(undo))) return;
+  });
+  const onRedo = useStableCallback(() => void stepAndIds(redo));
   // "Hier spielen": saves and builds; inside the app it then runs the ROM (asking for an emulator first when none is set). In the browser mode it only builds.
   // It builds to the path of the last build without asking; only the first play asks for one (the title bar's "Bauen" always asks).
   const playing = useRef(false);
@@ -510,7 +578,7 @@ function AppBody() {
     onPlay,
     onOpenProject: () => openProject(),
     onPalette: openPalette,
-    step,
+    step: stepAndIds,
     onDeleteBuilding: world.onDeleteBuilding,
     onDeleteEvent: world.onDeleteEvent,
     unpinSelection: world.unpinSelection,
@@ -569,6 +637,8 @@ function AppBody() {
     const info = session.info;
     if (info === null) return;
     remember({ path: info.root, name: projectName(info.root), game: gameLabel(info), openedAt: Date.now() });
+    // The session an agent opened anew is the same project: the app stays where it is.
+    if (session.isReopened(info)) return;
     setArea(openingArea.current);
     openingArea.current = "welt";
     // A project is open: the wizard "Neues Spiel aus ROM" is done, in the same step as the area changes (the rest of opening may still run).
@@ -625,8 +695,108 @@ function AppBody() {
   const [helpOpen, setHelpOpen] = useState(false);
   const onHelp = useCallback(() => setHelpOpen(true), []);
   useF6Ring(() => !paletteOpen && !helpOpen);
-  // The entry Technik shows; kept while another area shows.
-  const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
+  // The open project as a text project: from the info of the opening (read when the info lacks it), and read again after each sync (the
+  // time of the last one). Tagged with the info it belongs to, so a late answer for another project is dropped.
+  const [textStatus, setTextStatus] = useState<{ info: ProjectInfo; status: TextProjectStatus | null } | null>(null);
+  useEffect(() => {
+    const opened = session.info;
+    if (opened === null) return;
+    if (opened.text_project !== undefined) {
+      setTextStatus({ info: opened, status: opened.text_project });
+      return;
+    }
+    let current = true;
+    textProjectStatus().then((status) => current && setTextStatus({ info: opened, status: status ?? null }), ignoreError);
+    return () => {
+      current = false;
+    };
+  }, [session.info]);
+  const projectText = textStatus !== null && textStatus.info === session.info ? textStatus.status : null;
+  const isTextProject = projectText?.state === "current";
+  const rereadTextStatus = useStableCallback(() => {
+    const opened = session.info;
+    if (opened === null) return;
+    textProjectStatus().then((status) => status && setTextStatus((before) => (before?.info === opened ? { info: opened, status } : before)), ignoreError);
+  });
+  // The base ROM changed from one known state to another (assigned in Technik › Veröffentlichen or by an agent, found again): whether a
+  // DSPRE folder can be set up follows it, so the status is read again (Technik › Textprojekt unlocks, the hint offers „Einrichten…“).
+  const baseSeen = baseKey(base.status);
+  const lastBase = useRef<string | null>(null);
+  useEffect(() => {
+    const before = lastBase.current;
+    lastBase.current = baseSeen;
+    if (baseSeen !== null && before !== null && baseSeen !== before) rereadTextStatus();
+  }, [baseSeen]);
+  // The conflicts and broken files the last sync of this project reported: a message only names them when one is new.
+  const syncKnown = useRef<{ root: string; conflicts: ReadonlySet<string>; broken: ReadonlySet<string> } | null>(null);
+  // A sync went through: what it took over is read again (in the queue of the agents' changes) and said; new conflicts and broken files
+  // are said too, and the time of the last sync is read again.
+  const onSyncOutcome = useStableCallback((outcome: SyncOutcome, root: string) => {
+    // A sync of a project the backend no longer has open (another one opened, its UI not swapped yet): nothing of it is this one's.
+    if (root !== session.currentRoot() || root !== session.info?.root) return;
+    const show = [{ label: "Anzeigen", onClick: showTextProject }];
+    if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show });
+    if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show });
+    const known = syncKnown.current?.root === root ? syncKnown.current : null;
+    // A new conflict (broken file) says so; an open message follows the count without coming back once closed, and goes when none is left.
+    if (outcome.conflicts.length === 0) toast.dismissKey(CONFLICTS_TOAST);
+    else if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key)) || toast.shown(CONFLICTS_TOAST)) {
+      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: "Lösen…", onClick: showTextProject }] });
+    }
+    if (outcome.broken.length === 0) toast.dismissKey(BROKEN_TOAST);
+    else if (outcome.broken.some((b) => !known?.broken.has(b.key)) || toast.shown(BROKEN_TOAST)) {
+      toast.error(brokenText(outcome.broken.length), { key: BROKEN_TOAST, actions: show });
+    }
+    syncKnown.current = { root, conflicts: new Set(outcome.conflicts.map((c) => c.key)), broken: new Set(outcome.broken.map((b) => b.key)) };
+    rereadTextStatus();
+    // What came in changed the saved project (Technik › Änderungen compares again) and the store's values (read again as after an agent).
+    if (outcome.adopted.length + outcome.applied.length > 0) {
+      bumpChanged();
+      bumpIds();
+    }
+    if (outcome.reloaded.length > 0) agentReloads.current = agentReloads.current.then(() => reloadAfterAgent(outcome.reloaded)).catch(session.fail);
+  });
+  // The sync of a text project with DSPRE: when it opens, on window focus, before a build and on „Jetzt abgleichen“.
+  const sync = useExternalSync({ project: session.info?.root ?? null, textProject: isTextProject, busy: session.busy, opened: session.info, onOutcome: onSyncOutcome, onError: session.fail });
+  // The build's own sync: the one that runs while the build holds `busy`.
+  syncBeforeBuild.current = isTextProject ? () => sync.run({ duringBuild: true }) : null;
+  // Another project: the old one's conflicts and broken files are not this one's.
+  const syncRoot = session.info?.root ?? null;
+  useEffect(() => {
+    toast.dismissKey(CONFLICTS_TOAST);
+    toast.dismissKey(BROKEN_TOAST);
+  }, [syncRoot]);
+  // The first sync hashes every file (seconds): the app says how far it is, wherever it shows.
+  const fullSync = isTextProject && projectText.last_sync_at === null && sync.running && sync.progress !== null ? syncProgressText(sync.progress) : null;
+  useEffect(() => toast.progress(FULL_SYNC, fullSync), [fullSync]);
+  // A conflict was resolved in Technik: its assets are read again, then the sync lists what is still open.
+  const onConflictResolved = useStableCallback((assets: AssetId[]) => {
+    bumpChanged();
+    agentReloads.current = agentReloads.current
+      .then(() => reloadAfterAgent(assets))
+      .then(() => void sync.run())
+      .catch(session.fail);
+  });
+  // The text project's dialogs (set up, take back, lift), the open hint, a rename's message and the ids of the heads.
+  const text = useTextProjectDialogs({
+    session,
+    projectText,
+    sync,
+    onResolved: onConflictResolved,
+    reloads: agentReloads,
+    resetProject,
+    bumpChanged,
+    idsRevision,
+    bumpIds,
+    canOpen: () => !wizardOpen.current && !startOpen,
+    showPublish: () => {
+      setTechnikEntry("veroeffentlichen");
+      setArea("technik");
+    },
+    onClosed: () => setArea("start"),
+    agentSetUp: agentSetUpRoot !== null && session.info !== null && bareRoot(session.info.root) === agentSetUpRoot,
+  });
+  const textProject = text.textProject;
   // Technik › Änderungen, above the areas like the base: the report survives leaving Technik; it compares when the surface shows (first per
   // project and base, and after a save or a reset since the last compare). Another base found (assigned, by an agent too) compares again.
   const changes = useChanges({
@@ -991,6 +1161,7 @@ function AppBody() {
         base={info ? base : null}
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
+        textProject={textProject}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -1041,109 +1212,136 @@ function AppBody() {
 
   return (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
-      <Workbench data={data} live={live}>
-        {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
-        <TextAreaHost onShown={setTextShown}>
-          <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
-            <Shell
-              title={
-                <TitleBar
-                  projectName={info ? projectName(info.root) : null}
-                  game={info ? gameLabel(info) : null}
-                  dirtyCount={session.dirtyCount + scripts.dirtyCount}
-                  // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
-                  busy={session.busy || showsWizard || startOpen}
-                  onOpen={openProject}
-                  onSave={() => void session.onSave()}
-                  onBuild={() => void session.onBuild()}
-                  onHelp={onHelp}
-                  onPalette={openPalette}
-                  paletteDisabled={showsWizard || startOpen}
-                  theme={shell.theme}
-                  onToggleTheme={shell.toggleTheme}
-                />
-              }
-              atlas={
-                <Atlas
-                  area={area}
-                  onArea={setArea}
-                  onHelp={onHelp}
-                  locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
-                  lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
-                  density={shell.density}
-                />
-              }
-              area={area}
-              areas={Object.fromEntries(DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: AREA_LISTS[a], deck: deckOf(a, trails[a]) }]))}
-              pane={pane}
-              status={
-                <StatusLine
-                  left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
-                  middle={
-                    showsWizard || startOpen ? (
-                      <WizardStep />
-                    ) : area === "texte" ? (
-                      <TextStatus />
-                    ) : area === "pokemon" ? (
-                      <PokemonStatus />
-                    ) : area === "gegenstaende" ? (
-                      <ItemsStatus />
-                    ) : area === "einstellungen" ? (
-                      "Änderungen gelten sofort und für alle Projekte"
-                    ) : area === "welt" ? (
-                      context
-                    ) : null
-                  }
-                  right={<ProblemCount store={problems} />}
-                  bridge={bridge}
-                  density={shell.density}
-                  onToggleDensity={shell.toggleDensity}
-                  build={{ builtAt: session.lastBuiltAt, building: session.busy }}
-                  agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
-                />
-              }
-            />
-          </DataAreaHost>
-        </TextAreaHost>
-      </Workbench>
-      <WizardHost
-        wizards={wizards}
-        world={live.world.world}
-        headers={scene.headers}
-        matrices={overview.matrices}
-        matricesLoaded={overview.loaded}
-        matricesFailed={overview.failed}
-        links={overview.links}
-        counts={session.counts}
-        selected={selectedHeader}
-        shownMatrix={scene.matrix?.index ?? null}
-        lastTile={world.lastMatrixTile}
-        onHeaderPatch={onHeaderPatch}
-        onHeaderPatchRepaired={session.patchRepaired}
-        onError={session.fail}
-        onPlay={() => void onPlay()}
-        scripts={scripts.api.status}
-        onAdoptScripts={scripts.api.adopt}
-        unsaved={session.dirtyCount + scripts.dirtyCount}
-        onSave={session.onSave}
-        onRegionApplied={onRegionApplied}
-      />
-      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-      <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
-      {session.textConflicts !== null && (
-        <TextConflictDialog
-          key={session.textConflicts.archives.join(",")}
-          archives={session.textConflicts.archives}
-          onResolve={(choices) => void onResolveConflicts(choices)}
-          onCancel={session.cancelConflicts}
-          busy={session.textConflicts.resolving}
+      <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
+        <Workbench data={data} live={live}>
+          {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
+          <TextAreaHost onShown={setTextShown}>
+            <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
+              <Shell
+                title={
+                  <TitleBar
+                    projectName={info ? projectName(info.root) : null}
+                    game={info ? gameLabel(info) : null}
+                    dirtyCount={session.dirtyCount + scripts.dirtyCount}
+                    // While a wizard is open nothing else may change the project (spec §5.5): open, save and build wait for it.
+                    busy={session.busy || showsWizard || startOpen}
+                    onOpen={openProject}
+                    onSave={() => void session.onSave()}
+                    onBuild={() => void session.onBuild()}
+                    onHelp={onHelp}
+                    onPalette={openPalette}
+                    paletteDisabled={showsWizard || startOpen}
+                    theme={shell.theme}
+                    onToggleTheme={shell.toggleTheme}
+                  />
+                }
+                atlas={
+                  <Atlas
+                    area={area}
+                    onArea={setArea}
+                    onHelp={onHelp}
+                    locked={showsWizard ? WIZARD_LOCKED : startOpen ? START_WIZARD_LOCKED : LOCKED_AREAS}
+                    lockedHint={showsWizard ? WIZARD_HINTS : startOpen ? START_WIZARD_HINTS : LOCKED_HINTS}
+                    density={shell.density}
+                  />
+                }
+                area={area}
+                areas={Object.fromEntries(DECK_AREAS.filter((a) => built.current.has(a)).map((a) => [a, { list: AREA_LISTS[a], deck: deckOf(a, trails[a]) }]))}
+                pane={pane}
+                status={
+                  <StatusLine
+                    left={showsWizard || startOpen ? <WizardHints /> : area === "welt" ? <ToolHints tool={shell.tool} placing={pendingTrainer === null ? null : trainerLabel(placingRows, pendingTrainer)} /> : area === "texte" ? <TextHints /> : null}
+                    middle={
+                      showsWizard || startOpen ? (
+                        <WizardStep />
+                      ) : area === "texte" ? (
+                        <TextStatus />
+                      ) : area === "pokemon" ? (
+                        <PokemonStatus />
+                      ) : area === "gegenstaende" ? (
+                        <ItemsStatus />
+                      ) : area === "einstellungen" ? (
+                        "Änderungen gelten sofort und für alle Projekte"
+                      ) : area === "welt" ? (
+                        context
+                      ) : null
+                    }
+                    right={<ProblemCount store={problems} />}
+                    bridge={bridge}
+                    density={shell.density}
+                    onToggleDensity={shell.toggleDensity}
+                    build={{ builtAt: session.lastBuiltAt, building: session.building }}
+                    agent={<AgentStatus status={agents.status} onDisconnect={() => void agents.disconnect().catch(session.fail)} onReadOnly={(on) => void agents.setReadOnly(on).catch(session.fail)} />}
+                  />
+                }
+              />
+            </DataAreaHost>
+          </TextAreaHost>
+        </Workbench>
+        <WizardHost
+          wizards={wizards}
+          world={live.world.world}
+          headers={scene.headers}
+          matrices={overview.matrices}
+          matricesLoaded={overview.loaded}
+          matricesFailed={overview.failed}
+          links={overview.links}
+          counts={session.counts}
+          selected={selectedHeader}
+          shownMatrix={scene.matrix?.index ?? null}
+          lastTile={world.lastMatrixTile}
+          onHeaderPatch={onHeaderPatch}
+          onHeaderPatchRepaired={session.patchRepaired}
+          onError={session.fail}
+          onPlay={() => void onPlay()}
+          scripts={scripts.api.status}
+          onAdoptScripts={scripts.api.adopt}
+          unsaved={session.dirtyCount + scripts.dirtyCount}
+          onSave={session.onSave}
+          onRegionApplied={onRegionApplied}
         />
-      )}
-      {importMap !== null && (
-        <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
-      )}
-      <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
-      {!inTauri() && <WebDialogHost />}
+        <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+        <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
+        {session.textConflicts !== null && (
+          <TextConflictDialog
+            key={session.textConflicts.archives.join(",")}
+            archives={session.textConflicts.archives}
+            onResolve={(choices) => void onResolveConflicts(choices)}
+            onCancel={session.cancelConflicts}
+            busy={session.textConflicts.resolving}
+          />
+        )}
+        {importMap !== null && (
+          <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
+        )}
+        <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
+        {text.dialog === "adopt" && session.info !== null && (
+          <AdoptDialog
+            unsaved={session.dirtyCount + scripts.dirtyCount}
+            baseLabel={original.status?.state === "ready" ? original.status.label : null}
+            baseReason={original.status?.state === "unavailable" ? original.status.reason : projectText?.state === "dspre" && !projectText.adoptable ? projectText.reason : null}
+            scriptsAdopted={scripts.api.status?.adopted ?? false}
+            exclusive={session.exclusive}
+            onClose={() => {
+              text.closeDialog();
+              rereadTextStatus();
+            }}
+            onAdopted={text.onAdopted}
+          />
+        )}
+        {text.dialog === "revert" && session.info !== null && (
+          <RevertDialog
+            unsaved={session.dirtyCount + scripts.dirtyCount}
+            exclusive={session.exclusive}
+            onClose={text.closeDialog}
+            onReverted={text.onReverted}
+          />
+        )}
+        {projectText?.state === "older" && session.info !== null && (
+          <MigrateDialog key={session.info.root} schema={projectText.schema} exclusive={session.exclusive} onCancel={() => void text.onCancelLift()} onLifted={text.onLifted} />
+        )}
+        {!inTauri() && <WebDialogHost />}
+      </TextProjectProvider>
     </OriginalProvider>
   );
 }

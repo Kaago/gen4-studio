@@ -16,7 +16,7 @@ Build meldet das als Hinweis).
 
 **„Neu bauen (ohne Cache)“** (`build::clear_cache`, `g4k build --no-cache`, `build_rom` mit
 `fresh: true`) löscht darum alles unter `.g4/build/` (BLZ-Cache, Schritt-Einträge, `rom`), behält
-aber die `texts`-Einträge: Zuerst ersetzt es `state.json` atomar durch einen Zustand nur mit
+aber die `texts`-Einträge und den Abschnitt `sync` (siehe „`sync` (4.3b)“): Zuerst ersetzt es `state.json` atomar durch einen Zustand nur mit
 ihnen, erst danach löscht es den Rest des Ordners, sodass ein Absturz dazwischen den Textabgleich
 nicht verliert. Alle Schritte laufen danach
 voll (`no-state`), die Seiten der Textarchive folgen weiter den Fingerabdrücken. Fehlt `state.json`
@@ -56,6 +56,7 @@ JSON, kompakt, UTF-8.
 | `steps.*.ms` | Dauer des letzten Laufs |
 | `texts` | je Textarchiv (vierstellig) die Fingerabdrücke von JSON und Member beim letzten Abgleich, immer mit Hash, und `scanned_at_ns` (fehlt es, gilt der Eintrag als racy); siehe „Welche Fassung gilt“ in [text_archive.md](text_archive.md) |
 | `rom` | die zuletzt geschriebene ROM: Pfad wie in `outputs` und ihr Fingerabdruck |
+| `sync` | nur im Textprojekt: der Abgleich zwischen Quellen und Membern, siehe „`sync` (4.3b)“; fehlt, bis einmal alles aufgezeichnet ist |
 
 Ein **Fingerabdruck** ist ein Array `[size, mtime_ns, ctime_ns, ino, "xxh3hex" | null]`: Größe,
 Änderungszeit und Statusänderungszeit in Nanosekunden, Inode und der xxh3-64 des Inhalts als
@@ -76,6 +77,44 @@ Hälfte einmal: `prepare_for_build` am Ende (dazu die Textstände, die `rotom` u
 scheitert. Kann der Kernel nach dem Schreiben den `stat` der geschriebenen Datei nicht lesen, merkt
 er sich nichts; das nächste Lesen liest die Datei (`fsutil::write_atomic` scheitert daran nie, die
 Bytes liegen schon).
+
+## `sync` (4.3b)
+
+Im Textprojekt hält `sync` fest, was die Dateien des Abgleichs (`textproject::sync`) bei der
+letzten Aufzeichnung enthielten; die Regeln stehen in [text_project.md](text_project.md) unter
+„DSPRE parallel“.
+
+```json
+"sync": {
+  "scanned_at_ns": 1761480000123456789,
+  "files": {
+    "data/moves/0001.json": [412, 1761470000000000000, 1761470000000000000, 4711, "00ab…"],
+    "unpacked/moveData/0001": [36, 1761470000000000000, 1761470000000000000, 4712, "00cd…"]
+  }
+}
+```
+
+`files` nennt jede beobachtete Datei (projektrelativ mit `/`) mit ihrem Fingerabdruck, **immer mit
+Hash**, damit ein Checkout oder eine Kopie, die nur den `stat` ändert, über den Inhalt als gleich
+erkannt wird. `scanned_at_ns` ist der Beginn des Scans, gegen den die racy-Regel urteilt. Ein
+eigener Abschnitt und nicht der Eintrag des Schritts `textproject`: Jener wandert nur nach Builds,
+und ein als neuer behaltener Member (`member-newer`) gälte dort als gesehen.
+
+Geschrieben wird `sync` von:
+
+- **Speichern** im Store: die JSON und die Member, die es schrieb (nur in ein vorhandenes `sync`,
+  `scanned_at_ns` bleibt; ein danach von außen geänderter Member macht das nächste Speichern
+  `Stale`),
+- dem **Build-Schritt** `textproject`: die Member, `arm9.bin` und `mapname.bin`, die er aus der
+  JSON schrieb (ebenso nur in ein vorhandenes `sync`),
+- dem **Abgleich** (`apply_one_sided`): die übernommenen Einheiten und alle abgeglichenen, mit dem
+  `scanned_at_ns` des Scans; ohne `sync` legt er es an,
+- der **Umstellung**, dem **Import**, dem **Export** (`record_all`: alles, wie es ist),
+- der **Wahl** in einem Konflikt (die Einheit, wie die Wahl sie hinterlässt).
+
+Konflikte und fehlerhafte Einheiten bleiben unaufgezeichnet, bis sie gelöst sind. „Neu bauen
+(ohne Cache)“ behält `sync` wie `texts`; fehlt der Abschnitt (gelöschte oder kaputte Datei),
+vergleicht der nächste Abgleich voll mit Fortschritt und zeichnet danach neu auf.
 
 ## Vergleich
 
@@ -180,7 +219,7 @@ Schritt einmal voll laufen.
 | Schritt | Eingaben | Ausgaben |
 |---|---|---|
 | `textproject` (nur mit `g4-project.json`, vor `rotom`) | `g4-project.json`, `data/ids/`, `data/rotom-quirks.json`, je bekannte Art `data/<art>/`, alle Dateien unter `data/raw/` (rekursiv, vom Schritt gelistet) und je Blob `data/raw/X` die Datei `X`, je abgebildete Art der Member-Ordner unter `unpacked/`, `arm9/arm9.bin`, `files/fielddata/maptable/mapname.bin`, bei angewandtem Dynamic-Headers-Patch `unpacked/dynamicHeaders/` | – |
-| `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts |
+| `rotom` (nur mit `rotom.toml`) | alle Dateien unter `expanded/scripts/` (rekursiv, wie rotom sammelt) und unter den `include_roots` aus `rotom.toml`, `rotom.toml`, `.rotom/status/compile-state.json`, `.rotom/command_database/`, die versteckten ID-Dateien `.rotom/command_database/.g4-ids-*.json` einzeln und die Register `data/ids/*.json` des Textprojekts, `arm9/arm9.bin`, `unpacked/dynamicHeaders/` | der Member-Ordner der Scripts (die ID-Dateien, die der Compile schreibt, zählen als vom Schritt geschrieben) |
 | `chatot` | `expanded/textArchives/`, `unpacked/textArchives/` | – |
 | `pack:<Ordner>` | `unpacked/<Ordner>/` | das gepackte NARC |
 | `watch:<Ordner>` | `unpacked/<Ordner>/` | – |

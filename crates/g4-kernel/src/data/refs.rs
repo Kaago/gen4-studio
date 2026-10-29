@@ -12,19 +12,32 @@
 //! - personal data: `item1`, `item2` → items
 //! - learnsets → moves
 //! - evolutions: the target → species; the parameter → item, move or species by method
+//! - script sources (`expanded/scripts/NNNN.rotom`, only with adopted scripts): the
+//!   parameters `metadata/script_refs.yaml` names per command database family → trainer,
+//!   item, species or move ([`ScriptRefTable`]); `field` is the command (rotom's name, also for
+//!   a legacy name or an alias in the source), `slot` the line. An argument counts when it is
+//!   a number or an identifier the build resolves (an alias of the file, the text project's
+//!   ids, rotom's own names such as `TRAINER_<NAME>_<NNN>` or `ITEM_…`); a value from
+//!   `0x4000` on is a variable, never a reference.
 //!
-//! Scripts are no source yet (3b.4). The value 0 is "none" for species, moves and items and
-//! is never a reference; trainer classes and encounter files count from 0.
+//! The value 0 is "none" for species, moves, items and the trainers of scripts and is never
+//! a reference; trainer classes and encounter files count from 0.
 //!
 //! The index is built on first use from the store's state: loaded assets with their current
 //! value (unsaved edits included), all others straight from the disk (the unpacked member,
 //! or the packed archive when it is not unpacked) without loading them into the store. After
 //! that, [`RefIndex::refresh`] asks [`Store::changes_since`] and recomputes only the changed
 //! sources. A member that does not decode (a locked member of the wrong length) contributes
-//! nothing.
+//! nothing. Script sources are saved by the script editor, DSPRE or a branch switch, never
+//! through the store: a refresh re-reads every source whose `stat` changed (a removed one
+//! drops its references), and all of them when the files the identifiers resolve by changed
+//! (`rotom.toml`, rotom's constant folder, the manifest and the registers). A source that
+//! does not parse contributes nothing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ops::RangeInclusive;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use g4_formats::data::encounter::{DualSlot, Encounters, Method};
 use g4_formats::data::evolution::{EVO_ENTRIES, Evolution};
@@ -33,13 +46,18 @@ use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
 use g4_formats::data::trainer::{Party, PartyMon, TrainerProps};
 use g4_formats::game::Family;
+use rotom::compiler::ast::{Expression, ExpressionKind};
+use serde::Deserialize;
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
 use crate::disk::Disk;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
+use crate::scripts::{self, AstItem};
 use crate::store::{Loaded, Store};
+use crate::textproject::ids::{Stamp, stamp, watched};
+use crate::textproject::include::ScriptLookup;
 
 /// What a reference points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -158,6 +176,7 @@ fn key(id: AssetId) -> (usize, u16) {
 struct Built {
     generation: u64,
     sources: BTreeMap<(usize, u16), Vec<Ref>>,
+    scripts: ScriptSources,
 }
 
 /// References to species, moves, items, trainers, trainer classes and encounter files; see
@@ -217,12 +236,16 @@ impl RefIndex {
 
     /// Recomputes the references of the sources the store changed since the index was
     /// built or last refreshed and returns them (only sources; other changed assets are
-    /// skipped). Does nothing on an index not built yet: it stays lazy. On an error the
-    /// index stays as it was, so the next call tries the same sources again.
+    /// skipped). Also re-parses the script sources whose `stat` changed since they were read
+    /// (a save in the script editor, DSPRE, a branch switch; all of them when the files their
+    /// identifiers resolve by changed); a removed source drops its references. Does nothing on
+    /// an index not built yet: it stays lazy. On an error the index stays as it was, so the
+    /// next call tries the same sources again.
     pub fn refresh(&mut self, store: &Store) -> Result<Vec<AssetId>, KernelError> {
         let Some(built) = &mut self.built else {
             return Ok(Vec::new());
         };
+        let (scripts, reread) = built.scripts.refresh(store.project())?;
         let (generation, changed) = store.changes_since(built.generation);
         let changed = with_dependents(changed);
         if !changed.is_empty() {
@@ -245,6 +268,20 @@ impl RefIndex {
             }
         }
         built.generation = generation;
+        let mut changed = changed;
+        for (file, refs) in reread {
+            let id = script_id(file);
+            match refs {
+                Some(refs) if !refs.is_empty() => {
+                    built.sources.insert(key(id), refs);
+                }
+                _ => {
+                    built.sources.remove(&key(id));
+                }
+            }
+            changed.push(id);
+        }
+        built.scripts = scripts;
         Ok(changed)
     }
 
@@ -262,14 +299,21 @@ impl RefIndex {
                 index: index as u16,
             }));
         }
-        let sources = collect_refs(store, &disk, &ids)?
+        let mut sources: BTreeMap<(usize, u16), Vec<Ref>> = collect_refs(store, &disk, &ids)?
             .into_iter()
             .filter(|(_, refs)| !refs.is_empty())
             .map(|(id, refs)| (key(id), refs))
             .collect();
+        let (scripts, read) = ScriptSources::default().refresh(store.project())?;
+        for (file, refs) in read {
+            if let Some(refs) = refs.filter(|r| !r.is_empty()) {
+                sources.insert(key(script_id(file)), refs);
+            }
+        }
         self.built = Some(Built {
             generation,
             sources,
+            scripts,
         });
         Ok(())
     }
@@ -648,12 +692,478 @@ fn push_mons(out: &mut Refs, mons: &[PartyMon]) {
     }
 }
 
+/// What a script parameter names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ScriptTarget {
+    Trainer,
+    Item,
+    Species,
+    Move,
+}
+
+impl ScriptTarget {
+    fn target(self, value: u16) -> Target {
+        match self {
+            ScriptTarget::Trainer => Target::Trainer(value),
+            ScriptTarget::Item => Target::Item(value),
+            ScriptTarget::Species => Target::Species(value),
+            ScriptTarget::Move => Target::Move(value),
+        }
+    }
+}
+
+/// A parameter of a command that names a [`ScriptTarget`]: its name and its argument position
+/// in the command database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScriptParam {
+    pub(crate) name: String,
+    pub(crate) arg: usize,
+    pub(crate) target: ScriptTarget,
+}
+
+/// The commands of one family whose parameters name a trainer, an item, a species or a move,
+/// from `metadata/script_refs.yaml`: command (rotom's name) → parameters, positioned by the
+/// bundled command database of the family. An entry the database does not have is left out
+/// (the test `script_refs_name_existing_commands_and_params` keeps the file honest).
+#[derive(Debug, Default)]
+pub(crate) struct ScriptRefTable {
+    family: Option<Family>,
+    commands: BTreeMap<String, Vec<ScriptParam>>,
+}
+
+impl ScriptRefTable {
+    /// rotom's name of command `name` (itself, or the command a legacy name or an alias
+    /// stands for) and its parameters that name something; `None` for other commands.
+    pub(crate) fn params(&self, name: &str) -> Option<(&str, &[ScriptParam])> {
+        if let Some((key, params)) = self.commands.get_key_value(name) {
+            return Some((key, params));
+        }
+        let db = crate::checks::scripts::database(self.family?)?;
+        // rotom v0.7.0: src/database.rs DatabaseV2::get_command (canonical, legacy, alias)
+        let command = db.get_command(name).ok()?;
+        self.commands.iter().find_map(|(key, params)| {
+            db.commands
+                .get(key)
+                .is_some_and(|c| std::ptr::eq(c, command))
+                .then_some((key.as_str(), params.as_slice()))
+        })
+    }
+
+    /// The number of parameters in the table.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.commands.values().map(Vec::len).sum()
+    }
+}
+
+/// `metadata/script_refs.yaml`: family key (`pt`, `hgss`) → command → parameter → target.
+type RawScriptRefs = BTreeMap<String, BTreeMap<String, BTreeMap<String, ScriptTarget>>>;
+
+/// The parsed `metadata/script_refs.yaml` (embedded and parsed by the tests, so a parse error
+/// cannot reach a user: then it is empty).
+fn raw_script_refs() -> RawScriptRefs {
+    serde_yaml::from_str(include_str!("../../metadata/script_refs.yaml")).unwrap_or_default()
+}
+
+/// The key of `family` in `metadata/script_refs.yaml`; Diamond and Pearl have no table.
+fn script_refs_key(family: Family) -> Option<&'static str> {
+    match family {
+        Family::Pt => Some("pt"),
+        Family::Hgss => Some("hgss"),
+        Family::Dp => None,
+    }
+}
+
+/// The [`ScriptRefTable`] of `family`, made once per process.
+pub(crate) fn script_ref_table(family: Family) -> &'static ScriptRefTable {
+    static TABLES: [OnceLock<ScriptRefTable>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    let slot = match family {
+        Family::Dp => 0,
+        Family::Pt => 1,
+        Family::Hgss => 2,
+    };
+    TABLES[slot].get_or_init(|| {
+        let (Some(key), Some(db)) = (
+            script_refs_key(family),
+            crate::checks::scripts::database(family),
+        ) else {
+            return ScriptRefTable::default();
+        };
+        let mut raw = raw_script_refs();
+        let mut commands = BTreeMap::new();
+        for (name, params) in raw.remove(key).unwrap_or_default() {
+            let Some(command) = db.commands.get(&name) else {
+                continue;
+            };
+            let params: Vec<ScriptParam> = params
+                .into_iter()
+                .filter_map(|(param, target)| {
+                    let arg = command.params.iter().position(|p| p.name == param)?;
+                    Some(ScriptParam {
+                        name: param,
+                        arg,
+                        target,
+                    })
+                })
+                .collect();
+            commands.insert(name, params);
+        }
+        ScriptRefTable {
+            family: Some(family),
+            commands,
+        }
+    })
+}
+
+/// Numbers from here on in a command argument name a variable.
+const FIRST_VARIABLE: i32 = 0x4000;
+
+/// The source of script file `file`.
+fn script_id(file: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Script,
+        index: file,
+    }
+}
+
+/// The files the identifiers of the scripts resolve by, relative to the root, with their
+/// stamps: the manifest, the registers and `mapname.bin` ([`watched`]), `rotom.toml` and every
+/// file of rotom's constant folder (its own constants and the id files).
+fn lookup_stamps(project: &Project) -> Stamps {
+    let mut files = watched(project);
+    files.push(PathBuf::from(scripts::ROTOM_TOML));
+    let dir = scripts::database_dir(project);
+    if let Ok(entries) = std::fs::read_dir(project.root.join(&dir)) {
+        let mut names: Vec<_> = entries.flatten().map(|e| e.file_name()).collect();
+        names.sort();
+        files.extend(names.into_iter().map(|name| dir.join(name)));
+    }
+    files
+        .into_iter()
+        .map(|rel| {
+            let was = stamp(&project.root.join(&rel));
+            (rel, was)
+        })
+        .collect()
+}
+
+/// Script files with their references read anew (`None`: the source is gone).
+type ScriptReads = Vec<(u16, Option<Vec<Ref>>)>;
+
+/// Files relative to the root with their stamps.
+type Stamps = Vec<(PathBuf, Stamp)>;
+
+/// What the index knows of the script sources: the stamps of the lookup's files with the lookup
+/// made from them (kept while they stay: making it reads rotom's constants), and the stamp of
+/// every `.rotom` source as last read.
+#[derive(Default)]
+struct ScriptSources {
+    lookup: Option<(Stamps, Option<Arc<ScriptLookup>>)>,
+    stamps: BTreeMap<u16, Stamp>,
+}
+
+impl ScriptSources {
+    /// The sources now and the references of each one to read again (`None`: removed): every
+    /// source whose stamp changed, all of them when the lookup's files changed (or on the first
+    /// call). Without adopted scripts there are none. Reads everything before it returns, so a
+    /// failure leaves the index as it was.
+    fn refresh(&self, project: &Project) -> Result<(ScriptSources, ScriptReads), KernelError> {
+        let dir = project.expanded_dir(AssetKind::Script);
+        let files = scripts::rotom_sources(project)?;
+        let lookup_now = lookup_stamps(project);
+        let kept = self
+            .lookup
+            .as_ref()
+            .filter(|(was, _)| *was == lookup_now)
+            .map(|(_, lookup)| lookup.clone());
+        let all = kept.is_none();
+        let mut lookup = kept.flatten();
+        let stamps: BTreeMap<u16, Stamp> = files
+            .iter()
+            .map(|&file| (file, stamp(&source_file(&dir, file))))
+            .collect();
+        let mut out: ScriptReads = self
+            .stamps
+            .keys()
+            .filter(|file| !stamps.contains_key(file))
+            .map(|&file| (file, None))
+            .collect();
+        let reread: Vec<u16> = stamps
+            .iter()
+            .filter(|&(file, now)| all || self.stamps.get(file) != Some(now))
+            .map(|(&file, _)| file)
+            .collect();
+        if !reread.is_empty() {
+            let made = lookup.get_or_insert_with(|| Arc::new(ScriptLookup::of(project)));
+            let table = script_ref_table(project.family);
+            out.extend(read_scripts(&dir, &reread, table, made)?);
+        }
+        out.sort_by_key(|(file, _)| *file);
+        Ok((
+            ScriptSources {
+                lookup: Some((lookup_now, lookup)),
+                stamps,
+            },
+            out,
+        ))
+    }
+}
+
+fn source_file(dir: &Path, file: u16) -> PathBuf {
+    dir.join(format!("{file:04}.rotom"))
+}
+
+/// The references of the sources `files` in `dir`, read and parsed on several threads; a
+/// source gone since it was listed is `None`.
+fn read_scripts(
+    dir: &Path,
+    files: &[u16],
+    table: &'static ScriptRefTable,
+    lookup: &ScriptLookup,
+) -> Result<ScriptReads, KernelError> {
+    let readers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .clamp(1, MAX_READERS)
+        .min(files.len())
+        .max(1);
+    let read = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..readers)
+            .map(|first| {
+                scope.spawn(move || {
+                    files
+                        .iter()
+                        .skip(first)
+                        .step_by(readers)
+                        .map(|&file| {
+                            let path = source_file(dir, file);
+                            match std::fs::read(&path) {
+                                Ok(bytes) => {
+                                    let text = String::from_utf8_lossy(&bytes);
+                                    Ok((file, Some(script_refs(file, &text, table, lookup)?)))
+                                }
+                                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                    Ok((file, None))
+                                }
+                                Err(e) => Err(crate::error::io_at(&path)(e)),
+                            }
+                        })
+                        .collect::<Result<Vec<_>, KernelError>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| {
+                w.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Vec<_>>()
+    });
+    let mut out = Vec::with_capacity(files.len());
+    for part in read {
+        out.extend(part?);
+    }
+    Ok(out)
+}
+
+/// The references of the source `text` of script file `file`, in source order.
+fn script_refs(
+    file: u16,
+    text: &str,
+    table: &'static ScriptRefTable,
+    lookup: &ScriptLookup,
+) -> Result<Vec<Ref>, KernelError> {
+    let Some(ast) = scripts::parse_source(text)? else {
+        return Ok(Vec::new());
+    };
+    let mut aliases: Vec<(&str, &Expression, usize)> = Vec::new();
+    let mut declared: HashSet<&str> = HashSet::new();
+    let mut commands: Vec<(&str, &[Expression])> = Vec::new();
+    scripts::visit(&ast, &mut |item| match item {
+        AstItem::Alias { name, value, at } => aliases.push((name, value, at)),
+        AstItem::Declared(name) => {
+            declared.insert(name);
+        }
+        AstItem::Command { name, args } => commands.push((name, args)),
+        AstItem::Expression(_) => {}
+    });
+    let names = ScriptNames {
+        aliases,
+        declared,
+        lookup,
+    };
+    let mut out = Refs::new(script_id(file));
+    for (name, args) in commands {
+        let Some((command, params)) = table.params(name) else {
+            continue;
+        };
+        for param in params {
+            let Some(arg) = args.get(param.arg) else {
+                continue;
+            };
+            let Some(value) = names.value(arg, arg.span.start, 0) else {
+                continue;
+            };
+            let Ok(value) = u16::try_from(value) else {
+                continue;
+            };
+            if value == 0 || i32::from(value) >= FIRST_VARIABLE {
+                continue;
+            }
+            let (line, _) = scripts::position_of(text, arg.span.start);
+            // Lines are far below 65536.
+            out.refs.push(Ref {
+                source: out.source,
+                field: command,
+                slot: Some(u16::try_from(line).unwrap_or(u16::MAX)),
+                target: param.target.target(value),
+            });
+        }
+    }
+    Ok(out.refs)
+}
+
+/// How an identifier in a source resolves, as rotom's lowering does for an argument: an
+/// alias of the file defined before it, then a name the file declares (a pointer, never a
+/// number), then the build's constants ([`ScriptLookup`]).
+struct ScriptNames<'a> {
+    aliases: Vec<(&'a str, &'a Expression, usize)>,
+    declared: HashSet<&'a str>,
+    lookup: &'a ScriptLookup,
+}
+
+impl ScriptNames<'_> {
+    /// Most aliases followed through each other (`alias A as B`, `alias B as C`).
+    const DEPTH: u8 = 8;
+
+    /// The number `expression` (at byte `at`) stands for; `None` for anything else.
+    fn value(&self, expression: &Expression, at: usize, depth: u8) -> Option<i32> {
+        match &expression.node {
+            ExpressionKind::Number(n) => Some(*n),
+            ExpressionKind::Identifier(name) => {
+                let alias = self
+                    .aliases
+                    .iter()
+                    .rev()
+                    .find(|(alias, _, defined)| alias == name && *defined < at);
+                if let Some(&(_, value, defined)) = alias {
+                    return (depth < Self::DEPTH)
+                        .then(|| self.value(value, defined, depth + 1))
+                        .flatten();
+                }
+                if self.declared.contains(name.as_str()) {
+                    return None;
+                }
+                self.lookup.get(name)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn id(kind: AssetKind, index: u16) -> AssetId {
         AssetId { kind, index }
+    }
+
+    #[test]
+    fn script_refs_name_existing_commands_and_params() {
+        let raw = raw_script_refs();
+        assert_eq!(
+            raw.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["hgss", "pt"]
+        );
+        for family in [Family::Pt, Family::Hgss] {
+            let db = crate::checks::scripts::database(family).unwrap();
+            let entries = &raw[script_refs_key(family).unwrap()];
+            let mut count = 0;
+            for (name, params) in entries {
+                // rotom's own name, positioned plainly (no variants, no macro expansion).
+                let command = db
+                    .commands
+                    .get(name)
+                    .unwrap_or_else(|| panic!("{family:?}: no command {name}"));
+                assert!(
+                    command.variants.is_none() && command.expansion.is_none(),
+                    "{family:?}: {name}"
+                );
+                for param in params.keys() {
+                    assert!(
+                        command.params.iter().any(|p| p.name == *param),
+                        "{family:?}: {name} has no parameter {param}"
+                    );
+                    count += 1;
+                }
+            }
+            assert_eq!(script_ref_table(family).len(), count, "{family:?}");
+        }
+        // The plan's minimum for Platinum.
+        let pt = script_ref_table(Family::Pt);
+        for (command, param, target) in [
+            ("SetTrainerFlag", "trainer_id", ScriptTarget::Trainer),
+            ("ClearTrainerFlag", "trainer_id", ScriptTarget::Trainer),
+            ("CheckTrainerFlag", "trainer_id", ScriptTarget::Trainer),
+            ("StartTrainerBattle", "trainer_1", ScriptTarget::Trainer),
+            ("StartTrainerBattle", "trainer_2", ScriptTarget::Trainer),
+            ("PrintTrainerDialogue", "trainer_id", ScriptTarget::Trainer),
+            ("GetRematchTrainerID", "trainerID", ScriptTarget::Trainer),
+            ("AddItem", "item", ScriptTarget::Item),
+            ("RemoveItem", "item", ScriptTarget::Item),
+            ("CanFitItem", "item", ScriptTarget::Item),
+            ("CheckItem", "item", ScriptTarget::Item),
+            ("BufferItemName", "item", ScriptTarget::Item),
+            ("GivePokemon", "pokémon", ScriptTarget::Species),
+        ] {
+            let (_, params) = pt.params(command).unwrap();
+            assert!(
+                params.iter().any(|p| p.name == param && p.target == target),
+                "{command}.{param}"
+            );
+        }
+        // A legacy name finds rotom's: `TrainerBattle` is DSPRE's `StartTrainerBattle`.
+        assert_eq!(pt.params("TrainerBattle").unwrap().0, "StartTrainerBattle");
+        assert!(pt.params("Message").is_none());
+        assert_eq!(script_ref_table(Family::Dp).len(), 0);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn the_script_lookup_is_kept_while_its_files_stay() {
+        use crate::textproject::include::LOOKUPS_MADE;
+
+        let fx = crate::test_support::TextFixture::exported();
+        let source = "expanded/scripts/0000.rotom";
+        fx.write(
+            source,
+            b"script Main #1:\n    StartTrainerBattle 3, 0\n    End\n",
+        );
+        let p = fx.project();
+        let made = || LOOKUPS_MADE.with(std::cell::Cell::get);
+        let (first, read) = ScriptSources::default().refresh(&p).unwrap();
+        assert_eq!(read.len(), 1);
+        let after_first = made();
+        // A saved source is read again with the lookup made before.
+        fx.write(
+            source,
+            b"script Main #1:\n    StartTrainerBattle 4, 0\n    End\n\n",
+        );
+        let (second, read) = first.refresh(&p).unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(made(), after_first, "kept");
+        // A changed register makes a new one.
+        fx.edit(
+            "data/ids/trainers.json",
+            "TRAINER_YOUNGSTER_KAI",
+            "TRAINER_YOUNGSTER_KAY",
+        );
+        let (_, read) = second.refresh(&p).unwrap();
+        assert_eq!(read.len(), 1, "all sources again");
+        assert_eq!(made(), after_first + 1);
     }
 
     #[test]

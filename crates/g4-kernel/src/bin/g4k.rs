@@ -421,7 +421,8 @@ fn subject_text(subject: Subject) -> String {
 /// `g4k check`: every group on the saved project (no store edits), with its ignore file.
 fn check(path: &Path, json: bool, expectations: &[CountExpectation]) -> Result<(), Failure> {
     let project = Arc::new(Project::open(path)?);
-    let ignore = IgnoreSet::load(&project.root)?;
+    let ids = g4_kernel::textproject::ids::Resolver::for_project(&project)?;
+    let ignore = IgnoreSet::load(&project.root, &ids)?;
     let overlay = Store::new(Arc::clone(&project)).snapshot_overlay();
     let snap = Snapshot::build(Arc::clone(&project), overlay, SnapshotCache::default());
     let report = Runner::run(&snap, Project::limits(), &ignore, &Group::ALL, |_, _, _| {});
@@ -1223,8 +1224,10 @@ fn required_base(
 enum TextCommand {
     /// Write the project's members as the text project (manifest, `data/`), adopting the
     /// scripts first when they are not. Needs the base mark and the base ROM: `--base-rom`,
-    /// else the sibling `.nds`, else `G4_BASE_ROM_DIR`. Prints `adopted scripts=N` when it
-    /// adopted, one line per art, then the totals; exit 1 on an error.
+    /// else the sibling `.nds`, else `G4_BASE_ROM_DIR`. Refused (exit 1, nothing written)
+    /// while the text project holds changes the members lack (not built yet), unless
+    /// `--force`. Prints `adopted scripts=N` when it adopted, one line per art, then the
+    /// totals; exit 1 on an error.
     Export {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1233,10 +1236,14 @@ enum TextCommand {
         /// Print the export report as JSON.
         #[arg(long)]
         json: bool,
+        /// Export also over changes of the text project the members lack; they are lost.
+        #[arg(long)]
+        force: bool,
     },
     /// Write the text project back into the members after checking every file; an error
     /// names file, line and column and nothing is written (exit 1). The base ROM (found like
-    /// `export`) is needed only for parts that reference it.
+    /// `export`) is needed only for parts that reference it. Refused (exit 1, nothing
+    /// written) while members are newer than their JSON, unless `--force`.
     Import {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1245,6 +1252,9 @@ enum TextCommand {
         /// Print the import report as JSON.
         #[arg(long)]
         json: bool,
+        /// Import also over members newer than their JSON; their changes are lost.
+        #[arg(long)]
+        force: bool,
     },
     /// What an import would find and write, without writing: `schema=…`, one line per
     /// problem, `differs=N` and the first 20 paths. Exit 1 on an error or another schema
@@ -1265,6 +1275,49 @@ enum TextCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Set the DSPRE folder up as text project: adopt the scripts (when they are not), export,
+    /// add the include root to `rotom.toml`, record the sync. Needs the base mark and the
+    /// base ROM (found like `export`). Prints `phase=<phase> ms=N` per phase, then the
+    /// totals. On a text project it writes nothing and records the sync anew (a repair);
+    /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
+    Adopt {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the adoption report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and the
+    /// id files for rotom (`.rotom/command_database/.g4-ids-*.json`) to
+    /// `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync` finds something
+    /// pending, or while a script source uses an id only the id files define.
+    Revert { project: PathBuf },
+    /// Take over what changed on one side since the last record (`dspre <key> <label>`,
+    /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,
+    /// `broken <key> <label>`, the problems on stderr); exit 1 while a conflict or a broken
+    /// file is left (both are not settled). With `--keep studio|dspre <key>`: resolve that
+    /// conflict instead.
+    Sync {
+        project: PathBuf,
+        /// Resolve one conflict: the side to keep (`studio` or `dspre`) and the unit's key.
+        #[arg(long, num_args = 2, value_names = ["SIDE", "KEY"])]
+        keep: Option<Vec<String>>,
+    },
+    /// Rename a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`) with every
+    /// reference: the register, the JSON under `data/`, `g4-world.json`, `g4-checks.json`, the
+    /// script sources, then the id files for rotom. Prints `<file> <count>` per file and
+    /// `renamed <old> -> <new> kind=… number=… files=… refs=… id_files=… ms=…`; a refusal
+    /// (taken, a fallback of another number, malformed, …) writes nothing (exit 1). No undo.
+    RenameId {
+        project: PathBuf,
+        old: String,
+        new: String,
+        /// Print the plan as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The paths `g4k text check` lists after `differs=N`.
@@ -1276,12 +1329,14 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             project,
             base_rom,
             json,
-        } => text_export(&project, base_rom.as_deref(), json),
+            force,
+        } => text_export(&project, base_rom.as_deref(), json, force),
         TextCommand::Import {
             project,
             base_rom,
             json,
-        } => text_import(&project, base_rom.as_deref(), json),
+            force,
+        } => text_import(&project, base_rom.as_deref(), json, force),
         TextCommand::Check { project, json } => text_check(&project, json),
         TextCommand::Sources { project } => {
             for path in g4_kernel::textproject::sources(&Project::open(project)?)? {
@@ -1290,6 +1345,28 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             Ok(())
         }
         TextCommand::Migrate { project, json } => text_migrate(&project, json),
+        TextCommand::Adopt {
+            project,
+            base_rom,
+            json,
+        } => text_adopt(&project, base_rom.as_deref(), json),
+        TextCommand::RenameId {
+            project,
+            old,
+            new,
+            json,
+        } => text_rename_id(&project, &old, &new, json),
+        TextCommand::Revert { project } => {
+            let report = g4_kernel::textproject::adopt::revert(&Project::open(project)?)?;
+            println!(
+                "backup={} rewritten={} ms={}",
+                report.backup.display(),
+                report.rewritten.len(),
+                report.ms
+            );
+            Ok(())
+        }
+        TextCommand::Sync { project, keep } => text_sync(&project, keep.as_deref()),
     }
 }
 
@@ -1306,8 +1383,14 @@ fn fail_on_errors(problems: &[Problem], what: &str) -> Result<(), Failure> {
     }
 }
 
-/// `g4k text export`: [`g4_kernel::textproject::export`], adopting the scripts.
-fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+/// `g4k text export`: [`g4_kernel::textproject::export`], adopting the scripts; `force` over
+/// changes the members lack.
+fn text_export(
+    root: &Path,
+    base_rom: Option<&Path>,
+    json: bool,
+    force: bool,
+) -> Result<(), Failure> {
     let mark = required_mark(root)?;
     let project = Project::open(root)?;
     let base = required_base(root, &mark, base_rom)?;
@@ -1316,6 +1399,7 @@ fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
         &base,
         &g4_kernel::textproject::ExportOptions {
             adopt_scripts: true,
+            force,
         },
     )?;
     print_problems(&report.problems);
@@ -1349,8 +1433,14 @@ fn text_export(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
     fail_on_errors(&report.problems, "text export")
 }
 
-/// `g4k text import`: [`g4_kernel::textproject::import`], with the base ROM when it is found.
-fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+/// `g4k text import`: [`g4_kernel::textproject::import_with`], with the base ROM when it is
+/// found; `force` over members newer than their JSON.
+fn text_import(
+    root: &Path,
+    base_rom: Option<&Path>,
+    json: bool,
+    force: bool,
+) -> Result<(), Failure> {
     use g4_kernel::start::MarkState;
 
     // A broken or newer mark is refused like `export` and `patch create`; only without a
@@ -1366,7 +1456,11 @@ fn text_import(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), F
         }
     };
     let project = Project::open(root)?;
-    let report = g4_kernel::textproject::import(&project, base.as_ref())?;
+    let report = g4_kernel::textproject::import_with(
+        &project,
+        base.as_ref(),
+        &g4_kernel::textproject::ImportOptions { force },
+    )?;
     print_problems(&report.problems);
     if json {
         println!("{}", json_line(&report)?);
@@ -1421,6 +1515,137 @@ fn text_check(root: &Path, json: bool) -> Result<(), Failure> {
         );
     }
     fail_on_errors(&report.problems, "text check")
+}
+
+/// `g4k text adopt`: [`g4_kernel::textproject::adopt::adopt`], timing each phase.
+fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    use g4_kernel::textproject::adopt::AdoptPhase;
+
+    let mark = required_mark(root)?;
+    let project = Project::open(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let mut current: Option<(AdoptPhase, std::time::Instant)> = None;
+    let mut timed: Vec<(AdoptPhase, u128)> = Vec::new();
+    let report = g4_kernel::textproject::adopt::adopt(&project, &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, std::time::Instant::now()))
+        {
+            timed.push((phase, at.elapsed().as_millis()));
+        }
+    })?;
+    if let Some((phase, at)) = current {
+        timed.push((phase, at.elapsed().as_millis()));
+    }
+    print_problems(&report.export.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        for (phase, ms) in &timed {
+            println!("phase={} ms={ms}", json_line(phase)?.trim_matches('"'));
+        }
+        println!(
+            "adopted={} files={} written={} removed={} include={} sync_files={} ms={}",
+            report
+                .export
+                .adopted
+                .map_or_else(|| "already".to_owned(), |n| format!("scripts:{n}")),
+            report.export.files,
+            report.export.written,
+            report.export.removed,
+            report.include_written,
+            report.sync_files,
+            report.ms
+        );
+    }
+    fail_on_errors(&report.export.problems, "text adopt")
+}
+
+/// `g4k text sync`: scan and take over the one-sided units, or with `keep` resolve one
+/// conflict; exit 1 while conflicts or broken files are left.
+fn text_sync(root: &Path, keep: Option<&[String]>) -> Result<(), Failure> {
+    use g4_kernel::textproject::sync::{self, Keep, UnitSide};
+
+    let project = Project::open(root)?;
+    if let Some([side, key]) = keep {
+        let keep = match side.as_str() {
+            "studio" => Keep::Studio,
+            "dspre" => Keep::Dspre,
+            other => {
+                return Err(Failure::Message(format!(
+                    "--keep {other}: studio oder dspre"
+                )));
+            }
+        };
+        sync::resolve_files(&project, key, keep)?;
+        println!("kept {side} {key}");
+        return Ok(());
+    }
+    let scan = sync::scan(&project, &mut |_| {})?;
+    let applied = sync::apply_one_sided(&project, &scan, &|_| false)?;
+    for unit in &applied.dspre {
+        println!("dspre {} {}", unit.key, unit.label);
+    }
+    for unit in &applied.files {
+        println!("files {} {}", unit.key, unit.label);
+    }
+    let (mut conflicts, mut broken) = (0, 0);
+    for unit in &scan.units {
+        match unit.side {
+            UnitSide::Conflict => {
+                conflicts += 1;
+                println!("conflict {} {}", unit.key, unit.label);
+            }
+            UnitSide::Broken => {
+                broken += 1;
+                println!("broken {} {}", unit.key, unit.label);
+                print_problems(&unit.problems);
+            }
+            _ => {}
+        }
+    }
+    println!(
+        "stat={} hashed={} written={} ms={}",
+        scan.stat_files,
+        scan.hashed,
+        applied.written.len(),
+        scan.ms + applied.ms
+    );
+    if conflicts > 0 || broken > 0 {
+        return Err(Failure::Message(format!(
+            "text sync: {conflicts} conflict(s) (g4k text sync --keep studio|dspre <key>), \
+             {broken} broken file(s) (fix them, then sync again)"
+        )));
+    }
+    Ok(())
+}
+
+/// `g4k text rename-id`: [`g4_kernel::textproject::rename::rename_id_files`].
+fn text_rename_id(root: &Path, old: &str, new: &str, json: bool) -> Result<(), Failure> {
+    let result = g4_kernel::textproject::rename::rename_id_files(&Project::open(root)?, old, new)?;
+    for warning in &result.warnings {
+        eprintln!("warning: {warning}");
+    }
+    let plan = &result.plan;
+    if json {
+        println!("{}", json_line(plan)?);
+        return Ok(());
+    }
+    for file in &plan.files {
+        println!("{} {}", file.path.display(), file.count);
+    }
+    let kind = plan
+        .kind
+        .map_or_else(|| "?".to_owned(), |k| k.prefix().to_lowercase());
+    println!(
+        "renamed {old} -> {new} kind={kind} number={} files={} refs={} id_files={} ms={}",
+        plan.number
+            .map_or_else(|| "?".to_owned(), |n| n.to_string()),
+        plan.files.len(),
+        plan.total,
+        plan.id_files,
+        result.ms
+    );
+    Ok(())
 }
 
 /// `g4k text migrate`: [`g4_kernel::textproject::migrate::migrate`].

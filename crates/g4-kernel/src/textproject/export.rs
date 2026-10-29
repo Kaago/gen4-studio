@@ -16,14 +16,17 @@ use serde::Serialize;
 use crate::base::{BaseRom, other_rom};
 use crate::data::names::{Bank, trainer_name};
 use crate::error::{KernelError, io_at};
+use crate::fsutil::Journal;
 use crate::places::location_bank;
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::start::{MarkState, mark_state};
-use crate::text::{self, Problem};
+use crate::text::{self, Problem, Severity};
 
 use super::MANIFEST_FILE;
-use super::arts::{ARTS, Art, archive_texts, bank_texts, file_names, read_members};
+use super::arts::{
+    ARTS, Art, archive_texts, bank_texts, file_names, read_members, surplus_problem,
+};
 use super::base_layer::{BaseLayer, ENTITY_KINDS, RAW_DIR, raw_diff, walk};
 use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
@@ -34,11 +37,13 @@ use super::schema::data::{
     EncounterEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity, TrainerTextTableEntity,
     export_items,
 };
-use super::schema::header::{NO_DP, export_headers};
+use super::schema::header::{HeaderHgssEntity, HeaderPtEntity, NO_DP, export_headers};
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ExportCtx};
+use super::step;
+pub use super::step::UNSYNCED_EXPORT;
 use super::symbols::SymbolKind;
 
 /// The refusal of a project without base mark.
@@ -48,9 +53,23 @@ const NO_MARK: &str =
 /// answers it with its own code).
 pub const NOT_ADOPTED: &str = "Die Scripts sind noch nicht übernommen (adopt_scripts).";
 
+/// How [`export`] runs.
+#[derive(Debug, Clone, Default)]
 pub struct ExportOptions {
     /// Adopt the scripts first when they are not (`scripts::adopt`), else refuse.
     pub adopt_scripts: bool,
+    /// Export also over changes of the text project the members lack (`g4k text export
+    /// --force`): they are thrown away. Without it the export refuses them
+    /// ([`UNSYNCED_EXPORT`]).
+    pub force: bool,
+}
+
+/// The refusal of [`export`] without `force` when the text project holds changes the members
+/// lack ([`UNSYNCED_EXPORT`]), found without exporting and without writing anything (a
+/// missing base layer is not made). The app asks it before its question „Textprojekt
+/// exportieren“.
+pub fn unsynced_export(project: &Project) -> Result<Option<String>, KernelError> {
+    step::export_refusal(project)
 }
 
 /// What the export did for one art (folder under `data/`): its entities, the JSON and side
@@ -96,18 +115,137 @@ fn ms_since(start: Instant) -> u64 {
     u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
+/// A step of the export, as [`export_reported`] reports it: the base layer, adopting the
+/// scripts (only when it adopts them), the art folders (one per entry of the art list, also
+/// one the game lacks) and the blobs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportStep {
+    Scripts,
+    BaseLayer,
+    Arts,
+    Blobs,
+}
+
+/// How far the export is: `done` of `total` in `step`. Each step reports `done` 0 first and
+/// `done` = `total` last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ExportProgress {
+    pub step: ExportStep,
+    pub done: u32,
+    pub total: u32,
+}
+
 /// Exports `project` as a text project against base ROM `base`. Refuses (before writing
 /// anything) Diamond/Pearl, a project without base mark or with another base, an older or
 /// newer schema version, text archives in conflict ([`KernelError::TextConflict`]), missing
-/// itemData members that hide the item table (named ones or a gap; the import first) and
-/// scripts that are not adopted unless `opts.adopt_scripts`. The base layer is made only when
-/// it is not there.
+/// itemData members that hide the item table (named ones or a gap; the import first),
+/// scripts that are not adopted unless `opts.adopt_scripts`, and, unless `opts.force`,
+/// changes of the text project the members lack ([`UNSYNCED_EXPORT`]: what the build step
+/// would write into the members since its last sync point, side files and blobs included, or
+/// a unit changed on both sides), which the export would overwrite or delete. The base layer
+/// is made only when it is not there (before that last refusal). Afterwards every JSON equals
+/// its member: the build step's members kept as newer are forgotten and its entry, when it
+/// has one, starts from here.
 pub fn export(
     project: &Project,
     base: &BaseRom,
     opts: &ExportOptions,
 ) -> Result<ExportReport, KernelError> {
+    export_reported(project, base, opts, &mut |_| {})
+}
+
+/// [`export`], telling `progress` how far it is.
+pub fn export_reported(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    progress: &mut dyn FnMut(ExportProgress),
+) -> Result<ExportReport, KernelError> {
+    run(project, base, opts, progress, true)
+}
+
+/// The export after its checks; `record` records the sync afterwards.
+fn run(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    progress: &mut dyn FnMut(ExportProgress),
+    record: bool,
+) -> Result<ExportReport, KernelError> {
+    let keep = preflight(project, base)?;
+    run_checked(project, base, opts, keep.as_ref(), progress, record)
+}
+
+/// The export once [`preflight`] passed and gave `keep`; `record` records the sync afterwards
+/// (the adoption records it itself, after the files it writes besides).
+pub(super) fn run_checked(
+    project: &Project,
+    base: &BaseRom,
+    opts: &ExportOptions,
+    keep: Option<&Manifest>,
+    progress: &mut dyn FnMut(ExportProgress),
+    record: bool,
+) -> Result<ExportReport, KernelError> {
     let start = Instant::now();
+    let journal = Journal::start();
+    let mut report = ExportReport::default();
+    let adopted = scripts::is_adopted(project);
+    if !adopted && !opts.adopt_scripts {
+        return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
+    }
+    let layer_start = Instant::now();
+    let base_step = |done| ExportProgress {
+        step: ExportStep::BaseLayer,
+        done,
+        total: 1,
+    };
+    progress(base_step(0));
+    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
+        Some(layer) => (layer, false),
+        None => BaseLayer::ensure(&project.root, base)?,
+    };
+    progress(base_step(1));
+    report.base_layer_ms = ms_since(layer_start);
+    report.base_layer_created = created;
+    // With the base layer there, so a build step that never ran judges by it.
+    if !opts.force
+        && let Some(refusal) = step::export_refusal(project)?
+    {
+        return Err(KernelError::Refused(refusal));
+    }
+    if !adopted {
+        let adopted = scripts::adopt(project, &mut |p| {
+            progress(ExportProgress {
+                step: ExportStep::Scripts,
+                done: p.done,
+                total: p.total,
+            });
+        })?;
+        report.adopted = Some(adopted.decompiled);
+    }
+    export_with(project, &layer, keep, &mut report, progress)?;
+    // Every JSON equals its member now: the build step forgets the members it kept as newer
+    // and, when it has an entry, starts from here (or the JSON the export rewrote would look
+    // like a JSON-side change next to every later member change); the sync records the
+    // project as it is.
+    step::clear_kept(&project.root)?;
+    let journal = journal.finish();
+    super::sync::before_record("resync");
+    crate::build::step::resync(project, &step::TextProjectStep::default(), Some(&journal))?;
+    if record {
+        super::sync::record_all_written(project, &mut |_| {}, &journal)?;
+    }
+    report.ms = ms_since(start);
+    Ok(report)
+}
+
+/// The refusals of the export, before anything is written (see [`export`], scripts aside):
+/// the manifest to keep (`None` without one).
+pub(super) fn preflight(
+    project: &Project,
+    base: &BaseRom,
+) -> Result<Option<Manifest>, KernelError> {
     if project.family == Family::Dp {
         return Err(KernelError::Refused(NO_DP.to_owned()));
     }
@@ -136,26 +274,7 @@ pub fn export(
     if let Some(refusal) = missing_item_members(project)? {
         return Err(KernelError::Refused(refusal));
     }
-    let mut report = ExportReport::default();
-    if !scripts::is_adopted(project) {
-        if !opts.adopt_scripts {
-            return Err(KernelError::Refused(NOT_ADOPTED.to_owned()));
-        }
-        let adopted = scripts::adopt(project, &mut |_| {})?;
-        report.adopted = Some(adopted.decompiled);
-    }
-    let layer_start = Instant::now();
-    let (layer, created) = match BaseLayer::open(&project.root, base.sha1()) {
-        Some(layer) => (layer, false),
-        None => BaseLayer::ensure(&project.root, base)?,
-    };
-    report.base_layer_ms = ms_since(layer_start);
-    report.base_layer_created = created;
-    export_with(project, &layer, keep.as_ref(), &mut report)?;
-    // Every JSON equals its member now: the build step forgets the members it kept as newer.
-    super::step::clear_kept(&project.root)?;
-    report.ms = ms_since(start);
-    Ok(report)
+    Ok(keep)
 }
 
 /// The refusal when the export's item table is gone but the import's is not: the export's
@@ -212,6 +331,7 @@ fn export_with(
     layer: &BaseLayer,
     keep: Option<&Manifest>,
     report: &mut ExportReport,
+    progress: &mut dyn FnMut(ExportProgress),
 ) -> Result<(), KernelError> {
     let root = &project.root;
     // Every modelled archive unpacked, so the blobs compare members and never a whole NARC.
@@ -222,15 +342,20 @@ fn export_with(
             project.ensure_unpacked(kind)?;
         }
     }
+    let arts = u32::try_from(ARTS.len()).unwrap_or(u32::MAX);
+    let mut step = |step, done, total| progress(ExportProgress { step, done, total });
+    step(ExportStep::Arts, 0, arts);
     sync_texts(project, report)?;
 
     let mut symbols = Symbols::load(root)?;
     baptize(project, &mut symbols)?;
-    for art in ARTS {
+    for (done, art) in (1..).zip(ARTS) {
         let start = Instant::now();
         let Some(files) = art_files(project, art, &mut symbols, layer)? else {
+            step(ExportStep::Arts, done, arts);
             continue;
         };
+        report.problems.extend(files.surplus.clone());
         let mut stats = write_folder(root, &art.dir(), &files)?;
         stats.art = art.name().to_owned();
         stats.entities = files.entities;
@@ -238,6 +363,7 @@ fn export_with(
         report.written += stats.written;
         report.removed += stats.removed;
         report.arts.push(stats);
+        step(ExportStep::Arts, done, arts);
     }
     report.registries_written = symbols.save(root)?;
     report.written += report.registries_written;
@@ -246,7 +372,9 @@ fn export_with(
     if write_quirks(root, &quirks_from_state(project)?)? {
         report.written += 1;
     }
+    step(ExportStep::Blobs, 0, 1);
     write_blobs(project, layer, report)?;
+    step(ExportStep::Blobs, 1, 1);
 
     let manifest = manifest_for(project, keep);
     if write_if_changed(root, Path::new(MANIFEST_FILE), &to_canonical(&manifest))? {
@@ -295,7 +423,18 @@ fn sync_texts(project: &Project, report: &mut ExportReport) -> Result<(), Kernel
 
 /// Christens the ids of maps (internal names), trainer classes, trainers (class and name)
 /// and places (location names) that have none yet, in the project language.
-fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> {
+pub(crate) fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> {
+    baptize_named(project, symbols, &BTreeMap::new())
+}
+
+/// [`baptize`] with the names of trainers that are not on disk yet (`trainer_names`, by
+/// number, without the name bank's wrapping): a trainer the store just created, whose name
+/// is still unsaved in its text archive.
+pub(crate) fn baptize_named(
+    project: &Project,
+    symbols: &mut Symbols,
+    trainer_names: &BTreeMap<u16, String>,
+) -> Result<(), KernelError> {
     let german = project.language == Language::German;
     let some =
         |texts: Vec<String>| -> Vec<Option<String>> { texts.into_iter().map(Some).collect() };
@@ -315,7 +454,11 @@ fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> 
         .min(read_members(project, AssetKind::TrainerParty)?.len());
     let trainers: Vec<Option<String>> = (0..count)
         .map(|i| {
-            let name = trainer_name::unwrap(names.get(i)?);
+            let given = u16::try_from(i).ok().and_then(|n| trainer_names.get(&n));
+            let name = match given {
+                Some(name) => name.clone(),
+                None => trainer_name::unwrap(names.get(i)?),
+            };
             let class = props[i]
                 .as_deref()
                 .and_then(|p| TrainerProps::read(p).ok())
@@ -337,6 +480,9 @@ fn baptize(project: &Project, symbols: &mut Symbols) -> Result<(), KernelError> 
 /// The files of one art folder: name in the folder → bytes, and the number of entities.
 pub(crate) struct ArtFiles {
     pub entities: u32,
+    /// For a pair art whose archives differ in length: the warning for the members beyond
+    /// the shortest one (nothing exports them; the import reports them as an error).
+    pub surplus: Option<Problem>,
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
@@ -358,6 +504,7 @@ fn art_files(
     };
     let mut out = ArtFiles {
         entities: 0,
+        surplus: None,
         files: BTreeMap::new(),
     };
     match art {
@@ -396,20 +543,16 @@ fn art_files(
                 }
             }
         }
-        Art::Matrices => entities::<MatrixEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Maps => entities::<MapEntity>(project, art, &mut ctx, &mut out)?,
-        Art::AreaData => entities::<AreaDataEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Events => entities::<EventEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Encounters => entities::<EncounterEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Species => entities::<SpeciesEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Moves => entities::<MoveEntity>(project, art, &mut ctx, &mut out)?,
-        Art::Trainers => entities::<TrainerEntity>(project, art, &mut ctx, &mut out)?,
-        Art::TrainerTextTable => {
-            entities::<TrainerTextTableEntity>(project, art, &mut ctx, &mut out)?;
-        }
-        Art::TrainerTextOffsets => {
-            entities::<TrainerTextOffsetsEntity>(project, art, &mut ctx, &mut out)?;
-        }
+        Art::Matrices
+        | Art::Maps
+        | Art::AreaData
+        | Art::Events
+        | Art::Encounters
+        | Art::Species
+        | Art::Moves
+        | Art::Trainers
+        | Art::TrainerTextTable
+        | Art::TrainerTextOffsets => entities(project, art, &mut ctx, &mut out)?,
     }
     for (name, bytes) in ctx.side {
         out.files.insert(name, bytes);
@@ -417,9 +560,9 @@ fn art_files(
     Ok(Some(out))
 }
 
-/// The entities of an art made of whole members (`art.kinds()`), one per member index; the
-/// side files collect in `ctx.side`.
-fn entities<E: EntitySchema>(
+/// The entities of an art made of whole members (`art.kinds()`), one per member index, each
+/// with its side files ([`entity_files`]).
+fn entities(
     project: &Project,
     art: Art,
     ctx: &mut ExportCtx<'_>,
@@ -430,24 +573,75 @@ fn entities<E: EntitySchema>(
         .iter()
         .map(|&k| read_members(project, k))
         .collect::<Result<_, _>>()?;
-    let lens = members.iter().map(Vec::len);
+    let lens: Vec<usize> = members.iter().map(Vec::len).collect();
     let count = if art.is_pair() {
-        lens.min().unwrap_or(0)
+        lens.iter().copied().min().unwrap_or(0)
     } else {
-        lens.max().unwrap_or(0)
+        lens.iter().copied().max().unwrap_or(0)
     };
+    if art.is_pair() {
+        // The export writes a file for every number below the shortest archive's length.
+        out.surplus = surplus_problem(project, art, &lens, count).map(|found| Problem {
+            severity: Severity::Warning,
+            ..found
+        });
+    }
     for i in 0..count {
         let parts: Vec<Option<Vec<u8>>> = members
             .iter()
             .map(|m| m.get(i).cloned().flatten())
             .collect();
         let index = u32::try_from(i).unwrap_or(u32::MAX);
-        let entity = E::export(index, &parts, ctx)?;
-        out.files
-            .insert(format!("{i:04}.json"), to_canonical(&entity));
+        out.files.extend(entity_files(art, index, &parts, ctx)?);
         out.entities += 1;
     }
     Ok(())
+}
+
+/// The files of entity `index` of `art` from its members `parts` (in the order of
+/// `art.kinds()`; a header: its 24 bytes and its `mapname.bin` record): `NNNN.json` and the
+/// side files its parts need, name in the art's folder → bytes, as the full export writes
+/// them. Items (one entity per item id, [`export_items`]) and the binary kinds (no JSON) are
+/// no arts of whole members and refused.
+pub(crate) fn entity_files(
+    art: Art,
+    index: u32,
+    parts: &[Option<Vec<u8>>],
+    ctx: &mut ExportCtx<'_>,
+) -> Result<Vec<(String, Vec<u8>)>, KernelError> {
+    fn json<E: EntitySchema>(
+        index: u32,
+        parts: &[Option<Vec<u8>>],
+        ctx: &mut ExportCtx<'_>,
+    ) -> Result<Vec<u8>, KernelError> {
+        Ok(to_canonical(&E::export(index, parts, ctx)?))
+    }
+    let side_before = ctx.side.len();
+    let json = match art {
+        Art::Headers => match ctx.family {
+            Family::Hgss => json::<HeaderHgssEntity>(index, parts, ctx)?,
+            Family::Pt | Family::Dp => json::<HeaderPtEntity>(index, parts, ctx)?,
+        },
+        Art::Matrices => json::<MatrixEntity>(index, parts, ctx)?,
+        Art::Maps => json::<MapEntity>(index, parts, ctx)?,
+        Art::AreaData => json::<AreaDataEntity>(index, parts, ctx)?,
+        Art::Events => json::<EventEntity>(index, parts, ctx)?,
+        Art::Encounters => json::<EncounterEntity>(index, parts, ctx)?,
+        Art::Species => json::<SpeciesEntity>(index, parts, ctx)?,
+        Art::Moves => json::<MoveEntity>(index, parts, ctx)?,
+        Art::Trainers => json::<TrainerEntity>(index, parts, ctx)?,
+        Art::TrainerTextTable => json::<TrainerTextTableEntity>(index, parts, ctx)?,
+        Art::TrainerTextOffsets => json::<TrainerTextOffsetsEntity>(index, parts, ctx)?,
+        Art::Items | Art::Binary(_) => {
+            return Err(KernelError::InvalidProject(format!(
+                "{}: keine Art aus ganzen Membern",
+                art.name()
+            )));
+        }
+    };
+    let mut files = vec![(format!("{index:04}.json"), json)];
+    files.extend(ctx.side.drain(side_before..));
+    Ok(files)
 }
 
 /// Writes `files` into folder `rel` (each only when it changes) and deletes every other
@@ -479,7 +673,7 @@ fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, K
 }
 
 /// Deletes folder `dir` when it holds nothing (a missing folder is fine).
-fn remove_if_empty(dir: &Path) -> Result<(), KernelError> {
+pub(crate) fn remove_if_empty(dir: &Path) -> Result<(), KernelError> {
     let empty = std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none());
     if empty {
         std::fs::remove_dir(dir).map_err(io_at(dir))?;
