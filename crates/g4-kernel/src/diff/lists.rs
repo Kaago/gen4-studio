@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::DiffSubject;
 use super::side::{DiskHeaders, HeadHeaders};
+use super::{Against, DiffState, DiffSubject};
 use crate::error::{KernelError, io_at};
 use crate::git::templates::layout_of;
 use crate::git::{GitRepo, GitStatus, Layout, PathState};
@@ -29,6 +29,12 @@ const HEADER_LEN: usize = 24;
 /// [`DiskHeaders`]): only the headers that differ are listed, whichever form each side
 /// keeps them in (see [`header_entries`]). In a text project (any schema, as
 /// [`layout_of`] takes it) those are files.
+///
+/// A text archive's or script's source below `expanded/` that is new (untracked or added)
+/// while no other path of its entity changed is compared once, as [`super::diff_entity`]
+/// compares it against `HEAD` (whose member it then reads): differing, the entity is listed
+/// in that state; equal, the source is listed as a `file` (New), so that no row contradicts
+/// its detail and the path still shows (see [`source_entries`]).
 pub fn head_entries(
     project: &Project,
     repo: &GitRepo,
@@ -38,6 +44,7 @@ pub fn head_entries(
     let dspre = layout_of(project) == Layout::Dspre;
     let paths = HeaderPaths::of(project);
     let mut held = Vec::new();
+    let mut sources = Vec::new();
     let mut list = Entries::default();
     for path in &status.paths {
         let state = match path.state {
@@ -50,13 +57,66 @@ pub fn head_entries(
             continue;
         }
         if let Some(subject) = DiffSubject::of_path(project, &path.path) {
+            if state == ChangeState::New && is_source(&path.path, &subject) {
+                sources.push((path.path.as_str(), subject));
+                continue;
+            }
             list.add(subject, state);
         }
     }
     if !held.is_empty() {
         header_entries(project, repo, &paths, &held, &mut list)?;
     }
+    source_entries(project, repo, sources, &mut list);
     Ok(list.into_entries(project))
+}
+
+/// Whether status path `path` of `subject` is a text archive's or script's source below
+/// `expanded/`.
+fn is_source(path: &str, subject: &DiffSubject) -> bool {
+    path.starts_with("expanded/")
+        && matches!(
+            subject,
+            DiffSubject::TextArchive { .. } | DiffSubject::Script { .. }
+        )
+}
+
+/// The rows of new sources (`sources`: path and subject). A subject already listed through
+/// another path takes the source as New (as any other path of it). Else the entity is
+/// compared against `HEAD` as [`super::diff_entity`] does: the same → `file` of the source
+/// (New); new on both sides → the entity New; else the entity Changed. A source the diff
+/// cannot read is listed as its entity, New, and its detail says why.
+fn source_entries(
+    project: &Project,
+    repo: &GitRepo,
+    sources: Vec<(&str, DiffSubject)>,
+    list: &mut Entries,
+) {
+    let against_head = super::DiffSources {
+        original: None,
+        base_label: None,
+        repo: Some(repo),
+    };
+    for (path, subject) in sources {
+        if list.at.contains_key(&subject) {
+            list.add(subject, ChangeState::New);
+            continue;
+        }
+        let state = super::diff_entity(project, None, &against_head, &subject, Against::Head)
+            .map(|report| report.state);
+        match state {
+            Ok(DiffState::Same) => list.add(
+                DiffSubject::File {
+                    path: path.to_owned(),
+                },
+                ChangeState::New,
+            ),
+            Ok(DiffState::New) | Err(_) => list.add(subject, ChangeState::New),
+            Ok(DiffState::Changed | DiffState::Removed) => {
+                list.add(subject, ChangeState::Changed);
+            }
+        }
+    }
 }
 
 /// The store's dirty assets as entities (state Changed); the header table per header that

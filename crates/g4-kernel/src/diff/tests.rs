@@ -941,3 +941,75 @@ fn a_header_file_changed_without_a_header_differing_is_listed_as_the_file() {
         ]
     );
 }
+
+/// Commits the tracked files only (`git commit -a`): every file but `untracked` (relative),
+/// which stays on disk and untracked.
+fn commit_tracked(root: &Path, untracked: &str, message: &str) {
+    let path = root.join(untracked);
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    GitFixture::commit_all(root, message);
+    std::fs::write(&path, bytes).unwrap();
+}
+
+#[test]
+fn a_new_source_equal_to_heads_member_is_a_file_row_not_a_new_entity() {
+    // DSPRE layout: saving a text archive writes its member and the new source
+    // `expanded/textArchives/0001.json`; `git commit -a` commits the member only.
+    let mut fx = Dspre::with(decodable_text_1);
+    fx.commit();
+    fx.store
+        .edit_text_archive(1, "Text", |d| d.messages[0].text.push_str(" Studio"))
+        .unwrap()
+        .unwrap();
+    fx.store.save().unwrap();
+    let source = crate::textproject::source::text_archive_key(1);
+    assert!(fx.root().join(&source).is_file(), "{source} written");
+    commit_tracked(fx.root(), &source, "Agent");
+    let text = DiffSubject::TextArchive { index: 1 };
+    assert_eq!(fx.diff(&text, Against::Head).state, DiffState::Same);
+    let entries = head_list(fx.root());
+    let file = DiffSubject::File {
+        path: source.clone(),
+    };
+    assert_eq!(
+        project_rows(fx.root()),
+        [row(ChangeState::New, "Projektdateien", &source)]
+    );
+    assert!(entries.iter().all(|e| e.subject != text), "{entries:?}");
+    assert!(entries.iter().any(|e| e.subject == file), "{entries:?}");
+
+    // The source edited past the member: the entity, changed, as its detail says.
+    let edited = std::fs::read_to_string(fx.root().join(&source))
+        .unwrap()
+        .replace(" Studio", " Studio 2");
+    std::fs::write(fx.root().join(&source), edited).unwrap();
+    assert_eq!(fx.diff(&text, Against::Head).state, DiffState::Changed);
+    assert_eq!(
+        project_rows(fx.root()),
+        [row(ChangeState::Changed, "Textarchive", "Textarchiv 0001")]
+    );
+}
+
+#[test]
+fn a_new_script_source_equal_to_heads_member_is_a_file_row() {
+    // Committed before the source existed: `HEAD` has only the member, the disk the source.
+    let fx = TextFixture::exported();
+    let rel = "expanded/scripts/0000.rotom";
+    commit_tracked_init(fx.root(), rel);
+    let script = DiffSubject::Script { index: 0 };
+    assert_eq!(
+        diff_text(&fx, &script, Against::Head).state,
+        DiffState::Same
+    );
+    assert_eq!(
+        project_rows(fx.root()),
+        [row(ChangeState::New, "Projektdateien", rel)]
+    );
+}
+
+/// A repository at `root` whose first commit holds every file but `untracked`.
+fn commit_tracked_init(root: &Path, untracked: &str) {
+    GitFixture::init(root);
+    commit_tracked(root, untracked, "Ausgangsstand");
+}
