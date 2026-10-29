@@ -25,6 +25,8 @@
 # rotom: nur die Befehlsdatenbank ist Projekt (die Quirks stehen in data/rotom-quirks.json)
 /.rotom/*
 !/.rotom/command_database
+# Erzeugte ID-Dateien für rotom, das Studio schreibt sie neu
+/.rotom/command_database/.g4-ids-*
 
 # Sicherungen neben data/ würden beim Export Blobs unter data/raw/: nicht im Projektordner sichern
 *.bak

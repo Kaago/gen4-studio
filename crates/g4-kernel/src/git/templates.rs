@@ -2,8 +2,8 @@
 //! `metadata/git/` (one `.gitignore` per layout, one `.gitattributes` for both). The whole
 //! template stands in one block between [`BLOCK_START`] and [`BLOCK_END`]: a file without the
 //! block gets it at its end (the user's lines stay byte for byte, the later line wins in both
-//! files), a file with it gets it replaced when it differs, and a block without its end is
-//! refused. Format: `docs/formats/project_git.md`.
+//! files), a file with it gets it replaced and moved to the end unless it is the same and there
+//! already, and a block without its end is refused. Format: `docs/formats/project_git.md`.
 
 use std::path::Path;
 
@@ -73,7 +73,8 @@ pub enum TemplateAction {
     Created,
     /// The file had no block; the block stands at its end.
     Appended,
-    /// The file's block differed; it was replaced where it stood.
+    /// The file's block differed or was not at the end; it was taken out and the block
+    /// appended.
     Updated,
     /// The file's block was the same; nothing was written.
     Unchanged,
@@ -118,14 +119,16 @@ pub fn gitattributes_block() -> String {
     with_markers(GITATTRIBUTES)
 }
 
-/// `existing` with `block` merged in. Without a file (`None`) the block alone
+/// `existing` with `block` merged in; the block always ends up at the end of the file, so its
+/// lines win over the user's in both files. Without a file (`None`) the block alone
 /// ([`TemplateAction::Created`]). A file without the block gets it at its end, after one blank
 /// line, its own text byte for byte before it ([`TemplateAction::Appended`]). A file with the
-/// block (the first line equal to [`BLOCK_START`] up to the next equal to [`BLOCK_END`]) gets it
-/// replaced where it stands when it differs ([`TemplateAction::Updated`]; the lines before and
-/// after it stay), else is returned as it is ([`TemplateAction::Unchanged`]; a block that
-/// differs only in `\r\n` line ends counts as the same). A start without an end is `Err` with
-/// [`BROKEN_BLOCK`].
+/// block (the first line equal to [`BLOCK_START`] up to the next equal to [`BLOCK_END`]) is
+/// returned as it is when that block is the same and only blank space follows it
+/// ([`TemplateAction::Unchanged`]; a block that differs only in `\r\n` line ends counts as the
+/// same); else the old block is taken out (the user's lines before and after it stay byte for
+/// byte and in order) and the block appended like to a file without one
+/// ([`TemplateAction::Updated`]). A start without an end is `Err` with [`BROKEN_BLOCK`].
 pub fn merge_block(
     existing: Option<&str>,
     block: &str,
@@ -134,17 +137,7 @@ pub fn merge_block(
         return Ok((block.to_owned(), TemplateAction::Created));
     };
     let Some(start) = find_line(text, 0, BLOCK_START) else {
-        let mut merged = text.to_owned();
-        if !merged.is_empty() {
-            if !merged.ends_with('\n') {
-                merged.push('\n');
-            }
-            if !merged.ends_with("\n\n") {
-                merged.push('\n');
-            }
-        }
-        merged.push_str(block);
-        return Ok((merged, TemplateAction::Appended));
+        return Ok((append(text, block), TemplateAction::Appended));
     };
     let Some(end) = find_line(text, start, BLOCK_END) else {
         return Err(BROKEN_BLOCK.to_owned());
@@ -152,11 +145,28 @@ pub fn merge_block(
     // The end marker's line with its line end.
     let end = text[end..].find('\n').map_or(text.len(), |n| end + n + 1);
     let current = &text[start..end];
-    if current == block || current.replace("\r\n", "\n") == block {
+    let same = current == block || current.replace("\r\n", "\n") == block;
+    if same && text[end..].trim().is_empty() {
         return Ok((text.to_owned(), TemplateAction::Unchanged));
     }
-    let merged = format!("{}{block}{}", &text[..start], &text[end..]);
-    Ok((merged, TemplateAction::Updated))
+    let rest = format!("{}{}", &text[..start], &text[end..]);
+    Ok((append(&rest, block), TemplateAction::Updated))
+}
+
+/// `text` byte for byte, then (unless it is empty) a line end if it lacks one and one blank
+/// line if it does not end in one, then `block`.
+fn append(text: &str, block: &str) -> String {
+    let mut merged = text.to_owned();
+    if !merged.is_empty() {
+        if !merged.ends_with('\n') {
+            merged.push('\n');
+        }
+        if !merged.ends_with("\n\n") {
+            merged.push('\n');
+        }
+    }
+    merged.push_str(block);
+    merged
 }
 
 /// Writes the block of the project's layout into `.gitignore` and the `.gitattributes` block
@@ -378,19 +388,26 @@ mod tests {
             format!("notes/\n\n{ours}")
         );
 
-        // Another block replaces ours; the user's lines before and after it stay.
+        // Another block replaces ours at the end.
         let (merged, _) = merge_block(Some("notes/\n"), &ours).unwrap();
         let theirs = block("*.nds\n*.srl\n");
         let (updated, action) = merge_block(Some(&merged), &theirs).unwrap();
         assert_eq!(action, TemplateAction::Updated);
         assert_eq!(updated, format!("notes/\n\n{theirs}"));
+        // A user line after an old block: the block moves to the end, the user's lines stay
+        // byte for byte and in order before it; the same block moves too.
         let around = format!("notes/\n\n{ours}mine/\n");
+        for new in [&theirs, &ours] {
+            assert_eq!(
+                merge_block(Some(&around), new).unwrap(),
+                (format!("notes/\n\nmine/\n\n{new}"), TemplateAction::Updated)
+            );
+        }
+        // Blank space after the block still counts as the end.
+        let trailing = format!("{updated}\n");
         assert_eq!(
-            merge_block(Some(&around), &theirs).unwrap(),
-            (
-                format!("notes/\n\n{theirs}mine/\n"),
-                TemplateAction::Updated
-            )
+            merge_block(Some(&trailing), &theirs).unwrap(),
+            (trailing.clone(), TemplateAction::Unchanged)
         );
 
         // The same block: nothing to write, also with Windows line ends.
@@ -523,6 +540,8 @@ mod tests {
         fx.write("out.nds", b"rom");
         fx.write("out.nds.sav", b"sav");
         fx.write(".rotom/cache/x", b"x");
+        fx.write(".rotom/command_database/.g4-ids-trainers.json", b"{}");
+        fx.write(".rotom/command_database/commands.json", b"{}");
 
         let report = write_templates(&project).unwrap();
         assert_eq!(report.layout, Layout::Dspre);
@@ -542,10 +561,16 @@ mod tests {
             ".gitattributes",
             "header.yaml",
             "arm9/arm9.bin",
+            ".rotom/command_database/commands.json",
         ] {
             assert!(untracked.contains(kept), "{kept} is not untracked");
         }
-        for ignored in ["out.nds", "out.nds.sav", ".rotom/cache/x"] {
+        for ignored in [
+            "out.nds",
+            "out.nds.sav",
+            ".rotom/cache/x",
+            ".rotom/command_database/.g4-ids-trainers.json",
+        ] {
             assert!(!untracked.contains(ignored), "{ignored} is untracked");
         }
         let unpacked = files_below(root, "unpacked");
@@ -562,6 +587,8 @@ mod tests {
         let project = fx.project();
         assert_eq!(layout_of(&project), Layout::TextProject);
 
+        // A generated id file for rotom: ignored, its folder's other files are sources.
+        fx.write(".rotom/command_database/.g4-ids-trainers.json", b"{}");
         let report = write_templates(&project).unwrap();
         assert_eq!(report.layout, Layout::TextProject);
         assert_eq!(report.ignored_archives, 0);
@@ -577,6 +604,13 @@ mod tests {
         for source in &sources {
             assert!(untracked.contains(source), "{source} is not untracked");
         }
+        assert!(
+            sources
+                .iter()
+                .any(|p| p.starts_with(".rotom/command_database/")),
+            "{sources:?}"
+        );
+        assert!(!untracked.contains(".rotom/command_database/.g4-ids-trainers.json"));
         for path in &untracked {
             let expected = sources.contains(path)
                 || path == ".gitignore"

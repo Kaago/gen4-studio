@@ -21,6 +21,8 @@
 
 # rotom: Cache (die Quirks in .rotom/status/compile-state.json bleiben versioniert)
 /.rotom/cache/
+# Erzeugte ID-Dateien für rotom, das Studio schreibt sie neu
+/.rotom/command_database/.g4-ids-*
 
 # Sicherungen gehören nicht in den Projektordner
 *.bak
