@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen) und [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel) und [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -650,6 +650,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **3g:** DSPRE öffnet den angelegten Ordner (A5) und ein mit der Vorlage angelegtes Projekt (B6), die gebündelte Tauri-App mit Dateidialog, Finder-Drop und Vorschlag (A6) sowie der Blick auf die Bilder der Szenarien (B2: `b2-pt`, `b2-hg`) und die Screens des Assistenten.
 - **4.1a:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; xdelta UI unter Windows; der Blick auf die 13 Bilder `blick-veroeffentlichen-*.png`. Liste mit Ort: [phase-4-1a-gate.md](phase-4-1a-gate.md), Abschnitte „Hand“ und „Blick“.
 - **4.1b:** das Kontextmenü in der echten App (Zwei-Finger-Klick auf dem Trackpad, Shift+F10 in WebKit, die Kontextmenü-Taste mit einer PC-Tastatur), die Fortschrittszahlen von Technik › Änderungen in der App (die Brücke hat keinen `Channel`), ein Urteil über die englischen Feldnamen in den Vorschau-Zeilen; der Blick auf die 17 Bilder `blick-*.png` (Dialog Karte, Header, Script und Technik › Änderungen in Hell, Dunkel, Kompakt). Liste mit Ort: [phase-4-1b-gate.md](phase-4-1b-gate.md), Abschnitte „Hand“ und „Blick“.
+- **4.3b:** die DSPRE-Gegenprobe (DSPRE öffnet einen eingerichteten Ordner, speichert eine Änderung, die App übernimmt sie beim Fokus; was DSPRE dabei unter `unpacked/` und `expanded/` schreibt), der Fensterfokus in der gepackten Tauri-App (`onFocusChanged`), die Fortschrittsphasen von „Einrichten…“ und die laufende Phase „Textprojekt einrichten“ im Assistenten (die Brücke hat keinen `Channel`); der Blick auf die Bilder des UI-Tests (`blick-*.png`, `gate3-*.png`, `mcp-*.png`) in Hell, Dunkel und Kompakt. Liste mit Ort: [phase-4-3b-gate.md](phase-4-3b-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -914,3 +915,77 @@ scripts/agent/mcp.sh call text_check '{}'                                 # curr
 ```
 
 Mit einer ungespeicherten Änderung (`mcp.sh call set_matrix_cell …`) antwortet `text_export` `unsaved`, ohne zu fragen; `undo` nimmt sie zurück.
+
+## Phase 4.3b ([phase-4-3b-gate.md](phase-4-3b-gate.md))
+
+4.3b macht das Textprojekt zur Quelle des Studios: der Store liest und schreibt die Entitäts-JSON unter `data/`, ein DSPRE-Ordner lässt sich einrichten und zurücknehmen, Änderungen von außen (DSPRE, Hand, Branch) werden beim Öffnen und beim Fensterfokus übernommen oder als Konflikt gezeigt, IDs gelten wie Nummern, „ID umbenennen“ zieht alle Verweise nach. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `4-3b-<zweck>_DSPRE_contents` und `.nds` `4-3b-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos, `web`, `mcp`, `ui` (Platin DE) für Browser und MCP über die Brücke. `git init` läuft **in der Kopie**, nie im Repo. Alle Kopien nach dem Gate löschen (`Manual` und `_saves` bleiben).
+
+**Wo was ist:** Technik › „Textprojekt“ (`[data-technik=textprojekt]`; Untertitel „DSPRE-Layout“, „Abgeglichen“, „1 Konflikt“, „1 fehlerhafte Datei“, „Wird eingerichtet …“): im DSPRE-Layout der Kopftext und „Als Textprojekt einrichten…“ (gesperrt mit „Diesem Projekt ist keine Basis-ROM zugeordnet.“), im Textprojekt „Textprojekt, Schema-Version 1. Zuletzt abgeglichen …“, „Jetzt abgleichen“, „Zurücknehmen…“, der Abschnitt „Zuletzt übernommen“ (Zeilen „Attacke 0033 · MOVE_TACKLE“ mit Plakette „aus DSPRE“, sonst „Nichts von außen geändert.“), `[data-sync-conflicts]` „Auf zwei Seiten geändert“ mit je Einheit `[data-conflict=<schlüssel>]` (aufklappen: Tabelle Feld / Studio / DSPRE, bei ungespeicherten Werten „Studio (ungespeichert)“, Tasten „Studio-Fassung behalten“ und „DSPRE-Fassung übernehmen“, Plakette „Ungespeichert“ mit Warnung) und `[data-sync-broken]` „Fehlerhafte Dateien“ (`{datei}:{zeile}:{spalte}: {satz}`). Meldungen: „1 Änderung aus DSPRE übernommen“ (+ „Anzeigen“), „1 Konflikt zwischen Studio und DSPRE“ (+ „Lösen…“), „1 Projektdatei ist fehlerhaft“, „Erst die Konflikte in Technik › Textprojekt lösen.“. Hinweis beim Öffnen eines DSPRE-Ordners: „… DSPRE öffnet den Ordner weiter.“ mit „Einrichten…“ (ohne Basis-ROM „… Dafür braucht es die Basis-ROM.“ mit „Basis-ROM zuordnen…“), dazu „Nicht mehr fragen“. Dialoge „Als Textprojekt einrichten?“ (Prüfliste ✓ „Alles gespeichert“, ✓ „Basis-ROM gefunden: …“, „Abbrechen“/„Einrichten“, im Lauf „Wird eingerichtet …“), „Textprojekt zurücknehmen?“, „ID umbenennen“ (Feld „Neue ID“, Plan „2 Verweise in 2 Dateien werden nachgezogen.“). Die ID steht im Kopf von Trainer, Pokédex und Header als `[data-entity-id]` mit „ID kopieren“, „ID umbenennen…“ im Menü „Aktionen“. Im Assistenten „Neues Spiel aus ROM“ das Kästchen „Als Textprojekt einrichten“ im Schritt „Vorlage“ und die Phase „Textprojekt einrichten“ im Ablauf. Agentenfrage `[data-agent-question]` „Als Textprojekt einrichten“.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | im Hintergrund, aus dem Worktree mit absolutem `G4_ROMS_DIR` und `tools`-Symlink; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) und im Schritt `project_start_` je `.nds` mit, das Skript braucht dafür nichts Neues |
+| (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `store`, `sync-full`, `sync`, `conflict`, `adopt`, `revert`, `checks`, `recipe`, `refs`, `ids`, `rename`, `adopt: … ms` und `<Spielcode>: phases …` in die Zeittabelle |
+| (1) I3 (aus 4.3a) | Agent | auf der eingerichteten Platin-Kopie ein Byte in `data/species/0025.json` (`"attack": 55,` ↔ `56,`), dann `g4k build <Kopie> --out <rom> --timings`; aus der JSON-Zeile `steps[id=textproject].ms` und `ms`, sechs Läufe |
+| (2) Szenario kopflos | Agent | Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreversible]` über JSON-RPC, Ablauf unten |
+| (3) Browser | Agent | Test-Umgebung, Ablauf unten |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| (4) DSPRE-Gegenprobe, Fokus im Tauri-Fenster, Fortschritt | Hand | siehe „Was beim Nutzer bleibt“ |
+| Blick | Agent + Blick | Bilder `blick-*.png`, `gate3-*.png`, `mcp-*.png` unter `target/agent/gate-2026-10-28/4-3b/` |
+
+**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+G4_TEST_PROJECT="$K/4-3b-<k>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject_source -- --nocapture --test-threads 1
+G4_TEST_PROJECT="$K/4-3b-<k>_DSPRE_contents" \
+  cargo test --release -p studio --all-features --lib mcp_with_ids_acts_like_numbers -- --nocapture --test-threads 1
+G4_TEST_ROM="$K/4-3b-<k>.nds" \
+  cargo test --release -p g4-kernel --all-features --test project_start -- project_start_text_project_builds_byte_equal --nocapture --test-threads 1
+```
+
+Mit `G4_TIMING_STRICT=1` prüfen `store_on_json_edits_only_the_entity_file_and_builds_like_dspre` (Speichern ≤ 200 ms) und `simulated_dspre_change_is_adopted_one_sided` (Fokus-Abgleich ≤ 500 ms, eine Änderung ≤ 1000 ms) ihre Grenzen; ohne die Variable drucken sie nur.
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` (`P=$K/4-3b-<k>_DSPRE_contents`, `N=$K/4-3b-<k>.nds`, `G=target/release/g4k`):
+
+```sh
+$G base assign $P $N
+target/release/studio mcp --project $P --base-rom $N        # text_project_status → dspre; adopt_text_project → needs_confirmation
+target/release/studio mcp --project $P --base-rom $N --allow-irreversible
+#   adopt_text_project → Bericht (phases, files, written, sync_files, ms)
+$G build $P --out <rom>                                     # SHA-1 = $N
+(cd $P && git init -q && $G text sources . | tr '\n' '\0' | xargs -0 git add && git commit -qm Ausgangsstand)
+#   data_edit {"kind":"species","index":"SPECIES_PIKACHU","patch":{"Personal":{"field":"attack","value":<+1>}}}, save
+git -C $P status --porcelain --untracked-files=no           # nur data/species/0025.json; undo, save; dasselbe mit "index": 25 → gleicher Diff
+#   ein Byte in unpacked/moveData/0001 (Byte 3, die Stärke), dann:
+$G text sync $P                                             # dspre data/moves/0001.json …
+#   data/trainers/0001.json party[0].level und unpacked/trainerParty/0001 Byte 2..3 verschieden ändern:
+$G text sync $P                                             # Exit 1, conflict data/trainers/0001.json …
+#   external_changes {"diff":true}; resolve_external_conflict {"key":"data/trainers/0001.json","keep":"studio"}; erneut, dann "dspre"
+#   rename_id {"id":<Trainer 2>,"new_id":<…_GATE>} → git diff --stat; undo → leer
+$G build $P --out <rom>; (cd scripts/g4emu && uv run g4emu run --rom <rom> --out <ordner> new-game shot nach-intro)
+#   die alten Member-Bytes zurückschreiben, $G text sync $P, $G build → SHA-1 = $N
+$G text revert $P                                           # backup=…/.g4/backup/textproject-<Zeit> rewritten=… ms=…
+$G build $P --out <rom>                                     # SHA-1 = $N
+```
+
+Im Gate bediente ein Python-Skript im Scratchpad den Server (die Handprobe aus [dev-setup.md](dev-setup.md), „MCP“). HeartGold US hat kein `intro` in `games.yaml`: dort `wait 1800 shot titel` statt `new-game`.
+
+**Browser (3)**, Test-Umgebung auf eigenen Ports (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=<v> G4_BRIDGE_PORT=<b> bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:<v>/?project=<…>/_testkopien/4-3b-web_DSPRE_contents`, 1440 × 900. **Fokus-Trick:** Der Abgleich läuft beim Fensterfokus; ein Browser-Fenster, das ihn schon hat, bekommt keinen neuen. In der Seite `window.dispatchEvent(new Event("focus"))` auslösen (der Abgleich startet nach `FOCUS_DELAY_MS`, 800 ms; die Meldung kommt rund 1 bis 1,5 s danach). Eine Änderung „von DSPRE“ schreibt der Agent per Shell in einen Member (`python3 -c` oder `printf | dd conv=notrunc`), eine JSON-Änderung mit dem Editor oder per Shell in `data/…`. Ablauf: Öffnen zeigt den Hinweis; „Einrichten…“ (Prüfliste, Fortschritt nur „Wird eingerichtet …“, weil die Brücke keinen `Channel` hat); `git init` und Commit der Quellen in der Kopie; Pokédex › Pikachu (`[data-entity-id]` „SPECIES_PIKACHU“), Angriff ändern, speichern, `git -C <Kopie> status --porcelain --untracked-files=no`; Member-Byte, Fokus, Meldung und „Zuletzt übernommen“; beide Seiten, Fokus, Konflikt aufklappen, beide Tasten; ungespeichert plus Member; JSON mit Tippfehler; „ID umbenennen…“ eines Trainers, ⌘Z; „Hier spielen“ mit offenem Konflikt (fragt nicht nach dem Pfad, eine Meldung „Erst die Konflikte …“); „Zurücknehmen…“; Assistent mit Häkchen.
+
+**MCP (3)** über die Brücke (Kopie `4-3b-mcp` mit zugeordneter Basis-ROM in der Seite geöffnet):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                    # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call adopt_text_project '{}' > target/agent/mcp-adopt.out 2>&1 &
+scripts/agent/call.sh agent_status                                           # question: {kind: confirm, what: "Als Textprojekt einrichten"}
+# im Browser-Fenster „Zulassen“; während des Laufs zeigt Technik › Textprojekt „Wird von einem Agenten eingerichtet …“
+scripts/agent/mcp.sh call adopt_text_project '{}'                            # auf dem Textprojekt sofort abgelehnt: „Das Projekt ist schon ein Textprojekt.“
+scripts/agent/mcp.sh call data_edit '{"kind":"species","index":"SPECIES_PIKACHU","patch":{"Personal":{"field":"attack","value":60}}}'   # ohne Rückfrage
+scripts/agent/mcp.sh call rename_id '{"id":"TRAINER_TEENAGER_GUNTHER","new_id":"TRAINER_TEENAGER_GUNTHER_MCP"}'
+scripts/agent/mcp.sh call history                                            # undo_agents: ["agent-gate", "agent-gate"]
+```

@@ -166,11 +166,11 @@ beschrieben.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
-| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs` brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
+| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs` und `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
-| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_incremental_build_matches_the_rom`, `project_start_empty_region_from_the_rom` |
+| `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_incremental_build_matches_the_rom`, `project_start_empty_region_from_the_rom`, `project_start_text_project_builds_byte_equal` (4.3b) |
 | `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` und `tests/original.rs` nehmen die Nachbar-`.nds` des Projekts); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
 | `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
@@ -339,8 +339,12 @@ Gruppe) bleibt für die Brücke und Szenarien; die Oberfläche nutzt ihn nicht. 
 eine frische Sitzung (Szenario-Batch) prüft kalt, auf Platin DE mit übernommenen Scripts 1,5 bis 1,6 s.
 
 **`g4-checks.json`.** Ausgeblendete Befunde und abgeschaltete Prüfungen stehen im Projekt in `<projekt>/g4-checks.json`
-(nicht in `.g4/`, das ist löschbarer Cache): `{"ignored": [{"code", "subject": {"kind", "index"}, "key", "fingerprint"}],
-"disabled": [code]}`, der Fingerprint als 16 Hex-Ziffern. `ignore_finding`, `unignore_finding`, `accept_baseline` und
+(nicht in `.g4/`, das ist löschbarer Cache): `{"version": 1, "ignored": [{"code", "subject": {"kind", "index"}, "key",
+"fingerprint"}], "disabled": [code]}`, der Fingerprint als 16 Hex-Ziffern. Seit 4.3b steht `version` (1) immer in der Datei;
+eine Datei ohne das Feld (3b.4 bis 4.3a) gilt als Version 1, eine höhere lehnt das Studio ab („g4-checks.json: Version 2
+stammt aus einer neueren Fassung von Gen4 Studio.“). `subject.index` ist bei `header` und `trainer` eine ID oder eine
+Nummer (`"MAP_T01"` oder `3`; geschrieben wird im Textprojekt die ID), bei allen übrigen Arten eine Nummer; Format in
+[docs/formats/text_project.md](formats/text_project.md), „`g4-checks.json`“. `ignore_finding`, `unignore_finding`, `accept_baseline` und
 `set_check_enabled` schreiben die Datei sofort (atomar); `open_project` liest sie. Eine kaputte Datei (von Hand bearbeitet,
 ein Merge-Konflikt, von einem neueren Studio mit unbekannter Subjekt-Art) hält das Projekt nicht zu (Ruling R15): es öffnet
 ohne ausgeblendete Befunde, jeder Bericht nennt die Datei als `skipped`-Zeile mit `code` „g4-checks.json“ und dem
@@ -582,6 +586,35 @@ G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DS
 ```
 
 Auf stderr stehen `textproject-stats <Spielcode> files=… bytes=… json=… side=… raw=… base_layer_ms=… export_ms=… import_ms=… build_ms=…`, `textproject-second-export … ms=…`, `textproject-from-base … extract_ms=… import_ms=… build_ms=… equal`, `base-layer … ms=… diff_ms=… files=… bytes=… not_built=…` und `items … ids=… members=… shared=… unreferenced=…`, dazu je Art `textproject-art …` und je gesperrtem Member `textproject-locked …` (in Vanilla keine). Gemessen am 2026-10-27 (Release, Last 4 bis 14): 347 s (Platin DE), 684 s (HeartGold DE), 554 s (HeartGold US) für die fünf Tests samt Bau; Werte und Zeiten in [docs/phase-4-3a-gate.md](phase-4-3a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit (dort im Debug-Profil). Den Diff zweier exportierter Projekte mit den IDs als Nummern zeigt `python3 -I scripts/agent/textproject_diff.py <Export A> <Export B>` (siehe [docs/agent-gate.md](agent-gate.md), „Phase 4.3a“).
+
+#### Textprojekt als Quelle (4.3b)
+
+Seit 4.3b liest und schreibt der Store in einem Projekt mit `g4-project.json` die Entitäts-JSON (`textproject::source`), der Abgleich mit DSPRE steht in `.g4/build/state.json` (`sync`, `textproject::sync`), Umstellung und Rücknahme in `textproject::adopt`, die ID-Dateien für rotom in `.rotom/command_database/.g4-ids-<art>.json` (`textproject::include`), „ID umbenennen“ in `textproject::rename`; Format in [docs/formats/text_project.md](formats/text_project.md). Kopflos: `g4k text adopt`, `g4k text sync [--keep studio|dspre <schlüssel>]` und `g4k text revert` (Kurzbeschreibung unter „Textprojekt (4.3a)“), dazu `g4k text rename-id <Kopie> <alt> <neu>` (eine Zeile `<datei> <anzahl>` je Datei, dann `renamed … files=… refs=… ms=…`; ohne Undo, eine Ablehnung schreibt nichts).
+
+Die gated Tests (`G4_TEST_PROJECT` mit der `.nds` daneben, nur gelesen; alles Schreibende auf `vanilla_copy()`):
+
+| Test | Prüft |
+|---|---|
+| `store_on_json_edits_only_the_entity_file_and_builds_like_dspre` (`tests/textproject_source.rs`) | Pikachu über den Store geändert: nur `data/species/0025.json` ändert sich, Textprojekt und DSPRE-Ordner bauen dieselbe ROM; druckt `store <Spielcode> save_ms=… load_ms=…` |
+| `simulated_dspre_change_is_adopted_one_sided` | voller Abgleich, Fokus-Abgleich ohne Änderung, ein Member-Byte übernommen, `g4k check-data` auf der ROM; druckt `sync-full …` und `sync <Spielcode> stat_files=… stat_ms=… one_ms=…` |
+| `simulated_change_on_both_sides_is_a_conflict_and_both_choices_work` | Trainer 1 auf beiden Seiten, Diff, beide Wahlen |
+| `adopt_dspre_folder_builds_byte_equal_and_reverts` | Umstellung und Rücknahme, jeweils Build mit der SHA-1 der Basis; druckt `adopt <Spielcode> phases …` und `revert …` |
+| `vanilla_checks_on_the_text_project_have_no_errors` | alle Prüfungen auf dem Textprojekt, 0 Fehler |
+| `recipes_with_ids_apply_on_the_vanilla_project` | die Vorlagen-Rezepte mit IDs |
+| `script_refs_on_the_vanilla_project_are_counted`, `a_script_using_an_id_constant_compiles_to_the_number` | Script-Verweise im Referenzindex, ID-Dateien für rotom; druckt `refs …` und `ids …` |
+| `rename_id_updates_every_reference_on_the_vanilla_project` | „ID umbenennen“ eines Trainers über alle Verweise; druckt `rename …` |
+| `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` (`apps/studio/src-tauri/src/mcp/tools.rs`) | MCP `adopt_text_project`, dann `data_edit` mit `SPECIES_PIKACHU` wie mit `25` |
+| `project_start_text_project_builds_byte_equal` (`tests/project_start.rs`, `G4_TEST_ROM`) | der Assistent mit „als Textprojekt“ baut die ROM byte-gleich |
+
+```sh
+G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/4-3b-pt_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject_source -- --nocapture --test-threads 1
+G4_TEST_PROJECT=… cargo test --release -p studio --all-features --lib mcp_with_ids_acts_like_numbers -- --nocapture --test-threads 1
+G4_TEST_ROM="/<absoluter Pfad zu Roms>/_testkopien/4-3b-pt.nds" \
+  cargo test --release -p g4-kernel --all-features --test project_start -- project_start_text_project_builds_byte_equal --nocapture
+```
+
+`G4_TIMING_STRICT=1` macht die Zeiten zu Grenzen (Speichern ≤ 200 ms, Fokus-Abgleich ≤ 500 ms, eine Änderung ≤ 1 000 ms). Gemessen am 2026-10-29 (Release, Last 3 bis 18): `textproject_source` 798 s (Platin DE), 938 s (HeartGold DE), 845 s (HeartGold US), der Studio-Test 77 bis 94 s, der Projektstart 53 bis 57 s; Werte in [docs/phase-4-3b-gate.md](phase-4-3b-gate.md). In `scripts/gate.sh` laufen sie ohne Änderung mit: die Kernel- und Studio-Tests im Schritt der gated Tests je Projekt (Debug), der Projektstart im Schritt `project_start_` je `.nds`. Der volle Lauf von `scripts/gate.sh` dauerte damit 8 324 s (gated Tests je Projekt 2 168 bis 2 340 s im Debug-Profil). Die gated Studio-Tests müssen auch mit gesetztem `G4_ROMS_DIR` laufen, wenn `G4_TEST_PROJECT` das Original ist (so ruft das Gate-Skript sie auf): eine Basis-ROM für den `UserPolicy`-Weg gehört als Kopie in den Temp-Ordner, nie der Ordner der Originale als `--allow-dir`.
 
 ## Design-System und Tokens
 
