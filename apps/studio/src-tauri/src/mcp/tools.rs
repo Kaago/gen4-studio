@@ -2755,11 +2755,13 @@ mod tests {
     }
 
     /// Answers the next question the hub raises with `answer` (from a helper thread, as the
-    /// user would); the thread gives the question back.
+    /// user would); the thread gives the question back. The deadline is only a safety net:
+    /// some tools check the whole project before they ask (`text_export` scans the text
+    /// project), which takes seconds under load, so it is generous.
     fn answer_next(state: &Arc<AppState>, answer: &'static str) -> JoinHandle<QuestionDto> {
         let state = Arc::clone(state);
         std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + Duration::from_secs(60);
             loop {
                 if let Some(question) = state.agents.status().question {
                     state.agents.answer(question.id, answer).unwrap();
