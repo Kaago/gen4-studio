@@ -7,6 +7,7 @@ pub mod dynamic_headers;
 pub mod error;
 pub mod export;
 mod fsutil;
+pub mod git;
 pub mod map_import;
 pub mod original;
 pub mod patch;

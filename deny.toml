@@ -19,3 +19,7 @@ ignore = [
 ]
 [bans]
 multiple-versions = "allow"
+deny = [
+  { crate = "git2", reason = "Entscheidung Phase 4: gix zum Lesen, git-CLI zum Schreiben" },
+  { crate = "libgit2-sys", reason = "GPL-2.0 mit Linking Exception im mitgebauten C-Code, unsichtbar für cargo deny" },
+]

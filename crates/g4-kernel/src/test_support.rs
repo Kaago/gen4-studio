@@ -741,3 +741,120 @@ fn unpack_all(p: &crate::project::Project) {
         }
     }
 }
+
+/// Git repositories for tests of `git`, written with gix only (no `git` binary, no user or
+/// system configuration needed): a fixed author and time, HEAD on `main`.
+pub struct GitFixture;
+
+impl GitFixture {
+    /// An empty repository at `root`, HEAD unborn on `main`; gix only.
+    pub fn init(root: &Path) {
+        std::fs::create_dir_all(root).unwrap();
+        let repo = gix::init(root).unwrap();
+        // `gix::init` names the branch after `init.defaultBranch` of the user's configuration.
+        let main: gix::refs::FullName = "refs/heads/main".try_into().unwrap();
+        Self::edit_head(&repo, main.into());
+    }
+
+    /// Commits every file below `root` (without `.git`, ignoring nothing) on top of HEAD if any; the
+    /// index then matches the commit. Returns the commit id. gix only, no git binary.
+    pub fn commit_all(root: &Path, message: &str) -> String {
+        use gix::objs::tree::EntryKind;
+
+        let repo = gix::open(root).unwrap();
+        let mut files = Vec::new();
+        Self::files(root, root, &mut files);
+        let mut editor = repo.edit_tree(repo.empty_tree().id).unwrap();
+        for (rel, path) in files {
+            let id = repo.write_blob(std::fs::read(&path).unwrap()).unwrap();
+            let kind = if Self::is_executable(&path) {
+                EntryKind::BlobExecutable
+            } else {
+                EntryKind::Blob
+            };
+            editor.upsert(rel.as_str(), kind, id).unwrap();
+        }
+        let tree = editor.write().unwrap().detach();
+        let parent = repo.head().unwrap().try_peel_to_id().unwrap();
+        let mut time = gix::date::parse::TimeBuf::default();
+        let signature = Self::signature();
+        let id = repo
+            .commit_as(
+                signature.to_ref(&mut time),
+                signature.to_ref(&mut gix::date::parse::TimeBuf::default()),
+                "HEAD",
+                message,
+                tree,
+                parent.map(|p| p.detach()),
+            )
+            .unwrap()
+            .detach();
+        let mut index = repo.index_from_tree(&tree).unwrap();
+        index.write(Default::default()).unwrap();
+        id.to_string()
+    }
+
+    /// Points HEAD at commit `id` directly (detached).
+    pub fn detach(root: &Path, id: &str) {
+        let repo = gix::open(root).unwrap();
+        let id = gix::ObjectId::from_hex(id.as_bytes()).unwrap();
+        Self::edit_head(&repo, gix::refs::Target::Object(id));
+    }
+
+    fn edit_head(repo: &gix::Repository, target: gix::refs::Target) {
+        use gix::refs::transaction::{PreviousValue, RefEdit};
+
+        let mut time = gix::date::parse::TimeBuf::default();
+        let signature = Self::signature();
+        let edit = RefEdit::update(
+            "HEAD".try_into().unwrap(),
+            target,
+            PreviousValue::Any,
+            "test_support::GitFixture",
+        )
+        .with_deref(false);
+        repo.edit_references_as(Some(edit), Some(signature.to_ref(&mut time)))
+            .unwrap();
+    }
+
+    fn signature() -> gix::actor::Signature {
+        gix::actor::Signature {
+            name: "Gen4 Studio Test".into(),
+            email: "test@gen4.invalid".into(),
+            time: gix::date::Time::new(1_767_225_600, 0),
+        }
+    }
+
+    /// Every file below `dir` as (`/`-separated path relative to `root`, path), without `.git`.
+    fn files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
+        let mut entries: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap())
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let path = entry.path();
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            if entry.file_type().unwrap().is_dir() {
+                Self::files(root, &path, out);
+            } else {
+                let rel = path.strip_prefix(root).unwrap();
+                let rel: Vec<_> = rel.iter().map(|p| p.to_str().unwrap()).collect();
+                out.push((rel.join("/"), path));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn is_executable(path: &Path) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    fn is_executable(_path: &Path) -> bool {
+        false
+    }
+}

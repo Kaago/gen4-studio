@@ -82,6 +82,9 @@ pub enum KernelError {
         archive_list(.0)
     )]
     TextConflict(Vec<u16>),
+    /// Reading the Git repository failed (`gix`); the text names the path and gix's error.
+    #[error("Git: {0}")]
+    Git(String),
 }
 
 /// `0012, 0013`
@@ -170,6 +173,10 @@ mod tests {
         assert_eq!(
             KernelError::InvalidProject("header.yaml: missing gamecode".into()).to_string(),
             "invalid project metadata: header.yaml: missing gamecode"
+        );
+        assert_eq!(
+            KernelError::Git("/p: kaputt".into()).to_string(),
+            "Git: /p: kaputt"
         );
     }
 
