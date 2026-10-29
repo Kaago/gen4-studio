@@ -4,7 +4,7 @@
 //! the project's base ROM: it makes the base layer (the ROM extracted with every archive
 //! unpacked, which the import needs anyway), copies from it every entry the root lacks (a
 //! folder both have is merged, a file the root has is never overwritten, `header.yaml` last)
-//! and imports the text project into the members, which records the sync. Format:
+//! and imports the text project into the members, then records the sync of every watched file. Format:
 //! `docs/formats/text_project.md`, „Nach einem Klon“.
 
 use std::collections::BTreeSet;
@@ -22,7 +22,7 @@ use crate::project::Project;
 use crate::start::{MarkState, mark_state};
 
 use super::base_layer::{BaseLayer, COMPLETE};
-use super::{ImportReport, MANIFEST_FILE, import};
+use super::{ImportReport, MANIFEST_FILE, import, sync};
 
 /// What the app says about a folder [`needs_restore`] is true for.
 pub const RESTORE_NEEDED: &str =
@@ -90,9 +90,9 @@ pub struct RestoreReport {
 ///    missing.
 /// 3. `Import`: [`import`](super::import) with `base` writes the members that differ from
 ///    the JSON, compiles the scripts and encodes the texts.
-/// 4. `Sync`: the import ends by recording the sources and members it read and wrote as in
-///    step (the whole project here, nothing was recorded before); reported once, with
-///    `done` = `total` = the files recorded ([`ImportReport::synced`]).
+/// 4. `Sync`: the import records what it read and wrote ([`ImportReport::synced`]); then
+///    [`sync::record_all`] records every watched file as in step, so none is left without a
+///    record.
 ///
 /// Refused, with nothing written, without [`needs_restore`] ([`HAS_GAME_FILES`]), without a
 /// base mark ([`NO_MARK`]; an unreadable or newer mark with its own sentence) and for another
@@ -137,9 +137,10 @@ pub fn restore_from_base(
     let project = Project::open(root)?;
     let import = import(&project, Some(base))?;
     step(progress, RestorePhase::Import, 1, 1);
-    // The import recorded the sync already (what it read and wrote, the whole project here).
-    let sync_files = import.synced;
-    step(progress, RestorePhase::Sync, sync_files, sync_files);
+    // The import recorded what it read and wrote; every watched file gets its record here.
+    let sync_files = sync::record_all_reported(&project, &mut |p| {
+        step(progress, RestorePhase::Sync, p.done, p.total);
+    })?;
     Ok(RestoreReport {
         moved,
         import,
@@ -424,7 +425,7 @@ mod tests {
         assert!(report.moved > 0, "{report:?}");
         assert_eq!(report.import.members_written, 1, "{report:?}");
         assert!(report.sync_files > 0, "{report:?}");
-        assert_eq!(report.sync_files, report.import.synced);
+        assert!(report.sync_files >= report.import.synced, "{report:?}");
         let mut phases: Vec<RestorePhase> = seen.iter().map(|p| p.phase).collect();
         phases.dedup();
         assert_eq!(

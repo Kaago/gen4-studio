@@ -760,8 +760,8 @@ bis `done` = `total`):
 |---|---|---|
 | `extract` | die Basisschicht (siehe „Basisschicht und Blobs“) unter `.g4/cache/base-layer/<sha1>/`, nur wenn sie fehlt: ds-rom packt die Basis-ROM aus, jedes Archiv ausgepackt. Der Import liest seine Basisteile daraus, die ROM wird also nur einmal ausgepackt | 1 |
 | `merge` | jeder Eintrag der Basisschicht, den die Wurzel nicht hat, wird hineinkopiert (auf APFS ein Klon, kein zusätzlicher Platz); einen Ordner, den beide haben, führt die Regel darin weiter zusammen. Kopiert wird, was `build::extract_rom` und das Auspacken jedes Archivs (wie „Git einrichten“ im DSPRE-Ordner) hinterließen: nicht die Marke `.complete` der Schicht, nicht `unpacked/` der Dynamic Headers (das gehört dem Patch), nicht die Ordner der reinen Pack-Einträge. `header.yaml` kommt zuletzt | die Einträge oben in der Schicht, je Ordner unter `unpacked/` einer |
-| `import` | `import` mit der Basis-ROM: die Member, die von ihrer JSON abweichen, die Scripts übersetzt, die Texte kodiert; am Ende zeichnet er den Abgleich auf | 1 |
-| `sync` | einmal gemeldet, `done` = `total` = die Dateien, die der Import als abgeglichen aufzeichnete (hier das ganze Projekt; `ImportReport.synced`) | die aufgezeichneten Dateien |
+| `import` | `import` mit der Basis-ROM: die Member, die von ihrer JSON abweichen, die Scripts übersetzt, die Texte kodiert; am Ende zeichnet er auf, was er las und schrieb (`ImportReport.synced`) | 1 |
+| `sync` | `sync::record_all`: jede beobachtete Datei als abgeglichen aufgezeichnet, keine bleibt ohne Eintrag | die beobachteten Dateien (gemeldet alle 128) |
 
 Die Regel ist **nie überschreiben**: Eine Datei, die im Ordner liegt, bleibt, wie sie ist, auch
 wenn die Schicht eine gleichnamige hat; steht eine Datei gegen einen Ordner (in beide Richtungen),
