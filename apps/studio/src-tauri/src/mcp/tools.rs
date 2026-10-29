@@ -3966,16 +3966,19 @@ mod tests {
     /// Pikachu by `SPECIES_PIKACHU` answers and writes exactly what it does by `25`.
     #[test]
     fn mcp_with_ids_acts_like_numbers_on_the_vanilla_copy() {
-        let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+        let Some((tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
             return;
         };
-        let Some(base) = g4_kernel::test_support::vanilla_base_rom() else {
+        let Some(vanilla_rom) = g4_kernel::test_support::vanilla_base_rom() else {
             return;
         };
-        // The copy has no sibling `.nds`: the vanilla project's is read where it lies (only
-        // read) and assigned as the copy's base ROM.
-        let roms = base.parent().unwrap().to_path_buf();
-        let policy = UserPolicy::new(&root, &[roms], None).unwrap();
+        // The copy gets a copy of the vanilla ROM beside it, in its temp folder, and only that
+        // folder is allowed: with `G4_ROMS_DIR` set (as in `scripts/gate.sh`, where
+        // `G4_TEST_PROJECT` is the original) the folder of the original ROM is `G4_ROMS_DIR`
+        // itself, which the policy refuses.
+        let base = tmp.path().join("base.nds");
+        std::fs::copy(&vanilla_rom, &base).unwrap();
+        let policy = UserPolicy::new(&root, &[tmp.path().to_path_buf()], None).unwrap();
         let toolbox = Toolbox::open_with_base(policy, ALL, Some(base.clone())).unwrap();
         if !root.join(".g4/base.json").is_file() {
             toolbox
