@@ -498,3 +498,125 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   - „ID umbenennen…“ gibt es nur für Trainer und Header; feste IDs (Pokémon, Attacken, Gegenstände) lassen sich nicht umbenennen, Trainerklassen und Orte nur über MCP (`rename_id`).
   - „⌘Z“ steht wörtlich auch auf Windows und Linux (wie in 4.1b).
   - Die `.fig` kennt keinen dieser Zustände (siehe `openpencil/NACHTRAG-4-3b.md`).
+
+## Nachtrag 4.4
+
+Phase 4.4 „Git minimal“ (Stand 29.10.2026): Ein Projekt (DSPRE-Layout oder Textprojekt) lässt sich als lokales Git-Repository einrichten: `.gitignore` und `.gitattributes` aus Vorlagen, dann ein erster Commit „Ausgangsstand“, kein Remote. Technik › Änderungen vergleicht jeden Eintrag gegen die Basis-ROM, gegen den letzten Commit oder gegen den gespeicherten Stand und zeigt im Detail, was sich geändert hat. Die Statusleiste nennt Branch und Zahl der Änderungen. Den Klon eines Textprojekts vervollständigt das Studio aus der Basis-ROM.
+
+Quelle: `apps/studio/src/git/*` (`GitInitDialog.tsx` und `.module.css`, `RestoreDialog.tsx`, `gitWords.ts`, `useGitStatus.ts`), `ui/frame/GitStatusItem.tsx` (und `.module.css`), `ui/primitives/ChangeTable.tsx` (und `.module.css`; Beispiel im Block „Änderungen“ der Galerie-Seite „Inhalt und Status“), `technik/{ChangesSurface,EntityDiff}.tsx` (und `.module.css`), `technik/{useEntityDiff,useUnsaved,diffWords}.ts`, `technik/useChanges.ts` (Vergleich bei Fokus), `project/NewProjectWizard.tsx`, `app/paletteEntries.ts` und `App.tsx`. Plan: [docs/superpowers/plans/2026-10-28-phase-4-4-git-minimal.md](../docs/superpowers/plans/2026-10-28-phase-4-4-git-minimal.md) (Entscheidungen „Statusleiste“, „Zahl der Änderungen“, „Ort in der App“, „Werte in der Tabelle“, „Öffnen“). Gate: `docs/phase-4-4-gate.md` (entsteht mit dem Gate).
+
+Neue Tokens gibt es nicht: Die Spannen des Wort-Diffs liegen auf `status/fehler-flaeche` (entfernt) und `status/erfolg-flaeche` (dazugekommen). Neu ist ein Symbol: `git` (Phosphor `GitBranch`, in der Vorlage `ph:git-branch`) für das Element der Statusleiste und den Eintrag „Git einrichten…“ der Palette. Technik › Änderungen behält `changes`.
+
+Die `.fig` kennt das noch nicht. Die Vorlage `openpencil/beispiele/aenderungen-git.body.js` und die Anleitung [`openpencil/NACHTRAG-4-4.md`](openpencil/NACHTRAG-4-4.md) liegen bereit, die Datei wurde nicht angefasst: Eine eigene Sitzung spielt nach dem Merge die Frames von 4.3b und 4.4 ein.
+
+Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate-2026-10-29/4-4/` (1440 × 900, nicht im Repo; Namen `blick-<fläche>-<zustand>-<thema>.png`, 59 Bilder, dazu 20 Schrittbilder `ui-…` und ein Bild aus dem Emulator):
+- **Technik › Änderungen:** `blick-aenderungen-commit-{ohne-repo,leer,trainer,textarchiv,karte,expanded-neu}-{hell,dunkel,kompakt}.png`, `blick-aenderungen-basis-trainer-*`, `blick-aenderungen-gespeichert-trainer-*`, `blick-aenderungen-schmal-basis-trainer-*` (900 px);
+- **Dialoge:** `blick-git-init-dialog-vorher-*`, `blick-git-init-dialog-lauf-hell.png`, `blick-vervollstaendigen-dialog-*`, `blick-vervollstaendigen-lauf-hell.png`, `blick-mcp-frage-git-einrichten-*`;
+- **Assistent:** `blick-assistent-{vorlage-git-aus,zusammenfassung-git,ergebnis-git,danach-aenderungen-commit}-*`;
+- **Klon:** `blick-klon-commit-{pikachu,text,script}-*`.
+
+Sie entstanden vor der Korrekturrunde nach dem UI-Test (`2a5e9cd`, `af1dbb5`), darum weichen drei Stellen vom Code ab:
+- „Git einrichten…“ ist dort so breit wie die Fläche.
+- Die Spalten der Änderungstabelle sind dort gleich breit, und der Pfad bricht mitten im Wort.
+- Die Prüfliste sagt dort „Git gefunden: git version 2.54.0 (Apple Git-157)“.
+
+Die Screenshots zeigen echte Werte des Testprojekts (Platin DE), die Frames Beispielwerte.
+
+- **Änderungstabelle** (`ChangeTable`, neuer Baustein, `ui/primitives`):
+  - **Aufbau:** „Feld: alt → neu“ als echte Tabelle mit drei Spalten. Die Köpfe kommen vom Aufrufer (`text/xs` 600 sekundär, 32 hoch, Linie `linie/standard`): was sich geändert hat, die alte Seite, die neue Seite. Der Name der Tabelle ist eine versteckte Beschriftung für Vorleser, nur zum Lesen, ohne Auswahl und Tabstopp.
+  - **Zeilen:** innen 4 / 8, Linie `linie/leise`, oben ausgerichtet. Feld und Werte stehen in `code/s`; Leerzeichen bleiben stehen, Werte brechen in ihrer Spalte um, nichts rollt seitlich.
+  - **Feldspalte:** so schmal wie ihr Inhalt erlaubt, höchstens 28 Zeichen und 40 % der Tabelle; die beiden Seiten teilen den Rest. Ein JSON-Pfad bricht nur nach „.“ und vor „[“ (`data.party[0].level`), ein einzelner längerer Teil als letzter Ausweg.
+  - **Spannen:** entfernt als `<del>` auf `status/fehler-flaeche` und durchgestrichen, dazugekommen als `<ins>` auf `status/erfolg-flaeche` und unterstrichen; Radius `radius/plakette`, Schrift `text/primaer`. Das ist nicht nur Farbe.
+  - **Fehlende Seite:** „—“, vorgelesen „fehlt“.
+  - **Fußzeile:** für gekappte Zeilen, `text/xs` sekundär („und 3 weitere Felder“).
+- **Git in der Statusleiste** (`GitStatusItem`, `data-git-status`): Es steht rechts nach der Befundzahl, vor den Agenten und dem Build-Stand. Es ist eine leise Taste der Größe S mit dem Symbol `git` in `text/xs`, wie die übrigen Elemente der Leiste. Ein Klick öffnet Technik › Änderungen auf „Gegen letzten Commit“. Gelesen wird beim Öffnen, nach Speichern, Bauen, Zurücksetzen, ⌘Z mit Dateischritt, Abgleich, dem Schreiben eines Agenten, nach „Git einrichten“ und 800 ms nach dem Fokus des Fensters; nie zwei Läufe zugleich.
+
+  | Zustand | Text | Tooltip |
+  |---|---|---|
+  | ohne Repository | kein Element | – |
+  | mit Branch | „main · 3 Änderungen“, „main · 1 Änderung“, „main · keine Änderung“ | „Git: 3 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.“ (eine: „1 geänderte Datei“) |
+  | ohne Commit | „main · noch kein Commit“ | „Git: noch kein Commit.“ |
+  | losgelöst | „4c1d2e3 (losgelöst) · 2 Änderungen“ | wie mit Branch |
+  | nicht lesbar | „Git: nicht lesbar“, Symbol und Text in `status/warnung` | der Grund |
+
+  Die Statusleiste zählt Dateien, wie `git status` (geändert, hinzugefügt, gelöscht, unverfolgt; je Pfad einmal). Technik › Änderungen zählt Einträge. Ein Trainer mit geändertem Member und eine neue Quelldatei sind dort eine Zeile und hier zwei Dateien. So entschieden (Plan, „Zahl der Änderungen“), weil die Zahl mit dem Git-Werkzeug des Nutzers übereinstimmen soll. Das Wort „Dateien“ steht nur im Tooltip.
+- **Technik › Änderungen** (erweitert, 4.1b):
+  - **Liste „Technik“:** acht Einträge wie seit 4.3b. Der Untertitel von „Änderungen“ folgt dem Vergleich:
+    - Basis wie 4.1b;
+    - Commit „Kein Git“, „Noch kein Commit“, „Keine Änderung seit dem Commit“, „1 Änderung seit dem Commit“, „3 Änderungen seit dem Commit“;
+    - gespeichert „Nichts ungespeichert“, „1 Eintrag ungespeichert“, „3 Einträge ungespeichert“;
+    - solange gelesen wird „Wird gelesen …“.
+  - **Umschalter** (`Segmented` S, Name „Vergleichen mit“, `data-against`): „Gegen Basis | Gegen letzten Commit | Gegen gespeichert“. Er steht unter Titel und Satz, solange ein Projekt offen ist, auch ohne Basis-ROM. Start ist „Gegen Basis“; nach „Git einrichten“, nach dem Assistenten mit Git und nach einem Klick auf die Statusleiste „Gegen letzten Commit“. Die App hält die Wahl für die Sitzung.
+  - **Satz unter dem Titel:**
+    - Basis wie 4.1b.
+    - Commit „Gegenüber dem letzten Commit 4c1d2e3 „Ausgangsstand“ auf main. Gezählt wird der gespeicherte Stand.“; losgelöst steht „ (losgelöst)“ statt „ auf main“, in einem umschließenden Repository steht „Repository /Pfad. “ davor.
+    - Gespeichert „Was ungespeichert vom gespeicherten Stand abweicht.“
+
+    „Neu vergleichen“ (sekundär) steht bei Basis und Commit daneben, bei gespeichert nur nach einem gescheiterten Lesen.
+  - **Gegen letzten Commit ohne Repository:** Info „Dieses Projekt liegt in keinem Git-Repository.“, darunter „Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.“ und die sekundäre Taste „Git einrichten…“ in eigener Zeile und eigener Breite (`data-git-offer`).
+  - **Ohne Commit:** Info „Noch kein Commit: es gibt nichts zu vergleichen.“
+  - **Lesen und Fehler:** Während gelesen wird „Wird gelesen …“, ein Fehler steht als Fehlermeldung.
+  - **Leer:** „Alles wie in der Basis-ROM.“, „Seit dem letzten Commit nichts geändert.“, „Nichts ungespeichert.“
+  - **Liste:** Gruppen und Zeilen wie 4.1b (Karte mit je Gruppe einem Abschnitt, Zeile mit Plakette und „Auf Original zurücksetzen…“), dazu am Ende die Gruppe „Projektdateien“ (Zeilen mit dem Pfad). Die Plaketten:
+    - Basis „Geändert“ (Warnung), „Neu“ (Info), „Fehlt“ (Fehler);
+    - Commit „Geändert“, „Neu“, „Gelöscht“ (Fehler);
+    - gespeichert jede Zeile „Ungespeichert“.
+
+    Bei Basis und Commit zählt der gespeicherte Stand, eine ungespeicherte Bearbeitung trägt zusätzlich „Ungespeichert“. Die Sperre von „Auf Original zurücksetzen…“ folgt der Zeile und der Basis-ROM, auch gegen Commit und gespeichert.
+  - **Liste und Detail** (`data-changes-split`): bis 1280 breit, ab 760 px Breite nebeneinander (zwei gleiche Spalten, Abstand 16, das Detail bleibt beim Rollen stehen), schmaler untereinander. Gewählt ist der Eintrag, nicht die Zeile: Er bleibt gewählt beim Wechsel des Vergleichs, wenn die neue Liste ihn hat, nach „Öffnen“ und auf dem Weg zurück; eine gelesene Liste ohne ihn vergisst ihn.
+  - **Detail** (`EntityDiff`, `data-entity-diff`; Karte `flaeche/blatt`, Kante `linie/standard`, `radius/fenster`, innen 16, Abstand 12):
+    - **Ohne Auswahl:** „Wähle links einen Eintrag, dann steht hier, was sich geändert hat.“ (sekundär).
+    - **Kopf:** der Name vom Kern (`text/l`, „Trainer 0001“), darunter „{alte Seite} → {neue Seite}“ (`text/s` sekundär): „Basis-ROM Platin DE (Testprojekt) → Projekt (gespeichert)“, „Commit 4c1d2e3 „Ausgangsstand“ → Projekt (gespeichert)“, „Gespeichert → Ungespeichert“. Rechts die kleinen sekundären Tasten „Öffnen“ und „Auf Original zurücksetzen…“ (bei schmaler Karte darunter).
+    - **Öffnen:** springt an den Ort des Eintrags (Header, Gebietsdaten, Textarchiv bei der ersten geänderten Nachricht, Scriptdatei bei der ersten geänderten Zeile, Pokémon, Attacke, Item, Trainer, Begegnungsdatei, Matrix bei Zelle 0, 0, Eventdatei beim ersten geänderten Event). Sonst ist es gesperrt, fokussierbar, mit dem Tooltip „Für diese Art gibt es keinen Ort in der App.“ (Karten, Texturen, Modelle, Ordner ohne Studio-Art, Projektdateien).
+    - **Zurücksetzen:** öffnet den Dialog von 4.1b, gesperrt wie die Zeile, dazu „Kein Original“ bei einem neuen Eintrag.
+    - **Laden, Fehler, gleich:** „Lade Vergleich …“ (`role="status"`), eine Fehlermeldung mit dem Grund, „Keine Abweichung.“
+  - **Formen des Detail:**
+    - **Felder:** Änderungstabelle „Feld | {alt} | {neu}“, die Köpfe nach dem Vergleich „Basis | Projekt“, „Commit | Projekt“, „Gespeichert | Ungespeichert“. Das Feld ist der JSON-Pfad der Datei in Mono (`data.party[0].level`); Werte ohne Anführungszeichen, sonst kompaktes JSON. Fußzeile „und 12 weitere Felder“ (höchstens 200 Zeilen).
+    - **Karte:** Abschnitt „Teile“ mit je Teil einer Zeile und der Plakette „geändert“ (Warnung) oder „gleich“ (neutral): „Modell“, „Bewegungsrechte“, „Gebäude“, „BDHC“, „BGS“, „Rohdaten“. Abschnitt „Zellen der Bewegungsrechte“ (mit Zähler) als Tabelle „Zelle“ (`5, 7`), alt, neu (`kkcc`, eine fehlende Zelle „—“). Abschnitt „Gebäude“ als Felder. Darunter „und {n} weitere Einträge“, weil der Kern Zellen und Gebäude gemeinsam kappt.
+    - **Nachrichten:** Tabelle „Nachricht“ (die Nummer, bei Bedarf mit der Plakette „Neu“ (Info) oder „Entfernt“ (Fehler)), alt und neu mit Wort-Spannen; die fehlende Seite einer neuen oder entfernten Nachricht ist „—“. Fußzeile „und {n} weitere Nachrichten“.
+    - **Zeilen** (Scripts, Textdateien): je Hunk die Überschrift „Zeile 12 → 12“ (`text/xs` 600 sekundär), darunter die Zeilen in `code/s` mit „−“, „+“ oder Leerraum vorn, die geänderten auf den Flächen der Spannen (durchgestrichen und unterstrichen), in einem Rahmen `linie/leise`, `radius/feld`. Fußzeile „und {n} weitere Zeilen“ (höchstens 400).
+    - **Binär:** Tabelle „Eigenschaft“ mit „Größe“ („38.412 Byte“) und „SHA-1“ (acht Stellen); „wie in der Basis-ROM“, wo das Textprojekt keine Bytes hält, „—“, wo die Seite fehlt.
+  - **Wann verglichen wird:**
+    - Gegen den Commit mit dem Git-Status (siehe Statusleiste).
+    - Gegen Basis wie 4.1b und dazu 800 ms nach dem Fokus des Fensters. Der Vergleich ist dann leise: kein „Vergleiche …“, das alte Ergebnis bleibt stehen. Er läuft nur, solange „Gegen Basis“ zu sehen ist, sonst einmal, sobald es gezeigt wird.
+    - Gegen gespeichert, wenn es gezeigt wird und nach jeder Bearbeitung.
+    - Das Detail liest neu, wenn sich der verglichene Stand ändern kann.
+- **Dialog „Git einrichten?“** (`Dialog`, `data-git-init-dialog`, `git/GitInitDialog.tsx`). Er kommt von:
+  - Technik › Änderungen (ohne Repository),
+  - der Palette („Git einrichten…“, nur mit Projekt und ohne Repository),
+  - der Rückfrage eines Agenten (MCP `git_init`: „„agent-gate“ möchte: Git einrichten (lässt sich nicht rückgängig machen).“).
+
+  Aufbau:
+  - **Beschreibung:** „Legt in diesem Projektordner ein lokales Git-Repository an: .gitignore und .gitattributes, dann einen ersten Commit „Ausgangsstand“. Gen4 Studio richtet kein Remote ein und lädt nichts hoch.“
+  - **Hinweis:** immer die Warnung „Dein Projekt enthält Daten aus dem Spiel. Lade es nicht öffentlich hoch; zum Teilen gibt es den Patch (Technik › Veröffentlichen).“
+  - **Prüfliste** (`CheckList`, Name „Vor dem Einrichten“; Symbol und Wort):
+    - „Alles gespeichert“, sonst Fehler „Erst speichern“; das sperrt „Einrichten“.
+    - „Git gefunden: 2.54.0 (Apple Git-157)“ (die Ausgabe von `git --version` ohne „git version “), solange gesucht wird Info „Git wird gesucht …“, ohne Git Warnung „Git ist nicht installiert: nur die Vorlagen werden geschrieben“.
+    - Info „Ignoriert: ROMs, Patches, build/, Spielstände und die Archive, die der Build packt“ (DSPRE-Layout) bzw. „Ignoriert: ROMs, Patches, build/, Spielstände und die Spieldateien (sie entstehen aus der Basis-ROM)“ (Textprojekt).
+    - Je vorhandene Vorlage Info „.gitignore vorhanden: der Block von Gen4 Studio kommt dazu“.
+  - **Tasten:** „Abbrechen“ und „Einrichten“ (primär), ohne Git „Vorlagen schreiben“ (primär).
+  - **Fortschritt** (`role="status"`, `text/s` sekundär unter der Prüfliste): „Archive auspacken …“, „Vorlagen schreiben …“, „Repository anlegen …“, „Dateien aufnehmen … (bei DSPRE-Ordnern rund 10 s)“, „Erster Commit …“. Im Lauf hat der Dialog weder Tasten noch Kreuz, Escape und Klick daneben tun nichts.
+  - **Danach:**
+    - Der Dialog schließt mit der Meldung „Git eingerichtet: 18.450 Dateien im ersten Commit „Ausgangsstand“.“, dazu „ Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.“, wenn Git keinen Namen kennt. Die Statusleiste zeigt den Branch, Technik › Änderungen steht auf „Gegen letzten Commit“.
+    - Ohne Git: „Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.“
+    - Scheitert der erste Commit (Signatur, Hook), bleibt der Dialog mit der Warnung des Kerns samt dem Text von Git und nur „Schließen“; die Prüfliste ist dann weg.
+    - Eine Ablehnung steht als Fehlermeldung, der Dialog lässt es noch einmal versuchen.
+- **Dialog „Textprojekt vervollständigen?“** (`data-restore-dialog`, `git/RestoreDialog.tsx`): Er kommt beim Öffnen eines Textprojekts ohne seine Spieldateien (ein frischer Klon).
+  - **Beschreibung:** der Satz des Kerns mit der Basis-ROM, dann „ Gen4 Studio legt die Spieldateien aus deiner Basis-ROM an; deine Dateien bleiben, wie sie sind.“
+  - **Tasten:** „Abbrechen“ (der Klon bleibt, wie er ist) und „Vervollständigen“ (primär).
+  - **Ohne gefundene Basis-ROM:** die Warnung mit dem Grund und der kleinen sekundären Taste „Basis-ROM wählen…“ (Dateidialog „Basis-ROM wählen“, Filter „DS-ROM“); eine fremde ROM zeigt den Satz des Kerns als Fehlermeldung.
+  - **Fortschritt:** „Basis-ROM auspacken …“, „Spieldateien einsetzen …“, „Textprojekt einspielen … 312 von 6576“, „Abgleich vorbereiten …“, ohne Tasten und Kreuz.
+  - **Danach:** Das Projekt öffnet sich, die Meldung sagt „Textprojekt vervollständigt in 90 s.“
+- **Assistent „Neues Projekt“:**
+  - **Kästchen:** im Schritt „Vorlage“ unter „Als Textprojekt einrichten“ das Kästchen „Git einrichten (nur lokal)“ (aus) mit dem Satz „Legt ein lokales Repository mit erstem Commit an; nichts wird hochgeladen.“
+  - **Zusammenfassung:** Angehakt sagt der Satz „… mit der Vorlage Original an, als Textprojekt, mit Git, in …“ und die Zeile „Vorlage“ „Original, als Textprojekt, mit Git“.
+  - **Ablauf:** Die Phase „Git einrichten“ kommt zuletzt.
+  - **Ergebnis:** Die Erfolgsmeldung nennt den ersten Commit; ohne Commit steht der Grund als Warnung darunter (ohne Git der Satz „Vorlagen geschrieben. …“). Nach dem Öffnen steht Technik › Änderungen auf „Gegen letzten Commit“.
+- **Abweichungen und offene Punkte:**
+  - Keine Commit-Oberfläche, kein Staging, keine Branches (Entscheidung „Nicht in Phase 4“). Committen, Branches und Remotes bleiben beim Git-Werkzeug des Nutzers; die App liest nur.
+  - Deutsche Feldnamen nur beim Header (die Namen aus dem Inspector, der Pfad als Tooltip). Alle übrigen Arten zeigen den JSON-Pfad der Datei; deutsche Namen gibt es für sie heute nicht.
+  - Kein Bildvergleich bei Binärteilen (Texturen, Modelle, Teile einer Karte): Größe und SHA-1, bei Karten „geändert“ oder „gleich“ je Teil plus die Zellen der Bewegungsrechte.
+  - Statusleiste und Technik zählen verschieden (Dateien gegen Einträge, siehe oben).
+  - **Blick für den Nutzer:** Die Flächen der Spannen sind in Dunkel kaum vom Grund der Karte zu unterscheiden (`status/erfolg-flaeche` auf `flaeche/blatt` 1,23 : 1, `status/fehler-flaeche` 1,35 : 1; in Hell 1,13 und 1,18 : 1, dort aber sichtbar). Es tragen die Unter- und Durchstreichung, also ist es nicht nur Farbe. Ob die Flächen kräftiger werden, entscheidet der Nutzer am Bild: `blick-klon-commit-text-dunkel.png`, `blick-aenderungen-commit-textarchiv-dunkel.png`.
+  - Im Browser-Modus (Brücke) fehlen die Phasen des Einrichtens und Vervollständigens (wie 4.1b und 4.3b): der Dialog zeigt nur die erste Phase.
+  - Die `.fig` kennt keinen dieser Zustände (siehe `openpencil/NACHTRAG-4-4.md`).
