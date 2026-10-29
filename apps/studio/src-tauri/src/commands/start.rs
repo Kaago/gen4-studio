@@ -74,6 +74,7 @@ pub fn create_project_impl(
     let opts = CreateOptions {
         template,
         text_project,
+        git: false,
     };
     let created =
         start::create_project_with_options(Path::new(rom), Path::new(dest), &opts, progress)?;

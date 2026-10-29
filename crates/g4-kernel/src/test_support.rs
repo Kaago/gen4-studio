@@ -794,6 +794,26 @@ impl GitFixture {
         id.to_string()
     }
 
+    /// The `git` CLI ([`crate::git::find_git`]) with an isolated configuration: an empty
+    /// global configuration file in `home`, no system configuration, `HOME` = `home`. No
+    /// identity is configured. `None` without a `git` (prints `skipped: git not found`).
+    pub fn cli(home: &Path) -> Option<crate::git::GitCli> {
+        let Some(mut cli) = crate::git::find_git() else {
+            eprintln!("skipped: git not found");
+            return None;
+        };
+        let global = home.join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        for (key, value) in [
+            ("GIT_CONFIG_GLOBAL", global.to_str().unwrap()),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+            ("HOME", home.to_str().unwrap()),
+        ] {
+            cli.env.push((key.to_owned(), value.to_owned()));
+        }
+        Some(cli)
+    }
+
     /// Points HEAD at commit `id` directly (detached).
     pub fn detach(root: &Path, id: &str) {
         let repo = gix::open(root).unwrap();

@@ -201,6 +201,21 @@ impl GitRepo {
         read().map_err(|e| self.error(e))
     }
 
+    /// The paths of the index below the project (relative to it, `/`-separated, in the
+    /// index's order); empty without an index.
+    pub fn index_paths(&self) -> Result<Vec<String>, KernelError> {
+        let repo = self.repo.to_thread_local();
+        let index = repo.index_or_empty().map_err(|e| self.error(e))?;
+        Ok(index
+            .entries()
+            .iter()
+            .filter_map(|entry| {
+                let path = entry.path(&index).to_str_lossy();
+                self.relative(&path).map(str::to_owned)
+            })
+            .collect())
+    }
+
     /// The changed paths below the project (see [`GitRepo::status`]).
     fn paths(&self, repo: &gix::Repository) -> Result<Vec<StatusPath>, gix::Error> {
         // `top`: the pattern is relative to the work tree's root, not to the process's current

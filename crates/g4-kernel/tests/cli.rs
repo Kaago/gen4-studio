@@ -1578,3 +1578,92 @@ fn cli_git_templates() {
         g4_kernel::git::templates::BROKEN_BLOCK
     )));
 }
+
+/// `g4k` with the isolated Git environment of `GitFixture::cli` (child only, never `set_var`).
+fn g4k_isolated(home: &std::path::Path) -> Option<Command> {
+    let cli = common::GitFixture::cli(home)?;
+    let mut cmd = g4k();
+    cmd.envs(cli.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    cmd.env_remove("G4_GIT");
+    Some(cmd)
+}
+
+#[test]
+fn cli_git_status_honours_g4_git() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines, ["no repository", "git not found"], "{out}");
+
+    let Some(found) = g4_kernel::git::find_git() else {
+        eprintln!("skipped: git not found");
+        return;
+    };
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .env("G4_GIT", &found.path)
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let last = out.lines().last().unwrap();
+    assert!(last.starts_with("git version"), "{out}");
+}
+
+#[test]
+fn cli_git_init_and_status() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let home = tempfile::tempdir().unwrap();
+    let Some(mut init) = g4k_isolated(home.path()) else {
+        return;
+    };
+    let assert = init.args(["git", "init"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    assert!(out.contains("created .gitignore\n"), "{out}");
+    let last = out.lines().last().unwrap();
+    assert!(last.starts_with("committed Ausgangsstand files="), "{out}");
+    assert!(last.contains(" branch="), "{out}");
+
+    let mut status = g4k_isolated(home.path()).unwrap();
+    let assert = status.args(["git", "status"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines[0].starts_with("branch "), "{out}");
+    assert!(lines[0].ends_with(" changes 0"), "{out}");
+    assert!(!lines[0].contains("head none"), "{out}");
+    assert!(lines[1].starts_with("git version"), "{out}");
+
+    // A second time: the repository is there, only the templates.
+    let mut again = g4k_isolated(home.path()).unwrap();
+    let assert = again.args(["git", "init"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    assert!(
+        out.ends_with(&format!("not committed: {}\n", g4_kernel::git::IN_REPO)),
+        "{out}"
+    );
+}
+
+#[test]
+fn cli_git_init_templates_only() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "init"])
+        .arg(root)
+        .arg("--templates-only")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    assert!(out.ends_with("not committed\n"), "{out}");
+    assert!(!root.join(".git").exists());
+    assert!(root.join(".gitattributes").is_file());
+}

@@ -126,6 +126,80 @@ Der Block steht immer am Ende: In beiden Dateien gewinnt die spätere Zeile, so 
 Nutzers. Eine Datei, die kein UTF-8 ist, wird abgelehnt (`<Datei>: Die Datei ist kein UTF-8-Text;
 bitte von Hand prüfen.`).
 
+## Git einrichten
+
+`git::cli::git_init` (`crates/g4-kernel/src/git/cli.rs`) richtet ein Projekt als lokales
+Git-Repository ein. Orte: Häkchen „Git einrichten (nur lokal)“ im Assistenten „Neues Spiel aus ROM“
+(`CreateOptions.git`, Phase `git` nach `text_project`, im Staging-Ordner vor dem Umbenennen),
+`g4k git init`; App und MCP folgen in eigenen Schritten. Phasen (`InitPhase`, je beim Start gemeldet,
+die Millisekunden im Bericht unter `phase_ms`):
+
+| Phase | Was | Scheitert |
+|---|---|---|
+| `unpack` | nur im DSPRE-Layout: `Project::ensure_unpacked` je Art aus `ArchiveMap::kinds()`, damit der Block jede Archivzeile hat (ohne die Header-Ablage des Dynamic-Headers-Patches und ohne Art, deren Archiv und Ordner fehlen) | `Err` |
+| `templates` | `write_templates` (oben) | `Err` (etwa ein kaputter Block), nichts geschrieben |
+| `init` | `git init -q`, ohne `-b`: der Branch heißt nach `init.defaultBranch` des Nutzers | Antwort, siehe unten |
+| `add` | `git add -A` | Antwort |
+| `commit` | `git -c user.useConfigOnly=true var GIT_COMMITTER_IDENT`, dann `git commit -q -m Ausgangsstand` | Antwort |
+
+Vor `init` hört `git_init` ohne Fehler auf, mit `committed: false`:
+
+- Ein Repository hält das Projekt schon (das eigene oder ein umschließendes, etwa ein Dotfile-Repo im
+  Home-Ordner): nur die Vorlagen, `reason` = „Das Projekt liegt schon in einem Git-Repository; Gen4
+  Studio hat nur die Vorlagen ergänzt.“ Nie ein Repository im Repository.
+- `templates_only` (`g4k git init --templates-only`): nur die Vorlagen, kein `reason`.
+- Kein `git` gefunden: nur die Vorlagen, `reason` = „Git ist nicht installiert. Die Vorlagen sind
+  geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).“ Status,
+  Branch und `HEAD` liest `gix` ohnehin ohne installiertes Git.
+
+**Unterbefehle:** Das Studio ruft nur die Unterbefehle seines privaten Enums `Sub`: `--version`,
+`init -q`, `add -A`, `var GIT_COMMITTER_IDENT`, `commit -q -m Ausgangsstand`. Nie `remote`, `push`,
+`fetch`, `pull`, `clone` oder `config`; ein Test prüft die Liste. Jeder Aufruf läuft mit leerem
+stdin, `GIT_TERMINAL_PROMPT=0`, ohne `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` und die übrigen
+Variablen, die auf ein anderes Repository zeigen (in einem Git-Hook gesetzt), und mit einer
+Zeitgrenze von 300 s; danach wird der Prozess samt Gruppe beendet.
+
+**`git` finden** (`find_git`): Ist `G4_GIT` gesetzt, gilt nur dieser Pfad (geprüft mit
+`git --version`, kein Weitersuchen). Sonst das erste `git` im `PATH`, dann `/opt/homebrew/bin/git`,
+`/usr/local/bin/git`, unter Windows `%ProgramFiles%\Git\cmd\git.exe`, unter macOS zuletzt
+`/usr/bin/git`. `/usr/bin/git` gilt unter macOS nur, wenn `xcode-select -p` gelingt: ohne die
+Command Line Tools öffnet es den Installationsdialog. Eine App aus dem Finder hat nur
+`/usr/bin:/bin:/usr/sbin:/sbin` im `PATH`, daher die festen Orte.
+
+**Identität:** Hat Git keinen Namen konfiguriert (`git var GIT_COMMITTER_IDENT` mit
+`user.useConfigOnly=true` scheitert; `GIT_COMMITTER_NAME`/`_EMAIL` in der Umgebung zählen als
+konfiguriert), läuft nur dieser eine Commit mit `-c user.name="Gen4 Studio" -c
+user.email=studio@gen4.invalid` (`.invalid` ist reserviert und nie zustellbar), der Bericht sagt es
+(`studio_identity`). Die Konfiguration des Nutzers bleibt unberührt. `useConfigOnly` beim Prüfen
+verhindert, dass Git aus Konto- und Rechnername eine Adresse rät (unter macOS etwa
+`name@rechner.local`) und diese im Commit landet.
+
+**Fehler:** Scheitert ein Unterbefehl nach dem Anlegen, bleiben Repository und Vorlagen;
+`committed: false`, `reason` = „Der erste Commit ist gescheitert: `<stderr>`. Repository und Vorlagen
+sind angelegt; committe mit deinem Git-Werkzeug.“ (stderr in einer Zeile, auf 400 Zeichen gekürzt).
+Eine Zeitüberschreitung steht im selben Rahmen („… gescheitert: Git hat nach 5 Minuten nicht
+geantwortet. Repository …“). Scheitert schon `git init`: „Git konnte das Repository nicht anlegen:
+`<stderr>`. Die Vorlagen sind geschrieben; lege das Repository mit deinem Git-Werkzeug an.“ Das
+Studio schaltet nichts ab, was der Nutzer eingestellt hat (`commit.gpgsign`, Hooks).
+
+**Bericht** (`InitReport`): `templates` (wie `g4k git templates`), `committed`, `reason`, `head`
+(Id, Kurz-Id, Betreff, Zeit; über `gix`), `files` (Einträge im Index), `studio_identity`,
+`phase_ms`, `ms`.
+
+**Kein Remote:** Das Studio legt nie ein Remote an und schiebt nie; Tests klonen über `git init`,
+`git fetch <pfad> HEAD` und `git checkout FETCH_HEAD` (kein `git clone`, das ein `origin` einträgt)
+und prüfen, dass `.git/config` kein `[remote` enthält.
+
+**Kopflos:** `g4k git init <root> [--templates-only]` druckt die Zeilen von `git templates`, dann
+`committed Ausgangsstand files=<n> branch=<b>` oder `not committed: <Grund>` (ohne Grund bei
+`--templates-only`); Rückgabe 1 nur, wenn ein Unterbefehl von Git scheiterte. `g4k git status <root>`
+druckt `branch <b|detached> head <kurz|none> changes <n>` bzw. `no repository`, darunter
+`git version …` des gefundenen `git` oder `git not found`.
+
+Gemessen auf Platin DE (vanilla DSPRE-Ordner, Release, 2026-10-29, `tests/git.rs`): 18 449 Dateien
+im Index, 36 ignorierte Archive, `git add -A` 8,8 s, Commit 0,2 s, Status danach 75 ms, `.git`
+gepackt 45,2 MiB (Grenze 65 MiB); ein Klon mit `core.autocrlf=true` baut byte-gleich.
+
 ## `.g4/`
 
 `.g4/` ist lokal, bis auf eine Erlaubnisliste versionierter Dateien (C §5.1):

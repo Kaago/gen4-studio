@@ -302,6 +302,7 @@ fn project_start_text_project_builds_byte_equal() {
     let opts = CreateOptions {
         template: Template::Original,
         text_project: true,
+        git: false,
     };
     let mut seen = Vec::new();
     let created = create_project_with_options(&nds, &dest, &opts, &mut |p| seen.push(p)).unwrap();

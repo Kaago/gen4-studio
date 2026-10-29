@@ -1798,6 +1798,23 @@ enum GitCommand {
     /// (`created`, `appended`, `updated`, `unchanged`), then `layout=… ignored_archives=N`.
     /// A block without its end is refused (exit 1, nothing written).
     Templates { project: PathBuf },
+    /// Set the project up as a local Git repository: unpack every archive (DSPRE layout),
+    /// write the templates (printed like `git templates`), then `git init`, `git add -A` and
+    /// the first commit "Ausgangsstand", never a remote. Prints `committed Ausgangsstand
+    /// files=<n> branch=<b>`, else `not committed: <reason>` (a repository already holds the
+    /// project, Git is not installed) or `not committed` with `--templates-only`. Exit 1 when
+    /// a Git subcommand failed (the repository and the templates stay).
+    Init {
+        project: PathBuf,
+        /// Write the templates only, no repository.
+        #[arg(long)]
+        templates_only: bool,
+    },
+    /// Branch, `HEAD` and the number of changed paths since `HEAD` (read in process, no `git`
+    /// needed): `branch <name|detached> head <short|none> changes <n>` or `no repository`;
+    /// then `git version …` of the `git` CLI the Studio would use (`G4_GIT`, `PATH`, the usual
+    /// places) or `git not found`.
+    Status { project: PathBuf },
 }
 
 fn git(command: GitCommand) -> Result<(), Failure> {
@@ -1805,17 +1822,72 @@ fn git(command: GitCommand) -> Result<(), Failure> {
         GitCommand::Templates { project } => {
             let p = Project::open(&project)?;
             let report = g4_kernel::git::write_templates(&p)?;
-            for file in &report.files {
-                println!("{} {}", serde_name(&file.action), file.path);
+            print_templates(&report);
+            Ok(())
+        }
+        GitCommand::Init {
+            project,
+            templates_only,
+        } => {
+            let p = Project::open(&project)?;
+            let cli = g4_kernel::git::find_git();
+            let opts = g4_kernel::git::InitOptions { templates_only };
+            let report = g4_kernel::git::git_init(&p, cli.as_ref(), &opts, &mut |_| {})?;
+            print_templates(&report.templates);
+            if report.committed {
+                let status = g4_kernel::git::status(&project)?;
+                println!(
+                    "committed {} files={} branch={}",
+                    g4_kernel::git::FIRST_COMMIT,
+                    report.files,
+                    status.branch.as_deref().unwrap_or("detached")
+                );
+                return Ok(());
             }
-            println!(
-                "layout={} ignored_archives={}",
-                serde_name(&report.layout),
-                report.ignored_archives
-            );
+            match &report.reason {
+                None => println!("not committed"),
+                Some(reason) => println!("not committed: {reason}"),
+            }
+            // A Git subcommand failed: neither an existing repository nor a missing Git.
+            let expected = [g4_kernel::git::IN_REPO, g4_kernel::git::NOT_INSTALLED];
+            match &report.reason {
+                Some(reason) if !expected.contains(&reason.as_str()) => {
+                    Err(Failure::Message("git init failed".into()))
+                }
+                _ => Ok(()),
+            }
+        }
+        GitCommand::Status { project } => {
+            let status = g4_kernel::git::status(&project)?;
+            if status.repo == g4_kernel::git::RepoKind::None {
+                println!("no repository");
+            } else {
+                println!(
+                    "branch {} head {} changes {}",
+                    status.branch.as_deref().unwrap_or("detached"),
+                    status.head.as_ref().map_or("none", |h| h.short.as_str()),
+                    status.paths.len()
+                );
+            }
+            match g4_kernel::git::find_git() {
+                Some(cli) => println!("{}", cli.version),
+                None => println!("git not found"),
+            }
             Ok(())
         }
     }
+}
+
+/// `<action> <file>` per template file, then `layout=… ignored_archives=N`.
+fn print_templates(report: &g4_kernel::git::TemplateReport) {
+    for file in &report.files {
+        println!("{} {}", serde_name(&file.action), file.path);
+    }
+    println!(
+        "layout={} ignored_archives={}",
+        serde_name(&report.layout),
+        report.ignored_archives
+    );
 }
 
 /// The serde name of a unit variant (`snake_case` in the kernel's reports).
