@@ -1667,3 +1667,63 @@ fn cli_git_init_templates_only() {
     assert!(!root.join(".git").exists());
     assert!(root.join(".gitattributes").is_file());
 }
+
+/// A clone of the exported fixture `fx`: its sources only (no DSPRE part, no members).
+fn text_clone(fx: &common::TextFixture) -> (tempfile::TempDir, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let clone = tmp.path().join("klon");
+    for rel in g4_kernel::textproject::sources(&fx.project()).unwrap() {
+        let to = clone.join(&rel);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(fx.root().join(&rel), &to).unwrap();
+    }
+    (tmp, clone)
+}
+
+#[test]
+fn cli_text_restore() {
+    use g4_kernel::textproject::restore::{HAS_GAME_FILES, needs_restore};
+
+    let fx = common::TextFixture::exported();
+    // A project with its game files: refused, nothing written.
+    g4k()
+        .args(["text", "restore"])
+        .arg(fx.root())
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stderr(contains(HAS_GAME_FILES));
+
+    let (_tmp, clone) = text_clone(&fx);
+    assert!(needs_restore(&clone));
+    // ds-rom cannot extract the header-only synthetic ROM: the restore fails, the clone stays
+    // as it was and no temp folder is left (the whole restore runs in the gated `tests/git.rs`).
+    g4k()
+        .args(["text", "restore"])
+        .arg(&clone)
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stdout(predicates::str::is_empty());
+    assert!(needs_restore(&clone));
+    assert!(
+        !clone.join(".g4/tmp").exists()
+            || std::fs::read_dir(clone.join(".g4/tmp"))
+                .unwrap()
+                .next()
+                .is_none()
+    );
+
+    // Without a mark: the refusal of `text export`.
+    std::fs::remove_file(clone.join(".g4/base.json")).unwrap();
+    g4k()
+        .args(["text", "restore"])
+        .arg(&clone)
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::patch::NO_MARK));
+}

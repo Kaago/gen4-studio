@@ -2,8 +2,9 @@
 //! Gated (`G4_TEST_PROJECT`, and a `git` CLI): "Git einrichten" on a copy of a vanilla DSPRE
 //! folder. The status stays empty after the setup and after a build, the packed repository
 //! stays within the gate's limit, no game data file falls under an end-of-line rule, and a
-//! clone with `core.autocrlf=true` builds byte-equal. Each run prints one line for the gate
-//! document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
+//! clone with `core.autocrlf=true` builds byte-equal. The gate of phase 4: the same copy set up
+//! as text project builds the base ROM byte-equal, also from a clone completed from the base
+//! ROM (`textproject::restore`). Each run prints one line for the gate document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
 //! through the environment; repositories only in temp folders, never a remote.
 mod common;
 
@@ -11,10 +12,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+use g4_kernel::base::BaseRom;
 use g4_kernel::build::build;
 use g4_kernel::git::cli::REPO_VARS;
 use g4_kernel::git::{GitCli, GitRepo, InitOptions, InitPhase, git_init};
 use g4_kernel::project::Project;
+use g4_kernel::start::assign_base;
+use g4_kernel::textproject::{
+    self,
+    adopt::adopt,
+    restore::{needs_restore, restore_from_base},
+};
 use sha1::{Digest, Sha1};
 
 /// The isolated `git` with an identity from the environment; `None` (the test skips) without
@@ -62,6 +70,16 @@ fn git(cli: &GitCli, dir: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8(out.stdout).unwrap()
+}
+
+/// A clone of `root` without `git clone`: `git init`, `core.autocrlf=true`, `fetch <root>
+/// HEAD`, `checkout FETCH_HEAD`.
+fn clone_autocrlf(cli: &GitCli, root: &Path, clone: &Path) {
+    std::fs::create_dir(clone).unwrap();
+    git(cli, clone, &["init", "-q"]);
+    git(cli, clone, &["config", "core.autocrlf", "true"]);
+    git(cli, clone, &["fetch", "-q", root.to_str().unwrap(), "HEAD"]);
+    git(cli, clone, &["checkout", "-q", "FETCH_HEAD"]);
 }
 
 fn no_remote(root: &Path) {
@@ -119,15 +137,7 @@ fn git_setup_on_the_dspre_folder_keeps_status_empty_after_build() {
     let (after_build, status_ms) = changes(&root);
     assert!(after_build.is_empty(), "after the build: {after_build:?}");
 
-    git(&cli, &root, &["repack", "-a", "-d", "-q"]);
-    let counted = git(&cli, &root, &["count-objects", "-v"]);
-    let packed_kib: u64 = counted
-        .lines()
-        .find_map(|l| l.strip_prefix("size-pack: "))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let packed_kib = packed_kib(&cli, &root);
 
     let index = GitRepo::discover(&root)
         .unwrap()
@@ -238,15 +248,7 @@ fn a_clone_with_autocrlf_builds_byte_equal_dspre() {
 
     let clone_dir = tempfile::tempdir().unwrap();
     let clone = clone_dir.path().join("klon");
-    std::fs::create_dir(&clone).unwrap();
-    git(&cli, &clone, &["init", "-q"]);
-    git(&cli, &clone, &["config", "core.autocrlf", "true"]);
-    git(
-        &cli,
-        &clone,
-        &["fetch", "-q", root.to_str().unwrap(), "HEAD"],
-    );
-    git(&cli, &clone, &["checkout", "-q", "FETCH_HEAD"]);
+    clone_autocrlf(&cli, &root, &clone);
 
     let started = Instant::now();
     let cloned = Project::open(&clone).unwrap();
@@ -261,5 +263,141 @@ fn a_clone_with_autocrlf_builds_byte_equal_dspre() {
     println!(
         "clone {} dspre build_ms={build_ms} equal",
         project.game_code
+    );
+}
+
+fn packed_kib(cli: &GitCli, root: &Path) -> u64 {
+    git(cli, root, &["repack", "-a", "-d", "-q"]);
+    let counted = git(cli, root, &["count-objects", "-v"]);
+    counted
+        .lines()
+        .find_map(|l| l.strip_prefix("size-pack: "))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// The gate of phase 4: a text project in Git builds the base ROM byte-equal, from the
+/// project and from a clone with `core.autocrlf=true` completed from the base ROM.
+#[test]
+fn text_project_in_git_builds_from_base_byte_equal() {
+    let home = tempfile::tempdir().unwrap();
+    let Some(cli) = git_cli(home.path()) else {
+        return;
+    };
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let base_sha1 = sha1_of(&nds);
+    assign_base(&root, &nds).unwrap();
+    let base = BaseRom::open(&nds, None).unwrap();
+    let started = Instant::now();
+    adopt(&Project::open(&root).unwrap(), &base, &mut |_| {}).unwrap();
+    let adopt_ms = started.elapsed().as_millis();
+    let project = Project::open(&root).unwrap();
+
+    let report = git_init(&project, Some(&cli), &InitOptions::default(), &mut |_| {}).unwrap();
+    assert!(report.committed, "{report:?}");
+    no_remote(&root);
+    let (after_setup, _) = changes(&root);
+    assert!(after_setup.is_empty(), "after the setup: {after_setup:?}");
+
+    // The index holds every source; anything else is a template or below `expanded/`.
+    let index = GitRepo::discover(&root)
+        .unwrap()
+        .unwrap()
+        .index_paths()
+        .unwrap();
+    let sources: Vec<String> = textproject::sources(&project)
+        .unwrap()
+        .iter()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .collect();
+    for source in &sources {
+        assert!(index.contains(source), "{source} is not in the index");
+    }
+    for path in &index {
+        assert!(
+            sources.contains(path)
+                || [".gitignore", ".gitattributes"].contains(&path.as_str())
+                || path.starts_with("expanded/"),
+            "{path}"
+        );
+    }
+
+    build(&project, &root.join("build/out.nds")).unwrap();
+    assert_eq!(sha1_of(&root.join("build/out.nds")), base_sha1);
+    let (after_build, _) = changes(&root);
+    assert!(after_build.is_empty(), "after the build: {after_build:?}");
+    let packed_kib = packed_kib(&cli, &root);
+    let ms = |phase| report.phase_ms.get(&phase).copied().unwrap_or(0);
+    println!(
+        "git {} text files={} add_ms={} commit_ms={} packed_kib={packed_kib}",
+        project.game_code,
+        report.files,
+        ms(InitPhase::Add),
+        ms(InitPhase::Commit),
+    );
+    assert!(packed_kib <= 10 * 1024, "packed_kib={packed_kib}");
+
+    let clone_dir = tempfile::tempdir().unwrap();
+    let clone = clone_dir.path().join("klon");
+    clone_autocrlf(&cli, &root, &clone);
+    assert!(needs_restore(&clone));
+    let started = Instant::now();
+    let restored = restore_from_base(&clone, &base, &mut |_| {}).unwrap();
+    let restore_ms = started.elapsed().as_millis();
+    assert!(!needs_restore(&clone));
+    let started = Instant::now();
+    build(
+        &Project::open(&clone).unwrap(),
+        &clone.join("build/out.nds"),
+    )
+    .unwrap();
+    let build_ms = started.elapsed().as_millis();
+    assert_eq!(sha1_of(&clone.join("build/out.nds")), base_sha1);
+    let (paths, _) = changes(&clone);
+    assert!(
+        paths.is_empty(),
+        "the clone after restore and build: {paths:?}"
+    );
+    no_remote(&root);
+    no_remote(&clone);
+    println!(
+        "clone {} text restore_ms={restore_ms} build_ms={build_ms} equal",
+        project.game_code
+    );
+    println!(
+        "text {} adopt_ms={adopt_ms} moved={} members={} sync_files={}",
+        project.game_code, restored.moved, restored.import.members_written, restored.sync_files
+    );
+
+    // `g4k text restore` on a second clone (the synthetic ROM of `tests/cli.rs` cannot be
+    // extracted).
+    let second = clone_dir.path().join("klon2");
+    clone_autocrlf(&cli, &root, &second);
+    let out = assert_cmd::Command::cargo_bin("g4k")
+        .unwrap()
+        .args(["text", "restore"])
+        .arg(&second)
+        .arg("--base-rom")
+        .arg(&nds)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let out = String::from_utf8(out).unwrap();
+    let last = out.lines().last().unwrap_or_default();
+    assert!(last.starts_with("restored moved="), "{out}");
+    assert!(!needs_restore(&second));
+    let (paths, _) = changes(&second);
+    assert!(
+        paths.is_empty(),
+        "the second clone after g4k text restore: {paths:?}"
     );
 }

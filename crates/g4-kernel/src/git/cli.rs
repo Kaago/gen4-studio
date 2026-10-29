@@ -310,7 +310,7 @@ pub fn git_init(
 /// kind of the archive map). Skipped: the Dynamic Headers container (store-only: its folder
 /// belongs to the patch, unpacking it would fake the patch) and a kind with neither its
 /// archive nor its folder on disk.
-fn unpack_every_kind(project: &Project) -> Result<(), KernelError> {
+pub(crate) fn unpack_every_kind(project: &Project) -> Result<(), KernelError> {
     let kinds: Vec<AssetKind> = project.archives.kinds().collect();
     for kind in kinds {
         if kind == AssetKind::DynamicHeaders {

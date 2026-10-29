@@ -740,6 +740,49 @@ sind; sie gehören auch zum DSPRE-Ordner. Wer die Rücknahme zurücknehmen will,
 Einträge zurück und gleicht ab (die ID-Dateien schreibt auch der nächste Compile neu). Ein Build danach ist der
 eines DSPRE-Ordners und liefert unverändert die Basis-ROM.
 
+## Nach einem Klon
+
+Ein Textprojekt in Git versioniert nur seine Quellen (siehe „Quellenliste“) und die beiden
+Vorlagen; der DSPRE-Teil (`header.yaml`, `arm7/`, `arm9/`, `arm9_overlays/`, `banner/`, `files/`,
+`config.yaml`, `header_logo.png`, `multiboot_signature.yaml`, `path_order.txt`), die Member unter
+`unpacked/` und alles unter `.g4/` außer `base.json` und `preview.png` stehen in der `.gitignore`
+(Spieldateien aus der ROM gehören nicht ins Repository). Ein frischer Klon hat also
+`g4-project.json`, aber kein `header.yaml`: `textproject::restore::needs_restore` ist dann wahr,
+der Satz dazu `RESTORE_NEEDED` („Dieser Ordner ist ein Textprojekt ohne Spieldateien, etwa ein
+frischer Git-Klon.“). Ohne die Spieldateien öffnet kein Projekt und kein Build.
+
+**Vervollständigen** (`textproject::restore::restore_from_base`, `g4k text restore`, in der App
+der Dialog „Textprojekt vervollständigen?“) legt sie aus der eigenen Basis-ROM an, die die
+Basismarke `.g4/base.json` (im Repository) nennt. Vier Phasen (`RestoreProgress`, je von `done` 0
+bis `done` = `total`):
+
+| Phase | Was geschieht | `total` |
+|---|---|---|
+| `extract` | ds-rom packt die Basis-ROM nach `.g4/tmp/restore-<pid>/` aus | 1 |
+| `merge` | jeder Eintrag des Auszugs, den die Wurzel nicht hat, wird hineinverschoben (`rename`); einen Ordner, den beide haben, führt die Regel darin weiter zusammen | die Einträge oben im Auszug |
+| `import` | jedes Archiv, das das Studio kennt, wird ausgepackt (wie „Git einrichten“ im DSPRE-Ordner), dann `import` mit der Basis-ROM: die Member, die von ihrer JSON abweichen, die Scripts übersetzt, die Texte kodiert | 1 |
+| `sync` | `sync::record_all`: Quellen und Member als abgeglichen aufgezeichnet | die beobachteten Dateien (gemeldet alle 128) |
+
+Die Regel ist **nie überschreiben**: Eine Datei, die im Ordner liegt, bleibt, wie sie ist, auch
+wenn der Auszug eine gleichnamige hat; steht eine Datei gegen einen Ordner (in beide Richtungen),
+bleibt die des Projekts. Nur Fehlendes kommt hinzu, ein verschobener Ordner zählt in `moved` einmal.
+Der Temp-Ordner wird danach entfernt, auch wenn Auspacken oder Verschieben scheitern. Abgelehnt,
+bevor etwas geschrieben wird: ein Ordner mit seinen Spieldateien („Das Projekt hat seine
+Spieldateien schon.“), ohne Basismarke (`patch::NO_MARK`; eine unlesbare oder neuere Marke mit
+ihrem Satz) und eine andere ROM als die der Marke (der Satz von `base::other_rom`, wie beim Import
+und bei `g4k patch create`). Scheitert erst der Import, bleiben die Spieldateien liegen; `g4k text
+import` vervollständigt dann das Projekt. Danach baut ein unverändertes Projekt SHA-1-gleich zur
+Basis-ROM, auch aus einem Klon mit `core.autocrlf=true` (gated `tests/git.rs`,
+`text_project_in_git_builds_from_base_byte_equal`), und `git status` ist leer.
+
+`g4k text restore <Projekt> [--base-rom <nds>] [--json]` findet die Basis-ROM wie `text export`
+(`--base-rom`, sonst `G4_BASE_ROM_DIR`; die `.nds` daneben nicht, denn ohne `header.yaml` fehlt der
+Spielcode zum Vergleich), druckt je Phase `phase=<phase> ms=N`, dann
+`restored moved=N members=N raw=N compiled=N encoded=N sync_files=N ms=N`; Exit 1 bei einer
+Ablehnung oder einem Fehler. Die App fragt beim Öffnen eines solchen Ordners „Textprojekt
+vervollständigen?“ mit `RESTORE_NEEDED` und „Gen4 Studio legt die Spieldateien aus deiner
+Basis-ROM an; deine Dateien bleiben, wie sie sind.“ (Task 8 der Phase 4.4).
+
 ## IDs in Scripts
 
 In einem Textprojekt (aktuelle Schema-Version, Scripts übernommen) nennen Script-Quellen

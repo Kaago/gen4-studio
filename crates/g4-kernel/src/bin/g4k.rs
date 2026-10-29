@@ -1322,6 +1322,20 @@ enum TextCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Complete a text project without its game files (a fresh Git clone) from the base ROM
+    /// (found like `export`; the sibling `.nds` is not looked for, there is no `header.yaml`):
+    /// extract it, move every entry the folder lacks into it (never over a file), import, record
+    /// the sync. Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`. Refused
+    /// (exit 1, nothing written) when the folder has its game files or no base mark.
+    Restore {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the restore report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// The paths `g4k text check` lists after `differs=N`.
@@ -1371,6 +1385,11 @@ fn text(command: TextCommand) -> Result<(), Failure> {
             Ok(())
         }
         TextCommand::Sync { project, keep } => text_sync(&project, keep.as_deref()),
+        TextCommand::Restore {
+            project,
+            base_rom,
+            json,
+        } => text_restore(&project, base_rom.as_deref(), json),
     }
 }
 
@@ -1562,6 +1581,51 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
         );
     }
     fail_on_errors(&report.export.problems, "text adopt")
+}
+
+/// `g4k text restore`: [`g4_kernel::textproject::restore::restore_from_base`], timing each
+/// phase.
+fn text_restore(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    use g4_kernel::textproject::restore::{
+        HAS_GAME_FILES, RestorePhase, needs_restore, restore_from_base,
+    };
+
+    if !needs_restore(root) {
+        return Err(Failure::Message(HAS_GAME_FILES.to_owned()));
+    }
+    let mark = required_mark(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let mut current: Option<(RestorePhase, std::time::Instant)> = None;
+    let mut timed: Vec<(RestorePhase, u128)> = Vec::new();
+    let report = restore_from_base(root, &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, std::time::Instant::now()))
+        {
+            timed.push((phase, at.elapsed().as_millis()));
+        }
+    })?;
+    if let Some((phase, at)) = current {
+        timed.push((phase, at.elapsed().as_millis()));
+    }
+    print_problems(&report.import.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        for (phase, ms) in &timed {
+            println!("phase={} ms={ms}", json_line(phase)?.trim_matches('"'));
+        }
+        println!(
+            "restored moved={} members={} raw={} compiled={} encoded={} sync_files={} ms={}",
+            report.moved,
+            report.import.members_written,
+            report.import.raw_written,
+            report.import.compiled.len(),
+            report.import.encoded.len(),
+            report.sync_files,
+            report.ms
+        );
+    }
+    fail_on_errors(&report.import.problems, "text restore")
 }
 
 /// `g4k text sync`: scan and take over the one-sided units, or with `keep` resolve one
