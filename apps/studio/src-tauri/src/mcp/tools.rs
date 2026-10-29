@@ -283,8 +283,9 @@ const NOT_IN_BATCH: &[&str] = &[
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
 /// from start to end, UI test 4.3b U4), by command name (so `g4_call` counts too): setting the
-/// project up as text project, about a minute. Never in a batch ([`NOT_IN_BATCH`]).
-const LONG_TOOLS: &[&str] = &["adopt_text_project"];
+/// project up as text project, about a minute, and „Git einrichten“ (`git add` of a DSPRE
+/// folder, about 10 s). Never in a batch ([`NOT_IN_BATCH`]).
+const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and

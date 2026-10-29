@@ -41,6 +41,9 @@ use crate::state::AppState;
 /// The refusal of `git_init` with unsaved changes, before anything is asked or written.
 pub const INIT_UNSAVED: &str = "Erst speichern: der erste Commit nimmt den gespeicherten Stand.";
 
+/// Why the store refuses writes while „Git einrichten“ runs (code `busy`).
+pub const SETTING_UP_GIT: &str = "Git wird gerade eingerichtet.";
+
 /// The files of „Git einrichten“ at the project root, as `GitStatusDto::templates` names them.
 const TEMPLATE_FILES: [&str; 2] = [".gitignore", ".gitattributes"];
 
@@ -56,8 +59,8 @@ pub struct GitCliDto {
 /// (`detached`) and without a repository, and names the branch to be with an unborn one
 /// (`head` is `None` then). `changes`: the changed paths below the project since `HEAD` as
 /// `git status` counts them (untracked ones too); `entries`: those paths as entities
-/// (`diff::head_entries`). `cli`: the `git` CLI, `None` when it is not installed (reading
-/// needs none). `layout`: the layout of the templates; `templates`: which of `.gitignore` and
+/// (`diff::head_entries`), none without a commit. `cli`: the `git` CLI, `None` when it is not
+/// installed (reading needs none; probed once, see `GitCliCache`). `layout`: the layout of the templates; `templates`: which of `.gitignore` and
 /// `.gitattributes` are there. `ms`: how long the whole read took.
 #[derive(Debug, Serialize)]
 pub struct GitStatusDto {
@@ -84,7 +87,7 @@ pub fn git_status_impl(state: &AppState) -> Result<GitStatusDto, CmdError> {
         .filter(|name| root.join(name).is_file())
         .map(|name| (*name).to_owned())
         .collect();
-    let cli = find_git().map(|cli| GitCliDto {
+    let cli = state.git_cli.get(find_git).map(|cli| GitCliDto {
         version: cli.version,
     });
     let mut dto = GitStatusDto {
@@ -101,7 +104,11 @@ pub fn git_status_impl(state: &AppState) -> Result<GitStatusDto, CmdError> {
     };
     if let Some(repo) = GitRepo::discover(root)? {
         let status = repo.status()?;
-        dto.entries = diff::head_entries(&project, &repo, &status)?;
+        // Without a commit there is nothing to compare against (`no_commit`); every path would
+        // be a new entity (after a failed first commit the whole index).
+        if status.head.is_some() {
+            dto.entries = diff::head_entries(&project, &repo, &status)?;
+        }
         dto.changes = u32::try_from(status.paths.len()).unwrap_or(u32::MAX);
         dto.repo = match status.repo {
             RepoKind::Enclosing { workdir } => RepoKind::Enclosing {
@@ -140,7 +147,11 @@ fn plain_path(path: PathBuf) -> PathBuf {
 /// being set up as text project (`busy`). Writes nothing.
 pub(crate) fn check_git_init(state: &AppState) -> Result<Arc<Project>, CmdError> {
     let mut guard = super::lock(state)?;
-    let session = super::session(&mut guard)?;
+    checked_for_init(super::session(&mut guard)?)
+}
+
+/// [`check_git_init`] on `session`, under the lock.
+fn checked_for_init(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
     session.writable()?;
     if !session.store.dirty().is_empty() {
         return Err(CmdError::refused("unsaved", INIT_UNSAVED));
@@ -160,25 +171,56 @@ pub fn git_init_impl(
 /// „Git einrichten“ on the open project with `cli` (`None`: no `git` installed): refused as
 /// [`check_git_init`] says, else `git::git_init` (archives unpacked in the DSPRE layout, the
 /// templates, then `git init` and the first commit „Ausgangsstand“, never a remote) without
-/// the session lock, so the status and the other reads go on meanwhile. A failed commit is
-/// no error (`committed: false` with Git's reason); a broken template block is. The checks
-/// learn afterwards that files were written past the store.
+/// the session lock, so the status and the other reads go on meanwhile; the store refuses
+/// every write meanwhile ([`SETTING_UP_GIT`], `busy`), so the commit sees the saved state. A
+/// failed commit is no error (`committed: false` with Git's reason); a broken template block
+/// is. The checks learn afterwards that files were written past the store, and the `git` CLI
+/// is probed again on the next status.
 pub(crate) fn git_init_with(
     state: &AppState,
     cli: Option<&GitCli>,
     opts: InitOptions,
     progress: &mut dyn FnMut(InitProgress),
 ) -> Result<InitReport, CmdError> {
-    let project = check_git_init(state)?;
-    let result = git::git_init(&project, cli, &opts, progress);
-    // Even a failed run may have unpacked archives or written a template.
-    let mut guard = super::lock(state)?;
-    if let Some(session) = guard.as_mut()
-        && Arc::ptr_eq(&session.project, &project)
-    {
-        session.files_written(&[]);
-    }
+    let busy = InitBusy::begin(state)?;
+    let result = git::git_init(&busy.project, cli, &opts, progress);
+    drop(busy);
+    state.git_cli.forget();
     Ok(result?)
+}
+
+/// The store of the session of `project` refuses writes ([`SETTING_UP_GIT`]) from
+/// [`InitBusy::begin`] until this is dropped.
+struct InitBusy<'a> {
+    state: &'a AppState,
+    project: Arc<Project>,
+}
+
+impl<'a> InitBusy<'a> {
+    /// Under the session lock: the refusals of [`check_git_init`], then the store is busy.
+    fn begin(state: &'a AppState) -> Result<InitBusy<'a>, CmdError> {
+        let mut guard = super::lock(state)?;
+        let session = super::session(&mut guard)?;
+        let project = checked_for_init(session)?;
+        session.store.set_busy(Some(SETTING_UP_GIT.to_owned()));
+        Ok(InitBusy { state, project })
+    }
+}
+
+impl Drop for InitBusy<'_> {
+    /// Lifts the refusal and notes the files written past the store (even a failed run may
+    /// have unpacked archives or written a template), when the session is still the one it
+    /// was set on (also after a failure or a panic).
+    fn drop(&mut self) {
+        let mut guard = self.state.lock_session();
+        if let Some(session) = guard
+            .as_mut()
+            .filter(|s| Arc::ptr_eq(&s.project, &self.project))
+        {
+            session.store.set_busy(None);
+            session.files_written(&[]);
+        }
+    }
 }
 
 /// The kernel's diff refusals with a code of their own: `no_repo` ([`NO_REPO`]), `no_commit`
@@ -503,6 +545,92 @@ mod tests {
             ("Trainer 0001", ChangeState::Changed, &TRAINER_1)
         );
         assert_eq!(status.templates, [".gitignore", ".gitattributes"]);
+    }
+
+    #[test]
+    fn an_unborn_head_lists_no_entries_but_counts_the_paths() {
+        let (fixture, state) = open_synthetic();
+        GitFixture::init(fixture.dir.path());
+        let status = git_status_impl(&state).unwrap();
+        assert_eq!(status.repo, RepoKind::Own);
+        assert_eq!(status.head, None);
+        assert_eq!(status.branch.as_deref(), Some("main"));
+        assert!(status.changes > 0, "every file is untracked");
+        assert!(status.entries.is_empty(), "{:?}", status.entries);
+    }
+
+    #[test]
+    fn the_git_cli_is_probed_once_and_a_missing_one_again_after_the_retry() {
+        use crate::state::GitCliCache;
+        use std::cell::Cell;
+        use std::time::{Duration, Instant};
+        let fake = GitCli {
+            path: PathBuf::from("/opt/git"),
+            version: "git version 9.9".into(),
+            env: Vec::new(),
+        };
+        let probes = Cell::new(0);
+        let missing = || {
+            probes.set(probes.get() + 1);
+            None
+        };
+        let cache = GitCliCache::default();
+        let start = Instant::now();
+        assert_eq!(cache.get_at(start, missing), None);
+        assert_eq!(cache.get_at(start + Duration::from_secs(29), missing), None);
+        assert_eq!(
+            probes.get(),
+            1,
+            "a missing git is not looked for again at once"
+        );
+        let later = start + GitCliCache::RETRY;
+        let found = || {
+            probes.set(probes.get() + 1);
+            Some(fake.clone())
+        };
+        assert_eq!(cache.get_at(later, found), Some(fake.clone()));
+        assert_eq!(probes.get(), 2, "after the retry it is looked for again");
+        // A found one is kept.
+        let far = later + Duration::from_secs(3600);
+        assert_eq!(cache.get_at(far, missing), Some(fake.clone()));
+        assert_eq!(probes.get(), 2);
+        // Forgotten (after „Git einrichten“): probed again.
+        cache.forget();
+        assert_eq!(cache.get_at(far, missing), None);
+        assert_eq!(probes.get(), 3);
+    }
+
+    #[test]
+    fn git_init_keeps_the_store_busy_while_it_runs() {
+        let (_fixture, state) = open_synthetic();
+        let mut during = Vec::new();
+        git_init_with(&state, None, InitOptions::default(), &mut |_| {
+            let save = crate::commands::save_impl(&state).map(|_| ()).unwrap_err();
+            let edit = set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap_err();
+            during.push((save.code, save.message, edit.code));
+        })
+        .unwrap();
+        assert!(!during.is_empty());
+        for (save_code, save_message, edit_code) in during {
+            assert_eq!(
+                (save_code, save_message.as_str(), edit_code),
+                ("busy", SETTING_UP_GIT, "busy")
+            );
+        }
+        // Released afterwards, also after a refusal.
+        crate::commands::save_impl(&state).unwrap();
+        set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
+        assert!(git_init_with(&state, None, InitOptions::default(), &mut |_| {}).is_err());
+        crate::commands::save_impl(&state).unwrap();
+        // A broken template block fails the run; the store is writable again.
+        let root = root_of(&state);
+        std::fs::write(
+            root.join(".gitignore"),
+            format!("{}\n", g4_kernel::git::templates::BLOCK_START),
+        )
+        .unwrap();
+        assert!(git_init_with(&state, None, InitOptions::default(), &mut |_| {}).is_err());
+        set_matrix_cell_impl(&state, 0, 0, 0, Some(2), None, None).unwrap();
     }
 
     #[test]

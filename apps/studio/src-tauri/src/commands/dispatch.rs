@@ -1255,7 +1255,7 @@ mod tests {
             (
                 "create_project",
                 json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original",
-                        "textProject": true, "git": true }),
+                        "textProject": true, "git": false }),
             ),
             ("plan_empty_region", json!({})),
             ("apply_empty_region", json!({})),

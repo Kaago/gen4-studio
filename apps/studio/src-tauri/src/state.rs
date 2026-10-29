@@ -2,11 +2,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use g4_kernel::checks::{ChecksReport, Group, IgnoreSet, Overlay, Runner, Snapshot, SnapshotCache};
 use g4_kernel::data::names::NameTables;
 use g4_kernel::data::refs::RefIndex;
+use g4_kernel::git::GitCli;
 use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
 use g4_kernel::sprites::SpriteCache;
 use g4_kernel::store::Store;
@@ -461,6 +462,55 @@ pub struct AppState {
     pub agents: AgentHub,
     /// The remembered base ROMs (`base-roms.json`) and where else to search for them.
     pub base_roms: BaseRoms,
+    /// The `git` CLI as last probed, so a status read does not run `git --version` each time.
+    pub git_cli: GitCliCache,
+}
+
+/// The `git` CLI the Studio found (`git::find_git`), probed once: a found one is kept until
+/// [`GitCliCache::forget`] (after „Git einrichten“), a missing one is probed again at most
+/// every [`GitCliCache::RETRY`], so a `git` installed while the app runs is noticed.
+#[derive(Default)]
+pub struct GitCliCache {
+    /// The last probe's answer and when it was made; `None` before the first.
+    last: Mutex<Option<(Option<GitCli>, Instant)>>,
+}
+
+impl GitCliCache {
+    /// How long a missing `git` stays missing before it is looked for again.
+    pub const RETRY: Duration = Duration::from_secs(30);
+
+    /// The cached `git` CLI, probing with `probe` (`git::find_git`) when nothing is cached or
+    /// the cached absence is [`GitCliCache::RETRY`] old.
+    pub fn get(&self, probe: impl FnOnce() -> Option<GitCli>) -> Option<GitCli> {
+        self.get_at(Instant::now(), probe)
+    }
+
+    /// [`GitCliCache::get`] at `now`.
+    pub(crate) fn get_at(
+        &self,
+        now: Instant,
+        probe: impl FnOnce() -> Option<GitCli>,
+    ) -> Option<GitCli> {
+        let mut last = lock(&self.last);
+        match &*last {
+            Some((Some(cli), _)) => return Some(cli.clone()),
+            Some((None, at)) if now.saturating_duration_since(*at) < Self::RETRY => return None,
+            _ => {}
+        }
+        let found = probe();
+        *last = Some((found.clone(), now));
+        found
+    }
+
+    /// Keeps `found` as the answer of a probe made now (`git_init` probes itself).
+    pub fn set(&self, found: Option<GitCli>) {
+        *lock(&self.last) = Some((found, Instant::now()));
+    }
+
+    /// Forgets the answer: the next [`GitCliCache::get`] probes again.
+    pub fn forget(&self) {
+        *lock(&self.last) = None;
+    }
 }
 
 impl AppState {
