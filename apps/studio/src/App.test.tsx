@@ -10,7 +10,7 @@ import { check, found } from "./technik/baseTesting";
 import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import { gitInit, gitStatus, restoreTextProject } from "./api";
+import { gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
 import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
@@ -234,6 +234,8 @@ vi.mock("./api", async (importOriginal) => ({
   gitStatus: vi.fn(),
   gitInit: vi.fn(),
   restoreTextProject: vi.fn(),
+  diffEntity: vi.fn(),
+  unsavedChanges: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -3401,6 +3403,64 @@ describe("App wiring", () => {
       await act(async () => gitItem()!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("aenderungen");
+    });
+
+    const againstShown = () => container.querySelector("[data-technik=aenderungen] [data-against]")?.getAttribute("data-against");
+    const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+
+    it("after_git_setup_technik_compares_against_the_last_commit", async () => {
+      vi.mocked(unsavedChanges).mockResolvedValue([]);
+      // Technik › Änderungen starts against the base ROM.
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => technikRow("Änderungen").click());
+      expect(againstShown()).toBe("base");
+      // Without a repository against the last commit: „Git einrichten…“ opens the dialog.
+      const options = () => [...container.querySelectorAll<HTMLButtonElement>("[data-against] button")];
+      await act(async () => options()[1]!.click());
+      expect(againstShown()).toBe("head");
+      await click("Git einrichten…");
+      expect(document.querySelector("[data-git-init-dialog] h2")?.textContent).toBe("Git einrichten?");
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[data-git-init-dialog] button")].find((b) => b.textContent === "Abbrechen")!.click());
+      // Back to the base; the setup that went through switches to the last commit, and the choice holds for the session.
+      await act(async () => options()[0]!.click());
+      expect(againstShown()).toBe("base");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]");
+      typeInSearch(paletteInput()!, "git einrichten");
+      pressKey(paletteInput()!, "Enter");
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      vi.mocked(gitInit).mockResolvedValueOnce(initReportOf());
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[data-git-init-dialog] button")].find((b) => b.textContent === "Einrichten")!.click());
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(againstShown()).toBe("head");
+      expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Seit dem letzten Commit nichts geändert.");
+      // Another area and back: still against the last commit.
+      await act(async () => atlasEntry("Start")!.click());
+      await act(async () => atlasEntry("Technik")!.click());
+      expect(againstShown()).toBe("head");
+      // Against the saved state: the unsaved entries are read.
+      await act(async () => options()[2]!.click());
+      expect(unsavedChanges).toHaveBeenCalled();
+      expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Nichts ungespeichert.");
+    });
+
+    it("the_status_line_opens_aenderungen_against_the_last_commit", async () => {
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 1, entries: [{ group: "Trainer", label: "Trainer 0001", state: "changed", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties", subject: { kind: "trainer", index: 1 } }] }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(gitItem()?.textContent).toBe("main · 1 Änderung");
+      // Technik › Änderungen against the base first, then elsewhere.
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => technikRow("Änderungen").click());
+      expect(againstShown()).toBe("base");
+      await act(async () => atlasEntry("Texte")!.click());
+      // The status line's item: Änderungen against the last commit, listing what changed since it.
+      await act(async () => gitItem()!.click());
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(againstShown()).toBe("head");
+      expect(container.querySelector('[data-change="Trainer 0001"]')).not.toBeNull();
+      expect(technikRow("Änderungen").textContent).toContain("1 Änderung seit dem Commit");
     });
 
     it("sets_up_git_from_the_palette_and_reads_the_status_again", async () => {

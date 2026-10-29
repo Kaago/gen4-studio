@@ -1,5 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
-import type { ChangedEntry } from "./api.original";
+import type { ChangedEntry, ResetTarget } from "./api.original";
 import { inTauri, invoke } from "./platform/transport";
 
 /**
@@ -100,6 +100,67 @@ export interface RestoreReport {
   ms: number;
 }
 
+/** What an entity is compared against (the old side): the base ROM, the last commit, or the saved state (the new side then the unsaved value). */
+export type Against = "base" | "head" | "saved";
+
+/** How the new side relates to the old one; `same`: equal after normalization. */
+export type DiffState = "changed" | "new" | "removed" | "same";
+
+/** What a span of a word or line diff is. */
+export type SpanOp = "same" | "removed" | "added";
+
+/** A run of words of one side of a word diff. */
+export interface WordSpan {
+  op: SpanOp;
+  text: string;
+}
+
+/** One differing value: its JSON path (`data.party[0].level`), both sides (strings without quotes, anything else compact JSON, null where the side has none). */
+export interface FieldChange {
+  path: string;
+  old: string | null;
+  new: string | null;
+}
+
+/** One side of a binary diff: its size and SHA-1 (40 hex digits), „wie in der Basis-ROM“ (a text project keeps no file then), or missing. */
+export type BlobSide = { side: "bytes"; size: number; sha1: string } | { side: "base" } | { side: "absent" };
+
+/**
+ * The diff of one entity in the shape of its kind (`g4_kernel::diff::EntityDiff`, tagged by `shape`); `more` counts the rows past the cap.
+ * `map`: per part (`model`, `permissions`, `buildings`, `bdhc`, `bgs`) whether it changed with the first 8 hex digits of each side's SHA-1,
+ * the permission cells that differ (`kkcc`, empty where the side has no such cell) and the buildings as fields. `lines`: hunks with their
+ * 1-based start on each side, each line with what it is.
+ */
+export type EntityDiff =
+  | { shape: "fields"; changes: FieldChange[]; more: number }
+  | {
+      shape: "map";
+      parts: { part: string; changed: boolean; old: string | null; new: string | null }[];
+      cells: { x: number; y: number; old: string; new: string }[];
+      buildings: FieldChange[];
+      more: number;
+    }
+  | { shape: "messages"; messages: { index: number; state: DiffState; old: WordSpan[]; new: WordSpan[] }[]; more: number }
+  | { shape: "lines"; hunks: { old_start: number; new_start: number; lines: [SpanOp, string][] }[]; more: number }
+  | { shape: "binary"; old: BlobSide; new: BlobSide };
+
+/**
+ * The diff of one entity with what the user sees around it: its name, the names of both sides (`old_label` „Basis-ROM …“, „Commit abc1234
+ * „…““, „Gespeichert“; `new_label` „Projekt (gespeichert)“ or „Ungespeichert“), the state, the reset target of the subject (null for a kind
+ * without one) and how long it took.
+ */
+export interface EntityDiffReport {
+  subject: DiffSubject;
+  against: Against;
+  label: string;
+  old_label: string;
+  new_label: string;
+  state: DiffState;
+  diff: EntityDiff;
+  reset: ResetTarget | null;
+  ms: number;
+}
+
 /** The Git state of the open project; writes nothing, needs no `git`. */
 export const gitStatus = () => invoke<GitStatus>("git_status");
 
@@ -127,3 +188,13 @@ export async function restoreTextProject(root: string, nds: string | null, onPro
   progress.onmessage = onProgress;
   return invoke<RestoreReport>("restore_text_project", { root, nds, progress });
 }
+
+/**
+ * `subject` against `against`, field by field; writes nothing. The command takes the subject flat (`kind`, `index`, `folder`, `path`, as the
+ * MCP tool does). Refused with `base_missing` (against the base without a found base ROM), `no_repo`, `no_commit` (against the last commit)
+ * and `not_diffable` (a project file against the base, a script against the saved state).
+ */
+export const diffEntity = (subject: DiffSubject, against: Against) => invoke<EntityDiffReport>("diff_entity", { ...subject, against });
+
+/** The store's unsaved edits as entities (the header table per header), as „Gegen gespeichert“ lists them. */
+export const unsavedChanges = () => invoke<ChangedEntry[]>("unsaved_changes");

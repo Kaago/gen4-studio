@@ -31,6 +31,7 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
+import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
@@ -63,7 +64,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -294,9 +295,13 @@ function AppBody() {
   const git = useGitStatus({ project: session.info?.root ?? null, revision: session.savedRevision + changedRevision, opened: session.info });
   // „Git einrichten?“ (from the palette; Technik › Änderungen offers it too).
   const [gitSetupOpen, setGitSetupOpen] = useState(false);
-  // The status line's Git item: Technik › Änderungen (not while a wizard holds the frame).
+  // What Technik › Änderungen compares against, kept for the session (not stored): the base ROM first, the last commit once Git is set up
+  // or the status line's item was clicked.
+  const [against, setAgainst] = useState<Against>("base");
+  // The status line's Git item: Technik › Änderungen against the last commit (not while a wizard holds the frame).
   const showChanges = useStableCallback(() => {
     if (wizardOpen.current || startOpen) return;
+    setAgainst("head");
     setTechnikEntry("aenderungen");
     setArea("technik");
   });
@@ -833,6 +838,10 @@ function AppBody() {
     base: original.status?.state === "ready" ? original.status.sha1 : null,
     revision: session.savedRevision + changedRevision,
   });
+  // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
+  // detail of Änderungen reads its diff again on the same moves.
+  const shownRevision = session.savedRevision + changedRevision + session.dirtyRevision;
+  const unsaved = useUnsaved({ project: session.info?.root ?? null, shown: area === "technik" && technikEntry === "aenderungen" && against === "saved", revision: shownRevision });
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
   const onHeaderPatch = useStableCallback(async () => {
     bumpChanged();
@@ -1204,6 +1213,12 @@ function AppBody() {
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
         textProject={textProject}
+        against={against}
+        onAgainst={setAgainst}
+        git={info ? git : null}
+        unsaved={unsaved.entries}
+        onGitSetup={() => setGitSetupOpen(true)}
+        revision={shownRevision}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -1394,7 +1409,11 @@ function AppBody() {
             unsaved={session.dirtyCount + scripts.dirtyCount > 0}
             exclusive={session.exclusive}
             onClose={() => setGitSetupOpen(false)}
-            onDone={git.refresh}
+            onDone={async (report) => {
+              await git.refresh();
+              // With the first commit there is something to compare against: Technik › Änderungen shows it.
+              if (report.committed) setAgainst("head");
+            }}
           />
         )}
         {restore !== null && (

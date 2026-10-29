@@ -1,0 +1,83 @@
+.wrap {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.table thead th {
+  height: var(--g4-dichte-steuer);
+  padding: 0 var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+  text-align: start;
+  white-space: nowrap;
+}
+
+/* What changed takes a little more room than either side. */
+.table thead th:first-child {
+  width: 36%;
+}
+
+.table tbody th,
+.table td {
+  padding: var(--g4-raum-4) var(--g4-raum-8);
+  border-bottom: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  font-weight: 400;
+}
+
+/* Values keep their spaces (a message's double space, a script's indent) and wrap anywhere instead of scrolling sideways. */
+.value {
+  font: var(--g4-font-code-s);
+  white-space: pre-wrap;
+}
+
+/* Spans of a word diff: the surface says it, the line says it too (not colour alone). */
+.removed,
+.added {
+  border-radius: var(--g4-radius-plakette);
+  color: var(--g4-text-primaer);
+}
+
+.removed {
+  background: var(--g4-status-fehler-flaeche);
+  text-decoration: line-through;
+}
+
+.added {
+  background: var(--g4-status-erfolg-flaeche);
+  text-decoration: underline;
+}
+
+.more {
+  margin: 0;
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* Read, not shown: the caption and „fehlt“. */
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

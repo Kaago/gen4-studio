@@ -3,11 +3,20 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AssetId, OriginalStatus } from "../api";
+import { diffEntity } from "../api";
+import type { Against, AssetId, ChangedEntry, GitStatus, OriginalStatus } from "../api";
+import { gitStatusOf, noRepo } from "../git/gitTesting";
+import type { GitStatusApi } from "../git/useGitStatus";
 import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
 import { changesWith, entry, report } from "./changesTesting";
+import { diffReport } from "./diffTesting";
 import { ChangesSurface } from "./ChangesSurface";
 import type { ChangesApi } from "./useChanges";
+
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  diffEntity: vi.fn(),
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,6 +36,10 @@ describe("ChangesSurface", () => {
 
   beforeEach(() => {
     onOpenProject.mockClear();
+    onAgainst.mockClear();
+    onGitSetup.mockClear();
+    goTo.mockClear();
+    vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
     reset = resetSpy();
     container = document.createElement("div");
     document.body.append(container);
@@ -37,8 +50,32 @@ describe("ChangesSurface", () => {
     container.remove();
   });
 
-  const render = ({ changes = changesWith(), status = READY, dirty = [] }: { changes?: ChangesApi | null; status?: OriginalStatus | null; dirty?: AssetId[] } = {}) =>
-    act(async () => root.render(withReset(reset, <ChangesSurface changes={changes} status={status} dirty={dirty} onOpenProject={onOpenProject} />)));
+  const onAgainst = vi.fn();
+  const onGitSetup = vi.fn();
+  const goTo = vi.fn();
+  const gitWith = (status: GitStatus | null, over: Partial<GitStatusApi> = {}): GitStatusApi => ({ status, error: null, refresh: vi.fn(async () => {}), ...over });
+  type RenderOptions = { changes?: ChangesApi | null; status?: OriginalStatus | null; dirty?: AssetId[]; against?: Against; git?: GitStatusApi | null; unsaved?: ChangedEntry[] | null };
+  const render = ({ changes = changesWith(), status = READY, dirty = [], against = "base", git = gitWith(gitStatusOf()), unsaved = null }: RenderOptions = {}) =>
+    act(async () =>
+      root.render(
+        withReset(
+          reset,
+          <ChangesSurface
+            changes={changes}
+            status={status}
+            dirty={dirty}
+            onOpenProject={onOpenProject}
+            against={against}
+            onAgainst={onAgainst}
+            git={git}
+            unsaved={unsaved}
+            onGitSetup={onGitSetup}
+            goTo={goTo}
+            revision={0}
+          />,
+        ),
+      ),
+    );
   const surface = () => container.querySelector<HTMLElement>("[data-technik=aenderungen]");
   const button = (name: string, scope: ParentNode = container) => [...scope.querySelectorAll("button")].find((b) => b.textContent === name);
   const group = (name: string) => container.querySelector<HTMLElement>(`[data-changes-group="${name}"]`);
@@ -311,5 +348,109 @@ describe("ChangesSurface", () => {
     );
     await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
     expect(surface()?.textContent).not.toContain("Noch nicht gebaut");
+  });
+
+  describe("three comparisons", () => {
+    const options = () => [...container.querySelectorAll<HTMLElement>("[data-against] button")];
+    const notices = () => [...container.querySelectorAll("[role=status], [role=alert]")].map((n) => n.textContent);
+
+    it("the_switch_has_three_options_and_starts_on_basis", async () => {
+      await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      const toggle = container.querySelector<HTMLElement>("[data-against]")!;
+      expect(toggle.getAttribute("data-against")).toBe("base");
+      expect(toggle.querySelector("[aria-label]")?.getAttribute("aria-label")).toBe("Vergleichen mit");
+      expect(options().map((o) => o.textContent)).toEqual(["Gegen Basis", "Gegen letzten Commit", "Gegen gespeichert"]);
+      expect(options().map((o) => o.getAttribute("aria-pressed"))).toEqual(["true", "false", "false"]);
+      await act(async () => options()[1]!.click());
+      expect(onAgainst).toHaveBeenCalledExactlyOnceWith("head");
+      // Without a base ROM the switch is there all the same: the last commit and the saved state need none.
+      await render({ changes: changesWith({ report: null }), status: MISSING });
+      expect(options()).toHaveLength(3);
+      await act(async () => options()[2]!.click());
+      expect(onAgainst).toHaveBeenLastCalledWith("saved");
+    });
+
+    it("head_without_a_repo_offers_git_setup", async () => {
+      // The base ROM missing locks nothing here.
+      await render({ against: "head", status: MISSING, git: gitWith(noRepo()) });
+      expect(notices()).toContain("Dieses Projekt liegt in keinem Git-Repository.");
+      expect(surface()?.textContent).toContain("Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.");
+      expect(surface()?.textContent).not.toContain("Diesem Projekt ist keine Basis-ROM zugeordnet.");
+      const setup = button("Git einrichten…")!;
+      expect(setup.getAttribute("data-kind")).toBe("secondary");
+      await act(async () => setup.click());
+      expect(onGitSetup).toHaveBeenCalledOnce();
+      expect(container.querySelectorAll("[data-kind=primary]")).toHaveLength(0);
+      // While the status is read: no offer yet.
+      await render({ against: "head", git: gitWith(null) });
+      expect(button("Git einrichten…")).toBeUndefined();
+      expect(surface()?.textContent).toContain("Wird gelesen …");
+    });
+
+    it("head_without_a_commit_says_so", async () => {
+      await render({ against: "head", git: gitWith(gitStatusOf({ head: null })) });
+      expect(notices()).toContain("Noch kein Commit: es gibt nichts zu vergleichen.");
+      expect(button("Git einrichten…")).toBeUndefined();
+      expect(container.querySelector("[data-change]")).toBeNull();
+    });
+
+    it("head_lists_entries_with_geloescht_and_neu", async () => {
+      const entries = [
+        entry({ label: "Karte 0003" }),
+        entry({ label: "Karte 0700", state: "new", target: { kind: "map", index: 700 }, assets: [{ kind: "Map", index: 700 }], subject: { kind: "map", index: 700 } }),
+        entry({ group: "Trainer", label: "Trainer 0001", state: "missing", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], subject: { kind: "trainer", index: 1 } }),
+      ];
+      await render({ against: "head", status: MISSING, git: gitWith(gitStatusOf({ changes: 3, entries })), dirty: [{ kind: "Map", index: 3 }] });
+      expect(surface()?.textContent).toContain("Gegenüber dem letzten Commit 4c1d2e3 „Ausgangsstand“ auf main. Gezählt wird der gespeicherte Stand.");
+      expect(badges(change("Karte 0003"))).toEqual(["Geändert", "Ungespeichert"]);
+      expect(badges(change("Karte 0700"))).toEqual(["Neu"]);
+      expect(badges(change("Trainer 0001"))).toEqual(["Gelöscht"]);
+      expect(reason(resetButton("Karte 0700"))).toBe("Kein Original");
+      // „Neu vergleichen“ reads the status again.
+      const git = gitWith(gitStatusOf({ entries }));
+      await render({ against: "head", git });
+      await act(async () => button("Neu vergleichen")!.click());
+      expect(git.refresh).toHaveBeenCalledOnce();
+      // Detached, in a larger repository.
+      await render({ against: "head", git: gitWith(gitStatusOf({ entries, detached: true, branch: null, repo: { kind: "enclosing", workdir: "/Users/x" } })) });
+      expect(surface()?.textContent).toContain("Repository /Users/x. Gegenüber dem letzten Commit 4c1d2e3 „Ausgangsstand“ (losgelöst). Gezählt wird der gespeicherte Stand.");
+      // Nothing changed.
+      await render({ against: "head", git: gitWith(gitStatusOf()) });
+      expect(surface()?.textContent).toContain("Seit dem letzten Commit nichts geändert.");
+      // Unreadable: the reason.
+      await render({ against: "head", git: gitWith(null, { error: "Git-Repository nicht lesbar." }) });
+      expect(container.querySelector("[role=alert]")?.textContent).toContain("Git-Repository nicht lesbar.");
+    });
+
+    it("saved_lists_the_unsaved_entries", async () => {
+      const unsaved = [entry({ group: "Trainer", label: "Trainer 0001", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], subject: { kind: "trainer", index: 1 } })];
+      await render({ against: "saved", status: MISSING, unsaved, dirty: [{ kind: "Trainer", index: 1 }] });
+      expect(surface()?.textContent).toContain("Was ungespeichert vom gespeicherten Stand abweicht.");
+      // One badge: the row is unsaved, nothing else.
+      expect(badges(change("Trainer 0001"))).toEqual(["Ungespeichert"]);
+      expect(button("Neu vergleichen")).toBeUndefined();
+      await render({ against: "saved", unsaved: [] });
+      expect(surface()?.textContent).toContain("Nichts ungespeichert.");
+      await render({ against: "saved", unsaved: null });
+      expect(surface()?.textContent).toContain("Wird gelesen …");
+    });
+
+    it("selecting_a_row_shows_its_diff", async () => {
+      await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      const detail = () => container.querySelector<HTMLElement>("[data-entity-diff]");
+      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(diffEntity).not.toHaveBeenCalled();
+      vi.mocked(diffEntity).mockResolvedValueOnce(diffReport({ against: "base", old_label: "Basis-ROM Platin DE (Testprojekt)" }));
+      await act(async () => change("Trainer 0001")!.click());
+      expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
+      expect(diffEntity).toHaveBeenCalledExactlyOnceWith(ENTRIES[2]!.subject, "base");
+      expect(detail()?.querySelector("h2")?.textContent).toBe("Trainer 0001");
+      expect(detail()?.textContent).toContain("Basis-ROM Platin DE (Testprojekt) → Projekt (gespeichert)");
+      // The list and the detail sit in a split that turns into two columns on a wide surface.
+      expect(detail()?.closest("[data-changes-split]")).not.toBeNull();
+      // Another comparison forgets the choice.
+      await render({ against: "head", git: gitWith(gitStatusOf({ entries: ENTRIES })), changes: changesWith({ report: report({ entries: ENTRIES }) }) });
+      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+    });
   });
 });

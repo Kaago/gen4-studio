@@ -90,3 +90,33 @@
   justify-content: flex-end;
   gap: var(--g4-raum-6);
 }
+
+.toggle {
+  display: flex;
+}
+
+/* The list and the detail of the chosen row: side by side when the surface has room (≥ 760 px), else the detail below the list. The
+   split may grow past the reading width, so both columns keep room for their content. */
+.surface > .split {
+  max-width: 1280px;
+  container-type: inline-size;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--g4-raum-16);
+}
+
+@container (min-width: 760px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  /* The detail stays in view while the list scrolls the surface. */
+  .columns > :last-child {
+    position: sticky;
+    top: 0;
+  }
+}

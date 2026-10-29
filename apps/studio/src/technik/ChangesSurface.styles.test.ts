@@ -12,4 +12,11 @@ describe("the Änderungen surface", () => {
     expect(groups).toMatch(/overflow:\s*hidden/);
     expect(groups).toMatch(/flex-shrink:\s*0|flex:\s*none|flex:\s*0\s+0/);
   });
+
+  it("puts_the_detail_beside_the_list_from_760px_of_the_split", () => {
+    // The split is the container its columns ask; below 760 px one column (the detail under the list), from 760 px two.
+    expect(ruleBody(css, ".surface > .split")).toMatch(/container-type:\s*inline-size/);
+    expect(ruleBody(css, ".columns")).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s*;/);
+    expect(css).toMatch(/@container \(min-width: 760px\) \{\s*\.columns \{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/);
+  });
 });

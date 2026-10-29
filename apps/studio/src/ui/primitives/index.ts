@@ -76,6 +76,8 @@ export { PokemonCard } from "./PokemonCard";
 export type { PokemonCardProps } from "./PokemonCard";
 export { BeforeAfter } from "./BeforeAfter";
 export type { BeforeAfterProps } from "./BeforeAfter";
+export { ChangeTable } from "./ChangeTable";
+export type { ChangeCell, ChangeSpan, ChangeTableProps, ChangeTableRow } from "./ChangeTable";
 export { CheckList } from "./CheckList";
 export type { CheckListProps, CheckRow, CheckState } from "./CheckList";
 export { DRAG_SLOP, Splitter } from "./Splitter";

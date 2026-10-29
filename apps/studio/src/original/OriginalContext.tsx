@@ -12,6 +12,8 @@ export interface ResetApi {
    * returns focus to the element that had it.
    */
   open: (target: ResetTarget, opts?: { scriptDirty?: boolean; finalFocus?: () => HTMLElement | null }) => void;
+  /** The open project's header family, for the German names of header fields (Technik › Änderungen); null or absent without one. */
+  family?: HeaderFamily | null;
 }
 
 const NONE: ResetApi = { status: null, open: () => {} };
@@ -94,7 +96,8 @@ export function OriginalProvider({ children, onReset, status, family, dirty }: O
     serials.current += 1;
     setRequest({ target, scriptDirty: opts?.scriptDirty ?? false, finalFocus: opts?.finalFocus, serial: serials.current });
   }, []);
-  const api = useMemo<ResetApi>(() => ({ status, open }), [status, open]);
+  const headerFamily = family === null ? null : headerFamilyOf(family);
+  const api = useMemo<ResetApi>(() => ({ status, open, family: headerFamily }), [status, open, headerFamily]);
   const unsaved = request !== null && storeAssets(request.target).some((a) => dirty.some((d) => d.kind === a.kind && d.index === a.index));
   return (
     <ResetContext.Provider value={api}>
@@ -104,7 +107,7 @@ export function OriginalProvider({ children, onReset, status, family, dirty }: O
           key={request.serial}
           target={request.target}
           baseLabel={status?.state === "ready" ? status.label : null}
-          family={family === null ? null : headerFamilyOf(family)}
+          family={headerFamily}
           scriptDirty={request.scriptDirty}
           finalFocus={request.finalFocus}
           dirty={unsaved}

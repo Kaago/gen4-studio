@@ -17,6 +17,8 @@ import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
 import type { OriginalStatus } from "../api";
 import { found, missing, patchDto } from "./baseTesting";
 import { changesWith, entry, report } from "./changesTesting";
+import { gitStatusOf, noRepo } from "../git/gitTesting";
+import type { GitStatus } from "../api";
 import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
 import { useBase } from "./useBase";
 import { TechnikArea } from "./TechnikArea";
@@ -98,6 +100,12 @@ describe("TechnikArea", () => {
         changes={null}
         dirty={[]}
         textProject={null}
+        against="base"
+        onAgainst={() => {}}
+        git={null}
+        unsaved={null}
+        onGitSetup={() => {}}
+        revision={0}
         {...handlers}
         base={project === null ? null : base}
         {...over}
@@ -239,6 +247,40 @@ describe("TechnikArea", () => {
     expect(subtitle("Änderungen")).toBe("1 Eintrag weicht ab");
     await show(changesWith({ report: report({ entries: [entry(), entry({ label: "Karte 0004" }), entry({ label: "Karte 0005" })] }) }));
     expect(subtitle("Änderungen")).toBe("3 Einträge weichen ab");
+  });
+
+  it("aenderungen_subtitle_follows_the_comparison", async () => {
+    const show = (over: Partial<TechnikAreaProps>, status: OriginalStatus | null = MISSING) =>
+      act(async () => root.render(withReset(resetSpy(status), <Host changes={changesWith({ report: null })} {...over} />)));
+    const git = (status: GitStatus | null) => ({ status, error: null, refresh: async () => {} });
+    // Against the last commit: the base ROM missing does not matter.
+    await show({ against: "head", git: git(null) });
+    expect(subtitle("Änderungen")).toBe("Wird gelesen …");
+    await show({ against: "head", git: git(noRepo()) });
+    expect(subtitle("Änderungen")).toBe("Kein Git");
+    await show({ against: "head", git: git(gitStatusOf({ head: null })) });
+    expect(subtitle("Änderungen")).toBe("Noch kein Commit");
+    await show({ against: "head", git: git(gitStatusOf()) });
+    expect(subtitle("Änderungen")).toBe("Keine Änderung seit dem Commit");
+    await show({ against: "head", git: git(gitStatusOf({ changes: 2, entries: [entry()] })) });
+    expect(subtitle("Änderungen")).toBe("1 Änderung seit dem Commit");
+    await show({ against: "head", git: git(gitStatusOf({ changes: 9, entries: [entry(), entry({ label: "Karte 0004" }), entry({ label: "Karte 0005" })] })) });
+    expect(subtitle("Änderungen")).toBe("3 Änderungen seit dem Commit");
+    // Against the saved state.
+    await show({ against: "saved", unsaved: null });
+    expect(subtitle("Änderungen")).toBe("Wird gelesen …");
+    await show({ against: "saved", unsaved: [] });
+    expect(subtitle("Änderungen")).toBe("Nichts ungespeichert");
+    await show({ against: "saved", unsaved: [entry()] });
+    expect(subtitle("Änderungen")).toBe("1 Eintrag ungespeichert");
+    await show({ against: "saved", unsaved: [entry(), entry({ label: "Karte 0004" })] });
+    expect(subtitle("Änderungen")).toBe("2 Einträge ungespeichert");
+    // Against the base: as before.
+    await show({ against: "base" });
+    expect(subtitle("Änderungen")).toBe("Basis-ROM fehlt");
+    // No project: the same in every comparison.
+    await show({ against: "head", changes: null, git: git(gitStatusOf()) }, null);
+    expect(subtitle("Änderungen")).toBe("Kein Projekt geöffnet");
   });
 
   it("veroeffentlichen_subtitle_follows_the_base_state", async () => {

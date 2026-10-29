@@ -31,4 +31,12 @@ describe("ContentPage", () => {
     expect(ruleBody(css, ".inspectorNarrow")).toMatch(/container:\s*inspector\s*\/\s*inline-size/);
     expect(ruleBody(css, ".inspectorNarrow")).toMatch(/width:\s*280px/);
   });
+
+  it("shows_a_change_table_with_word_spans", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="change-table"]')!;
+    expect(block.querySelector("table caption")?.textContent).toBe("Trainer 0001 gegen den letzten Commit");
+    expect(block.querySelector("del")?.textContent).toBe("Zweiblattdorf");
+    expect(block.querySelector("ins")?.textContent).toBe("Sandgemme");
+    expect(block.textContent).toContain("und 3 weitere Felder");
+  });
 });
