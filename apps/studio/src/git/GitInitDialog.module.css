@@ -1,0 +1,14 @@
+/* The body of „Git einrichten?“ (the legal note, the checks before, the progress line, a refusal or Git's reason) and of „Textprojekt
+   vervollständigen?“ (the missing base ROM, the progress line, a refusal). */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* „Dateien aufnehmen …“, „Spieldateien einsetzen …“: what runs now. */
+.progress {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

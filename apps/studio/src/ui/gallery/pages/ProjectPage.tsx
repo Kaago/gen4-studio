@@ -42,8 +42,8 @@ const EXAMPLE: StartService = {
   },
   defaultProjectParent: async () => ({ parent: "/Users/du/Documents/Gen4 Studio", dspre_suffix: true }),
   checkProjectDest: async (_dest, romSize) => ({ state: "missing", free_bytes: 48_000_000_000, needed_bytes: Math.round(romSize * 2.5), ok: true }),
-  createProject: async (_rom, dest, template, textProject, onProgress): Promise<Created> => {
-    const phases = textProject ? [...PHASES, "text_project" as const] : PHASES;
+  createProject: async (_rom, dest, template, textProject, git, onProgress): Promise<Created> => {
+    const phases: CreatePhase[] = [...PHASES, ...(textProject ? (["text_project"] as const) : []), ...(git ? (["git"] as const) : [])];
     for (const phase of phases) {
       onProgress({ phase, done: 0, total: phase === "template" ? 0 : 1 });
       await wait(PHASE_MS);

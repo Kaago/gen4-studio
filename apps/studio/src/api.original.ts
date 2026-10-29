@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { AssetId } from "./api";
 import { isCmdError } from "./api";
+import type { DiffSubject } from "./api.git";
 import { inTauri, invoke } from "./platform/transport";
 
 /**
@@ -83,8 +84,10 @@ export interface ChangedEntry {
   target: ResetTarget | null;
   /** The store assets of the entry, so the unsaved ones can be marked. */
   assets: AssetId[];
-  /** The folder below `unpacked/`; null for a header. */
+  /** The folder below `unpacked/`; null for a header and a project file. */
   folder: string | null;
+  /** The entity as the diff names it (4.4), the same in the lists against the base, the last commit and the saved state. */
+  subject: DiffSubject;
 }
 
 export interface ChangedReport {

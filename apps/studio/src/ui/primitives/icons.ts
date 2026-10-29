@@ -30,6 +30,7 @@ import {
   FolderOpen,
   GameController,
   Gear,
+  GitBranch,
   GitDiff,
   Globe,
   GridFour,
@@ -154,6 +155,8 @@ export const icons = {
   dock: SidebarSimple,
   /** A room whose maps other rooms use too („Geteilt“). */
   shared: ShareNetwork,
+  /** Git (4.4): the status line's branch and changes, „Git einrichten…“. */
+  git: GitBranch,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

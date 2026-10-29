@@ -49,7 +49,7 @@ function StartSchau({ choice }: { choice: WizardChoice | null }) {
           </div>
           <div>
             <dt>Vorlage</dt>
-            <dd>{choice ? `${TEMPLATE_NAMES[choice.template]}${choice.textProject ? ", als Textprojekt" : ""}` : "–"}</dd>
+            <dd>{choice ? `${TEMPLATE_NAMES[choice.template]}${choice.textProject ? ", als Textprojekt" : ""}${choice.git ? ", mit Git" : ""}` : "–"}</dd>
           </div>
           <div>
             <dt>Ziel</dt>

@@ -89,6 +89,11 @@ interface SessionParams {
   syncBeforeBuild?: MutableRefObject<(() => Promise<SyncOutcome | null>) | null>;
   /** Shows Technik › Textprojekt; the message of a build stopped by conflicts offers it („Lösen…“). */
   onShowConflicts?: () => void;
+  /**
+   * The folder asked to open is a text project without its game files (a fresh Git clone, `restore_needed` with the kernel's sentence):
+   * the app offers to complete it instead of showing an error. Nothing is opened; the open project stays.
+   */
+  onRestoreNeeded?: (root: string, message: string) => void;
 }
 
 /**
@@ -97,7 +102,7 @@ interface SessionParams {
  * has to reload belongs to the scene and the editors; `staleRefresh` is where the app plugs that
  * in (a ref, because the hooks that know how are created after this one).
  */
-export function useProjectSession({ bus, problems, scripts, onShowProblems, syncBeforeBuild, onShowConflicts }: SessionParams) {
+export function useProjectSession({ bus, problems, scripts, onShowProblems, syncBeforeBuild, onShowConflicts, onRestoreNeeded }: SessionParams) {
   const [info, setInfo] = useState<ProjectInfo | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   const [dirtyCount, setDirtyCount] = useState(0);
@@ -234,7 +239,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       if (dirtyCount + scripts.current.dirtyFiles().length > 0 && !(await ask("Ungespeicherte Änderungen verwerfen?", { kind: "warning" }))) return "cancelled";
       const path = known ?? (await openPath({ directory: true }));
       if (path === null) return "cancelled";
-      return (await openProjectAt(path, resetProject)) ? "opened" : "failed";
+      const opened = await openAt(path, resetProject);
+      // A clone to complete is no failure: the app asks about it.
+      return opened === "restore" ? "cancelled" : opened;
     } catch (e) {
       fail(e);
       return "failed";
@@ -243,14 +250,23 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
 
   /** Opens the project at `path` (no question asked); see `onOpen` for `resetProject`. False when it could not be opened. */
   async function openProjectAt(path: string, resetProject: (headers: HeaderSummary[]) => void): Promise<boolean> {
+    return (await openAt(path, resetProject)) === "opened";
+  }
+
+  /** `openProjectAt`, telling a clone to complete (`restore`, handed to `onRestoreNeeded`) from a failure (said in the message). */
+  async function openAt(path: string, resetProject: (headers: HeaderSummary[]) => void): Promise<"opened" | "failed" | "restore"> {
     try {
       const opened = await openProject(path);
       backendRoot.current = opened.root;
       await installSession(opened, resetProject);
-      return true;
+      return "opened";
     } catch (e) {
+      if (isCmdError(e) && e.code === "restore_needed" && onRestoreNeeded) {
+        onRestoreNeeded(path, e.message);
+        return "restore";
+      }
       fail(e);
-      return false;
+      return "failed";
     }
   }
 

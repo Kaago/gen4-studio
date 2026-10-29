@@ -10,6 +10,7 @@ export const entry = (over: Partial<ChangedEntry> = {}): ChangedEntry => ({
   target: { kind: "map", index: 3 },
   assets: [{ kind: "Map", index: 3 }],
   folder: "maps",
+  subject: { kind: "map", index: 3 },
   ...over,
 });
 

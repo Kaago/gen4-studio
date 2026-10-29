@@ -10,6 +10,8 @@ import { check, found } from "./technik/baseTesting";
 import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
+import { gitInit, gitStatus, restoreTextProject } from "./api";
+import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
@@ -229,6 +231,9 @@ vi.mock("./api", async (importOriginal) => ({
   renameId: vi.fn(),
   entityIds: vi.fn(),
   closeProject: vi.fn(),
+  gitStatus: vi.fn(),
+  gitInit: vi.fn(),
+  restoreTextProject: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -330,6 +335,8 @@ describe("App wiring", () => {
     // A DSPRE folder: no sync runs. Its hint („Als Textprojekt einrichten“) was dismissed, so the tests of other toasts see only theirs.
     vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: true, reason: null });
     localStorage.setItem("g4.textProjectHint./p", "dismissed");
+    // A folder in no Git repository: the status line shows nothing of Git.
+    vi.mocked(gitStatus).mockResolvedValue(noRepo());
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
@@ -755,7 +762,7 @@ describe("App wiring", () => {
         await click("Weiter");
         await click("Anlegen");
         await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
-        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, false, expect.any(Function));
+        expect(createProject).toHaveBeenCalledWith("/roms/_testkopien/pt.nds", "/roms/_testkopien/Neues Platin", template, false, false, expect.any(Function));
         // The backend hands out a new info object for every project it opens.
         vi.mocked(openProject).mockClear().mockImplementation(async (root) => ({ root, game_code: "CPUD", family: "Platinum", language: "de", header_count: 2 }));
         await click("Öffnen");
@@ -3165,7 +3172,7 @@ describe("App wiring", () => {
     it("technik_aenderungen_compares_when_shown_and_again_after_a_save_a_reset_and_an_agent_save", async () => {
       vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 600 } });
       vi.mocked(changedFromOriginal).mockClear().mockResolvedValue({
-        entries: [{ group: "Karten", label: "Karte 0003", state: "changed", target: { kind: "map", index: 3 }, assets: [{ kind: "Map", index: 3 }], folder: "maps" }],
+        entries: [{ group: "Karten", label: "Karte 0003", state: "changed", target: { kind: "map", index: 3 }, assets: [{ kind: "Map", index: 3 }], folder: "maps", subject: { kind: "map", index: 3 } }],
         files: 4,
         hashed: 0,
         recorded: 0,
@@ -3338,6 +3345,80 @@ describe("App wiring", () => {
       await select(listed[0]);
       expect(data().matrix?.index).toBe(7);
       await areaOnlyChangeReachesScene(listed[0]);
+    });
+  });
+
+  describe("git", () => {
+    const CLONE = "Dieser Ordner ist ein Textprojekt ohne Spieldateien, etwa ein frischer Git-Klon. Basis-ROM: Platin DE (Testprojekt).";
+    const inDocument = (selector: string) => document.querySelector<HTMLElement>(selector);
+    const dialogButton = (selector: string, label: string) => [...(inDocument(selector)?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === label);
+    const gitItem = () => container.querySelector<HTMLButtonElement>("[data-git-status]");
+
+    it("opening_a_clone_offers_to_complete_it", async () => {
+      vi.mocked(openProject).mockRejectedValueOnce({ code: "restore_needed", message: CLONE, asset: null });
+      vi.mocked(openPath).mockResolvedValueOnce("/k");
+      await click("Projekt öffnen");
+      // No error: the dialog asks instead, with the kernel's sentence.
+      expect(alerts()).toEqual([]);
+      expect(inDocument("[data-restore-dialog] h2")?.textContent).toBe("Textprojekt vervollständigen?");
+      expect(inDocument("[data-restore-dialog]")?.textContent).toContain(CLONE);
+      // „Abbrechen“: nothing is completed, the open project stays.
+      await act(async () => dialogButton("[data-restore-dialog]", "Abbrechen")!.click());
+      expect(inDocument("[data-restore-dialog]")).toBeNull();
+      expect(restoreTextProject).not.toHaveBeenCalled();
+      expect(titleBar()).toContain("p");
+
+      // Again, and completed: the backend opened it, the app reads it as after opening.
+      vi.mocked(openProject).mockRejectedValueOnce({ code: "restore_needed", message: CLONE, asset: null });
+      vi.mocked(openPath).mockResolvedValueOnce("/k");
+      await click("Projekt öffnen");
+      vi.mocked(restoreTextProject).mockResolvedValueOnce({ moved: 11, ms: 2_000 });
+      vi.mocked(openProject).mockResolvedValueOnce({ root: "/k", game_code: "CPUD", family: "Platinum", language: "de", header_count: 2 });
+      await act(async () => dialogButton("[data-restore-dialog]", "Vervollständigen")!.click());
+      expect(restoreTextProject).toHaveBeenCalledWith("/k", null, expect.any(Function));
+      expect(openProject).toHaveBeenLastCalledWith("/k");
+      expect(inDocument("[data-restore-dialog]")).toBeNull();
+      expect(titleBar()).toContain("k");
+      expect(listToasts().map((t) => t.text)).toContain("Textprojekt vervollständigt in 2\u00a0s.");
+    });
+
+    it("the_status_line_shows_git_and_opens_the_changes", async () => {
+      // Without a repository: no item.
+      expect(gitItem()).toBeNull();
+      // Opened again in a repository: the item names branch and changes, before the agents and the build.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 3 }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(gitItem()?.textContent).toBe("main · 3 Änderungen");
+      expect(statusLine().indexOf("main · 3 Änderungen")).toBeLessThan(statusLine().indexOf("Noch nicht gebaut"));
+      // A save reads it again.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 4 }));
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(gitItem()?.textContent).toBe("main · 4 Änderungen");
+      // A click shows Technik › Änderungen.
+      await act(async () => gitItem()!.click());
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("aenderungen");
+    });
+
+    it("sets_up_git_from_the_palette_and_reads_the_status_again", async () => {
+      const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      typeInSearch(paletteInput()!, "git einrichten");
+      pressKey(paletteInput()!, "Enter");
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(inDocument("[data-git-init-dialog] h2")?.textContent).toBe("Git einrichten?");
+      vi.mocked(gitInit).mockResolvedValueOnce(initReportOf());
+      vi.mocked(gitStatus).mockClear().mockResolvedValue(gitStatusOf());
+      await act(async () => dialogButton("[data-git-init-dialog]", "Einrichten")!.click());
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(gitInit).toHaveBeenCalledOnce();
+      expect(gitStatus).toHaveBeenCalled();
+      expect(inDocument("[data-git-init-dialog]")).toBeNull();
+      expect(gitItem()?.textContent).toBe("main · keine Änderung");
+      expect(listToasts().map((t) => t.text)).toContain("Git eingerichtet: 18.449\u00a0Dateien im ersten Commit „Ausgangsstand“.");
     });
   });
 });
