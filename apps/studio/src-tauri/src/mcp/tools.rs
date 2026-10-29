@@ -1561,7 +1561,7 @@ mod tests {
     };
     use crate::commands::{header_patch_status_impl, history_impl, undo_impl};
     use crate::mcp::TOOLSET;
-    use crate::mcp::hub::{AgentEvent, QuestionDto};
+    use crate::mcp::hub::{AgentEvent, QUESTION_WAIT, QuestionDto};
     use g4_kernel::test_support::{Synthetic, synthetic_project};
     use serde_json::json;
     use std::thread::JoinHandle;
@@ -2733,9 +2733,18 @@ mod tests {
 
     // The toolbox over the user's session.
 
-    /// How long a shared call waits for an answer in the tests (the helper thread answers
-    /// within milliseconds).
-    const WAIT: Duration = Duration::from_secs(5);
+    /// The upper bound for everything in the tests that waits for the hub's question or its
+    /// answer: the production wait ([`QUESTION_WAIT`]). A call checks a lot before it asks
+    /// (hashing the base ROM, planning the build step over the whole fixture), which takes
+    /// seconds on a loaded machine, so the bound only ever matters when something is really
+    /// broken; a passing test never waits for it.
+    const PATIENCE: Duration = QUESTION_WAIT;
+
+    /// How long a shared call waits for an answer in the tests. The helper thread answers
+    /// as soon as the question is raised, but only then, so the call must not give up before
+    /// the question has even been raised: the same as [`PATIENCE`]. Tests of the timeout use
+    /// their own short wait.
+    const WAIT: Duration = PATIENCE;
 
     /// The synthetic project opened in a state of the "app" with "Lokale Agenten zulassen"
     /// on, and a toolbox over it.
@@ -2754,20 +2763,28 @@ mod tests {
         state.agents.set_grant(key, level).unwrap();
     }
 
+    /// Waits until the hub raises a question and gives it back. The call under test may
+    /// check a lot before it asks, so this waits up to [`PATIENCE`] and fails only then.
+    fn await_question(state: &AppState) -> QuestionDto {
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            if let Some(question) = state.agents.status().question {
+                return question;
+            }
+            assert!(Instant::now() < deadline, "no question raised");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
     /// Answers the next question the hub raises with `answer` (from a helper thread, as the
-    /// user would); the thread gives the question back.
+    /// user would); the thread gives the question back. It waits for the question as long as
+    /// the call under test may need to get to it (see [`await_question`]).
     fn answer_next(state: &Arc<AppState>, answer: &'static str) -> JoinHandle<QuestionDto> {
         let state = Arc::clone(state);
         std::thread::spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            loop {
-                if let Some(question) = state.agents.status().question {
-                    state.agents.answer(question.id, answer).unwrap();
-                    return question;
-                }
-                assert!(Instant::now() < deadline, "no question raised");
-                std::thread::sleep(Duration::from_millis(2));
-            }
+            let question = await_question(&state);
+            state.agents.answer(question.id, answer).unwrap();
+            question
         })
     }
 
@@ -2950,11 +2967,7 @@ mod tests {
                 std::thread::spawn(move || toolbox.call("data_edit", power(40 + i), AGENT))
             })
             .collect();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while state.agents.status().question.is_none() {
-            assert!(Instant::now() < deadline, "no question raised");
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        await_question(&state);
         // Give every call time to arrive: none runs before the answer.
         std::thread::sleep(Duration::from_millis(100));
         assert!(history_impl(&state).unwrap().undo.is_empty());
