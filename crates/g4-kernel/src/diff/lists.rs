@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::DiffSubject;
+use super::side::{DiskHeaders, HeadHeaders};
 use crate::error::{KernelError, io_at};
 use crate::git::templates::layout_of;
 use crate::git::{GitRepo, GitStatus, Layout, PathState};
@@ -13,9 +14,8 @@ use crate::original::{ChangeState, ChangedEntry};
 use crate::project::Project;
 use crate::store::{HEADER_TABLE, Store};
 
-/// Bytes of a header and of its `mapname.bin` record.
+/// Bytes of a header.
 const HEADER_LEN: usize = 24;
-const NAME_LEN: usize = 16;
 
 /// The status paths as entities: Modified/TypeChange → Changed, Added/Untracked → New,
 /// Deleted → Missing; the members of one entity make one entry; an `arm9/arm9.bin` change
@@ -23,9 +23,12 @@ const NAME_LEN: usize = 16;
 /// order of 4.1b, `file` entries last.
 ///
 /// The paths of one entity in different states (a map's JSON changed, its model new) make it
-/// `Changed`. In the DSPRE layout a changed `mapname.bin` lists the headers whose names
-/// differ, like `arm9.bin` (it holds nothing else); in a text project (any schema, as
-/// [`layout_of`] takes it) both are files.
+/// `Changed`. In the DSPRE layout the paths that hold headers (a changed `arm9.bin`,
+/// `mapname.bin`, the Dynamic Headers folder once a side carries the patch) are compared
+/// once, header by header, as [`super::diff_entity`] reads them ([`HeadHeaders`],
+/// [`DiskHeaders`]): only the headers that differ are listed, whichever form each side
+/// keeps them in (see [`header_entries`]). In a text project (any schema, as
+/// [`layout_of`] takes it) those are files.
 pub fn head_entries(
     project: &Project,
     repo: &GitRepo,
@@ -33,8 +36,8 @@ pub fn head_entries(
 ) -> Result<Vec<ChangedEntry>, KernelError> {
     // The layout of the templates: in a text project (of any schema) the headers are files.
     let dspre = layout_of(project) == Layout::Dspre;
-    let arm9 = rel(project, &project.arm9_path());
-    let names = rel(project, &project.mapname_path());
+    let paths = HeaderPaths::of(project);
+    let mut held = Vec::new();
     let mut list = Entries::default();
     for path in &status.paths {
         let state = match path.state {
@@ -42,19 +45,16 @@ pub fn head_entries(
             PathState::Added | PathState::Untracked => ChangeState::New,
             PathState::Deleted => ChangeState::Missing,
         };
-        if dspre && state == ChangeState::Changed && path.path == arm9 {
-            arm9_entries(project, repo, &path.path, &mut list)?;
-            continue;
-        }
-        if dspre && state == ChangeState::Changed && path.path == names {
-            let head = repo.head_blob(Path::new(&path.path))?.unwrap_or_default();
-            let disk = read(&project.mapname_path())?;
-            records(&head, &disk, NAME_LEN, &mut list);
+        if dspre && paths.holds_headers(&path.path) {
+            held.push((path.path.as_str(), state));
             continue;
         }
         if let Some(subject) = DiffSubject::of_path(project, &path.path) {
             list.add(subject, state);
         }
+    }
+    if !held.is_empty() {
+        header_entries(project, repo, &paths, &held, &mut list)?;
     }
     Ok(list.into_entries(project))
 }
@@ -139,39 +139,135 @@ fn order(subject: &DiffSubject) -> (usize, String, u16, String) {
     }
 }
 
-/// The headers whose records differ between `HEAD`'s `arm9.bin` and the disk's (one record
-/// per name of `mapname.bin` on disk), and the file itself when bytes outside the table
-/// differ.
-fn arm9_entries(
+/// The paths (relative, `/`-separated) that hold headers in the DSPRE layout.
+struct HeaderPaths {
+    arm9: String,
+    names: String,
+    /// The Dynamic Headers folder with a trailing `/`.
+    dynamic: String,
+}
+
+impl HeaderPaths {
+    fn of(project: &Project) -> HeaderPaths {
+        HeaderPaths {
+            arm9: rel(project, &project.arm9_path()),
+            names: rel(project, &project.mapname_path()),
+            dynamic: format!(
+                "{}/",
+                rel(project, &crate::dynamic_headers::unpacked_dir(project))
+            ),
+        }
+    }
+
+    fn holds_headers(&self, path: &str) -> bool {
+        path == self.arm9 || path == self.names || path.starts_with(&self.dynamic)
+    }
+}
+
+/// The rows of the status paths that hold headers (`held`, with their states):
+///
+/// - the headers that differ between `HEAD` and the disk, each side read as the diff reads
+///   it (header files with the Dynamic Headers patch in that side's `arm9.bin`, else its
+///   table in `arm9.bin`, with the names of its `mapname.bin`), compared once when a changed
+///   `arm9.bin`, a `mapname.bin` or a file of the Dynamic Headers folder with the patch on
+///   either side is among the paths;
+/// - `file arm9/arm9.bin` when bytes outside the table differ; an `arm9.bin` added or
+///   deleted is that file only;
+/// - a file of the Dynamic Headers folder without the patch on either side: a member of its
+///   folder (the NARC's own, as 4.1b's list has it);
+/// - a changed `arm9.bin` or `mapname.bin` whose bytes add no row (a mode change, a change
+///   of the stale table of a patched side): the file itself.
+fn header_entries(
     project: &Project,
     repo: &GitRepo,
-    path: &str,
+    paths: &HeaderPaths,
+    held: &[(&str, ChangeState)],
     list: &mut Entries,
 ) -> Result<(), KernelError> {
-    let head = repo.head_blob(Path::new(path))?.unwrap_or_default();
-    let disk = read(&project.arm9_path())?;
-    let names = read(&project.mapname_path())?;
-    let start = usize::try_from(project.header_table_offset()?).unwrap_or(usize::MAX);
-    let end = start.saturating_add(names.len() / NAME_LEN * HEADER_LEN);
-    let table = |bytes: &[u8]| -> Vec<u8> {
-        bytes
-            .get(start.min(bytes.len())..end.min(bytes.len()))
-            .unwrap_or_default()
-            .to_vec()
+    let file = |path: &str| DiffSubject::File {
+        path: path.to_owned(),
     };
-    records(&table(&head), &table(&disk), HEADER_LEN, list);
-    let outside = |bytes: &[u8]| {
-        let (before, rest) = bytes.split_at(start.min(bytes.len()));
-        let after = rest.get(end.saturating_sub(start)..).unwrap_or_default();
-        (before.to_vec(), after.to_vec())
-    };
-    if outside(&head) != outside(&disk) {
-        list.add(
-            DiffSubject::File {
-                path: path.to_owned(),
-            },
-            ChangeState::Changed,
-        );
+    let head = HeadHeaders::read(project, repo)?;
+    let disk_arm9 = read(&project.arm9_path())?;
+    let patched = head.patched() || crate::dynamic_headers::is_applied_in(project, &disk_arm9)?;
+    let arm9 = held
+        .iter()
+        .find(|(path, _)| *path == paths.arm9)
+        .map(|&(_, state)| state);
+    let names = held
+        .iter()
+        .find(|(path, _)| *path == paths.names)
+        .map(|&(_, state)| state);
+    let mut dynamic = false;
+    for &(path, state) in held {
+        let Some(name) = path.strip_prefix(&paths.dynamic) else {
+            continue;
+        };
+        if patched {
+            dynamic = true;
+            continue;
+        }
+        let folder = paths.dynamic.trim_end_matches('/');
+        let folder = folder.rsplit('/').next().unwrap_or(folder).to_owned();
+        let subject = match name.parse::<u16>() {
+            Ok(index) if name.len() >= 4 && format!("{index:04}") == name => {
+                DiffSubject::Member { folder, index }
+            }
+            _ => file(path),
+        };
+        list.add(subject, state);
+    }
+    if let Some(state) = arm9.filter(|&state| state != ChangeState::Changed) {
+        list.add(file(&paths.arm9), state);
+    }
+    let arm9_changed = arm9 == Some(ChangeState::Changed);
+    if !(arm9_changed || names.is_some() || dynamic) {
+        return Ok(());
+    }
+
+    // Header by header, as the diff reads both sides.
+    let disk = DiskHeaders::read(project)?;
+    let count = head.count().unwrap_or(disk.count()).max(disk.count());
+    let (mut records_differ, mut names_differ) = (false, false);
+    for i in 0..count {
+        let Ok(index) = u16::try_from(i) else { break };
+        let state = match (head.header(repo, index)?, disk.header(index)) {
+            (Some(old), Some(new)) if old == new => continue,
+            (Some(old), Some(new)) => {
+                records_differ |= old.0 != new.0;
+                names_differ |= old.1 != new.1;
+                ChangeState::Changed
+            }
+            (None, Some(_)) => ChangeState::New,
+            (Some(_), None) => ChangeState::Missing,
+            (None, None) => continue,
+        };
+        // A header more or less is in both files.
+        if state != ChangeState::Changed {
+            records_differ = true;
+            names_differ = true;
+        }
+        list.add(DiffSubject::Header { index }, state);
+    }
+
+    if arm9_changed {
+        // The table's place in `arm9.bin`, one record per header.
+        let start = usize::try_from(project.header_table_offset()?).unwrap_or(usize::MAX);
+        let end = start.saturating_add(count.saturating_mul(HEADER_LEN));
+        let outside = |bytes: &[u8]| {
+            let (before, rest) = bytes.split_at(start.min(bytes.len()));
+            let after = rest.get(end.saturating_sub(start)..).unwrap_or_default();
+            (before.to_vec(), after.to_vec())
+        };
+        let head_arm9 = head.arm9().unwrap_or_default();
+        if outside(head_arm9) != outside(&disk_arm9) || !records_differ {
+            list.add(file(&paths.arm9), ChangeState::Changed);
+        }
+    }
+    if let Some(state) = names
+        && !names_differ
+    {
+        list.add(file(&paths.names), state);
     }
     Ok(())
 }

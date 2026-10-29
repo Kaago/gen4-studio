@@ -9,7 +9,7 @@ use crate::dynamic_headers;
 use crate::original::changed::{GROUPS, HEADER_GROUP, group_of};
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind, Project};
-use crate::textproject::source::{entity_of_data_file, item_member_of};
+use crate::textproject::source::{entity_of_data_file, item_member_of, item_members};
 
 /// The group of a project file.
 const FILES_GROUP: &str = "Projektdateien";
@@ -184,8 +184,9 @@ impl DiffSubject {
             }
             AssetKind::Move => DiffSubject::Move { index },
             AssetKind::Item => {
-                let table = project.item_table_to_write()?;
-                let first = table.entries.iter().position(|e| e.data == index)?;
+                // The item table, cached while `arm9.bin` and the item folder stay.
+                let members = item_members(project)?;
+                let first = members.iter().position(|&member| member == index)?;
                 DiffSubject::Item {
                     index: u16::try_from(first).ok()?,
                 }
@@ -291,20 +292,29 @@ fn kind_of_folder(project: &Project, folder: &str) -> Option<AssetKind> {
 }
 
 /// The subject of member file `unpacked/<folder>/<name>`: a Dynamic Headers file is its
-/// header, a member of an archive kind that kind's subject, else a `member`.
+/// header once the patch is applied (before, the folder holds the NARC's own members), a
+/// member of an archive kind that kind's subject, else (also an item member no item id
+/// names) a `member` of its folder.
 fn unpacked(project: &Project, folder: &str, name: &str) -> Option<DiffSubject> {
     let index = number(name)?;
+    let member = || DiffSubject::Member {
+        folder: folder.to_owned(),
+        index,
+    };
     let headers = dynamic_headers::unpacked_dir(project);
     if headers.file_name().is_some_and(|dir| dir == folder) {
-        return Some(DiffSubject::Header { index });
+        let patched = dynamic_headers::is_applied(project).unwrap_or(false);
+        return Some(if patched {
+            DiffSubject::Header { index }
+        } else {
+            member()
+        });
     }
-    match kind_of_folder(project, folder) {
-        Some(kind) => DiffSubject::from_asset(project, AssetId { kind, index }),
-        None => Some(DiffSubject::Member {
-            folder: folder.to_owned(),
-            index,
-        }),
-    }
+    Some(
+        kind_of_folder(project, folder)
+            .and_then(|kind| DiffSubject::from_asset(project, AssetId { kind, index }))
+            .unwrap_or_else(member),
+    )
 }
 
 /// The subject of a source below `expanded/`: a text archive's `NNNN.json`, a script file's
@@ -450,6 +460,13 @@ mod tests {
             DiffSubject::of_path(&project, "unpacked/itemData/0007"),
             Some(DiffSubject::Item { index: 1 })
         );
+        // A member no item id names is a member of its folder, as in the other lists.
+        let folder = project.archives.unpacked_name(AssetKind::Item).to_owned();
+        std::fs::write(dir.path().join("unpacked/itemData/0010"), [0u8; 34]).unwrap();
+        assert_eq!(
+            DiffSubject::of_path(&project, "unpacked/itemData/0010"),
+            Some(DiffSubject::Member { folder, index: 10 })
+        );
     }
 
     #[test]
@@ -520,6 +537,30 @@ mod tests {
             Some(DiffSubject::File {
                 path: "data/ids/trainers.json".into()
             })
+        );
+    }
+
+    #[test]
+    fn a_dynamic_headers_file_is_a_header_only_once_patched() {
+        let fixture = synthetic_project();
+        let project = Project::open(fixture.dir.path()).unwrap();
+        let folder = project
+            .archives
+            .unpacked_name(AssetKind::DynamicHeaders)
+            .to_owned();
+        let rel = format!("unpacked/{folder}/0001");
+        assert_eq!(
+            DiffSubject::of_path(&project, &rel),
+            Some(DiffSubject::Member {
+                folder: folder.clone(),
+                index: 1
+            })
+        );
+        let headers = project.read_headers().unwrap();
+        dynamic_headers::apply(&project, &headers).unwrap();
+        assert_eq!(
+            DiffSubject::of_path(&project, &rel),
+            Some(DiffSubject::Header { index: 1 })
         );
     }
 

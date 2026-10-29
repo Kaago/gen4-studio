@@ -62,6 +62,7 @@ mod units;
 
 pub(crate) use units::{
     UnitCache, asset_of_unpacked, disk_member, entity_file, entity_of_data_file, item_member_of,
+    item_members,
 };
 mod writers;
 

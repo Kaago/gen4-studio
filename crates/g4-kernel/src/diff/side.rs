@@ -174,36 +174,8 @@ impl<'a> Sides<'a> {
                     let json = self.header_file(index)?;
                     return self.json_file(&json, &blob);
                 }
-                // What `HEAD` holds, whatever the work tree has now: its header files when its
-                // `arm9.bin` carries the Dynamic Headers patch, else its `arm9.bin`'s table.
-                let arm9 = blob(&self.rel(&self.project.arm9_path()))?;
-                let patched = match &arm9 {
-                    Some(arm9) => crate::dynamic_headers::is_applied_in(self.project, arm9)?,
-                    None => false,
-                };
-                let names = blob(&self.rel(&self.project.mapname_path()))?;
-                let record = if patched {
-                    let dir = crate::dynamic_headers::unpacked_dir(self.project);
-                    blob(&self.rel(&dir).join(format!("{index:04}")))?
-                } else {
-                    // The table has one record per name; without `mapname.bin` any slice.
-                    let in_table = names
-                        .as_ref()
-                        .is_none_or(|names| name_record(names, index).is_some());
-                    let offset =
-                        usize::try_from(self.project.header_table_offset()?).unwrap_or(usize::MAX);
-                    let start = offset.saturating_add(usize::from(index) * HEADER_LEN);
-                    arm9.filter(|_| in_table).and_then(|arm9| {
-                        arm9.get(start..start.saturating_add(HEADER_LEN))
-                            .map(<[u8]>::to_vec)
-                    })
-                };
-                // Zeros past the end of the names, or without them, as on disk.
-                let name = names
-                    .and_then(|names| name_record(&names, index))
-                    .unwrap_or_else(|| vec![0; NAME_LEN]);
-                match record {
-                    Some(record) => self.header_json(index, &record, &name),
+                match HeadHeaders::read(self.project, repo)?.header(repo, index)? {
+                    Some((record, name)) => self.header_json(index, &record, &name),
                     None => Ok(Side::Absent),
                 }
             }
@@ -262,9 +234,8 @@ impl<'a> Sides<'a> {
                     let json = self.header_file(index)?;
                     return self.json_file(&json, &file);
                 }
-                let table = self.project.read_header_table_bytes()?;
-                match record_at(&table, index) {
-                    Some(record) => self.header_json(index, record, &self.disk_name(index)?),
+                match DiskHeaders::read(self.project)?.header(index) {
+                    Some((record, name)) => self.header_json(index, &record, &name),
                     None => Ok(Side::Absent),
                 }
             }
@@ -623,6 +594,120 @@ impl<'a> Sides<'a> {
             .unwrap_or(path)
             .to_path_buf()
     }
+}
+
+/// A header's 24 bytes and its 16-byte `mapname.bin` record.
+pub(crate) type HeaderBytes = (Vec<u8>, Vec<u8>);
+
+/// The header table as `HEAD` holds it, whatever the work tree has now: its header files when
+/// its `arm9.bin` carries the Dynamic Headers patch, else the table in its `arm9.bin`; the
+/// names from its `mapname.bin`. Read once for any number of headers.
+pub(crate) struct HeadHeaders {
+    arm9: Option<Vec<u8>>,
+    patched: bool,
+    names: Option<Vec<u8>>,
+    offset: usize,
+    /// The Dynamic Headers folder, relative to the root.
+    dir: PathBuf,
+}
+
+impl HeadHeaders {
+    pub(crate) fn read(project: &Project, repo: &GitRepo) -> Result<HeadHeaders, KernelError> {
+        let arm9 = repo.head_blob(&rel(project, &project.arm9_path()))?;
+        let patched = match &arm9 {
+            Some(arm9) => crate::dynamic_headers::is_applied_in(project, arm9)?,
+            None => false,
+        };
+        Ok(HeadHeaders {
+            arm9,
+            patched,
+            names: repo.head_blob(&rel(project, &project.mapname_path()))?,
+            offset: usize::try_from(project.header_table_offset()?).unwrap_or(usize::MAX),
+            dir: rel(project, &crate::dynamic_headers::unpacked_dir(project)),
+        })
+    }
+
+    /// Whether `HEAD`'s `arm9.bin` carries the Dynamic Headers patch.
+    pub(crate) fn patched(&self) -> bool {
+        self.patched
+    }
+
+    /// `HEAD`'s `arm9.bin`, if it has one.
+    pub(crate) fn arm9(&self) -> Option<&[u8]> {
+        self.arm9.as_deref()
+    }
+
+    /// The number of headers `HEAD`'s `mapname.bin` names; `None` without the file.
+    pub(crate) fn count(&self) -> Option<usize> {
+        self.names.as_ref().map(|names| names.len() / NAME_LEN)
+    }
+
+    /// Header `index` in `HEAD`: its 24 bytes and its `mapname.bin` record (zeros past the end
+    /// of the names or without them, as on disk); `None` when `HEAD` has no such header (no
+    /// header file; unpatched, an index past the names, whose table has one record per name).
+    pub(crate) fn header(
+        &self,
+        repo: &GitRepo,
+        index: u16,
+    ) -> Result<Option<HeaderBytes>, KernelError> {
+        let record = if self.patched {
+            repo.head_blob(&self.dir.join(format!("{index:04}")))?
+        } else {
+            let in_table = self
+                .names
+                .as_ref()
+                .is_none_or(|names| name_record(names, index).is_some());
+            let start = self.offset.saturating_add(usize::from(index) * HEADER_LEN);
+            self.arm9
+                .as_ref()
+                .filter(|_| in_table)
+                .and_then(|arm9| arm9.get(start..start.saturating_add(HEADER_LEN)))
+                .map(<[u8]>::to_vec)
+        };
+        let name = self
+            .names
+            .as_ref()
+            .and_then(|names| name_record(names, index))
+            .unwrap_or_else(|| vec![0; NAME_LEN]);
+        Ok(record.map(|record| (record, name)))
+    }
+}
+
+/// The header table as saved on disk (the header files with the Dynamic Headers patch, else
+/// the table in `arm9.bin`) with the names of `mapname.bin`. Read once for any number of
+/// headers.
+pub(crate) struct DiskHeaders {
+    table: Vec<u8>,
+    names: Vec<u8>,
+}
+
+impl DiskHeaders {
+    pub(crate) fn read(project: &Project) -> Result<DiskHeaders, KernelError> {
+        Ok(DiskHeaders {
+            table: project.read_header_table_bytes()?,
+            names: read_optional(&project.mapname_path())?.unwrap_or_default(),
+        })
+    }
+
+    /// The number of headers of the table.
+    pub(crate) fn count(&self) -> usize {
+        self.table.len() / HEADER_LEN
+    }
+
+    /// Header `index`: its 24 bytes and its `mapname.bin` record (zeros past the file's end);
+    /// `None` past the table's end.
+    pub(crate) fn header(&self, index: u16) -> Option<HeaderBytes> {
+        let record = record_at(&self.table, index)?.to_vec();
+        let name = name_record(&self.names, index).unwrap_or_else(|| vec![0; NAME_LEN]);
+        Some((record, name))
+    }
+}
+
+/// `path` relative to the project root.
+fn rel(project: &Project, path: &Path) -> PathBuf {
+    path.strip_prefix(&project.root)
+        .unwrap_or(path)
+        .to_path_buf()
 }
 
 /// `bytes` as [`Side::Bytes`], else `missing`.

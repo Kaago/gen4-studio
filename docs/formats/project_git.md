@@ -214,7 +214,8 @@ Datei. Sie liest nur: nichts wird geschrieben, getauft oder als abgeglichen verm
 Item-Liste und in `data/items/`), dazu `member { folder, index }` für einen Ordner unter `unpacked/`
 ohne Studio-Art und `file { path }` für jede andere Projektdatei. Ein Trainer (Eigenschaften und
 Team) und ein Pokémon (Daten, Attacken, Entwicklung) sind je ein Subjekt; ein Pfad wird über
-`DiffSubject::of_path` zum Subjekt, eine Datei der Dynamic Headers zu ihrem Header.
+`DiffSubject::of_path` zum Subjekt, eine Datei der Dynamic Headers bei angewandtem Patch zu ihrem
+Header (sonst ein `member` ihres Ordners), ein Item-Member, den keine Item-ID nennt, zu `member`.
 
 **Drei Vergleiche** (`Against`):
 
@@ -279,9 +280,16 @@ zuletzt), in der Gruppe nach Index:
 - gegen `HEAD`: `diff::head_entries` aus den Pfaden von `git status`: geändert und Typwechsel →
   `changed`, hinzugefügt und unverfolgt → `new`, gelöscht → `missing`; die Pfade einer Entität (zwei
   Trainer-Member, Textarchiv-Member und seine JSON) sind eine Zeile, in verschiedenen Zuständen
-  `changed`. Im DSPRE-Layout wird eine geänderte `arm9/arm9.bin` zu den Headern, deren Eintrag der
-  Tabelle abweicht, plus `file arm9/arm9.bin`, wenn Bytes außerhalb der Tabelle abweichen; ein
-  geändertes `mapname.bin` zu den Headern, deren Name abweicht;
+  `changed`. Im DSPRE-Layout werden die Pfade, die Header tragen (eine geänderte `arm9/arm9.bin`,
+  `mapname.bin`, die Dateien des Dynamic-Headers-Ordners, sobald eine Seite den Patch trägt),
+  einmal Header für Header verglichen, beide Seiten so gelesen wie im Diff (Header-Dateien, wenn
+  das `arm9.bin` dieser Seite den Patch trägt, sonst die Tabelle darin; Namen aus ihrem
+  `mapname.bin`); gelistet wird nur ein Header, der abweicht, egal in welcher Form jede Seite ihn
+  hält. Dazu `file arm9/arm9.bin`, wenn Bytes außerhalb der Tabelle abweichen (etwa die Routine
+  des Patches); eine geänderte `arm9.bin` oder `mapname.bin`, die keine Zeile ergibt (nur der
+  Modus, die veraltete Tabelle einer gepatchten Seite), steht als Datei da. Ohne Patch auf beiden
+  Seiten hält der Dynamic-Headers-Ordner die Member des NARC (`member`, wie in der Liste gegen
+  die Basis);
 - gegen gespeichert: `diff::unsaved_entries` aus `Store::dirty()`, die Header-Tabelle je
   abweichendem Header.
 

@@ -838,3 +838,106 @@ fn project_files_go_last_under_projektdateien() {
     assert_eq!(entries[2].folder, None);
     assert!(entries[2].assets.is_empty());
 }
+
+/// The rows of [`head_list`] without `.g4/` (backups and other local files the fixture's
+/// repository does not ignore).
+fn project_rows(root: &Path) -> Vec<(ChangeState, String, String)> {
+    head_list(root)
+        .into_iter()
+        .filter(|e| !e.label.starts_with(".g4/"))
+        .map(|e| (e.state, e.group, e.label))
+        .collect()
+}
+
+fn row(state: ChangeState, group: &str, label: &str) -> (ChangeState, String, String) {
+    (state, group.to_owned(), label.to_owned())
+}
+
+#[test]
+fn the_dynamic_headers_patch_applied_after_the_commit_lists_no_header() {
+    let mut fx = Dspre::new();
+    fx.commit();
+    let project = fx.project();
+    let headers = project.read_headers().unwrap();
+    crate::dynamic_headers::apply(&project, &headers).unwrap();
+    // `apply` keeps the unpatched `arm9.bin` beside it.
+    let backup = row(ChangeState::New, "Projektdateien", "arm9/arm9.bin.backup");
+    assert_eq!(
+        project_rows(fx.root()),
+        [
+            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            backup.clone(),
+        ]
+    );
+    for index in 0..2 {
+        let header = DiffSubject::Header { index };
+        assert_eq!(fx.diff(&header, Against::Head).state, DiffState::Same);
+    }
+    // A real edit of the patched table: that header, and nothing else.
+    fx.store = Store::new(Arc::new(fx.project()));
+    edit_weather(&mut fx.store, 1, 4);
+    fx.store.save().unwrap();
+    assert_eq!(
+        project_rows(fx.root()),
+        [
+            row(ChangeState::Changed, "Header", "Header 0001"),
+            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            backup,
+        ]
+    );
+    assert_eq!(
+        fx.diff(&DiffSubject::Header { index: 1 }, Against::Head)
+            .state,
+        DiffState::Changed
+    );
+}
+
+#[test]
+fn an_unpatched_dynamic_headers_folder_holds_members() {
+    let fx = Dspre::new();
+    fx.commit();
+    let project = fx.project();
+    let dir = crate::dynamic_headers::unpacked_dir(&project);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("0000"), [9, 9, 9, 9]).unwrap();
+    let folder = project
+        .archives
+        .unpacked_name(AssetKind::DynamicHeaders)
+        .to_owned();
+    let entries = head_list(fx.root());
+    assert_eq!(
+        entries.iter().map(|e| &e.subject).collect::<Vec<_>>(),
+        [&DiffSubject::Member { folder, index: 0 }]
+    );
+    assert_eq!(entries[0].state, ChangeState::New);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_header_file_changed_without_a_header_differing_is_listed_as_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = Dspre::new();
+    fx.commit();
+    let project = fx.project();
+    for path in [project.arm9_path(), project.mapname_path()] {
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let status = GitRepo::discover(fx.root())
+        .unwrap()
+        .unwrap()
+        .status()
+        .unwrap();
+    assert_eq!(status.paths.len(), 2, "{status:?}");
+    assert_eq!(
+        project_rows(fx.root()),
+        [
+            row(ChangeState::Changed, "Projektdateien", "arm9/arm9.bin"),
+            row(
+                ChangeState::Changed,
+                "Projektdateien",
+                "files/fielddata/maptable/mapname.bin"
+            ),
+        ]
+    );
+}

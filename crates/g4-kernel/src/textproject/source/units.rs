@@ -211,7 +211,7 @@ impl UnitCache {
 
 /// The data member of every item id (the item table's), read again when `arm9.bin` or the
 /// item folder changed; `None` without an item table.
-fn item_members(project: &Project) -> Option<Arc<Vec<u16>>> {
+pub(crate) fn item_members(project: &Project) -> Option<Arc<Vec<u16>>> {
     let stamps = [
         stamp(&project.arm9_path()),
         stamp(&project.unpacked_dir(AssetKind::Item)),
