@@ -18,11 +18,16 @@ export function statusText(s: GitStatus): string | null {
   return `${where} · ${changesWord(s.changes)}`;
 }
 
-/** The tooltip of the status line's item: the count and the last commit, and where a click leads; without a commit only that. */
+/**
+ * The tooltip of the status line's item: the count and the last commit, and where a click leads; without a commit only that. None changed
+ * reads „keine geänderte Datei“, as the label says „keine Änderung“.
+ */
 export function statusTooltip(s: GitStatus): string {
   if (s.head === null) return "Git: noch kein Commit.";
+  const since = `seit dem letzten Commit „${s.head.summary}“.`;
+  if (s.changes === 0) return `Git: keine geänderte Datei ${since} Klick öffnet Technik › Änderungen.`;
   const files = s.changes === 1 ? "1 geänderte Datei" : `${s.changes} geänderte Dateien`;
-  return `Git: ${files} seit dem letzten Commit „${s.head.summary}“. Klick zeigt sie in Technik › Änderungen.`;
+  return `Git: ${files} ${since} Klick zeigt sie in Technik › Änderungen.`;
 }
 
 /** The checklist's row for a found `git`: its version without the „git version “ that `git --version` puts first. */

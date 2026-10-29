@@ -281,7 +281,7 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
           <div className={styles.split} data-changes-split="">
             <div className={styles.columns}>
               <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} status={status} where={where} selected={selected} onSelect={(key) => choose(entries.find((e) => rowKey(e.group, e.label) === key)?.subject ?? null)} />
-              <EntityDiff entry={entry} against={against} revision={revision} goTo={goTo} finalFocus={fallback} />
+              <EntityDiff entry={entry} against={against} revision={revision} headId={git?.status?.head?.id ?? null} goTo={goTo} finalFocus={fallback} />
             </div>
           </div>
         ))}

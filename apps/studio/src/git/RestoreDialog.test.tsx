@@ -8,7 +8,7 @@ import type { RestoreProgress } from "../api";
 import { openPath } from "../platform/dialogs";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { pressKey } from "../ui/primitives/testUtils";
-import { RestoreDialog } from "./RestoreDialog";
+import { RestoreDialog, restoreProgressText } from "./RestoreDialog";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -92,6 +92,14 @@ describe("RestoreDialog", () => {
     await show();
     await act(async () => button("Abbrechen")!.click());
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("the_import_without_fine_progress_shows_no_count", () => {
+    // The import reports only 0 of 1 and 1 of 1: no „0 von 1“ for half a minute.
+    expect(restoreProgressText({ phase: "import", done: 0, total: 1 })).toBe("Textprojekt einspielen …");
+    expect(restoreProgressText({ phase: "import", done: 1, total: 1 })).toBe("Textprojekt einspielen …");
+    expect(restoreProgressText({ phase: "import", done: 0, total: 0 })).toBe("Textprojekt einspielen …");
+    expect(restoreProgressText({ phase: "import", done: 2, total: 5 })).toBe("Textprojekt einspielen … 2 von 5");
   });
 
   it("without_a_base_offers_to_choose_one", async () => {

@@ -11,7 +11,7 @@ import styles from "./GitInitDialog.module.css";
 /** The file dialog of „Basis-ROM wählen…“. */
 const PICK = { directory: false, title: "Basis-ROM wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] };
 
-/** The progress line of a phase. */
+/** The progress line of a phase; the import's count only when it counts more than one step. */
 export function restoreProgressText(p: RestoreProgress): string {
   switch (p.phase) {
     case "extract":
@@ -19,7 +19,8 @@ export function restoreProgressText(p: RestoreProgress): string {
     case "merge":
       return "Spieldateien einsetzen …";
     case "import":
-      return `Textprojekt einspielen … ${p.done} von ${p.total}`;
+      // Without fine progress (only 0 and 1 of 1) the count says nothing.
+      return p.total > 1 ? `Textprojekt einspielen … ${p.done} von ${p.total}` : "Textprojekt einspielen …";
     case "sync":
       return "Abgleich vorbereiten …";
   }

@@ -23,6 +23,8 @@ export type EntityDiffProps = {
   against: Against;
   /** Moves whenever the compared state may differ: the diff is read again. */
   revision: number;
+  /** The id of `HEAD` (null without a commit or while unknown): against the last commit the detail reads again when it moves. */
+  headId?: string | null;
   /** „Öffnen“: the place of the entity in the app. */
   goTo: (target: NavTarget) => void;
   /** Where focus goes after a reset from here once the detail's own button is gone (the row became equal and the choice went with it). */
@@ -44,8 +46,8 @@ function resetLock(entry: ChangedEntry, report: EntityDiffReport | null, status:
  * parts and cells, a text archive's messages with word spans, a script's lines, a binary part's size and SHA-1), with „Öffnen“ and
  * „Auf Original zurücksetzen…“. Without a choice it says what to do.
  */
-export function EntityDiff({ entry, against, revision, goTo, finalFocus }: EntityDiffProps) {
-  const { report, error, busy } = useEntityDiff(entry?.subject ?? null, against, revision);
+export function EntityDiff({ entry, against, revision, headId = null, goTo, finalFocus }: EntityDiffProps) {
+  const { report, error, busy } = useEntityDiff(entry?.subject ?? null, against, revision, headId);
   if (entry === null) {
     return (
       <div className={styles.detail} data-entity-diff="">

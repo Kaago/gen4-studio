@@ -36,6 +36,14 @@ describe("gitWords", () => {
     expect(statusTooltip(gitStatusOf({ head: null }))).toBe("Git: noch kein Commit.");
   });
 
+  it("the_tooltip_says_none_as_the_label_does", () => {
+    // The label says „keine Änderung“: the tooltip does not count „0 geänderte Dateien“.
+    expect(statusTooltip(gitStatusOf({ changes: 0 }))).toBe("Git: keine geänderte Datei seit dem letzten Commit „Ausgangsstand“. Klick öffnet Technik › Änderungen.");
+    expect(statusTooltip(gitStatusOf({ changes: 0, detached: true, branch: null }))).toBe(
+      "Git: keine geänderte Datei seit dem letzten Commit „Ausgangsstand“. Klick öffnet Technik › Änderungen.",
+    );
+  });
+
   it("not_installed_mirrors_the_kernel_sentence", () => {
     // The dialog and the wizard tell „only the templates“ from a failed commit by this sentence: a change in the kernel must show here.
     const cli = readFileSync("../../crates/g4-kernel/src/git/cli.rs", "utf8");

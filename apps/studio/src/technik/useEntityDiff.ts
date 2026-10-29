@@ -7,10 +7,18 @@ type Found = { key: string | null; report: EntityDiffReport | null; error: strin
 
 /**
  * The detail of Technik › Änderungen: the diff of `subject` against `against`, read when the subject or the comparison changes and again
- * when `revision` moves (a save, a reset, an edit). The same subject as a new object reads nothing again. While another subject is read
- * nothing of the one before shows; while the same one is read again its last diff stays. An answer for an older selection is dropped.
+ * when `revision` moves (a save, a reset, an edit) and, against the last commit, when `headId` moves (a commit or a switch in the user's
+ * Git tool). The same subject as a new object reads nothing again. While another subject is read nothing of the one before shows; while
+ * the same one is read again its last diff stays. An answer for an older selection is dropped.
  */
-export function useEntityDiff(subject: DiffSubject | null, against: Against, revision: number): { report: EntityDiffReport | null; error: string | null; busy: boolean } {
+export function useEntityDiff(
+  subject: DiffSubject | null,
+  against: Against,
+  revision: number,
+  headId: string | null = null,
+): { report: EntityDiffReport | null; error: string | null; busy: boolean } {
+  // `HEAD` matters only against the last commit.
+  const head = against === "head" ? headId : null;
   const key = subject === null ? null : `${against}\u0000${JSON.stringify(subject)}`;
   const [found, setFound] = useState<Found>({ key: null, report: null, error: null, busy: false });
   // Bumped by every read: only the last one's answer counts.
@@ -31,7 +39,7 @@ export function useEntityDiff(subject: DiffSubject | null, against: Against, rev
       (report) => mine === serial.current && setFound({ key, report, error: null, busy: false }),
       (e: unknown) => mine === serial.current && setFound({ key, report: null, error: errorText(e), busy: false }),
     );
-  }, [key, against, revision]);
+  }, [key, against, revision, head]);
 
   // Before the effect of a new key has run, nothing of the old one shows.
   if (key === null) return { report: null, error: null, busy: false };

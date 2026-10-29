@@ -23,11 +23,12 @@ describe("useEntityDiff", () => {
   let root: Root;
   let shown: ReturnType<typeof useEntityDiff>;
 
-  function Probe({ subject, against = "head", revision = 0 }: { subject: DiffSubject | null; against?: Against; revision?: number }) {
-    shown = useEntityDiff(subject, against, revision);
+  type ProbeProps = { subject: DiffSubject | null; against?: Against; revision?: number; headId?: string | null };
+  function Probe({ subject, against = "head", revision = 0, headId = null }: ProbeProps) {
+    shown = useEntityDiff(subject, against, revision, headId);
     return null;
   }
-  const show = (props: { subject: DiffSubject | null; against?: Against; revision?: number }) => act(async () => root.render(<Probe {...props} />));
+  const show = (props: ProbeProps) => act(async () => root.render(<Probe {...props} />));
 
   beforeEach(() => {
     vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
@@ -62,6 +63,19 @@ describe("useEntityDiff", () => {
     // Nothing selected again: nothing shown.
     await show({ subject: null });
     expect(shown).toEqual({ report: null, error: null, busy: false });
+  });
+
+  it("reads_again_when_head_moves_against_the_last_commit", async () => {
+    await show({ subject: TRAINER, headId: "a".repeat(40) });
+    expect(diffEntity).toHaveBeenCalledOnce();
+    // A commit made outside: the same subject is read against the new `HEAD`.
+    await show({ subject: TRAINER, headId: "b".repeat(40) });
+    expect(diffEntity).toHaveBeenCalledTimes(2);
+    // Against the saved state `HEAD` does not matter.
+    await show({ subject: TRAINER, against: "saved", headId: "b".repeat(40) });
+    expect(diffEntity).toHaveBeenCalledTimes(3);
+    await show({ subject: TRAINER, against: "saved", headId: "c".repeat(40) });
+    expect(diffEntity).toHaveBeenCalledTimes(3);
   });
 
   it("drops_an_answer_for_an_older_selection", async () => {
