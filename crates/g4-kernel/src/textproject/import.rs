@@ -56,7 +56,8 @@ use super::step::{clear_kept, import_refusal};
 
 /// What [`import`] did: per art the entities read and the members written, the blobs and
 /// members written, the compile state entries the quirks changed, what `prepare` compiled and
-/// encoded afterwards, the hints and warnings.
+/// encoded afterwards, the hints and warnings, and how many watched files the sync recorded at
+/// the end (`synced`).
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ImportReport {
     pub arts: Vec<ArtStats>,
@@ -66,6 +67,7 @@ pub struct ImportReport {
     pub compiled: Vec<u16>,
     pub encoded: Vec<u16>,
     pub problems: Vec<Problem>,
+    pub synced: u32,
     pub ms: u64,
 }
 
@@ -299,7 +301,7 @@ pub fn import_with(
     let journal = journal.finish();
     // Sources and members are in step now (scripts compiled, texts encoded): the sync records
     // them as they are, what the import wrote only while it holds those bytes.
-    super::sync::record_all_written(project, &mut |_| {}, &journal)?;
+    let synced = super::sync::record_all_written(project, &mut |_| {}, &journal)?;
     let mut problems = plan.problems;
     // The build step `textproject` plans again and finds the plan's hints once more.
     for problem in prepared.problems {
@@ -315,6 +317,7 @@ pub fn import_with(
         compiled: prepared.compiled,
         encoded: prepared.encoded,
         problems,
+        synced,
         ms: ms_since(start),
     })
 }

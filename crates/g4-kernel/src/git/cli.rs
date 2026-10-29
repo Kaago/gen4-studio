@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::KernelError;
 use crate::git::repo::{GitRepo, HeadInfo};
 use crate::git::templates::{Layout, TemplateReport, layout_of, write_templates};
-use crate::project::{AssetKind, Project};
+use crate::project::Project;
 
 /// The answer without a `git` CLI: the templates are written, the repository is not.
 pub const NOT_INSTALLED: &str = "Git ist nicht installiert. Die Vorlagen sind geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).";
@@ -226,7 +226,7 @@ pub fn git_init(
 
     if layout_of(project) == Layout::Dspre {
         let t = begin(InitPhase::Unpack);
-        unpack_every_kind(project)?;
+        project.unpack_every_kind()?;
         phase_ms.insert(InitPhase::Unpack, millis(t));
     }
     let t = begin(InitPhase::Templates);
@@ -304,32 +304,6 @@ pub fn git_init(
     report.files = u32::try_from(repo.index_paths()?.len()).unwrap_or(u32::MAX);
     report.committed = report.head.is_some();
     finish(report)
-}
-
-/// Unpacks every archive of the project the Studio knows ([`Project::ensure_unpacked`] per
-/// kind of the archive map). Skipped: the Dynamic Headers container (store-only: its folder
-/// belongs to the patch, unpacking it would fake the patch) and a kind with neither its
-/// archive nor its folder on disk.
-pub(crate) fn unpack_every_kind(project: &Project) -> Result<(), KernelError> {
-    let kinds: Vec<AssetKind> = project.archives.kinds().collect();
-    for kind in kinds {
-        if kind == AssetKind::DynamicHeaders {
-            continue;
-        }
-        let packed = project
-            .archives
-            .packed(kind)
-            .is_some_and(|p| project.root.join(p).is_file());
-        let folder = project
-            .root
-            .join("unpacked")
-            .join(project.archives.unpacked_name(kind))
-            .is_dir();
-        if packed || folder {
-            project.ensure_unpacked(kind)?;
-        }
-    }
-    Ok(())
 }
 
 /// What a subcommand left: its exit status and output.

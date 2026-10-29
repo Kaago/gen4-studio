@@ -54,7 +54,7 @@ pub const RAW_DIR: &str = "data/raw";
 const ROM_CONFIG_FILE: &str = "config.yaml";
 
 /// The marker of a complete layer, written last before the layer gets its name.
-const COMPLETE: &str = ".complete";
+pub(crate) const COMPLETE: &str = ".complete";
 
 /// Folders at the root that are never blobs: the text project's own data, the sources, the
 /// build output and the plugins.

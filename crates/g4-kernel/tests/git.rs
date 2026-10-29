@@ -21,7 +21,8 @@ use g4_kernel::start::assign_base;
 use g4_kernel::textproject::{
     self,
     adopt::adopt,
-    restore::{needs_restore, restore_from_base},
+    restore::{RestorePhase, needs_restore, restore_from_base},
+    sync,
 };
 use sha1::{Digest, Sha1};
 
@@ -349,8 +350,29 @@ fn text_project_in_git_builds_from_base_byte_equal() {
     clone_autocrlf(&cli, &root, &clone);
     assert!(needs_restore(&clone));
     let started = Instant::now();
-    let restored = restore_from_base(&clone, &base, &mut |_| {}).unwrap();
+    let mut phase_ms: Vec<(RestorePhase, u128)> = Vec::new();
+    let mut current: Option<(RestorePhase, Instant)> = None;
+    let restored = restore_from_base(&clone, &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, Instant::now()))
+        {
+            phase_ms.push((phase, at.elapsed().as_millis()));
+        }
+    })
+    .unwrap();
+    if let Some((phase, at)) = current {
+        phase_ms.push((phase, at.elapsed().as_millis()));
+    }
     let restore_ms = started.elapsed().as_millis();
+    same_as_fresh_extract(&clone, &nds);
+    // The import recorded the sync: nothing to take over in the clone.
+    let scan = sync::scan(&Project::open(&clone).unwrap(), &mut |_| {}).unwrap();
+    let pending: Vec<_> = scan
+        .units
+        .iter()
+        .filter(|u| u.side != sync::UnitSide::InSync)
+        .collect();
+    assert!(pending.is_empty(), "{pending:?}");
     assert!(!needs_restore(&clone));
     let started = Instant::now();
     build(
@@ -371,6 +393,16 @@ fn text_project_in_git_builds_from_base_byte_equal() {
         "clone {} text restore_ms={restore_ms} build_ms={build_ms} equal",
         project.game_code
     );
+    let phases: Vec<String> = phase_ms
+        .iter()
+        .map(|(phase, ms)| {
+            format!(
+                "{}={ms}",
+                serde_json::to_string(phase).unwrap().trim_matches('"')
+            )
+        })
+        .collect();
+    println!("restore_phases {} {}", project.game_code, phases.join(" "));
     println!(
         "text {} adopt_ms={adopt_ms} moved={} members={} sync_files={}",
         project.game_code, restored.moved, restored.import.members_written, restored.sync_files
@@ -400,4 +432,67 @@ fn text_project_in_git_builds_from_base_byte_equal() {
         paths.is_empty(),
         "the second clone after g4k text restore: {paths:?}"
     );
+}
+
+/// The game files of `root`: every file of the DSPRE part and below `unpacked/`, relative,
+/// with `/`.
+fn game_files(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    for name in g4_kernel::git::templates::DSPRE_PART
+        .iter()
+        .chain(&["unpacked/"])
+    {
+        let path = root.join(name.trim_end_matches('/'));
+        if path.is_dir() {
+            files_below(&path, &mut files);
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    let mut rel: Vec<String> = files
+        .iter()
+        .map(|f| {
+            f.strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    rel.sort();
+    rel
+}
+
+/// The restored `clone` has exactly the game files `build::extract_rom` and unpacking every
+/// archive (but the Dynamic Headers container) leave, and the DSPRE part byte-equal.
+fn same_as_fresh_extract(clone: &Path, nds: &Path) {
+    let tmp = tempfile::tempdir().unwrap();
+    let fresh = tmp.path().join("frisch");
+    let project = g4_kernel::build::extract_rom(nds, &fresh).unwrap();
+    let kinds: Vec<_> = project.archives.kinds().collect();
+    for kind in kinds {
+        if kind == g4_kernel::project::AssetKind::DynamicHeaders {
+            continue;
+        }
+        if project
+            .archives
+            .packed(kind)
+            .is_some_and(|p| fresh.join(p).is_file())
+        {
+            project.ensure_unpacked(kind).unwrap();
+        }
+    }
+    let ours: std::collections::BTreeSet<String> = game_files(clone).into_iter().collect();
+    let theirs: std::collections::BTreeSet<String> = game_files(&fresh).into_iter().collect();
+    let only_ours: Vec<_> = ours.difference(&theirs).collect();
+    let only_theirs: Vec<_> = theirs.difference(&ours).collect();
+    assert!(
+        only_ours.is_empty() && only_theirs.is_empty(),
+        "only in the clone: {only_ours:?}, only in the extract: {only_theirs:?}"
+    );
+    for rel in ours.iter().filter(|f| !f.starts_with("unpacked/")) {
+        assert!(
+            std::fs::read(clone.join(rel)).unwrap() == std::fs::read(fresh.join(rel)).unwrap(),
+            "{rel} differs"
+        );
+    }
 }

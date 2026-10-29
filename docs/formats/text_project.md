@@ -758,22 +758,26 @@ bis `done` = `total`):
 
 | Phase | Was geschieht | `total` |
 |---|---|---|
-| `extract` | ds-rom packt die Basis-ROM nach `.g4/tmp/restore-<pid>/` aus | 1 |
-| `merge` | jeder Eintrag des Auszugs, den die Wurzel nicht hat, wird hineinverschoben (`rename`); einen Ordner, den beide haben, führt die Regel darin weiter zusammen | die Einträge oben im Auszug |
-| `import` | jedes Archiv, das das Studio kennt, wird ausgepackt (wie „Git einrichten“ im DSPRE-Ordner), dann `import` mit der Basis-ROM: die Member, die von ihrer JSON abweichen, die Scripts übersetzt, die Texte kodiert | 1 |
-| `sync` | `sync::record_all`: Quellen und Member als abgeglichen aufgezeichnet | die beobachteten Dateien (gemeldet alle 128) |
+| `extract` | die Basisschicht (siehe „Basisschicht und Blobs“) unter `.g4/cache/base-layer/<sha1>/`, nur wenn sie fehlt: ds-rom packt die Basis-ROM aus, jedes Archiv ausgepackt. Der Import liest seine Basisteile daraus, die ROM wird also nur einmal ausgepackt | 1 |
+| `merge` | jeder Eintrag der Basisschicht, den die Wurzel nicht hat, wird hineinkopiert (auf APFS ein Klon, kein zusätzlicher Platz); einen Ordner, den beide haben, führt die Regel darin weiter zusammen. Kopiert wird, was `build::extract_rom` und das Auspacken jedes Archivs (wie „Git einrichten“ im DSPRE-Ordner) hinterließen: nicht die Marke `.complete` der Schicht, nicht `unpacked/` der Dynamic Headers (das gehört dem Patch), nicht die Ordner der reinen Pack-Einträge. `header.yaml` kommt zuletzt | die Einträge oben in der Schicht, je Ordner unter `unpacked/` einer |
+| `import` | `import` mit der Basis-ROM: die Member, die von ihrer JSON abweichen, die Scripts übersetzt, die Texte kodiert; am Ende zeichnet er den Abgleich auf | 1 |
+| `sync` | einmal gemeldet, `done` = `total` = die Dateien, die der Import als abgeglichen aufzeichnete (hier das ganze Projekt; `ImportReport.synced`) | die aufgezeichneten Dateien |
 
 Die Regel ist **nie überschreiben**: Eine Datei, die im Ordner liegt, bleibt, wie sie ist, auch
-wenn der Auszug eine gleichnamige hat; steht eine Datei gegen einen Ordner (in beide Richtungen),
-bleibt die des Projekts. Nur Fehlendes kommt hinzu, ein verschobener Ordner zählt in `moved` einmal.
-Der Temp-Ordner wird danach entfernt, auch wenn Auspacken oder Verschieben scheitern. Abgelehnt,
-bevor etwas geschrieben wird: ein Ordner mit seinen Spieldateien („Das Projekt hat seine
-Spieldateien schon.“), ohne Basismarke (`patch::NO_MARK`; eine unlesbare oder neuere Marke mit
-ihrem Satz) und eine andere ROM als die der Marke (der Satz von `base::other_rom`, wie beim Import
-und bei `g4k patch create`). Scheitert erst der Import, bleiben die Spieldateien liegen; `g4k text
-import` vervollständigt dann das Projekt. Danach baut ein unverändertes Projekt SHA-1-gleich zur
-Basis-ROM, auch aus einem Klon mit `core.autocrlf=true` (gated `tests/git.rs`,
-`text_project_in_git_builds_from_base_byte_equal`), und `git status` ist leer.
+wenn die Schicht eine gleichnamige hat; steht eine Datei gegen einen Ordner (in beide Richtungen),
+bleibt die des Projekts. Nur Fehlendes kommt hinzu, ein kopierter Ordner zählt in `moved` einmal.
+Jede Datei wird in `.g4/tmp/restore-<pid>/` kopiert und dann an ihren Platz umbenannt, liegt also
+ganz oder gar nicht da. Weil `header.yaml` zuletzt kommt, bleibt ein abgebrochener Lauf als
+unvollständig erkennbar (`needs_restore` bleibt wahr); ein zweiter Lauf kopiert, was noch fehlt.
+Zu Beginn werden Reste abgebrochener Läufe (`.g4/tmp/restore-*`, nur diese) entfernt, am Ende der
+eigene Ordner, auch bei einem Fehler. Abgelehnt, bevor etwas geschrieben wird: ein Ordner mit
+seinen Spieldateien („Das Projekt hat seine Spieldateien schon.“), ohne Basismarke
+(`patch::NO_MARK`; eine unlesbare oder neuere Marke mit ihrem Satz) und eine andere ROM als die
+der Marke (der Satz von `base::other_rom`, wie beim Import und bei `g4k patch create`). Scheitert
+erst der Import, bleiben die Spieldateien liegen; `g4k text import` vervollständigt dann das
+Projekt. Danach baut ein unverändertes Projekt SHA-1-gleich zur Basis-ROM, auch aus einem Klon mit
+`core.autocrlf=true` (gated `tests/git.rs`, `text_project_in_git_builds_from_base_byte_equal`),
+`git status` ist leer und der Abgleich findet nichts zu übernehmen.
 
 `g4k text restore <Projekt> [--base-rom <nds>] [--json]` findet die Basis-ROM wie `text export`
 (`--base-rom`, sonst `G4_BASE_ROM_DIR`; die `.nds` daneben nicht, denn ohne `header.yaml` fehlt der

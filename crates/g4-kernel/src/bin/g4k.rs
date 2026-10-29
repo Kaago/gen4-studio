@@ -1324,8 +1324,8 @@ enum TextCommand {
     },
     /// Complete a text project without its game files (a fresh Git clone) from the base ROM
     /// (found like `export`; the sibling `.nds` is not looked for, there is no `header.yaml`):
-    /// extract it, move every entry the folder lacks into it (never over a file), import, record
-    /// the sync. Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`. Refused
+    /// its base layer (extracted once), every entry the folder lacks copied from it (never over
+    /// a file, `header.yaml` last), import, which records the sync. Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`. Refused
     /// (exit 1, nothing written) when the folder has its game files or no base mark.
     Restore {
         project: PathBuf,

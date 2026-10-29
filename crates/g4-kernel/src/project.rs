@@ -814,6 +814,38 @@ impl Project {
         Ok(n)
     }
 
+    /// The kinds [`Project::unpack_every_kind`] unpacks: every kind of the archive map but the
+    /// Dynamic Headers container (store-only: its folder belongs to the patch, unpacking it
+    /// would fake the patch).
+    pub(crate) fn unpackable_kinds(&self) -> impl Iterator<Item = AssetKind> + '_ {
+        self.archives
+            .kinds()
+            .filter(|kind| *kind != AssetKind::DynamicHeaders)
+    }
+
+    /// Unpacks every archive of the project the Studio knows ([`Project::ensure_unpacked`]
+    /// per kind of [`Project::unpackable_kinds`]); a kind with neither its archive nor its
+    /// folder on disk is skipped. "Git einrichten" in a DSPRE folder runs it first, so the
+    /// `.gitignore` lists every archive the build packs.
+    pub(crate) fn unpack_every_kind(&self) -> Result<(), KernelError> {
+        let kinds: Vec<AssetKind> = self.unpackable_kinds().collect();
+        for kind in kinds {
+            let packed = self
+                .archives
+                .packed(kind)
+                .is_some_and(|p| self.root.join(p).is_file());
+            let folder = self
+                .root
+                .join("unpacked")
+                .join(self.archives.unpacked_name(kind))
+                .is_dir();
+            if packed || folder {
+                self.ensure_unpacked(kind)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Unpacks the archive of `kind` if its unpacked folder is missing and returns the
     /// member count. An existing folder is never touched.
     pub fn ensure_unpacked(&self, kind: AssetKind) -> Result<usize, KernelError> {
