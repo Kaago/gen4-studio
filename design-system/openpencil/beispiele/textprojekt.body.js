@@ -164,7 +164,7 @@
     </Frame>
     <Frame name="Aktionen" flex="row" items="center" justify="center" px={8} h={DI.steuer} rounded={6}>{I('ph:dots-three', DI.symbol, 'p')}</Frame>
   </Frame>;
-  const ansicht = <Frame name="Ansicht" flex="col" gap={16} p={16} grow={1} h="fill" bg={v('flaeche/schau')}>
+  const ansicht = <Frame name="Ansicht" flex="col" gap={16} p={16} w="fill" grow={1} bg={v('flaeche/schau')}>
     {kopf}
     <Frame name="Team" flex="col" gap={8} w="fill">
       <Frame flex="row" items="end" gap={8}>{T('Team', { s: 15, w: 600 })}{T('1 von 6', { c: 'text/sekundaer' })}</Frame>
