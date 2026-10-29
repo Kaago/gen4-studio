@@ -192,7 +192,8 @@ export async function restoreTextProject(root: string, nds: string | null, onPro
 /**
  * `subject` against `against`, field by field; writes nothing. The command takes the subject flat (`kind`, `index`, `folder`, `path`, as the
  * MCP tool does). Refused with `base_missing` (against the base without a found base ROM), `no_repo`, `no_commit` (against the last commit)
- * and `not_diffable` (a project file against the base, a script against the saved state).
+ * and `not_diffable` (a project file against the base, a script against the saved state, a path or folder outside the project, no regular
+ * file).
  */
 export const diffEntity = (subject: DiffSubject, against: Against) => invoke<EntityDiffReport>("diff_entity", { ...subject, against });
 

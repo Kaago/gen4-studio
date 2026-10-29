@@ -4265,6 +4265,40 @@ mod tests {
         assert_eq!(diff["state"], "same", "{diff}");
     }
 
+    /// An agent with read access reads nothing outside the project through `diff_entity`: a
+    /// path with `..`, an absolute path, `.git/` and a member folder that is more than one
+    /// name are refused with `not_diffable` before anything is read.
+    #[test]
+    fn diff_entity_refuses_paths_outside_the_project() {
+        let (fixture, toolbox) = open_toolbox(READ);
+        g4_kernel::test_support::GitFixture::init(fixture.dir.path());
+        g4_kernel::test_support::GitFixture::commit_all(fixture.dir.path(), "Ausgangsstand");
+        let calls = [
+            json!({ "kind": "file", "path": "../x", "against": "head" }),
+            json!({ "kind": "file", "path": "/etc/hosts", "against": "head" }),
+            json!({ "kind": "file", "path": ".git/config", "against": "head" }),
+            json!({ "kind": "file", "path": "/etc/hosts", "against": "saved" }),
+            json!({ "kind": "member", "folder": "../arm9", "index": 0, "against": "head" }),
+        ];
+        for args in calls {
+            let (code, message, _) = failed(toolbox.call("diff_entity", args.clone(), AGENT));
+            assert_eq!(
+                (code.as_str(), message.as_str()),
+                ("not_diffable", g4_kernel::diff::OUTSIDE_PROJECT),
+                "{args}"
+            );
+        }
+        // A file inside still compares.
+        let diff = toolbox
+            .call(
+                "diff_entity",
+                json!({ "kind": "file", "path": "header.yaml", "against": "head" }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(diff["state"], "same", "{diff}");
+    }
+
     /// „Git einrichten“ in the app: unsaved changes come back as `unsaved` before the user is
     /// asked (the first commit takes the saved state); saved, the call asks „Git einrichten“.
     #[test]

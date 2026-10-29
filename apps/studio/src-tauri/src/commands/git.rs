@@ -17,7 +17,7 @@ use std::time::Instant;
 use g4_kernel::base::{BaseRom, base_label};
 use g4_kernel::diff::{
     self, Against, DiffSources, DiffSubject, EntityDiffReport, NO_BASE_FOR_FILES, NO_COMMIT,
-    NO_REPO, SCRIPTS_HAVE_NO_UNSAVED,
+    NO_REPO, NOT_A_FILE, OUTSIDE_PROJECT, SCRIPTS_HAVE_NO_UNSAVED,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::git::templates::{Layout, layout_of};
@@ -225,12 +225,21 @@ impl Drop for InitBusy<'_> {
 
 /// The kernel's diff refusals with a code of their own: `no_repo` ([`NO_REPO`]), `no_commit`
 /// ([`NO_COMMIT`]) and `not_diffable` (a file against the base, a script against the saved
-/// state: [`NO_BASE_FOR_FILES`], [`SCRIPTS_HAVE_NO_UNSAVED`]).
+/// state, a path or folder outside the project, no regular file: [`NO_BASE_FOR_FILES`],
+/// [`SCRIPTS_HAVE_NO_UNSAVED`], [`OUTSIDE_PROJECT`], [`NOT_A_FILE`]).
 fn diff_error(e: KernelError) -> CmdError {
     match e {
         KernelError::Refused(why) if why == NO_REPO => CmdError::refused("no_repo", why),
         KernelError::Refused(why) if why == NO_COMMIT => CmdError::refused("no_commit", why),
-        KernelError::Refused(why) if why == NO_BASE_FOR_FILES || why == SCRIPTS_HAVE_NO_UNSAVED => {
+        KernelError::Refused(why)
+            if [
+                NO_BASE_FOR_FILES,
+                SCRIPTS_HAVE_NO_UNSAVED,
+                OUTSIDE_PROJECT,
+                NOT_A_FILE,
+            ]
+            .contains(&why.as_str()) =>
+        {
             CmdError::refused("not_diffable", why)
         }
         other => other.into(),

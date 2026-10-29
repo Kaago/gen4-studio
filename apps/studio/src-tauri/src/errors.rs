@@ -37,7 +37,8 @@ use crate::commands::ProblemDto;
 /// while the project is set up as text project; nothing was changed), Git's (4.4)
 /// `"no_repo"` and `"no_commit"` (`diff_entity` against the last commit: no repository holds
 /// the project, or it has no commit yet), `"not_diffable"` (`diff_entity`: a project file
-/// against the base ROM, a script against the saved state) and `"restore_needed"`
+/// against the base ROM, a script against the saved state, a path or member folder outside
+/// the project or in `.git`, a project file that is no regular file inside the project) and `"restore_needed"`
 /// (`open_project` of a text project without its game files, a fresh Git clone;
 /// `restore_text_project` completes it), or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that

@@ -53,6 +53,12 @@ pub const NO_BASE_FOR_FILES: &str =
 pub const SAVED_NEEDS_THE_APP: &str = "Den ungespeicherten Stand kennt nur die App.";
 pub const SCRIPTS_HAVE_NO_UNSAVED: &str =
     "Scripts speichert der Editor sofort; „Gegen gespeichert“ gibt es für sie nicht.";
+/// The refusal of a `file` path or a `member` folder that does not name a place inside the
+/// project (see [`DiffSubject::check`]).
+pub const OUTSIDE_PROJECT: &str = "Verglichen wird nur, was im Projektordner liegt: ein relativer Pfad ohne „..“, nicht in .git, ein Ordner unter unpacked/ als ein einzelner Name.";
+/// The refusal of a project file that is no regular file inside the project (a folder, a
+/// device or pipe, a link leading out of the project): it is not read.
+pub const NOT_A_FILE: &str = "Verglichen werden nur gewöhnliche Dateien im Projektordner; dies ist ein Ordner, eine Gerätedatei oder ein Verweis aus dem Projekt hinaus.";
 
 /// What the entity is compared against (the old side).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,7 +217,10 @@ pub struct DiffSources<'a> {
 /// The diff of `subject` against `against`. Refused (with the sentences of this module) when
 /// that side cannot exist: a file against the base, a script against the saved state, the
 /// saved state without the app's store, `HEAD` without a repository or a commit, the base
-/// without a base ROM. Reads only: nothing is written, christened or recorded.
+/// without a base ROM. A `file` or `member` that names no place inside the project is refused
+/// first ([`OUTSIDE_PROJECT`], [`DiffSubject::check`]), a project file that is no regular file
+/// inside the project when it is read ([`NOT_A_FILE`]). Reads only: nothing is written,
+/// christened or recorded.
 pub fn diff_entity(
     project: &Project,
     store: Option<&mut Store>,
@@ -220,6 +229,8 @@ pub fn diff_entity(
     against: Against,
 ) -> Result<EntityDiffReport, KernelError> {
     let started = Instant::now();
+    // Before anything is read: the subject comes from an agent, the bridge or the app.
+    subject.check()?;
     let sides = Sides::new(project, subject);
     let (old_label, new_label, old, new) = match against {
         Against::Base => {

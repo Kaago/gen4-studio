@@ -1,11 +1,12 @@
 //! What a diff is about: one entity of the project, named the same way in the three lists of
 //! „Technik › Änderungen“, in MCP and for „Öffnen“.
 
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
 
 use crate::dynamic_headers;
+use crate::error::KernelError;
 use crate::original::changed::{GROUPS, HEADER_GROUP, group_of};
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind, Project};
@@ -235,6 +236,23 @@ impl DiffSubject {
         })
     }
 
+    /// `Ok` when the subject names a place inside the project: a `file` path relative, made of
+    /// names only (no root, drive, `.` or `..`) and none of them `.git` (in any case), a
+    /// `member` folder one such name; else refused with [`super::OUTSIDE_PROJECT`]. Every
+    /// other kind names its files itself.
+    pub fn check(&self) -> Result<(), KernelError> {
+        let inside = match self {
+            DiffSubject::File { path } => names_only(path, usize::MAX),
+            DiffSubject::Member { folder, .. } => names_only(folder, 1),
+            _ => true,
+        };
+        if inside {
+            Ok(())
+        } else {
+            Err(KernelError::Refused(super::OUTSIDE_PROJECT.to_owned()))
+        }
+    }
+
     /// The subject of project file `rel` (relative to the root): a member below `unpacked/`
     /// (an asset's subject, else `member`), a text archive's or script's source below
     /// `expanded/`, a file of the text project below `data/` (an entity's JSON or side file,
@@ -271,6 +289,19 @@ impl DiffSubject {
         };
         Some(subject.unwrap_or_else(file))
     }
+}
+
+/// Whether `path` is 1 to `most` names (`Component::Normal`), none of them `.git` in any case
+/// (a case-insensitive file system reads `.GIT` as `.git`).
+fn names_only(path: &str, most: usize) -> bool {
+    let mut count = 0usize;
+    for part in Path::new(path).components() {
+        match part {
+            Component::Normal(name) if !name.eq_ignore_ascii_case(".git") => count += 1,
+            _ => return false,
+        }
+    }
+    (1..=most).contains(&count)
 }
 
 /// The number of a member file `NNNN` (at least four digits, no extension).

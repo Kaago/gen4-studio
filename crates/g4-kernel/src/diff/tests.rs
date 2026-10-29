@@ -1013,3 +1013,86 @@ fn commit_tracked_init(root: &Path, untracked: &str) {
     GitFixture::init(root);
     commit_tracked(root, untracked, "Ausgangsstand");
 }
+
+#[test]
+fn a_path_or_folder_outside_the_project_is_refused_before_anything_is_read() {
+    let fx = Dspre::new();
+    fx.commit();
+    let file = |path: &str| DiffSubject::File {
+        path: path.to_owned(),
+    };
+    let member = |folder: &str| DiffSubject::Member {
+        folder: folder.to_owned(),
+        index: 0,
+    };
+    let subjects = [
+        file("../x"),
+        file("/etc/hosts"),
+        file(".git/config"),
+        file(".GIT/config"),
+        file("files/../../x"),
+        file("arm9/.git/config"),
+        file("./header.yaml"),
+        file(""),
+        member("../arm9"),
+        member("a/b"),
+        member("/etc"),
+        member(".git"),
+        member(""),
+    ];
+    for subject in &subjects {
+        for against in [Against::Head, Against::Saved, Against::Base] {
+            let why = refusal(try_diff(fx.root(), Some(&fx.original), subject, against));
+            assert_eq!(why, OUTSIDE_PROJECT, "{subject:?} {against:?}");
+        }
+    }
+}
+
+#[test]
+fn a_file_that_is_not_a_regular_file_inside_the_project_is_refused_not_read() {
+    let fx = Dspre::new();
+    fx.commit();
+    let file = |path: &str| DiffSubject::File {
+        path: path.to_owned(),
+    };
+    // A folder.
+    std::fs::create_dir_all(fx.root().join("notizen")).unwrap();
+    assert_eq!(
+        refusal(try_diff(fx.root(), None, &file("notizen"), Against::Head)),
+        NOT_A_FILE
+    );
+    #[cfg(unix)]
+    {
+        // A FIFO would block `read` for good.
+        let fifo = fx.root().join("rohr");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: `c` is a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        assert_eq!(
+            refusal(try_diff(fx.root(), None, &file("rohr"), Against::Head)),
+            NOT_A_FILE
+        );
+        // A link that leads out of the project.
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("geheim.json"), "{\"a\":1}").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("geheim.json"),
+            fx.root().join("verweis.json"),
+        )
+        .unwrap();
+        assert_eq!(
+            refusal(try_diff(
+                fx.root(),
+                None,
+                &file("verweis.json"),
+                Against::Head
+            )),
+            NOT_A_FILE
+        );
+        // A link that stays inside reads as the file it points to.
+        std::os::unix::fs::symlink(fx.root().join("header.yaml"), fx.root().join("kopf.yaml"))
+            .unwrap();
+        let report = try_diff(fx.root(), None, &file("kopf.yaml"), Against::Head).unwrap();
+        assert_eq!(report.state, DiffState::New);
+    }
+}

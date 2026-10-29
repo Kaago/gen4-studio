@@ -218,8 +218,8 @@ impl<'a> Sides<'a> {
 
     /// The subject as saved on disk.
     pub(crate) fn disk(&self) -> Result<Side, KernelError> {
-        let root = &self.project.root;
-        let file = |rel: &Path| read_optional(&root.join(rel));
+        let inside = Inside::new(&self.project.root);
+        let file = |rel: &Path| inside.read(rel);
         match self.kind()? {
             Kind::Entity { assets, json, .. } => {
                 if self.text {
@@ -763,10 +763,50 @@ fn file_side(path: &str, bytes: Option<Vec<u8>>) -> Side {
 }
 
 /// The bytes at `path`; `None` when there is no file.
+/// The bytes of the file at `path` (links followed); `None` when there is none. Anything but
+/// a regular file (a folder, a device, a pipe) is refused with [`super::NOT_A_FILE`] and never
+/// opened: reading `/dev/zero` or a FIFO would not return.
 fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return Err(KernelError::Refused(super::NOT_A_FILE.to_owned())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io_at(path)(e)),
+    }
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_at(path)(e)),
+    }
+}
+
+/// Reads project files by their path relative to the root, never outside it: a file whose
+/// real path (links resolved) leaves the root's is refused with [`super::NOT_A_FILE`], so a
+/// link in the project, or a side file a JSON names with `..`, reads nothing elsewhere.
+struct Inside<'a> {
+    root: &'a Path,
+    /// The root's real path; `None` while it cannot be resolved (then nothing is read).
+    real: Option<PathBuf>,
+}
+
+impl<'a> Inside<'a> {
+    fn new(root: &'a Path) -> Inside<'a> {
+        Inside {
+            root,
+            real: std::fs::canonicalize(root).ok(),
+        }
+    }
+
+    fn read(&self, rel: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+        let path = self.root.join(rel);
+        let real = match std::fs::canonicalize(&path) {
+            Ok(real) => real,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io_at(&path)(e)),
+        };
+        match &self.real {
+            Some(root) if real.starts_with(root) => read_optional(&real),
+            _ => Err(KernelError::Refused(super::NOT_A_FILE.to_owned())),
+        }
     }
 }

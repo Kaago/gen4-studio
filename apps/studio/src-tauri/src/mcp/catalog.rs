@@ -1360,7 +1360,8 @@ static TOOLS: &[ToolDef] = &[
              is fields (JSON path, old, new), map (parts and permission cells), messages (per \
              message with word spans), lines (script hunks) or binary (size and SHA-1). index \
              takes a number or a symbolic id (SPECIES_PIKACHU, MAP_T01, TRAINER_…); no \
-             repository answers no_repo, no commit no_commit, no base ROM base_missing. ",
+             repository answers no_repo, no commit no_commit, no base ROM base_missing; a \
+             path or folder outside the project (absolute, .., .git) not_diffable. ",
             data_note!()
         ),
         input_schema: diff_entity_args,
