@@ -268,4 +268,82 @@ describe("useChanges", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a_focus_compare_is_quiet", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(changedFromOriginal).mockResolvedValueOnce(report({ files: 1 }));
+      await show();
+      expect(shown.report?.files).toBe(1);
+      // While it runs: not busy, no progress, the list before stays.
+      const run = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      expect(shown.busy).toBe(false);
+      await run.progress({ done: 3, total: 10 });
+      expect(shown.progress).toBeNull();
+      expect(shown.report?.files).toBe(1);
+      await run.answer(report({ files: 2 }));
+      expect(shown.report?.files).toBe(2);
+      expect(shown.busy).toBe(false);
+
+      // A failure is one: it says so, and the list stays.
+      const failing = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      await failing.fail({ code: "error", message: "Die Basis-ROM ist weg.", asset: null });
+      expect(shown.error).toBe("Die Basis-ROM ist weg.");
+      expect(shown.report?.files).toBe(2);
+      // A quiet run keeps that error while it runs and clears it only with a list that went through.
+      const again = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(shown.error).toBe("Die Basis-ROM ist weg.");
+      await again.answer(report({ files: 3 }));
+      expect(shown.error).toBeNull();
+
+      // „Neu vergleichen“ during a quiet run: the run after it shows that it compares.
+      const quiet = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      const loud = pending();
+      await act(async () => void shown.compare());
+      // Said at once, the quiet run's answer still taken.
+      expect(shown.busy).toBe(true);
+      await quiet.answer(report({ files: 4 }));
+      expect(shown.report?.files).toBe(4);
+      expect(shown.busy).toBe(true);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(6);
+      await loud.answer(report({ files: 5 }));
+      expect(shown.busy).toBe(false);
+      expect(shown.report?.files).toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a_focus_compares_only_while_the_base_comparison_shows", async () => {
+    vi.useFakeTimers();
+    try {
+      await show({ listed: false });
+      // Shown with another comparison: the list is still compared when the surface opens (as before), not on focus.
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      // Switched to „Gegen Basis“ after that focus: one quiet compare.
+      const run = pending();
+      await show({ listed: true });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      expect(shown.busy).toBe(false);
+      await run.answer(report({ files: 7 }));
+      // Switched away and back without a focus: nothing more.
+      await show({ listed: false });
+      await show({ listed: true });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

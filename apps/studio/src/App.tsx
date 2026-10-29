@@ -845,6 +845,8 @@ function AppBody() {
     shown: area === "technik" && technikEntry === "aenderungen",
     base: original.status?.state === "ready" ? original.status.sha1 : null,
     revision: session.savedRevision + changedRevision,
+    // A window focus compares (quietly) only while „Gegen Basis“ is on screen.
+    listed: area === "technik" && technikEntry === "aenderungen" && against === "base",
   });
   // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
   // detail of Änderungen reads its diff again on the same moves.

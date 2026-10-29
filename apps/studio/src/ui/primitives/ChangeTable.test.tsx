@@ -114,6 +114,20 @@ describe("ChangeTable", () => {
     expect(first?.textContent).toBe("data.party[0].level");
     // A field that is no string is shown as given.
     expect(second?.innerHTML).toBe("<span>Wetter</span>");
+    // Edges: a leading bracket or dot, brackets in a row, a dot before a bracket (one break), dots in a row, a trailing dot.
+    const shownAs = (field: string) => {
+      act(() => root.render(<ChangeTable columns={["Feld", "Commit", "Projekt"]} ariaLabel="x" rows={[{ key: "a", field, old: "1", new: "2" }]} />));
+      return container.querySelector("tbody th code")?.innerHTML;
+    };
+    expect(shownAs("[0].a")).toBe("[0].<wbr>a");
+    expect(shownAs(".a")).toBe(".<wbr>a");
+    expect(shownAs("x[1][2].y")).toBe("x<wbr>[1]<wbr>[2].<wbr>y");
+    expect(shownAs("a.[0]")).toBe("a.<wbr>[0]");
+    expect(shownAs("a..b")).toBe("a.<wbr>.<wbr>b");
+    expect(shownAs("a.")).toBe("a.");
+    expect(shownAs("Größe")).toBe("Größe");
+    // No lookbehind: WebKit before 16.4 (macOS 13.0–13.2, which the app supports) cannot parse one.
+    expect(readCss("./ChangeTable.tsx", import.meta.url)).not.toMatch(/\(\?<[=!]/);
   });
 
   it("sizes_the_field_column_to_its_content_and_lets_the_sides_share_the_rest", () => {

@@ -58,12 +58,30 @@ function Cell({ value }: { value: ChangeCell }) {
   );
 }
 
+/** The parts of a path between which it may break: each ends after a `.` or before a `[` (no lookbehind: WebKit before 16.4 has none). */
+function pathParts(path: string): string[] {
+  const parts: string[] = [];
+  let part = "";
+  for (const ch of path) {
+    if (ch === "[" && part !== "") {
+      parts.push(part);
+      part = "";
+    }
+    part += ch;
+    if (ch === ".") {
+      parts.push(part);
+      part = "";
+    }
+  }
+  if (part !== "") parts.push(part);
+  return parts;
+}
+
 /** A field as shown: a string with a soft break (`<wbr>`) after each `.` and before each `[`, so a JSON path wraps only between its
  * parts; anything else as given. */
 function Field({ field }: { field: ReactNode }) {
   if (typeof field !== "string") return field;
-  const parts = field.split(/(?<=\.)|(?=\[)/).filter((part) => part !== "");
-  return parts.map((part, i) => (
+  return pathParts(field).map((part, i) => (
     <Fragment key={i}>
       {i > 0 && <wbr />}
       {part}
