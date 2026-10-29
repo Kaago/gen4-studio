@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { planRenameId, renameId } from "../api";
 import type { RenamePlan, RenameResult } from "../api";
-import { typeInto } from "../ui/primitives/testUtils";
+import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { PLAN_DELAY_MS, RenameIdDialog, renamedText } from "./RenameIdDialog";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -130,5 +130,109 @@ describe("RenameIdDialog", () => {
     expect(onRenamed).toHaveBeenCalledWith(result);
     expect(onClose).toHaveBeenCalled();
     expect(renamedText(result.plan)).toBe("ID umbenannt: TRAINER_JENS → TRAINER_JENS_ROUTE201. ⌘Z nimmt es zurück.");
+  });
+
+  it("a_pending_line_shows_while_the_plan_is_fetched", async () => {
+    await show();
+    let answer: (p: RenamePlan) => void = () => {};
+    vi.mocked(planRenameId).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    typeInto(field(), "TRAINER_JENS_ROUTE201");
+    await wait(PLAN_DELAY_MS);
+    expect(planRenameId).toHaveBeenCalledOnce();
+    expect(notices("status")).toEqual(["Verweise werden gesucht …"]);
+    expect(button("Umbenennen")?.disabled).toBe(true);
+    await act(async () => answer(plan()));
+    expect(notices("status")).toHaveLength(1);
+    expect(notices("status")[0]).toContain("3\u00a0Verweise");
+    expect(dialog()?.textContent).not.toContain("Verweise werden gesucht");
+  });
+
+  it("the_pending_line_ends_with_an_error_too", async () => {
+    await show();
+    vi.mocked(planRenameId).mockRejectedValueOnce(new Error("Datei nicht lesbar"));
+    typeInto(field(), "TRAINER_JENS_ROUTE201");
+    await wait(PLAN_DELAY_MS);
+    expect(dialog()?.textContent).not.toContain("Verweise werden gesucht");
+    expect(notices("alert")).toHaveLength(1);
+  });
+
+  it("a_late_plan_for_older_input_leaves_the_pending_line_of_the_newer_one", async () => {
+    await show();
+    let early: (p: RenamePlan) => void = () => {};
+    vi.mocked(planRenameId)
+      .mockImplementationOnce(() => new Promise((resolve) => (early = resolve)))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    typeInto(field(), "TRAINER_A");
+    await wait(PLAN_DELAY_MS);
+    typeInto(field(), "TRAINER_B");
+    await wait(PLAN_DELAY_MS);
+    await act(async () => early(plan({ new_id: "TRAINER_A" })));
+    expect(notices("status")).toEqual(["Verweise werden gesucht …"]);
+  });
+
+  it("rename_says_so_while_it_runs", async () => {
+    let finish: (r: RenameResult) => void = () => {};
+    vi.mocked(renameId).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    await show();
+    typeInto(field(), "TRAINER_JENS_ROUTE201");
+    await wait(PLAN_DELAY_MS);
+    await act(async () => button("Umbenennen")!.click());
+    expect(notices("status")).toContain("Wird umbenannt …");
+    await act(async () => finish({ plan: plan(), change: 7, ms: 120, warnings: [] }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("enter_in_the_field_renames_when_ready", async () => {
+    const result: RenameResult = { plan: plan(), change: 7, ms: 120, warnings: [] };
+    vi.mocked(renameId).mockResolvedValue(result);
+    await show();
+    typeInto(field(), "TRAINER_JENS_ROUTE201");
+    await wait(PLAN_DELAY_MS);
+    const event = pressKey(field(), "Enter");
+    await act(async () => {});
+    expect(event.defaultPrevented).toBe(true);
+    expect(renameId).toHaveBeenCalledOnce();
+    expect(renameId).toHaveBeenCalledWith("TRAINER_JENS", "TRAINER_JENS_ROUTE201");
+    expect(onRenamed).toHaveBeenCalledWith(result);
+    expect(onClose).toHaveBeenCalled();
+    // The field keeps the typed text (it does not fall back to the old id).
+    expect(field().value).toBe("TRAINER_JENS_ROUTE201");
+  });
+
+  it("enter_does_nothing_while_the_plan_is_pending_or_refused_or_missing", async () => {
+    await show();
+    // Untouched field: no plan.
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    // Plan still being fetched.
+    vi.mocked(planRenameId).mockImplementationOnce(() => new Promise(() => {}));
+    typeInto(field(), "TRAINER_A");
+    await wait(PLAN_DELAY_MS);
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    // Typed, the pause not over yet.
+    typeInto(field(), "TRAINER_B");
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    // Refused.
+    vi.mocked(planRenameId).mockResolvedValueOnce(plan({ new_id: "TRAINER_RIVAL", refusal: "Die ID TRAINER_RIVAL ist schon vergeben.", files: [], total: 0 }));
+    typeInto(field(), "TRAINER_RIVAL");
+    await wait(PLAN_DELAY_MS);
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    expect(renameId).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("enter_twice_renames_once", async () => {
+    vi.mocked(renameId).mockImplementation(() => new Promise(() => {}));
+    await show();
+    typeInto(field(), "TRAINER_JENS_ROUTE201");
+    await wait(PLAN_DELAY_MS);
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    pressKey(field(), "Enter");
+    await act(async () => {});
+    expect(renameId).toHaveBeenCalledOnce();
   });
 });

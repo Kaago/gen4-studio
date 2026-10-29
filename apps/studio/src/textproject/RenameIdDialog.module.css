@@ -27,3 +27,10 @@
 .more {
   color: var(--g4-text-sekundaer);
 }
+
+/* „Verweise werden gesucht …“, „Wird umbenannt …“. */
+.wait {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

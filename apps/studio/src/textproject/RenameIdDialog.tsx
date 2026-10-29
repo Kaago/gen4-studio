@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, planRenameId, renameId } from "../api";
 import type { RenamePlan, RenameResult } from "../api";
@@ -36,6 +37,8 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
   const [plan, setPlan] = useState<RenamePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  // The plan for the current text is being asked for (it reads every source file, which a virus scanner can slow to half a minute).
+  const [asking, setAsking] = useState(false);
   const busy = useRef(false);
   // Only the answer for the text typed last counts.
   const asked = useRef(0);
@@ -45,11 +48,21 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
     const seq = ++asked.current;
     setPlan(null);
     setError(null);
+    setAsking(false);
     if (wanted === "" || wanted === id) return;
     const timer = setTimeout(() => {
+      setAsking(true);
       planRenameId(id, wanted).then(
-        (next) => seq === asked.current && setPlan(next),
-        (e: unknown) => seq === asked.current && setError(errorText(e)),
+        (next) => {
+          if (seq !== asked.current) return;
+          setPlan(next);
+          setAsking(false);
+        },
+        (e: unknown) => {
+          if (seq !== asked.current) return;
+          setError(errorText(e));
+          setAsking(false);
+        },
       );
     }, PLAN_DELAY_MS);
     return () => clearTimeout(timer);
@@ -75,6 +88,14 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
     }
   };
 
+  // Enter in the field renames like „Umbenennen“, when that is ready; otherwise it does nothing (the key is used up either way, so the
+  // button that opened the dialog is not pressed again as the focus returns to it).
+  const onEnter = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void rename();
+  };
+
   const more = current === null ? 0 : current.files.length - SHOWN_FILES;
   return (
     <Dialog
@@ -91,7 +112,14 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
       ]}
     >
       <div className={styles.content}>
-        <TextField label="Neue ID" showLabel value={id} onCommit={setTyped} onChange={setTyped} disabled={running} />
+        <div onKeyDown={onEnter}>
+          <TextField label="Neue ID" showLabel value={typed} onCommit={setTyped} onChange={setTyped} disabled={running} />
+        </div>
+        {asking && !running && (
+          <p role="status" className={styles.wait}>
+            Verweise werden gesucht …
+          </p>
+        )}
         {current?.refusal != null && <Notice kind="error">{current.refusal}</Notice>}
         {current !== null && current.refusal === null && (
           <Notice kind="info">
@@ -107,6 +135,11 @@ export function RenameIdDialog({ id, onClose, onRenamed }: RenameIdDialogProps) 
               </ul>
             )}
           </Notice>
+        )}
+        {running && (
+          <p role="status" className={styles.wait}>
+            Wird umbenannt …
+          </p>
         )}
         {error !== null && <Notice kind="error">{error}</Notice>}
       </div>
