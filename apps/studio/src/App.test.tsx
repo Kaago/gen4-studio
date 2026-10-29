@@ -2842,7 +2842,7 @@ describe("App wiring", () => {
       localStorage.removeItem("g4.textProjectHint./p");
       vi.mocked(textProjectStatus).mockResolvedValue({ state: "dspre", adoptable: false, reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
       await reopen();
-      expect(hint()?.text).toBe("Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis-ROM.");
+      expect(hint()?.text).toBe("Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis\u2060-\u2060ROM.");
       expect(hint()?.actions.map((a) => a.label)).toEqual(["Basis-ROM zuordnen…", "Nicht mehr fragen"]);
       await act(async () => hint()!.actions[0]!.onClick());
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("veroeffentlichen");
