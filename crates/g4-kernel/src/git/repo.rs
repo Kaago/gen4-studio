@@ -74,6 +74,10 @@ pub struct GitStatus {
 }
 
 /// The repository whose work tree holds a project, read with `gix`.
+///
+/// Not `Send`/`Sync` with the chosen gix features (without `parallel`, gix shares through
+/// `Rc`/`RefCell`): open it per call within one thread (for example inside `spawn_blocking`)
+/// and never store it in Tauri state.
 pub struct GitRepo {
     repo: gix::ThreadSafeRepository,
     kind: RepoKind,
@@ -142,7 +146,11 @@ impl GitRepo {
     /// directories are listed file by file; renames count as deleted plus new (no rename
     /// tracking). Submodules count as configured (`diff.submoduleIgnore`), like `git status`.
     pub fn status(&self) -> Result<GitStatus, KernelError> {
-        let started = Instant::now();
+        self.status_since(Instant::now())
+    }
+
+    /// [`GitRepo::status`] with `ms` counted from `started`.
+    fn status_since(&self, started: Instant) -> Result<GitStatus, KernelError> {
         let repo = self.repo.to_thread_local();
         let head = repo.head().map_err(|e| self.error(e))?;
         let detached = head.is_detached();
@@ -331,10 +339,11 @@ impl GitRepo {
 }
 
 /// `GitRepo::discover(root)?.status()`, or a status with `RepoKind::None` and nothing else.
+/// `ms` covers the discovery and the status, what the caller waited.
 pub fn status(root: &Path) -> Result<GitStatus, KernelError> {
     let started = Instant::now();
     match GitRepo::discover(root)? {
-        Some(repo) => repo.status(),
+        Some(repo) => repo.status_since(started),
         None => Ok(GitStatus {
             repo: RepoKind::None,
             branch: None,
