@@ -117,9 +117,9 @@ jede Datei atomar (`fsutil::write_atomic`); eine unveränderte Datei wird nicht 
 |---|---|---|
 | keine Datei | der Block allein | `created` |
 | Datei ohne Block | die Zeilen des Nutzers byte-gleich, eine Leerzeile (keine bei einer leeren Datei oder einer, die schon mit einer Leerzeile endet), der Block am Ende | `appended` |
-| Datei mit gleichem Block am Ende (danach höchstens Leerraum) | unverändert (auch, wenn er sich nur in `\r\n`-Zeilenenden unterscheidet) | `unchanged` |
-| Datei mit anderem Block, oder mit gleichem, hinter dem noch Zeilen stehen | der alte Block herausgenommen (die Zeilen davor und danach bleiben byte-gleich und in ihrer Reihenfolge), dann der Block am Ende wie bei einer Datei ohne Block | `updated` |
-| Anfangszeile ohne Endzeile danach | Ablehnung `<Datei>: Der Block von Gen4 Studio ist unvollständig (Anfang ohne Ende); bitte von Hand reparieren.`, keine der beiden Dateien geschrieben | Fehler |
+| Datei mit genau einem Block, gleich und am Ende (danach höchstens Leerraum) | unverändert (auch, wenn er sich nur in `\r\n`-Zeilenenden unterscheidet) | `unchanged` |
+| Datei mit anderem Block, mit gleichem, hinter dem noch Zeilen stehen, oder mit mehreren Blöcken (doppelt eingefügt) | jeder Block herausgenommen (die Zeilen davor, dazwischen und danach bleiben byte-gleich und in ihrer Reihenfolge), dann der Block am Ende wie bei einer Datei ohne Block | `updated` |
+| Anfangszeile ohne Endzeile danach, oder eine zweite Anfangszeile vor der Endzeile | Ablehnung `<Datei>: Der Block von Gen4 Studio ist unvollständig (Anfang ohne Ende); bitte von Hand reparieren.`, keine der beiden Dateien geschrieben | Fehler |
 
 Der Block steht immer am Ende: In beiden Dateien gewinnt die spätere Zeile, so gelten
 `* -text` und die Ignorier-Regeln auch hinter einem `* text=auto` oder einer eigenen Regel des

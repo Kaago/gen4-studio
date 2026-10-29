@@ -123,12 +123,13 @@ pub fn gitattributes_block() -> String {
 /// lines win over the user's in both files. Without a file (`None`) the block alone
 /// ([`TemplateAction::Created`]). A file without the block gets it at its end, after one blank
 /// line, its own text byte for byte before it ([`TemplateAction::Appended`]). A file with the
-/// block (the first line equal to [`BLOCK_START`] up to the next equal to [`BLOCK_END`]) is
-/// returned as it is when that block is the same and only blank space follows it
+/// block (a line equal to [`BLOCK_START`] up to the next equal to [`BLOCK_END`]) is returned as
+/// it is when it has exactly one, that block is the same and only blank space follows it
 /// ([`TemplateAction::Unchanged`]; a block that differs only in `\r\n` line ends counts as the
-/// same); else the old block is taken out (the user's lines before and after it stay byte for
-/// byte and in order) and the block appended like to a file without one
-/// ([`TemplateAction::Updated`]). A start without an end is `Err` with [`BROKEN_BLOCK`].
+/// same); else every block is taken out (a pasted second one too; the user's lines before,
+/// between and after them stay byte for byte and in order) and the block appended like to a
+/// file without one ([`TemplateAction::Updated`]). A start without an end, or a start inside an
+/// open block, is `Err` with [`BROKEN_BLOCK`].
 pub fn merge_block(
     existing: Option<&str>,
     block: &str,
@@ -136,21 +137,42 @@ pub fn merge_block(
     let Some(text) = existing else {
         return Ok((block.to_owned(), TemplateAction::Created));
     };
-    let Some(start) = find_line(text, 0, BLOCK_START) else {
-        return Ok((append(text, block), TemplateAction::Appended));
-    };
-    let Some(end) = find_line(text, start, BLOCK_END) else {
-        return Err(BROKEN_BLOCK.to_owned());
-    };
-    // The end marker's line with its line end.
-    let end = text[end..].find('\n').map_or(text.len(), |n| end + n + 1);
-    let current = &text[start..end];
-    let same = current == block || current.replace("\r\n", "\n") == block;
-    if same && text[end..].trim().is_empty() {
-        return Ok((text.to_owned(), TemplateAction::Unchanged));
+    // Every complete block out, the text around them kept in order.
+    let mut rest = String::with_capacity(text.len());
+    let mut blocks = Vec::new();
+    let mut at = 0;
+    while let Some(start) = find_line(text, at, BLOCK_START) {
+        let inside = line_end(text, start);
+        let end = find_line(text, inside, BLOCK_END).ok_or_else(|| BROKEN_BLOCK.to_owned())?;
+        // A start inside an open block is broken too.
+        if find_line(text, inside, BLOCK_START).is_some_and(|next| next < end) {
+            return Err(BROKEN_BLOCK.to_owned());
+        }
+        let end = line_end(text, end);
+        rest.push_str(&text[at..start]);
+        blocks.push(&text[start..end]);
+        at = end;
     }
-    let rest = format!("{}{}", &text[..start], &text[end..]);
-    Ok((append(&rest, block), TemplateAction::Updated))
+    let after = &text[at..];
+    rest.push_str(after);
+    match blocks.as_slice() {
+        [] => Ok((append(text, block), TemplateAction::Appended)),
+        [current]
+            if (*current == block || current.replace("\r\n", "\n") == block)
+                && after.trim().is_empty() =>
+        {
+            Ok((text.to_owned(), TemplateAction::Unchanged))
+        }
+        _ => Ok((append(&rest, block), TemplateAction::Updated)),
+    }
+}
+
+/// The offset after the line end of the line starting at `start` (the text's end for its last
+/// line).
+fn line_end(text: &str, start: usize) -> usize {
+    text[start..]
+        .find('\n')
+        .map_or(text.len(), |n| start + n + 1)
 }
 
 /// `text` byte for byte, then (unless it is empty) a line end if it lacks one and one blank
@@ -486,6 +508,59 @@ mod tests {
         assert_eq!(message, format!(".gitignore: {BROKEN_BLOCK}"));
         assert_eq!(read(root, ".gitignore"), broken);
         assert!(!root.join(".gitattributes").exists());
+
+        // A broken `.gitattributes` beside a `.gitignore` that would be written: neither is.
+        std::fs::write(root.join(".gitignore"), "notes/\n").unwrap();
+        std::fs::write(root.join(".gitattributes"), &broken).unwrap();
+        let err = write_templates(&project).unwrap_err();
+        let KernelError::Refused(message) = err else {
+            panic!("not a refusal: {err:?}");
+        };
+        assert_eq!(message, format!(".gitattributes: {BROKEN_BLOCK}"));
+        assert_eq!(read(root, ".gitignore"), "notes/\n");
+        assert_eq!(read(root, ".gitattributes"), broken);
+
+        // Without any `.gitignore`: none is created.
+        std::fs::remove_file(root.join(".gitignore")).unwrap();
+        write_templates(&project).unwrap_err();
+        assert!(!root.join(".gitignore").exists());
+    }
+
+    #[test]
+    fn every_block_is_taken_out_and_one_settles_at_the_end() {
+        let ours = block("*.nds\n");
+        // Two identical blocks (pasted twice) with the user's lines around them.
+        let twice = format!("a/\n{ours}b/\n{ours}c/\n");
+        let (merged, action) = merge_block(Some(&twice), &ours).unwrap();
+        assert_eq!(action, TemplateAction::Updated);
+        assert_eq!(merged, format!("a/\nb/\nc/\n\n{ours}"));
+        assert_eq!(merged.matches(BLOCK_START).count(), 1);
+        assert_eq!(
+            merge_block(Some(&merged), &ours).unwrap(),
+            (merged.clone(), TemplateAction::Unchanged)
+        );
+        // Two blocks, the last one at the end and the same: still one too many.
+        let tail = format!("a/\n{ours}\n{ours}");
+        assert_eq!(
+            merge_block(Some(&tail), &ours).unwrap(),
+            (format!("a/\n\n{ours}"), TemplateAction::Updated)
+        );
+    }
+
+    #[test]
+    fn a_start_inside_an_open_block_is_broken() {
+        let ours = block("*.nds\n");
+        let nested = format!("{BLOCK_START}\nmine/\n{BLOCK_START}\n*.nds\n{BLOCK_END}\n");
+        assert_eq!(
+            merge_block(Some(&nested), &ours),
+            Err(BROKEN_BLOCK.to_owned())
+        );
+        // A complete block, then a start without an end.
+        let open = format!("{ours}x/\n{BLOCK_START}\n");
+        assert_eq!(
+            merge_block(Some(&open), &ours),
+            Err(BROKEN_BLOCK.to_owned())
+        );
     }
 
     #[test]
