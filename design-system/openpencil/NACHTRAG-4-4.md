@@ -94,7 +94,7 @@ Neu sind:
   - „Wird gelesen …“ und „Vergleiche …“ auf der Fläche.
 - **Fehler:**
   - die Fehlermeldung im Detail;
-  - „Git: nicht lesbar“ als Fehlermeldung auf der Fläche;
+  - Git nicht lesbar: die Statusleiste sagt „Git: nicht lesbar“ (Grund im Tooltip), die Fläche zeigt den Grund als Fehlermeldung;
   - der gescheiterte erste Commit (Warnung mit dem Grund von Git, nur „Schließen“, ohne Prüfliste);
   - „Git ist nicht installiert: nur die Vorlagen werden geschrieben“ (Warnung in der Prüfliste, primär dann „Vorlagen schreiben“);
   - „Erst speichern“ (Fehlerzeile, „Einrichten“ gesperrt).

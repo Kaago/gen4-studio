@@ -57,7 +57,7 @@
   };
   // Ein Wert: null = fehlt, ein Text, oder Zeilen aus Spannen (die Zeichnung bricht die Zeilen von Hand, die App im Fluss)
   const Wert = (wert, breite) => wert === null
-    ? Code('—', { c: 'text/sekundaer' })
+    ? Code('—', { c: 'text/primaer' })
     : typeof wert === 'string'
       ? Code(wert, { width: breite })
       : <Frame flex="col" w={breite}>{wert.map((zeile) => <Frame flex="row" items="center">{zeile.map(Spanne)}</Frame>)}</Frame>;
@@ -224,7 +224,7 @@
     {Zustand('Git in der Statusleiste', <Frame flex="col" gap={8}>
       {Leiste('main · 3 Änderungen', 'Git: 3 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.')}
       {Leiste('main · noch kein Commit', 'Git: noch kein Commit.')}
-      {Leiste('4c1d2e3 (losgelöst) · keine Änderung', 'Git: 0 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.')}
+      {Leiste('4c1d2e3 (losgelöst) · keine Änderung', 'Git: keine geänderte Datei seit dem letzten Commit „Ausgangsstand“. Klick öffnet Technik › Änderungen.')}
       {Leiste('Git: nicht lesbar', 'Der Grund, warum der Status nicht lesbar war (Satz des Kerns).', true)}
       {T('Ohne Repository steht kein Element in der Statusleiste.', { c: 'text/sekundaer', width: BW })}
     </Frame>)}

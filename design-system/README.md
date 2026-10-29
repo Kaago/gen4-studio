@@ -534,7 +534,7 @@ Die Screenshots zeigen echte Werte des Testprojekts (Platin DE), die Frames Beis
   | Zustand | Text | Tooltip |
   |---|---|---|
   | ohne Repository | kein Element | – |
-  | mit Branch | „main · 3 Änderungen“, „main · 1 Änderung“, „main · keine Änderung“ | „Git: 3 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.“ (eine: „1 geänderte Datei“) |
+  | mit Branch | „main · 3 Änderungen“, „main · 1 Änderung“, „main · keine Änderung“ | „Git: 3 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.“ (eine: „1 geänderte Datei“; keine: „Git: keine geänderte Datei seit dem letzten Commit „Ausgangsstand“. Klick öffnet Technik › Änderungen.“, das Wort wie im Text) |
   | ohne Commit | „main · noch kein Commit“ | „Git: noch kein Commit.“ |
   | losgelöst | „4c1d2e3 (losgelöst) · 2 Änderungen“ | wie mit Branch |
   | nicht lesbar | „Git: nicht lesbar“, Symbol und Text in `status/warnung` | der Grund |
@@ -567,7 +567,7 @@ Die Screenshots zeigen echte Werte des Testprojekts (Platin DE), die Frames Beis
   - **Detail** (`EntityDiff`, `data-entity-diff`; Karte `flaeche/blatt`, Kante `linie/standard`, `radius/fenster`, innen 16, Abstand 12):
     - **Ohne Auswahl:** „Wähle links einen Eintrag, dann steht hier, was sich geändert hat.“ (sekundär).
     - **Kopf:** der Name vom Kern (`text/l`, „Trainer 0001“), darunter „{alte Seite} → {neue Seite}“ (`text/s` sekundär): „Basis-ROM Platin DE (Testprojekt) → Projekt (gespeichert)“, „Commit 4c1d2e3 „Ausgangsstand“ → Projekt (gespeichert)“, „Gespeichert → Ungespeichert“. Rechts die kleinen sekundären Tasten „Öffnen“ und „Auf Original zurücksetzen…“ (bei schmaler Karte darunter).
-    - **Öffnen:** springt an den Ort des Eintrags (Header, Gebietsdaten, Textarchiv bei der ersten geänderten Nachricht, Scriptdatei bei der ersten geänderten Zeile, Pokémon, Attacke, Item, Trainer, Begegnungsdatei, Matrix bei Zelle 0, 0, Eventdatei beim ersten geänderten Event). Sonst ist es gesperrt, fokussierbar, mit dem Tooltip „Für diese Art gibt es keinen Ort in der App.“ (Karten, Texturen, Modelle, Ordner ohne Studio-Art, Projektdateien).
+    - **Öffnen:** springt an den Ort des Eintrags (Header, Gebietsdaten, Textarchiv bei der ersten geänderten Nachricht, Scriptdatei bei der ersten geänderten Zeile, Pokémon, Attacke, Item, Trainer, Begegnungsdatei, Matrix bei Zelle 0, 0, Eventdatei beim ersten geänderten Event). Sonst ist es gesperrt, fokussierbar, mit dem Tooltip „Für diese Art gibt es keinen Ort in der App.“ (Karten, Texturen, Modelle, Ordner ohne Studio-Art, Projektdateien und eine Eventdatei, deren erste Änderung außerhalb der Eventlisten liegt). Solange der Vergleich einer Eventdatei noch gelesen wird, wartet es gesperrt ohne Grund (ihr Ort folgt aus dem Vergleich).
     - **Zurücksetzen:** öffnet den Dialog von 4.1b, gesperrt wie die Zeile, dazu „Kein Original“ bei einem neuen Eintrag.
     - **Laden, Fehler, gleich:** „Lade Vergleich …“ (`role="status"`), eine Fehlermeldung mit dem Grund, „Keine Abweichung.“
   - **Formen des Detail:**
