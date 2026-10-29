@@ -278,7 +278,9 @@ zuletzt), in der Gruppe nach Index:
 
 - gegen Basis: `original::changed_from_original` (4.1b), jede Zeile mit `subject`;
 - gegen `HEAD`: `diff::head_entries` aus den Pfaden von `git status`: geändert und Typwechsel →
-  `changed`, hinzugefügt und unverfolgt → `new`, gelöscht → `missing`; die Pfade einer Entität (zwei
+  `changed`, hinzugefügt und unverfolgt → `new`, gelöscht → `missing` (unverfolgte Dateien einzeln;
+  sagt die Konfiguration des Repositorys `status.showUntrackedFiles` `no` oder falsch, wie ein
+  Dotfile-Repository im Home-Ordner, keine, wie `git status`); die Pfade einer Entität (zwei
   Trainer-Member, Textarchiv-Member und seine JSON) sind eine Zeile, in verschiedenen Zuständen
   `changed`. Im DSPRE-Layout werden die Pfade, die Header tragen (eine geänderte `arm9/arm9.bin`,
   `mapname.bin`, die Dateien des Dynamic-Headers-Ordners, sobald eine Seite den Patch trägt),

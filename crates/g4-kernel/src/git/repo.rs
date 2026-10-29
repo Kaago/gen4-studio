@@ -228,7 +228,7 @@ impl GitRepo {
         };
         let items = repo
             .status(gix::progress::Discard)?
-            .untracked_files(gix::status::UntrackedFiles::Files)
+            .untracked_files(untracked_files(repo))
             .index_worktree_rewrites(None)
             .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled)
             .dirwalk_options(|options| options.empty_patterns_match_prefix(false))
@@ -350,6 +350,24 @@ impl GitRepo {
 
     fn error(&self, err: impl std::fmt::Display) -> KernelError {
         git_error(&self.root, err)
+    }
+}
+
+/// How the status lists untracked files: not at all when the repository's configuration says
+/// `status.showUntrackedFiles` `no` (or a boolean false, which Git reads as `no`; a dotfile
+/// repository in the home folder sets it, and the project inside it, never added, is then
+/// clean as `git status` says), else file by file (`normal`, `all`, true or unset: the list of
+/// entities needs each file, not the folder `normal` would collapse them into).
+fn untracked_files(repo: &gix::Repository) -> gix::status::UntrackedFiles {
+    let value = repo.config_snapshot().string("status.showUntrackedFiles");
+    let hidden = value.is_some_and(|value| {
+        let value = value.to_str_lossy().trim().to_ascii_lowercase();
+        matches!(value.as_str(), "no" | "false" | "off" | "0")
+    });
+    if hidden {
+        gix::status::UntrackedFiles::None
+    } else {
+        gix::status::UntrackedFiles::Files
     }
 }
 
@@ -541,6 +559,50 @@ mod tests {
                 ("neu/x.json", PathState::Untracked),
             ]
         );
+    }
+
+    /// A dotfile repository in the home folder hides untracked files
+    /// (`status.showUntrackedFiles=no`, or `false` as Git reads it too): the project inside
+    /// it, never added, is clean, as `git status` says; tracked changes still count. `normal`
+    /// (`true`) and `all` list each file.
+    #[test]
+    fn show_untracked_files_no_hides_untracked_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path();
+        GitFixture::init(top);
+        write(top, ".bashrc", b"alt");
+        GitFixture::commit_all(top, "Dotfiles");
+        write(top, "projekt/neu/x.json", b"{}");
+        write(top, "projekt/y", b"y");
+        let config = top.join(".git/config");
+        let base = std::fs::read_to_string(&config).unwrap();
+        let set = |value: &str| {
+            std::fs::write(
+                &config,
+                format!("{base}[status]\n\tshowUntrackedFiles = {value}\n"),
+            )
+            .unwrap();
+        };
+        let project = top.join("projekt");
+        let listed = || {
+            let s = GitRepo::discover(&project)
+                .unwrap()
+                .unwrap()
+                .status()
+                .unwrap();
+            s.paths.len()
+        };
+        for value in ["no", "false", "No", "off", "0"] {
+            set(value);
+            assert_eq!(listed(), 0, "{value}");
+        }
+        write(top, ".bashrc", b"neu");
+        let s = status(top).unwrap();
+        assert_eq!(paths(&s), [(".bashrc", PathState::Modified)]);
+        for value in ["normal", "all", "true", "yes", "1"] {
+            set(value);
+            assert_eq!(listed(), 2, "{value}");
+        }
     }
 
     #[test]
