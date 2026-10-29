@@ -71,11 +71,13 @@ export function useTextProjectDialogs({
 }: TextProjectDialogsParams) {
   const [opened, setDialog] = useState<"adopt" | "revert" | null>(null);
   // „Als Textprojekt einrichten?“ belongs to a DSPRE folder only: once the folder is a text project (an agent set it up, the session was
-  // read anew) the dialog is gone, and a stale „Einrichten…“ opens nothing.
-  const dialog = opened === "adopt" && projectText?.state !== "dspre" ? null : opened;
+  // read anew) the dialog is gone, and a stale „Einrichten…“ opens nothing. Not while `onAdopted` finishes the dialog's own set-up: the
+  // session is read anew (the folder is a text project) before it says so, and the dialog stays until then (it closes itself after).
+  const [adoptRunning, setAdoptRunning] = useState(false);
+  const dialog = opened === "adopt" && !adoptRunning && projectText?.state !== "dspre" ? null : opened;
   useEffect(() => {
-    if (opened === "adopt" && projectText !== null && projectText.state !== "dspre") setDialog(null);
-  }, [opened, projectText]);
+    if (opened === "adopt" && !adoptRunning && projectText !== null && projectText.state !== "dspre") setDialog(null);
+  }, [opened, adoptRunning, projectText]);
   const open = useStableCallback((which: "adopt" | "revert") => {
     if (session.info === null || !canOpen()) return;
     if (which === "adopt") {
@@ -113,7 +115,13 @@ export function useTextProjectDialogs({
   });
   const onAdopted = useStableCallback(async (report: AdoptReport) => {
     toast.dismissKey(HINT_TOAST);
-    await afterSwap(adoptedText(report));
+    // The dialog's own set-up: it stays (with „Wird eingerichtet …“) until the session is read and the message said, then it closes itself.
+    setAdoptRunning(true);
+    try {
+      await afterSwap(adoptedText(report));
+    } finally {
+      setAdoptRunning(false);
+    }
   });
   const onReverted = useStableCallback((report: RevertReport) => afterSwap(revertedText(report)));
   const onLifted = useStableCallback(async (report: MigrateReport) => {

@@ -7,16 +7,19 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::build::fingerprint::{Fp, Seen, hash, is_racy, now_ns, same_stat, stat};
-use crate::build::state::BuildState;
+use crate::build::state::{BuildState, SyncRecord};
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::start::read_base_mark;
+use crate::store::HEADER_TABLE;
 use crate::text::{Problem, Severity, TextArchiveDoc, TextSide, TextSync, json_matches_member};
 
 use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, Members, surplus_problem};
-use super::super::base_layer::{BaseLayer, check_raw_blob, owned_paths, same_blob};
+use super::super::base_layer::{
+    BaseLayer, arm9_rel, check_raw_blob, header_table_as_recorded, owned_paths, same_blob,
+};
 use super::super::canon::problem;
 use super::super::codes::{MEMBER_WITHOUT_JSON_CODE, RAW_PATH_CODE, SCHEMA_CODE};
 use super::super::import::plan_quirks_alone;
@@ -178,6 +181,7 @@ pub(super) fn scan(
         project,
         watch: &watch,
         seen: &seen,
+        record,
         full,
         global,
         source: None,
@@ -264,6 +268,8 @@ struct Judge<'a> {
     project: &'a Project,
     watch: &'a Watch<'a>,
     seen: &'a HashMap<String, (Seen, Option<Fp>)>,
+    /// The record the files were compared with (none on a full scan).
+    record: Option<&'a SyncRecord>,
     full: bool,
     global: bool,
     /// The entities' source, opened on first use; the problems when a register or the
@@ -344,6 +350,30 @@ impl Judge<'_> {
         self.seen.get(&key(rel)).map_or(Seen::Same, |(s, _)| *s)
     }
 
+    /// Whether a member of `unit` changed since the record. `arm9.bin` is the header table's
+    /// member by the table alone (the rest is its blob's): changed only where the record does
+    /// not show the table it holds now ([`header_table_as_recorded`]).
+    fn member_changed(&self, unit: &Unit) -> Result<bool, KernelError> {
+        for member in &unit.members {
+            match self.seen(member) {
+                Seen::Same => {}
+                Seen::Changed if unit.of == Of::Asset(HEADER_TABLE) && *member == arm9_rel() => {
+                    let recorded = self
+                        .record
+                        .and_then(|r| r.files.get(&key(member)))
+                        .and_then(|fp| fp.xxh3);
+                    match recorded {
+                        Some(hash)
+                            if header_table_as_recorded(self.project, self.layer(), hash)? => {}
+                        _ => return Ok(true),
+                    }
+                }
+                _ => return Ok(true),
+            }
+        }
+        Ok(false)
+    }
+
     fn exists(&self, rel: &Path) -> bool {
         self.project.root.join(rel).is_file()
     }
@@ -381,7 +411,7 @@ impl Judge<'_> {
     fn side(&mut self, unit: &Unit) -> Result<Option<Judged>, KernelError> {
         let own_source = unit.sources.iter().any(|s| self.seen(s) != Seen::Same);
         let source = self.full || own_source || (self.global && matches!(unit.of, Of::Asset(_)));
-        let member = self.full || unit.members.iter().any(|m| self.seen(m) != Seen::Same);
+        let member = self.full || self.member_changed(unit)?;
         if !self.full
             && let Some(gone) = unit.members.iter().find(|m| self.seen(m) == Seen::Removed)
         {

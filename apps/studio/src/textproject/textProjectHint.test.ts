@@ -26,9 +26,16 @@ describe("textProjectHint", () => {
       setUp: true,
     });
     expect(hintOf(NO_BASE)).toEqual({
-      text: "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis-ROM.",
+      text: "Dieses Projekt lässt sich als Textprojekt einrichten: eine lesbare Datei je Eintrag, bereit für Git. Dafür braucht es die Basis\u2060-\u2060ROM.",
       setUp: false,
     });
+  });
+
+  it("hint_holds_no_breakable_base_rom", () => {
+    // Acceptance 4.3b A5: the toast must not wrap inside „Basis-ROM“ („Basis-“ / „ROM.“): word joiners around the hyphen.
+    const { text } = hintOf(NO_BASE);
+    expect(text).toContain("Basis\u2060-\u2060ROM");
+    expect(text).not.toContain("Basis-ROM");
   });
 
   it("no_hint_for_a_text_project_or_dp", () => {

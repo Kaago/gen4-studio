@@ -5,9 +5,10 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { conflictDiff, resolveExternalConflict } from "../api";
 import type { ConflictDiff } from "../api";
-import { TextProjectSurface } from "./TextProjectSurface";
+import { TextProjectSurface, requestTextProjectFocus } from "./TextProjectSurface";
 import type { TextProjectView } from "./TextProjectSurface";
 import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
+import type { BrokenEntry } from "../api";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -281,5 +282,101 @@ describe("TextProjectSurface", () => {
     expect(surface()?.textContent).toContain("Öffne ein Projekt, dann zeigt Technik hier sein Textprojekt.");
     await click(button("Projekt öffnen"));
     expect(onOpenProject).toHaveBeenCalledOnce();
+  });
+
+  // A4 of the acceptance 4.3b: focus never rests on the body in the flow of the external sync.
+  describe("focus", () => {
+    const BROKEN: BrokenEntry[] = [{ key: "moves/0002", label: "Attacke 0002 Karateschlag", problems: [{ severity: "error", file: "data/moves/0002.json", line: 1, col: 1, message: "kaputt" }] }];
+    const TAKEN = [{ key: "moves/0003", label: "Attacke 0003 Doppelschlag", assets: [{ kind: "Move" as const, index: 3 }] }];
+    const toggleOf = (group: string) => container.querySelector<HTMLElement>(`[${group}] button[aria-expanded]`);
+    const withAll = () => textWith({ sync: syncWith({ last: outcome({ conflicts: [conflict()], broken: BROKEN }), taken: outcome({ adopted: TAKEN }) }) });
+
+    it("a_toast_action_before_the_surface_shows_focuses_the_group_asked_for", async () => {
+      // The toasts navigate to Technik › Textprojekt: the surface mounts after the request.
+      for (const [group, attribute] of [
+        ["conflicts", "data-sync-conflicts"],
+        ["broken", "data-sync-broken"],
+        ["taken", "data-sync-taken"],
+      ] as const) {
+        await act(async () => root.render(null));
+        (document.activeElement as HTMLElement | null)?.blur();
+        requestTextProjectFocus(group);
+        await render(withAll());
+        expect(document.activeElement).toBe(toggleOf(attribute));
+        expect(document.activeElement?.textContent).not.toBe("");
+      }
+    });
+
+    it("a_toast_action_with_the_surface_already_shown_focuses_the_group", async () => {
+      await render(withAll());
+      expect(document.activeElement).toBe(document.body);
+      await act(async () => requestTextProjectFocus("broken"));
+      expect(document.activeElement).toBe(toggleOf("data-sync-broken"));
+      await act(async () => requestTextProjectFocus("conflicts"));
+      expect(document.activeElement).toBe(toggleOf("data-sync-conflicts"));
+    });
+
+    it("a_group_that_is_not_there_falls_back_to_the_surface_heading", async () => {
+      requestTextProjectFocus("conflicts");
+      await render(textWith());
+      expect(document.activeElement).toBe(surface()?.querySelector("h1"));
+      expect(document.activeElement?.textContent).toBe("Textprojekt");
+      // The request is spent: a later render does not take focus again.
+      (document.activeElement as HTMLElement).blur();
+      await render(textWith());
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    const resolveRow = async (key: string, name: string, onResolved = vi.fn()) => {
+      await click(button(row(key)!.querySelector("button")!.textContent!, row(key)!));
+      const choice = button(name, row(key)!)!;
+      act(() => choice.focus());
+      await click(choice);
+      return onResolved;
+    };
+    const keys = (n: number) => ["moves/0001", "species/0025", "moves/0004"].slice(0, n);
+    const many = (n: number) =>
+      outcome({ conflicts: keys(n).map((key, i) => conflict({ key, label: `Eintrag ${i + 1}`, assets: [{ kind: "Move", index: i + 1 }] })) });
+    const rowToggle = (key: string) => row(key)?.querySelector<HTMLElement>("button[aria-expanded]");
+
+    it("resolving_a_conflict_moves_focus_to_the_next_conflicts_toggle", async () => {
+      await render(textWith({ sync: syncWith({ last: many(3) }) }));
+      await resolveRow("moves/0001", "Studio-Fassung behalten");
+      expect(resolveExternalConflict).toHaveBeenCalledOnce();
+      // The sync lists what is still open: the resolved row is gone.
+      await render(textWith({ sync: syncWith({ last: outcome({ conflicts: many(3).conflicts.slice(1) }) }) }));
+      expect(row("moves/0001")).toBeNull();
+      expect(document.activeElement).toBe(rowToggle("species/0025"));
+    });
+
+    it("resolving_the_last_conflict_moves_focus_to_the_previous_one", async () => {
+      await render(textWith({ sync: syncWith({ last: many(3) }) }));
+      await resolveRow("moves/0004", "DSPRE-Fassung übernehmen");
+      await render(textWith({ sync: syncWith({ last: outcome({ conflicts: many(3).conflicts.slice(0, 2) }) }) }));
+      expect(row("moves/0004")).toBeNull();
+      expect(document.activeElement).toBe(rowToggle("species/0025"));
+    });
+
+    it("resolving_the_only_conflict_moves_focus_to_the_surface_heading", async () => {
+      await render(textWith({ sync: syncWith({ last: many(1) }) }));
+      await resolveRow("moves/0001", "Studio-Fassung behalten");
+      await render(textWith({ sync: syncWith({ last: outcome() }) }));
+      expect(container.querySelector("[data-sync-conflicts]")).toBeNull();
+      expect(document.activeElement).toBe(surface()?.querySelector("h1"));
+    });
+
+    it("a_refused_choice_or_focus_the_user_moved_elsewhere_is_left_alone", async () => {
+      await render(textWith({ sync: syncWith({ last: many(2) }) }));
+      vi.mocked(resolveExternalConflict).mockRejectedValue({ code: "error", message: "Kein Konflikt mehr.", asset: null });
+      await resolveRow("moves/0001", "Studio-Fassung behalten");
+      expect(document.activeElement).toBe(button("Studio-Fassung behalten", row("moves/0001")!));
+      // Resolved, then focus put elsewhere before the list changes.
+      vi.mocked(resolveExternalConflict).mockResolvedValue([]);
+      await click(button("Studio-Fassung behalten", row("moves/0001")!));
+      const other = button("Jetzt abgleichen")!;
+      act(() => other.focus());
+      await render(textWith({ sync: syncWith({ last: outcome({ conflicts: many(2).conflicts.slice(1) }) }) }));
+      expect(document.activeElement).toBe(other);
+    });
   });
 });

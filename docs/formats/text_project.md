@@ -587,7 +587,12 @@ Blob statt still verloren.
 | Textarchiv | `expanded/textArchives/NNNN.json` | JSON ↔ Member | `Textarchiv 0012` |
 | Scriptdatei | `expanded/scripts/NNNN` | `.rotom` bzw. `.json` ↔ Member (nur mit übernommenen Scripts) | `Scriptdatei 0101` |
 
-`arm9.bin` gehört der Header-Tabelle und als Blob sich selbst (verglichen ohne die Tabelle). Eine
+`arm9.bin` gehört der Header-Tabelle und als Blob sich selbst (verglichen ohne die Tabelle). Für die
+Header-Tabelle ist `arm9.bin` nur geändert, wo sich die Tabelle geändert hat: unverändert ist sie,
+wenn der aufgezeichnete Hash der Datei der Hash der Bytes außerhalb der Tabelle laut Blob (ohne ihn:
+laut Basisschicht) mit der Tabelle von heute ist; eine Änderung außerhalb der Tabelle allein ist also
+keine Header-Änderung (eine Header-Datei und eine DSPRE-Änderung daneben sind aus Datei und aus DSPRE,
+kein Konflikt). Lässt sich das nicht zeigen, gilt die Tabelle als geändert. Eine
 Datei, die keine Einheit entscheidet (Register, Manifest, ein unbekannter Ordner unter `data/`,
 eine ID-Datei für rotom), wird nur aufgezeichnet; eine Änderung am Manifest oder an einem
 Register beurteilt alle Entitäten neu und zählt für jede abweichende als Änderung der Quellseite.
@@ -627,8 +632,12 @@ keine Änderung von außen.
 
 Was unaufgezeichnet bleibt (Konflikt, fehlerhaft, zurückgehalten, nicht übernommen), bleibt es
 mit **allen** seinen Dateien: Eine abgeglichene Einheit, die eine davon teilt (`arm9.bin` gehört der
-Header-Tabelle und als Blob sich selbst), zeichnet sie nicht auf, und ein geändertes Manifest oder
-Register bleibt unaufgezeichnet, solange eine Entität offen ist. Eine Einheit, deren Dateien seit
+Header-Tabelle und als Blob sich selbst), zeichnet sie nicht auf; übernimmt der Abgleich die teilende
+Einheit, verliert der Eintrag der Datei seinen Hash, sodass sie für jede Einheit und jede Prüfung
+als geändert gilt, bis sie wieder aufgezeichnet wird (geht die Datei zurück auf den alten Stand,
+bleibt das sichtbar, statt dass der Build die Seite der übernommenen Einheit darüberschreibt). Ein
+geändertes Manifest oder Register bleibt unaufgezeichnet, solange eine Entität offen ist. Eine
+Einheit, deren Dateien seit
 dem Scan einen anderen `stat` haben, übernimmt der Abgleich nicht und zeichnet sie nicht auf; der
 nächste Scan urteilt neu; ebenso eine Datei, deren `stat` im racy Fenster des Scans liegt und deren
 Inhalt nicht mehr der Hash ist, den der Scan nahm (eine neue oder in der Größe geänderte Datei mit

@@ -397,6 +397,10 @@ fn record(
         .flat_map(|u| u.sources.iter().chain(&u.members))
         .map(|rel| key(rel))
         .collect();
+    // The open units' own files, before the registers join them.
+    let shared_with_open = held_back.clone();
+    // Files of an open unit that a unit taken over shares: their entry loses its hash.
+    let mut unhashed: BTreeSet<String> = BTreeSet::new();
     if open
         .iter()
         .any(|u| matches!(of_unit(&u.key, &u.assets), Of::Asset(_)))
@@ -442,7 +446,18 @@ fn record(
     }
     capture.extend(written.iter().cloned());
     for rel in capture {
-        if !watch.watches(&rel) || held_back.contains(&key(&rel)) {
+        if !watch.watches(&rel) {
+            continue;
+        }
+        if held_back.contains(&key(&rel)) {
+            // `arm9.bin` of an open header table beside its blob taken over (or the other way
+            // round): the old entry holds neither unit's view now. A file that went back to it
+            // would look unchanged to the unit taken over, and the build would write that
+            // unit's side over it. Without its hash the entry counts as changed (the file's
+            // `stat` moved since), for every unit and every guard, until it is recorded anew.
+            if shared_with_open.contains(&key(&rel)) {
+                unhashed.insert(key(&rel));
+            }
             continue;
         }
         let path = project.root.join(&rel);
@@ -463,8 +478,8 @@ fn record(
     }
     entries.retain(|k, _| watch.watches(Path::new(k)));
     let records = entries.values().any(Option::is_some);
-    if !entries.is_empty() || scan.scanned_at_ns != 0 {
-        record_sync(project, scan.scanned_at_ns, entries, records)?;
+    if !entries.is_empty() || !unhashed.is_empty() || scan.scanned_at_ns != 0 {
+        record_sync(project, scan.scanned_at_ns, entries, &unhashed, records)?;
     }
     record_text_sync(project, &scan.texts)
 }
@@ -494,13 +509,15 @@ fn as_seen(
     }))
 }
 
-/// Writes `entries` (`None` removes one) into the sync record, and the scan time `at_ns`
+/// Writes `entries` (`None` removes one) into the sync record, drops the hash of the entries
+/// of `unhashed` (they then count as changed: see [`record`]), and sets the scan time `at_ns`
 /// unless it is 0. A project without a sync record gets one only when an entry is recorded
 /// (`records`): a record that holds nothing would make the next scan look partial.
 fn record_sync(
     project: &Project,
     at_ns: i128,
     entries: BTreeMap<String, Option<Fp>>,
+    unhashed: &BTreeSet<String>,
     records: bool,
 ) -> Result<(), KernelError> {
     BuildState::update(&project.root, |state| {
@@ -519,6 +536,11 @@ fn record_sync(
                 None => {
                     sync.files.remove(&k);
                 }
+            }
+        }
+        for k in unhashed {
+            if let Some(fp) = sync.files.get_mut(k) {
+                fp.xxh3 = None;
             }
         }
     })
