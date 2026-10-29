@@ -12,12 +12,14 @@ use std::process::Command;
 use std::time::Instant;
 
 use g4_kernel::build::build;
+use g4_kernel::git::cli::REPO_VARS;
 use g4_kernel::git::{GitCli, GitRepo, InitOptions, InitPhase, git_init};
 use g4_kernel::project::Project;
 use sha1::{Digest, Sha1};
 
 /// The isolated `git` with an identity from the environment; `None` (the test skips) without
-/// one.
+/// one. No automatic maintenance (tests only): a commit would otherwise start
+/// `git maintenance run --auto --detach` in the background, racing the test's `repack`.
 fn git_cli(home: &Path) -> Option<GitCli> {
     let mut cli = common::GitFixture::cli(home)?;
     for (key, value) in [
@@ -25,6 +27,11 @@ fn git_cli(home: &Path) -> Option<GitCli> {
         ("GIT_AUTHOR_EMAIL", "gate@gen4.invalid"),
         ("GIT_COMMITTER_NAME", "Gen4 Studio Gate"),
         ("GIT_COMMITTER_EMAIL", "gate@gen4.invalid"),
+        ("GIT_CONFIG_COUNT", "2"),
+        ("GIT_CONFIG_KEY_0", "maintenance.auto"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+        ("GIT_CONFIG_KEY_1", "gc.auto"),
+        ("GIT_CONFIG_VALUE_1", "0"),
     ] {
         cli.env.push((key.to_owned(), value.to_owned()));
     }
@@ -32,9 +39,15 @@ fn git_cli(home: &Path) -> Option<GitCli> {
 }
 
 /// Runs `git -C <dir> <args>` with the isolated environment (test code only: the Studio itself
-/// runs only its own subcommands) and returns stdout; panics with stderr when it fails.
+/// runs only its own subcommands) and returns stdout; panics with stderr when it fails. Without
+/// the variables of [`REPO_VARS`], so a run from inside a Git hook never acts on the
+/// developer's repository.
 fn git(cli: &GitCli, dir: &Path, args: &[&str]) -> String {
-    let out = Command::new(&cli.path)
+    let mut command = Command::new(&cli.path);
+    for var in REPO_VARS {
+        command.env_remove(var);
+    }
+    let out = command
         .arg("-C")
         .arg(dir)
         .args(args)

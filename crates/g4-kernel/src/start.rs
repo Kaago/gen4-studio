@@ -1319,9 +1319,9 @@ mod create_tests {
             text_project: false,
             git: true,
         };
-        for cli in [None, found.clone()] {
-            let with_git = cli.is_some();
-            if !with_git && found.is_none() {
+        // Without git always (NOT_INSTALLED), with git only where one is found.
+        for (with_git, cli) in [(false, None), (true, found)] {
+            if with_git && cli.is_none() {
                 continue;
             }
             let dest = tmp.path().join(if with_git { "mit" } else { "ohne" });

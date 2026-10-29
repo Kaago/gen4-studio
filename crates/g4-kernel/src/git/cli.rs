@@ -42,8 +42,9 @@ const TIMEOUT: Duration = Duration::from_secs(300);
 const STDERR_CHARS: usize = 400;
 
 /// Variables that would point Git at another repository, index or object store than the
-/// project's (set inside a Git hook, for example); removed for every subcommand.
-const REPO_VARS: &[&str] = &[
+/// project's (set inside a Git hook, for example); removed for every subcommand (and by the
+/// tests that run `git` themselves).
+pub const REPO_VARS: &[&str] = &[
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_INDEX_FILE",
@@ -105,9 +106,10 @@ pub struct InitReport {
 }
 
 /// The `git` CLI the Studio uses, verified with `git --version`; `None` without one. With
-/// `G4_GIT` set (and not empty) only that path counts, nothing else is searched. Else the
-/// first `git` of `PATH`, then the usual places an app started from the Finder has not in its
-/// `PATH`: `/opt/homebrew/bin/git`, `/usr/local/bin/git`, on Windows
+/// `G4_GIT` set (and not empty) only that path counts, nothing else is searched; it must be
+/// absolute (a relative one, `git` alone too, counts as not found, never a `PATH` lookup).
+/// Else the first `git` of `PATH`, then the usual places an app started from the Finder has
+/// not in its `PATH`: `/opt/homebrew/bin/git`, `/usr/local/bin/git`, on Windows
 /// `%ProgramFiles%\Git\cmd\git.exe`, on macOS last `/usr/bin/git`. `/usr/bin/git` on macOS
 /// only when `xcode-select -p` succeeds: without the Command Line Tools it is a stub that
 /// opens their installation dialog.
@@ -127,7 +129,11 @@ fn find_with(forced: Option<OsString>, path: Option<OsString>) -> Option<GitCli>
     };
     if let Some(forced) = forced.filter(|f| !f.is_empty()) {
         let path = PathBuf::from(forced);
-        return if usable(&path) { verify(path) } else { None };
+        return if path.is_absolute() && usable(&path) {
+            verify(path)
+        } else {
+            None
+        };
     }
     let exe = if cfg!(windows) { "git.exe" } else { "git" };
     let mut candidates: Vec<PathBuf> = path
@@ -669,6 +675,14 @@ mod tests {
         let missing = Some(OsString::from("/nicht/da/git"));
         let path = std::env::var_os("PATH");
         assert_eq!(find_with(missing, path), None);
+    }
+
+    #[test]
+    fn a_relative_g4_git_counts_as_not_found() {
+        // `git` alone would be found through `PATH`; G4_GIT names one path, a full one.
+        let path = std::env::var_os("PATH");
+        assert_eq!(find_with(Some(OsString::from("git")), path.clone()), None);
+        assert_eq!(find_with(Some(OsString::from("./git")), path), None);
     }
 
     #[test]

@@ -160,7 +160,8 @@ Variablen, die auf ein anderes Repository zeigen (in einem Git-Hook gesetzt), un
 Zeitgrenze von 300 s; danach wird der Prozess samt Gruppe beendet.
 
 **`git` finden** (`find_git`): Ist `G4_GIT` gesetzt, gilt nur dieser Pfad (geprüft mit
-`git --version`, kein Weitersuchen). Sonst das erste `git` im `PATH`, dann `/opt/homebrew/bin/git`,
+`git --version`, kein Weitersuchen); er muss absolut sein, ein relativer (auch `git` allein)
+zählt als nicht gefunden. Sonst das erste `git` im `PATH`, dann `/opt/homebrew/bin/git`,
 `/usr/local/bin/git`, unter Windows `%ProgramFiles%\Git\cmd\git.exe`, unter macOS zuletzt
 `/usr/bin/git`. `/usr/bin/git` gilt unter macOS nur, wenn `xcode-select -p` gelingt: ohne die
 Command Line Tools öffnet es den Installationsdialog. Eine App aus dem Finder hat nur
