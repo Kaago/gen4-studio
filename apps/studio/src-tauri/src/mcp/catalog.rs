@@ -1312,7 +1312,112 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: renamed("rename_id", &[("new_id", "newId")]),
     },
+    // Git, minimal (4.4).
+    ToolDef {
+        name: "git_status",
+        title: "Git status",
+        description: "Reads the project's Git state and changes nothing: whether a repository \
+                      holds the project (none, own, or an enclosing one), branch, last commit \
+                      (id, summary), the number of changed paths since it and the changed \
+                      entities (each with the subject diff_entity takes), the layout of the \
+                      templates and whether the git command line is installed. Works without \
+                      git installed.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("git_status"),
+    },
+    ToolDef {
+        name: "git_init",
+        title: "Set up Git",
+        description: "Sets the project up for Git, only local: writes .gitignore and \
+                      .gitattributes (an existing file only gets the Gen4 Studio block), runs \
+                      git init and makes a first commit \"Ausgangsstand\" with the git command \
+                      line; it never adds a remote and never pushes. Without git installed, \
+                      with templates_only, or inside an existing repository it writes the \
+                      templates only (committed: false with the reason); refuses unsaved \
+                      changes; this cannot be undone. Headless (studio mcp) it needs \
+                      --allow-irreversible, without it the call answers needs_confirmation.",
+        input_schema: || {
+            object(
+                json!({ "templates_only": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "write .gitignore and .gitattributes only, never a \
+                                    repository (default false)",
+                } }),
+                &[],
+            )
+        },
+        output_schema: answers_object,
+        route: renamed("git_init", &[("templates_only", "templatesOnly")]),
+    },
+    ToolDef {
+        name: "diff_entity",
+        title: "Compare an entity",
+        description: concat!(
+            "Compares one entity field by field against the base ROM (against: base), the \
+             last commit (head) or the saved state (saved: the app's unsaved edits); the shape \
+             is fields (JSON path, old, new), map (parts and permission cells), messages (per \
+             message with word spans), lines (script hunks) or binary (size and SHA-1). index \
+             takes a number or a symbolic id (SPECIES_PIKACHU, MAP_T01, TRAINER_…); no \
+             repository answers no_repo, no commit no_commit, no base ROM base_missing. ",
+            data_note!()
+        ),
+        input_schema: diff_entity_args,
+        output_schema: answers_object,
+        route: command("diff_entity"),
+    },
 ];
+
+/// The kinds of `g4_kernel::diff::DiffSubject`, in its order.
+const DIFF_KINDS: [&str; 18] = [
+    "map",
+    "matrix",
+    "area_data",
+    "event_file",
+    "encounter",
+    "species",
+    "move",
+    "item",
+    "trainer",
+    "header",
+    "text_archive",
+    "script",
+    "map_texture",
+    "building_texture",
+    "building_model",
+    "interior_building_model",
+    "member",
+    "file",
+];
+
+/// The arguments of `diff_entity`: the subject, flat, and what it is compared against.
+fn diff_entity_args() -> Value {
+    object(
+        json!({
+            "kind": {
+                "type": "string",
+                "enum": DIFF_KINDS,
+                "description": "the entity's kind, as git_status and changed_from_original \
+                                return it in entries[].subject.kind; member a member of a \
+                                folder below unpacked/ of no other kind, file any other \
+                                project file",
+            },
+            "index": id_or_number("the entity's number (a header's id, a script file, an \
+                                   item's item id; species, move, item, trainer and header \
+                                   also by symbolic id); every kind but file"),
+            "folder": text("member only: the folder below unpacked/, such as pokeHeight"),
+            "path": text("file only: the path relative to the project folder, with /"),
+            "against": {
+                "type": "string",
+                "enum": ["base", "head", "saved"],
+                "description": "the old side: base the base ROM, head the last commit, saved \
+                                the saved state (the new side is then the unsaved one)",
+            },
+        }),
+        &["kind", "against"],
+    )
+}
 
 /// The argument of `plan_reset`.
 fn target_args() -> Value {
@@ -1507,6 +1612,8 @@ mod tests {
                 "text_check",
                 "text_project_status",
                 "external_changes",
+                "git_status",
+                "diff_entity",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1555,11 +1662,16 @@ mod tests {
             "adopt_text_project",
             "resolve_external_conflict",
             "rename_id",
+            "git_init",
         ]
         .into_iter()
         .collect();
         assert_eq!(write, decided);
-        for name in ["adopt_text_project", "resolve_external_conflict"] {
+        for name in [
+            "adopt_text_project",
+            "resolve_external_conflict",
+            "git_init",
+        ] {
             let Route::Command { command, .. } = tool(name).route else {
                 unreachable!()
             };
@@ -1676,6 +1788,7 @@ mod tests {
             "run_checks",
             "plan_fix",
             "plan_reset",
+            "diff_entity",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -1697,6 +1810,7 @@ mod tests {
             "text_export",
             "adopt_text_project",
             "resolve_external_conflict",
+            "git_init",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1771,6 +1885,15 @@ mod tests {
         assert_eq!(
             tool("external_changes").command_args(json!({})),
             json!({ "diff": false })
+        );
+        assert_eq!(
+            tool("git_init").command_args(json!({})),
+            json!({ "templatesOnly": false })
+        );
+        assert_eq!(
+            tool("diff_entity").command_args(json!({ "kind": "trainer", "index": "TRAINER_A",
+                                                     "against": "head" })),
+            json!({ "kind": "trainer", "index": "TRAINER_A", "against": "head" })
         );
         // No arguments at all are no arguments.
         assert_eq!(tool("history").command_args(Value::Null), json!({}));
@@ -1903,6 +2026,13 @@ mod tests {
                 "rename_id",
                 json!({ "id": "TRAINER_YOUNGSTER_KAI", "new_id": "TRAINER_KID_KAI" }),
             ),
+            ("git_status", json!({})),
+            (
+                "diff_entity",
+                json!({ "kind": "trainer", "index": 1, "against": "saved" }),
+            ),
+            // Templates only: a test never runs the user's `git`.
+            ("git_init", json!({ "templates_only": true })),
         ]
     }
 
@@ -2019,6 +2149,60 @@ mod tests {
             tool("changed_from_original").description.contains("first"),
             "{}",
             tool("changed_from_original").description
+        );
+    }
+    #[test]
+    fn diff_entity_schema_names_every_subject_kind() {
+        use g4_kernel::diff::DiffSubject;
+        let every = [
+            DiffSubject::Map { index: 0 },
+            DiffSubject::Matrix { index: 0 },
+            DiffSubject::AreaData { index: 0 },
+            DiffSubject::EventFile { index: 0 },
+            DiffSubject::Encounter { index: 0 },
+            DiffSubject::Species { index: 0 },
+            DiffSubject::Move { index: 0 },
+            DiffSubject::Item { index: 0 },
+            DiffSubject::Trainer { index: 0 },
+            DiffSubject::Header { index: 0 },
+            DiffSubject::TextArchive { index: 0 },
+            DiffSubject::Script { index: 0 },
+            DiffSubject::MapTexture { index: 0 },
+            DiffSubject::BuildingTexture { index: 0 },
+            DiffSubject::BuildingModel { index: 0 },
+            DiffSubject::InteriorBuildingModel { index: 0 },
+            DiffSubject::Member {
+                folder: "pokeHeight".into(),
+                index: 0,
+            },
+            DiffSubject::File {
+                path: "g4-world.json".into(),
+            },
+        ];
+        let schema = (tool("diff_entity").input_schema)();
+        let kinds = &schema["properties"]["kind"]["enum"];
+        let serialized: Vec<Value> = every
+            .iter()
+            .map(|s| serde_json::to_value(s).unwrap())
+            .collect();
+        assert_eq!(
+            *kinds,
+            Value::Array(serialized.iter().map(|v| v["kind"].clone()).collect())
+        );
+        // Every variant's keys are properties of the flat schema.
+        for value in &serialized {
+            for key in value.as_object().unwrap().keys() {
+                assert!(schema["properties"].get(key).is_some(), "{key} of {value}");
+            }
+        }
+        assert_eq!(schema["required"], json!(["kind", "against"]));
+        assert_eq!(
+            schema["properties"]["against"]["enum"],
+            json!(["base", "head", "saved"])
+        );
+        assert_eq!(
+            schema["properties"]["index"]["type"],
+            json!(["integer", "string"])
         );
     }
 }

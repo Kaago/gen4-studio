@@ -185,6 +185,11 @@ pub const COMMANDS: &[&str] = &[
     "rename_id",
     "entity_ids",
     "close_project",
+    "git_status",
+    "git_init",
+    "diff_entity",
+    "unsaved_changes",
+    "restore_text_project",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -722,7 +727,7 @@ pub fn dispatch(
         ),
         "create_project" => run!(
             json, "create_project", args,
-            { rom: String, dest: String, template: g4_kernel::start::Template, text_project: Option<bool> },
+            { rom: String, dest: String, template: g4_kernel::start::Template, text_project: Option<bool>, git: Option<bool> },
             |a| {
                 let rom = policy.read_path(&a.rom)?;
                 let dest = policy.check_new_project(&a.dest)?;
@@ -733,6 +738,7 @@ pub fn dispatch(
                     &path_text(&dest)?,
                     a.template,
                     a.text_project.unwrap_or(false),
+                    a.git.unwrap_or(false),
                     &mut |_| {},
                 )
             }
@@ -918,6 +924,46 @@ pub fn dispatch(
         "close_project" => run!(json, "close_project", args, {}, |_a| close_project_impl(
             state
         )),
+        "git_status" => run!(json, "git_status", args, {}, |_a| git_status_impl(state)),
+        // No live progress over HTTP: the report carries the time of each phase.
+        "git_init" => run!(json, "git_init", args, { templates_only: Option<bool> }, |a| {
+            let opts = g4_kernel::git::InitOptions {
+                templates_only: a.templates_only.unwrap_or(false),
+            };
+            git_init_impl(state, opts, &mut |_progress| {})
+        }),
+        // The subject comes flat (`kind`, `index`, `folder`, `path`), as the MCP tool takes it.
+        "diff_entity" => run!(
+            json, "diff_entity", args,
+            {
+                kind: String,
+                index: Option<u16>,
+                folder: Option<String>,
+                path: Option<String>,
+                against: g4_kernel::diff::Against,
+            },
+            |a| {
+                let subject = diff_subject(a.kind, a.index, a.folder, a.path)?;
+                diff_entity_impl(state, subject, a.against)
+            }
+        ),
+        "unsaved_changes" => run!(json, "unsaved_changes", args, {}, |_a| {
+            unsaved_changes_impl(state)
+        }),
+        // The folder is one `open_project` may open, the base ROM one the policy reads; no
+        // live progress over HTTP.
+        "restore_text_project" => run!(
+            json, "restore_text_project", args,
+            { root: String, nds: Option<String> },
+            |a| {
+                let root = path_text(&policy.check_project(&a.root)?)?;
+                let nds = match a.nds {
+                    Some(nds) => Some(path_text(&policy.read_path(&nds)?)?),
+                    None => None,
+                };
+                restore_text_project_impl(state, root, nds, &mut |_progress| {})
+            }
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1209,7 +1255,7 @@ mod tests {
             (
                 "create_project",
                 json!({ "rom": per_in, "dest": format!("{dir}/neu"), "template": "original",
-                        "textProject": true }),
+                        "textProject": true, "git": true }),
             ),
             ("plan_empty_region", json!({})),
             ("apply_empty_region", json!({})),
@@ -1281,6 +1327,15 @@ mod tests {
                 json!({ "id": "TRAINER_YOUNGSTER_KAI", "newId": "TRAINER_KID_KAI" }),
             ),
             ("entity_ids", json!({ "kind": "Species" })),
+            ("git_status", json!({})),
+            // Templates only: a test never runs the user's `git`.
+            ("git_init", json!({ "templatesOnly": true })),
+            (
+                "diff_entity",
+                json!({ "kind": "trainer", "index": 1, "against": "saved" }),
+            ),
+            ("unsaved_changes", json!({})),
+            ("restore_text_project", json!({ "root": dir, "nds": null })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

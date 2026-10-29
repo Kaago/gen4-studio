@@ -85,6 +85,7 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
         "/target/id",
         FromKindField("/target/kind"),
     ),
+    arg("diff_entity", "/index", FromKindField("/kind")),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -400,6 +401,7 @@ mod tests {
             "update_event",
             "plan_reset",
             "reset_to_original",
+            "diff_entity",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),

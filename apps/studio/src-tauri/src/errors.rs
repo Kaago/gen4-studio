@@ -20,7 +20,8 @@ use crate::commands::ProblemDto;
 /// `reset_to_original`, `changed_from_original`, `text_export`: no base ROM found; the
 /// message says why, nothing was built, reset or written), `"no_original"` (`plan_reset`,
 /// `reset_to_original`: the base ROM has no such entry or message; nothing was reset),
-/// `"unsaved"` (`text_export`: the store has unsaved changes; nothing was written),
+/// `"unsaved"` (`text_export`, `git_init`: the store has unsaved changes; nothing was
+/// written),
 /// `"not_adopted"` (`text_export`: the scripts are not adopted; nothing was written),
 /// `"unsynced"` (`text_export` in a text project: the text project holds changes the members
 /// lack, not built yet, which the export would throw away; nothing was written),
@@ -33,7 +34,12 @@ use crate::commands::ProblemDto;
 /// outside, a conflict or a broken file), `"conflicts"`
 /// (`build_rom` of a text project with an open conflict; nothing was saved or built) and
 /// `"unknown_id"` (MCP: a symbolic id in the arguments nothing knows), `"busy"` (a write
-/// while the project is set up as text project; nothing was changed), or `"error"`;
+/// while the project is set up as text project; nothing was changed), Git's (4.4)
+/// `"no_repo"` and `"no_commit"` (`diff_entity` against the last commit: no repository holds
+/// the project, or it has no commit yet), `"not_diffable"` (`diff_entity`: a project file
+/// against the base ROM, a script against the saved state) and `"restore_needed"`
+/// (`open_project` of a text project without its game files, a fresh Git clone;
+/// `restore_text_project` completes it), or `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
 /// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`.
