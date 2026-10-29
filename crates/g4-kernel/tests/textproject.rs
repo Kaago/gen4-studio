@@ -1959,6 +1959,175 @@ fn a_store_header_save_beside_an_arm9_blob_is_in_step() {
     }
 }
 
+/// One scan: the side of each unit by its key.
+fn sides(fx: &Fx) -> BTreeMap<String, UnitSide> {
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    found.units.into_iter().map(|u| (u.key, u.side)).collect()
+}
+
+// Acceptance 4.3b: `arm9.bin` is two units' member, the header table's by the table and the
+// blob's by everything else. A change of one region is no change of the other unit.
+
+#[test]
+fn an_arm9_change_outside_the_table_beside_a_header_edit_is_no_conflict() {
+    // Without a blob (the rest of `arm9.bin` is the base layer's) and beside one.
+    for fx in [built(), built_with_an_arm9_blob()] {
+        // DSPRE changes `arm9.bin` outside the table, the header file changes the table.
+        let mut arm9 = fx.read(ARM9);
+        arm9[0x104] ^= 0xFF;
+        fx.write(ARM9, &arm9);
+        fx.edit(
+            HEADER_0_JSON,
+            "\"level_script_id\": 1",
+            "\"level_script_id\": 2",
+        );
+        let found = sides(&fx);
+        assert_eq!(
+            found.get("data/headers/"),
+            Some(&UnitSide::Files),
+            "{found:?}"
+        );
+        assert_eq!(found.get(ARM9_BLOB), Some(&UnitSide::Dspre), "{found:?}");
+
+        let applied = sync_once(&fx);
+        assert!(!applied.contains(&UnitSide::Conflict), "{applied:?}");
+        assert_eq!(level_script_0(&fx), 2, "the table from the header file");
+        assert_eq!(fx.read(ARM9)[0x104], arm9[0x104], "the rest from DSPRE");
+        assert_eq!(fx.read(ARM9_BLOB)[0x104], arm9[0x104]);
+        let again = sides(&fx);
+        assert!(again.values().all(|s| *s == UnitSide::InSync), "{again:?}");
+
+        let prepared = build::prepare(&fx.p()).unwrap();
+        assert!(
+            step_problems(&prepared.problems).is_empty(),
+            "{:?}",
+            prepared.problems
+        );
+        assert_eq!(level_script_0(&fx), 2);
+        assert_eq!(fx.read(ARM9)[0x104], arm9[0x104]);
+    }
+}
+
+#[test]
+fn a_header_change_inside_the_table_beside_an_arm9_change_is_still_a_conflict() {
+    let fx = built();
+    let mut arm9 = fx.read(ARM9);
+    let at = common::PT_HEADER_TABLE_CPUE + 6;
+    arm9[at..at + 2].copy_from_slice(&3u16.to_le_bytes());
+    fx.write(ARM9, &arm9);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    let found = sides(&fx);
+    assert_eq!(
+        found.get("data/headers/"),
+        Some(&UnitSide::Conflict),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_blob_taken_over_beside_an_open_header_conflict_never_overwrites_a_later_arm9_change() {
+    let fx = built();
+    let original = fx.read(ARM9);
+    let header_json = fx.read(HEADER_0_JSON);
+    // DSPRE changes the table and the rest of `arm9.bin`, the header file the table too.
+    let mut arm9 = original.clone();
+    let at = common::PT_HEADER_TABLE_CPUE + 6;
+    arm9[at..at + 2].copy_from_slice(&3u16.to_le_bytes());
+    arm9[0x100] ^= 0xFF;
+    fx.write(ARM9, &arm9);
+    fx.edit(
+        HEADER_0_JSON,
+        "\"level_script_id\": 1",
+        "\"level_script_id\": 2",
+    );
+    let found = sides(&fx);
+    assert_eq!(
+        found.get("data/headers/"),
+        Some(&UnitSide::Conflict),
+        "{found:?}"
+    );
+    assert_eq!(found.get(ARM9_BLOB), Some(&UnitSide::Dspre), "{found:?}");
+    sync_once(&fx);
+    assert_eq!(
+        fx.read(ARM9_BLOB)[0x100],
+        arm9[0x100],
+        "the blob taken over"
+    );
+
+    // Both sides go back: DSPRE's `arm9.bin` and the header file.
+    tick();
+    fx.write(ARM9, &original);
+    fx.write(HEADER_0_JSON, &header_json);
+    let found = sides(&fx);
+    assert_eq!(found.get(ARM9_BLOB), Some(&UnitSide::Dspre), "{found:?}");
+    let applied = sync_once(&fx);
+    assert!(!applied.contains(&UnitSide::Conflict), "{applied:?}");
+    assert!(!fx.exists(ARM9_BLOB), "arm9.bin is the base layer's again");
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(ARM9), original, "DSPRE's arm9.bin stays");
+}
+
+#[test]
+fn a_header_table_taken_over_beside_an_open_arm9_blob_conflict_never_overwrites_a_later_arm9_change()
+ {
+    let fx = built();
+    let original = fx.read(ARM9);
+    // DSPRE changes the table and the rest of `arm9.bin`, a new blob the rest elsewhere.
+    let mut arm9 = original.clone();
+    let at = common::PT_HEADER_TABLE_CPUE + 6;
+    arm9[at..at + 2].copy_from_slice(&3u16.to_le_bytes());
+    arm9[0x100] ^= 0xFF;
+    fx.write(ARM9, &arm9);
+    let mut blob = original.clone();
+    blob[0x108] ^= 0xFF;
+    fx.write(ARM9_BLOB, &blob);
+    let found = sides(&fx);
+    assert_eq!(
+        found.get("data/headers/"),
+        Some(&UnitSide::Dspre),
+        "{found:?}"
+    );
+    assert_eq!(found.get(ARM9_BLOB), Some(&UnitSide::Conflict), "{found:?}");
+    sync_once(&fx);
+    assert_eq!(
+        fx.json(HEADER_0_JSON)["level_script_id"],
+        3,
+        "the table taken over"
+    );
+
+    // DSPRE's `arm9.bin` goes back, the blob goes.
+    tick();
+    fx.write(ARM9, &original);
+    std::fs::remove_file(fx.root().join(ARM9_BLOB)).unwrap();
+    let found = sides(&fx);
+    assert_eq!(
+        found.get("data/headers/"),
+        Some(&UnitSide::Dspre),
+        "{found:?}"
+    );
+    let applied = sync_once(&fx);
+    assert!(!applied.contains(&UnitSide::Conflict), "{applied:?}");
+    assert_eq!(fx.json(HEADER_0_JSON)["level_script_id"], 1);
+
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        step_problems(&prepared.problems).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    assert_eq!(fx.read(ARM9), original, "DSPRE's arm9.bin stays");
+}
+
 // Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base
 // ROM next to the original (only read). Deviations are findings in export, import or the
 // build step, never exceptions here.

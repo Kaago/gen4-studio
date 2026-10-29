@@ -794,6 +794,32 @@ fn splice_disk_table<'a>(project: &Project, bytes: &'a [u8], disk: Option<&[u8]>
     }
 }
 
+/// Whether the header table of `arm9/arm9.bin` is unchanged since the sync recorded the file
+/// with content hash `recorded`, while the rest of the file may have changed: `recorded` is the
+/// hash of the bytes outside the table as the blob unit knows them (`data/raw/arm9/arm9.bin`,
+/// else the base layer's `arm9.bin`) with the table of the file today put in. The hash proves
+/// it, whatever the candidates hold; `false` when no candidate gives it, or without a table
+/// that can be located or without the file.
+pub(crate) fn header_table_as_recorded(
+    project: &Project,
+    layer: Option<&BaseLayer>,
+    recorded: u64,
+) -> Result<bool, KernelError> {
+    let rel = arm9_rel();
+    if header_slice(project).is_none() {
+        return Ok(false);
+    }
+    let Some(now) = read_optional(&project.root.join(&rel))? else {
+        return Ok(false);
+    };
+    let blob = read_optional(&project.root.join(RAW_DIR).join(&rel))?;
+    let base = layer.map(|layer| layer.file(&rel)).transpose()?.flatten();
+    Ok([blob, base].into_iter().flatten().any(|outside| {
+        outside.len() == now.len()
+            && xxhash_rust::xxh3::xxh3_64(&keep_header_table(project, outside, &now)) == recorded
+    }))
+}
+
 /// Whether the project's `arm9/arm9.bin` equals the base layer's outside the header table
 /// (each side's table zeroed); a missing file on either side is not the same.
 pub(crate) fn same_outside_header_table(

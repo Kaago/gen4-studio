@@ -152,7 +152,8 @@ pub fn scan(
 
 /// Takes over the one-sided units (`Dspre`, `Files`) not `held` and records them and every
 /// `InSync` unit; conflicts and broken units stay unrecorded, and so does every file they
-/// share with another unit. A unit whose files have another `stat` than `scan` saw is
+/// share with another unit (one shared with a unit taken over loses its hash, so it counts as
+/// changed until it is recorded anew). A unit whose files have another `stat` than `scan` saw is
 /// neither taken over nor recorded (the next scan judges it). Call it after every [`scan`],
 /// also when it found nothing (see there).
 pub fn apply_one_sided(
