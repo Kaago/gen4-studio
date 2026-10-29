@@ -1534,3 +1534,47 @@ fn cli_text_rename_id() {
     assert_eq!(plan["new_id"], "TRAINER_KAI");
     assert_eq!(plan["total"], 2);
 }
+
+#[test]
+fn cli_git_templates() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let templates = || {
+        let mut cmd = g4k();
+        cmd.args(["git", "templates"]).arg(root);
+        cmd
+    };
+    let assert = templates().assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "created .gitignore",
+            "created .gitattributes",
+            "layout=dspre ignored_archives=0",
+        ],
+        "{out}"
+    );
+    let ignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+    assert!(
+        ignore.starts_with(g4_kernel::git::templates::BLOCK_START),
+        "{ignore}"
+    );
+
+    let assert = templates().assert().success();
+    let out = stdout_of(&assert);
+    assert!(out.contains("unchanged .gitignore\n"), "{out}");
+    assert!(out.contains("unchanged .gitattributes\n"), "{out}");
+
+    // A broken block: refused with the file name, exit 1.
+    std::fs::write(
+        root.join(".gitignore"),
+        format!("{}\n", g4_kernel::git::templates::BLOCK_START),
+    )
+    .unwrap();
+    templates().assert().code(1).stderr(contains(format!(
+        ".gitignore: {}",
+        g4_kernel::git::templates::BROKEN_BLOCK
+    )));
+}

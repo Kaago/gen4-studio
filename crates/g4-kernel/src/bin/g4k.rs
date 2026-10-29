@@ -118,6 +118,9 @@ enum Command {
     /// `g4-project.json`.
     #[command(subcommand)]
     Text(TextCommand),
+    /// The project as a local Git repository.
+    #[command(subcommand)]
+    Git(GitCommand),
 }
 
 #[derive(Subcommand)]
@@ -378,6 +381,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             json,
         }) => patch_create(&project, base_rom.as_deref(), out.as_deref(), json),
         Command::Text(command) => text(command),
+        Command::Git(command) => git(command),
     }
 }
 
@@ -1783,5 +1787,41 @@ mod tests {
         ] {
             assert!(parse_expectation(text).is_err(), "{text}");
         }
+    }
+}
+
+#[derive(Subcommand)]
+enum GitCommand {
+    /// Write the `.gitignore` and `.gitattributes` of the project's layout (DSPRE folder or
+    /// text project) as one marked block: a missing file is created, a file without the block
+    /// gets it at its end, a block that differs is replaced. Prints `<action> <file>` per file
+    /// (`created`, `appended`, `updated`, `unchanged`), then `layout=… ignored_archives=N`.
+    /// A block without its end is refused (exit 1, nothing written).
+    Templates { project: PathBuf },
+}
+
+fn git(command: GitCommand) -> Result<(), Failure> {
+    match command {
+        GitCommand::Templates { project } => {
+            let p = Project::open(&project)?;
+            let report = g4_kernel::git::write_templates(&p)?;
+            for file in &report.files {
+                println!("{} {}", serde_name(&file.action), file.path);
+            }
+            println!(
+                "layout={} ignored_archives={}",
+                serde_name(&report.layout),
+                report.ignored_archives
+            );
+            Ok(())
+        }
+    }
+}
+
+/// The serde name of a unit variant (`snake_case` in the kernel's reports).
+fn serde_name(value: &impl serde::Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
     }
 }
