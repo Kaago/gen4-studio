@@ -166,13 +166,13 @@ beschrieben.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
-| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` (4.4) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs` und `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
+| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` und `crates/g4-kernel/tests/diff.rs` (4.4) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs`, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) und `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` (4.4) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
 | `G4_TEST_ROM` | eine `.nds`-Datei (nur gelesen) | `extract_rom_creates_openable_project`, `project_start_inspects_the_test_rom`, `project_start_create_then_build_matches_the_rom`, `project_start_incremental_build_matches_the_rom`, `project_start_empty_region_from_the_rom`, `project_start_text_project_builds_byte_equal` (4.3b) |
 | `G4_BASE_ROM_DIR` | Ordner mit Basis-ROMs (`*.nds`, nicht rekursiv, nur gelesen) | kein gated Test (die Tests in `tests/base.rs` und `tests/original.rs` nehmen die Nachbar-`.nds` des Projekts); `g4k patch create`, `g4k base check`, `studio mcp --project` und die Brücke suchen dort nach der SHA-1 der Marke; im Gate `Roms/_testkopien`, nie die Originale |
-| `git` (CLI) | `find_git`: `G4_GIT`, sonst `PATH` und die üblichen Orte | nur die Tests, die ein Repository schreiben (`git::cli`, `create_with_git_reports_the_phase_and_commits`, `cli_git_init_and_status`, `tests/git.rs`); ohne `git` melden sie `skipped: git not found` und bleiben grün. Lesende Tests brauchen kein `git` (`gix`, `test_support::GitFixture`) |
+| `git` (CLI) | `find_git`: `G4_GIT`, sonst `PATH` und die üblichen Orte | nur die Tests, die ein Repository schreiben (`git::cli`, `create_with_git_reports_the_phase_and_commits`, `cli_git_init_and_status`, `tests/git.rs`, `tests/diff.rs`, `git_and_diff_over_the_command_path_on_the_vanilla_copy`); ohne `git` melden sie `skipped: git not found` und bleiben grün. Lesende Tests brauchen kein `git` (`gix`, `test_support::GitFixture`) |
 | `G4_GIT` | voller (absoluter) Pfad zu einem `git` | optional: nur dieser Pfad gilt, kein Weitersuchen; ein relativer Pfad (auch `git` allein) zählt als nicht gefunden, nie eine Suche im `PATH` (`cli_git_status_honours_g4_git` prüft beides über einen Kindprozess) |
 | `xdelta3` im `PATH` | xdelta3-CLI, optional | Gegenprobe in `patch_after_map_and_after_map_script_text_is_small_and_applies`; fehlt sie, meldet der Test `xdelta3 cross-check skipped: …` und bleibt grün |
 
@@ -636,15 +636,23 @@ Die gated Tests in `crates/g4-kernel/tests/git.rs` (`G4_TEST_PROJECT` und `git`;
 | `no_game_data_file_falls_under_an_eol_rule` | nach dem Auspacken trägt keine Datei unter `files/` und `unpacked/` eine Endung mit `eol=lf` (`.json`, `.rotom`, `.yaml`, `.yml`, `.toml`, `.md`); unter `arm9/`, `arm9_overlays/`, `arm7/` nur die `.yaml` von ds-rom, ohne CR; druckt `eol …` |
 | `a_clone_with_autocrlf_builds_byte_equal_dspre` | Klon über `git init`, `config core.autocrlf true`, `fetch <Kopie> HEAD`, `checkout FETCH_HEAD`: baut dieselbe SHA-1, Status leer, kein `[remote` in beiden `.git/config`; druckt `clone <Spielcode> dspre build_ms=… equal` |
 | `text_project_in_git_builds_from_base_byte_equal` | Gate der Phase 4: Basis zuordnen, als Textprojekt einrichten (`adopt`), einrichten, Status leer; Index ⊇ `textproject::sources()`, sonst nur die Vorlagen und `expanded/`; `build::build` = SHA-1 der Basis-ROM, Status leer; `packed_kib` ≤ 10 MiB; Klon mit `core.autocrlf=true`, `needs_restore`, `restore_from_base`, Abgleich ohne Offenes, Build = SHA-1 der Basis-ROM, Status leer; ein zweiter Klon über `g4k text restore`; druckt `git <Spielcode> text files=… add_ms=… commit_ms=… packed_kib=…`, `clone <Spielcode> text restore_ms=… build_ms=… equal`, `restore_phases <Spielcode> extract=… merge=… import=… sync=…` und `text <Spielcode> adopt_ms=… moved=… members=… sync_files=…` |
+| `trainer_and_text_changes_show_with_field_names_against_head_and_base` | Trainer 1 Level +1 und Nachricht 0 in Textarchiv 1 + „ Studio“, gespeichert: die Liste gegen `HEAD` nennt „Trainer 0001“ und „Textarchiv 0001“; der Diff zeigt `party[0].level` und die Wort-Spanne gegen `HEAD` und gegen die Basis mit denselben Zeilen, gegen gespeichert `same`; nach „Auf Original zurücksetzen“ und Speichern ist der Trainer gegen die Basis `same`; druckt `entries …` und `diff <Spielcode> status_ms=… entries_ms=… head_ms=… base_ms=…`; mit `G4_TIMING_STRICT=1` Status ≤ 500 ms |
+
+Dazu `crates/g4-kernel/tests/diff.rs` `one_entity_diffs_fast_in_the_dspre_layout` (nach Änderungen an Trainer 1, Pokémon 25, Karte 0 und Header 0 sind diese gegen `HEAD` geändert, Attacke 1, Textarchiv 433 und Kartentextur 0 gleich; druckt je Diff `diff <Spielcode> <Name> <Gegen> state=… ms=…` und `open_for_diff_ms=… slowest_ms=…`; mit `G4_TIMING_STRICT=1` jeder Diff < 200 ms) und der Studio-Test `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` („Git einrichten“, Status, Liste und Diff über den Befehlsweg der App; druckt `git init on the vanilla copy: …`, `status after init: … ms`, `diff against HEAD: … ms`).
 
 ```sh
 G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/_testkopien/4-4-pt_DSPRE_contents" \
   cargo test --release -p g4-kernel --all-features --test git -- --nocapture --test-threads 1
+G4_TEST_PROJECT=… cargo test --release -p g4-kernel --all-features --test diff -- --nocapture --test-threads 1
+G4_TEST_PROJECT=… cargo test --release -p studio --all-features --lib git_and_diff_over_the_command_path_on_the_vanilla_copy -- --nocapture --test-threads 1
 ```
 
-Gemessen am 2026-10-29 auf Platin DE (Release, `git version 2.54.0 (Apple Git-157)`): 143 s für die drei Tests;
-`files=18449 ignored_archives=36 add_ms=8848 commit_ms=168 status_ms=75 packed_kib=46319`, der Klon baute in 15 s
-byte-gleich. In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+Gemessen am 2026-10-29 im Gate (Release, `git version 2.54.0 (Apple Git-157)`, Last 3,6 bis 41,8): `--test git` 433 s
+(Platin DE), 550 s (HeartGold DE), 414 s (HeartGold US), `--test diff` 31 bis 34 s, der Studio-Test 32 bis 36 s; gepackt
+46 311 / 56 792 / 56 289 KiB (DSPRE) und 3 120 / 3 232 / 3 107 KiB (Textprojekt), Status 172 bis 215 ms, Klon des
+Textprojekts vervollständigt in 43,7 bis 75,3 s (je nach Last), Build aus dem Klon SHA-1-gleich; Werte in
+[docs/phase-4-4-gate.md](phase-4-4-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt
+(Debug) mit, ohne Änderung am Skript.
 
 ## Design-System und Tokens
 
