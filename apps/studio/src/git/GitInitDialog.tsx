@@ -4,7 +4,7 @@ import type { GitStatus, InitPhase, InitReport } from "../api";
 import { toast } from "../ui/frame/toasts";
 import { CheckList, Dialog, Notice } from "../ui/primitives";
 import type { CheckRow, DialogAction } from "../ui/primitives";
-import { NBSP } from "../words";
+import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, initDoneText } from "./gitWords";
 import styles from "./GitInitDialog.module.css";
 
 /** Always in the dialog: the project holds the game's data, so it does not belong in a public repository. */
@@ -27,18 +27,6 @@ const PHASE_TEXT: Record<InitPhase, string> = {
   add: "Dateien aufnehmen … (bei DSPRE-Ordnern rund 10 s)",
   commit: "Erster Commit …",
 };
-
-/** The message after a first commit: how many files it holds, and when Git knew no name, why the author is Gen4 Studio. */
-export function initDoneText(report: InitReport): string {
-  const done = `Git eingerichtet: ${report.files.toLocaleString("de-DE")}${NBSP}Dateien im ersten Commit „Ausgangsstand“.`;
-  return report.studio_identity ? `${done} Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.` : done;
-}
-
-/** The kernel's reason when no `git` was found (`git::NOT_INSTALLED`): only the templates were written. */
-export const NOT_INSTALLED = "Git ist nicht installiert. Die Vorlagen sind geschrieben; das Repository legst du an, sobald Git da ist (git-scm.com/downloads).";
-
-/** The message when no `git` is installed: only the templates were written. */
-export const TEMPLATES_ONLY_TEXT = "Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.";
 
 export type GitInitDialogProps = {
   open: boolean;

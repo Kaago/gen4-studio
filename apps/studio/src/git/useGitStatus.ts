@@ -102,8 +102,9 @@ export function useGitStatus({ project, revision, opened }: GitStatusOptions): G
       }, FOCUS_DELAY_MS);
     });
     return () => {
-      // A read of this project (or session) that answers after this is dropped, also after an unmount.
+      // A read of this project (or session) that answers after this is dropped, also after an unmount, and the one waiting for it never runs.
       generation.current++;
+      queued.current = null;
       stop();
       clearTimeout(timer.current);
       timer.current = undefined;

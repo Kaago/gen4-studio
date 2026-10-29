@@ -7,7 +7,8 @@ import { gitInit } from "../api";
 import type { InitPhase, InitReport } from "../api";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { pressKey } from "../ui/primitives/testUtils";
-import { GitInitDialog, NOT_INSTALLED } from "./GitInitDialog";
+import { GitInitDialog } from "./GitInitDialog";
+import { NOT_INSTALLED } from "./gitWords";
 import type { GitInitDialogProps } from "./GitInitDialog";
 import { initReportOf, noRepo } from "./gitTesting";
 

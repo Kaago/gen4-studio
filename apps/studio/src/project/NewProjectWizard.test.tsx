@@ -4,7 +4,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
-import type { Created, CreateProgress, DestCheck, RomInfo } from "../api";
+import type { Created, CreateProgress, DestCheck, InitReport, RomInfo } from "../api";
+import { initReportOf } from "../git/gitTesting";
+import { NOT_INSTALLED } from "../git/gitWords";
 import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
 import { NewProjectWizard } from "./NewProjectWizard";
@@ -258,6 +260,49 @@ describe("NewProjectWizard", () => {
     await next();
     expect(text()).toContain("mit der Vorlage Original an, mit Git, in /roms/_testkopien/Neues Platin.");
     expect([...container.querySelectorAll<HTMLElement>("[data-check]")].map((r) => r.dataset.check)).toEqual(["read", "extract", "template", "check", "git"]);
+  });
+
+  /** Creates with „Git einrichten (nur lokal)“ on; the backend answers `git` as given. The result step's text and its warning (or null). */
+  async function createWithGit(git: InitReport): Promise<{ text: string; warning: string | null }> {
+    vi.mocked(createProject).mockImplementationOnce(async (_rom, dest, template) => ({ ...created(dest, template), git }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    const box = [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((b) => b.closest("label")?.textContent === "Git einrichten (nur lokal)");
+    await click(box);
+    await next();
+    await settle();
+    await next();
+    await click(button("Anlegen"));
+    await flush();
+    expect(text()).toContain("Projekt angelegt");
+    const warning = [...container.querySelectorAll<HTMLElement>("[role=status]")].find((n) => n.querySelector("svg") !== null && !n.textContent?.includes("Projekt angelegt"));
+    return { text: text(), warning: warning?.textContent ?? null };
+  }
+
+  it("the_result_names_the_first_commit_and_a_studio_author", async () => {
+    const plain = await createWithGit(initReportOf());
+    expect(plain.text).toContain("Git eingerichtet: 18.449 Dateien im ersten Commit „Ausgangsstand“.");
+    expect(plain.text).not.toContain("Autor ist");
+    expect(plain.warning).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    const studio = await createWithGit(initReportOf({ studio_identity: true }));
+    expect(studio.text).toContain("Git eingerichtet: 18.449 Dateien im ersten Commit „Ausgangsstand“. Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.");
+    expect(studio.warning).toBeNull();
+  });
+
+  it("the_result_says_only_the_templates_were_written_without_git", async () => {
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: NOT_INSTALLED, head: null, files: 0 }));
+    expect(warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
+    expect(shown).not.toContain("Git eingerichtet");
+  });
+
+  it("the_result_shows_why_the_first_commit_failed", async () => {
+    const reason = "Der erste Commit ist gescheitert: error: gpg failed to sign the data. Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.";
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason, head: null, files: 0 }));
+    expect(warning).toBe(reason);
+    expect(shown).not.toContain("Git eingerichtet");
   });
 
   it("creates_with_the_dspre_ending_and_only_data", async () => {

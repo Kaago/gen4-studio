@@ -168,4 +168,17 @@ describe("useGitStatus", () => {
     await next.answer(gitStatusOf({ branch: "neu" }));
     expect(shown.status?.branch).toBe("neu");
   });
+
+  it("no_read_runs_after_unmount", async () => {
+    const first = pending();
+    await show();
+    // A reason while the first read runs queues one more; then the app goes away.
+    await show({ revision: 1 });
+    act(() => root.unmount());
+    await first.answer(gitStatusOf({ changes: 9 }));
+    await wait(FOCUS_DELAY_MS);
+    expect(gitStatus).toHaveBeenCalledTimes(1);
+    // afterEach unmounts again: a fresh root to unmount.
+    root = createRoot(container);
+  });
 });

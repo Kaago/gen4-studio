@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { gitStatusOf, noRepo } from "./gitTesting";
-import { changesWord, statusText, statusTooltip } from "./gitWords";
+import { NOT_INSTALLED, changesWord, statusText, statusTooltip } from "./gitWords";
 
 describe("gitWords", () => {
   it("changes_have_none_singular_and_plural", () => {
@@ -26,5 +27,12 @@ describe("gitWords", () => {
     expect(statusTooltip(gitStatusOf({ changes: 3 }))).toBe("Git: 3 geänderte Dateien seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.");
     expect(statusTooltip(gitStatusOf({ changes: 1 }))).toBe("Git: 1 geänderte Datei seit dem letzten Commit „Ausgangsstand“. Klick zeigt sie in Technik › Änderungen.");
     expect(statusTooltip(gitStatusOf({ head: null }))).toBe("Git: noch kein Commit.");
+  });
+
+  it("not_installed_mirrors_the_kernel_sentence", () => {
+    // The dialog and the wizard tell „only the templates“ from a failed commit by this sentence: a change in the kernel must show here.
+    const cli = readFileSync("../../crates/g4-kernel/src/git/cli.rs", "utf8");
+    const rust = /pub const NOT_INSTALLED: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(cli);
+    expect(rust?.[1]).toBe(NOT_INSTALLED);
   });
 });
