@@ -32,6 +32,8 @@ import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
+import { requestTextProjectFocus } from "./technik/TextProjectSurface";
+import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
 import { AdoptDialog } from "./textproject/AdoptDialog";
@@ -260,9 +262,11 @@ function AppBody() {
   });
   // The entry Technik shows; kept while another area shows.
   const [technikEntry, setTechnikEntry] = useState<TechnikEntry>("bauen");
-  // „Anzeigen“ and „Lösen…“ of the sync's messages: Technik › Textprojekt (not while a wizard holds the frame).
-  const showTextProject = useStableCallback(() => {
+  // „Anzeigen“ and „Lösen…“ of the sync's messages: Technik › Textprojekt (not while a wizard holds the frame), focus on the group they name
+  // (`group`: the conflicts when it is not given, as the build's „Lösen…“ and the message of the conflicts).
+  const showTextProject = useStableCallback((group: SyncGroup = "conflicts") => {
     if (wizardOpen.current || startOpen) return;
+    requestTextProjectFocus(group);
     setTechnikEntry("textprojekt");
     setArea("technik");
   });
@@ -734,18 +738,18 @@ function AppBody() {
   const onSyncOutcome = useStableCallback((outcome: SyncOutcome, root: string) => {
     // A sync of a project the backend no longer has open (another one opened, its UI not swapped yet): nothing of it is this one's.
     if (root !== session.currentRoot() || root !== session.info?.root) return;
-    const show = [{ label: "Anzeigen", onClick: showTextProject }];
-    if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show });
-    if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show });
+    const show = (group: SyncGroup) => [{ label: "Anzeigen", onClick: () => showTextProject(group) }];
+    if (outcome.adopted.length > 0) toast.info(adoptedText(outcome.adopted.length), { actions: show("taken") });
+    if (outcome.applied.length > 0) toast.info(appliedText(outcome.applied.length), { actions: show("taken") });
     const known = syncKnown.current?.root === root ? syncKnown.current : null;
     // A new conflict (broken file) says so; an open message follows the count without coming back once closed, and goes when none is left.
     if (outcome.conflicts.length === 0) toast.dismissKey(CONFLICTS_TOAST);
     else if (outcome.conflicts.some((c) => !known?.conflicts.has(c.key)) || toast.shown(CONFLICTS_TOAST)) {
-      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: "Lösen…", onClick: showTextProject }] });
+      toast.warning(conflictsText(outcome.conflicts.length), { key: CONFLICTS_TOAST, actions: [{ label: "Lösen…", onClick: () => showTextProject("conflicts") }] });
     }
     if (outcome.broken.length === 0) toast.dismissKey(BROKEN_TOAST);
     else if (outcome.broken.some((b) => !known?.broken.has(b.key)) || toast.shown(BROKEN_TOAST)) {
-      toast.error(brokenText(outcome.broken.length), { key: BROKEN_TOAST, actions: show });
+      toast.error(brokenText(outcome.broken.length), { key: BROKEN_TOAST, actions: show("broken") });
     }
     syncKnown.current = { root, conflicts: new Set(outcome.conflicts.map((c) => c.key)), broken: new Set(outcome.broken.map((b) => b.key)) };
     rereadTextStatus();
