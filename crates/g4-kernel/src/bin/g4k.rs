@@ -1363,8 +1363,9 @@ enum TextCommand {
     /// Complete a text project without its game files (a fresh Git clone) from the base ROM
     /// (found like `export`; the sibling `.nds` is not looked for, there is no `header.yaml`):
     /// its base layer (extracted once), every entry the folder lacks copied from it (never over
-    /// a file, `header.yaml` last), import, which records the sync. Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`. Refused
-    /// (exit 1, nothing written) when the folder has its game files or no base mark.
+    /// a file, `header.yaml` last), the import, then the sync of every watched file recorded
+    /// (phase `sync`). Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`.
+    /// Refused (exit 1, nothing written) when the folder has its game files or no base mark.
     Restore {
         project: PathBuf,
         /// The base ROM; another SHA-1 than the mark's is refused.
@@ -1922,7 +1923,8 @@ enum GitCommand {
     },
     /// Branch, `HEAD` and the number of changed paths since `HEAD` (read in process, no `git`
     /// needed): `branch <name|detached> head <short|none> changes <n>` or `no repository`;
-    /// with `--entries` then one line `<state> <group> <label>` per changed entity; then
+    /// with `--entries` then one line `<state> <group> <label>` per changed entity (none
+    /// without a commit); then
     /// `git version …` of the `git` CLI the Studio would use (`G4_GIT`, `PATH`, the usual
     /// places) or `git not found`.
     Status {
@@ -1984,7 +1986,11 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                     status.head.as_ref().map_or("none", |h| h.short.as_str()),
                     status.paths.len()
                 );
-                if entries && let Some(repo) = g4_kernel::git::GitRepo::discover(&project)? {
+                // Without a commit there is nothing to compare against (as the app and MCP).
+                if entries
+                    && status.head.is_some()
+                    && let Some(repo) = g4_kernel::git::GitRepo::discover(&project)?
+                {
                     let p = Project::open(&project)?;
                     for entry in g4_kernel::diff::head_entries(&p, &repo, &status)? {
                         println!(

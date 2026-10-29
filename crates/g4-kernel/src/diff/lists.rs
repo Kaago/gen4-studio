@@ -35,6 +35,10 @@ const HEADER_LEN: usize = 24;
 /// compares it against `HEAD` (whose member it then reads): differing, the entity is listed
 /// in that state; equal, the source is listed as a `file` (New), so that no row contradicts
 /// its detail and the path still shows (see [`source_entries`]).
+///
+/// When the headers cannot be read on a side (the Dynamic Headers patch applied and a header
+/// file gone), the paths that hold them are listed as `file` rows in their states; the other
+/// rows stay.
 pub fn head_entries(
     project: &Project,
     repo: &GitRepo,
@@ -65,7 +69,26 @@ pub fn head_entries(
         }
     }
     if !held.is_empty() {
-        header_entries(project, repo, &paths, &held, &mut list)?;
+        // Headers that cannot be read (a header file gone, an `arm9.bin` that does not read)
+        // take only their own rows down: those paths are listed as the files they are.
+        let mut headers = Entries::default();
+        match header_entries(project, repo, &paths, &held, &mut headers) {
+            Ok(()) => {
+                for (subject, state) in headers.found {
+                    list.add(subject, state);
+                }
+            }
+            Err(_) => {
+                for &(path, state) in &held {
+                    list.add(
+                        DiffSubject::File {
+                            path: path.to_owned(),
+                        },
+                        state,
+                    );
+                }
+            }
+        }
     }
     source_entries(project, repo, sources, &mut list);
     Ok(list.into_entries(project))

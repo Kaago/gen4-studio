@@ -1096,3 +1096,50 @@ fn a_file_that_is_not_a_regular_file_inside_the_project_is_refused_not_read() {
         assert_eq!(report.state, DiffState::New);
     }
 }
+
+/// A side the headers cannot be read from (the Dynamic Headers patch applied, one header file
+/// gone) does not take the whole list down: the paths that hold headers are listed as the
+/// files they are, every other row stays.
+#[test]
+fn unreadable_headers_list_their_paths_as_files() {
+    let fx = Dspre::with(unpacked(&[AssetKind::TrainerProperties]));
+    let project = fx.project();
+    let headers = project.read_headers().unwrap();
+    crate::dynamic_headers::apply(&project, &headers).unwrap();
+    std::fs::remove_file(project.arm9_path().with_extension("bin.backup")).ok();
+    fx.commit();
+    let dir = crate::dynamic_headers::unpacked_dir(&project);
+    std::fs::remove_file(dir.join("0001")).unwrap();
+    touch_trainer_1_on_disk(fx.root());
+    let folder = rel_slash(fx.root(), &dir);
+    assert_eq!(
+        project_rows(fx.root()),
+        [
+            row(ChangeState::Changed, "Trainer", "Trainer 0001"),
+            row(
+                ChangeState::Missing,
+                "Projektdateien",
+                &format!("{folder}/0001")
+            ),
+        ]
+    );
+}
+
+/// `path` relative to `root`, `/`-separated.
+fn rel_slash(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap()
+        .iter()
+        .map(|p| p.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Changes one byte of trainer 1's properties member on disk.
+fn touch_trainer_1_on_disk(root: &Path) {
+    let project = Project::open(root).unwrap();
+    let member = project.member_path(AssetKind::TrainerProperties, 1);
+    let mut bytes = std::fs::read(&member).unwrap();
+    bytes[1] ^= 0x01;
+    std::fs::write(&member, bytes).unwrap();
+}

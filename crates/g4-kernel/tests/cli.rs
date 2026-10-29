@@ -1817,3 +1817,28 @@ fn cli_git_status_lists_entries() {
     assert_eq!(lines[1], "changed Trainer Trainer 0001", "{out}");
     assert_eq!(lines[2], "git not found", "{out}");
 }
+
+/// Without a commit there is nothing to compare against: `--entries` lists no entity (as the
+/// app and MCP), while the count still names every path.
+#[test]
+fn cli_git_status_lists_no_entries_without_a_commit() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    common::GitFixture::init(root);
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .arg("--entries")
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(
+        lines[0].starts_with("branch main head none changes "),
+        "{out}"
+    );
+    assert!(!lines[0].ends_with(" changes 0"), "{out}");
+    assert_eq!(lines[1], "git not found", "{out}");
+}

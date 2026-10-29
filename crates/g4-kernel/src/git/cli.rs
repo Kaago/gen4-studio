@@ -9,6 +9,7 @@ use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,9 @@ pub const TIMED_OUT: &str = "Git hat nach 5 Minuten nicht geantwortet.";
 const TIMEOUT: Duration = Duration::from_secs(300);
 /// How much of Git's stderr the answer carries.
 const STDERR_CHARS: usize = 400;
+/// How long the pipes may still drain once the process has exited: a grandchild that inherited
+/// them (a hook that backgrounds something, a helper) may keep them open for good.
+const DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Variables that would point Git at another repository, index or object store than the
 /// project's (set inside a Git hook, for example); removed for every subcommand (and by the
@@ -343,7 +347,8 @@ fn run(cli: &GitCli, dir: Option<&Path>, sub: Sub, timeout: Duration) -> Result<
 }
 
 /// Runs `command` with an empty stdin and waits at most `timeout`; the pipes drain on their
-/// own threads. On expiry the process group is killed and reaped.
+/// own threads, after the exit for at most [`DRAIN_GRACE`] (what came by then is the answer).
+/// On expiry the process group is killed and reaped.
 fn output(command: &mut Command, timeout: Duration) -> Result<Ran, RunError> {
     command
         .stdin(Stdio::null())
@@ -381,8 +386,15 @@ fn output(command: &mut Command, timeout: Duration) -> Result<Ran, RunError> {
         }
         std::thread::sleep((deadline - now).min(Duration::from_millis(10)));
     };
-    let collect = |handle: Option<std::thread::JoinHandle<Vec<u8>>>| {
-        handle.and_then(|h| h.join().ok()).unwrap_or_default()
+    // The process is reaped; its pipes close unless a grandchild inherited them. Waited for at
+    // most `DRAIN_GRACE` in all, then the readers are left to end on their own.
+    let drained = Instant::now() + DRAIN_GRACE;
+    let collect = |pipe: Option<Receiver<Vec<u8>>>| {
+        pipe.and_then(|rx| {
+            rx.recv_timeout(drained.saturating_duration_since(Instant::now()))
+                .ok()
+        })
+        .unwrap_or_default()
     };
     Ok(Ran {
         status,
@@ -391,12 +403,15 @@ fn output(command: &mut Command, timeout: Duration) -> Result<Ran, RunError> {
     })
 }
 
-fn drain<R: Read + Send + 'static>(mut stream: R) -> std::thread::JoinHandle<Vec<u8>> {
+/// Reads `stream` to its end on its own thread; the bytes arrive on the channel then.
+fn drain<R: Read + Send + 'static>(mut stream: R) -> Receiver<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let _ = stream.read_to_end(&mut bytes);
-        bytes
-    })
+        let _ = tx.send(bytes);
+    });
+    rx
 }
 
 /// The answer for a failed subcommand: `<prefix>: <Git's words>. <what stays>`, Git's words
@@ -695,6 +710,25 @@ mod tests {
         );
         assert!(matches!(ran, Err(RunError::TimedOut)), "{ran:?}");
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    /// A grandchild that keeps the pipes open after `git` exited (a hook that backgrounds
+    /// something) does not hold the answer: the drain gives up after [`DRAIN_GRACE`].
+    #[cfg(unix)]
+    #[test]
+    fn a_grandchild_holding_the_pipes_does_not_block_the_answer() {
+        let started = Instant::now();
+        let ran = output(
+            Command::new("sh").args(["-c", "echo hallo; sleep 8 &"]),
+            Duration::from_secs(60),
+        )
+        .unwrap();
+        assert!(ran.status.success());
+        assert!(
+            started.elapsed() < DRAIN_GRACE + Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
