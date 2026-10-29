@@ -6,10 +6,13 @@
 //!   exported into memory ([`EntitySource::open_for_diff`]); the store's bytes exported the
 //!   same way;
 //! - a header: its record of the table exported to the header JSON with its `mapname.bin`
-//!   record, in a text project `data/headers/NNNN.json`;
+//!   record (zeros without one), in a text project `data/headers/NNNN.json`; `HEAD`'s table
+//!   is what `HEAD` holds (its header files with the Dynamic Headers patch in its `arm9.bin`,
+//!   else the table in its `arm9.bin`);
 //! - a text archive: its JSON, without one its member, as messages;
 //! - a script file: its source (`.rotom` or the level script's `.json`), the base's member
-//!   decompiled; without a source the member's bytes;
+//!   decompiled; without a source the member's bytes, decompiled when the other side is a
+//!   source ([`Sides::same_form`]);
 //! - textures, models and members without a kind: their bytes; in a text project the file
 //!   under `data/` (a blob `data/raw/unpacked/…` for a member), without one
 //!   [`Side::Base`];
@@ -171,21 +174,37 @@ impl<'a> Sides<'a> {
                     let json = self.header_file(index)?;
                     return self.json_file(&json, &blob);
                 }
-                let record = if crate::dynamic_headers::is_applied(self.project)? {
+                // What `HEAD` holds, whatever the work tree has now: its header files when its
+                // `arm9.bin` carries the Dynamic Headers patch, else its `arm9.bin`'s table.
+                let arm9 = blob(&self.rel(&self.project.arm9_path()))?;
+                let patched = match &arm9 {
+                    Some(arm9) => crate::dynamic_headers::is_applied_in(self.project, arm9)?,
+                    None => false,
+                };
+                let names = blob(&self.rel(&self.project.mapname_path()))?;
+                let record = if patched {
                     let dir = crate::dynamic_headers::unpacked_dir(self.project);
                     blob(&self.rel(&dir).join(format!("{index:04}")))?
                 } else {
+                    // The table has one record per name; without `mapname.bin` any slice.
+                    let in_table = names
+                        .as_ref()
+                        .is_none_or(|names| name_record(names, index).is_some());
                     let offset =
                         usize::try_from(self.project.header_table_offset()?).unwrap_or(usize::MAX);
                     let start = offset.saturating_add(usize::from(index) * HEADER_LEN);
-                    blob(&self.rel(&self.project.arm9_path()))?
-                        .and_then(|arm9| arm9.get(start..start + HEADER_LEN).map(<[u8]>::to_vec))
+                    arm9.filter(|_| in_table).and_then(|arm9| {
+                        arm9.get(start..start.saturating_add(HEADER_LEN))
+                            .map(<[u8]>::to_vec)
+                    })
                 };
-                let name = blob(&self.rel(&self.project.mapname_path()))?
-                    .and_then(|names| name_record(&names, index));
-                match (record, name) {
-                    (Some(record), Some(name)) => self.header_json(index, &record, &name),
-                    _ => Ok(Side::Absent),
+                // Zeros past the end of the names, or without them, as on disk.
+                let name = names
+                    .and_then(|names| name_record(&names, index))
+                    .unwrap_or_else(|| vec![0; NAME_LEN]);
+                match record {
+                    Some(record) => self.header_json(index, &record, &name),
+                    None => Ok(Side::Absent),
                 }
             }
             Kind::Text(index) => {
@@ -546,6 +565,17 @@ impl<'a> Sides<'a> {
             }
         }
         Ok(bytes_or(member(index)?, Side::Absent))
+    }
+
+    /// A script's two sides in one form: when one is a source (text) and the other a
+    /// member's bytes, the member decompiled as the base's is; when it does not decompile,
+    /// both stay as they are (and compare as bytes).
+    pub(crate) fn same_form(&self, old: Side, new: Side) -> (Side, Side) {
+        match (old, new) {
+            (Side::Bytes(bytes), new @ Side::Text(_)) => (self.decompiled(bytes), new),
+            (old @ Side::Text(_), Side::Bytes(bytes)) => (old, self.decompiled(bytes)),
+            sides => sides,
+        }
     }
 
     /// The source rotom decompiles a base member to, or its bytes when it does not decompile

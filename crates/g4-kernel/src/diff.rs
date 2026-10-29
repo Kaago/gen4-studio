@@ -265,6 +265,11 @@ pub fn diff_entity(
             )
         }
     };
+    // A source on one side and a member on the other: both as text where it decompiles.
+    let (old, new) = match subject {
+        DiffSubject::Script { .. } => sides.same_form(old, new),
+        _ => (old, new),
+    };
     // A text project keeps no file for a member equal to the base's.
     let base_is_old = against == Against::Base;
     let (state, diff) = shape(subject, old, new, base_is_old);

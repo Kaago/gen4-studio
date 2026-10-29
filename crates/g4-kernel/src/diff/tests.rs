@@ -557,3 +557,102 @@ fn in_the_dspre_layout_register_kinds_show_fallback_ids() {
     );
     assert!(!fx.root().join("data").exists(), "no register written");
 }
+
+#[test]
+fn head_reads_the_header_from_what_head_holds() {
+    // Committed without the Dynamic Headers patch, patched afterwards: `HEAD` holds the
+    // table in `arm9.bin`, not as header files.
+    let mut fx = Dspre::new();
+    fx.commit();
+    let project = fx.project();
+    let headers = project.read_headers().unwrap();
+    crate::dynamic_headers::apply(&project, &headers).unwrap();
+    let header = DiffSubject::Header { index: 0 };
+    let report = fx.diff(&header, Against::Head);
+    assert_eq!(report.state, DiffState::Same, "{report:?}");
+
+    // Committed patched: `HEAD`'s header files are its table.
+    GitFixture::commit_all(fx.root(), "Dynamische Header");
+    fx.store = Store::new(Arc::new(fx.project()));
+    fx.store
+        .edit_header(0, "Wetter", |h| {
+            if let MapHeader::Pt(h) = h {
+                h.weather_id = 5;
+            }
+            Ok(())
+        })
+        .unwrap();
+    fx.store.save().unwrap();
+    let report = fx.diff(&header, Against::Head);
+    assert_eq!(
+        fields(&report),
+        &[FieldChange {
+            path: "weather_id".into(),
+            old: Some("0".into()),
+            new: Some("5".into()),
+        }]
+    );
+}
+
+#[test]
+fn a_mapname_missing_from_head_reads_as_empty_names() {
+    // Committed without `mapname.bin`: `HEAD`'s names are zeros, as past the end of the file
+    // on disk; the header is there, only its name differs.
+    let mut fx = Dspre::new();
+    let names = fx.project().mapname_path();
+    let aside = fx.root().join("mapname.aside");
+    std::fs::rename(&names, &aside).unwrap();
+    fx.commit();
+    std::fs::rename(&aside, &names).unwrap();
+    let report = fx.diff(&DiffSubject::Header { index: 0 }, Against::Head);
+    assert_eq!(report.state, DiffState::Changed, "{report:?}");
+    let changes = fields(&report);
+    assert!(!changes.is_empty());
+    assert!(
+        changes.iter().all(|c| c.path.starts_with("internal_name")),
+        "{changes:?}"
+    );
+}
+
+#[test]
+fn a_script_with_source_on_one_side_and_member_on_the_other_diffs_as_text() {
+    // Committed before the source existed: `HEAD` has only the member, the disk the source.
+    let fx = TextFixture::exported();
+    let rel = "expanded/scripts/0000.rotom";
+    let source = fx.root().join(rel);
+    let aside = fx.root().join("0000.rotom.aside");
+    std::fs::rename(&source, &aside).unwrap();
+    GitFixture::init(fx.root());
+    GitFixture::commit_all(fx.root(), "Ausgangsstand");
+    std::fs::rename(&aside, &source).unwrap();
+    let script = DiffSubject::Script { index: 0 };
+    let report = diff_text(&fx, &script, Against::Head);
+    assert_eq!(report.state, DiffState::Same, "{report:?}");
+    assert!(
+        matches!(report.diff, EntityDiff::Lines { ref hunks, .. } if hunks.is_empty()),
+        "{report:?}"
+    );
+    let mut text = fx.text(rel);
+    text.push_str("script Third #3:\n    End\n");
+    fx.write(rel, text.as_bytes());
+    let report = diff_text(&fx, &script, Against::Head);
+    assert_eq!(report.state, DiffState::Changed);
+    assert!(
+        matches!(report.diff, EntityDiff::Lines { ref hunks, .. } if hunks.len() == 1),
+        "{report:?}"
+    );
+
+    // Without a rotom configuration the member cannot be decompiled: bytes against bytes.
+    let fx = Dspre::new();
+    fx.commit();
+    let project = fx.project();
+    let path = crate::scripts::source_path(&project, 0, crate::scripts::SourceKind::Script);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "script First #1:\n    End\n").unwrap();
+    let report = try_diff(fx.root(), None, &script, Against::Head).unwrap();
+    assert_eq!(report.state, DiffState::Changed);
+    assert!(
+        matches!(report.diff, EntityDiff::Binary { .. }),
+        "{report:?}"
+    );
+}

@@ -42,12 +42,15 @@ fn git_cli(home: &Path) -> Option<GitCli> {
 fn one_entity_diffs_fast_in_the_dspre_layout() {
     let home = tempfile::tempdir().unwrap();
     let Some(cli) = git_cli(home.path()) else {
+        eprintln!("skipped: git not found");
         return;
     };
     let Some(nds) = common::vanilla_base_rom() else {
+        eprintln!("skipped: no base ROM next to the vanilla project");
         return;
     };
     let Some((_tmp, root)) = common::vanilla_copy() else {
+        eprintln!("skipped: no vanilla project to copy");
         return;
     };
     assign_base(&root, &nds).unwrap();
