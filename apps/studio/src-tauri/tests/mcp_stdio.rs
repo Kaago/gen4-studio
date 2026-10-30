@@ -487,6 +487,25 @@ fn bad_project_exits_before_serving() {
     assert!(stderr.contains("--bogus"), "{stderr}");
 }
 
+/// A fresh Git clone of a text project (`g4-project.json`, no `header.yaml`) does not start:
+/// the `restore_needed` sentence and the way to complete it, not the plain „Kein Projekt“.
+#[test]
+fn clone_of_a_text_project_names_the_restore() {
+    let clone = tempfile::tempdir().unwrap();
+    std::fs::write(clone.path().join("g4-project.json"), "{}").unwrap();
+    let (code, stderr) = run_bad(&["--project", clone.path().to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(stderr.contains("Textprojekt ohne Spieldateien"), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "g4k text restore {} [--base-rom <nds>]",
+            clone.path().display()
+        )),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("header.yaml fehlt"), "{stderr}");
+}
+
 /// A project path that is not UTF-8 reaches the policy as a path: no panic, the folder is
 /// reported missing like any other.
 #[cfg(unix)]
