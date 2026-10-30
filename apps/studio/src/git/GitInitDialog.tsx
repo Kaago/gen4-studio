@@ -40,6 +40,8 @@ export type GitInitDialogProps = {
   onDone: (report: InitReport) => void | Promise<void>;
   /** Runs it while nothing else may write (the app's session is busy meanwhile); by default it just runs. */
   exclusive?: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Where focus goes once the dialog has closed (`Dialog.finalFocus`), asked then; null or absent: back to the element that had it. */
+  finalFocus?: () => HTMLElement | null;
 };
 
 /**
@@ -48,7 +50,7 @@ export type GitInitDialogProps = {
  * sentence and the dialog can try again; a commit that failed (signing, a hook) shows Git's reason and leaves only „Schließen“, since the
  * repository and the templates are there.
  */
-export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusive = (work) => work() }: GitInitDialogProps) {
+export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusive = (work) => work(), finalFocus }: GitInitDialogProps) {
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<InitPhase | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +127,7 @@ export function GitInitDialog({ open, status, unsaved, onClose, onDone, exclusiv
       title="Git einrichten?"
       description={DESCRIPTION}
       data={{ "data-git-init-dialog": "" }}
+      finalFocus={finalFocus}
       actions={actions}
     >
       <div className={styles.content}>

@@ -51,7 +51,7 @@ export function EntityDiff({ entry, against, revision, headId = null, goTo, fina
   if (entry === null) {
     return (
       <div className={styles.detail} data-entity-diff="">
-        <p className={styles.note}>Wähle links einen Eintrag, dann steht hier, was sich geändert hat.</p>
+        <p className={styles.note}>Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.</p>
       </div>
     );
   }

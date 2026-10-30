@@ -172,6 +172,14 @@ describe("ChangesSurface", () => {
     expect(container.querySelector("[role=alert]")?.textContent).toContain("Die Basis-ROM fehlt.");
   });
 
+  it("a_row_carries_its_full_label_as_title", async () => {
+    // A long path is cut short by the list; hovering the row reads it in full.
+    const path = "expanded/textArchives/0001.json";
+    await render({ changes: changesWith({ report: report({ entries: [...ENTRIES, entry({ group: "Projektdateien", label: path, target: null, assets: [], folder: "", subject: { kind: "file", path } })] }) }) });
+    expect(change(path)?.getAttribute("title")).toBe(path);
+    expect(change("Karte 0003")?.getAttribute("title")).toBe("Karte 0003");
+  });
+
   it("a_row_without_target_has_a_locked_button_with_its_reason", async () => {
     await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
     const locked = resetButton("Matrix 0000")!;
@@ -485,7 +493,7 @@ describe("ChangesSurface", () => {
     it("selecting_a_row_shows_its_diff", async () => {
       await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       const detail = () => container.querySelector<HTMLElement>("[data-entity-diff]");
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
       expect(diffEntity).not.toHaveBeenCalled();
       vi.mocked(diffEntity).mockResolvedValueOnce(diffReport({ against: "base", old_label: "Basis-ROM Platin DE (Testprojekt)" }));
       await act(async () => change("Trainer 0001")!.click());
@@ -503,10 +511,10 @@ describe("ChangesSurface", () => {
       expect(diffEntity).toHaveBeenCalledExactlyOnceWith(ENTRIES[2]!.subject, "head");
       // One that does not list it forgets the choice, also for the comparison it came from.
       await render({ against: "saved", unsaved: [entry()], changes: changesWith({ report: report({ entries: ENTRIES }) }) });
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
       await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("false");
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
     });
 
     it("a_list_still_read_keeps_the_choice_for_when_it_comes", async () => {
@@ -516,6 +524,46 @@ describe("ChangesSurface", () => {
       await render({ against: "saved", unsaved: null, changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       await render({ against: "saved", unsaved: [ENTRIES[2]!], changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("the_base_list_still_compared_keeps_the_choice_for_the_new_report", async () => {
+      // An entity changed since the last compare against the base (a map saved just now) is chosen under „Gegen letzten Commit“; „Gegen
+      // Basis“ compares again while the old report's list, which lacks it, stays shown: that list is no answer yet, the choice is not forgotten.
+      const onChoose = vi.fn();
+      const chosen: DiffSubject = { kind: "map", index: 700 };
+      const show = (entries: ChangedEntry[], busy: boolean) =>
+        act(async () =>
+          root.render(
+            withReset(
+              reset,
+              <ChangesSurface
+                changes={changesWith({ report: report({ entries }), busy })}
+                status={READY}
+                dirty={[]}
+                onOpenProject={onOpenProject}
+                against="base"
+                onAgainst={onAgainst}
+                git={gitWith(gitStatusOf())}
+                unsaved={null}
+                onGitSetup={onGitSetup}
+                goTo={goTo}
+                revision={0}
+                chosen={chosen}
+                onChoose={onChoose}
+              />,
+            ),
+          ),
+        );
+      await show([ENTRIES[0]!, ENTRIES[2]!], true);
+      expect(onChoose).not.toHaveBeenCalled();
+      // The new report holds it: chosen, with its detail.
+      await show(ENTRIES, false);
+      expect(onChoose).not.toHaveBeenCalled();
+      expect(change("Karte 0700")?.getAttribute("aria-selected")).toBe("true");
+      expect(diffEntity).toHaveBeenLastCalledWith(chosen, "base");
+      // A list that is read (not compared anew) and lacks the chosen entity still forgets it.
+      await show([ENTRIES[0]!, ENTRIES[2]!], false);
+      expect(onChoose).toHaveBeenCalledExactlyOnceWith(null);
     });
 
     it("the_app_can_hold_the_choice_across_leaving_technik", async () => {

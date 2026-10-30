@@ -97,6 +97,21 @@ function shownRows(surface: HTMLElement): Map<string, HTMLElement> {
 /** The element of `row` that is `part`: its reset button (the only button a row holds) or the row itself. */
 const partOf = (row: HTMLElement | undefined, part: Held["part"]) => (part === "button" ? row?.querySelector<HTMLElement>("button") : row) ?? null;
 
+/** Where focus goes when nothing of the surface's own is left to hold it: „Neu vergleichen“, else the title (`tabIndex` -1). */
+const fallbackOf = (surface: HTMLElement) => surface.querySelector<HTMLElement>("[data-compare-again]") ?? surface.querySelector<HTMLElement>("h1");
+
+/**
+ * Puts focus on the shown surface (`fallbackOf`) once the commit that is under way has landed. For a dialog that came from the surface
+ * and whose button is gone when it closes („Git einrichten“ switched the view to the list): Base UI asks `finalFocus` while the dialog
+ * is removed, before the new buttons stand in the document, so the dialog asks this and leaves its own `finalFocus` to Base UI.
+ */
+export function focusChangesSurface() {
+  queueMicrotask(() => {
+    const surface = document.querySelector<HTMLElement>("[data-technik=aenderungen]");
+    if (surface !== null) fallbackOf(surface)?.focus();
+  });
+}
+
 /** What `useKeepFocus` gives the surface and what it offers the rows. */
 type KeepFocus = {
   ref: Ref<HTMLElement>;
@@ -131,7 +146,6 @@ function useKeepFocus(): KeepFocus {
     el?.focus();
     own.current = false;
   };
-  const fallbackOf = (surface: HTMLElement) => surface.querySelector<HTMLElement>("[data-compare-again]") ?? surface.querySelector<HTMLElement>("h1");
   /** Where the `part` of row `key` is among `rows`, `order` being the order the rows had when the list was last whole. */
   const resolve = (surface: HTMLElement, rows: Map<string, HTMLElement>, order: readonly string[], key: string, part: Held["part"]) => {
     const same = rows.get(key);
@@ -249,8 +263,10 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
   const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
   const entries = shown?.entries ?? null;
   const entry = chosen === null ? null : (entries?.find((e) => sameSubject(e.subject, chosen)) ?? null);
-  // A list that is read and lacks the chosen entity forgets it (a list still read keeps it for when it comes).
-  const lost = chosen !== null && entries !== null && entry === null;
+  // A list that is read and lacks the chosen entity forgets it; a list still read keeps it for when it comes, and so does the base list
+  // while it is compared anew (the old report stays shown, but it is no answer for an entity changed since).
+  const settled = entries !== null && !(against === "base" && changes?.busy === true);
+  const lost = chosen !== null && settled && entry === null;
   useEffect(() => {
     if (lost) choose(null);
   }, [lost, choose]);
@@ -478,6 +494,8 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
           <ListRow
             key={key}
             label={entry.label}
+            // The list cuts a long path short: hovering the row reads it in full.
+            title={entry.label}
             ariaLabel={[entry.label, badge.text, ...(unsaved ? ["Ungespeichert"] : [])].join(", ")}
             selected={selected === key}
             onSelect={() => onSelect(key)}

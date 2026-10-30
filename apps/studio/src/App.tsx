@@ -33,6 +33,7 @@ import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
+import { focusChangesSurface } from "./technik/ChangesSurface";
 import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
@@ -299,6 +300,13 @@ function AppBody() {
   const git = useGitStatus({ project: session.info?.root ?? null, revision: session.savedRevision + changedRevision, opened: session.info });
   // „Git einrichten?“ (from the palette; Technik › Änderungen offers it too).
   const [gitSetupOpen, setGitSetupOpen] = useState(false);
+  // Where focus goes when it closes: from Technik › Änderungen after a first commit its offer is gone, so focus goes to the surface (not the
+  // body); otherwise back to what had it (the palette's trigger, the offer's button after „Abbrechen“).
+  const gitSetupFocus = useRef({ fromChanges: false, committed: false });
+  const openGitSetup = (fromChanges: boolean) => {
+    gitSetupFocus.current = { fromChanges, committed: false };
+    setGitSetupOpen(true);
+  };
   // What Technik › Änderungen compares against, kept for the session (not stored): the base ROM first, the last commit once Git is set up
   // or the status line's item was clicked.
   const [against, setAgainst] = useState<Against>("base");
@@ -1140,7 +1148,7 @@ function AppBody() {
         showArea(run.command);
         break;
       case "gitSetup":
-        if (session.info && git.status?.repo.kind === "none") setGitSetupOpen(true);
+        if (session.info && git.status?.repo.kind === "none") openGitSetup(false);
         break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
@@ -1233,7 +1241,7 @@ function AppBody() {
         unsaved={unsaved.entries}
         unsavedError={unsaved.error}
         onReloadUnsaved={unsaved.reload}
-        onGitSetup={() => setGitSetupOpen(true)}
+        onGitSetup={() => openGitSetup(true)}
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
@@ -1427,7 +1435,13 @@ function AppBody() {
             unsaved={session.dirtyCount + scripts.dirtyCount > 0}
             exclusive={session.exclusive}
             onClose={() => setGitSetupOpen(false)}
+            // Asked as the dialog is removed, before the list's buttons stand: the surface takes focus once the commit has landed.
+            finalFocus={() => {
+              if (gitSetupFocus.current.fromChanges && gitSetupFocus.current.committed) focusChangesSurface();
+              return null;
+            }}
             onDone={async (report) => {
+              gitSetupFocus.current.committed = report.committed;
               await git.refresh();
               // With the first commit there is something to compare against: Technik › Änderungen shows it.
               if (report.committed) setAgainst("head");

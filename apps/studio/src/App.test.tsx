@@ -3463,6 +3463,31 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Nichts ungespeichert.");
     });
 
+    it("after_git_setup_from_the_offer_focus_goes_to_neu_vergleichen_not_the_body", async () => {
+      vi.mocked(unsavedChanges).mockResolvedValue([]);
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => technikRow("Änderungen").click());
+      await act(async () => container.querySelectorAll<HTMLButtonElement>("[data-against] button")[1]!.click());
+      expect(againstShown()).toBe("head");
+      // Abbrechen: focus goes back to the offer's button, as before (a mouse click focuses it, `click()` does not).
+      const offer = () => container.querySelector<HTMLButtonElement>("[data-git-offer] button")!;
+      offer().focus();
+      await click("Git einrichten…");
+      await act(async () => dialogButton("[data-git-init-dialog]", "Abbrechen")!.click());
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(document.activeElement).toBe(offer());
+      // A set-up that committed: the offer is gone, so focus goes to „Neu vergleichen“ of the list that takes its place.
+      await click("Git einrichten…");
+      vi.mocked(gitInit).mockResolvedValueOnce(initReportOf());
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      await act(async () => dialogButton("[data-git-init-dialog]", "Einrichten")!.click());
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      expect(inDocument("[data-git-init-dialog]")).toBeNull();
+      expect(container.querySelector("[data-git-offer]")).toBeNull();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(container.querySelector("[data-compare-again]"));
+    });
+
     it("the_status_line_opens_aenderungen_against_the_last_commit", async () => {
       vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 1, entries: [{ group: "Trainer", label: "Trainer 0001", state: "changed", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties", subject: { kind: "trainer", index: 1 } }] }));
       vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });

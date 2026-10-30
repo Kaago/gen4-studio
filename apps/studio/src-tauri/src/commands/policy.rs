@@ -101,6 +101,14 @@ impl UserPolicy {
             _ => Ok(()),
         };
         let project_dir = canonical_dir(project)?;
+        // A fresh Git clone of a text project names its way forward, not just the gap.
+        if let Some(restore) = super::git::restore_needed(&project_dir) {
+            return Err(format!(
+                "{} Vervollständigen: g4k text restore {} [--base-rom <nds>]",
+                restore.message,
+                project.display()
+            ));
+        }
         if !project_dir.join("header.yaml").is_file() {
             return Err(format!(
                 "Kein Projekt (header.yaml fehlt): {}",
