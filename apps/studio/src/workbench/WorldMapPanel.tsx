@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { ReactNode, RefObject } from "react";
 import type { HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { PanelHead } from "../ui/primitives";
 import type { PanelHeadSwitcher } from "../ui/primitives";
@@ -130,7 +131,7 @@ const sameLines = (a: Line[], b: Line[]) =>
  */
 function RoomCard({ entry, name, depth, link, selected, onOpen }: { entry: PlaceHeader; name: string; depth: Depth; link: RoomLink | undefined; selected: boolean; onOpen: (id: number) => void }) {
   const h = entry.header;
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   const grey = [tinker ? id4(h.id) : null, mapsText(entry)].filter((part) => part !== null).join(" · ");
   const unplaced = link !== undefined && link.cell === null;
   return (
@@ -379,7 +380,7 @@ interface PlaceListProps {
  * whole world map); Tüfteln the header number.
  */
 function outsideLabel(entry: PlaceHeader, section: number, sections: number, depth: Depth): string {
-  if (depth === "tuefteln") return `${termFor("header", depth, "area")} · ${id4(entry.header.id)}`;
+  if (depthAtLeast(depth, "tuefteln")) return `${termFor("header", depth, "area")} · ${id4(entry.header.id)}`;
   return sections > 1 ? `${TERMS.area.label}, Abschnitt ${section}` : TERMS.area.label;
 }
 
@@ -411,7 +412,7 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
                   type="button"
                   data-header-id={entry.header.id}
                   aria-current={entry.header.id === selected ? "true" : undefined}
-                  title={depth === "tuefteln" ? TERMS.outside.short : TERMS.area.short}
+                  title={depthAtLeast(depth, "tuefteln") ? TERMS.outside.short : TERMS.area.short}
                   onClick={() => onOpen(entry.header.id)}
                   className={`${styles.outside} ${entry.header.id === selected ? styles.current : ""}`}
                 >
@@ -631,7 +632,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           extendable={world ? extendable : undefined}
           window={half?.rect}
           foreign={half?.foreign}
-          label={depth === "bauen" ? `Weltkarte, ${region.height} Zeilen, ${region.width} Spalten` : undefined}
+          label={!depthAtLeast(depth, "tuefteln") ? `Weltkarte, ${region.height} Zeilen, ${region.width} Spalten` : undefined}
           cache={cache}
           depth={depth}
         />
@@ -678,7 +679,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   const listLayout = useMemo(() => ({}), [places, links, selected, openKeys]);
   const rootBox = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const none = depth === "tuefteln" ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : "Keine Region gefunden (keine Weltkarte mit Gebieten).";
+  const none = depthAtLeast(depth, "tuefteln") ? "Keine Region gefunden (kein Raster mit Header-Abschnitt)." : "Keine Region gefunden (keine Weltkarte mit Gebieten).";
   const noRegion = matricesLoaded ? none : matricesFailed ? "Übersicht nicht verfügbar" : "Lade Übersicht …";
   const extendMatrix = extendAt && shown?.index === extendAt.matrix ? shown : null;
 
@@ -711,7 +712,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
               onCellClick={onPlanClick}
               onExtend={onPlanExtend}
               extendable={planExtendable}
-              label={depth === "bauen" ? `Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten` : undefined}
+              label={!depthAtLeast(depth, "tuefteln") ? `Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten` : undefined}
               cache={cache}
               depth={depth}
             />

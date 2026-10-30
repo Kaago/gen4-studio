@@ -1,5 +1,6 @@
 import type { AssetKind, CheckGroup, CheckProblemDto, ChecksProgressDto, SubjectKind } from "../api";
 import { kindLabel } from "../assets";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { id4 } from "../workbench/terms";
 
@@ -337,7 +338,7 @@ export const groupOf = (code: string): CheckGroup | null => CHECK_MESSAGES[code]
 /** The title of the check `code` in the words of `depth`; the code itself when it is not known. */
 export const checkTitle = (code: string, depth: Depth): string => {
   const m = CHECK_MESSAGES[code];
-  return (depth === "bauen" ? m?.building?.title : undefined) ?? m?.title ?? code;
+  return (!depthAtLeast(depth, "tuefteln") ? m?.building?.title : undefined) ?? m?.title ?? code;
 };
 
 /** Field names of headers, area data and trainers in the words of the editors. */
@@ -394,7 +395,7 @@ const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
 /** „Eventdatei 0411“, or „Das Archiv Pokémon-Daten“ for a whole archive (no index). */
 function assetName(kind: string, index: string, depth: Depth): string {
   const known = ASSET_KINDS[kind];
-  const word = known ? ((depth === "bauen" ? BUILDING_ASSET_WORDS[known] : undefined) ?? kindLabel(known)) : kind;
+  const word = known ? ((!depthAtLeast(depth, "tuefteln") ? BUILDING_ASSET_WORDS[known] : undefined) ?? kindLabel(known)) : kind;
   return index === "" ? `Das Archiv ${word}` : `${word} ${id4(Number(index))}`;
 }
 
@@ -403,7 +404,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
   return text.replace(/\{(\d+)(?::(id|field))?\}/g, (_, n: string, format?: string) => {
     const value = args[Number(n)] ?? "";
     if (format === "id" && /^\d+$/.test(value)) return id4(Number(value));
-    if (format === "field") return (depth === "bauen" ? BUILDING_FIELD_WORDS[value] : undefined) ?? FIELD_WORDS[value] ?? value;
+    if (format === "field") return (!depthAtLeast(depth, "tuefteln") ? BUILDING_FIELD_WORDS[value] : undefined) ?? FIELD_WORDS[value] ?? value;
     return value;
   });
 }
@@ -415,7 +416,7 @@ function fill(text: string, args: readonly string[], depth: Depth): string {
 export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "message">, depth: Depth): string {
   const m = CHECK_MESSAGES[f.code];
   if (!m) return f.message;
-  const text = (depth === "bauen" ? m.building?.text : undefined) ?? (f.args[1] === "1" ? m.one : undefined) ?? m.text;
+  const text = (!depthAtLeast(depth, "tuefteln") ? m.building?.text : undefined) ?? (f.args[1] === "1" ? m.one : undefined) ?? m.text;
   if (f.code === "asset.unreadable") {
     const [kind = "", index = "", why = ""] = f.args;
     const name = assetName(kind, index, depth);
@@ -429,7 +430,7 @@ export function findingText(f: Pick<CheckProblemDto, "code" | "key" | "args" | "
 
 /** Where a finding is, as the kernel names it („Header 0012 · Matrix“); Bauen says „Ort 0012 · Weltkarte“. */
 export function findingLabel(f: Pick<CheckProblemDto, "label">, depth: Depth): string {
-  return depth === "bauen" ? f.label.replace(/\bHeader\b/g, "Ort").replace(/\bMatrix\b/g, "Weltkarte") : f.label;
+  return !depthAtLeast(depth, "tuefteln") ? f.label.replace(/\bHeader\b/g, "Ort").replace(/\bMatrix\b/g, "Weltkarte") : f.label;
 }
 
 const PROGRESS_WORDS: Readonly<Record<ChecksProgressDto["label"], string>> = { cheap: "Welt und Daten", load: "Dateien", scripts: "Scripts", texts: "Texte" };
@@ -456,7 +457,7 @@ export function skippedText({ code, why }: { code: string; why: string }, depth:
   const title = checkTitle(code, depth);
   if (why === "scripts not adopted") return `${title}: nicht geprüft, die Scripts sind nicht übernommen. Übernimm sie unter Script, dann prüft das Studio sie.`;
   const common = COMMON_SCRIPTS.exec(why);
-  if (common) return `${title}: ${common[1]} Common-Scripts ohne ${depth === "bauen" ? "Ort" : "Header"} nicht geprüft.`;
+  if (common) return `${title}: ${common[1]} Common-Scripts ohne ${!depthAtLeast(depth, "tuefteln") ? "Ort" : "Header"} nicht geprüft.`;
   const file = ONE_FILE.exec(why);
   if (file) return `${title}: ${file[1] ? "Level-Script" : "Scriptdatei"} ${id4(Number(file[2]))} nicht geprüft (${file[3]}). Behebe den Fehler in der Datei, dann prüft das Studio sie.`;
   // Mostly a file that cannot be read (the header table, an archive): its finding „Datei nicht lesbar“ names it.

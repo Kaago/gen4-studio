@@ -1,5 +1,6 @@
 import { MATRIX_EMPTY } from "../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, MatrixDto, MatrixSummary } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import type { IconName } from "../ui/primitives";
 import type { MapBuildings } from "../world/scene/types";
@@ -153,7 +154,7 @@ const matches = (q: string, row: Omit<SceneRow, "depth">) => [row.label, row.tec
  */
 export function sceneRows(input: SceneInput, open: ReadonlySet<string>, query: string): SceneRow[] {
   const { header, headers, events, buildings, trainers = null, depth } = input;
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   const matrix = input.matrix !== null && input.matrix.index === header.matrix_id ? input.matrix : null;
   // The places are built only without the world model, and then once.
   let places: Place[] | null = null;

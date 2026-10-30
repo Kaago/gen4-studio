@@ -1,4 +1,5 @@
 import type { HeaderFamily } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { termFor } from "../terms";
 import { headerFieldSpecs } from "./fields";
@@ -23,7 +24,7 @@ const TEXTS = new Set(["text_archive_id", "script_file_id", "level_script_id"]);
 export function headerSections(family: HeaderFamily, depth: Depth): HeaderSection[] {
   const specs = headerFieldSpecs(family).map((s) => (s.key === "matrix_id" ? { ...s, label: termFor("matrix", depth) } : s));
   return [
-    { id: "maps", title: depth === "tuefteln" ? "Karten und Raster" : "Karten", specs: specs.filter((s) => !LOOK.has(s.key) && !TEXTS.has(s.key)) },
+    { id: "maps", title: depthAtLeast(depth, "tuefteln") ? "Karten und Raster" : "Karten", specs: specs.filter((s) => !LOOK.has(s.key) && !TEXTS.has(s.key)) },
     { id: "look", title: "Aussehen", specs: specs.filter((s) => LOOK.has(s.key)) },
     { id: "texts", title: "Texte und Scripts", specs: specs.filter((s) => TEXTS.has(s.key)) },
   ];

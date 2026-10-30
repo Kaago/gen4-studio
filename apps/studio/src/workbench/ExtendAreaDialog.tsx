@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { extendArea } from "../api";
 import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Badge, Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
 import { extendDefaults, extendSpec } from "./extend";
@@ -41,7 +42,7 @@ function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: n
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
 export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError }: Props) {
-  const building = depth === "bauen";
+  const building = !depthAtLeast(depth, "tuefteln");
   const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
   const mapMax = Math.max(0, (counts.Map ?? 1) - 1);

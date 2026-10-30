@@ -104,6 +104,20 @@ describe("ShellProvider theme and density", () => {
     expect(shell.state).toBe(before);
   });
 
+  it("gives_the_view_depth_of_the_active_area_and_keeps_the_chosen_depth", () => {
+    act(() => shell.setArea("welt"));
+    act(() => shell.setDepth("erzaehlen"));
+    expect(shell.viewDepth).toBe("erzaehlen");
+    act(() => shell.setArea("technik"));
+    expect(shell.state.depth).toBe("erzaehlen");
+    expect(shell.viewDepth).toBe("bauen");
+    act(() => shell.setArea("welt"));
+    expect(shell.viewDepth).toBe("erzaehlen");
+    act(() => shell.setDepth("tuefteln"));
+    act(() => shell.setArea("pokemon"));
+    expect(shell.viewDepth).toBe("tuefteln");
+  });
+
   it("remembers_the_toolbar_anchor", () => {
     expect(shell.state.toolbar).toBe("left");
     act(() => shell.setToolbar("bottom"));

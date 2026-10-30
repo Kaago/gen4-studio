@@ -1,3 +1,4 @@
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Notice } from "../../ui/primitives";
 import { TERMS } from "../terms";
@@ -40,7 +41,7 @@ export function PartialResult({ message, depth = "tuefteln" }: { message: string
       </Notice>
       <p className={styles.line}>
         Was schon angelegt ist, bleibt bestehen und lässt sich nicht rückgängig machen.{" "}
-        {depth === "bauen" ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${TERMS.matrix.label}-Tab und im ${TERMS.header.label}-Editor von Hand fertigstellen.`}
+        {!depthAtLeast(depth, "tuefteln") ? "Den Rest in der Welt von Hand fertigstellen." : `Den Rest im ${TERMS.matrix.label}-Tab und im ${TERMS.header.label}-Editor von Hand fertigstellen.`}
       </p>
     </div>
   );

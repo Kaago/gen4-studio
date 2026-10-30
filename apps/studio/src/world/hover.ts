@@ -1,4 +1,5 @@
 import type { TileBehavior } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 
 /** What the hover shows about one tile: raw bytes plus the decomp's behaviour name and class (null when unnamed). */
@@ -35,7 +36,7 @@ const CLASS_WORDS: Record<string, string> = { grass: "hohes Gras", water: "Wasse
 export function tileSummary(map: number, x: number, y: number, info: TileInfo, depth: Depth): string {
   const where = `Karte ${String(map).padStart(4, "0")}`;
   const tile = `Kachel x ${x}, y ${y}`;
-  if (depth !== "tuefteln") return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar")].join(" · ");
+  if (!depthAtLeast(depth, "tuefteln")) return [tile, where, info.blocked ? "blockiert" : (CLASS_WORDS[info.class ?? ""] ?? "begehbar")].join(" · ");
   const hex = `0x${info.kind.toString(16).toUpperCase().padStart(2, "0")}`;
   const type = info.name === null ? hex : `${hex} ${info.name}`;
   return [where, tile, `Typ ${type}`, info.blocked ? "blockiert" : "begehbar"].join(" · ");

@@ -1,6 +1,7 @@
 import type { EventKind, EventsDto, HeaderSummary, WarpDto } from "../api";
 import { switcherMenu } from "../ui/primitives";
 import type { MenuItemSpec, PanelHeadSwitcher } from "../ui/primitives";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { eventAt, eventTitle } from "../world/events";
 import type { InspectorModel } from "./Inspector";
@@ -54,7 +55,7 @@ function eventLabel(
   const data = events && events.event_file_id === pinned.eventFile ? eventAt(events, pinned.eventKind, pinned.index) : undefined;
   if (data === undefined) return `${EVENT_WORD[pinned.eventKind]} ${pinned.index}`;
   const destination = pinned.eventKind === "warp" ? headers.find((h) => h.id === (data as WarpDto).dest_header_id) : undefined;
-  const destName = destination === undefined ? undefined : depth === "tuefteln" ? destination.internal_name : identify?.(destination).name;
+  const destName = destination === undefined ? undefined : depthAtLeast(depth, "tuefteln") ? destination.internal_name : identify?.(destination).name;
   return eventTitle(pinned.eventKind, data, depth, destName);
 }
 
@@ -68,7 +69,7 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, cellM
   if (place) crumbs.push({ label: place.name, onClick: link({ kind: "header", id: place.headers[0]!.header.id }) });
   // The world tree's words, not the place's name again: an area is a "Gebiet", a room is called by its name, another header a "Ort".
   const identity = identify ? identify(header) : headerIdentity(places, header);
-  const label = depth === "bauen" && identity.kind === "room" ? identity.name : termFor("header", depth, identity.kind === "other" ? undefined : identity.kind);
+  const label = !depthAtLeast(depth, "tuefteln") && identity.kind === "room" ? identity.name : termFor("header", depth, identity.kind === "other" ? undefined : identity.kind);
   crumbs.push({ label, tech: id4(header.id), onClick: link({ kind: "header", id: header.id }) });
   switch (pinned.kind) {
     case "event":
@@ -79,7 +80,7 @@ export function crumbsFor({ places, headers, selected, pinned, matrixName, cellM
       break;
     case "matrixCell":
       crumbs.push({
-        ...(depth === "tuefteln"
+        ...(depthAtLeast(depth, "tuefteln")
           ? { label: `Zelle ${pinned.x}, ${pinned.y}`, tech: matrixName }
           : { label: cellMap === null ? "Leere Zelle" : cellMap === undefined ? `Karte (${pinned.x}, ${pinned.y})` : `Karte ${id4(cellMap)}`, tech: `Zelle ${pinned.x}, ${pinned.y}` }),
         onClick: link({ kind: "matrixCell", matrix: pinned.matrix, x: pinned.x, y: pinned.y }),

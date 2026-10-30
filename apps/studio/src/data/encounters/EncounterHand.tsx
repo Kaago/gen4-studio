@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { dataRaw, errorText } from "../../api";
 import type { EncounterMethod, NameTablesDto, RawDto, SlotDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { Button, EmptyState, HexBlock, InspectorRow, Notice, NumberField, SelectField, Switch, Table, Tabs } from "../../ui/primitives";
 import type { PickerItem, TabItem, TableRow } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
@@ -307,7 +308,7 @@ function RawTab({ index, doc }: { index: number; doc: EncounterDoc | null }) {
  */
 export function EncounterHand() {
   const { row, labelOf, names, selected, project, dirty } = useDataArea("pokemon");
-  const tinkering = useShell().state.depth === "tuefteln";
+  const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, read, error, editError, update } = useEncounter(selected);
   const [tab, setTab] = useState<HandTab>("grass");
   const index = selected ?? 0;

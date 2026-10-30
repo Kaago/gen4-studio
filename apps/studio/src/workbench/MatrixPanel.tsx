@@ -3,6 +3,7 @@ import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
 import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { AreaGrid, cellKey } from "./AreaGrid";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Button, EmptyState, Notice, NumberField, PanelHead, Switch, TextField } from "../ui/primitives";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
@@ -179,7 +180,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
               cellSize={64}
               selected={selected}
               colorOf={colorOf}
-              tinker={depth === "tuefteln"}
+              tinker={depthAtLeast(depth, "tuefteln")}
               onCellClick={onCellClick}
               onCellDoubleClick={onCellDoubleClick}
               onExtend={onExtend}

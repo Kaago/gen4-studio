@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createArea, errorText } from "../../api";
 import type { AreaReport, AreaSpec, HeaderFamily, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Checkbox, Notice, Segmented, SelectField, TextField } from "../../ui/primitives";
 import { AreaGrid, cellKey } from "../AreaGrid";
@@ -79,7 +80,7 @@ const gridLabel = (what: string, matrix: { width: number; height: number }) => `
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
 export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
   const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
-  const building = depth === "bauen";
+  const building = !depthAtLeast(depth, "tuefteln");
   // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
   const form = useMemo<AreaForm>(() => (building ? { ...stored, header: null, newHeader: null, areaDataId: stored.lookAreaData, eventFile: "New" } : stored), [building, stored]);
   const [step, setStep] = useState(0);

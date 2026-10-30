@@ -4,6 +4,7 @@ import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
 import { useReset } from "../original/OriginalContext";
 import { resetEntry } from "../original/resetEntry";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth, ListSort } from "../ui/frame/shellState";
 import { ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
@@ -112,14 +113,14 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
       <div className={styles.top}>
         {info && (
           <p className={styles.caption}>
-            {info.header_count} {depth === "tuefteln" ? TERMS.header.plural : info.header_count === 1 ? TERMS.place.label : TERMS.place.plural}
+            {info.header_count} {depthAtLeast(depth, "tuefteln") ? TERMS.header.plural : info.header_count === 1 ? TERMS.place.label : TERMS.place.plural}
           </p>
         )}
-        <TextField type="search" label={depth === "tuefteln" ? "Header suchen" : "Orte suchen"} placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <TextField type="search" label={depthAtLeast(depth, "tuefteln") ? "Header suchen" : "Orte suchen"} placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
       </div>
-      <div ref={list} role="listbox" aria-label={depth === "tuefteln" ? TERMS.header.plural : TERMS.place.plural} className={styles.host}>
+      <div ref={list} role="listbox" aria-label={depthAtLeast(depth, "tuefteln") ? TERMS.header.plural : TERMS.place.plural} className={styles.host}>
         {shown.map((h) => (
-          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depth === "tuefteln"} mark={marks?.get(h.id)} onSelect={onSelect} />
+          <HeaderRow key={h.id} header={h} selected={h.id === selected} marked={showsMatrix(h, shownMatrix)} tinker={depthAtLeast(depth, "tuefteln")} mark={marks?.get(h.id)} onSelect={onSelect} />
         ))}
       </div>
     </div>

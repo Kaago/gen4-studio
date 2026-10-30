@@ -188,6 +188,18 @@ describe("Hinge", () => {
     expect(pressed()).toEqual(["Tüfteln"]);
   });
 
+  it("has_three_depths_and_switches_to_erzaehlen", () => {
+    const props = base();
+    show(props);
+    const segment = container.querySelector('[aria-label="Tiefe"]')!;
+    expect([...segment.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Erzählen", "Bauen", "Tüfteln"]);
+    expect([...segment.querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent)).toEqual(["Bauen"]);
+    act(() => button("Erzählen")!.click());
+    expect(props.onDepth).toHaveBeenCalledExactlyOnceWith("erzaehlen");
+    show(base({ depth: "erzaehlen" }));
+    expect([...segment.querySelectorAll('[aria-pressed="true"]')].map((b) => b.textContent)).toEqual(["Erzählen"]);
+  });
+
   it("shows_the_number_of_undo_steps_and_lists_the_last_ten_labels_newest_first", () => {
     show(base({ history: { undo: labels(12), redo: [] } }));
     const trigger = button(/Verlauf/)!;

@@ -8,6 +8,7 @@ import { renameEntry } from "../../textproject/renameEntry";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { useEntityIds } from "../../textproject/useEntityIds";
 import { Badge, Button, Section, Tooltip } from "../../ui/primitives";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
@@ -174,7 +175,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const identity = summary ? identify(summary) : null;
   const headerId = `${termFor("header", depth)} ${id4(id)}`;
   const code = summary ? ` · ${summary.internal_name}` : "";
-  const ident = depth === "tuefteln" ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
+  const ident = depthAtLeast(depth, "tuefteln") ? `${headerId}${code}` : identity ? `${identity.place}${code}` : undefined;
   // A room whose maps other rooms use too: the head says so, and the room can get copies of its own.
   const room = summary && world ? roomOf(world, id) : undefined;
   const sharedRoom = room !== undefined && room.shared > 0 ? room : undefined;
@@ -211,7 +212,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         value={value}
         max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined}
         onCommit={commit}
-        showBase={depth === "tuefteln"}
+        showBase={depthAtLeast(depth, "tuefteln")}
         headers={headers}
         goTo={goTo}
         open={script === undefined ? undefined : { run: () => onOpenScript(value), disabled: !scriptsAdopted || (script === "levelScript" && value === 0) }}
@@ -300,7 +301,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             onError={onError}
           />
         )}
-        {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
+        {depthAtLeast(depth, "tuefteln") && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}
       </div>
       {room && (
         <SplitRoomDialog

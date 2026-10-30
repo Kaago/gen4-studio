@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import type { HeaderSummary, MatrixDto } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { thumbnails } from "../world/thumbnailStore";
 import type { ThumbnailCache } from "../world/thumbnails";
@@ -148,7 +149,7 @@ const plusLabel = (x: number, y: number, notUndoable: boolean) => `Karte bei x $
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
 export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth }: AreaGridProps) {
-  const techWords = depth === undefined ? tinker : depth === "tuefteln";
+  const techWords = depth === undefined ? tinker : depthAtLeast(depth, "tuefteln");
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
   const x0 = Math.max(0, window?.x ?? 0);

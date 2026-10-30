@@ -3,6 +3,7 @@ import type { FocusEvent, ReactNode } from "react";
 import { dataRaw, errorText, fieldLabels } from "../../api";
 import type { RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Segmented, SelectField, pokemonTypes } from "../../ui/primitives";
 import type { NumberFieldProps, SegmentedOption, SelectOption } from "../../ui/primitives";
 import { useDataArea } from "../useDataArea";
@@ -143,7 +144,7 @@ function RawColumn({ e, index, doc, highlight }: { e: Editing | null; index: num
  */
 export function MoveHand() {
   const { row, labelOf, selected } = useDataArea("pokemon");
-  const tinkering = useShell().state.depth === "tuefteln";
+  const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   // `doc` is the move with the edits still waiting laid over it: a checkbox shows its new state at once and keeps it.
   const { doc, read, error, editError, update } = useMove(selected);
   // The field focused last, for the raw data's mark (its key in the field map).

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoom, errorText } from "../../api";
 import type { HeaderFamily, HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, Checkbox, ListRow, Notice, NumberField, Reference, TextField, useRovingList } from "../../ui/primitives";
 import { lockedText } from "../../world/events";
@@ -90,7 +91,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
     const template = prefill?.template === undefined ? undefined : headers.find((h) => h.id === prefill.template);
     return template ? withTemplate(start, template) : start;
   });
-  const building = depth === "bauen";
+  const building = !depthAtLeast(depth, "tuefteln");
   // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
   const form = useMemo<RoomForm>(() => (building ? { ...stored, header: null, newHeader: null, areaDataId: stored.lookAreaData, eventFile: "New" } : stored), [building, stored]);
   const [step, setStep] = useState(0);

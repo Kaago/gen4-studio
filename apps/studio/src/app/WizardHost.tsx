@@ -59,7 +59,7 @@ export function WizardHost(props: Props) {
   const { wizards, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
   const { request, close, created } = wizards;
   // Bauen gives a new area or room a place and a look; Tüfteln lets the user choose its header.
-  const { depth } = useShell().state;
+  const depth = useShell().viewDepth;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
   const places = useMemo(() => (wantsPlaces ? buildPlaces(headers, matrices) : []), [wantsPlaces, headers, matrices]);

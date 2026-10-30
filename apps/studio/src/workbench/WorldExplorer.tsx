@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth, WorldSort } from "../ui/frame/shellState";
 import { Icon, IconButton, Menu, PanelHead, Picker, Segmented } from "../ui/primitives";
 import type { IconName, MenuEntry, PickerItem } from "../ui/primitives";
@@ -143,7 +144,7 @@ function FoldedPlaces({
   const header = headers.find((h) => h.id === selected);
   const { label, icon } = shownPlace(header && identify ? identify(header) : null, header);
   // Built again only when the world, the headers or the depth change (the row renders with every selection).
-  const items = useMemo(() => placeItems(world, headers, depth === "tuefteln"), [world, headers, depth]);
+  const items = useMemo(() => placeItems(world, headers, depthAtLeast(depth, "tuefteln")), [world, headers, depth]);
   const pick = (item: PickerItem) => {
     const chosen = headers.find((h) => h.id === item.id);
     if (!chosen) return;

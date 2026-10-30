@@ -1,5 +1,6 @@
 import { isCmdError } from "../api";
 import type { BgDto, CoordDto, EventKind, EventsDto, HeaderSummary, MatrixDto, ObjectDto, WarpDto } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { TERMS, termFor } from "../workbench/terms";
 import { eventColor } from "./colors";
@@ -48,7 +49,7 @@ export function eventTitle(kind: EventKind, data: EventData, depth: Depth, destN
     case "warp": {
       const w = data as WarpDto;
       const dest = `${termFor("header", depth)} ${id4(w.dest_header_id)}`;
-      if (depth !== "tuefteln") return `Warp ${w.index} → ${destName || dest}`;
+      if (!depthAtLeast(depth, "tuefteln")) return `Warp ${w.index} → ${destName || dest}`;
       return `Warp ${w.index} → ${destName ? `${dest} (${destName})` : dest}`;
     }
     case "object": {

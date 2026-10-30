@@ -1,5 +1,6 @@
 import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import { UNNAMED_PLACE } from "../places";
@@ -225,7 +226,7 @@ export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { s
   const target = form.worldMap === null ? null : form.target;
   if (form.worldMap !== null && target?.matrix !== form.worldMap) return { error: PICK_TARGET };
   let header: AssignHeader | null;
-  if (depth === "bauen") {
+  if (!depthAtLeast(depth, "tuefteln")) {
     if (form.newHeader === null) return { error: "Vorlage wählen." };
     const built = buildingHeader({ ...form, place: areaPlace(form) }, headerCount, form.newHeader.template);
     if ("error" in built) return built;
@@ -238,7 +239,7 @@ export function areaSpec(form: AreaForm, headerCount: number, depth: Depth): { s
       height,
       cells,
       // Bauen gives every new area its cells (the header section): the place shows only there.
-      with_headers: depth === "bauen" || form.withHeaders,
+      with_headers: !depthAtLeast(depth, "tuefteln") || form.withHeaders,
       header,
       // Only an area on a world map names a target: older callers send none.
       ...(target ? { target } : {}),
@@ -330,7 +331,7 @@ export interface TargetPlace {
 /** The line for an area on a world map: Bauen names the world map and the landscape maps, Tüfteln the raster and the cell. */
 function targetLine(target: AreaTarget, place: TargetPlace, depth: Depth): string {
   const n = place.replaced;
-  if (depth === "bauen") {
+  if (!depthAtLeast(depth, "tuefteln")) {
     const replaced = n === 0 ? "" : `; ersetzt ${n} ${n === 1 ? "Landschaftskarte" : "Landschaftskarten"}`;
     return `Liegt auf der ${TERMS.worldMap.label} ${place.name} bei x ${target.x}, y ${target.y} (nahtlos begehbar)${replaced}.`;
   }
@@ -344,7 +345,7 @@ function targetLine(target: AreaTarget, place: TargetPlace, depth: Depth): strin
 export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], links: readonly WarpLink[] = [], depth: Depth = "tuefteln", place: TargetPlace = { name: "", replaced: 0 }): string[] {
   const buildings = spec.cells.every((c) => c.clear_buildings) ? "ohne Gebäude" : "mit Gebäuden";
   const target = spec.target ?? null;
-  if (depth === "bauen") {
+  if (!depthAtLeast(depth, "tuefteln")) {
     const lines = [`Legt das ${TERMS.area.label} „${spec.name}“ mit ${spec.width} × ${spec.height} ${TERMS.map.plural} an.`];
     if (target) lines.push(targetLine(target, place, depth));
     lines.push(`Kopiert ${mapList(spec.cells.map((c) => c.source_map))}, ${buildings}.`);
@@ -370,13 +371,13 @@ export function areaSummary(spec: AreaSpec, headers: readonly HeaderSummary[], l
  */
 function snapshotLine(report: Pick<AreaReport, "patched" | "snapshot">, depth: Depth): string | null {
   if (!report.patched || !report.snapshot) return null;
-  return depth === "bauen" ? "Die alten Dateien sind unter .g4/backup gesichert." : `Sicherung des alten Ordners: ${report.snapshot}`;
+  return !depthAtLeast(depth, "tuefteln") ? "Die alten Dateien sind unter .g4/backup gesichert." : `Sicherung des alten Ordners: ${report.snapshot}`;
 }
 
 /** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and that the patch kept the old files). */
 export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
   const snapshot = snapshotLine(report, depth);
-  if (depth === "bauen") {
+  if (!depthAtLeast(depth, "tuefteln")) {
     const count = report.maps.length;
     return {
       lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`, ...(snapshot ? [snapshot] : [])],
@@ -562,7 +563,7 @@ export function partialText(message: string, depth: Depth = "tuefteln", kind: "a
     : /^(.*) (?:was|were) created; (.*?) failed: (.*)$/s.exec(message);
   if (!parts) return message;
   const [, members, step, reason] = parts;
-  const building = depth === "bauen" ? buildingWords(kind) : null;
+  const building = !depthAtLeast(depth, "tuefteln") ? buildingWords(kind) : null;
   const said: string[] = [];
   if (patched) said.push(building ? "Spielcode für neue Orte angepasst (bleibt)." : "Patch „Dynamische Header“ angewendet (bleibt).");
   if (members !== undefined) {
@@ -671,7 +672,7 @@ export function roomSpec(form: RoomForm, headerCount: number, depth: Depth, chec
   if (form.template === null || form.templateMap === null) return { error: "Vorlage wählen." };
   const name = form.name.trim();
   if (name === "") return { error: "Name darf nicht leer sein." };
-  const building = depth === "bauen" ? buildingHeader(form, headerCount, form.template) : null;
+  const building = !depthAtLeast(depth, "tuefteln") ? buildingHeader(form, headerCount, form.template) : null;
   if (building !== null && "error" in building) return building;
   const header = building ?? assignHeader(form, headerCount);
   if (header === null) return { error: `${TERMS.header.label} wählen.` };
@@ -746,7 +747,7 @@ export interface DoorNotes {
  * its entrance, never the raster or the header.
  */
 export function roomSummary(spec: RoomSpec, headers: readonly HeaderSummary[], notConnected?: string, links: readonly WarpLink[] = [], doors: DoorNotes = {}, depth: Depth = "tuefteln"): string[] {
-  const building = depth === "bauen";
+  const building = !depthAtLeast(depth, "tuefteln");
   const buildings = spec.clear_buildings ? "ohne Gebäude" : "mit Gebäuden";
   const lines = building
     ? [`Legt den ${TERMS.room.label} „${spec.name}“ mit einer Kopie der ${TERMS.map.label} ${id4(spec.source_map)} an, ${buildings}.`, ...buildingLines(spec.header, headers)]
@@ -791,7 +792,7 @@ const SEAMLESS = "Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.";
  * header. Both say where the patch the call applied put the old header folder.
  */
 export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
-  const building = depth === "bauen";
+  const building = !depthAtLeast(depth, "tuefteln");
   const lines = building
     ? [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.map.label} ${id4(report.map)}.`]
     : [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.matrix.label} ${id4(report.matrix)}, ${TERMS.map.label} ${id4(report.map)}.`];

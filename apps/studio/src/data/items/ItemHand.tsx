@@ -3,6 +3,7 @@ import type { FocusEvent, ReactNode } from "react";
 import { dataRaw, errorText, fieldLabels } from "../../api";
 import type { FieldValueDto, ProjectInfo, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, Reference, SelectField, Switch } from "../../ui/primitives";
 import type { NumberFieldProps, SelectOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
@@ -184,7 +185,7 @@ function SharedWarning({ ids }: { ids: readonly number[] }) {
  */
 export function ItemHand() {
   const { row, labelOf, selected, project } = useDataArea("gegenstaende");
-  const tinkering = useShell().state.depth === "tuefteln";
+  const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, read, error, editError, update } = useItem(selected, row === null ? null : dataMemberOf(row));
   // The field focused last, for the raw data's mark (its key in the field map).
   const [lastField, setLastField] = useState<string | undefined>(undefined);

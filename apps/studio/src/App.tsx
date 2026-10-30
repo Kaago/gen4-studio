@@ -209,6 +209,9 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // The depth the active area shows (Erzählen only in an area with a view of its own, else Bauen): what the dock, inspector, wizards,
+  // status line and hands work with. The hinge alone gets the chosen depth (its segment shows „Erzählen“ pressed in every area).
+  const depth = shell.viewDepth;
   // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
   const wizardOpen = useRef(false);
   // The wizard "Neues Spiel aus ROM" on Start (null: closed); here, so the palette can open it.
@@ -361,7 +364,7 @@ function AppBody() {
     onOpenText: openTextLink,
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
-    depth: shell.state.depth,
+    depth,
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
@@ -905,7 +908,7 @@ function AppBody() {
     problems,
     checks,
     dataStore,
-    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
+    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
 
@@ -957,8 +960,8 @@ function AppBody() {
   const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth, identify: live.world.identify }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, shell.state.depth, live.world.identify],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth, identify: live.world.identify }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, depth, live.world.identify],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
@@ -1111,13 +1114,13 @@ function AppBody() {
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
       case "arrangeWerkbank":
-        resetLayout("welt", docks.welt, "werkbank", shell.state.depth);
+        resetLayout("welt", docks.welt, "werkbank", depth);
         break;
       case "arrangeDoppeldeck":
-        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", shell.state.depth);
+        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", depth);
         break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), shell.state.depth);
+        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), depth);
         break;
       case "maximize":
         if (docks[paletteDeck].current) toggleSchauMaximized(docks[paletteDeck].current);
@@ -1183,7 +1186,7 @@ function AppBody() {
     [scene.headers, live.world.identify],
   );
   const { info } = session;
-  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth, cellMap);
+  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), depth, cellMap);
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <ProjectStart
@@ -1209,7 +1212,7 @@ function AppBody() {
         onToggleList={() => shell.setListOpen("technik", !shell.state.listOpen.technik)}
         problems={problems}
         checks={checks}
-        depth={shell.state.depth}
+        depth={depth}
         goTo={(target) => data.goTo(withHeaderHint(target, scene.headers))}
         busy={session.busy}
         lastBuiltAt={session.lastBuiltAt}
@@ -1267,7 +1270,7 @@ function AppBody() {
   const deckOf = (target: DeckArea, trail: Crumb[]) => (
     <Deck
       area={target}
-      depth={shell.state.depth}
+      depth={depth}
       wizard={target === "welt" ? showsWizard : undefined}
       preview={target === "welt" ? worldPreview : undefined}
       components={DECK_COMPONENTS[target]}

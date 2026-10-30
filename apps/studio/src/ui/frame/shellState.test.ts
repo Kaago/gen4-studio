@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { HAND_DEFAULT, HAND_MAX, HAND_MIN, readShellState, rememberRecent, writeShellState } from "./shellState";
-import type { RecentProject } from "./shellState";
+import { DEPTHS, HAND_DEFAULT, HAND_MAX, HAND_MIN, NARRATING_AREAS, depthAtLeast, readDepth, readShellState, rememberRecent, viewDepth, writeShellState } from "./shellState";
+import type { Depth, RecentProject } from "./shellState";
 
 const KEY = "g4.shell.v1";
 const project = (n: number, openedAt = n): RecentProject => ({ path: `/p/${n}`, name: `p${n}`, game: "Platin, DE", openedAt });
@@ -169,6 +169,52 @@ describe("shell state", () => {
       Storage.prototype.getItem = get;
       Storage.prototype.setItem = set;
     }
+  });
+});
+
+describe("depth", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("reads_erzaehlen_and_keeps_bauen_and_tuefteln", () => {
+    expect(DEPTHS).toEqual(["erzaehlen", "bauen", "tuefteln"]);
+    expect(readDepth("erzaehlen")).toBe("erzaehlen");
+    expect(readDepth("bauen")).toBe("bauen");
+    expect(readDepth("tuefteln")).toBe("tuefteln");
+  });
+
+  it("reads_an_unknown_depth_as_bauen", () => {
+    expect(readDepth("experte")).toBe("bauen");
+    expect(readDepth(null)).toBe("bauen");
+    expect(readDepth(7)).toBe("bauen");
+    expect(readDepth(undefined)).toBe("bauen");
+    localStorage.setItem(KEY, JSON.stringify({ area: "welt", depth: "erzaehlen" }));
+    expect(readShellState().depth).toBe("erzaehlen");
+    localStorage.setItem(KEY, JSON.stringify({ area: "welt", depth: "experte" }));
+    expect(readShellState().depth).toBe("bauen");
+  });
+
+  it("depth_at_least_follows_the_order", () => {
+    const pairs: [Depth, Depth, boolean][] = [
+      ["erzaehlen", "erzaehlen", true],
+      ["erzaehlen", "bauen", false],
+      ["erzaehlen", "tuefteln", false],
+      ["bauen", "erzaehlen", true],
+      ["bauen", "bauen", true],
+      ["bauen", "tuefteln", false],
+      ["tuefteln", "erzaehlen", true],
+      ["tuefteln", "bauen", true],
+      ["tuefteln", "tuefteln", true],
+    ];
+    for (const [depth, min, at] of pairs) expect([depth, min, depthAtLeast(depth, min)]).toEqual([depth, min, at]);
+  });
+
+  it("view_depth_falls_back_to_bauen_outside_narrating_areas", () => {
+    expect(NARRATING_AREAS).toEqual(["welt"]);
+    expect(viewDepth("welt", "erzaehlen")).toBe("erzaehlen");
+    expect(viewDepth("technik", "erzaehlen")).toBe("bauen");
+    expect(viewDepth("pokemon", "tuefteln")).toBe("tuefteln");
+    expect(viewDepth("gegenstaende", "bauen")).toBe("bauen");
+    expect(viewDepth("welt", "tuefteln")).toBe("tuefteln");
   });
 });
 

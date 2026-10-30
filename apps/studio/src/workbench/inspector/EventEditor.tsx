@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
@@ -135,7 +136,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const destinationTarget = destination?.target ?? null;
   // The head says what the scene hierarchy says: a door's destination by the world tree's name (Tüfteln: number and code), a trainer
   // figure by its trainer ("Objekt 0 · Wanderer Jens").
-  const destName = destHeader === undefined ? undefined : depth === "tuefteln" ? destHeader.internal_name : identify?.(destHeader).name;
+  const destName = destHeader === undefined ? undefined : depthAtLeast(depth, "tuefteln") ? destHeader.internal_name : identify?.(destHeader).name;
   const trainer = kind === "object" ? scriptTrainerLabel(trainers, (event as ObjectDto).script) : null;
   const headTitle = trainer !== null ? `Objekt ${index} · ${trainer}` : eventTitle(kind, event, depth, destName);
 
@@ -179,7 +180,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                   ) : (
                     <div className={styles.inline}>
                       <div className={styles.grow}>
-                        <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depth === "tuefteln"} />
+                        <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depthAtLeast(depth, "tuefteln")} />
                       </div>
                       {spec.key === "script" && (
                         <>
@@ -191,7 +192,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depth === "tuefteln" ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
+                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depthAtLeast(depth, "tuefteln") ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
                           >
                             Neues Script
                           </Button>
@@ -238,7 +239,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             onPick={(id) => commit("dest_header_id", destinationField.label, id)}
           />
         )}
-        {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
+        {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
         </div>

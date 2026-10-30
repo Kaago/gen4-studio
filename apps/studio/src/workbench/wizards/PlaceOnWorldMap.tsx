@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { HeaderSummary, MatrixDto } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Notice } from "../../ui/primitives";
 import { AreaGrid } from "../AreaGrid";
@@ -69,7 +70,7 @@ export function PlaceOnWorldMap({ world, matrix, headers, width, height, value, 
     const i = y * matrix.width + x;
     if (!isFilled(matrix.maps[i]) || (headerCells?.[i] ?? 0) === 0) onChange({ x, y });
   };
-  const label = depth === "bauen" ? `${TERMS.worldMap.label}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
+  const label = !depthAtLeast(depth, "tuefteln") ? `${TERMS.worldMap.label}, ${matrix.height} Zeilen, ${matrix.width} Spalten` : undefined;
   return (
     <>
       <p className={parts.note}>Die Zelle anklicken, an der die linke obere {TERMS.map.label} des neuen {TERMS.area.label}s liegen soll.</p>

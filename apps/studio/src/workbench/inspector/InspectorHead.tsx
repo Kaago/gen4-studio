@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { EventKind } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { Badge, Icon, Menu } from "../../ui/primitives";
@@ -60,7 +61,7 @@ export function InspectorHead({ kind, title, ident, entityId, unsaved, locked, i
       <div className={styles.text}>
         <span className={styles.eyebrow} data-eyebrow="">
           <Icon name={icon} />
-          {depth === "tuefteln" && tinker !== undefined ? tinker : word}
+          {depthAtLeast(depth, "tuefteln") && tinker !== undefined ? tinker : word}
         </span>
         <h2 className={styles.title}>{title}</h2>
         {ident && (

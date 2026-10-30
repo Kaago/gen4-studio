@@ -1,4 +1,5 @@
 import type { EventKind, HeaderSummary, SpeciesTab } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import type { InspectorModel } from "./Inspector";
 import type { DeckArea, PanelId } from "./layout";
@@ -62,7 +63,7 @@ export interface NavState {
   eventFile?: number | null;
   /** Every known header. When omitted, a header id is taken to exist. */
   headers?: readonly HeaderSummary[];
-  /** The depth of the shell: a matrix cell shows in the Raster only in Tüfteln (Bauen has no such tab). Omitted: Tüfteln. */
+  /** The depth of the shell: a matrix cell shows in the Raster only in Tüfteln (Bauen and Erzählen have no such tab). Omitted: Tüfteln. */
   depth?: Depth;
 }
 
@@ -140,7 +141,7 @@ function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchiv
       if (target.show !== "map" && known(target.header)) return toHeader(target.header);
       // Bauen has no Raster, and a link to the map (the world map's) stays on the view: the tabs stay as they are and the inspector shows
       // the cell's map.
-      const panel = target.show === "map" || state.depth === "bauen" ? null : "matrix";
+      const panel = target.show === "map" || !depthAtLeast(state.depth ?? "tuefteln", "tuefteln") ? null : "matrix";
       const header = target.show === "map" ? switchTo(target.header) : null;
       return { selectedHeader: header ?? state.selectedHeader, pinned: { kind: "matrixCell", matrix: target.matrix, x: target.x, y: target.y }, panel };
     }
