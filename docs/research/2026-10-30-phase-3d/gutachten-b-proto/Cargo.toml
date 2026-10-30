@@ -1,0 +1,16 @@
+[package]
+name = "proto-3d-b"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+g4-kernel = { path = "/Users/POLTEP/Projekte/lab/editor/gen4-studio/crates/g4-kernel" }
+rotom = { git = "https://github.com/KalaayPT/rotom", tag = "v0.7.0" }
+serde_json = "1"
+
+[profile.release]
+debug = false
