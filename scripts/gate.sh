@@ -191,12 +191,15 @@ fi
 # (map, text, script edit <= 500 ms, no change <= 200 ms). Release build: the limits hold for
 # the app, which runs release; the debug build takes three to four times as long. Under load
 # (other builds on the machine) the times scatter, so a failed run is repeated once and the
-# row says so.
+# row says so. The same step judges the warm build of the reference index (limit 1000 ms):
+# in the parallel gated run above the other tests read the same files, so it only prints there.
 run_timings() { # run_timings <project dir> <project label>
   local project="$1" label="$2" start=$SECONDS attempt
-  local cmd=(env G4_TEST_PROJECT="$project" G4_TIMING_STRICT=1
-    cargo test --release -p g4-kernel --all-features --test build_graph
-    -- build_graph_timings --nocapture --test-threads 1)
+  local cmd=(env G4_TEST_PROJECT="$project" G4_TIMING_STRICT=1 bash -c
+    'cargo test --release -p g4-kernel --all-features --test build_graph \
+       -- build_graph_timings --nocapture --test-threads 1 &&
+     cargo test --release -p g4-kernel --all-features --test refs \
+       -- vanilla_index_builds_under_a_second --nocapture --test-threads 1')
   for attempt in 1 2; do
     echo
     echo "==> build graph (timings) [$label] (run $attempt)"

@@ -1007,12 +1007,18 @@ fn vanilla_index_builds_under_a_second() {
     index.rebuild_full(&st).unwrap();
     eprintln!("reference index built cold in {:?}", started.elapsed());
     // The index's own cost: a second full build reads every member file again, now warm.
-    // Target 300 ms, limit 1000 ms.
+    // Target 300 ms, limit 1000 ms. In the parallel test run the other tests of this binary
+    // read the same member files at the same time, so the time measures the contention (2.8
+    // to 3.0 s in the gate runs on main of 2026-10-30, 230 to 340 ms alone): printed, and
+    // judged only with `G4_TIMING_STRICT=1`, which `scripts/gate.sh` sets for this test alone
+    // in its timing step (release, one thread), like the build graph timings.
     let started = Instant::now();
     index.rebuild_full(&st).unwrap();
     let took = started.elapsed();
     eprintln!("reference index built warm in {took:?} (target 300 ms)");
-    assert!(took < Duration::from_millis(1000), "{took:?}");
+    if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
+        assert!(took < Duration::from_millis(1000), "{took:?}");
+    }
     // Every source kind contributes: Zubat (wild in both games and in grunt parties),
     // Tackle, Ivysaur, Moon Stone, the class of trainer 1, some trainer behind an object
     // event and some encounter file behind a header.
