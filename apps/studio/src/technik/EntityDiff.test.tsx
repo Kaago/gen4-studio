@@ -59,7 +59,7 @@ describe("EntityDiff", () => {
   it("fields_show_path_old_and_new_with_side_words", async () => {
     // Nothing chosen: what to do.
     await render(null, { row: null });
-    expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+    expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
     // Chosen: loading, then the head and the fields.
     let answer: (r: EntityDiffReport) => void = () => {};
     vi.mocked(diffEntity).mockReset().mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));

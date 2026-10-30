@@ -485,7 +485,7 @@ describe("ChangesSurface", () => {
     it("selecting_a_row_shows_its_diff", async () => {
       await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       const detail = () => container.querySelector<HTMLElement>("[data-entity-diff]");
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
       expect(diffEntity).not.toHaveBeenCalled();
       vi.mocked(diffEntity).mockResolvedValueOnce(diffReport({ against: "base", old_label: "Basis-ROM Platin DE (Testprojekt)" }));
       await act(async () => change("Trainer 0001")!.click());
@@ -503,10 +503,10 @@ describe("ChangesSurface", () => {
       expect(diffEntity).toHaveBeenCalledExactlyOnceWith(ENTRIES[2]!.subject, "head");
       // One that does not list it forgets the choice, also for the comparison it came from.
       await render({ against: "saved", unsaved: [entry()], changes: changesWith({ report: report({ entries: ENTRIES }) }) });
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
       await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
       expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("false");
-      expect(detail()?.textContent).toBe("Wähle links einen Eintrag, dann steht hier, was sich geändert hat.");
+      expect(detail()?.textContent).toBe("Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.");
     });
 
     it("a_list_still_read_keeps_the_choice_for_when_it_comes", async () => {
