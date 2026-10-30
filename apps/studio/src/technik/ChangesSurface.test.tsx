@@ -526,6 +526,46 @@ describe("ChangesSurface", () => {
       expect(change("Trainer 0001")?.getAttribute("aria-selected")).toBe("true");
     });
 
+    it("the_base_list_still_compared_keeps_the_choice_for_the_new_report", async () => {
+      // An entity changed since the last compare against the base (a map saved just now) is chosen under „Gegen letzten Commit“; „Gegen
+      // Basis“ compares again while the old report's list, which lacks it, stays shown: that list is no answer yet, the choice is not forgotten.
+      const onChoose = vi.fn();
+      const chosen: DiffSubject = { kind: "map", index: 700 };
+      const show = (entries: ChangedEntry[], busy: boolean) =>
+        act(async () =>
+          root.render(
+            withReset(
+              reset,
+              <ChangesSurface
+                changes={changesWith({ report: report({ entries }), busy })}
+                status={READY}
+                dirty={[]}
+                onOpenProject={onOpenProject}
+                against="base"
+                onAgainst={onAgainst}
+                git={gitWith(gitStatusOf())}
+                unsaved={null}
+                onGitSetup={onGitSetup}
+                goTo={goTo}
+                revision={0}
+                chosen={chosen}
+                onChoose={onChoose}
+              />,
+            ),
+          ),
+        );
+      await show([ENTRIES[0]!, ENTRIES[2]!], true);
+      expect(onChoose).not.toHaveBeenCalled();
+      // The new report holds it: chosen, with its detail.
+      await show(ENTRIES, false);
+      expect(onChoose).not.toHaveBeenCalled();
+      expect(change("Karte 0700")?.getAttribute("aria-selected")).toBe("true");
+      expect(diffEntity).toHaveBeenLastCalledWith(chosen, "base");
+      // A list that is read (not compared anew) and lacks the chosen entity still forgets it.
+      await show([ENTRIES[0]!, ENTRIES[2]!], false);
+      expect(onChoose).toHaveBeenCalledExactlyOnceWith(null);
+    });
+
     it("the_app_can_hold_the_choice_across_leaving_technik", async () => {
       // Held by the app (`chosen`, `onChoose`): a surface mounted anew (after „Öffnen“ and back) shows the entity chosen before.
       const onChoose = vi.fn();

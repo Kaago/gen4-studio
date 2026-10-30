@@ -249,8 +249,10 @@ export function ChangesSurface(props: ChangesSurfaceProps) {
   const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
   const entries = shown?.entries ?? null;
   const entry = chosen === null ? null : (entries?.find((e) => sameSubject(e.subject, chosen)) ?? null);
-  // A list that is read and lacks the chosen entity forgets it (a list still read keeps it for when it comes).
-  const lost = chosen !== null && entries !== null && entry === null;
+  // A list that is read and lacks the chosen entity forgets it; a list still read keeps it for when it comes, and so does the base list
+  // while it is compared anew (the old report stays shown, but it is no answer for an entity changed since).
+  const settled = entries !== null && !(against === "base" && changes?.busy === true);
+  const lost = chosen !== null && settled && entry === null;
   useEffect(() => {
     if (lost) choose(null);
   }, [lost, choose]);
