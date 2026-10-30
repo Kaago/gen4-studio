@@ -113,7 +113,7 @@ Kopie `4-3a-mcp` (Platin DE), vorher `g4k base assign` mit der Nachbar-`.nds`. K
 
 ## (4) Hand und Blick
 
-**Neu aufgenommen am 2026-10-31:** Für 4.3a gibt es keine Blick-Bilder, also war nichts neu aufzunehmen. Der Ordner `target/agent/gate-2026-10-31/blick-neu/` im Worktree `.claude/worktrees/blick-4` (Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/`) hat darum keinen Unterordner `4-3a`. Das Protokoll `check-broken-after-fix.log` aus Hand-Punkt 3 lag im `target/` eines entfernten Worktrees und ist ebenfalls verloren (am 2026-10-31 nirgends unter `lab/editor` gefunden). Es ist nicht neu erzeugt. Für Punkt 3 auf einer frischen Kopie nach `g4k text export` eine JSON von Hand verderben und `g4k text check` lesen.
+**Neu aufgenommen am 2026-10-31:** Für 4.3a gibt es keine Blick-Bilder, also war nichts neu aufzunehmen. Der Ordner `target/agent/gate-2026-10-31/blick-neu/` im Haupt-Checkout (Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/`) hat darum keinen Unterordner `4-3a`. Das Protokoll `check-broken-after-fix.log` aus Hand-Punkt 3 lag im `target/` eines entfernten Worktrees und ist ebenfalls verloren (am 2026-10-31 nirgends unter `lab/editor` gefunden). Es ist nicht neu erzeugt. Für Punkt 3 auf einer frischen Kopie nach `g4k text export` eine JSON von Hand verderben und `g4k text check` lesen.
 
 Kein Blick: 4.3a hat keine Oberfläche. Hand beim Nutzer:
 
