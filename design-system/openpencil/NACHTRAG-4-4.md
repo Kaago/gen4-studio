@@ -112,7 +112,7 @@ Neu sind:
   - „Gegen Basis“ mit dem Satz von 4.1b, den Plaketten „Geändert“, „Neu“, „Fehlt“ und dem Hinweis „Noch nicht gebaut …“;
   - „Gegen gespeichert“ mit „Was ungespeichert vom gespeicherten Stand abweicht.“, der Plakette „Ungespeichert“ und den Seiten „Gespeichert → Ungespeichert“;
   - „Noch kein Commit: es gibt nichts zu vergleichen.“;
-  - die leeren Zustände („Seit dem letzten Commit nichts geändert.“, „Nichts ungespeichert.“) und das Detail ohne Auswahl („Wähle links einen Eintrag, dann steht hier, was sich geändert hat.“);
+  - die leeren Zustände („Seit dem letzten Commit nichts geändert.“, „Nichts ungespeichert.“) und das Detail ohne Auswahl („Wähle einen Eintrag in der Liste, dann steht hier, was sich geändert hat.“);
   - die gesperrte Taste „Öffnen“ (Tooltip „Für diese Art gibt es keinen Ort in der App.“).
 - **Schmal:** Unter 760 px Breite der Aufteilung steht das Detail unter der Liste.
 - **Agentenfrage:** „„agent-gate“ möchte: Git einrichten (lässt sich nicht rückgängig machen).“ ist der vorhandene Dialog der Agentenfrage (3h).
