@@ -2,7 +2,7 @@
 
 Stand: 2026-10-29. Branch `phase-4-4-git-minimal` (Worktree `.claude/worktrees/phase-4-4`, Basis main `6270c44`), nicht nach main gemergt. Gate vom Agenten bestanden auf dem Stand `01fc2d2`: (1) gated Tests im Release-Profil auf Platin DE, HeartGold DE und HeartGold US, (2) Szenario kopflos über `g4k` und `studio mcp` auf allen drei und (3) Browser-Teil und MCP über die Brücke (16 Schritte), ohne Befund. Davor fand der UI-Test am 2026-10-29 auf `a09637f` neun Punkte (U1 bis U9): U1 und U3 bis U7 behoben in `383e160`, `2a5e9cd` und `af1dbb5`, U2, U8 und U9 entschieden; das abschließende Review fand I1 bis I3 und acht kleinere Punkte (m1 bis m8), alle außer m7 behoben in `8ba4037` bis `01fc2d2` (Abschnitt „Befunde“). Das Gate der ganzen Phase 4 ist auf allen drei Spielen vom Agenten bestanden (Abschnitt „Gate der Phase 4“).
 
-(1) 1. `scripts/gate.sh`: läuft (gestartet 19:39 auf `01fc2d2`; das Ergebnis kommt hier und im Abschnitt „Ergebnis“ nach).
+(1) 1. `scripts/gate.sh`: grün auf `20f93b0` in 9 404 s (vierter Lauf, 2026-10-30); die drei Läufe davor scheiterten in den gated Tests, zweimal an Zeitgrenzen unter Last, einmal an einem nicht nachstellbaren Einzelfall (Abschnitt (1), „Offen / später“).
 
 Beim Nutzer offen: das eigene Git-Werkzeug zeigt das Repo, „Git einrichten“ in der gepackten App aus dem Finder, die Fortschrittsphasen in der App, Windows (Hand); der Blick auf Technik › Änderungen, die Dialoge und die Statusleiste in Hell, Dunkel und Kompakt (Abschnitte „Hand“ und „Blick“). Die `.fig` ist nicht angefasst; eine eigene Sitzung spielt die Frames nach dem Merge ein (`design-system/openpencil/NACHTRAG-4-4.md`).
 
@@ -48,7 +48,13 @@ So durchgeführt am 2026-10-29 auf dem Stand `01fc2d2` ((1) und (2) 18:56 bis 19
 
 ## (1) Automatik
 
-(1) 1. `scripts/gate.sh`: läuft (seit 19:39 auf `01fc2d2`, allein, Log `target/agent/gate-sh-4-4.log`). Die neuen gated Tests laufen dort im Schritt der gated Tests je Projekt (Debug) ohne Änderung am Skript mit. `cargo deny` prüft im Skript `licenses advisories`; das Verbot von `git2` und `libgit2-sys` in `deny.toml` (`bans`) prüfte Task 1 (`c3fba26`, `cargo deny` grün ohne neue Ausnahme).
+(1) 1. `scripts/gate.sh`: grün auf `20f93b0` in 9 404 s (vierter Lauf, 2026-10-30 03:51 bis 06:28, Log `target/agent/gate-sh-4-4.log`): fmt, clippy, deny, `cargo test` ohne ROM-Daten (964 s), `mcp`, `pnpm test` (109 s), Tokens, Styles, `pnpm build`, dist ohne Brücke, `g4emu` Unit und Integration; gated Tests HeartGold DE 2 784 s, HeartGold US 2 567 s, Platin DE 2 411 s; build graph (timings) 95, 96 und 40 s; project start 96, 78 und 75 s. Die neuen gated Tests laufen dort im Schritt der gated Tests je Projekt (Debug) ohne Änderung am Skript mit. Die drei Läufe davor scheiterten, jeder in den gated Tests (Logs `gate-sh-4-4-lauf1.log` bis `-lauf3.log`):
+
+- Lauf 1 (`01fc2d2`, 3 439 s): HeartGold DE, `script_texture_and_model_reset_give_the_base_member_back` aus 4.1b (`crates/g4-kernel/tests/original.rs`, feste Grenze 200 ms): Zurücksetzen 225 ms bei Last um 20 (Übernehmen 11,7 s); einmal einzeln auf frischer Kopie 94 ms (Übernehmen 0,9 s). Last; die Datei ist in 4.4 unverändert.
+- Lauf 2 (`20f93b0`, 13 840 s): Platin DE, Brückentest `mcp_shares_the_session_with_invoke`: eine Anfrage blieb über die Lesegrenze von 60 s ohne Antwort (Last 33 bis 39, Studio-Bibliothek 3 209 s). Die Brücke ist in 4.4 unverändert; derselbe Test lief im Schritt ohne ROM-Daten und auf beiden HeartGold grün.
+- Lauf 3 (`20f93b0`, 11 049 s): Platin DE, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` aus 4.3b: nach `adopt_text_project` lehnte das Wiederöffnen mit `restore_needed` ab, der Prüfung aus 4.4 (Manifest da, `header.yaml` in dem Moment nicht). Nicht nachstellbar: auf einer frischen Kopie dreimal einzeln und zweimal als ganze Studio-Bibliothek (647 von 647) grün, in Lauf 2 und 4 grün; eine Lesesuche über Adopt, Export, Wiederherstellen, Basis-Schicht, Vorlagen und die parallelen Tests fand keinen Pfad, der `header.yaml` entfernt (siehe „Offen / später“).
+
+`cargo deny` prüft im Skript `licenses advisories`; `cargo deny --locked check licenses advisories bans` (cargo-deny 0.20.2, auf `20f93b0`) ist separat grün, das Verbot von `git2` und `libgit2-sys` in `deny.toml` hält (zuerst geprüft in Task 1, `c3fba26`).
 
 - [x] 2. **Gated Tests** `crates/g4-kernel/tests/git.rs` auf `4-4-{pt,hgde,hgus}`, Release, `--nocapture --test-threads 1`: je 5/5 bestanden (Platin DE 433 s, HeartGold DE 550 s, HeartGold US 414 s):
    - `git_setup_on_the_dspre_folder_keeps_status_empty_after_build`: einrichten, Status leer, `build::build`, Status leer; nach `git repack -a -d` gepackt 46 311 / 56 792 / 56 289 KiB (Grenze 65 MiB), 18 449 / 19 989 / 19 989 Dateien (Grenze 20 027), 36 / 40 / 40 ignorierte Archive; `add` 8,7 / 9,4 / 9,0 s, Commit 163 bis 170 ms, Status 211 / 182 / 215 ms.
@@ -193,7 +199,7 @@ Die Teilphasen haben die Bausteine einzeln abgenommen:
 
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
-| (1) 1 `scripts/gate.sh` | Agent | läuft (seit 19:39 auf `01fc2d2`) | – |
+| (1) 1 `scripts/gate.sh` | Agent | bestanden: grün auf `20f93b0` in 9 404 s (vierter Lauf); Läufe 1 bis 3 rot in den gated Tests (zwei Zeitgrenzen unter Last, ein nicht nachstellbarer `restore_needed` nach dem Einrichten als Textprojekt) | 2026-10-30 |
 | (1) 2 gated `--test git` | Agent | bestanden: je 5/5 auf Platin DE, HeartGold DE, HeartGold US (Release); Status nach dem Build leer, Klon mit `core.autocrlf=true` byte-gleich im DSPRE-Layout und im Textprojekt, Trainer und Text mit Feldnamen gegen `HEAD` und Basis, Zurücksetzen | 2026-10-29 |
 | (1) 3 gated `--test diff` | Agent | bestanden: 1/1 auf allen drei, kein Einzel-Diff über 12 ms | 2026-10-29 |
 | (1) 4 gated Studio-Test | Agent | bestanden: 1/1 auf allen drei, Einrichten 7,4 bis 8,8 s, Diff 4 bis 7 ms | 2026-10-29 |
@@ -262,7 +268,7 @@ Dieselbe Welle: der Hilfetext von `g4k text restore` nennt die Phase `sync` (`99
 
 ### Gate-Lauf (2026-10-29)
 
-Keine Befunde in (1), (2) und (3); kein Lauf scheiterte, keiner wurde wiederholt.
+Keine Befunde in (1) 2 bis 4, (2) und (3); kein Lauf davon scheiterte, keiner wurde wiederholt. `scripts/gate.sh` brauchte vier Läufe (Abschnitt (1)): zwei Zeitgrenzen von Tests aus 4.1b und 3h unter Last, ein nicht nachstellbarer Einzelfall in einem Test aus 4.3b mit der neuen Prüfung `restore_needed`.
 
 ## Hinweise
 
@@ -332,6 +338,7 @@ Schritt-Bilder ohne Blick-Auftrag: `gate3-*.png` (20, Gate-Lauf (3): ohne Repo, 
 Ohne Einfluss auf das Gate; was ein Nutzer bemerken kann:
 
 - **Spiegel der Texte im DSPRE-Layout (N1):** ob die DSPRE-Vorlage `expanded/` ignoriert; heute steht nach `commit -a` eine Datei-Zeile „Neu“, bis sie mit `git add -A` im Commit ist. Nach einer Massenänderung mit `commit -a` vergleicht die Liste je solcher Datei einmal (U1-Weg); bei sehr vielen ungetrackten Quellen wird sie langsamer.
+- **`restore_needed` nach dem Einrichten als Textprojekt (gate.sh Lauf 3):** einmal in vier Läufen meldete das Wiederöffnen nach `adopt_text_project` auf der Platin-Kopie „Textprojekt ohne Spieldateien“, `header.yaml` fehlte in dem Moment; Ursache unbekannt, nicht nachstellbar, kein Codepfad gefunden. Ein Nutzer sähe die Meldung einmal und öffnete neu. Nächster Schritt: im Test statt `unwrap` den Ordnerinhalt, den Temp-Ordner und den freien Platz ausgeben; liegt es außerhalb des Prozesses, bekommen die gated Tests in `scripts/gate.sh` ein eigenes `TMPDIR`.
 - **MCP `git_init` und ungespeicherte Scripts (m7):** der Dialog sperrt „Einrichten“ bei ungespeicherten Script-Puffern, ein Agent nicht; der erste Commit eines Agenten kann einen ungespeicherten Puffer verpassen.
 - **`text_export` und die Vorlagen (r1):** `g4k text export` und MCP `text_export` stellen einen DSPRE-Ordner mit Git ebenfalls um, schreiben die Vorlagen aber nicht um (anders als `adopt`, I3).
 - **`arm9.bin.backup`** (geschrieben vom Patch der Dynamic Headers) steht als Datei-Zeile in der Liste; eine Zeile in der Vorlage wäre mit dem Nutzer zu entscheiden.
