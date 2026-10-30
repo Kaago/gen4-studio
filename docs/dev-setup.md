@@ -791,7 +791,7 @@ Ein lauffähiges `.app` (mit `libnitroarc_ffi.dylib` und den Sidecars apicula un
 
 ```sh
 cd apps/studio
-pnpm bundle                      # prepare-bundle.sh, danach tauri build
+pnpm bundle                      # prepare-bundle.sh, danach tauri build (über scripts/with-rust.sh, findet cargo selbst)
 bash scripts/check-bundle.sh     # Ausgabe: bundle ok
 ```
 

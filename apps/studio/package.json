@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "bundle": "bash scripts/prepare-bundle.sh && tauri build",
+    "tauri": "bash scripts/with-rust.sh tauri",
+    "bundle": "bash scripts/prepare-bundle.sh && bash scripts/with-rust.sh tauri build",
     "test": "vitest run",
     "tokens": "python3 ../../design-system/scripts/export_tokens.py ../../design-system src/ui/tokens"
   },

@@ -15,7 +15,7 @@ Das Bundle enthält drei Fremdkomponenten, damit die App ohne den Entwicklungsba
 
 - apicula gebaut unter `tools/apicula/bin/apicula` (siehe `docs/dev-setup.md`).
 - `rotom-lsp` unter `tools/rotom/bin/rotom-lsp`; fehlt es, baut `prepare-bundle.sh` es aus dem Git-Tag (Netz beim ersten Mal).
-- `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"` in der Shell, aus der gebaut wird (`tauri build` braucht `cargo`).
+- Kein eigener `PATH` mehr nötig: `pnpm bundle` und `pnpm tauri` laufen über `apps/studio/scripts/with-rust.sh`, das `/opt/homebrew/opt/rustup/bin` und `~/.cargo/bin` vor den `PATH` setzt (`tauri build` braucht `cargo`; ohne das brach der Bau mit „failed to run 'cargo metadata'“ ab).
 - Die Datei `.cargo/config.toml` (CFLAGS für nitroarc auf neuen macOS-SDKs) liegt im Repository und gilt automatisch.
 
 ## Schritte
