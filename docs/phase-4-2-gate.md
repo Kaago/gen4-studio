@@ -290,6 +290,20 @@ Stand der Abnahme (2026-10-27): 1 bis 4 offen; der Agent hat keine gepackte App 
 
 ## Blick
 
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), auf frischen Kopien: die drei Bilder von `g4emu` aus den Szenarien von (G5) und die App in der Test-Umgebung mit Chrome headless (Playwright). Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-2/` im Worktree `.claude/worktrees/blick-4` (Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-2/`. Die `g4emu`-Bilder liegen dort in `pt-treppe-warp/` und `hg-neuheim/`, die der App in `abnahme-4-2/`. Es sind 20 Bilder: drei von `g4emu` und 17 der App (`bauen-*` sechs, `bauen-uebersprungen-dunkel-1440`, `konflikt-*` sechs, `fix-patch-build-*` zwei, `fix-tuefteln-*` zwei). Abweichungen vom alten Inhalt:
+
+- **`bauen-*`:** Die Tabelle hat dieselben fünf Zeilen, „Übersprungen (40)“ wie damals. Die Zeile Prüfsummen „aus der Basis übernommen“ steht nur mit zugeordneter Basis-ROM, deshalb ist die Basis vorher zugeordnet.
+- **`fix-patch-build-*`:** Unter der Zeile „Build von „Patch erstellen“ nach build/blick4-4-2-web-IPKD.nds“ hat die Tabelle vier Zeilen und „Übersprungen (41)“, weil „ROM schreiben“ voll gebaut hat (anderes Ziel).
+- **`fix-tuefteln-*`:** Tüfteln ist der Umschalter „Bauen | Tüfteln“ im Scharnier der Welt, keine Einstellung.
+- **`konflikt-*`:** Der Dialog ist unverändert. Erzeugt durch Bearbeiten, Speichern und Bauen von Textarchiv 0012, danach JSON und Member von außen geändert.
+- **Technik:** Die Liste hat seit 4.1b und 4.3b „Änderungen“ und „Textprojekt“. Die Meldung „Dieses Projekt lässt sich als Textprojekt einrichten …“ ist vor jeder Aufnahme geschlossen.
+- **Bei 1100 px:** Die Titelleiste kürzt den langen Namen der Kopie auf „b…“ (H2 der Abnahme 4.0).
+- **`pt-treppe-warp/angekommen.png`:** Der Raum ist klein, der untere Teil des oberen Bildschirms ist schwarz. Mit längerem Warten gegengeprüft, das ist so gezeichnet.
+- **Nicht neu:** `bauen-tuefteln-hell-1440.png` zeigte den Stand vor A4 und ist durch `fix-tuefteln-*` ersetzt.
+- **Beobachtungen, kein Fix:**
+  - Nach „Patch erstellen…“ nennt „Letzter Build“ in Prüfen und Bauen weiter den Pfad des letzten eigenen Builds (`…/out.nds`). Nur die neue Zeile darüber nennt das Ziel des Patch-Builds.
+  - Im Browser-Modus fragt „Bauen“ nach „Abbrechen“ im Konfliktdialog zuerst wieder nach dem Pfad, dann kommt der Dialog.
+
 Bilder von `g4emu` unter `target/agent/gate-2026-10-27/4-2/` (im Worktree):
 
 - `pt-treppe-warp/angekommen.png`: das Erdgeschoss des Rivalenhauses (Header 412) nach der umgeleiteten Treppe. Die Figur steht unten rechts neben der Matte, oben links die Mutter.

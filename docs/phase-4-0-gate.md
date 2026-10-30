@@ -91,6 +91,18 @@ Unabhängige Abnahme durch eine zweite Sitzung auf dem Stand `0f32930`, nach den
 
 **Blick**
 
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), in der Test-Umgebung mit Chrome headless (Playwright) auf frischen Kopien. Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-0/` im Worktree `.claude/worktrees/blick-4` (Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-0/`. Die Bilder der Abnahme liegen dort im Unterordner `abnahme-4-0/`. Das sind 12 Bilder. Sie weichen in diesen Punkten vom alten Inhalt ab:
+
+- **Alle Bilder:** Die Projekte heißen wie die Kopien (`blick4-4-0-pt1_DSPRE_contents` usw.). Die eigenen Bilder sind Farbfelder ohne Spielgrafik.
+- **`abnahme-4-0/start-1100-*.jpg`:** Die Seite ist ans Ende gerollt, damit die vierte Karte („nicht gefunden“) im Bild ist. Bei 720 px Höhe passen nicht alle Karten ins Fenster, deshalb ist die erste Reihe angeschnitten.
+- **`start-1440-kompakt-hell.jpg`:** Unten ist der Hilfetext abgeschnitten.
+- **Technik:** Die Liste hat seit 4.3b den Eintrag „Textprojekt“.
+- **Toasts:** Die Meldung „Dieses Projekt lässt sich als Textprojekt einrichten …“ (seit 4.3b) und der rohe Fehlertoast nach dem fehlgeschlagenen Öffnen (H3) sind vor der Aufnahme geschlossen.
+- **`abnahme-4-0/bundle-icon-128.png`:** Es stammt aus `apps/studio/src-tauri/icons/icon.icns` (`sips -Z 128`), nicht aus einem neu gebauten Bundle. Laut (G5) hat das Bundle denselben SHA-256 `3b7234b0…c3ec`. Es zeigt die Marke.
+- **`blick-galerie-projektstart-dunkel.png`:** Die Galerie ist `http://127.0.0.1:<port>/?gallery`, Seite „Projektstart“, Dunkel. Sie ist als ganze Seite aufgenommen (1440 × 3290). Laut Aufnahme schneidet der Rahmen „Projektkarte“ die vierte Karte wegen seiner festen Höhe ab (Hinweis, nicht geändert).
+- **`fig-marke.png`:** Nicht neu aufgenommen. OpenPencil antwortete am 2026-10-31 nicht (`RPC timeout`). Das Brett liegt unverändert in der `.fig` (Seite „Grundlagen“, x 1720, y 2900).
+- **Nicht neu:** Die Bilder der Punkte (G1) bis (G4) (`g1-*.png` usw.) gehören nicht zum Blick und sind nicht neu aufgenommen.
+
 - [ ] Start mit Bildern in Hell, Dunkel und Kompakt: `blick-start-hell.png`, `blick-start-dunkel.png`, `blick-start-kompakt-hell.png`, dazu aus der Abnahme `abnahme-4-0/start-1440-hell.jpg`, `start-1440-dunkel.jpg`, `start-1440-kompakt-hell.jpg`, `start-1100-kompakt-hell.jpg`, `start-1100-dunkel.jpg` (vier Karten: eigenes Bild, Standardbild, Platzhalter, fehlend; Hinweis H1 an der HeartGold-Karte); Technik › Projekt: `blick-technik-projekt-hell.png`, `abnahme-4-0/technik-hg-eigen-hell.jpg`; Galerie „Projektstart“: `blick-galerie-projektstart-dunkel.png`.
 - [ ] Das Bundle-Symbol in 128 px: `abnahme-4-0/bundle-icon-128.png` (aus `Gen4 Studio.app/Contents/Resources/icon.icns`).
 - [ ] Die Marke: Brett „Marke“ in der `.fig` (Seite „Grundlagen“, x 1720, y 2900; Bild `fig-marke.png`) und das Symbol im Dock von `tauri dev` (`cd apps/studio && pnpm tauri dev`).
