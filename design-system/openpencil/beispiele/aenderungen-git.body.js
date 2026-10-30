@@ -107,7 +107,8 @@
     ].map(([title, icon, s, sel]) => ListRow({ title, icon, sub: s, sel }))}
   </Frame>]);
 
-  // ----- Fläche Technik › Änderungen: flaeche/deck, innen 32 / 24, Abstand 16; Kopf und Umschalter in der Lesebreite 880, Liste und Detail
+  // ----- Fläche Technik › Änderungen: flaeche/deck, innen 32 / 24, Abstand 16; Kopf und Umschalter in der Lesebreite 880 (der Satz unter dem
+  // Titel höchstens 64ch, rund 520), Liste und Detail
   // darunter bis 1280 breit (Fenster 1440: 1440 − 88 Atlas − 272 Liste − 48 = 1032), ab 760 nebeneinander, je (1032 − 16) / 2 -----
   const BW = 880;
   const SPLIT = 1440 - 88 - 272 - 48;
@@ -115,7 +116,7 @@
   const Kopf = (lead, taste) => <Frame name="Kopf" flex="row" items="start" justify="between" gap={16} w={BW}>
     <Frame flex="col" gap={4} grow={1}>
       {T('Änderungen', { f: Z, s: 24, lh: 30, w: 700 })}
-      {lead && T(lead, { width: 600 })}
+      {lead && T(lead, { width: 520 })}
     </Frame>
     {taste && Btn({ label: taste })}
   </Frame>;
@@ -173,7 +174,7 @@
       {Umschalter('Gegen letzten Commit')}
       <Frame name="Ohne Repository" flex="col" gap={16} w={BW}>
         {Notice('Dieses Projekt liegt in keinem Git-Repository.', 'info')}
-        {T('Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.', { width: 600 })}
+        {T('Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.', { width: 520 })}
         <Frame name="Angebot" flex="row">{Btn({ label: 'Git einrichten…' })}</Frame>
       </Frame>
     </Frame>;
@@ -184,8 +185,12 @@
     const Pruefzeile = (symbol, farbe, text) => <Frame flex="row" items="start" gap={8} w="fill">
       <Frame pt={2}>{I(symbol, DI.symbol, farbe)}</Frame>{T(text, { grow: 1, width: IW - 26 })}
     </Frame>;
+    // Meldung der Art Warnung wie Notice aus jsx-lib-app.js, aber mit fester Textbreite: Notice gibt dem Text keine Breite, er liefe über den Dialog
+    const Warnung = (text) => <Frame name="Meldung" flex="row" items="start" gap={8} px={12} py={8} w="fill" rounded={6} bg={v('status/warnung-flaeche')}>
+      {I('ph:warning-fill', 18, 'w')}{T(text, { width: IW - 24 - 18 - 8 })}
+    </Frame>;
     const inhalt = <Frame name="Inhalt" flex="col" gap={12} w="fill">
-      {Notice('Dein Projekt enthält Daten aus dem Spiel. Lade es nicht öffentlich hoch; zum Teilen gibt es den Patch (Technik › Veröffentlichen).', 'warn')}
+      {Warnung('Dein Projekt enthält Daten aus dem Spiel. Lade es nicht öffentlich hoch; zum Teilen gibt es den Patch (Technik › Veröffentlichen).')}
       <Frame name="Vor dem Einrichten" flex="col" gap={4} w="fill">
         {Pruefzeile('ph:check-circle-fill', 'ok', 'Alles gespeichert')}
         {Pruefzeile('ph:check-circle-fill', 'ok', 'Git gefunden: 2.54.0 (Apple Git-157)')}
