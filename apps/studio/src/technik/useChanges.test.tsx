@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { changedFromOriginal } from "../api";
+import { FOCUS_DELAY_MS } from "../app/useExternalSync";
+import { subscribeWindowFocus } from "../platform/windowFocus";
 import type { ChangedProgress, ChangedReport } from "../api";
 import { report } from "./changesTesting";
 import { useChanges } from "./useChanges";
@@ -13,6 +15,7 @@ vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   changedFromOriginal: vi.fn(),
 }));
+vi.mock("../platform/windowFocus", () => ({ subscribeWindowFocus: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -53,7 +56,19 @@ describe("useChanges", () => {
   }
   const show = (options: Partial<UseChangesOptions> = {}) => act(async () => root.render(<Probe {...options} />));
 
+  let focusListeners: (() => void)[];
+  /** The window gets the focus back. */
+  const focus = () => act(async () => focusListeners.forEach((l) => l()));
+  const wait = (ms: number) => act(async () => void vi.advanceTimersByTime(ms));
+
   beforeEach(() => {
+    focusListeners = [];
+    vi.mocked(subscribeWindowFocus)
+      .mockReset()
+      .mockImplementation((listener) => {
+        focusListeners.push(listener);
+        return () => void (focusListeners = focusListeners.filter((l) => l !== listener));
+      });
     vi.mocked(changedFromOriginal).mockReset().mockResolvedValue(report());
     container = document.createElement("div");
     root = createRoot(container);
@@ -206,5 +221,129 @@ describe("useChanges", () => {
     expect(changedFromOriginal).toHaveBeenCalledTimes(5);
     expect(shown.report?.files).toBe(9);
     expect(shown.busy).toBe(false);
+  });
+
+  it("compares_again_on_window_focus_as_the_git_status_reads_again", async () => {
+    // A write past the app (a bridge call, another tool) moves no revision; the Git status reads again on focus, and so does this list.
+    vi.useFakeTimers();
+    try {
+      await show();
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      // Several quick focus changes make one compare, FOCUS_DELAY_MS after the last.
+      await focus();
+      await wait(FOCUS_DELAY_MS - 1);
+      await focus();
+      await wait(FOCUS_DELAY_MS - 1);
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      await wait(1);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+
+      // A focus while a compare runs: none beside it, one more after it.
+      const run = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      await run.answer(report({ files: 4 }));
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+
+      // Not on screen: nothing is compared on focus, but once it shows again.
+      await show({ shown: false });
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(4);
+      await show();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
+      // Shown again without a focus between: no compare of its own.
+      await show({ shown: false });
+      await show();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(5);
+
+      // Without a project nobody listens.
+      await show({ project: null });
+      expect(focusListeners).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a_focus_compare_is_quiet", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(changedFromOriginal).mockResolvedValueOnce(report({ files: 1 }));
+      await show();
+      expect(shown.report?.files).toBe(1);
+      // While it runs: not busy, no progress, the list before stays.
+      const run = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      expect(shown.busy).toBe(false);
+      await run.progress({ done: 3, total: 10 });
+      expect(shown.progress).toBeNull();
+      expect(shown.report?.files).toBe(1);
+      await run.answer(report({ files: 2 }));
+      expect(shown.report?.files).toBe(2);
+      expect(shown.busy).toBe(false);
+
+      // A failure is one: it says so, and the list stays.
+      const failing = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      await failing.fail({ code: "error", message: "Die Basis-ROM ist weg.", asset: null });
+      expect(shown.error).toBe("Die Basis-ROM ist weg.");
+      expect(shown.report?.files).toBe(2);
+      // A quiet run keeps that error while it runs and clears it only with a list that went through.
+      const again = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(shown.error).toBe("Die Basis-ROM ist weg.");
+      await again.answer(report({ files: 3 }));
+      expect(shown.error).toBeNull();
+
+      // „Neu vergleichen“ during a quiet run: the run after it shows that it compares.
+      const quiet = pending();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      const loud = pending();
+      await act(async () => void shown.compare());
+      // Said at once, the quiet run's answer still taken.
+      expect(shown.busy).toBe(true);
+      await quiet.answer(report({ files: 4 }));
+      expect(shown.report?.files).toBe(4);
+      expect(shown.busy).toBe(true);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(6);
+      await loud.answer(report({ files: 5 }));
+      expect(shown.busy).toBe(false);
+      expect(shown.report?.files).toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a_focus_compares_only_while_the_base_comparison_shows", async () => {
+    vi.useFakeTimers();
+    try {
+      await show({ listed: false });
+      // Shown with another comparison: the list is still compared when the surface opens (as before), not on focus.
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      await focus();
+      await wait(FOCUS_DELAY_MS);
+      expect(changedFromOriginal).toHaveBeenCalledOnce();
+      // Switched to „Gegen Basis“ after that focus: one quiet compare.
+      const run = pending();
+      await show({ listed: true });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      expect(shown.busy).toBe(false);
+      await run.answer(report({ files: 7 }));
+      // Switched away and back without a focus: nothing more.
+      await show({ listed: false });
+      await show({ listed: true });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

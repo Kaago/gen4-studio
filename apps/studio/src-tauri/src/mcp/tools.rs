@@ -245,8 +245,9 @@ impl ResourceUri {
 /// text archive's JSON or member past the store and reloads it. The text project's commands
 /// write past the store too: setting it up, taking it back and lifting it open the session
 /// anew, the sync and the choice of a conflict write sources and members, and an id rename is
-/// a file step of its own (its undo writes every file back). `apply_fix` with
-/// `create_script` or `remove_hidden` is refused too (see [`not_in_batch`]).
+/// a file step of its own (its undo writes every file back). „Git einrichten“ writes the
+/// templates and a repository past the store. `apply_fix` with `create_script` or
+/// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
     "redo",
@@ -277,12 +278,14 @@ const NOT_IN_BATCH: &[&str] = &[
     "external_sync",
     "resolve_external_conflict",
     "rename_id",
+    "git_init",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
 /// from start to end, UI test 4.3b U4), by command name (so `g4_call` counts too): setting the
-/// project up as text project, about a minute. Never in a batch ([`NOT_IN_BATCH`]).
-const LONG_TOOLS: &[&str] = &["adopt_text_project"];
+/// project up as text project, about a minute, and „Git einrichten“ (`git add` of a DSPRE
+/// folder, about 10 s). Never in a batch ([`NOT_IN_BATCH`]).
+const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
@@ -951,7 +954,8 @@ impl<'a> Call<'a> {
     /// `resolve_text_conflicts` names every archive and the version that applies.
     /// `text_export` answers `unsaved`, `base_missing`, `not_adopted` and `unsynced` unasked, and
     /// `adopt_text_project` `unsaved`, `base_missing` and Diamond/Pearl.
-    /// `resolve_external_conflict` names the unit and the version that stays.
+    /// `resolve_external_conflict` names the unit and the version that stays. `git_init`
+    /// answers `unsaved` (and `busy`) unasked.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -979,6 +983,10 @@ impl<'a> Call<'a> {
                 Ok(why.to_owned())
             }
             ("resolve_external_conflict", _) => Ok(conflict_question(why, args)),
+            ("git_init", Some(_)) => {
+                crate::commands::check_git_init(self.state)?;
+                Ok(why.to_owned())
+            }
             _ => Ok(why.to_owned()),
         }
     }
@@ -4209,5 +4217,128 @@ mod tests {
                 .call("text_project_status", json!({}), AGENT)
                 .is_err()
         );
+    }
+    #[test]
+    fn batch_refuses_git_init() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for call in [
+            json!({ "tool": "git_init", "arguments": {} }),
+            json!({ "tool": "g4_call", "arguments": { "command": "git_init", "args": {} } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("git_init geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        // Reading the state and comparing go into a batch.
+        for command in ["git_status", "diff_entity"] {
+            assert!(!not_in_batch(command, &json!({})), "{command}");
+        }
+    }
+
+    #[test]
+    fn git_init_needs_confirmation_and_git_status_and_diff_entity_only_read() {
+        let (fixture, toolbox) = open_toolbox(WRITE);
+        let (code, message, _) = failed(toolbox.call("git_init", json!({}), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.starts_with("git_init lässt sich nicht rückgängig machen (Git einrichten)"),
+            "{message}"
+        );
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+
+        let (_fixture, toolbox) = open_toolbox(READ);
+        let status = toolbox.call("git_status", json!({}), AGENT).unwrap();
+        assert_eq!(status["repo"], json!({ "kind": "none" }), "{status}");
+        let (code, message, _) = failed(toolbox.call(
+            "diff_entity",
+            json!({ "kind": "trainer", "index": 1, "against": "head" }),
+            AGENT,
+        ));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("no_repo", g4_kernel::diff::NO_REPO)
+        );
+        let diff = toolbox
+            .call(
+                "diff_entity",
+                json!({ "kind": "trainer", "index": 1, "against": "saved" }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(diff["state"], "same", "{diff}");
+    }
+
+    /// An agent with read access reads nothing outside the project through `diff_entity`: a
+    /// path with `..`, an absolute path, `.git/` and a member folder that is more than one
+    /// name are refused with `not_diffable` before anything is read.
+    #[test]
+    fn diff_entity_refuses_paths_outside_the_project() {
+        let (fixture, toolbox) = open_toolbox(READ);
+        g4_kernel::test_support::GitFixture::init(fixture.dir.path());
+        g4_kernel::test_support::GitFixture::commit_all(fixture.dir.path(), "Ausgangsstand");
+        let calls = [
+            json!({ "kind": "file", "path": "../x", "against": "head" }),
+            json!({ "kind": "file", "path": "/etc/hosts", "against": "head" }),
+            json!({ "kind": "file", "path": ".git/config", "against": "head" }),
+            json!({ "kind": "file", "path": "/etc/hosts", "against": "saved" }),
+            json!({ "kind": "member", "folder": "../arm9", "index": 0, "against": "head" }),
+        ];
+        for args in calls {
+            let (code, message, _) = failed(toolbox.call("diff_entity", args.clone(), AGENT));
+            assert_eq!(
+                (code.as_str(), message.as_str()),
+                ("not_diffable", g4_kernel::diff::OUTSIDE_PROJECT),
+                "{args}"
+            );
+        }
+        // A file inside still compares.
+        let diff = toolbox
+            .call(
+                "diff_entity",
+                json!({ "kind": "file", "path": "header.yaml", "against": "head" }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(diff["state"], "same", "{diff}");
+    }
+
+    /// „Git einrichten“ in the app: unsaved changes come back as `unsaved` before the user is
+    /// asked (the first commit takes the saved state); saved, the call asks „Git einrichten“.
+    #[test]
+    fn shared_git_init_refuses_unsaved_before_asking() {
+        let d = shared_dspre();
+        d.toolbox
+            .call(
+                "set_matrix_cell",
+                json!({ "index": 0, "x": 0, "y": 0, "map": 1 }),
+                AGENT,
+            )
+            .unwrap();
+        let (code, message, _) = failed(d.toolbox.call("git_init", json!({}), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("unsaved", crate::commands::INIT_UNSAVED)
+        );
+        assert_eq!(d.state.agents.status().question, None);
+        assert!(!d.root.join(".gitignore").exists());
+
+        d.toolbox.call("save", json!({}), AGENT).unwrap();
+        let user = answer_next(&d.state, "deny");
+        let (code, _, _) = failed(d.toolbox.call("git_init", json!({}), AGENT));
+        let question = user.join().unwrap();
+        assert_eq!(question.what.as_deref(), Some("Git einrichten"));
+        assert_eq!(code, "needs_confirmation");
+        assert!(!d.root.join(".gitignore").exists());
+        assert!(!d.root.join(".git").exists());
     }
 }

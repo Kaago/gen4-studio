@@ -4,7 +4,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkProjectDest, createProject, defaultProjectParent, inspectRom } from "../api";
-import type { Created, CreateProgress, DestCheck, RomInfo } from "../api";
+import type { Created, CreateProgress, DestCheck, InitReport, RomInfo } from "../api";
+import { initReportOf } from "../git/gitTesting";
+import { NOT_INSTALLED } from "../git/gitWords";
 import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
 import { NewProjectWizard } from "./NewProjectWizard";
@@ -65,7 +67,7 @@ describe("NewProjectWizard", () => {
     // The browser's way: the phases arrive done, after the work.
     vi.mocked(createProject)
       .mockReset()
-      .mockImplementation(async (_rom, dest, template, _textProject, onProgress) => {
+      .mockImplementation(async (_rom, dest, template, _textProject, _git, onProgress) => {
         const made = created(dest, template);
         for (const { phase } of made.phases) onProgress({ phase, done: 1, total: 1 });
         return made;
@@ -133,7 +135,7 @@ describe("NewProjectWizard", () => {
     await settle();
     expect(checkProjectDest).toHaveBeenLastCalledWith("/roms/_testkopien/Neues Platin", SIZE);
     expect(text()).toContain("/roms/_testkopien/Neues Platin");
-    expect(onChoice).toHaveBeenLastCalledWith({ rom: PLATIN, template: "original", name: "Neues Platin", dest: "/roms/_testkopien/Neues Platin", textProject: false });
+    expect(onChoice).toHaveBeenLastCalledWith({ rom: PLATIN, template: "original", name: "Neues Platin", dest: "/roms/_testkopien/Neues Platin", textProject: false, git: false });
     // Enter in a field that holds no typed text moves on.
     await act(async () => field("Name").focus());
     pressKey(field("Name"), "Enter");
@@ -144,7 +146,7 @@ describe("NewProjectWizard", () => {
     await click(button("Anlegen"));
     await flush();
 
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", false, expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", false, false, expect.any(Function));
     expect(text()).toContain("Projekt angelegt");
     expect(text()).toContain("Basis-ROM SHA-1 d40f19ac…");
     expect(text()).toContain("Öffnen lädt das Projekt.");
@@ -182,7 +184,7 @@ describe("NewProjectWizard", () => {
     expect(phase("text_project")?.textContent).toContain("Textprojekt einrichten");
     let progress: (p: CreateProgress) => void = () => {};
     let finish: () => void = () => {};
-    vi.mocked(createProject).mockImplementationOnce((_rom, dest, template, _textProject, onProgress) => {
+    vi.mocked(createProject).mockImplementationOnce((_rom, dest, template, _textProject, _git, onProgress) => {
       progress = onProgress;
       return new Promise<Created>((resolve) => (finish = () => resolve(created(dest, template))));
     });
@@ -196,8 +198,111 @@ describe("NewProjectWizard", () => {
     expect(phase("text_project")?.textContent).toContain("läuft 3/10");
     await act(async () => finish());
     await flush();
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", true, expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", true, false, expect.any(Function));
     expect(text()).toContain("Projekt angelegt");
+  });
+
+  it("git_checkbox_is_off_and_passes_through_with_its_phase", async () => {
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    expect(current()).toBe("2. Vorlage");
+    const box = (label: string) => [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((b) => b.closest("label")?.textContent === label);
+    expect(box("Git einrichten (nur lokal)")?.getAttribute("aria-checked")).toBe("false");
+    expect(text()).toContain("Legt ein lokales Repository mit erstem Commit an; nichts wird hochgeladen.");
+    // It stands under „Als Textprojekt einrichten“.
+    const labels = [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].map((b) => b.closest("label")?.textContent);
+    expect(labels).toEqual(["Als Textprojekt einrichten", "Git einrichten (nur lokal)"]);
+    // Off: neither the summary nor the phases name it.
+    await next();
+    await settle();
+    await next();
+    expect(phase("git")).toBeNull();
+    expect(text()).not.toContain("mit Git");
+    // On, with the text project: the summary says so and lists the phase after „Textprojekt einrichten“.
+    await click(button("Zurück"));
+    await click(button("Zurück"));
+    await click(box("Als Textprojekt einrichten"));
+    await click(box("Git einrichten (nur lokal)"));
+    expect(box("Git einrichten (nur lokal)")?.getAttribute("aria-checked")).toBe("true");
+    await next();
+    await settle();
+    await next();
+    expect(text()).toContain("Original, als Textprojekt, mit Git");
+    expect(text()).toContain("mit der Vorlage Original an, als Textprojekt, mit Git, in /roms/_testkopien/Neues Platin.");
+    const ids = [...container.querySelectorAll<HTMLElement>("[data-check]")].map((r) => r.dataset.check);
+    expect(ids).toEqual(["read", "extract", "template", "check", "text_project", "git"]);
+    expect(phase("git")?.textContent).toContain("Git einrichten");
+    let progress: (p: CreateProgress) => void = () => {};
+    let finish: () => void = () => {};
+    vi.mocked(createProject).mockImplementationOnce((_rom, dest, template, _textProject, _git, onProgress) => {
+      progress = onProgress;
+      return new Promise<Created>((resolve) => (finish = () => resolve(created(dest, template))));
+    });
+    await click(button("Anlegen"));
+    await act(async () => progress({ phase: "git", done: 0, total: 5 }));
+    expect(phase("text_project")?.dataset.phase).toBe("done");
+    expect(phase("git")?.dataset.phase).toBe("running");
+    await act(async () => finish());
+    await flush();
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "original", true, true, expect.any(Function));
+    expect(text()).toContain("Projekt angelegt");
+
+    // Git without the text project (a fresh wizard): the phase follows „Prüfen“.
+    act(() => root.unmount());
+    root = createRoot(container);
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    await click(box("Git einrichten (nur lokal)"));
+    await next();
+    await settle();
+    await next();
+    expect(text()).toContain("mit der Vorlage Original an, mit Git, in /roms/_testkopien/Neues Platin.");
+    expect([...container.querySelectorAll<HTMLElement>("[data-check]")].map((r) => r.dataset.check)).toEqual(["read", "extract", "template", "check", "git"]);
+  });
+
+  /** Creates with „Git einrichten (nur lokal)“ on; the backend answers `git` as given. The result step's text and its warning (or null). */
+  async function createWithGit(git: InitReport): Promise<{ text: string; warning: string | null }> {
+    vi.mocked(createProject).mockImplementationOnce(async (_rom, dest, template) => ({ ...created(dest, template), git }));
+    await show();
+    await type(field("ROM-Datei"), "/roms/pt.nds");
+    await next();
+    const box = [...container.querySelectorAll<HTMLElement>("[role=checkbox]")].find((b) => b.closest("label")?.textContent === "Git einrichten (nur lokal)");
+    await click(box);
+    await next();
+    await settle();
+    await next();
+    await click(button("Anlegen"));
+    await flush();
+    expect(text()).toContain("Projekt angelegt");
+    const warning = [...container.querySelectorAll<HTMLElement>("[role=status]")].find((n) => n.querySelector("svg") !== null && !n.textContent?.includes("Projekt angelegt"));
+    return { text: text(), warning: warning?.textContent ?? null };
+  }
+
+  it("the_result_names_the_first_commit_and_a_studio_author", async () => {
+    const plain = await createWithGit(initReportOf());
+    expect(plain.text).toContain("Git eingerichtet: 18.449 Dateien im ersten Commit „Ausgangsstand“.");
+    expect(plain.text).not.toContain("Autor ist");
+    expect(plain.warning).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    const studio = await createWithGit(initReportOf({ studio_identity: true }));
+    expect(studio.text).toContain("Git eingerichtet: 18.449 Dateien im ersten Commit „Ausgangsstand“. Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.");
+    expect(studio.warning).toBeNull();
+  });
+
+  it("the_result_says_only_the_templates_were_written_without_git", async () => {
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason: NOT_INSTALLED, head: null, files: 0 }));
+    expect(warning).toBe("Vorlagen geschrieben. Git ist nicht installiert; das Repository legst du an, sobald Git da ist.");
+    expect(shown).not.toContain("Git eingerichtet");
+  });
+
+  it("the_result_shows_why_the_first_commit_failed", async () => {
+    const reason = "Der erste Commit ist gescheitert: error: gpg failed to sign the data. Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.";
+    const { text: shown, warning } = await createWithGit(initReportOf({ committed: false, reason, head: null, files: 0 }));
+    expect(warning).toBe(reason);
+    expect(shown).not.toContain("Git eingerichtet");
   });
 
   it("creates_with_the_dspre_ending_and_only_data", async () => {
@@ -216,7 +321,7 @@ describe("NewProjectWizard", () => {
     expect(text()).toContain("mit der Vorlage Nur Daten an, in /Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents.");
     await click(button("Anlegen"));
     await flush();
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", "data_only", false, expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/Users/a/Documents/Gen4 Studio/Neues Platin_DSPRE_contents", "data_only", false, false, expect.any(Function));
     expect(text()).toContain("Öffnen startet im Bereich Pokémon.");
   });
 
@@ -357,7 +462,7 @@ describe("NewProjectWizard", () => {
     expect(text()).toContain("Legt „Neues Platin“ aus Platin (Deutsch) mit der Vorlage Leere Region an, in /roms/_testkopien/Neues Platin. Scripts werden übernommen. Die ROM bleibt unverändert.");
     await click(button("Anlegen"));
     await flush();
-    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "empty_region", false, expect.any(Function));
+    expect(createProject).toHaveBeenCalledWith("/roms/pt.nds", "/roms/_testkopien/Neues Platin", "empty_region", false, false, expect.any(Function));
     expect(text()).toContain("Projekt angelegt");
   });
 
@@ -405,7 +510,7 @@ describe("NewProjectWizard", () => {
     let fail: (e: unknown) => void = () => {};
     let progress: (p: CreateProgress) => void = () => {};
     // The Tauri way: each event says a phase starts.
-    vi.mocked(createProject).mockImplementation((_rom, _dest, _template, _textProject, onProgress) => {
+    vi.mocked(createProject).mockImplementation((_rom, _dest, _template, _textProject, _git, onProgress) => {
       progress = onProgress;
       onProgress({ phase: "read", done: 0, total: 1 });
       return new Promise<Created>((_, reject) => (fail = reject));

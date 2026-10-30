@@ -786,3 +786,30 @@ fn the_unit_cache_lists_a_folder_once_until_it_changes() {
         paths(&["data/moves/0001.bin", "data/moves/0001.json"])
     );
 }
+
+#[test]
+fn the_diff_source_takes_fallback_ids_and_never_writes() {
+    // The DSPRE layout: no manifest, no registers.
+    let fx = TextFixture::dspre();
+    let p = fx.project();
+    let trainer = id(AssetKind::Trainer, 1);
+    let mut source = EntitySource::open_for_diff(&p).unwrap();
+    let files = source.export_members(&p, &[trainer]).unwrap();
+    let json: Value = serde_json::from_slice(&files[Path::new("data/trainers/0001.json")]).unwrap();
+    assert_eq!(json["id"], "TRAINER_0001");
+    assert_eq!(json["data"]["class"], "TRAINER_CLASS_0001");
+    let header = source
+        .export_header(1, &[0; 24], b"T02\0\0\0\0\0\0\0\0\0\0\0\0\0")
+        .unwrap();
+    let header: Value = serde_json::from_slice(&header).unwrap();
+    assert_eq!(header["id"], "MAP_0001");
+    let pair = disk_bytes(&p, trainer).unwrap().unwrap();
+    let err = source.write(&p, &[(trainer, pair)], &|_| None).unwrap_err();
+    assert!(matches!(err, KernelError::InvalidProject(_)), "{err:?}");
+    assert!(!fx.root().join("data").exists(), "nothing written");
+    // `open` refuses the DSPRE layout.
+    assert!(matches!(
+        EntitySource::open(&p),
+        Err(KernelError::Refused(_))
+    ));
+}

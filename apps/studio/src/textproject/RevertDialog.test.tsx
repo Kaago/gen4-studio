@@ -15,7 +15,7 @@ vi.mock("../api", async (importOriginal) => ({
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const PENDING = "Erst abgleichen: es gibt Änderungen von außen, Konflikte oder fehlerhafte Dateien (Technik › Textprojekt).";
-const report: RevertReport = { backup: "/p/.g4/backup/textproject-20261028T120000Z", rewritten: ["/p/g4-world.json"], ms: 40 };
+const report: RevertReport = { backup: "/p/.g4/backup/textproject-20261028T120000Z", rewritten: ["/p/g4-world.json"], templates: null, templates_warning: null, ms: 40 };
 
 describe("RevertDialog", () => {
   let container: HTMLElement;
@@ -66,6 +66,10 @@ describe("RevertDialog", () => {
     expect(onReverted).toHaveBeenCalledWith(report);
     expect(onClose).toHaveBeenCalled();
     expect(revertedText(report)).toBe("Textprojekt zurückgenommen. Sicherung: /p/.g4/backup/textproject-20261028T120000Z");
+    const templates = { layout: "dspre" as const, files: [{ path: ".gitignore", action: "updated" as const }], ignored_archives: 3 };
+    expect(revertedText({ ...report, templates })).toBe(
+      "Textprojekt zurückgenommen. Sicherung: /p/.g4/backup/textproject-20261028T120000Z. Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner.",
+    );
     // „Abbrechen“ only closes.
     onClose.mockClear();
     await show(0);

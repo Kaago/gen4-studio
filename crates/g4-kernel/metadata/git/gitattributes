@@ -1,0 +1,10 @@
+# Spieldaten sind binär, auch wenn Git sie für Text hält (pokeHeight, files/data);
+# ohne diese Zeilen schreibt core.autocrlf=true sie beim Auschecken um, und die ROM ändert sich.
+* -text
+*.json text eol=lf
+*.rotom text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+# Platz für große Binärquellen (Phase 6), etwa: *.glb filter=lfs diff=lfs merge=lfs -text

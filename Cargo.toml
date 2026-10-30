@@ -16,3 +16,20 @@ opt-level = 3
 # HeartGold): unoptimized, xxh3 took the first comparison from seconds to most of a minute.
 [profile.dev.package.xxhash-rust]
 opt-level = 3
+
+# The Git status (phase 4.4) hashes and inflates in gix: decoding the index, the stat check
+# per entry, hashing a changed file, inflating objects. `gix-features` of the plan no longer
+# exists in gix 0.90; its hashing is `gix-hash` with `sha1dc`, its zlib `gix-zlib`. Measured on
+# 25 000 files, warm: 220 ms unoptimized, 100 ms with these (release: 54 ms).
+[profile.dev.package.gix-hash]
+opt-level = 3
+[profile.dev.package.sha1dc]
+opt-level = 3
+[profile.dev.package.gix-index]
+opt-level = 3
+[profile.dev.package.gix-status]
+opt-level = 3
+[profile.dev.package.gix-zlib]
+opt-level = 3
+[profile.dev.package.zlib-rs]
+opt-level = 3

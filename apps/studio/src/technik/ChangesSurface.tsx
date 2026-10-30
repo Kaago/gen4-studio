@@ -1,25 +1,24 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
-import type { AssetId, ChangedEntry, ChangeState, OriginalStatus } from "../api";
+import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
+import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
-import { Badge, Button, EmptyState, ListRow, Notice, Section, Tooltip, useRovingList } from "../ui/primitives";
-import type { BadgeKind } from "../ui/primitives";
+import { Badge, Button, EmptyState, ListRow, Notice, Section, Segmented, Tooltip, useRovingList } from "../ui/primitives";
+import type { SegmentedOption } from "../ui/primitives";
+import type { NavTarget } from "../workbench/navigation";
 import styles from "./ChangesSurface.module.css";
+import { rowResetLock, stateBadge } from "./diffWords";
+import { EntityDiff } from "./EntityDiff";
 import type { ChangesApi } from "./useChanges";
 
-const STATE_BADGE: Record<ChangeState, { kind: BadgeKind; text: string }> = {
-  changed: { kind: "warning", text: "Geändert" },
-  new: { kind: "info", text: "Neu" },
-  missing: { kind: "error", text: "Fehlt" },
-};
+/** The three comparisons of the switch above the list. */
+const AGAINST: readonly SegmentedOption<Against>[] = [
+  { value: "base", label: "Gegen Basis" },
+  { value: "head", label: "Gegen letzten Commit" },
+  { value: "saved", label: "Gegen gespeichert" },
+];
 
-/** Why the row's reset button is locked; null when it can be used. */
-function locked(entry: ChangedEntry): string | null {
-  if (entry.state !== "changed") return "Kein Original";
-  if (entry.target === null) return "Für diese Art gibt es kein Zurücksetzen.";
-  return null;
-}
 
 /** At most this many folders are named in „Noch nicht gebaut“; the others are counted. */
 const UNBUILT_NAMED = 5;
@@ -31,9 +30,26 @@ export function unbuiltText(folders: readonly string[]): string {
   return more > 0 ? `${named} und ${more} weitere` : named;
 }
 
-/** The line under „Änderungen“ in the list of Technik; `changes` null: no project. */
-export function changesSubtitle(changes: ChangesApi | null, status: OriginalStatus | null): string {
+/**
+ * The line under „Änderungen“ in the list of Technik, in the words of the comparison; `changes` null: no project. Against the last commit
+ * and the saved state the entities are counted (the status line counts paths).
+ */
+export function changesSubtitle(against: Against, changes: ChangesApi | null, status: OriginalStatus | null, git: GitStatus | null, unsaved: readonly ChangedEntry[] | null): string {
   if (changes === null) return "Kein Projekt geöffnet";
+  if (against === "head") {
+    if (git === null) return "Wird gelesen …";
+    if (git.repo.kind === "none") return "Kein Git";
+    if (git.head === null) return "Noch kein Commit";
+    const n = git.entries.length;
+    if (n === 0) return "Keine Änderung seit dem Commit";
+    return n === 1 ? "1 Änderung seit dem Commit" : `${n} Änderungen seit dem Commit`;
+  }
+  if (against === "saved") {
+    if (unsaved === null) return "Wird gelesen …";
+    const n = unsaved.length;
+    if (n === 0) return "Nichts ungespeichert";
+    return n === 1 ? "1 Eintrag ungespeichert" : `${n} Einträge ungespeichert`;
+  }
   if (status === null) return "Wird gelesen …";
   if (status.state === "unavailable") return "Basis-ROM fehlt";
   if (changes.busy) return "Vergleiche …";
@@ -52,6 +68,14 @@ function groupsOf(entries: readonly ChangedEntry[]): [string, ChangedEntry[]][] 
     else list.push(e);
   }
   return [...groups];
+}
+
+/** Whether two subjects name the same entity (the same in all three lists). */
+function sameSubject(a: DiffSubject, b: DiffSubject): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "file") return b.kind === "file" && a.path === b.path;
+  if (a.kind === "member") return b.kind === "member" && a.folder === b.folder && a.index === b.index;
+  return b.kind !== "file" && b.kind !== "member" && a.index === b.index;
 }
 
 /** The key of a row: its group and label (what `GroupList` keys its rows by). */
@@ -82,6 +106,8 @@ type KeepFocus = {
    * then, the same part of its neighbour (by the order of the rows now); else „Neu vergleichen“.
    */
   where: (key: string, part: Held["part"]) => () => HTMLElement | null;
+  /** Where focus goes when nothing of the list is left: „Neu vergleichen“, else the title. */
+  fallback: () => HTMLElement | null;
 };
 
 /**
@@ -157,7 +183,7 @@ function useKeepFocus(): KeepFocus {
     parked.current = null;
     if (mine) focus(resolve(surface, rows, was, lost.key, lost.part));
   });
-  return { ref, onFocus, where };
+  return { ref, onFocus, where, fallback: () => (ref.current === null ? null : fallbackOf(ref.current)) };
 }
 
 const sameAsset = (a: AssetId, b: AssetId) => a.kind === b.kind && a.index === b.index;
@@ -167,75 +193,209 @@ export type ChangesSurfaceProps = {
   changes: ChangesApi | null;
   /** The base ROM as resetting needs it; null while it is read. */
   status: OriginalStatus | null;
-  /** The store's assets with unsaved edits: their rows say „Ungespeichert“ (the list counts the saved state). */
+  /** The store's assets with unsaved edits: their rows say „Ungespeichert“ (the lists against the base and the commit count the saved state). */
   dirty: readonly AssetId[];
   onOpenProject: () => void;
+  /** What is compared against; the app keeps the choice for the session. */
+  against: Against;
+  onAgainst: (against: Against) => void;
+  /** The Git state of the project (the list against the last commit); null without a project. */
+  git: GitStatusApi | null;
+  /** The unsaved edits as entities (the list against the saved state); null while they are read. */
+  unsaved: readonly ChangedEntry[] | null;
+  /** Why the last read of the unsaved edits failed; null when it went through. */
+  unsavedError?: string | null;
+  /** Reads the unsaved edits again („Neu vergleichen“ after a failed read). */
+  onReloadUnsaved?: () => void;
+  /** „Git einrichten…“: the app's dialog. */
+  onGitSetup: () => void;
+  /** „Öffnen“ in the detail. */
+  goTo: (target: NavTarget) => void;
+  /** Moves whenever the compared state may differ: the detail reads its diff again. */
+  revision: number;
+  /**
+   * The chosen entity, when the app holds it (so it survives „Öffnen“ and the way back to Technik); without it the surface holds its own.
+   * It stays chosen in another comparison that lists it; one whose list lacks it forgets it (`onChoose(null)`).
+   */
+  chosen?: DiffSubject | null;
+  onChoose?: (subject: DiffSubject | null) => void;
 };
 
+/** What a comparison shows: the sentence under the title, the button beside it, what comes before the list, the list and its empty text. */
+type Shown = { lead?: string; action?: ReactNode; before?: ReactNode; entries: readonly ChangedEntry[] | null; empty: string };
+
+/** The sentence about the last commit: „Gegenüber dem letzten Commit 4c1d2e3 „…“ auf main.“, detached „(losgelöst)“, in a larger repository its folder first. */
+function headLead(git: GitStatus): string {
+  const head = git.head!;
+  const where = git.detached || git.branch === null ? " (losgelöst)" : ` auf ${git.branch}`;
+  const repo = git.repo.kind === "enclosing" ? `Repository ${git.repo.workdir}. ` : "";
+  return `${repo}Gegenüber dem letzten Commit ${head.short} „${head.summary}“${where}. Gezählt wird der gespeicherte Stand.`;
+}
+
 /**
- * Technik › Änderungen (4.1b): what of the saved project differs from the base ROM, one section per group, one row per entity with its
- * state and „Auf Original zurücksetzen…“ (the app's dialog, through `useReset`). Without a base ROM it names the reason and where the base
- * is assigned. The compare itself runs in `useChanges`; this surface only shows it and offers „Neu vergleichen“.
+ * Technik › Änderungen (4.1b, 4.4): what of the project differs from the base ROM, the last commit or the saved state (the switch above
+ * the list), one section per group, one row per entity with its state and „Auf Original zurücksetzen…“ (the app's dialog, through
+ * `useReset`); the chosen row's diff beside the list (below it on a narrow surface). Without a base ROM „Gegen Basis“ names the reason and
+ * where the base is assigned; without a repository „Gegen letzten Commit“ offers „Git einrichten…“. The compares run in the app's hooks;
+ * this surface only shows them.
  */
-export function ChangesSurface({ changes, status, dirty, onOpenProject }: ChangesSurfaceProps) {
-  const { where, ...keep } = useKeepFocus();
-  if (changes === null) {
+export function ChangesSurface(props: ChangesSurfaceProps) {
+  const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, goTo, revision } = props;
+  const { where, fallback, ...keep } = useKeepFocus();
+  // The chosen entity (by its subject, the same in every comparison): the app's when it holds it, else this surface's.
+  const [own, setOwn] = useState<DiffSubject | null>(null);
+  const chosen = props.chosen !== undefined ? props.chosen : own;
+  const choose = props.onChoose ?? setOwn;
+  const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
+  const entries = shown?.entries ?? null;
+  const entry = chosen === null ? null : (entries?.find((e) => sameSubject(e.subject, chosen)) ?? null);
+  // A list that is read and lacks the chosen entity forgets it (a list still read keeps it for when it comes).
+  const lost = chosen !== null && entries !== null && entry === null;
+  useEffect(() => {
+    if (lost) choose(null);
+  }, [lost, choose]);
+  if (changes === null || shown === null) {
     return (
       <Surface {...keep}>
         <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann zeigt Technik hier, was vom Original abweicht." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
       </Surface>
     );
   }
-  if (status === null) {
-    return (
-      <Surface {...keep}>
-        <p className={styles.note}>Wird gelesen …</p>
-      </Surface>
-    );
-  }
-  if (status.state === "unavailable") {
-    return (
-      <Surface {...keep}>
-        <Notice kind="warning">{status.reason}</Notice>
-        <p className={styles.text}>Die Basis-ROM ordnest du in Technik › Veröffentlichen zu.</p>
-      </Surface>
-    );
-  }
-  const { report, progress, error, busy } = changes;
+  const selected = entry === null ? null : rowKey(entry.group, entry.label);
   return (
     <Surface
       {...keep}
-      lead={`Gegenüber der Basis-ROM ${status.label}. Gezählt wird der gespeicherte Stand.`}
-      action={
-        <Button kind="secondary" data-compare-again="" aria-disabled={busy || undefined} onClick={() => !busy && void changes.compare()}>
-          Neu vergleichen
-        </Button>
+      lead={shown.lead}
+      action={shown.action}
+      toggle={
+        <div className={styles.toggle} data-against={against}>
+          <Segmented size="s" ariaLabel="Vergleichen mit" options={AGAINST} value={against} onChange={onAgainst} />
+        </div>
       }
     >
-      {busy && (
-        <div className={styles.progress}>
-          <p role="status" className={styles.text}>
-            {progress === null ? "Vergleiche …" : `Vergleiche ${progress.done} von ${progress.total} Dateien …`}
-          </p>
-          {report === null && <p className={styles.note}>Das erste Mal dauert länger; danach geht es schnell.</p>}
-        </div>
-      )}
-      {error !== null && <Notice kind="error">{error}</Notice>}
-      {report !== null && report.unbuilt.length > 0 && (
-        <Notice kind="info">Noch nicht gebaut: {unbuiltText(report.unbuilt)}. Nach dem nächsten Build geht der Vergleich schneller.</Notice>
-      )}
-      {report !== null &&
-        (report.entries.length === 0 ? (
-          <p className={styles.text}>Alles wie in der Basis-ROM.</p>
+      {shown.before}
+      {entries !== null &&
+        (entries.length === 0 ? (
+          <p className={styles.text}>{shown.empty}</p>
         ) : (
-          <ChangeGroups entries={report.entries} dirty={dirty} where={where} />
+          <div className={styles.split} data-changes-split="">
+            <div className={styles.columns}>
+              <ChangeGroups entries={entries} dirty={against === "saved" ? [] : dirty} against={against} status={status} where={where} selected={selected} onSelect={(key) => choose(entries.find((e) => rowKey(e.group, e.label) === key)?.subject ?? null)} />
+              <EntityDiff entry={entry} against={against} revision={revision} headId={git?.status?.head?.id ?? null} goTo={goTo} finalFocus={fallback} />
+            </div>
+          </div>
         ))}
     </Surface>
   );
 }
 
-/** The surface: the title „Änderungen“, below it `lead` and beside it `action`, then what it holds. */
-function Surface({ lead, action, children, ref, onFocus }: { lead?: string; action?: ReactNode; children: ReactNode; ref?: Ref<HTMLElement>; onFocus?: (e: FocusEvent<HTMLElement>) => void }) {
+/** „Gegen Basis“ (4.1b): the compare against the base ROM, its progress, and why it cannot run. */
+function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
+  const empty = "Alles wie in der Basis-ROM.";
+  if (status === null) return { before: <p className={styles.note}>Wird gelesen …</p>, entries: null, empty };
+  if (status.state === "unavailable") {
+    return {
+      before: (
+        <>
+          <Notice kind="warning">{status.reason}</Notice>
+          <p className={styles.text}>Die Basis-ROM ordnest du in Technik › Veröffentlichen zu.</p>
+        </>
+      ),
+      entries: null,
+      empty,
+    };
+  }
+  const { report, progress, error, busy } = changes;
+  return {
+    lead: `Gegenüber der Basis-ROM ${status.label}. Gezählt wird der gespeicherte Stand.`,
+    action: (
+      <Button kind="secondary" data-compare-again="" aria-disabled={busy || undefined} onClick={() => !busy && void changes.compare()}>
+        Neu vergleichen
+      </Button>
+    ),
+    before: (
+      <>
+        {busy && (
+          <div className={styles.progress}>
+            <p role="status" className={styles.text}>
+              {progress === null ? "Vergleiche …" : `Vergleiche ${progress.done} von ${progress.total} Dateien …`}
+            </p>
+            {report === null && <p className={styles.note}>Das erste Mal dauert länger; danach geht es schnell.</p>}
+          </div>
+        )}
+        {error !== null && <Notice kind="error">{error}</Notice>}
+        {report !== null && report.unbuilt.length > 0 && (
+          <Notice kind="info">Noch nicht gebaut: {unbuiltText(report.unbuilt)}. Nach dem nächsten Build geht der Vergleich schneller.</Notice>
+        )}
+      </>
+    ),
+    entries: report?.entries ?? null,
+    empty,
+  };
+}
+
+/** „Gegen letzten Commit“: the entries of the Git status; without a repository the offer to set one up, without a commit why nothing is compared. */
+function headShown(git: GitStatusApi | null, onGitSetup: () => void): Shown {
+  const empty = "Seit dem letzten Commit nichts geändert.";
+  const status = git?.status ?? null;
+  const failed = git?.error ?? null;
+  if (status === null) {
+    return { before: failed === null ? <p className={styles.note}>Wird gelesen …</p> : <Notice kind="error">{failed}</Notice>, entries: null, empty };
+  }
+  if (status.repo.kind === "none") {
+    return {
+      before: (
+        <>
+          <Notice kind="info">Dieses Projekt liegt in keinem Git-Repository.</Notice>
+          <p className={styles.text}>Git einrichten legt ein lokales Repository an; nur lokal oder privat, Gen4 Studio lädt nichts hoch.</p>
+          <div className={styles.offer} data-git-offer="">
+            <Button kind="secondary" onClick={onGitSetup}>
+              Git einrichten…
+            </Button>
+          </div>
+        </>
+      ),
+      entries: null,
+      empty,
+    };
+  }
+  if (status.head === null) return { before: <Notice kind="info">Noch kein Commit: es gibt nichts zu vergleichen.</Notice>, entries: null, empty };
+  return {
+    lead: headLead(status),
+    action: (
+      <Button kind="secondary" data-compare-again="" onClick={() => void git!.refresh()}>
+        Neu vergleichen
+      </Button>
+    ),
+    before: failed !== null && <Notice kind="error">{failed}</Notice>,
+    entries: status.entries,
+    empty,
+  };
+}
+
+/** „Gegen gespeichert“: the store's unsaved edits as entities; a failed read names its reason and offers to read again. */
+function savedShown(unsaved: readonly ChangedEntry[] | null, error: string | null, onReload: () => void): Shown {
+  const empty = "Nichts ungespeichert.";
+  const lead = "Was ungespeichert vom gespeicherten Stand abweicht.";
+  if (error !== null) {
+    return {
+      lead,
+      action: (
+        <Button kind="secondary" data-compare-again="" onClick={onReload}>
+          Neu vergleichen
+        </Button>
+      ),
+      before: <Notice kind="error">{error}</Notice>,
+      entries: unsaved,
+      empty,
+    };
+  }
+  if (unsaved === null) return { before: <p className={styles.note}>Wird gelesen …</p>, entries: null, empty };
+  return { lead, entries: unsaved, empty };
+}
+
+/** The surface: the title „Änderungen“, below it `lead` and beside it `action`, then the switch of the comparison and what it holds. */
+function Surface({ lead, action, toggle, children, ref, onFocus }: { lead?: string; action?: ReactNode; toggle?: ReactNode; children: ReactNode; ref?: Ref<HTMLElement>; onFocus?: (e: FocusEvent<HTMLElement>) => void }) {
   const id = useId();
   return (
     <section ref={ref} onFocus={onFocus} className={styles.surface} data-technik="aenderungen" aria-labelledby={id}>
@@ -249,15 +409,25 @@ function Surface({ lead, action, children, ref, onFocus }: { lead?: string; acti
         </div>
         {action}
       </header>
+      {toggle}
       {children}
     </section>
   );
 }
 
-/** The groups of the report, each a section (open until folded) holding a list of its rows. */
-function ChangeGroups({ entries, dirty, where }: { entries: readonly ChangedEntry[]; dirty: readonly AssetId[]; where: KeepFocus["where"] }) {
+type GroupsProps = {
+  entries: readonly ChangedEntry[];
+  dirty: readonly AssetId[];
+  against: Against;
+  status: OriginalStatus | null;
+  where: KeepFocus["where"];
+  selected: string | null;
+  onSelect: (key: string) => void;
+};
+
+/** The groups of the list, each a section (open until folded) holding a list of its rows. */
+function ChangeGroups({ entries, dirty, against, status, where, selected, onSelect }: GroupsProps) {
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
-  const [selected, setSelected] = useState<string | null>(null);
   const toggle = (group: string) =>
     setFolded((before) => {
       const next = new Set(before);
@@ -269,7 +439,7 @@ function ChangeGroups({ entries, dirty, where }: { entries: readonly ChangedEntr
       {groupsOf(entries).map(([group, list]) => (
         <div key={group} data-changes-group={group}>
           <Section title={group} count={list.length} open={!folded.has(group)} onToggle={() => toggle(group)}>
-            <GroupList group={group} entries={list} dirty={dirty} where={where} selected={selected} onSelect={setSelected} />
+            <GroupList group={group} entries={list} dirty={dirty} against={against} status={status} where={where} selected={selected} onSelect={onSelect} />
           </Section>
         </div>
       ))}
@@ -277,7 +447,7 @@ function ChangeGroups({ entries, dirty, where }: { entries: readonly ChangedEntr
   );
 }
 
-function GroupList({ group, entries, dirty, where, selected, onSelect }: { group: string; entries: readonly ChangedEntry[]; dirty: readonly AssetId[]; where: KeepFocus["where"]; selected: string | null; onSelect: (key: string) => void }) {
+function GroupList({ group, entries, dirty, against, status, where, selected, onSelect }: Omit<GroupsProps, "entries"> & { group: string; entries: readonly ChangedEntry[] }) {
   const { open } = useReset();
   const list = useRef<HTMLDivElement>(null);
   const noteBase = useId();
@@ -286,9 +456,9 @@ function GroupList({ group, entries, dirty, where, selected, onSelect }: { group
     <div ref={list} role="listbox" aria-label={group} className={styles.list}>
       {entries.map((entry) => {
         const key = rowKey(group, entry.label);
-        const badge = STATE_BADGE[entry.state];
+        const badge = stateBadge(against, entry.state);
         const unsaved = entry.assets.some((a) => dirty.some((d) => sameAsset(a, d)));
-        const why = locked(entry);
+        const why = rowResetLock(entry, status);
         const target = entry.target;
         const noteId = `${noteBase}${entries.indexOf(entry)}`;
         // A locked button stays focusable (aria-disabled): the reason is its description and the tooltip, which keyboard focus opens too.

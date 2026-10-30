@@ -11,7 +11,7 @@
 //! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“.
 
 mod base_hashes;
-mod changed;
+pub(crate) mod changed;
 mod preview;
 
 pub use base_hashes::{BASE_HASHES_VERSION, BaseHashes, base_hashes};

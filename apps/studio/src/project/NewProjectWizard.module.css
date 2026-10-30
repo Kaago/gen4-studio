@@ -147,3 +147,11 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
 }
+
+/* The result: what was made, then a warning about Git when its first commit is missing. */
+.result {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}

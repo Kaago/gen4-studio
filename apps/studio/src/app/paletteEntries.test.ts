@@ -280,4 +280,16 @@ describe("paletteEntries", () => {
       run: { kind: "command", command: "previewFromMap" },
     });
   });
+
+  it("git_setup_only_without_a_repo", () => {
+    // A project in no repository: „Git einrichten…“ is offered (a status read; a busy session locks it like saving).
+    const setup = byId("cmd-gitSetup", { commands: { ...commands, gitSetup: true } });
+    expect(setup).toMatchObject({ label: "Git einrichten…", icon: "git", group: "Befehle", disabled: false, run: { kind: "command", command: "gitSetup" } });
+    expect(setup?.description).toBeUndefined();
+    expect(byId("cmd-gitSetup", { commands: { ...commands, gitSetup: true, busy: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
+    // In a repository (own or enclosing), before the status is read, or without a project: not there at all.
+    expect(byId("cmd-gitSetup", { commands: { ...commands, gitSetup: false } })).toBeUndefined();
+    expect(byId("cmd-gitSetup")).toBeUndefined();
+    expect(byId("cmd-gitSetup", { hasProject: false, commands: { ...commands, gitSetup: true } })).toBeUndefined();
+  });
 });

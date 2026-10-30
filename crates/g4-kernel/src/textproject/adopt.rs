@@ -18,6 +18,7 @@ use crate::build::state::BuildState;
 use crate::checks::{IGNORE_FILE, IgnoreSet};
 use crate::error::{KernelError, io_at};
 use crate::fsutil::{Journal, write_atomic};
+use crate::git::templates::{BLOCK_START, TemplateReport, write_templates};
 use crate::project::{AssetKind, Project};
 use crate::scripts;
 use crate::text::record_text_sync;
@@ -64,6 +65,10 @@ pub struct AdoptReport {
     pub export: ExportReport,
     pub include_written: bool,
     pub sync_files: u32,
+    /// The Git templates written anew for the text project (see [`rewrite_git_templates`]).
+    pub templates: Option<TemplateReport>,
+    /// Why they could not be (the set-up went in all the same).
+    pub templates_warning: Option<String>,
     pub ms: u64,
 }
 
@@ -73,6 +78,10 @@ pub struct AdoptReport {
 pub struct RevertReport {
     pub backup: PathBuf,
     pub rewritten: Vec<PathBuf>,
+    /// The Git templates written anew for the DSPRE folder (see [`rewrite_git_templates`]).
+    pub templates: Option<TemplateReport>,
+    /// Why they could not be (the take-back went in all the same).
+    pub templates_warning: Option<String>,
     pub ms: u64,
 }
 
@@ -166,10 +175,13 @@ pub(crate) fn adopt_as(
         record_text_sync(project, &archives)?;
     }
     report(AdoptPhase::Sync, last.1, last.1);
+    let (templates, templates_warning) = rewrite_git_templates(&project.root);
     Ok(AdoptReport {
         export,
         include_written,
         sync_files,
+        templates,
+        templates_warning,
         ms: ms_since(start),
     })
 }
@@ -214,11 +226,39 @@ pub fn revert(project: &Project) -> Result<RevertReport, KernelError> {
         std::fs::rename(&from, &to).map_err(io_at(&from))?;
     }
     BuildState::update(root, |state| state.sync = None)?;
+    let (templates, templates_warning) = rewrite_git_templates(root);
     Ok(RevertReport {
         backup,
         rewritten,
+        templates,
+        templates_warning,
         ms: ms_since(start),
     })
+}
+
+/// After the layout changed (set up as text project, taken back): the Git templates of the
+/// project at `root` written anew ([`write_templates`], the project opened again so its new
+/// layout counts), when its `.gitignore` holds the block of Gen4 Studio, so the block follows
+/// the layout (a text project versions no game files; a DSPRE folder versions them again). A
+/// project without the block (it never set up Git) gets none: `(None, None)`. A failure is
+/// only the sentence of the second value; the set-up or take-back stands.
+fn rewrite_git_templates(root: &Path) -> (Option<TemplateReport>, Option<String>) {
+    let Ok(ignore) = std::fs::read_to_string(root.join(".gitignore")) else {
+        return (None, None);
+    };
+    if !ignore
+        .lines()
+        .any(|line| line.trim_end_matches('\r') == BLOCK_START)
+    {
+        return (None, None);
+    }
+    match Project::open(root).and_then(|project| write_templates(&project)) {
+        Ok(report) => (Some(report), None),
+        Err(e) => (
+            None,
+            Some(format!("Die Git-Vorlagen ließen sich nicht umstellen: {e}")),
+        ),
+    }
 }
 
 /// Most uses [`ids_in_scripts`] names.
@@ -496,6 +536,62 @@ mod tests {
         adopted(&fx);
         assert!(fx.text("data/moves/0002.json").contains("\"power\": 99"));
         assert_eq!(fx.read("unpacked/moveData/0002")[3], 99);
+    }
+
+    /// A DSPRE folder that set up Git gets the text block after the set-up and the DSPRE
+    /// block again after the take-back (the user's lines stay); a folder that never set up
+    /// Git gets no templates; a broken block is a warning, never a failed set-up.
+    #[test]
+    fn adopt_and_revert_rewrite_the_git_templates_where_the_block_is() {
+        use crate::git::templates::{
+            BLOCK_START, BROKEN_BLOCK, Layout, TemplateAction, gitignore_block, write_templates,
+        };
+
+        let fx = TextFixture::dspre();
+        let (report, _) = adopted(&fx);
+        assert_eq!((report.templates, report.templates_warning), (None, None));
+        let back = revert(&fx.project()).unwrap();
+        assert_eq!((back.templates, back.templates_warning), (None, None));
+        assert!(!fx.root().join(".gitignore").exists());
+
+        let fx = TextFixture::dspre();
+        let ignore = fx.root().join(".gitignore");
+        std::fs::write(&ignore, "eigene/\n").unwrap();
+        write_templates(&fx.project()).unwrap();
+        let (report, _) = adopted(&fx);
+        let templates = report.templates.expect("templates rewritten");
+        assert_eq!(report.templates_warning, None);
+        assert_eq!(templates.layout, Layout::TextProject);
+        assert_eq!(templates.files[0].action, TemplateAction::Updated);
+        let text = std::fs::read_to_string(&ignore).unwrap();
+        assert!(text.starts_with("eigene/\n"), "{text}");
+        assert!(
+            text.ends_with(&gitignore_block(&fx.project()).unwrap()),
+            "{text}"
+        );
+
+        let back = revert(&fx.project()).unwrap();
+        let templates = back.templates.expect("templates rewritten");
+        assert_eq!(templates.layout, Layout::Dspre);
+        assert_eq!(templates.files[0].action, TemplateAction::Updated);
+        let text = std::fs::read_to_string(&ignore).unwrap();
+        assert!(
+            text.ends_with(&gitignore_block(&fx.project()).unwrap()),
+            "{text}"
+        );
+
+        // A block without its end: the set-up goes in, the reason is the warning.
+        let fx = TextFixture::dspre();
+        std::fs::write(fx.root().join(".gitignore"), format!("{BLOCK_START}\nx\n")).unwrap();
+        let (report, _) = adopted(&fx);
+        assert_eq!(report.templates, None);
+        let warning = report.templates_warning.expect("a warning");
+        assert!(
+            warning.starts_with("Die Git-Vorlagen ließen sich nicht umstellen: .gitignore: ")
+                && warning.contains(BROKEN_BLOCK),
+            "{warning}"
+        );
+        assert!(crate::textproject::is_text_project(fx.root()));
     }
 
     #[test]

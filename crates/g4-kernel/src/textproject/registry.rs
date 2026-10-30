@@ -252,6 +252,9 @@ fn duplicate_keys(rel: &Path, bytes: &[u8]) -> Vec<Problem> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbols {
     registries: HashMap<SymbolKind, Registry>,
+    /// Whether a number without a register entry has its fallback id
+    /// ([`Symbols::with_fallbacks`]).
+    fallbacks: bool,
 }
 
 impl Symbols {
@@ -270,10 +273,21 @@ impl Symbols {
             }
         }
         if problems.is_empty() {
-            Ok(Symbols { registries })
+            Ok(Symbols {
+                registries,
+                fallbacks: false,
+            })
         } else {
             Err(KernelError::Compile(problems))
         }
+    }
+
+    /// These symbols with the fallback id (`TRAINER_0001`) for every number of a register kind
+    /// that has no entry, so nothing needs a baptism: the ids of a DSPRE folder for the diff,
+    /// which never christens ([`crate::diff`]).
+    pub(crate) fn with_fallbacks(mut self) -> Symbols {
+        self.fallbacks = true;
+        self
     }
 
     /// The register of `kind`, to baptize. A kind with a fixed table has none: its register
@@ -290,7 +304,8 @@ impl Symbols {
     }
 
     /// The id of number `n` of `kind` from its table or register; `None` without an entry
-    /// (the caller writes the number then).
+    /// (the caller writes the number then), unless the symbols have fallbacks
+    /// ([`Symbols::with_fallbacks`]): then a register kind answers the fallback id.
     pub fn id(&self, kind: SymbolKind, n: u32) -> Option<String> {
         match table(kind) {
             Some(table) => table.id(n).map(str::to_owned),
@@ -298,7 +313,8 @@ impl Symbols {
                 .registries
                 .get(&kind)
                 .and_then(|r| r.id_of(n))
-                .map(str::to_owned),
+                .map(str::to_owned)
+                .or_else(|| self.fallbacks.then(|| fallback_id(kind, n))),
         }
     }
 

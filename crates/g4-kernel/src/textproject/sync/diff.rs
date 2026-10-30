@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::diff::json::walk;
 use crate::error::KernelError;
 use crate::project::{AssetId, Project};
 use crate::scripts;
@@ -215,7 +216,8 @@ fn shown(value: Option<&Value>) -> String {
 }
 
 /// The differing values of `studio` and `dspre` below `path`: objects by key (the Studio's
-/// order, then DSPRE's further keys), arrays by index, anything else as a whole.
+/// order, then DSPRE's further keys), arrays by index, anything else as a whole (the walker of
+/// [`crate::diff::json`], a value only one side has as one line).
 fn values(
     out: &mut Lines,
     prefix: &str,
@@ -223,30 +225,9 @@ fn values(
     studio: Option<&Value>,
     dspre: Option<&Value>,
 ) {
-    match (studio, dspre) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => {
-            let child = |k: &str| {
-                if path.is_empty() {
-                    k.to_owned()
-                } else {
-                    format!("{path}.{k}")
-                }
-            };
-            for (k, va) in a {
-                values(out, prefix, &child(k), Some(va), b.get(k));
-            }
-            for (k, vb) in b.iter().filter(|(k, _)| !a.contains_key(*k)) {
-                values(out, prefix, &child(k), None, Some(vb));
-            }
-        }
-        (Some(Value::Array(a)), Some(Value::Array(b))) => {
-            for i in 0..a.len().max(b.len()) {
-                values(out, prefix, &format!("{path}[{i}]"), a.get(i), b.get(i));
-            }
-        }
-        (a, b) if a == b => {}
-        (a, b) => out.push(at(prefix, path), shown(a), shown(b)),
-    }
+    walk(path, studio, dspre, false, &mut |path, a, b| {
+        out.push(at(prefix, path), shown(a), shown(b));
+    });
 }
 
 /// Size and xxh3 of both sides of a binary file, when they differ.

@@ -49,7 +49,9 @@ pub fn project_info_of(state: &AppState, project: &Project) -> Result<ProjectInf
 /// reports name the file, and it is never written until it reads again (see
 /// `commands::checks`). A text project of a newer schema or with a manifest that does not
 /// read is not opened (its sentence, `Project::editable`); one of an older schema opens to be
-/// lifted (`text_project` says `older`, the store refuses every edit until then).
+/// lifted (`text_project` says `older`, the store refuses every edit until then). A text
+/// project without its game files (a fresh Git clone) is `restore_needed`
+/// (`restore_text_project` completes it).
 pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, CmdError> {
     let (session, info) = new_session(state, path)?;
     // Under the agents' turn: an agent call admitted for the old project never runs on the
@@ -84,6 +86,10 @@ pub(crate) fn new_session(
     state: &AppState,
     path: &str,
 ) -> Result<(Session, ProjectInfo), CmdError> {
+    // A cloned text project lacks its game files: the app offers to complete it first.
+    if let Some(refusal) = super::git::restore_needed(Path::new(path)) {
+        return Err(refusal);
+    }
     let project = Project::open(path).map_err(CmdError::from)?;
     if matches!(
         project.source_mode(),

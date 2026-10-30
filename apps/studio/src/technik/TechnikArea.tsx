@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { AssetId, BuildStep, HeaderPatchDto } from "../api";
+import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
 import type { ChecksApi } from "../checks/useChecks";
+import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
 import { useProjectPreview } from "../project/useProjectPreview";
 import type { ProjectPreviewState } from "../project/useProjectPreview";
@@ -90,6 +91,24 @@ export type TechnikAreaProps = {
   dirty: readonly AssetId[];
   /** The project as text project and its sync with DSPRE (Textprojekt), held by the app; null without a project. */
   textProject: TextProjectView | null;
+  /** What Änderungen compares against; the app keeps the choice for the session. */
+  against: Against;
+  onAgainst: (against: Against) => void;
+  /** The Git state of the project (Änderungen against the last commit), held by the app; null without a project. */
+  git: GitStatusApi | null;
+  /** The unsaved edits as entities (Änderungen against the saved state); null while they are read. */
+  unsaved: readonly ChangedEntry[] | null;
+  /** Why the last read of the unsaved edits failed; null when it went through. */
+  unsavedError?: string | null;
+  /** Reads the unsaved edits again (after a failed read). */
+  onReloadUnsaved?: () => void;
+  /** „Git einrichten…“ (Änderungen against the last commit without a repository): the app's dialog. */
+  onGitSetup: () => void;
+  /** Moves whenever the compared state may differ (a save, a reset, an edit): the detail of Änderungen reads its diff again. */
+  revision: number;
+  /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
+  changesChosen?: DiffSubject | null;
+  onChangesChosen?: (subject: DiffSubject | null) => void;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -174,7 +193,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
     textprojekt: textProjectSubtitle(props.textProject),
     bauen: lastBuiltAt === null ? "Noch nicht gebaut" : `gebaut ${ago(lastBuiltAt, now)}`,
     veroeffentlichen: publishSubtitle(props.base),
-    aenderungen: changesSubtitle(props.changes, original),
+    aenderungen: changesSubtitle(props.against, props.changes, original, props.git?.status ?? null, props.unsaved),
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
@@ -197,7 +216,23 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       ) : entry === "veroeffentlichen" ? (
         <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
       ) : entry === "aenderungen" ? (
-        <ChangesSurface changes={props.changes} status={original} dirty={props.dirty} onOpenProject={props.onOpenProject} />
+        <ChangesSurface
+          changes={props.changes}
+          status={original}
+          dirty={props.dirty}
+          onOpenProject={props.onOpenProject}
+          against={props.against}
+          onAgainst={props.onAgainst}
+          git={props.git}
+          unsaved={props.unsaved}
+          unsavedError={props.unsavedError}
+          onReloadUnsaved={props.onReloadUnsaved}
+          onGitSetup={props.onGitSetup}
+          goTo={props.goTo}
+          revision={props.revision}
+          chosen={props.changesChosen}
+          onChoose={props.onChangesChosen}
+        />
       ) : entry === "patches" ? (
         <PatchSurface patch={patch} onOpenProject={props.onOpenProject} />
       ) : entry === "emulator" ? (

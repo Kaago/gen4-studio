@@ -20,6 +20,7 @@ use crate::build::fingerprint::{self, Fp};
 use crate::build::pack_entries;
 use crate::build::state::BuildState;
 use crate::build::step::key;
+use crate::diff::DiffSubject;
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
@@ -54,8 +55,33 @@ pub struct ChangedEntry {
     /// The store assets of the entry, so the app can mark the unsaved ones.
     pub assets: Vec<AssetId>,
     /// The folder below `unpacked/` (of a trainer its properties, of a Pokémon its personal
-    /// data); `None` for a header.
+    /// data); `None` for a header and a project file.
     pub folder: Option<String>,
+    /// The entity, as the diff names it ([`crate::diff::diff_entity`]).
+    pub subject: DiffSubject,
+}
+
+impl ChangedEntry {
+    /// The entry of `subject` in the lists against the last commit and the saved state: its
+    /// group and label ([`DiffSubject::group`], [`DiffSubject::label`]), its reset target only
+    /// when it is `Changed`, its store assets and its folder.
+    pub(crate) fn of_subject(
+        project: &Project,
+        subject: DiffSubject,
+        state: ChangeState,
+    ) -> ChangedEntry {
+        ChangedEntry {
+            group: subject.group(),
+            label: subject.label(),
+            state,
+            target: subject
+                .reset_target()
+                .filter(|_| state == ChangeState::Changed),
+            assets: subject.assets(project),
+            folder: subject.folder(project),
+            subject,
+        }
+    }
 }
 
 /// The result of [`changed_from_original`].
@@ -87,7 +113,7 @@ pub struct ChangedProgress {
 const PROGRESS_EVERY: u32 = 256;
 
 /// The groups of the list, in order; folders of no group follow under their own name.
-const GROUPS: [&str; 16] = [
+pub(crate) const GROUPS: [&str; 16] = [
     "Karten",
     "Eventdateien",
     "Textarchive",
@@ -105,10 +131,10 @@ const GROUPS: [&str; 16] = [
     "Attacken",
     "Items",
 ];
-const HEADER_GROUP: usize = 6;
+pub(crate) const HEADER_GROUP: usize = 6;
 
 /// The group (index into [`GROUPS`]) of the archive of `kind`; `None`: no group of its own.
-fn group_of(kind: AssetKind) -> Option<usize> {
+pub(crate) fn group_of(kind: AssetKind) -> Option<usize> {
     Some(match kind {
         AssetKind::Map => 0,
         AssetKind::Event => 1,
@@ -364,7 +390,7 @@ pub fn changed_from_original(
         })?;
     }
 
-    let mut listed = entities(&folders, &base.archives);
+    let mut listed = entities(project, &folders, &base.archives);
     headers(project, original, &mut listed)?;
     Ok(ChangedReport {
         entries: listed.into_values().collect(),
@@ -379,6 +405,7 @@ pub fn changed_from_original(
 /// The entries of the folders, keyed by group order and index: a folder's members against
 /// the base's, the parts of a trainer and of a Pokémon joined into one entity.
 fn entities(
+    project: &Project,
     folders: &[Folder],
     base: &BTreeMap<String, Vec<String>>,
 ) -> BTreeMap<(usize, u16), ChangedEntry> {
@@ -454,6 +481,15 @@ fn entities(
             // Only what the base has in every part can be reset.
             let target =
                 target.filter(|_| state == ChangeState::Changed && parts.iter().all(|p| p.base));
+            // A member of a kind without a subject of its own (or an item member no item id
+            // names) is a member of its folder.
+            let subject = entity
+                .kind
+                .and_then(|kind| DiffSubject::from_asset(project, AssetId { kind, index: n }))
+                .unwrap_or_else(|| DiffSubject::Member {
+                    folder: entity.folder.clone(),
+                    index: n,
+                });
             Some((
                 (order, n),
                 ChangedEntry {
@@ -463,6 +499,7 @@ fn entities(
                     target,
                     assets,
                     folder: Some(entity.folder),
+                    subject,
                 },
             ))
         })
@@ -496,6 +533,7 @@ fn headers(
                 target: (state == ChangeState::Changed).then_some(target),
                 assets: vec![HEADER_TABLE],
                 folder: None,
+                subject: DiffSubject::Header { index: id },
             },
         );
     }
@@ -679,6 +717,7 @@ mod tests {
                 target: Some(ResetTarget::Map { index: 1 }),
                 assets: vec![id(AssetKind::Map, 1)],
                 folder: Some(fx.folder(AssetKind::Map)),
+                subject: DiffSubject::Map { index: 1 },
             }]
         );
     }
@@ -699,6 +738,7 @@ mod tests {
                 target: Some(ResetTarget::Trainer { index: 2 }),
                 assets: vec![id(AssetKind::Trainer, 2)],
                 folder: Some(fx.folder(AssetKind::TrainerProperties)),
+                subject: DiffSubject::Trainer { index: 2 },
             }]
         );
     }
@@ -725,6 +765,7 @@ mod tests {
                 target: Some(target),
                 assets: target.assets(),
                 folder: Some(fx.folder(AssetKind::Personal)),
+                subject: DiffSubject::Species { index: 1 },
             }]
         );
     }
@@ -743,6 +784,7 @@ mod tests {
                 target: None,
                 assets: vec![id(AssetKind::Map, 3)],
                 folder: Some(fx.folder(AssetKind::Map)),
+                subject: DiffSubject::Map { index: 3 },
             }]
         );
     }
@@ -761,6 +803,7 @@ mod tests {
                 target: None,
                 assets: vec![id(AssetKind::Map, 2)],
                 folder: Some(fx.folder(AssetKind::Map)),
+                subject: DiffSubject::Map { index: 2 },
             }]
         );
     }
@@ -788,7 +831,35 @@ mod tests {
                 target: Some(ResetTarget::Header { id: 1 }),
                 assets: vec![HEADER_TABLE],
                 folder: None,
+                subject: DiffSubject::Header { index: 1 },
             }]
+        );
+    }
+
+    #[test]
+    fn the_base_list_carries_a_subject_per_entry() {
+        let kinds = [
+            AssetKind::Map,
+            AssetKind::TrainerProperties,
+            AssetKind::TrainerParty,
+        ];
+        let fx = fixture(&kinds);
+        fx.record_builds(&kinds);
+        flip(&fx.member(AssetKind::Map, 1));
+        flip(&fx.member(AssetKind::TrainerParty, 2));
+        // A folder the Studio has no kind for: a pack entry of `archives.yaml` only.
+        let (_, folder) = fx.project.archives.pack_only()[0].clone();
+        let dir = fx.root().join("unpacked").join(&folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("0000"), [1, 2, 3]).unwrap();
+        let subjects: Vec<_> = fx.run().entries.into_iter().map(|e| e.subject).collect();
+        assert_eq!(
+            subjects,
+            [
+                DiffSubject::Map { index: 1 },
+                DiffSubject::Trainer { index: 2 },
+                DiffSubject::Member { folder, index: 0 },
+            ]
         );
     }
 
@@ -806,6 +877,7 @@ mod tests {
                 target: None,
                 assets: vec![id(AssetKind::Matrix, 0)],
                 folder: Some(fx.folder(AssetKind::Matrix)),
+                subject: DiffSubject::Matrix { index: 0 },
             }]
         );
     }
@@ -829,6 +901,7 @@ mod tests {
                 target: None,
                 assets: vec![id(AssetKind::Move, 1)],
                 folder: Some(fx.folder(AssetKind::Move)),
+                subject: DiffSubject::Move { index: 1 },
             }]
         );
         assert_eq!(report.hashed, 0, "members in memory are no files hashed");
@@ -853,6 +926,10 @@ mod tests {
                 target: None,
                 assets: vec![id(AssetKind::DynamicHeaders, 0)],
                 folder: Some(name.clone()),
+                subject: DiffSubject::Member {
+                    folder: name.clone(),
+                    index: 0
+                },
             }]
         );
         // Patched: the folder holds the header table, equal to the base's through the codec.

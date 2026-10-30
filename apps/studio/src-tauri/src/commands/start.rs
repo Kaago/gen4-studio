@@ -38,6 +38,9 @@ pub struct CreatedDto {
     pub template: Template,
     pub sha1: String,
     pub phases: Vec<PhaseTimeDto>,
+    /// „Git einrichten“, with `git`: committed, or why not (no `git` installed: only the
+    /// templates are written); `None` without `git`.
+    pub git: Option<g4_kernel::git::InitReport>,
 }
 
 pub fn inspect_rom_impl(path: &str) -> Result<RomInfo, CmdError> {
@@ -61,7 +64,8 @@ pub fn check_project_dest_impl(dest: &str, rom_size: u64) -> DestCheck {
 }
 
 /// Creates the project (with `text_project` set up as text project after the check, phase
-/// `text_project`), then remembers its ROM as a base ROM (`base-roms.json`); a ROM that
+/// `text_project`; with `git` then set up as a local Git repository, phase `git`, see
+/// [`CreatedDto::git`]), then remembers its ROM as a base ROM (`base-roms.json`); a ROM that
 /// cannot be remembered does not fail the project, it is searched for again later.
 pub fn create_project_impl(
     state: &AppState,
@@ -69,11 +73,13 @@ pub fn create_project_impl(
     dest: &str,
     template: Template,
     text_project: bool,
+    git: bool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<CreatedDto, CmdError> {
     let opts = CreateOptions {
         template,
         text_project,
+        git,
     };
     let created =
         start::create_project_with_options(Path::new(rom), Path::new(dest), &opts, progress)?;
@@ -93,6 +99,7 @@ pub fn create_project_impl(
                 ms: u64::try_from(ms).unwrap_or(u64::MAX),
             })
             .collect(),
+        git: created.git,
     })
 }
 
@@ -115,7 +122,8 @@ pub fn check_project_dest(dest: String, rom_size: u64) -> DestCheck {
 }
 
 /// Unpacks a ROM (seconds; set up as text project with `text_project`, default off, 10 to
-/// 120 s more) on a blocking worker and reports each phase over `progress`.
+/// 120 s more; set up for Git with `git`, default off, about 10 s more) on a blocking worker
+/// and reports each phase over `progress`.
 #[tauri::command]
 pub async fn create_project(
     app: tauri::AppHandle,
@@ -123,6 +131,7 @@ pub async fn create_project(
     dest: String,
     template: Template,
     text_project: Option<bool>,
+    git: Option<bool>,
     progress: Channel<Progress>,
 ) -> Result<CreatedDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -133,6 +142,7 @@ pub async fn create_project(
             &dest,
             template,
             text_project,
+            git.unwrap_or(false),
             &mut |p| {
                 // A closed channel only means nobody watches the progress any more.
                 let _ = progress.send(p);
@@ -186,6 +196,7 @@ mod tests {
             dest.to_str().unwrap(),
             Template::Original,
             false,
+            false,
             &mut |_| {},
         )
         .unwrap_err();
@@ -204,6 +215,7 @@ mod tests {
             tmp.path().join("neu").to_str().unwrap(),
             Template::DataOnly,
             true,
+            false,
             &mut |_| {},
         )
         .unwrap_err();

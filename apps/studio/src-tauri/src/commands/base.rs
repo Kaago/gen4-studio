@@ -184,12 +184,23 @@ pub fn assign_base_impl(state: &AppState, nds: &str) -> Result<BaseStatusDto, Cm
 /// stays as it was.
 pub fn register_base_rom_impl(state: &AppState, path: &str) -> Result<BaseStatusDto, CmdError> {
     let project = super::open_project_arc(state)?;
-    let mark = match start::mark_state(&project.root) {
+    register_base_rom_at(state, &project.root, Path::new(path))?;
+    Ok(base_of(state, &project.root).dto(&project))
+}
+
+/// Remembers the ROM at `path` as the base ROM of the project (or project folder) at `root`,
+/// as [`register_base_rom_impl`] does: only with the SHA-1 of its mark, never an original.
+/// Also for a folder that does not open yet (a cloned text project before it is completed).
+pub(crate) fn register_base_rom_at(
+    state: &AppState,
+    root: &Path,
+    path: &Path,
+) -> Result<(), CmdError> {
+    let mark = match start::mark_state(root) {
         MarkState::Present(mark) => mark,
         MarkState::Missing => return Err(NO_MARK.into()),
         other => return Err(other.refusal().unwrap_or_default().into()),
     };
-    let path = Path::new(path);
     if state.base_roms.is_original(path) {
         return Err(format!(
             "Originale sind gesperrt, nur Kopien unter _testkopien: {}",
@@ -202,7 +213,7 @@ pub fn register_base_rom_impl(state: &AppState, path: &str) -> Result<BaseStatus
         return Err(other_rom(&info.sha1, &mark).into());
     }
     state.base_roms.register(path, &info)?;
-    Ok(base_of(state, &project.root).dto(&project))
+    Ok(())
 }
 
 /// Builds the open project to `build/<Name>.nds` (as `build_rom`) and writes the patch

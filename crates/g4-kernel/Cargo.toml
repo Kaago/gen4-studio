@@ -28,6 +28,9 @@ png = "0.18"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 sha1 = "0.10"
 serde_path_to_error = "0.1"
+# Reads the repository (discover, HEAD, status, blobs at HEAD) in process, pure Rust, no git2
+# (decision of phase 4: gix to read, the git CLI to write).
+gix = { version = "0.90", default-features = false, features = ["sha1", "status", "index", "revision", "blob-diff"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

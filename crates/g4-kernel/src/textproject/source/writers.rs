@@ -49,6 +49,15 @@ impl BasePart for SaveBase<'_> {
     }
 }
 
+/// No base: every part exports as a side file or hex (the headers have none).
+struct NoBase;
+
+impl BasePart for NoBase {
+    fn base_bytes(&self, _: PartKey) -> Result<Option<Vec<u8>>, KernelError> {
+        Ok(None)
+    }
+}
+
 /// Writes `files` (name → bytes) into folder `dir` (relative), each only when it changes, and
 /// deletes the other files of the entities `stems` there (old side files); every path written
 /// or deleted lands in `out.sources`. With `dry` the files only land there.
@@ -87,6 +96,10 @@ impl EntitySource {
     /// Christens the ids of every entity without one (as the full export does) and writes the
     /// registers that change.
     fn christen(&mut self, project: &Project, out: &mut SourceWrite) -> Result<(), KernelError> {
+        if self.for_diff {
+            // The diff's symbols answer a fallback id for every number.
+            return Ok(());
+        }
         baptize_named(project, &mut self.symbols, &self.trainer_names)?;
         if self.dry.is_some() {
             return Ok(());
@@ -375,6 +388,29 @@ impl EntitySource {
             }
         }
         Ok(())
+    }
+
+    /// The canonical JSON of header `index` from its 24 bytes and its `mapname.bin` record,
+    /// as the header files are written (the ids of this source's symbols); writes nothing.
+    pub(crate) fn export_header(
+        &mut self,
+        index: u16,
+        header: &[u8],
+        name: &[u8],
+    ) -> Result<Vec<u8>, KernelError> {
+        let mut ctx = ExportCtx {
+            family: self.family,
+            symbols: &mut self.symbols,
+            base: &NoBase,
+            side: Vec::new(),
+        };
+        let parts = [Some(header.to_vec()), Some(name.to_vec())];
+        let files = entity_files(Art::Headers, u32::from(index), &parts, &mut ctx)?;
+        files
+            .into_iter()
+            .next()
+            .map(|(_, json)| json)
+            .ok_or_else(|| KernelError::InvalidProject(format!("Header {index:04}: keine JSON")))
     }
 
     /// Writes `data/<art>/NNNN.<ext>` of a binary member where it differs from the base

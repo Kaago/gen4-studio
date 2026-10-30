@@ -51,16 +51,19 @@ use super::step::forget_kept;
 
 use super::include::write_include;
 use units::{
-    Given, Place, asset_of_member, binary_rel, collect_base_sha1, disk_bytes, disk_member,
-    entity_sources, import_art, item_ids, json_rel, key_of, numbered_cached, place_members,
-    place_of, read_optional, store_bytes,
+    Given, Place, asset_of_member, binary_rel, collect_base_sha1, disk_bytes, entity_sources,
+    import_art, item_ids, json_rel, key_of, numbered_cached, place_members, place_of,
+    read_optional, store_bytes,
 };
 
 #[cfg(test)]
 mod tests;
 mod units;
 
-pub(crate) use units::{UnitCache, asset_of_unpacked, item_member_of};
+pub(crate) use units::{
+    UnitCache, asset_of_unpacked, disk_member, entity_file, entity_of_data_file, item_member_of,
+    item_members,
+};
 mod writers;
 
 /// What a store asset is in the text project: its unit and the files of it.
@@ -198,6 +201,9 @@ pub struct EntitySource {
     /// While a write only exports into memory ([`EntitySource::export_members`]): the files
     /// it would write (relative to the root); nothing is written, deleted or recorded.
     dry: Option<BTreeMap<PathBuf, Vec<u8>>>,
+    /// A source for the diff ([`EntitySource::open_for_diff`]): fallback ids instead of a
+    /// baptism, no base layer, and nothing but exports into memory.
+    for_diff: bool,
 }
 
 impl EntitySource {
@@ -208,12 +214,31 @@ impl EntitySource {
         if let Some(why) = refusal(schema_state(&project.root)?) {
             return Err(KernelError::Refused(why));
         }
+        EntitySource::opened(project, false)
+    }
+
+    /// The source the diff exports with ([`crate::diff`]), in a text project or not: the
+    /// registers where they exist, else (and for every number without an entry) the fallback
+    /// ids (`TRAINER_0001`, `TRAINER_CLASS_0001`), so nothing is ever christened; no base
+    /// layer (a part the JSON does not name as `base_sha1` exports as a side file or hex, which
+    /// the diff compares by SHA-1 anyway). It only exports into memory
+    /// ([`EntitySource::export_bytes`], [`EntitySource::export_members`],
+    /// [`EntitySource::export_header`]); a write is refused, no register is ever written.
+    pub fn open_for_diff(project: &Project) -> Result<EntitySource, KernelError> {
+        EntitySource::opened(project, true)
+    }
+
+    fn opened(project: &Project, for_diff: bool) -> Result<EntitySource, KernelError> {
         let stamps = stamps(project);
         let symbols = Symbols::load(&project.root)?;
         let mut source = EntitySource {
             root: project.root.clone(),
             family: project.family,
-            symbols,
+            symbols: if for_diff {
+                symbols.with_fallbacks()
+            } else {
+                symbols
+            },
             stamps,
             layer: None,
             base_sha1: HashMap::new(),
@@ -221,9 +246,20 @@ impl EntitySource {
             trainer_names: BTreeMap::new(),
             names_from_disk: false,
             dry: None,
+            for_diff,
         };
         source.refresh(project)?;
         Ok(source)
+    }
+
+    /// The registers under the root (with the fallback ids for the diff).
+    fn load_symbols(&self) -> Result<Symbols, KernelError> {
+        let symbols = Symbols::load(&self.root)?;
+        Ok(if self.for_diff {
+            symbols.with_fallbacks()
+        } else {
+            symbols
+        })
     }
 
     /// The symbols read again when their files changed, the base layer looked for.
@@ -241,7 +277,10 @@ impl EntitySource {
             .all(|(rel, was)| stamp(&self.root.join(rel)) == *was)
         {
             self.stamps = stamps(project);
-            self.symbols = Symbols::load(&self.root)?;
+            self.symbols = self.load_symbols()?;
+        }
+        if self.for_diff {
+            return Ok(());
         }
         let sha1 = read_base_mark(&self.root).map(|mark| mark.sha1);
         let keep = match (&self.layer, &sha1) {
@@ -407,6 +446,11 @@ impl EntitySource {
         writes: &[(AssetId, Vec<u8>)],
         current: &dyn Fn(AssetId) -> Option<Vec<u8>>,
     ) -> Result<SourceWrite, KernelError> {
+        if self.for_diff && self.dry.is_none() {
+            return Err(KernelError::InvalidProject(
+                "die Quelle des Diffs schreibt nicht".to_owned(),
+            ));
+        }
         self.refresh(project)?;
         let mut units: BTreeMap<String, (Place, Given<'_>)> = BTreeMap::new();
         for (id, bytes) in writes {
@@ -582,7 +626,7 @@ impl EntitySource {
         let files = self.dry.take().unwrap_or_default();
         // The symbols may hold ids christened in memory only: read again.
         self.stamps = stamps(project);
-        match Symbols::load(&self.root) {
+        match self.load_symbols() {
             Ok(symbols) => self.symbols = symbols,
             Err(e) => {
                 exported?;

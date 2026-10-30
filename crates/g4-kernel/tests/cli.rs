@@ -1534,3 +1534,311 @@ fn cli_text_rename_id() {
     assert_eq!(plan["new_id"], "TRAINER_KAI");
     assert_eq!(plan["total"], 2);
 }
+
+#[test]
+fn cli_git_templates() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let templates = || {
+        let mut cmd = g4k();
+        cmd.args(["git", "templates"]).arg(root);
+        cmd
+    };
+    let assert = templates().assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "created .gitignore",
+            "created .gitattributes",
+            "layout=dspre ignored_archives=0",
+        ],
+        "{out}"
+    );
+    let ignore = std::fs::read_to_string(root.join(".gitignore")).unwrap();
+    assert!(
+        ignore.starts_with(g4_kernel::git::templates::BLOCK_START),
+        "{ignore}"
+    );
+
+    let assert = templates().assert().success();
+    let out = stdout_of(&assert);
+    assert!(out.contains("unchanged .gitignore\n"), "{out}");
+    assert!(out.contains("unchanged .gitattributes\n"), "{out}");
+
+    // A broken block: refused with the file name, exit 1.
+    std::fs::write(
+        root.join(".gitignore"),
+        format!("{}\n", g4_kernel::git::templates::BLOCK_START),
+    )
+    .unwrap();
+    templates().assert().code(1).stderr(contains(format!(
+        ".gitignore: {}",
+        g4_kernel::git::templates::BROKEN_BLOCK
+    )));
+}
+
+/// `g4k` with the isolated Git environment of `GitFixture::cli` (child only, never `set_var`).
+fn g4k_isolated(home: &std::path::Path) -> Option<Command> {
+    let cli = common::GitFixture::cli(home)?;
+    let mut cmd = g4k();
+    cmd.envs(cli.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    cmd.env_remove("G4_GIT");
+    Some(cmd)
+}
+
+#[test]
+fn cli_git_status_honours_g4_git() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines, ["no repository", "git not found"], "{out}");
+
+    let Some(found) = g4_kernel::git::find_git() else {
+        eprintln!("skipped: git not found");
+        return;
+    };
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .env("G4_GIT", &found.path)
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let last = out.lines().last().unwrap();
+    assert!(last.starts_with("git version"), "{out}");
+}
+
+#[test]
+fn cli_git_init_and_status() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let home = tempfile::tempdir().unwrap();
+    let Some(mut init) = g4k_isolated(home.path()) else {
+        return;
+    };
+    let assert = init.args(["git", "init"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    assert!(out.contains("created .gitignore\n"), "{out}");
+    let last = out.lines().last().unwrap();
+    assert!(last.starts_with("committed Ausgangsstand files="), "{out}");
+    assert!(last.contains(" branch="), "{out}");
+
+    let mut status = g4k_isolated(home.path()).unwrap();
+    let assert = status.args(["git", "status"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines[0].starts_with("branch "), "{out}");
+    assert!(lines[0].ends_with(" changes 0"), "{out}");
+    assert!(!lines[0].contains("head none"), "{out}");
+    assert!(lines[1].starts_with("git version"), "{out}");
+
+    // A second time: the repository is there, only the templates.
+    let mut again = g4k_isolated(home.path()).unwrap();
+    let assert = again.args(["git", "init"]).arg(root).assert().success();
+    let out = stdout_of(&assert);
+    assert!(
+        out.ends_with(&format!("not committed: {}\n", g4_kernel::git::IN_REPO)),
+        "{out}"
+    );
+}
+
+#[test]
+fn cli_git_init_templates_only() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "init"])
+        .arg(root)
+        .arg("--templates-only")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    assert!(out.ends_with("not committed\n"), "{out}");
+    assert!(!root.join(".git").exists());
+    assert!(root.join(".gitattributes").is_file());
+}
+
+/// A clone of the exported fixture `fx`: its sources only (no DSPRE part, no members).
+fn text_clone(fx: &common::TextFixture) -> (tempfile::TempDir, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let clone = tmp.path().join("klon");
+    for rel in g4_kernel::textproject::sources(&fx.project()).unwrap() {
+        let to = clone.join(&rel);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(fx.root().join(&rel), &to).unwrap();
+    }
+    (tmp, clone)
+}
+
+#[test]
+fn cli_text_restore() {
+    use g4_kernel::textproject::restore::{HAS_GAME_FILES, needs_restore};
+
+    let fx = common::TextFixture::exported();
+    // A project with its game files: refused, nothing written.
+    g4k()
+        .args(["text", "restore"])
+        .arg(fx.root())
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stderr(contains(HAS_GAME_FILES));
+
+    let (_tmp, clone) = text_clone(&fx);
+    assert!(needs_restore(&clone));
+    // ds-rom cannot extract the header-only synthetic ROM: the restore fails, the clone stays
+    // as it was and no temp folder is left (the whole restore runs in the gated `tests/git.rs`).
+    g4k()
+        .args(["text", "restore"])
+        .arg(&clone)
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stdout(predicates::str::is_empty());
+    assert!(needs_restore(&clone));
+    assert!(
+        !clone.join(".g4/tmp").exists()
+            || std::fs::read_dir(clone.join(".g4/tmp"))
+                .unwrap()
+                .next()
+                .is_none()
+    );
+
+    // Without a mark: the refusal of `text export`.
+    std::fs::remove_file(clone.join(".g4/base.json")).unwrap();
+    g4k()
+        .args(["text", "restore"])
+        .arg(&clone)
+        .arg("--base-rom")
+        .arg(fx.rom())
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::patch::NO_MARK));
+}
+
+/// The synthetic project with its trainers unpacked, committed with gix only, then trainer 1's
+/// first team member one level up and saved.
+fn committed_with_trainer_1_changed() -> common::Synthetic {
+    use g4_kernel::project::{AssetKind, Project};
+
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let project = Project::open(root).unwrap();
+    project
+        .ensure_unpacked(AssetKind::TrainerProperties)
+        .unwrap();
+    project.ensure_unpacked(AssetKind::TrainerParty).unwrap();
+    common::GitFixture::init(root);
+    common::GitFixture::commit_all(root, "Ausgangsstand");
+    let mut store = g4_kernel::store::Store::new(std::sync::Arc::new(project));
+    store
+        .edit_trainer(1, "Level", |t| t.party[0].level += 1)
+        .unwrap()
+        .unwrap();
+    store.save().unwrap();
+    s
+}
+
+#[test]
+fn cli_diff_prints_fields_against_head() {
+    let s = committed_with_trainer_1_changed();
+    let root = s.dir.path();
+    for id in ["1", "TRAINER_0001"] {
+        let assert = g4k()
+            .args(["diff"])
+            .arg(root)
+            .args(["trainer", id])
+            .assert()
+            .success();
+        let out = stdout_of(&assert);
+        let lines: Vec<_> = out.lines().collect();
+        assert_eq!(
+            lines,
+            ["field data.party[0].level 5 -> 6", "state changed"],
+            "{id}: {out}"
+        );
+    }
+    let assert = g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainer", "0", "--against", "head", "--json"])
+        .assert()
+        .success();
+    let report: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(report["state"], "same", "{report}");
+    assert_eq!(report["subject"]["kind"], "trainer", "{report}");
+    assert_eq!(report["diff"]["shape"], "fields", "{report}");
+
+    // Against the base without a base mark: the app's refusal, exit 1.
+    g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainer", "1", "--against", "base"])
+        .assert()
+        .failure()
+        .stderr(contains(g4_kernel::patch::NO_MARK));
+    // An unknown kind.
+    g4k()
+        .args(["diff"])
+        .arg(root)
+        .args(["trainers", "1"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn cli_git_status_lists_entries() {
+    let s = committed_with_trainer_1_changed();
+    let root = s.dir.path();
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .arg("--entries")
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 3, "{out}");
+    assert!(lines[0].starts_with("branch main head "), "{out}");
+    assert!(lines[0].ends_with(" changes 1"), "{out}");
+    assert_eq!(lines[1], "changed Trainer Trainer 0001", "{out}");
+    assert_eq!(lines[2], "git not found", "{out}");
+}
+
+/// Without a commit there is nothing to compare against: `--entries` lists no entity (as the
+/// app and MCP), while the count still names every path.
+#[test]
+fn cli_git_status_lists_no_entries_without_a_commit() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    common::GitFixture::init(root);
+    let assert = g4k()
+        .args(["git", "status"])
+        .arg(root)
+        .arg("--entries")
+        .env("G4_GIT", "/nicht/da")
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(
+        lines[0].starts_with("branch main head none changes "),
+        "{out}"
+    );
+    assert!(!lines[0].ends_with(" changes 0"), "{out}");
+    assert_eq!(lines[1], "git not found", "{out}");
+}

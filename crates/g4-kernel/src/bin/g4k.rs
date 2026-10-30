@@ -118,6 +118,36 @@ enum Command {
     /// `g4-project.json`.
     #[command(subcommand)]
     Text(TextCommand),
+    /// The project as a local Git repository.
+    #[command(subcommand)]
+    Git(GitCommand),
+    /// The diff of one entity, field by field (reads only). `<kind>` is the subject's kind as
+    /// the kernel names it (`map`, `matrix`, `area_data`, `event_file`, `encounter`,
+    /// `species`, `move`, `item`, `trainer`, `header`, `text_archive`, `script`,
+    /// `map_texture`, `building_texture`, `building_model`, `interior_building_model`;
+    /// `member` with `<folder>/<NNNN>`, `file` with a path relative to the root); `<index>` a
+    /// number or an id (species, moves, items, trainers, headers as `MAP_…`). Against the last
+    /// commit (default) or the base ROM (`--base-rom`, else the sibling `.nds`, else
+    /// `G4_BASE_ROM_DIR`). Prints one line per row: `field <path> <old> -> <new>`, `cell
+    /// <x>,<y> <old> -> <new>`, `part <name> changed|same`, `message <i> <state> <old> ->
+    /// <new>`, `line <op> <text>`, `binary <old> -> <new>` (a side as `<size>:<sha1>`,
+    /// `base` or `absent`); a missing value is `—`, a line break in a value `\n`; last
+    /// `state <state>`. `--json` prints the whole report. A refusal (no repository, no commit,
+    /// no base ROM) exits 1.
+    Diff {
+        project: PathBuf,
+        kind: String,
+        index: String,
+        /// `head` (default) or `base`.
+        #[arg(long, default_value = "head", value_parser = parse_against)]
+        against: g4_kernel::diff::Against,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -378,6 +408,15 @@ fn run(cli: Cli) -> Result<(), Failure> {
             json,
         }) => patch_create(&project, base_rom.as_deref(), out.as_deref(), json),
         Command::Text(command) => text(command),
+        Command::Git(command) => git(command),
+        Command::Diff {
+            project,
+            kind,
+            index,
+            against,
+            base_rom,
+            json,
+        } => diff(&project, &kind, &index, against, base_rom.as_deref(), json),
     }
 }
 
@@ -1278,7 +1317,9 @@ enum TextCommand {
     /// Set the DSPRE folder up as text project: adopt the scripts (when they are not), export,
     /// add the include root to `rotom.toml`, record the sync. Needs the base mark and the
     /// base ROM (found like `export`). Prints `phase=<phase> ms=N` per phase, then the
-    /// totals. On a text project it writes nothing and records the sync anew (a repair);
+    /// totals; when the `.gitignore` holds the block of Gen4 Studio, the templates written anew
+    /// as `g4k git templates` prints them (or `warning: …`). On a text project it writes
+    /// nothing and records the sync anew (a repair);
     /// Gen4 Studio refuses that („Das Projekt ist schon ein Textprojekt.“).
     Adopt {
         project: PathBuf,
@@ -1291,8 +1332,9 @@ enum TextCommand {
     },
     /// Take the text project back to a DSPRE folder: moves `g4-project.json`, `data/` and the
     /// id files for rotom (`.rotom/command_database/.g4-ids-*.json`) to
-    /// `.g4/backup/textproject-<time>/`. Refused (exit 1) while `text sync` finds something
-    /// pending, or while a script source uses an id only the id files define.
+    /// `.g4/backup/textproject-<time>/`, then rewrites the Git templates like `text adopt`.
+    /// Refused (exit 1) while `text sync` finds something pending, or while a script source
+    /// uses an id only the id files define.
     Revert { project: PathBuf },
     /// Take over what changed on one side since the last record (`dspre <key> <label>`,
     /// `files <key> <label>`), list conflicts and broken files (`conflict <key> <label>`,
@@ -1315,6 +1357,21 @@ enum TextCommand {
         old: String,
         new: String,
         /// Print the plan as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Complete a text project without its game files (a fresh Git clone) from the base ROM
+    /// (found like `export`; the sibling `.nds` is not looked for, there is no `header.yaml`):
+    /// its base layer (extracted once), every entry the folder lacks copied from it (never over
+    /// a file, `header.yaml` last), the import, then the sync of every watched file recorded
+    /// (phase `sync`). Prints `phase=<phase> ms=N` per phase, then `restored moved=N …`.
+    /// Refused (exit 1, nothing written) when the folder has its game files or no base mark.
+    Restore {
+        project: PathBuf,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the restore report as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -1364,9 +1421,18 @@ fn text(command: TextCommand) -> Result<(), Failure> {
                 report.rewritten.len(),
                 report.ms
             );
+            print_rewritten(
+                report.templates.as_ref(),
+                report.templates_warning.as_deref(),
+            );
             Ok(())
         }
         TextCommand::Sync { project, keep } => text_sync(&project, keep.as_deref()),
+        TextCommand::Restore {
+            project,
+            base_rom,
+            json,
+        } => text_restore(&project, base_rom.as_deref(), json),
     }
 }
 
@@ -1556,8 +1622,57 @@ fn text_adopt(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Fa
             report.sync_files,
             report.ms
         );
+        print_rewritten(
+            report.templates.as_ref(),
+            report.templates_warning.as_deref(),
+        );
     }
     fail_on_errors(&report.export.problems, "text adopt")
+}
+
+/// `g4k text restore`: [`g4_kernel::textproject::restore::restore_from_base`], timing each
+/// phase.
+fn text_restore(root: &Path, base_rom: Option<&Path>, json: bool) -> Result<(), Failure> {
+    use g4_kernel::textproject::restore::{
+        HAS_GAME_FILES, RestorePhase, needs_restore, restore_from_base,
+    };
+
+    if !needs_restore(root) {
+        return Err(Failure::Message(HAS_GAME_FILES.to_owned()));
+    }
+    let mark = required_mark(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let mut current: Option<(RestorePhase, std::time::Instant)> = None;
+    let mut timed: Vec<(RestorePhase, u128)> = Vec::new();
+    let report = restore_from_base(root, &base, &mut |p| {
+        if current.is_none_or(|(phase, _)| phase != p.phase)
+            && let Some((phase, at)) = current.replace((p.phase, std::time::Instant::now()))
+        {
+            timed.push((phase, at.elapsed().as_millis()));
+        }
+    })?;
+    if let Some((phase, at)) = current {
+        timed.push((phase, at.elapsed().as_millis()));
+    }
+    print_problems(&report.import.problems);
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        for (phase, ms) in &timed {
+            println!("phase={} ms={ms}", json_line(phase)?.trim_matches('"'));
+        }
+        println!(
+            "restored moved={} members={} raw={} compiled={} encoded={} sync_files={} ms={}",
+            report.moved,
+            report.import.members_written,
+            report.import.raw_written,
+            report.import.compiled.len(),
+            report.import.encoded.len(),
+            report.sync_files,
+            report.ms
+        );
+    }
+    fail_on_errors(&report.import.problems, "text restore")
 }
 
 /// `g4k text sync`: scan and take over the one-sided units, or with `keep` resolve one
@@ -1784,4 +1899,319 @@ mod tests {
             assert!(parse_expectation(text).is_err(), "{text}");
         }
     }
+}
+
+#[derive(Subcommand)]
+enum GitCommand {
+    /// Write the `.gitignore` and `.gitattributes` of the project's layout (DSPRE folder or
+    /// text project) as one marked block: a missing file is created, a file without the block
+    /// gets it at its end, a block that differs is replaced. Prints `<action> <file>` per file
+    /// (`created`, `appended`, `updated`, `unchanged`), then `layout=… ignored_archives=N`.
+    /// A block without its end is refused (exit 1, nothing written).
+    Templates { project: PathBuf },
+    /// Set the project up as a local Git repository: unpack every archive (DSPRE layout),
+    /// write the templates (printed like `git templates`), then `git init`, `git add -A` and
+    /// the first commit "Ausgangsstand", never a remote. Prints `committed Ausgangsstand
+    /// files=<n> branch=<b>`, else `not committed: <reason>` (a repository already holds the
+    /// project, Git is not installed) or `not committed` with `--templates-only`. Exit 1 when
+    /// a Git subcommand failed (the repository and the templates stay).
+    Init {
+        project: PathBuf,
+        /// Write the templates only, no repository.
+        #[arg(long)]
+        templates_only: bool,
+    },
+    /// Branch, `HEAD` and the number of changed paths since `HEAD` (read in process, no `git`
+    /// needed): `branch <name|detached> head <short|none> changes <n>` or `no repository`;
+    /// with `--entries` then one line `<state> <group> <label>` per changed entity (none
+    /// without a commit); then
+    /// `git version …` of the `git` CLI the Studio would use (`G4_GIT`, `PATH`, the usual
+    /// places) or `git not found`.
+    Status {
+        project: PathBuf,
+        /// List the changed entities (as „Technik › Änderungen“ against the last commit).
+        #[arg(long)]
+        entries: bool,
+    },
+}
+
+fn git(command: GitCommand) -> Result<(), Failure> {
+    match command {
+        GitCommand::Templates { project } => {
+            let p = Project::open(&project)?;
+            let report = g4_kernel::git::write_templates(&p)?;
+            print_templates(&report);
+            Ok(())
+        }
+        GitCommand::Init {
+            project,
+            templates_only,
+        } => {
+            let p = Project::open(&project)?;
+            let cli = g4_kernel::git::find_git();
+            let opts = g4_kernel::git::InitOptions { templates_only };
+            let report = g4_kernel::git::git_init(&p, cli.as_ref(), &opts, &mut |_| {})?;
+            print_templates(&report.templates);
+            if report.committed {
+                let status = g4_kernel::git::status(&project)?;
+                println!(
+                    "committed {} files={} branch={}",
+                    g4_kernel::git::FIRST_COMMIT,
+                    report.files,
+                    status.branch.as_deref().unwrap_or("detached")
+                );
+                return Ok(());
+            }
+            match &report.reason {
+                None => println!("not committed"),
+                Some(reason) => println!("not committed: {reason}"),
+            }
+            // A Git subcommand failed: neither an existing repository nor a missing Git.
+            let expected = [g4_kernel::git::IN_REPO, g4_kernel::git::NOT_INSTALLED];
+            match &report.reason {
+                Some(reason) if !expected.contains(&reason.as_str()) => {
+                    Err(Failure::Message("git init failed".into()))
+                }
+                _ => Ok(()),
+            }
+        }
+        GitCommand::Status { project, entries } => {
+            let status = g4_kernel::git::status(&project)?;
+            if status.repo == g4_kernel::git::RepoKind::None {
+                println!("no repository");
+            } else {
+                println!(
+                    "branch {} head {} changes {}",
+                    status.branch.as_deref().unwrap_or("detached"),
+                    status.head.as_ref().map_or("none", |h| h.short.as_str()),
+                    status.paths.len()
+                );
+                // Without a commit there is nothing to compare against (as the app and MCP).
+                if entries
+                    && status.head.is_some()
+                    && let Some(repo) = g4_kernel::git::GitRepo::discover(&project)?
+                {
+                    let p = Project::open(&project)?;
+                    for entry in g4_kernel::diff::head_entries(&p, &repo, &status)? {
+                        println!(
+                            "{} {} {}",
+                            serde_name(&entry.state),
+                            entry.group,
+                            entry.label
+                        );
+                    }
+                }
+            }
+            match g4_kernel::git::find_git() {
+                Some(cli) => println!("{}", cli.version),
+                None => println!("git not found"),
+            }
+            Ok(())
+        }
+    }
+}
+
+/// `<action> <file>` per template file, then `layout=… ignored_archives=N`.
+fn print_templates(report: &g4_kernel::git::TemplateReport) {
+    for file in &report.files {
+        println!("{} {}", serde_name(&file.action), file.path);
+    }
+    println!(
+        "layout={} ignored_archives={}",
+        serde_name(&report.layout),
+        report.ignored_archives
+    );
+}
+
+/// The Git templates `text adopt` and `text revert` wrote anew (as `git templates` prints
+/// them), or the warning why they could not; nothing for a project without the block.
+fn print_rewritten(templates: Option<&g4_kernel::git::TemplateReport>, warning: Option<&str>) {
+    if let Some(templates) = templates {
+        print_templates(templates);
+    }
+    if let Some(warning) = warning {
+        println!("warning: {warning}");
+    }
+}
+
+/// The serde name of a unit variant (`snake_case` in the kernel's reports).
+fn serde_name(value: &impl serde::Serialize) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => String::new(),
+    }
+}
+
+fn parse_against(text: &str) -> Result<g4_kernel::diff::Against, String> {
+    match text {
+        "head" => Ok(g4_kernel::diff::Against::Head),
+        "base" => Ok(g4_kernel::diff::Against::Base),
+        other => Err(format!("unknown comparison {other:?}: head or base")),
+    }
+}
+
+/// The subject `<kind> <index>` of `g4k diff`: an id through the project's [`Resolver`] where
+/// the kind has ids, `member` as `<folder>/<NNNN>`, `file` as a path.
+///
+/// [`Resolver`]: g4_kernel::textproject::ids::Resolver
+fn diff_subject(
+    project: &Project,
+    kind: &str,
+    index: &str,
+) -> Result<g4_kernel::diff::DiffSubject, Failure> {
+    use g4_kernel::textproject::symbols::SymbolKind;
+
+    let number = |text: &str| {
+        text.parse::<u16>()
+            .map_err(|_| Failure::Message(format!("{text}: not a number from 0 to 65535")))
+    };
+    let value = match kind {
+        "file" => serde_json::json!({"kind": "file", "path": index}),
+        "member" => {
+            let (folder, n) = index
+                .rsplit_once('/')
+                .ok_or_else(|| Failure::Message(format!("{index}: a member is <folder>/<NNNN>")))?;
+            serde_json::json!({"kind": "member", "folder": folder, "index": number(n)?})
+        }
+        _ => {
+            let symbol = match kind {
+                "species" => Some(SymbolKind::Species),
+                "move" => Some(SymbolKind::Move),
+                "item" => Some(SymbolKind::Item),
+                "trainer" => Some(SymbolKind::Trainer),
+                "header" => Some(SymbolKind::Map),
+                _ => None,
+            };
+            let n = match symbol {
+                Some(symbol) => {
+                    let ids = g4_kernel::textproject::ids::Resolver::for_project(project)?;
+                    let n = ids.parse(symbol, index).map_err(Failure::Message)?;
+                    u16::try_from(n)
+                        .map_err(|_| Failure::Message(format!("{index}: {n} is too large")))?
+                }
+                None => number(index)?,
+            };
+            serde_json::json!({"kind": kind, "index": n})
+        }
+    };
+    serde_json::from_value(value).map_err(|_| {
+        Failure::Message(format!(
+            "unknown kind {kind:?}: map, matrix, area_data, event_file, encounter, species, \
+             move, item, trainer, header, text_archive, script, map_texture, building_texture, \
+             building_model, interior_building_model, member or file"
+        ))
+    })
+}
+
+/// `g4k diff`: one entity against `HEAD` or the base ROM, printed by row (see the command).
+fn diff(
+    root: &Path,
+    kind: &str,
+    index: &str,
+    against: g4_kernel::diff::Against,
+    base_rom: Option<&Path>,
+    json: bool,
+) -> Result<(), Failure> {
+    use g4_kernel::diff::{Against, DiffSources, DiffSubject, diff_entity};
+
+    let project = Project::open(root)?;
+    let subject = diff_subject(&project, kind, index)?;
+    let repo = match against {
+        Against::Head => g4_kernel::git::GitRepo::discover(root)?,
+        Against::Base | Against::Saved => None,
+    };
+    // A file has no base side: the kernel refuses it before it asks for a base ROM.
+    let (base, base_label) = match against {
+        Against::Base if !matches!(subject, DiffSubject::File { .. }) => {
+            let mark = required_mark(root)?;
+            let base = required_base(root, &mark, base_rom)?;
+            (Some(base), Some(g4_kernel::base::base_label(&mark)))
+        }
+        _ => (None, None),
+    };
+    let sources = DiffSources {
+        original: base
+            .as_ref()
+            .map(|b| b as &dyn g4_kernel::original::Original),
+        base_label,
+        repo: repo.as_ref(),
+    };
+    let report = diff_entity(&project, None, &sources, &subject, against)?;
+    if json {
+        println!("{}", json_line(&report)?);
+    } else {
+        print_diff(&report);
+    }
+    Ok(())
+}
+
+/// The rows of a diff, one per line, then `state <state>`.
+fn print_diff(report: &g4_kernel::diff::EntityDiffReport) {
+    use g4_kernel::diff::{BlobSide, EntityDiff, FieldChange, WordSpan};
+
+    // One row per line: line breaks in a value are shown as `\n`.
+    let flat = |text: &str| text.replace('\r', "\\r").replace('\n', "\\n");
+    let shown = |value: Option<&str>| value.map_or_else(|| "—".to_owned(), flat);
+    // A cell a side lacks is empty; a message a side lacks has no spans.
+    let present = |text: &str| (!text.is_empty()).then(|| text.to_owned());
+    let field = |c: &FieldChange| {
+        println!(
+            "field {} {} -> {}",
+            c.path,
+            shown(c.old.as_deref()),
+            shown(c.new.as_deref())
+        );
+    };
+    let text_of = |spans: &[WordSpan]| {
+        (!spans.is_empty()).then(|| spans.iter().map(|s| s.text.as_str()).collect::<String>())
+    };
+    let blob = |side: &BlobSide| match side {
+        BlobSide::Bytes { size, sha1 } => format!("{size}:{sha1}"),
+        BlobSide::Base => "base".to_owned(),
+        BlobSide::Absent => "absent".to_owned(),
+    };
+    match &report.diff {
+        EntityDiff::Fields { changes, .. } => changes.iter().for_each(field),
+        EntityDiff::Map {
+            parts,
+            cells,
+            buildings,
+            ..
+        } => {
+            for part in parts {
+                let changed = if part.changed { "changed" } else { "same" };
+                println!("part {} {changed}", part.part);
+            }
+            for cell in cells {
+                println!(
+                    "cell {},{} {} -> {}",
+                    cell.x,
+                    cell.y,
+                    shown(present(&cell.old).as_deref()),
+                    shown(present(&cell.new).as_deref())
+                );
+            }
+            buildings.iter().for_each(field);
+        }
+        EntityDiff::Messages { messages, .. } => {
+            for message in messages {
+                println!(
+                    "message {} {} {} -> {}",
+                    message.index,
+                    serde_name(&message.state),
+                    shown(text_of(&message.old).as_deref()),
+                    shown(text_of(&message.new).as_deref())
+                );
+            }
+        }
+        EntityDiff::Lines { hunks, .. } => {
+            for hunk in hunks {
+                for (op, line) in &hunk.lines {
+                    println!("line {} {line}", serde_name(op));
+                }
+            }
+        }
+        EntityDiff::Binary { old, new } => println!("binary {} -> {}", blob(old), blob(new)),
+    }
+    println!("state {}", serde_name(&report.state));
 }

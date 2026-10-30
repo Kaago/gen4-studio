@@ -1,4 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
+import type { InitReport } from "../api.git";
 import { inTauri, invoke } from "../platform/transport";
 
 /**
@@ -33,8 +34,11 @@ export interface RomInfo {
 /** What a new project starts as. */
 export type Template = "original" | "data_only" | "empty_region";
 
-/** `text_project`: setting the new project up as text project (only when asked for), after the check. */
-export type CreatePhase = "read" | "extract" | "template" | "check" | "text_project";
+/**
+ * `text_project`: setting the new project up as text project (only when asked for), after the check; `git`: „Git einrichten“ (only when
+ * asked for), last.
+ */
+export type CreatePhase = "read" | "extract" | "template" | "check" | "text_project" | "git";
 
 /** Reported at the start of each phase. */
 export interface CreateProgress {
@@ -67,6 +71,8 @@ export interface Created {
   template: Template;
   sha1: string;
   phases: { phase: CreatePhase; ms: number }[];
+  /** „Git einrichten“ when asked for: committed, or why not (no `git` installed: only the templates); null without. Older test data leaves it out. */
+  git?: InitReport | null;
 }
 
 /** Reads the header and hashes the file (a second or so). Rejects for a file that is not a DS ROM. */
@@ -78,17 +84,17 @@ export const checkProjectDest = (dest: string, romSize: number) => invoke<DestCh
 
 /**
  * Unpacks the ROM into a new project at `dest` (missing or an empty folder) and, with `textProject`, sets it up as text project (10 to
- * 120 s more); `onProgress` is called as each phase starts. Takes seconds. Through the dev bridge (no channel) there are no live progress events: `onProgress` gets the first phase
+ * 120 s more), with `git` as a local Git repository with a first commit (about 10 s more); `onProgress` is called as each phase starts. Takes seconds. Through the dev bridge (no channel) there are no live progress events: `onProgress` gets the first phase
  * running before the call (the work starts with reading the ROM), then each phase once, done, from the answer.
  */
-export async function createProject(rom: string, dest: string, template: Template, textProject: boolean, onProgress: (progress: CreateProgress) => void): Promise<Created> {
+export async function createProject(rom: string, dest: string, template: Template, textProject: boolean, git: boolean, onProgress: (progress: CreateProgress) => void): Promise<Created> {
   if (!inTauri()) {
     onProgress({ phase: "read", done: 0, total: 0 });
-    const created = await invoke<Created>("create_project", { rom, dest, template, textProject });
+    const created = await invoke<Created>("create_project", { rom, dest, template, textProject, git });
     for (const { phase } of created.phases) onProgress({ phase, done: 1, total: 1 });
     return created;
   }
   const progress = new Channel<CreateProgress>();
   progress.onmessage = onProgress;
-  return invoke<Created>("create_project", { rom, dest, template, textProject, progress });
+  return invoke<Created>("create_project", { rom, dest, template, textProject, git, progress });
 }

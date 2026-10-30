@@ -449,6 +449,8 @@ export interface AssetId {
  * "not_text_project" (a text project command in a DSPRE folder; setting a text project up again is an "error"), "pending" (taking
  * it back while the sync finds something open), "conflicts" (a build of a text project with an open conflict), "unknown_id" (MCP: a symbolic id
  * nothing knows).
+ * Git (4.4): "restore_needed" (`openProject` of a text project without its game files, a fresh Git clone: `restoreTextProject` completes
+ * it), "unsaved" (`gitInit` before anything is written), "no_repo", "no_commit" and "not_diffable" (the diff of an entity).
  */
 export interface CmdError {
   code:
@@ -469,7 +471,11 @@ export interface CmdError {
     | "not_text_project"
     | "pending"
     | "conflicts"
-    | "unknown_id";
+    | "unknown_id"
+    | "restore_needed"
+    | "no_repo"
+    | "no_commit"
+    | "not_diffable";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -497,7 +503,11 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "not_text_project" ||
       o.code === "pending" ||
       o.code === "conflicts" ||
-      o.code === "unknown_id") &&
+      o.code === "unknown_id" ||
+      o.code === "restore_needed" ||
+      o.code === "no_repo" ||
+      o.code === "no_commit" ||
+      o.code === "not_diffable") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -1013,6 +1023,7 @@ export * from "./api.agents";
 export * from "./api.base";
 export * from "./api.checks";
 export * from "./api.data";
+export * from "./api.git";
 export * from "./api.import";
 export * from "./api.original";
 export * from "./api.textproject";

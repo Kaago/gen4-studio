@@ -31,6 +31,7 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { useChanges } from "./technik/useChanges";
+import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
 import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
@@ -44,6 +45,10 @@ import { useTextProjectDialogs } from "./app/useTextProjectDialogs";
 import { baseKey, useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
+import { GitStatusItem } from "./ui/frame/GitStatusItem";
+import { GitInitDialog } from "./git/GitInitDialog";
+import { RestoreDialog } from "./git/RestoreDialog";
+import { useGitStatus } from "./git/useGitStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
@@ -61,7 +66,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -272,12 +277,44 @@ function AppBody() {
   });
   // The sync of a text project, run before a build (set below, once the sync hook exists).
   const syncBeforeBuild = useRef<(() => Promise<SyncOutcome | null>) | null>(null);
-  const session = useProjectSession({ bus, problems, scripts: scriptBridge, onShowProblems: showProblems, syncBeforeBuild, onShowConflicts: showTextProject });
+  // A folder that opened as a clone of a text project without its game files: „Textprojekt vervollständigen?“ asks about it.
+  const [restore, setRestore] = useState<{ root: string; message: string } | null>(null);
+  const session = useProjectSession({
+    bus,
+    problems,
+    scripts: scriptBridge,
+    onShowProblems: showProblems,
+    syncBeforeBuild,
+    onShowConflicts: showTextProject,
+    onRestoreNeeded: (root, message) => setRestore({ root, message }),
+  });
   useToastMirror(session.message, session.setMessage);
   // Writes to the saved project the session does not count (a script file written, an original reset, the header patch, an agent's
   // writing command): Technik › Änderungen compares again after each, as after the session's own saves and builds (`savedRevision`).
   const [changedRevision, setChangedRevision] = useState(0);
   const bumpChanged = useCallback(() => setChangedRevision((r) => r + 1), []);
+  // The Git state (status line, palette): read when the project opens, whenever the saved project may differ (the revision Technik ›
+  // Änderungen compares on: a save, a build, a reset, ⌘Z of a file step, a sync that took something over, an agent's write), after „Git
+  // einrichten“ and on window focus.
+  const git = useGitStatus({ project: session.info?.root ?? null, revision: session.savedRevision + changedRevision, opened: session.info });
+  // „Git einrichten?“ (from the palette; Technik › Änderungen offers it too).
+  const [gitSetupOpen, setGitSetupOpen] = useState(false);
+  // What Technik › Änderungen compares against, kept for the session (not stored): the base ROM first, the last commit once Git is set up
+  // or the status line's item was clicked.
+  const [against, setAgainst] = useState<Against>("base");
+  // The entity chosen in Technik › Änderungen, kept for the session as the comparison is (it survives „Öffnen“ and the way back), for the
+  // project it was chosen in.
+  const [changesChoice, setChangesChoice] = useState<{ root: string; subject: DiffSubject } | null>(null);
+  const openRoot = session.info?.root ?? null;
+  const changesChosen = changesChoice !== null && changesChoice.root === openRoot ? changesChoice.subject : null;
+  const chooseChange = useCallback((subject: DiffSubject | null) => setChangesChoice(subject === null || openRoot === null ? null : { root: openRoot, subject }), [openRoot]);
+  // The status line's Git item: Technik › Änderungen against the last commit (not while a wizard holds the frame).
+  const showChanges = useStableCallback(() => {
+    if (wizardOpen.current || startOpen) return;
+    setAgainst("head");
+    setTechnikEntry("aenderungen");
+    setArea("technik");
+  });
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
   const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
@@ -425,6 +462,8 @@ function AppBody() {
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
     // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
     if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
+    // An agent set up Git: the status line reads the repository.
+    if (session.info !== null && event.tool === "git_init") void git.refresh();
     // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
     // never have read the base status).
     if (session.info !== null && event.tool === "assign_base") {
@@ -668,6 +707,8 @@ function AppBody() {
     openingArea.current = created.template === "data_only" ? "pokemon" : "welt";
     const result = await session.onOpen(resetProject, created.root);
     if (result !== "opened") openingArea.current = "welt";
+    // Created with Git and its first commit (the wizard's checkbox): Technik › Änderungen compares against it, as after „Git einrichten“.
+    else if (created.git?.committed) setAgainst("head");
   }
   async function onOpenRecent(path: string) {
     // A build or save in flight works on the open project: another one must not replace it under it.
@@ -808,7 +849,13 @@ function AppBody() {
     shown: area === "technik" && technikEntry === "aenderungen",
     base: original.status?.state === "ready" ? original.status.sha1 : null,
     revision: session.savedRevision + changedRevision,
+    // A window focus compares (quietly) only while „Gegen Basis“ is on screen.
+    listed: area === "technik" && technikEntry === "aenderungen" && against === "base",
   });
+  // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
+  // detail of Änderungen reads its diff again on the same moves.
+  const shownRevision = session.savedRevision + changedRevision + session.dirtyRevision;
+  const unsaved = useUnsaved({ project: session.info?.root ?? null, shown: area === "technik" && technikEntry === "aenderungen" && against === "saved", revision: shownRevision });
   // The Dynamic Headers patch went in (wizard or Technik): the header table now lives in files, the header editor reads it again, and so does the list.
   const onHeaderPatch = useStableCallback(async () => {
     bumpChanged();
@@ -961,9 +1008,20 @@ function AppBody() {
         scripts: adopted && scriptFiles !== null && scriptFiles.info === session.info ? scriptFiles.list : null,
         data: paletteData,
         hasProject: session.info !== null,
-        commands: { busy: session.busy, hasList: isDeckArea(area) || area === "technik", inApp: inTauri(), deck: paletteDeck, docked: isDeckArea(area), inspectorFloats, cellChosen, placeShown, wizard: wizards.request !== null },
+        commands: {
+          busy: session.busy,
+          hasList: isDeckArea(area) || area === "technik",
+          inApp: inTauri(),
+          deck: paletteDeck,
+          docked: isDeckArea(area),
+          inspectorFloats,
+          cellChosen,
+          placeShown,
+          wizard: wizards.request !== null,
+          gitSetup: git.status?.repo.kind === "none",
+        },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
@@ -1081,6 +1139,9 @@ function AppBody() {
       case "technik":
         showArea(run.command);
         break;
+      case "gitSetup":
+        if (session.info && git.status?.repo.kind === "none") setGitSetupOpen(true);
+        break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
           const { matrix, x, y } = pins.pinned;
@@ -1166,6 +1227,16 @@ function AppBody() {
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
         textProject={textProject}
+        against={against}
+        onAgainst={setAgainst}
+        git={info ? git : null}
+        unsaved={unsaved.entries}
+        unsavedError={unsaved.error}
+        onReloadUnsaved={unsaved.reload}
+        onGitSetup={() => setGitSetupOpen(true)}
+        revision={shownRevision}
+        changesChosen={changesChosen}
+        onChangesChosen={chooseChange}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -1270,7 +1341,12 @@ function AppBody() {
                         context
                       ) : null
                     }
-                    right={<ProblemCount store={problems} />}
+                    right={
+                      <>
+                        <ProblemCount store={problems} />
+                        <GitStatusItem status={git.status} error={git.error} onOpen={showChanges} />
+                      </>
+                    }
                     bridge={bridge}
                     density={shell.density}
                     onToggleDensity={shell.toggleDensity}
@@ -1343,6 +1419,33 @@ function AppBody() {
         )}
         {projectText?.state === "older" && session.info !== null && (
           <MigrateDialog key={session.info.root} schema={projectText.schema} exclusive={session.exclusive} onCancel={() => void text.onCancelLift()} onLifted={text.onLifted} />
+        )}
+        {gitSetupOpen && session.info !== null && (
+          <GitInitDialog
+            open
+            status={git.status}
+            unsaved={session.dirtyCount + scripts.dirtyCount > 0}
+            exclusive={session.exclusive}
+            onClose={() => setGitSetupOpen(false)}
+            onDone={async (report) => {
+              await git.refresh();
+              // With the first commit there is something to compare against: Technik › Änderungen shows it.
+              if (report.committed) setAgainst("head");
+            }}
+          />
+        )}
+        {restore !== null && (
+          <RestoreDialog
+            key={restore.root}
+            root={restore.root}
+            message={restore.message}
+            onClose={() => setRestore(null)}
+            onOpened={async () => {
+              setRestore(null);
+              // The backend opened it already; the app reads it as after any opening.
+              await session.openProjectAt(restore.root, resetProject);
+            }}
+          />
         )}
         {!inTauri() && <WebDialogHost />}
       </TextProjectProvider>

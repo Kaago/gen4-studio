@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   Badge,
   Button,
+  ChangeTable,
   EmptyState,
   IconButton,
   InspectorRow,
@@ -232,6 +233,35 @@ export function ContentPage() {
             Wähle ein Ziel oder lösche die Tür.
           </Notice>
         </div>
+      </section>
+
+      <section className={styles.block} data-gallery-state="change-table">
+        <h2 className={styles.blockTitle}>Änderungen</h2>
+        <p className={styles.note}>Feld: alt → neu. Entfernte Wörter durchgestrichen, neue unterstrichen; eine fehlende Seite liest sich „fehlt“.</p>
+        <ChangeTable
+          columns={["Feld", "Commit", "Projekt"]}
+          ariaLabel="Trainer 0001 gegen den letzten Commit"
+          rows={[
+            { key: "level", field: "data.party[0].level", old: "5", new: "7" },
+            { key: "weather", field: "Wetter", title: "weather_id", old: "0", new: "3" },
+            { key: "item", field: "data.items[1]", old: null, new: "ITEM_TOP_TRANK" },
+            {
+              key: "text",
+              field: "2",
+              old: [
+                { op: "same", text: "Willkommen in " },
+                { op: "removed", text: "Zweiblattdorf" },
+                { op: "same", text: "!" },
+              ],
+              new: [
+                { op: "same", text: "Willkommen in " },
+                { op: "added", text: "Sandgemme" },
+                { op: "same", text: "!" },
+              ],
+            },
+          ]}
+          more="und 3 weitere Felder"
+        />
       </section>
 
       <section className={styles.block}>

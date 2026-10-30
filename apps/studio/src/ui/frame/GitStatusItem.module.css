@@ -1,0 +1,17 @@
+/* The Git item of the status line, at the height and size of its other items (the bar is 28 px; Button size s). */
+.item {
+  display: inline-flex;
+}
+
+.item > button {
+  font: var(--g4-font-text-xs);
+}
+
+.item > button svg {
+  font-size: var(--g4-schrift-groesse-xs);
+}
+
+/* „Git: nicht lesbar“: said in words, the colour only adds to it. */
+.unreadable > button {
+  color: var(--g4-status-warnung);
+}

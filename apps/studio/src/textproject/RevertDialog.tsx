@@ -1,12 +1,14 @@
 import { useRef, useState } from "react";
 import { errorText, revertTextProject } from "../api";
 import type { RevertReport } from "../api";
+import { templatesNote } from "../git/gitWords";
 import { Dialog, Notice } from "../ui/primitives";
 import styles from "./AdoptDialog.module.css";
 
-/** The message after taking the text project back: where its files went. */
+/** The message after taking the text project back: where its files went, then what became of the Git templates. */
 export function revertedText(report: RevertReport): string {
-  return `Textprojekt zurückgenommen. Sicherung: ${report.backup}`;
+  const note = templatesNote(report);
+  return note === "" ? `Textprojekt zurückgenommen. Sicherung: ${report.backup}` : `Textprojekt zurückgenommen. Sicherung: ${report.backup}.${note}`;
 }
 
 export type RevertDialogProps = {

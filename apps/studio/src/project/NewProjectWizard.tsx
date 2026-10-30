@@ -5,6 +5,7 @@ import type { Created, CreatePhase, CreateProgress, DestCheck, RomInfo, Template
 import { openPath } from "../platform/dialogs";
 import { Badge, Button, CheckList, Checkbox, DSScreen, Icon, Notice, Switch, TextField } from "../ui/primitives";
 import type { CheckRow } from "../ui/primitives";
+import { NOT_INSTALLED, TEMPLATES_ONLY_TEXT, initDoneText } from "../git/gitWords";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
@@ -15,7 +16,7 @@ import { destProblem, megabytes, startMessage } from "./startMessages";
 import styles from "./NewProjectWizard.module.css";
 
 /** What the wizard has chosen so far, for the view above it. */
-export type WizardChoice = { rom: RomInfo | null; template: Template; name: string; dest: string | null; textProject: boolean };
+export type WizardChoice = { rom: RomInfo | null; template: Template; name: string; dest: string | null; textProject: boolean; git: boolean };
 
 type Props = {
   /**
@@ -60,13 +61,15 @@ const PHASES: { id: CreatePhase; label: string }[] = [
   { id: "template", label: "Vorlage anwenden" },
   { id: "check", label: "Prüfen" },
   { id: "text_project", label: "Textprojekt einrichten" },
+  { id: "git", label: "Git einrichten" },
 ];
 
-/** The phases of a creation; setting it up as text project only when asked for. */
-const freshPhases = (textProject: boolean): PhaseRow[] =>
-  PHASES.filter((p) => textProject || p.id !== "text_project").map((p) => ({ ...p, state: "open", done: 0, total: 0 }));
+/** The phases of a creation; setting it up as text project and for Git only when asked for. */
+const freshPhases = (textProject: boolean, git: boolean): PhaseRow[] =>
+  PHASES.filter((p) => (textProject || p.id !== "text_project") && (git || p.id !== "git")).map((p) => ({ ...p, state: "open", done: 0, total: 0 }));
 
 const TEXT_PROJECT_HINT = "Eine lesbare Datei je Eintrag, bereit für Git; das Anlegen dauert etwas länger.";
+const GIT_HINT = "Legt ein lokales Repository mit erstem Commit an; nichts wird hochgeladen.";
 
 /**
  * One progress event: the phases before it are done; the phase itself runs, or is done when the event says so (the dev
@@ -225,6 +228,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const [template, setTemplate] = useState<Template>("original");
   // Off by default: DSPRE users decide themselves; it costs 10 to 120 s more.
   const [textProject, setTextProject] = useState(false);
+  // Off by default as well (plan 4.4 „Orte von Git einrichten“): a local repository with a first commit, about 10 s more.
+  const [git, setGit] = useState(false);
   const [name, setName] = useState("");
   // A name the user typed is kept when another ROM is read; a proposed one follows the ROM.
   const ownName = useRef(false);
@@ -235,7 +240,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   // Counts up when the destination must be asked again although its path did not change (after a failed create).
   const [recheck, setRecheck] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [phases, setPhases] = useState(() => freshPhases(false));
+  const [phases, setPhases] = useState(() => freshPhases(false, false));
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
 
@@ -308,8 +313,8 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const choice = useRef(onChoice);
   choice.current = onChoice;
   useEffect(() => {
-    choice.current?.({ rom, template, name, dest, textProject });
-  }, [rom, template, name, dest, textProject]);
+    choice.current?.({ rom, template, name, dest, textProject, git });
+  }, [rom, template, name, dest, textProject, git]);
 
   async function pickRom() {
     const path = await openPath({ directory: false, title: "ROM-Datei wählen", filters: [{ name: "DS-ROM", extensions: ["nds"] }] });
@@ -327,9 +332,9 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     if (!rom || dest === null) return;
     setBusy(true);
     setError(null);
-    setPhases(freshPhases(textProject));
+    setPhases(freshPhases(textProject, git));
     try {
-      const made = await createProject(romPath, dest, template, textProject, (p) => setPhases((rows) => advance(rows, p)));
+      const made = await createProject(romPath, dest, template, textProject, git, (p) => setPhases((rows) => advance(rows, p)));
       setPhases((rows) => rows.map((r) => ({ ...r, state: "done" })));
       setCreated(made);
     } catch (e) {
@@ -346,7 +351,7 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
   const ready = releasable(rom) && dest !== null && destOk;
   // The empty region needs rotom's sources: creating the project adopts the scripts first.
   const adopts = template === "empty_region" ? " Scripts werden übernommen." : "";
-  const asText = textProject ? ", als Textprojekt" : "";
+  const asText = `${textProject ? ", als Textprojekt" : ""}${git ? ", mit Git" : ""}`;
   const sentence = ready ? `Legt „${name.trim()}“ aus ${game} mit der Vorlage ${TEMPLATE_NAMES[template]} an${asText}, in ${dest}.${adopts} Die ROM bleibt unverändert.` : undefined;
 
   // Something already lies at the project's own path: a question of the name. Anything else (space, a refusal) is the folder's.
@@ -405,10 +410,21 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
               onChange={(on) => {
                 setTextProject(on);
                 // The phase list follows the box (the work has not started on this step).
-                setPhases(freshPhases(on));
+                setPhases(freshPhases(on, git));
               }}
             />
             <p className={parts.note}>{TEXT_PROJECT_HINT}</p>
+          </div>
+          <div className={parts.group}>
+            <Checkbox
+              label="Git einrichten (nur lokal)"
+              checked={git}
+              onChange={(on) => {
+                setGit(on);
+                setPhases(freshPhases(textProject, on));
+              }}
+            />
+            <p className={parts.note}>{GIT_HINT}</p>
           </div>
         </section>
       ),
@@ -500,12 +516,19 @@ export function NewProjectWizard({ initialRom, initialNotice, onCancel, onOpen, 
     },
   ];
 
+  // „Git einrichten“ when it was asked for: the first commit in the success text, otherwise why there is none (only the templates without
+  // `git`, Git's reason for a failed commit) as a warning; the project is there either way.
+  const gitReport = created?.git ?? null;
+  const gitWarning = gitReport === null || gitReport.committed || gitReport.reason === null ? null : gitReport.reason === NOT_INSTALLED ? TEMPLATES_ONLY_TEXT : gitReport.reason;
   const result = created ? (
-    <DoneResult
-      title="Projekt angelegt"
-      lines={[created.root, `Basis-ROM SHA-1 ${created.sha1.slice(0, 8)}…`]}
-      next={[created.template === "data_only" ? "Öffnen startet im Bereich Pokémon." : "Öffnen lädt das Projekt."]}
-    />
+    <div className={styles.result}>
+      <DoneResult
+        title="Projekt angelegt"
+        lines={[created.root, `Basis-ROM SHA-1 ${created.sha1.slice(0, 8)}…`, ...(gitReport?.committed ? [initDoneText(gitReport)] : [])]}
+        next={[created.template === "data_only" ? "Öffnen startet im Bereich Pokémon." : "Öffnen lädt das Projekt."]}
+      />
+      {gitWarning !== null && <Notice kind="warning">{gitWarning}</Notice>}
+    </div>
   ) : null;
 
   return (

@@ -1,0 +1,36 @@
+# Gen4 Studio. Dieses Projekt enthält Daten aus dem Spiel: nur lokal oder privat versionieren, nie öffentlich.
+# Zum Teilen: Technik › Veröffentlichen (Patch gegen die Basis-ROM).
+
+# Gebaute ROMs und Patches
+*.nds
+*.srl
+*.xdelta
+/build/
+
+# Emulator: Spielstände und Savestates
+*.sav
+*.dsv
+*.ml[0-9]
+*.mln
+*.state
+
+# Studio: nur base.json und preview.png sind Projekt, der Rest ist lokal
+/.g4/*
+!/.g4/base.json
+!/.g4/preview.png
+
+# rotom: Cache (die Quirks in .rotom/status/compile-state.json bleiben versioniert)
+/.rotom/cache/
+# Erzeugte ID-Dateien für rotom, das Studio schreibt sie neu
+/.rotom/command_database/.g4-ids-*
+
+# Sicherungen gehören nicht in den Projektordner
+*.bak
+*.orig
+*~
+
+# Archive, die der Build aus unpacked/ packt
+{{packed_archives}}
+
+.DS_Store
+Thumbs.db

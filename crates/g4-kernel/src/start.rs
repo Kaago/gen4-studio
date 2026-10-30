@@ -209,15 +209,19 @@ pub enum Template {
     EmptyRegion,
 }
 
-/// What [`create_project_with_options`] makes: the template, and whether the new project is
-/// set up as text project right away (the wizard's check box, off by default).
+/// What [`create_project_with_options`] makes: the template, whether the new project is set
+/// up as text project right away and whether it is set up as a local Git repository (the
+/// wizard's check boxes, both off by default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateOptions {
     pub template: Template,
     pub text_project: bool,
+    #[serde(default)]
+    pub git: bool,
 }
 
-/// A stage of [`create_project`]. `TextProject` only with [`CreateOptions::text_project`].
+/// A stage of [`create_project`]. `TextProject` only with [`CreateOptions::text_project`],
+/// `Git` only with [`CreateOptions::git`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
@@ -226,6 +230,7 @@ pub enum Phase {
     Template,
     Check,
     TextProject,
+    Git,
 }
 
 /// Reported at the start of each phase.
@@ -439,9 +444,14 @@ pub struct Created {
     pub phases: Vec<(Phase, u128)>,
     /// The adoption as text project, with [`CreateOptions::text_project`].
     pub text_project: Option<crate::textproject::adopt::AdoptReport>,
+    /// "Git einrichten", with [`CreateOptions::git`]: without a `git` CLI its `reason` says
+    /// that only the templates are written.
+    pub git: Option<crate::git::InitReport>,
 }
 
 type Extractor<'a> = &'a dyn Fn(&Path, &Path) -> Result<Project, KernelError>;
+/// Finds the `git` CLI for [`Phase::Git`] ([`crate::git::find_git`]; tests isolate it).
+type GitFinder<'a> = &'a dyn Fn() -> Option<crate::git::GitCli>;
 
 /// Creates a project at `dest` from the `.nds` at `rom`: reads and checks the ROM, unpacks it
 /// into `<parent>/.<name>.g4-new`, writes `.g4/base.json`, checks that the project opens and
@@ -457,6 +467,7 @@ pub fn create_project(
     let opts = CreateOptions {
         template,
         text_project: false,
+        git: false,
     };
     create_project_with_options(rom, dest, &opts, progress)
 }
@@ -464,14 +475,25 @@ pub fn create_project(
 /// [`create_project`] with `opts`: with `text_project` the project is set up as text project
 /// (`textproject::adopt` against the ROM itself) after the check, before the staging folder
 /// is renamed, reported as [`Phase::TextProject`] (one count over the adoption's phases that
-/// only goes up, see `text_project_step`).
+/// only goes up, see `text_project_step`). With `git` the project is then set up as a local
+/// Git repository in the staging folder ([`crate::git::git_init`] with the `git` CLI
+/// [`crate::git::find_git`] finds), reported as [`Phase::Git`]: without a `git` only the
+/// templates are written and [`Created::git`] says why; a failing commit does not fail the
+/// project (its reason is in the report), a broken template does.
 pub fn create_project_with_options(
     rom: &Path,
     dest: &Path,
     opts: &CreateOptions,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<Created, KernelError> {
-    create_project_with(rom, dest, opts, progress, &crate::build::extract_rom)
+    create_project_with(
+        rom,
+        dest,
+        opts,
+        progress,
+        &crate::build::extract_rom,
+        &crate::git::find_git,
+    )
 }
 
 pub(crate) fn create_project_with(
@@ -480,6 +502,7 @@ pub(crate) fn create_project_with(
     opts: &CreateOptions,
     progress: &mut dyn FnMut(Progress),
     extract: Extractor<'_>,
+    find_git: GitFinder<'_>,
 ) -> Result<Created, KernelError> {
     let template = opts.template;
     let mut phases: Vec<(Phase, u128)> = Vec::new();
@@ -549,6 +572,7 @@ pub(crate) fn create_project_with(
     phases.push((Phase::Read, started.elapsed().as_millis()));
 
     let mut text_project = None;
+    let mut git = None;
     let outcome = (|| -> Result<(), KernelError> {
         let t = report(Phase::Extract, 0, 1);
         extract(rom, &staging)?;
@@ -604,6 +628,26 @@ pub(crate) fn create_project_with(
             )?);
             phases.push((Phase::TextProject, t.elapsed().as_millis()));
         }
+        if opts.git {
+            let t = report(Phase::Git, 0, GIT_STEPS);
+            // After the adoption the project is a text project: its layout is read anew.
+            let project = if opts.text_project {
+                Project::open(&staging)?
+            } else {
+                project
+            };
+            let cli = find_git();
+            git = Some(crate::git::git_init(
+                &project,
+                cli.as_ref(),
+                &crate::git::InitOptions::default(),
+                &mut |p| {
+                    report(Phase::Git, p.phase as u32, GIT_STEPS);
+                },
+            )?);
+            report(Phase::Git, GIT_STEPS, GIT_STEPS);
+            phases.push((Phase::Git, t.elapsed().as_millis()));
+        }
         if dest.is_dir() {
             // Empty (checked above): `remove_dir` refuses anything else.
             std::fs::remove_dir(dest).map_err(io_at(dest))?;
@@ -621,6 +665,7 @@ pub(crate) fn create_project_with(
         template,
         phases,
         text_project,
+        git,
     })
 }
 
@@ -647,6 +692,10 @@ fn apply_template(
     report(Phase::Template, total, total);
     Ok(started)
 }
+
+/// The steps [`Phase::Git`] counts to: one per [`crate::git::InitPhase`], `done` is the
+/// index of the phase that starts.
+const GIT_STEPS: u32 = 5;
 
 /// The steps [`Phase::TextProject`] counts to.
 const TEXT_PROJECT_STEPS: u32 = 1000;
@@ -1131,6 +1180,7 @@ mod create_tests {
         CreateOptions {
             template,
             text_project: false,
+            git: false,
         }
     }
 
@@ -1145,6 +1195,7 @@ mod create_tests {
             &opts(Template::Original),
             &mut |p| seen.push(p),
             &fake_extract,
+            &|| None,
         )
     }
 
@@ -1181,6 +1232,7 @@ mod create_tests {
         let opts = CreateOptions {
             template: Template::Original,
             text_project: true,
+            git: false,
         };
         let created = create_project_with(
             &rom,
@@ -1188,6 +1240,7 @@ mod create_tests {
             &opts,
             &mut |p| seen.push(p),
             &extract_with_layer,
+            &|| None,
         )
         .unwrap();
         let mut phases: Vec<Phase> = seen.iter().map(|p| p.phase).collect();
@@ -1254,6 +1307,80 @@ mod create_tests {
             "{:?}",
             scan.units
         );
+    }
+
+    #[test]
+    fn create_with_git_reports_the_phase_and_commits() {
+        let (tmp, rom) = synthetic_rom();
+        let home = tempfile::tempdir().unwrap();
+        let found = crate::test_support::GitFixture::cli(home.path());
+        let opts = CreateOptions {
+            template: Template::Original,
+            text_project: false,
+            git: true,
+        };
+        // Without git always (NOT_INSTALLED), with git only where one is found.
+        for (with_git, cli) in [(false, None), (true, found)] {
+            if with_git && cli.is_none() {
+                continue;
+            }
+            let dest = tmp.path().join(if with_git { "mit" } else { "ohne" });
+            let mut seen = Vec::new();
+            let created = create_project_with(
+                &rom,
+                &dest,
+                &opts,
+                &mut |p| seen.push(p),
+                &fake_extract,
+                &|| cli.clone(),
+            )
+            .unwrap();
+            let mut phases: Vec<Phase> = seen.iter().map(|p| p.phase).collect();
+            phases.dedup();
+            assert_eq!(
+                phases,
+                [
+                    Phase::Read,
+                    Phase::Extract,
+                    Phase::Template,
+                    Phase::Check,
+                    Phase::Git
+                ]
+            );
+            let timed: Vec<Phase> = created.phases.iter().map(|(p, _)| *p).collect();
+            assert_eq!(timed.last(), Some(&Phase::Git), "{timed:?}");
+            let report = created.git.expect("the report of Git einrichten");
+            assert!(dest.join(".gitignore").is_file());
+            assert!(dest.join(".gitattributes").is_file());
+            let staging = tmp.path().join(if with_git {
+                ".mit.g4-new"
+            } else {
+                ".ohne.g4-new"
+            });
+            assert!(!staging.exists());
+            if with_git {
+                assert!(report.committed, "{report:?}");
+                // Committed in the staging folder, still a clean repository after the rename.
+                let status = crate::git::status(&dest).unwrap();
+                assert_eq!(status.repo, crate::git::RepoKind::Own);
+                assert_eq!(status.head.unwrap().summary, crate::git::FIRST_COMMIT);
+                assert!(status.paths.is_empty(), "{:?}", status.paths);
+            } else {
+                assert!(!report.committed);
+                assert_eq!(report.reason.as_deref(), Some(crate::git::NOT_INSTALLED));
+                assert!(!dest.join(".git").exists());
+            }
+        }
+        // Without the option there is no report.
+        let created = create_fake(&rom, &tmp.path().join("nein"), &mut Vec::new()).unwrap();
+        assert!(created.git.is_none());
+    }
+
+    #[test]
+    fn create_options_read_without_git() {
+        let opts: CreateOptions =
+            serde_json::from_str(r#"{"template":"original","text_project":false}"#).unwrap();
+        assert!(!opts.git);
     }
 
     #[test]
@@ -1373,7 +1500,14 @@ mod create_tests {
             std::fs::write(d.join("junk"), "x").unwrap();
             Err(KernelError::Build("boom".into()))
         };
-        let result = create_project_with(&rom, &dest, &opts(Template::Original), &mut |_| {}, &bad);
+        let result = create_project_with(
+            &rom,
+            &dest,
+            &opts(Template::Original),
+            &mut |_| {},
+            &bad,
+            &|| None,
+        );
         assert!(matches!(result, Err(KernelError::Build(_))));
         assert!(!dest.exists());
         assert!(!tmp.path().join(".neu.g4-new").exists());
@@ -1432,6 +1566,7 @@ mod create_tests {
             &opts(Template::DataOnly),
             &mut |_| {},
             &fake_extract,
+            &|| None,
         )
         .unwrap();
         assert_eq!(
@@ -1455,6 +1590,7 @@ mod create_tests {
             &opts(Template::EmptyRegion),
             &mut |p| seen.push(p),
             &fake_extract,
+            &|| None,
         );
         match result {
             Err(KernelError::Refused(msg)) => assert!(msg.contains("T01"), "{msg}"),
@@ -1493,6 +1629,7 @@ mod create_tests {
             &opts(Template::EmptyRegion),
             &mut |_| {},
             &fake_extract_world,
+            &|| None,
         )
         .unwrap();
         let text = std::fs::read_to_string(dest.join(crate::scripts::ROTOM_TOML)).unwrap();

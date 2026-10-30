@@ -286,6 +286,15 @@ pub fn is_applied(project: &Project) -> Result<bool, KernelError> {
     }
 }
 
+/// Whether `arm9` (the bytes of an `arm9.bin`, such as a commit's) carries the patch's
+/// routine; [`is_applied`] for bytes not on disk. Always false for Diamond/Pearl.
+pub(crate) fn is_applied_in(project: &Project, arm9: &[u8]) -> Result<bool, KernelError> {
+    let Some(plan) = plan(project)? else {
+        return Ok(false);
+    };
+    Ok(signature_at(arm9, plan.init_offset) == Some(PATCH_SIGNATURE))
+}
+
 fn refuse(msg: String) -> KernelError {
     KernelError::InvalidProject(format!("dynamic headers patch: {msg}"))
 }

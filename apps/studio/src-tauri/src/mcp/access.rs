@@ -197,6 +197,12 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("rename_id", Kind::Write),
     ("entity_ids", Kind::Read),
     ("close_project", APP_ONLY),
+    ("git_status", Kind::Read),
+    ("git_init", Kind::Irreversible("Git einrichten")),
+    ("diff_entity", Kind::Read),
+    ("unsaved_changes", Kind::Read),
+    // A clone is completed before it opens: an agent has no project yet.
+    ("restore_text_project", APP_ONLY),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -377,6 +383,7 @@ mod tests {
                 ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
                 ("create_patch", Kind::Irreversible("Patch erstellen")),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
+                ("git_init", Kind::Irreversible("Git einrichten")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
                 (
                     "project_preview_set",
@@ -423,6 +430,7 @@ mod tests {
                     Kind::Unavailable("Das Projekt ist fest (--project)")
                 ),
                 ("register_base_rom", Kind::Unavailable("Nur in der App")),
+                ("restore_text_project", Kind::Unavailable("Nur in der App")),
                 ("revert_text_project", Kind::Unavailable("Nur in der App")),
             ]
         );
@@ -799,5 +807,16 @@ mod tests {
         }
         // One undo step, like any edit.
         assert_eq!(kind("reset_to_original"), Kind::Write);
+    }
+
+    #[test]
+    fn git_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["git_status", "diff_entity", "unsaved_changes"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        assert_eq!(kind("git_init"), Kind::Irreversible("Git einrichten"));
+        // A clone is completed before it opens.
+        assert_eq!(kind("restore_text_project"), APP_ONLY);
     }
 }

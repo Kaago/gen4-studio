@@ -75,6 +75,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/project_base.md"),
     ),
     (
+        "project_git",
+        include_str!("../../../../../docs/formats/project_git.md"),
+    ),
+    (
         "rotom_project",
         include_str!("../../../../../docs/formats/rotom_project.md"),
     ),
