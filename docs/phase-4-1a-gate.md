@@ -228,6 +228,18 @@ Je Zustand `-hell-1440`, `-dunkel-1440`, `-kompakt-1440`, `-hell-1100`, `-dunkel
 
 Bilder unter `target/agent/gate-2026-10-27/4-1a/` im Worktree, je 1440 × 900, aus der Test-Umgebung über Chrome headless (CDP). Die Werkzeuge des Browser-Fensters liefern Bilder nur an den Agenten und schreiben keine Datei.
 
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), in der Test-Umgebung mit Chrome headless (Playwright) auf frischen Kopien. Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-1a/` im Worktree `.claude/worktrees/blick-4` (Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-1a/`. Es sind 18 Bilder: die 13 `blick-veroeffentlichen-*` und ein neues, dazu die vier Bilder der Abnahme, die unten für den Nutzer genannt sind, in `abnahme-4-1a/`. Die übrigen 30 Bilder der Abnahme sind nicht neu aufgenommen; sie zeigten den Stand vor den Fixes. Abweichungen vom alten Inhalt:
+
+- **Alle Bilder:** Die Kopien heißen `blick4-4-1a-<zweck>`, also etwa „Neben dem Projekt liegt „blick4-4-1a-ui.nds“.“
+- **Technik:** Die Liste hat seit 4.1b und 4.3b mehr Einträge (Textprojekt, Änderungen). Die Meldung „Dieses Projekt lässt sich als Textprojekt einrichten …“ ist vor jeder Aufnahme geschlossen. Die Zahl der Warnungen in der Statusleiste steht je nach Stand der Hintergrundprüfung da oder nicht.
+- **`blick-veroeffentlichen-patch-erstellt-hell.png`:**
+  - Seit A2 heißt ein Patch ohne Änderung „Patch ohne Änderungen“. Für „Patch erstellt“ ist deshalb vorher eine Zelle der Bewegungsrechte geändert (`g4k map set-perm`). Das ergibt „Patch erstellt: 559 Byte“ statt 541 Byte.
+  - Die Datei der Basis-ROM ist jetzt die eigene `…-web.nds`, nicht `4-1a-mcp.nds`: Es lief keine MCP-Zuordnung einer zweiten Kopie dazwischen.
+- **Neu: `blick-veroeffentlichen-patch-ohne-aenderungen-hell.png`.** Es zeigt die Warnung „Patch ohne Änderungen: 549 Byte“ mit dem Satz „Die gebaute ROM gleicht der Basis-ROM; der Patch ändert nichts.“ (A2). Dazu gab es vorher kein Bild.
+- **`abnahme-4-1a/patch-erstellt-dunkel-1440.png`:** HeartGold DE mit einer geänderten Zelle, „Patch erstellt: 561 Byte“ (Abnahme: 559 Byte ohne Änderung, vor A2).
+- **`abnahme-4-1a/zuordnen-dialog-dunkel-1440.png`:** Dieselbe Aufnahme wie `blick-veroeffentlichen-zuordnen-dialog-dunkel.png`.
+- **Test-Umgebung:** Die Instanz lief ohne `G4_BASE_ROM_DIR`. Mit dieser Variable findet die Suche eine andere Kopie mit derselben SHA-1, und „Fehlt“ erscheint nie.
+
 - [ ] `blick-veroeffentlichen-vorschlag-hell.png`, `-dunkel.png`, `-kompakt-hell.png` (Kopie `4-1a-ui`): Untertitel „Keine Basis-ROM zugeordnet“, Plakette „Nicht zugeordnet“, Info-Meldung „Neben dem Projekt liegt „4-1a-ui.nds“.“, primär „Zuordnen…“, sekundär „Andere Datei wählen…“; in „Patch“ die gesperrte Taste mit der Notiz „Erst eine Basis-ROM zuordnen.“ Je Karte höchstens eine primäre Taste.
 - [ ] `blick-veroeffentlichen-zuordnen-dialog-hell.png`, `-dunkel.png`, `-kompakt-hell.png`: der Dialog „Basis-ROM zuordnen?“ über der abgedunkelten Fläche, „POKEMON PL · CPUD · SHA-1 d40f19ac“, „Bekannte Basis-ROM: Platin DE (Testprojekt)“, keine Warnung, die Plakette „Nicht rückgängig“, „Abbrechen“ und „Zuordnen“ (primär).
 - [ ] `blick-veroeffentlichen-gefunden-hell.png`, `-dunkel.png`, `-kompakt-hell.png`: Plakette „Gefunden“ (Erfolg), Angaben ROM, SHA-1 (acht Stellen in Mono), Datei (Pfad in Mono, gekürzt); „Patch erstellen…“ frei.

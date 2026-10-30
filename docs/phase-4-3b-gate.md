@@ -296,6 +296,37 @@ Der Abgleich beim Fokus und Speichern bleiben auch unter Last weit unter den Gre
 
 ## Blick
 
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-28/` und `gate-2026-10-29/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), auf frischen Kopien: die Oberfläche in der Test-Umgebung mit Chrome headless (Playwright), das Spiel mit `g4emu`. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-3b/` im Worktree `.claude/worktrees/blick-4` (Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-3b/`. Dort liegen die Bilder des UI-Tests direkt, die der Abnahme in `abnahme-4-3b/`. Es sind 125 Bilder:
+
+- **UI-Test, 80 Bilder:** 79 Bilder der Oberfläche (`blick-*`, `mcp-01` bis `mcp-05` und `mcp-07`, 1440 × 900) und `emu/nach-intro.png`.
+- **Abnahme, 45 Bilder:** `abn-01` bis `abn-40` und dazu `abn-31b`, außerdem `emu-ui/`, `emu-kpt/`, `emu-khgde/nach-intro.png` und `emu-khgus/titel.png`.
+
+Abweichungen vom alten Inhalt:
+
+- **Namen:** Die alte Liste der 80 Bilder stand in keiner Datei des Repos. Die Namen sind aus diesem Abschnitt rekonstruiert. Die Bilder, die nur unter Nummer liefen (`gate3-NN`, `mcp-04` bis `mcp-07`), haben jetzt sprechende Namen, etwa `blick-zuruecknehmen-dialog-*`, `blick-hier-spielen-konflikt-*`, `blick-pokedex-id-*`, `blick-textprojekt-zuletzt-uebernommen-*` und `mcp-04-data-edit-hell`. In der Abnahme sind `abn-02` bis `abn-04`, `abn-30` und `abn-31` nach der Tabelle benannt. `abn-31b` zeigt Technik › Textprojekt des neuen Projekts.
+- **Behobene Befunde:** Die Bilder zeigen den Stand nach den Fixes:
+  - U3: `blick-textprojekt-ungespeichert-*` mit der Spalte „Studio (ungespeichert)“.
+  - U5 und U6: `blick-textprojekt-fehlerhaft-*` mit dem Untertitel „1 fehlerhafte Datei“.
+  - U7: `blick-einrichten-fertig-hell` ohne Umbruch vor „s.“.
+  - U4: `mcp-02-waehrend-hell` mit „Wird von einem Agenten eingerichtet …“ und gesperrter Taste.
+  - U2: `mcp-03-nach-adopt-hell` ohne den Hinweis.
+  - A5: `abn-01` mit „Basis-ROM.“ in einer Zeile, gleich wie `abn-38`.
+  - A2: In `abn-39` liegt der Fokus auf der Überschrift „Textprojekt“ (über `document.activeElement` geprüft), ein Fokusring ist im Bild nicht zu sehen.
+- **`abn-40-umbenennen-sucht-hell-nachfix`:** aufgenommen 380 ms nach dem Tippen. Ohne Virenscanner stand der Plan nach 3,5 s.
+- **Seit 4.4 (Git):**
+  - Der Assistent hat das Häkchen „Git einrichten (nur lokal)“. Es ist in den Hauptbildern aus, in `blick-assistent-vorlage-haekchen-git-hell` an.
+  - Technik hat den Eintrag „Änderungen“.
+  - Im UI-Test ist die Kopie über `g4k git init` versioniert; die Statusleiste zeigt dort „main · …“. Nach „Zurücknehmen…“ sagt die Meldung zusätzlich „Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner.“
+  - Die Kopien der Abnahme haben kein Git.
+- **Daten:** Konflikte und fehlerhafte Dateien betreffen andere Einträge als damals, etwa Konflikt Pokémon 0027 mit `personal.attack` 80 / 78 und fehlerhafte Datei 0028. Jedes ⌘S zeigt die Meldung „1 Datei(en) gespeichert“.
+- **Prüfliste:** Die Prüfliste beim Einrichten hat eine dritte Zeile, „Scripts werden dabei übernommen“. In `-kompakt` steht „Scripts übernommen“, weil das Bild beim zweiten Einrichten nach „Zurücknehmen…“ entstand.
+- **Browser-Modus:** „Hier spielen“ fragt zuerst nach dem Pfad, dann meldet es „Im Browser-Modus wird nur gebaut“. Fortschritt beim Einrichten und im Assistenten nur als „Wird eingerichtet …“ bzw. „Lesen läuft“ (Hand-Punkt).
+- **Beobachtungen, kein Fix:**
+  - **Verlaufsmenü bei langer ID** (`mcp-07-verlauf-menue-hell`, `abn-35-mcp-verlauf-hell`): Nach `rename_id` über MCP mit einer langen ID bricht die Zeile „ID umbenannt: TRAINER_…_MCP → …_MCP2“ um, und das lange Wort stößt ohne Abstand an die Plakette „agent-gate“. Erwartet: ein Abstand oder Umbruch vor der Plakette.
+  - **Git-Zähler nach ⌘Z** (`blick-umbenennen-rueckgaengig-hell`): Nach ⌘Z eines „ID umbenennen…“ zeigt die Statusleiste noch „main · 2 Änderungen“, obwohl `git status` leer ist. Nach 8 s war es unverändert. Ob der nächste Fokus-Abgleich den Zähler richtet, ist nicht geprüft.
+  - **Pokédex mit fehlerhafter Art-JSON:** Bei einer fehlerhaften `data/species/0028.json` zeigt der Pokédex „Die Liste ist nicht lesbar. 1 Fehler in Scripts oder Texten“ statt der Liste. Der Satz nennt weder die Datei noch die richtige Art von Fehler.
+  - **Assistent, Schritt „Name und Ziel“:** „Weiter“ reagierte nach dem Tippen des Namens erst beim zweiten Klick, Enter im Feld tat nichts. Gesehen nur unter Playwright.
+
 Bilder unter `target/agent/gate-2026-10-28/4-3b/` im Worktree (80 Oberflächen-Bilder, 1440 × 900, Hell, Dunkel, Kompakt, dazu `emu/nach-intro.png`), aufgenommen im UI-Test vor `fdb3483`; Liste mit Inhalt je Bild im Abschnitt (3). Der Agent hat alle angesehen: keine abgeschnittenen Texte, kein Überlauf, Dunkel mit Tokens, Kompakt ohne Bruch; optisch nur U7 (behoben). Vor dem Worktree-Entfernen `target/agent/gate-2026-10-28/` und `target/agent/gate-2026-10-29/` sichern.
 
 - [ ] Technik › Textprojekt: `blick-textprojekt-dspre-*`, `-abgeglichen-*`, `-konflikt-diff-*`, `-fehlerhaft-*` (Untertitel dort noch „Abgeglichen“, U5), `-ungespeichert-dunkel` (Spalte dort noch „Studio“, U3).

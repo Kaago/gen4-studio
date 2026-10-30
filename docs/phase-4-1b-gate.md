@@ -242,6 +242,25 @@ Unter `target/agent/gate-2026-10-27/abnahme-4-1b/` im Worktree:
 
 Bilder unter `target/agent/gate-2026-10-27/4-1b/` im Worktree, je 1440 × 900, aus der laufenden Test-Umgebung über Chrome headless (CDP; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste), Stand nach der Fix-Welle. Die Werkzeuge des Browser-Fensters liefern Bilder nur an den Agenten und schreiben keine Datei.
 
+**Neu aufgenommen am 2026-10-31.** Die Bilder unter `target/agent/gate-2026-10-27/` gingen mit dem Ordner `target/` verloren. Sie sind neu aufgenommen, auf dem Stand von main `03a5615` (alle Fixes bis 4.4), in der Test-Umgebung mit Chrome headless (Playwright) auf frischen Kopien. Die Namen sind dieselben wie unten. Neuer Ort: `target/agent/gate-2026-10-31/blick-neu/4-1b/` im Worktree `.claude/worktrees/blick-4` (Branch `blick-phase-4`), dazu eine Kopie außerhalb des Repos unter `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/gate-2026-10-31/blick-neu/4-1b/`. Es sind 24 Bilder: die 17 `blick-*` und die sieben Bilder der Abnahme, die unten für den Nutzer genannt sind, in `abnahme-4-1b/`. Die übrigen Bilder der Abnahme zeigten den Stand vor A1 und A3 und sind nicht neu aufgenommen. Abweichungen vom alten Inhalt:
+
+- **Technik › Änderungen seit 4.4:**
+  - Oben steht ein Umschalter „Gegen Basis | Gegen letzten Commit | Gegen gespeichert“, vorgewählt „Gegen Basis“.
+  - Darunter steht „Gegenüber der Basis-ROM Platin DE (Testprojekt). Gezählt wird der gespeicherte Stand.“
+  - Rechts steht eine Detailspalte (bei 1100 px unter der Liste).
+- **Dialoge:** „Auf Original zurücksetzen…“ wählt die Zeile mit. Hinter jedem Dialog steht deshalb die Detailspalte dieser Zeile.
+- **`blick-dialog-karte-*`:** Vorher `d3645405` statt `58149cf8`, weil eine andere Zelle geändert ist. Nachher wie damals `ce31df4b`.
+- **`blick-aenderungen-ohne-basis-hell.png`:** Es zeigt nur den Umschalter, die Warnung und den Satz zu Veröffentlichen, ohne Untertitel. Die Instanz lief ohne `G4_BASE_ROM_DIR`, und beide Platin-`.nds` waren umbenannt; sonst findet die Suche eine andere Kopie mit derselben SHA-1.
+- **`blick-aenderungen-fortschritt-hell.png`:** Wie damals „Vergleiche …“ ohne Zahlen, dazu der Umschalter.
+- **`blick-kopf-aktionen-hell.png`:** BISASAM ist ungeändert. Der Eintrag ist trotzdem frei.
+- **`abnahme-4-1b/dialog-header-kompakt-dunkel-1100.png`:** HeartGold DE mit zwei Feldern (Musik Tag 1074 → 1073, Wetter 2 → 0).
+- **`abnahme-4-1b/fix-a1-liste-1100.png`:** Die Fläche ist ans Ende gerollt, bis zu den Gruppen der Gebäudemodelle.
+- **`abnahme-4-1b/fix-a3-eventdatei-*`:** „Tür 0“ (x 9 → 8) steht als letzte Zeile am unteren Rand der Spalten, weil die Spalte nicht weiter rollen kann.
+- **`abnahme-4-1b/fix-a2-kontextmenue-tastatur-hell-1440.png`:** Der Eintrag heißt „Header auf Original zurücksetzen…“. Header 33 ist vorher geändert.
+- **Technik:** Die Liste hat seit 4.3b „Textprojekt“. Die Meldung „Dieses Projekt lässt sich als Textprojekt einrichten …“ ist vor jeder Aufnahme geschlossen.
+- **`fig-*.png`:** Nicht neu aufgenommen. OpenPencil antwortete am 2026-10-31 nicht (`RPC timeout`). Die Frames liegen unverändert in der `.fig` (Lage im Abschnitt „`.fig`“ oben).
+- **Beobachtung, kein Fix:** Nach einem Mausklick auf „Route 29“ im Ortsbaum zeigte die Zeile den Fokusrahmen, `document.activeElement` war aber `body`. Shift+F10 öffnete das Menü erst nach `.focus()` auf die Zeile. Gesehen nur in Chromium headless, während die Szene lud. Es gehört zum Hand-Punkt „Kontextmenü in der App“.
+
 Die Dialoge liegen über Technik › Änderungen der Kopie `4-1b-web` (sieben Einträge in sieben Gruppen, darunter „Begegnungsdatei 0183“ mit „Neu“ und gesperrter Taste, die Info „Noch nicht gebaut: maps, matrices, areaData, eventFiles, textArchives und 31 weitere. …“).
 
 - [ ] `blick-dialog-karte-hell.png`, `-dunkel.png`, `-kompakt.png`: Dialog „Karte 0003 auf Original zurücksetzen?“, Überschrift „Karte 0003: 1 Zelle der Bewegungsrechte anders“, Vorher und Nachher mit umgebrochenen Kartenzeilen („Bewegungsrechte 58149cf8“ → „ce31df4b“ markiert, „Gebäude 0“, „Modell 7688 Byte 334bf7af“, „BDHC 66 Byte 02d606f6“), „Abbrechen“ und „Zurücksetzen“ (primär).
