@@ -14,7 +14,8 @@ export type GitStatusItemProps = {
 
 /**
  * The status line's Git item: the `git` symbol and „main · 3 Änderungen“ (or „noch kein Commit“, „4c1d2e3 (losgelöst)“), with the count
- * and the last commit as tooltip; a click shows the changes. Nothing without a repository.
+ * and the last commit as tooltip; a click shows the changes. Nothing without a repository. The accessible name starts with „Git: “ (the
+ * symbol is hidden, the tooltip is not linked) and holds the visible text.
  */
 export function GitStatusItem({ status, onOpen, error = null }: GitStatusItemProps) {
   if (error !== null) {
@@ -33,7 +34,7 @@ export function GitStatusItem({ status, onOpen, error = null }: GitStatusItemPro
   return (
     <span className={styles.item}>
       <Tooltip content={statusTooltip(status)}>
-        <Button kind="quiet" size="s" icon="git" onClick={onOpen} data-git-status="">
+        <Button kind="quiet" size="s" icon="git" onClick={onOpen} aria-label={`Git: ${text}`} data-git-status="">
           {text}
         </Button>
       </Tooltip>

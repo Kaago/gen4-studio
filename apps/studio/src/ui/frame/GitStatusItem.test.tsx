@@ -64,6 +64,16 @@ describe("GitStatusItem", () => {
     expect(item()?.textContent).toBe("main · keine Änderung");
   });
 
+  it("the_accessible_name_says_git_and_holds_the_visible_text", async () => {
+    // The git symbol is hidden and the tooltip is not linked: the name itself says what the item is, and starts with what is seen (label in name).
+    await show({ status: gitStatusOf({ changes: 1 }) });
+    expect(item()?.getAttribute("aria-label")).toBe("Git: main · 1 Änderung");
+    expect(item()?.getAttribute("aria-label")).toContain(item()?.textContent);
+    await show({ status: null, error: "Das Repository ist beschädigt." });
+    expect(item()?.getAttribute("aria-label")).toBeNull();
+    expect(item()?.textContent).toBe("Git: nicht lesbar");
+  });
+
   it("unborn_and_detached_read_as_such", async () => {
     await show({ status: gitStatusOf({ head: null, changes: 12 }) });
     expect(item()?.textContent).toBe("main · noch kein Commit");
