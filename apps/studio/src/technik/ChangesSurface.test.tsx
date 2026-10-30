@@ -172,6 +172,14 @@ describe("ChangesSurface", () => {
     expect(container.querySelector("[role=alert]")?.textContent).toContain("Die Basis-ROM fehlt.");
   });
 
+  it("a_row_carries_its_full_label_as_title", async () => {
+    // A long path is cut short by the list; hovering the row reads it in full.
+    const path = "expanded/textArchives/0001.json";
+    await render({ changes: changesWith({ report: report({ entries: [...ENTRIES, entry({ group: "Projektdateien", label: path, target: null, assets: [], folder: "", subject: { kind: "file", path } })] }) }) });
+    expect(change(path)?.getAttribute("title")).toBe(path);
+    expect(change("Karte 0003")?.getAttribute("title")).toBe("Karte 0003");
+  });
+
   it("a_row_without_target_has_a_locked_button_with_its_reason", async () => {
     await render({ changes: changesWith({ report: report({ entries: ENTRIES }) }) });
     const locked = resetButton("Matrix 0000")!;

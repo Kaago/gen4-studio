@@ -478,6 +478,8 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
           <ListRow
             key={key}
             label={entry.label}
+            // The list cuts a long path short: hovering the row reads it in full.
+            title={entry.label}
             ariaLabel={[entry.label, badge.text, ...(unsaved ? ["Ungespeichert"] : [])].join(", ")}
             selected={selected === key}
             onSelect={() => onSelect(key)}
