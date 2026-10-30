@@ -345,6 +345,27 @@ Unabhängige Abnahme durch eine zweite Sitzung auf dem Stand `850eb14` (main mit
 
 **Nicht geprüft in der Abnahme:** `scripts/gate.sh` (zuletzt grün auf `20f93b0`; läuft nach dem Merge auf main), die Fortschrittsphasen (die Brücke reicht keinen `Channel` durch), Windows und die gepackte App (Hand).
 
+## Gesamt-Gate auf main (2026-10-30)
+
+Nach dem Merge von 4.4 (`866fa0b`), den `.fig`-Nachträgen 4.3b und 4.4 (`abc4184`, `610658d`, `850eb14`), dem Fix A6 der Abnahme 4.3b (`7725c89`) und der Abnahme 4.4 (`6ee331a`) lief `scripts/gate.sh` auf main `6ee331a` mit `G4_ROMS_DIR=<Roms>` und `UV_NATIVE_TLS=1` (2026-10-30, 07:56 bis 12:03). Auf dem Rechner lief fremde Last (eine weitere Claude-App, eine virtuelle Maschine, LaTeX, Microsoft Defender; 1-Minuten-Last 12 bis 23), daher sind die Zeiten der gated Schritte 1,5- bis 2,4-mal so lang wie im Gate von 4.3b.
+
+| Schritt | Ergebnis | Sekunden |
+|---|---|---|
+| `cargo fmt --check`, `cargo clippy -D warnings`, `cargo deny` | ok | 3, 11, 3 |
+| `cargo test` ohne ROM, mcp, `pnpm test` | ok | 1 003, 32, 120 |
+| tokens, styles, `pnpm build`, dist ohne Brücke | ok | 0, 3, 21, 0 |
+| g4emu unit, integration | ok | 21, 7 |
+| gated `cargo test` HeartGold DE, HeartGold US | ok | 3 382, 5 627 |
+| gated `cargo test` Platin DE | **rot** im Gate-Lauf, ok in der Wiederholung | 4 585, 5 260 |
+| build graph (timings) HeartGold US, Platin DE | ok im zweiten Versuch (wie `gate.sh` es erlaubt) | 328, 178 |
+| build graph (timings) HeartGold DE | rot in zwei Versuchen (Last 13 bis 20), ok im dritten (Last 9) | 391 + 169 + 215 |
+| gated Projektstart HeartGold DE, HeartGold US, Platin DE | ok | 157, 132, 123 |
+
+- **Platin DE:** Rot war allein `vanilla_index_builds_under_a_second` (`crates/g4-kernel/tests/refs.rs`): der Referenzindex brauchte warm 2,76 s (Grenze 1 s), während die übrigen Tests desselben Laufs parallel dieselben Member lasen. Einzeln lief er dreimal grün (230, 342, 268 ms bei Last 17 bis 20), die Wiederholung des ganzen Schritts (derselbe Befehl wie in `gate.sh`) war grün. `gate.sh` bricht nach einem roten Schritt ab; die Schritte danach (Build-Graph-Zeiten, Projektstart) liefen deshalb mit denselben Befehlen in einem eigenen Skript.
+- **Build-Graph-Zeiten HeartGold DE:** Die Grenzen (Karte, Text, Script je ≤ 500 ms, ohne Änderung ≤ 200 ms) rissen unter Last bei Script 585 ms, dann Karte 547 ms. Der dritte Lauf bei Last 9 hielt alle (Karte 306, Text 312, Script 299, ohne Änderung 123 ms); ein vierter Lauf bei steigender Last riss wieder (Karte 597 ms). Die Zeiten streuen mit der Last stark (Script 299 bis 1 083 ms); im Gate von 4.3b und 4.4 hielten sie im ersten Versuch. Kein Hinweis auf eine Verschlechterung durch 4.4.
+- **Protokolle:** `target/agent/gate-2026-10-30/main/gate-main-6ee331a.log` (der Gate-Lauf) und `gate-rest-6ee331a.log` (Wiederholung und Rest), gespiegelt nach `/Users/POLTEP/Projekte/lab/editor/_blick-phase-4/`.
+- **Beim Nutzer offen:** ein `scripts/gate.sh` auf einem ruhigen Rechner (ohne VM, LaTeX und zweite Claude-App), wenn die Zeitgrenzen im ersten Versuch halten sollen.
+
 ## Hand
 
 - [ ] **Eigenes Git-Werkzeug:** in einem mit „Git einrichten…“ eingerichteten Projekt (DSPRE-Ordner oder Textprojekt) zeigt das eigene Werkzeug des Nutzers (Terminal, GitHub Desktop, Fork oder ähnlich) den Branch `main` mit genau einem Commit „Ausgangsstand“, den Autor (der eigene Name, wenn Git ihn kennt, sonst „Gen4 Studio“) und kein Remote; `git status` ist leer. Nach einer Änderung im Studio zeigt das Werkzeug dieselben Pfade, die die Statusleiste zählt; ein Commit dort setzt die Statusleiste beim Zurückkehren auf „keine Änderung“.
