@@ -231,7 +231,8 @@ schreiben, und die stehen in der Liste). Eine Variable ohne Eintrag:
 | Variable | unter `0x4000` | nichts (ein Wert) |
 | Flag | `1`–`0x3FFF` | `Flag(n)` |
 | Flag | `0` | nichts (kein Flag) |
-| Flag | ab `0x4000` | nur gezählt (`ScriptCounts.dynamic`, ein Flag aus einer Variable) |
+| Flag | ab `0x4000`, als Flag-Name geschrieben | `Flag(n)`, wenn der Befehl das Flag als Zahl nimmt (Parametertyp `u16` oder `flag`, etwa `SetFlag`) |
+| Flag | ab `0x4000`, sonst | nur gezählt (`ScriptCounts.dynamic`, ein Flag aus einer Variable) |
 | Trainer-Flag | Trainer `n` ab 1 | `Flag(0x550 + n)`, solange es im Bereich `trainer` liegt; der Verweis auf `Trainer(n)` bleibt |
 | Trainer-Flag | ab `0x4000` | nur gezählt (`dynamic`) |
 
@@ -239,6 +240,20 @@ Ein Argument zählt, wenn es eine Zahl ist oder ein Bezeichner, den der Build au
 der Datei, die IDs des Textprojekts (auch ein eigener Name wie `FLAG_HAT_MEDAILLE`), rotoms
 eigene Namen (`FLAG_UNUSED_0x0094`, `VAR_RESULT`). Ein Ausdruck, ein unbekannter Name, ein
 Alias ohne Wert und ein Name, den die Datei selbst deklariert, zählen nicht.
+
+**Flags ab `0x4000`.** Ein Flag-Argument ab `0x4000` ist meist ein Flag aus einer Variable.
+Es gibt aber Flags mit solchen Nummern: HeartGolds temporäre Flags `FLAG_TEMP_x4000` bis
+`FLAG_TEMP_x403F` (Bereich `temp`) und Platins `FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE` (`0x410D`).
+Darum ist ein solches Argument ein `Flag(n)` mit dem Zugriff des Parameters, wenn es ein Name
+ist, der als Flag auflöst: ein pret-Flag-Name der Familie, ein eigener Flag-Name oder ein Alias
+der Datei für einen davon. Eine nackte Zahl (`SetFlag 0x4001`) und ein Variablenname
+(`SetFlag VAR_RESULT`) ab `0x4000` bleiben nur gezählt (`dynamic`). Das gilt nur für Parameter,
+die der Befehl als Zahl nimmt: ein Parameter vom Typ `var` oder `flex` (HeartGold `SetFlagVar`,
+`ClearFlagVar`, `CheckFlagVar`, Platin `SetFlagFromVar`, `CheckFlagFromVar`) ist ab `0x4000`
+die Variable, die das Flag hält, gleich welchen Namen eine dekompilierte Quelle ihm gibt
+(Vanilla-HeartGold Script 0952 schreibt `SetFlagVar FLAG_TEMP_x4001`, nachdem es
+`VAR_TEMP_x4001` auf 653 gesetzt hat). Trainer-Flags bleiben wie oben. Ein nackter `FLAG_…` in
+einer Bedingung folgt der Regel von `SetFlag` (rotom lowert ihn zu `CheckFlag`).
 
 **Bedingungen.** `if`, `else if` und `while` lesen, was sie prüfen: `!`, `&&` und `||`
 verbinden Bedingungen; ein nackter Bezeichner, dessen Name mit `FLAG_` beginnt und auflöst, ist
@@ -250,7 +265,8 @@ Ergebnisvariable ist kein Verweis. Quelle: rotom `src/compiler/ir/lowerer.rs:130
 1792-1807`.
 
 **Nicht indexiert, nur gezählt.** Variablen ab `0x8000` (Script-lokale Register) und Flags oder
-Trainer aus einer Variable. Die Zähler je Datei summiert der Index: `RefIndex::script_counts`
+Trainer aus einer Variable (ein Flag ab `0x4000` nur, wenn es nicht als Flag-Name geschrieben
+ist, s. o.). Die Zähler je Datei summiert der Index: `RefIndex::script_counts`
 liefert `ScriptCounts { script_local, dynamic }`.
 
 **Nicht lesbar.** Eine Quelle, die nicht parst, trägt nichts bei, weder Verweise noch Zähler;

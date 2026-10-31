@@ -25,7 +25,7 @@
 //! goes. A name whose number changed, or that is gone, makes the sources naming it stale, so
 //! rotom compiles them again.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -373,10 +373,13 @@ thread_local! {
 
 /// What an identifier in a script argument stands for as the build resolves it, without the
 /// source's own aliases: the id files as the compile would write them (or, outside a text
-/// project, as they are), then rotom's own constants. Made once for the reference index.
+/// project, as they are), then rotom's own constants. Made once for the reference index. Knows
+/// which ids are own flag names (the reference index counts a flag named by one as a flag,
+/// whatever its number).
 pub(crate) struct ScriptLookup {
     base: Option<rotom::ConstantDb>,
     ids: HashMap<String, i32>,
+    flag_ids: HashSet<String>,
 }
 
 impl ScriptLookup {
@@ -387,33 +390,57 @@ impl ScriptLookup {
         #[cfg(test)]
         LOOKUPS_MADE.with(|n| n.set(n.get() + 1));
         let base = scripts::base_constants(project, false).ok();
-        let ids = match applies(project) {
-            Ok(true) => Symbols::load(&project.root)
-                .map(|symbols| {
+        let mut ids = HashMap::new();
+        let mut flag_ids = HashSet::new();
+        match applies(project) {
+            Ok(true) => {
+                if let Ok(symbols) = Symbols::load(&project.root) {
                     let rotom = |name: &str| base.as_ref().and_then(|b| b.get(name));
-                    tables(&symbols, &rotom)
-                        .0
-                        .into_iter()
-                        .flat_map(|(_, ids)| ids)
-                        .filter_map(|(n, id)| Some((id, i32::try_from(n).ok()?)))
-                        .collect()
-                })
-                .unwrap_or_default(),
+                    for (kind, table) in tables(&symbols, &rotom).0 {
+                        for (n, id) in table {
+                            let Ok(n) = i32::try_from(n) else { continue };
+                            if kind == SymbolKind::Flag {
+                                flag_ids.insert(id.clone());
+                            }
+                            ids.insert(id, n);
+                        }
+                    }
+                }
+            }
             _ => {
                 let dir = project.root.join(scripts::database_dir(project));
-                scripts::constant_files(&dir)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|p| {
-                        p.file_name()
-                            .and_then(|n| n.to_str())
-                            .is_some_and(|n| n.starts_with(ID_FILE_PREFIX))
-                    })
-                    .flat_map(|p| names_in(&std::fs::read(&p).unwrap_or_default()))
-                    .collect()
+                let flags = file_name("flags");
+                for path in scripts::constant_files(&dir).unwrap_or_default() {
+                    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                        continue;
+                    };
+                    if !name.starts_with(ID_FILE_PREFIX) {
+                        continue;
+                    }
+                    let names = names_in(&std::fs::read(&path).unwrap_or_default());
+                    if name == flags {
+                        flag_ids.extend(names.keys().cloned());
+                    }
+                    ids.extend(names);
+                }
             }
-        };
-        ScriptLookup { base, ids }
+        }
+        ScriptLookup {
+            base,
+            ids,
+            flag_ids,
+        }
+    }
+
+    /// A lookup of the ids `ids` (name, number) without rotom's constants, `flag_ids` among
+    /// them the own flag names.
+    #[cfg(test)]
+    pub(crate) fn of_ids(ids: &[(&str, i32)], flag_ids: &[&str]) -> ScriptLookup {
+        ScriptLookup {
+            base: None,
+            ids: ids.iter().map(|&(name, n)| (name.to_owned(), n)).collect(),
+            flag_ids: flag_ids.iter().map(|&name| name.to_owned()).collect(),
+        }
     }
 
     /// The value of `name`, `None` when nothing resolves it.
@@ -422,6 +449,11 @@ impl ScriptLookup {
             .get(name)
             .copied()
             .or_else(|| self.base.as_ref()?.get(name))
+    }
+
+    /// Whether `name` is an own flag name (an id of the flag register in the id files).
+    pub(crate) fn is_flag_id(&self, name: &str) -> bool {
+        self.flag_ids.contains(name)
     }
 }
 

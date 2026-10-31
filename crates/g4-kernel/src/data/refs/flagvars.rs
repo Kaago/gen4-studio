@@ -7,10 +7,19 @@
 //! - a variable parameter: `0x4000..0x8000` is a [`Target::Var`]; from `0x8000` on it is local to
 //!   the script and only counted ([`ScriptCounts::script_local`]); below `0x4000` it is a value;
 //! - a flag parameter: `1..0x4000` is a [`Target::Flag`], `0` no flag; from `0x4000` on the flag
-//!   is the value of a variable and only counted ([`ScriptCounts::dynamic`]);
+//!   is the value of a variable and only counted ([`ScriptCounts::dynamic`]), except when the
+//!   command takes the flag as a plain number (a parameter of type `u16` or `flag`, as
+//!   `SetFlag`) and the argument is a name that resolves as a flag of the family: a pret flag
+//!   name (HeartGold's temporary `FLAG_TEMP_x4000`…`x403F`, Platinum's
+//!   `FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE` = `0x410D`), an own flag name or an alias of the file
+//!   for one of these; that one is a [`Target::Flag`] too. A plain number or a variable name from
+//!   `0x4000` on stays dynamic, and so does any argument of a parameter of type `var` or `flex`
+//!   (`SetFlagVar`, `SetFlagFromVar`): the engine reads such a parameter as a variable, whatever
+//!   name a decompiled source gives it;
 //! - a trainer flag parameter: trainer `n` is the flag [`trainer_flag`] gives (`0x550 + n`),
 //!   from `0x4000` on counted like a flag;
-//! - a condition: a bare identifier whose name starts with `FLAG_` and resolves is a flag read;
+//! - a condition: a bare identifier whose name starts with `FLAG_` and resolves is a flag read
+//!   (from `0x4000` on by the rule of `SetFlag`, as rotom lowers it to `CheckFlag`);
 //!   an operand of a comparison (or a bare operand, as rotom lowers it to `CompareVarValue x, 0`;
 //!   the head of `match`) that resolves from `0x4000` on is a variable read. A call in a
 //!   condition (`CheckItem(ITEM_POTION, 1) == 1`) is a command like any other; its implicit
@@ -41,13 +50,16 @@ pub(crate) enum ParamRole {
 }
 
 /// A parameter of a command that names a flag, a variable or a trainer flag: its name, its
-/// argument position in the command database, what it names and what the command does with it.
+/// argument position in the command database, what it names, what the command does with it and
+/// whether the engine takes it as a plain number (`direct`: its type is neither `var` nor
+/// `flex`, which the engine reads as a variable from `0x4000` on).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FlagVarParam {
     pub name: String,
     pub arg: usize,
     pub role: ParamRole,
     pub access: Access,
+    pub direct: bool,
 }
 
 /// The commands of one family whose parameters name a flag, a variable or a trainer flag, from
@@ -213,6 +225,7 @@ fn make_table(family: Family) -> Option<FlagVarTable> {
                     arg,
                     role,
                     access,
+                    direct: !matches!(param.ty.as_str(), "var" | "flex"),
                 })
             })
             .collect();
@@ -294,6 +307,15 @@ fn flag_value(value: i32) -> Seen {
     }
 }
 
+/// A flag argument the engine takes as a plain number, `named` when it is a name that resolves
+/// as a flag: like [`flag_value`], but a named flag from `0x4000` on is a flag as well.
+fn direct_flag_value(value: i32, named: bool) -> Seen {
+    match (flag_value(value), u16::try_from(value)) {
+        (Seen::Dynamic, Ok(v)) if named => Seen::Target(Target::Flag(v)),
+        (seen, _) => seen,
+    }
+}
+
 /// A variable argument: `0x4000..0x8000` a variable, from `0x8000` on local to the script,
 /// below `0x4000` a value.
 fn var_value(value: i32) -> Seen {
@@ -322,6 +344,7 @@ const SCRIPT_LOCAL: u16 = 0x8000;
 /// Collects the flag and variable references of one source.
 struct FlagVarRefs<'s, 'n> {
     file: u16,
+    family: Family,
     text: &'s str,
     names: &'n ScriptNames<'n>,
     refs: Vec<Ref>,
@@ -355,13 +378,13 @@ impl FlagVarRefs<'_, '_> {
         self.names.value(expression, expression.span.start, 0)
     }
 
-    fn command(
-        &mut self,
-        family: Family,
-        command: &'static str,
-        params: &[FlagVarParam],
-        args: &[Expression],
-    ) {
+    /// Whether `expression` is a name that resolves as a flag of the family.
+    fn names_a_flag(&self, expression: &Expression) -> bool {
+        self.names
+            .names_a_flag(expression, expression.span.start, 0, self.family)
+    }
+
+    fn command(&mut self, command: &'static str, params: &[FlagVarParam], args: &[Expression]) {
         for param in params {
             let Some(arg) = args.get(param.arg) else {
                 continue;
@@ -370,9 +393,10 @@ impl FlagVarRefs<'_, '_> {
                 continue;
             };
             let seen = match param.role {
+                ParamRole::Flag if param.direct => direct_flag_value(value, self.names_a_flag(arg)),
                 ParamRole::Flag => flag_value(value),
                 ParamRole::Var => var_value(value),
-                ParamRole::TrainerFlag => trainer_value(family, value),
+                ParamRole::TrainerFlag => trainer_value(self.family, value),
             };
             self.note(command, arg.span.start, seen, param.access);
         }
@@ -401,7 +425,7 @@ impl FlagVarRefs<'_, '_> {
             // rotom v0.7.0: src/compiler/ir/lowerer.rs flag_id_of (a bare flag constant).
             ExpressionKind::Identifier(name) if name.starts_with("FLAG_") => {
                 if let Some(value) = self.value(expression) {
-                    let seen = flag_value(value);
+                    let seen = direct_flag_value(value, self.names_a_flag(expression));
                     self.note(keyword, expression.span.start, seen, Access::Read);
                 }
             }
@@ -433,6 +457,7 @@ pub(crate) fn script_flagvar_refs(
 ) -> (Vec<Ref>, ScriptCounts) {
     let mut out = FlagVarRefs {
         file,
+        family,
         text,
         names,
         refs: Vec::new(),
@@ -441,7 +466,7 @@ pub(crate) fn script_flagvar_refs(
     scripts::visit(ast, &mut |item| match item {
         AstItem::Command { name, args } => {
             if let Some((command, params)) = table.params(name) {
-                out.command(family, command, params, args);
+                out.command(command, params, args);
             }
         }
         AstItem::Condition {

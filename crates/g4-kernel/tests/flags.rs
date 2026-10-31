@@ -132,7 +132,9 @@ fn vanilla_events(project: &Project) -> Vec<EventFile> {
 }
 
 /// A `SetFlag`, `ClearFlag` or `CheckFlag` line of a `.rotom` source whose argument is a flag
-/// number (`1..0x4000`) or a `FLAG_…` name.
+/// number (`1..0x4000`) or a `FLAG_…` name, whatever its number (R17: a flag name from `0x4000`
+/// on, as HeartGold's `FLAG_TEMP_x4000`, is a flag; a plain number from there is a flag from a
+/// variable). All three commands take the flag as a plain number (type `u16`).
 fn is_flag_command_line(line: &str) -> bool {
     let mut words = line.split_whitespace();
     let (Some(command), Some(arg)) = (words.next(), words.next()) else {

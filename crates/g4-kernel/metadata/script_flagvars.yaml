@@ -24,6 +24,12 @@
 # command of the same name, parameter at the same position, when that one is a variable
 # (otherwise `unknown`).
 #
+# Which value counts is decided in the code (`flagvars.rs`): a flag argument from 0x4000 on is a
+# flag only when the parameter takes a plain number (type neither `var` nor `flex`) and the
+# argument is a name that resolves as a flag (pret flag name of the family, own flag name, or a
+# file alias of one: HeartGold `FLAG_TEMP_x4000`..`x403F`, Platinum
+# `FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE`); otherwise it is a flag from a variable, only counted.
+#
 # Commands and parameters are spelled as the bundled database of the family names them
 # (canonical name; a source may write a legacy name or an alias). Commands whose parameters
 # exist only per variant of a mode (Platinum `MysteryGiftGive`, `CallTVBroadcast`,
@@ -48,7 +54,7 @@ pt:
     SetFlag: { flagID: write }
     ClearFlag: { flagID: write }
     CheckFlag: { flagID: read }
-    # The flag is the value of the variable (or the number below 0x4000).
+    # The flag is the value of the variable (or the number below 0x4000), whatever its name.
     SetFlagFromVar: { varID: write }
     CheckFlagFromVar: { flagID: read }
   # Macros: the database gives their parameters no `access`; the access is the one of the
@@ -101,7 +107,7 @@ hgss:
     SetFlag: { flag: write }
     ClearFlag: { flag: write }
     CheckFlag: { flag: read }
-    # The flag is the value of the variable (or the number below 0x4000).
+    # The flag is the value of the variable (or the number below 0x4000), whatever its name.
     SetFlagVar: { flag: write }
     ClearFlagVar: { flag: write }
     CheckFlagVar: { var_flag: read }

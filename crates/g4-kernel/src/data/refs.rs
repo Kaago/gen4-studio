@@ -1346,12 +1346,7 @@ impl ScriptNames<'_> {
         match &expression.node {
             ExpressionKind::Number(n) => Some(*n),
             ExpressionKind::Identifier(name) => {
-                let alias = self
-                    .aliases
-                    .iter()
-                    .rev()
-                    .find(|(alias, _, defined)| alias == name && *defined < at);
-                if let Some(&(_, value, defined)) = alias {
+                if let Some((value, defined)) = self.alias(name, at) {
                     return (depth < Self::DEPTH)
                         .then(|| self.value(value, defined, depth + 1))
                         .flatten();
@@ -1363,6 +1358,34 @@ impl ScriptNames<'_> {
             }
             _ => None,
         }
+    }
+
+    /// The alias of the file named `name` defined before byte `at`, with where it is defined.
+    fn alias(&self, name: &str, at: usize) -> Option<(&Expression, usize)> {
+        self.aliases
+            .iter()
+            .rev()
+            .find(|(alias, _, defined)| *alias == name && *defined < at)
+            .map(|&(_, value, defined)| (value, defined))
+    }
+
+    /// Whether `expression` (at byte `at`) is a name that resolves as a flag of `family`: a
+    /// pret flag name, an own flag name, or an alias of the file for one of these. A number,
+    /// a variable name or a name the file declares is none.
+    fn names_a_flag(&self, expression: &Expression, at: usize, depth: u8, family: Family) -> bool {
+        let ExpressionKind::Identifier(name) = &expression.node else {
+            return false;
+        };
+        if let Some((value, defined)) = self.alias(name, at) {
+            return depth < Self::DEPTH && self.names_a_flag(value, defined, depth + 1, family);
+        }
+        if self.declared.contains(name.as_str()) {
+            return false;
+        }
+        crate::flags::names(family, FlagKind::Flag)
+            .number(name)
+            .is_some()
+            || self.lookup.is_flag_id(name)
     }
 }
 
@@ -1487,22 +1510,37 @@ mod tests {
         let stats = || SCRIPT_STATS.with(std::cell::Cell::get);
         let (made_before, stats_before) = (made(), stats());
         let mut index = RefIndex::new();
+        // A step the gate holds back stats nothing, as long as the machine took less than the
+        // gate since `started` (taken before the stat the gate counts from); a machine that
+        // stalled longer under load may stat once more, which is no failure.
+        let held = |started: Instant, before: usize| {
+            let now = stats();
+            if started.elapsed() < REFRESH_SCRIPTS_EVERY {
+                assert_eq!(now, before, "within the gate");
+            } else {
+                assert!((before..=before + 1).contains(&now), "{now} after {before}");
+            }
+            now
+        };
         // Two queries right after each other: the build stats the sources, the refresh of the
         // second query does not.
+        let started = Instant::now();
         assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
-        assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
-        assert_eq!(made(), made_before + 1);
         assert_eq!(stats(), stats_before + 1);
+        assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
+        let after_two = held(started, stats_before + 1);
+        assert_eq!(made(), made_before + 1);
         // Forced: statted again, the lookup kept.
         assert_eq!(index.refresh_scripts_now(&st).unwrap(), []);
-        assert_eq!(stats(), stats_before + 2);
+        assert_eq!(stats(), after_two + 1);
         assert_eq!(made(), made_before + 1);
         // Past the gate a plain refresh stats again.
-        std::thread::sleep(REFRESH_SCRIPTS_EVERY + std::time::Duration::from_millis(20));
+        std::thread::sleep(REFRESH_SCRIPTS_EVERY + Duration::from_millis(20));
+        let started = Instant::now();
         assert_eq!(index.refresh(&st).unwrap(), []);
-        assert_eq!(stats(), stats_before + 3);
+        assert_eq!(stats(), after_two + 2);
         assert_eq!(index.refresh(&st).unwrap(), []);
-        assert_eq!(stats(), stats_before + 3);
+        held(started, after_two + 2);
     }
 
     fn bg(script: u16, event_type: u16) -> uxie::event_file::BgEvent {

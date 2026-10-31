@@ -77,8 +77,9 @@ pub fn data_kind_of(symbol: SymbolKind) -> Option<&'static DataKind> {
     DATA_KINDS.iter().find(|kind| kind.symbol == symbol)
 }
 
-/// `schemas` of the manifest for this Studio: every data kind with its version, plus `keep`'s
-/// foreign keys (those that name no data kind) as they are.
+/// `schemas` of the manifest for this Studio: every data kind with the higher of its version
+/// and the one `keep` names (a newer Studio's version stays: an older Studio never lowers it),
+/// plus `keep`'s foreign keys (those that name no data kind) as they are.
 pub fn schemas(keep: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = keep
         .iter()
@@ -86,7 +87,9 @@ pub fn schemas(keep: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     for kind in &DATA_KINDS {
-        out.insert(kind.folder.to_owned(), Value::from(kind.schema_version));
+        let kept = keep.get(kind.folder).and_then(Value::as_u64).unwrap_or(0);
+        let version = kept.max(u64::from(kind.schema_version));
+        out.insert(kind.folder.to_owned(), Value::from(version));
     }
     out
 }
@@ -304,7 +307,7 @@ mod tests {
         );
         let keep = BTreeMap::from([
             ("stories".to_owned(), serde_json::json!({"version": 2})),
-            ("flags".to_owned(), Value::from(7)),
+            ("vars".to_owned(), Value::from(0)),
         ]);
         assert_eq!(
             schemas(&keep),
@@ -314,6 +317,29 @@ mod tests {
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
+    }
+
+    #[test]
+    fn schemas_never_lower_a_newer_version() {
+        // `flags: 2` written by a newer Studio (3d.4) stays; a version that is no number is
+        // this Studio's.
+        let keep = BTreeMap::from([
+            ("flags".to_owned(), Value::from(2)),
+            ("vars".to_owned(), Value::from("zwei")),
+        ]);
+        assert_eq!(
+            schemas(&keep),
+            BTreeMap::from([
+                ("flags".to_owned(), Value::from(2)),
+                ("vars".to_owned(), Value::from(1)),
+            ])
+        );
+        // And the manifest an older Studio writes keeps it.
+        let fx = TextFixture::exported();
+        let mut manifest = read_manifest(fx.root()).unwrap();
+        manifest.schemas.insert("flags".to_owned(), Value::from(2));
+        let written = crate::textproject::manifest::manifest_for(&fx.project(), Some(&manifest));
+        assert_eq!(written.schemas["flags"], Value::from(2));
     }
 
     /// `(code, severity, file, line)` of each problem, sorted.
