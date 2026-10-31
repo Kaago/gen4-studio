@@ -166,7 +166,7 @@ beschrieben.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
-| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` und `crates/g4-kernel/tests/diff.rs` (4.4) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs`, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) und `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` (4.4) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
+| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` und `crates/g4-kernel/tests/diff.rs` (4.4), `crates/g4-kernel/tests/recipes.rs` (3d.2: `vanilla_room_recipe_matches_the_wizard_scenario`, nur Platin DE, sonst `skipped`; „Welt leeren“ mit Undo der Scripts prüft `vanilla_empty_region_undo_restores_the_world` in `tests/templates.rs`) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs`, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) und `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` (4.4) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
@@ -439,7 +439,7 @@ target/debug/g4k create <rom.nds> <neuer-ordner> --template empty-region
 |---|---|
 | `vanilla_plan_empty_region` | der Plan: Startstadt, behaltene Räume, Rand-Zellen, leeres Level-Script |
 | `vanilla_empty_region_has_no_check_errors` | Scripts übernehmen, anwenden, speichern: alle drei Prüfgruppen ohne Fehler, kein `text.too-wide` im Textarchiv der Stadt, ein neuer Plan sieht `already_empty` |
-| `vanilla_empty_region_undo_restores_the_world` | ein ⌘Z stellt Header-Tabelle, Matrix 0 und die Eventdatei der Stadt byte-gleich wieder her |
+| `vanilla_empty_region_undo_restores_the_world` | ein ⌘Z stellt Header-Tabelle, Matrix 0 und die Eventdatei der Stadt byte-gleich wieder her, seit 3d.2 auch Start-Script, Level-Script-Datei, die berührten Textarchive und `compile-state.json` (das Projekt liegt im Test in Git: nach ⌘Z nennt `git status` nur die Rand-Karte); ⌘⇧Z bringt das Ergebnis zurück |
 | `vanilla_empty_region_builds` | das gespeicherte Ergebnis baut ohne Fehler |
 
 ```sh
