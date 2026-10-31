@@ -170,6 +170,12 @@ describe("FramePage", () => {
       ["Raum anlegen", "true", false],
       ["Neue Figur", null, true],
     ]);
-    expect(container.querySelectorAll('[role="toolbar"][aria-label="Rezepte"] button[data-recipe]')).toHaveLength(5);
+    // A locked key as only its symbol, the way the bar shows it.
+    expect(keys[4]?.getAttribute("aria-label")).toBe("Tür verbinden");
+    expect(keys[4]?.textContent).toBe("");
+    // The bar upright at the left and flat at the top, one row: two named keys, three as symbols.
+    const bars = [...container.querySelectorAll<HTMLElement>('[role="toolbar"][aria-label="Rezepte"]')];
+    expect(bars.map((b) => b.getAttribute("aria-orientation"))).toEqual(["vertical", "horizontal"]);
+    for (const bar of bars) expect([...bar.querySelectorAll("button[data-recipe]")].map((b) => b.textContent)).toEqual(["Gebiet anlegen", "Raum anlegen", "", "", ""]);
   });
 });

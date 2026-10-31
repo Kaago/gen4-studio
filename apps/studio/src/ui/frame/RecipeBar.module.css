@@ -13,9 +13,10 @@
   box-shadow: var(--g4-schatten-schwebend);
 }
 
+/* One row like the toolbar, never two: the locked recipes show only their symbol, so five keys fit. */
 .bar[aria-orientation="horizontal"] {
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
 }
 

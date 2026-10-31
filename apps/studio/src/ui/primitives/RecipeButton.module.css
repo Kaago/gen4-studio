@@ -24,6 +24,17 @@
   padding: var(--g4-raum-2) var(--g4-raum-8) var(--g4-raum-2) var(--g4-raum-2);
 }
 
+/* Only the symbol (and the lock): no name to give room to, the right edge as close as the left. */
+.recipe[data-icon-only] {
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-4) var(--g4-raum-4);
+}
+
+.recipe[data-icon-only][data-size="s"] {
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-2) var(--g4-raum-6) var(--g4-raum-2) var(--g4-raum-2);
+}
+
 .recipe:hover:not(:disabled, [aria-pressed="true"]) {
   border-color: var(--g4-linie-standard);
   background: var(--g4-flaeche-deck);

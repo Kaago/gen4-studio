@@ -20,14 +20,17 @@ export type RecipeButtonProps = {
   reason?: string | null;
   onClick: () => void;
   size?: "m" | "s";
+  /** Only the symbol (and the lock): the name stays the accessible name and heads the tooltip. A bar shows a locked recipe so. */
+  iconOnly?: boolean;
 };
 
 /**
  * A recipe as a key: the symbol on a tile in its area's colour, the name beside it (a recipe is a word, never only a letter). Rest, hover,
  * pressed (cobalt edge, `aria-pressed`) and locked: disabled, the name dimmed and a lock after it (never colour alone), the reason in the
- * tooltip and as the description. A locked key cannot take focus, so its wrapper takes the pointer for the tooltip.
+ * tooltip and as the description. A locked key cannot take focus, so its wrapper takes the pointer for the tooltip. `iconOnly` drops the
+ * visible name (the recipe bar does it for a locked recipe, to stay one row): the name is then the `aria-label` and the tooltip's head.
  */
-export function RecipeButton({ id, label, icon, area, hint, pressed, reason = null, onClick, size = "m" }: RecipeButtonProps) {
+export function RecipeButton({ id, label, icon, area, hint, pressed, reason = null, onClick, size = "m", iconOnly = false }: RecipeButtonProps) {
   const reasonId = useId();
   const locked = reason !== null;
   const key = (
@@ -38,6 +41,8 @@ export function RecipeButton({ id, label, icon, area, hint, pressed, reason = nu
       data-area={area}
       data-size={size}
       data-locked={locked ? "" : undefined}
+      data-icon-only={iconOnly ? "" : undefined}
+      aria-label={iconOnly ? label : undefined}
       // Only a recipe that runs takes part in a bar's roving tab stop.
       data-roving={locked ? undefined : ""}
       aria-pressed={pressed}
@@ -48,7 +53,7 @@ export function RecipeButton({ id, label, icon, area, hint, pressed, reason = nu
       <span className={`${styles.tile} ${styles[area]}`}>
         <Icon name={icon} weight={pressed ? "fill" : "regular"} />
       </span>
-      <span className={styles.label}>{label}</span>
+      {!iconOnly && <span className={styles.label}>{label}</span>}
       {locked && (
         <span className={styles.lock}>
           <Icon name="lock" />

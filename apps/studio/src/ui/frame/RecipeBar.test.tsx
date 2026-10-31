@@ -35,9 +35,14 @@ describe("RecipeBar", () => {
     expect(bar().getAttribute("aria-orientation")).toBe("vertical");
     expect(bar().getAttribute("data-anchor")).toBe("left");
     expect(keys().map((b) => b.getAttribute("data-recipe"))).toEqual(["create_area", "create_room", "new_figure", "connect_doors", "new_trainer_here"]);
-    expect(keys().map((b) => b.textContent)).toEqual(["Gebiet anlegen", "Raum anlegen", "Neue Figur", "Tür verbinden", "Neuer Trainer hier"]);
+    // One row like the toolbar: a runnable recipe shows its name, a locked one only its symbol and the lock.
+    expect(keys().map((b) => b.textContent)).toEqual(["Gebiet anlegen", "Raum anlegen", "", "", ""]);
     expect(keys().map((b) => b.disabled)).toEqual([false, false, true, true, true]);
+    expect(keys().map((b) => b.hasAttribute("data-icon-only"))).toEqual([false, false, true, true, true]);
+    // A locked key keeps its name as the accessible name and its reason as the description.
+    expect(keys().map((b) => b.getAttribute("aria-label"))).toEqual([null, null, "Neue Figur", "Tür verbinden", "Neuer Trainer hier"]);
     for (const id of ["new_figure", "connect_doors", "new_trainer_here"]) {
+      expect(key(id).querySelectorAll("svg")).toHaveLength(2);
       expect(document.getElementById(key(id).getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
     }
     // Flat at the top or the bottom, like the toolbar it stands in for.

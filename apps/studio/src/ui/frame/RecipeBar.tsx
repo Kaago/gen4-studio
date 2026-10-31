@@ -14,8 +14,9 @@ export interface RecipeBarProps {
 }
 
 /**
- * The recipes of Erzählen as a bar floating over the 3D view, where Bauen has its tools: one key per recipe with symbol and name, a locked
- * one says why. It takes the toolbar's anchor; moving it is the toolbar's business (in Bauen).
+ * The recipes of Erzählen as a bar floating over the 3D view, where Bauen has its tools, in one row (or column) like them: a recipe that
+ * runs as a key with symbol and name, a locked one as its symbol with the lock (name and reason in the tooltip, the accessible name and
+ * the description). It takes the toolbar's anchor; moving it is the toolbar's business (in Bauen).
  */
 export const RecipeBar = memo(function RecipeBar({ entries, onRecipe, density, anchor }: RecipeBarProps) {
   const bar = useRef<HTMLDivElement>(null);
@@ -24,7 +25,7 @@ export const RecipeBar = memo(function RecipeBar({ entries, onRecipe, density, a
   return (
     <div ref={bar} role="toolbar" aria-label="Rezepte" aria-orientation={vertical ? "vertical" : "horizontal"} data-anchor={anchor} data-dichte={density} className={styles.bar}>
       {entries.map((r) => (
-        <RecipeButton key={r.id} id={r.id} label={r.label} icon={r.icon} area={r.area} hint={r.hint} reason={r.reason ?? null} onClick={() => onRecipe(r.id)} />
+        <RecipeButton key={r.id} id={r.id} label={r.label} icon={r.icon} area={r.area} hint={r.hint} reason={r.reason ?? null} iconOnly={r.reason !== undefined} onClick={() => onRecipe(r.id)} />
       ))}
     </div>
   );

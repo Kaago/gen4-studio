@@ -538,13 +538,15 @@ export function FramePage() {
         <h2 className={styles.blockTitle}>Rezept-Taste</h2>
         <p className={styles.note}>
           Ein Rezept in Erzählen: das Symbol auf einer Kachel in der Farbe seines Bereichs, daneben der Name. Ruhe, Hover (Zeiger darauf: Fläche wie das Deck), Aktiv (Kobalt-Kante) und Gesperrt
-          (gedämpft, mit Schloss, der Tooltip nennt den Grund). Die kleine Größe steht im Ergebnis eines Assistenten.
+          (gedämpft, mit Schloss, der Tooltip nennt den Grund). Nur mit Symbol zeigt die Rezept-Leiste eine gesperrte Taste: Name und Grund stehen im Tooltip und bleiben Name und
+          Beschreibung der Taste. Die kleine Größe steht im Ergebnis eines Assistenten.
         </p>
         <div className={styles.row}>
           <RecipeButton id="create_area" label="Gebiet anlegen" icon="matrix" area="welt" hint="Kopiert Karten zu einem neuen Gebiet mit eigenem Ort." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" hint="Zeiger darauf zeigt den Hover." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" pressed onClick={noop} />
           <RecipeButton id="new_figure" label="Neue Figur" icon="figure" area="welt" reason="Kommt mit 3d.5" onClick={noop} />
+          <RecipeButton id="connect_doors" label="Tür verbinden" icon="door" area="welt" reason="Kommt mit 3d.5" iconOnly onClick={noop} />
         </div>
         <div className={styles.row}>
           <RecipeButton id="new_trainer_here" label="Neuer Trainer hier" icon="pokemon" area="pokemon" onClick={noop} size="s" />
@@ -556,10 +558,16 @@ export function FramePage() {
 
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Rezept-Leiste</h2>
-        <p className={styles.note}>In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker. Gebiet und Raum öffnen ihre Assistenten, die anderen Rezepte kommen mit 3d.5.</p>
+        <p className={styles.note}>
+          In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker und wie sie in einer Reihe (oder Spalte), nie umgebrochen. Gebiet und Raum öffnen ihre Assistenten und zeigen
+          Symbol und Namen; die anderen Rezepte kommen mit 3d.5 und zeigen nur ihr Symbol mit dem Schloss, Name und Grund im Tooltip.
+        </p>
         <div className={styles.toolbarViews}>
           <div className={styles.toolbarView}>
             <RecipeBar entries={RECIPE_BAR} onRecipe={noop} density="komfort" anchor="left" />
+          </div>
+          <div className={`${styles.toolbarView} ${styles.toolbarViewFlat} ${styles.recipeViewFlat}`}>
+            <RecipeBar entries={RECIPE_BAR} onRecipe={noop} density="komfort" anchor="top" />
           </div>
         </div>
       </section>

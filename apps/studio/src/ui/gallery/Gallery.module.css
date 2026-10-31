@@ -291,6 +291,11 @@
   height: 120px;
 }
 
+/* The flat recipe bar is wider than the toolbar (two keys with their names): 521 px in Komfort. */
+.recipeViewFlat {
+  width: 560px;
+}
+
 /* The start pane in a bounded box instead of the whole window. */
 .startFrame {
   max-height: 520px;

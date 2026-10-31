@@ -644,7 +644,7 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   | Tüfteln | `tinker` | „Tüfteln“ |
 
   Gewählt ist wie bei jedem Segment die Fläche des Segments mit Innenkante und gefülltem Symbol. Die Wahl gilt für die ganze App und wird gemerkt. Der Bereich rechnet daraus, was er zeigt (`viewDepth(area, depth)`): Erzählen nur in einem Bereich der Liste `NARRATING_AREAS` (heute nur Welt), in jedem anderen Bauen. Das Segment bleibt dabei auf Erzählen stehen und wird nicht zurückgestellt; wechselt man zurück in die Welt, ist Erzählen wieder da. Ein Wert ist mindestens eine Tiefe, wenn er sie oder eine tiefere ist (`depthAtLeast`): Bauen ist mindestens Erzählen, Tüfteln ist mindestens beides.
-- **Rezept-Taste** (`RecipeButton`, neuer Baustein in `ui/primitives`, `data-recipe`): ein Rezept als Taste. Links das Symbol auf einer Kachel in der Farbe des Bereichs (`bereich/<bereich>-flaeche`, wie bei `Reference`), rechts der Name (`text/s` 600, ein Rezept ist ein Wort, nie nur ein Buchstabe). Höhe `dichte/werkzeug` (Größe M) oder `dichte/steuer` (Größe S, im Ergebnis), Fläche `flaeche/blatt`, Kante `linie/leise`, Radius `radius/taste`.
+- **Rezept-Taste** (`RecipeButton`, neuer Baustein in `ui/primitives`, `data-recipe`): ein Rezept als Taste. Links das Symbol auf einer Kachel in der Farbe des Bereichs (`bereich/<bereich>-flaeche`, wie bei `Reference`), rechts der Name (`text/s` 600, ein Rezept ist ein Wort, nie nur ein Buchstabe). Höhe `dichte/werkzeug` (Größe M) oder `dichte/steuer` (Größe S, im Ergebnis), Fläche `flaeche/blatt`, Kante `linie/leise`, Radius `radius/taste`. Nur mit Symbol (`iconOnly`, `data-icon-only`; so zeigt die Rezept-Leiste eine gesperrte Taste): Kachel und Schloss ohne Namen, Abstand `raum/4`, rechts `raum/8`; der Name bleibt Name der Taste (`aria-label`) und Kopf des Tooltips.
 
   | Zustand | Aussehen |
   |---|---|
@@ -654,15 +654,15 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   | Gesperrt | `disabled`, Name und Kachel in `text/deaktiviert` ohne die Farbe des Bereichs, dahinter ein Schloss (`lock`, nie nur Farbe); der Grund steht im Tooltip und als Beschreibung (`aria-describedby`) |
 
   Der Tooltip hat zwei Zeilen: den Namen und darunter, was das Rezept macht, bei einer gesperrten Taste stattdessen den Grund. Eine gesperrte Taste nimmt den Fokus nicht; ihre Hülle nimmt den Zeiger für den Tooltip. Nur eine Taste, die läuft, gehört zum Tabstopp einer Leiste (`data-roving`).
-- **Rezept-Leiste** (`RecipeBar`, `ui/frame/RecipeBar.tsx`, `role="toolbar"`, Name „Rezepte“): In Erzählen steht sie über der 3D-Schau an der Stelle der Werkzeugleiste, mit demselben Blatt, derselben Kante, demselben Schatten und derselben Lage (links senkrecht, oben oder unten waagerecht; verschieben lässt sie sich nur in Bauen, über die Werkzeugleiste). Fünf Tasten der Größe M, in dieser Reihenfolge:
+- **Rezept-Leiste** (`RecipeBar`, `ui/frame/RecipeBar.tsx`, `role="toolbar"`, Name „Rezepte“): In Erzählen steht sie über der 3D-Schau an der Stelle der Werkzeugleiste, mit demselben Blatt, derselben Kante, demselben Schatten und derselben Lage (links senkrecht, oben oder unten waagerecht; verschieben lässt sie sich nur in Bauen, über die Werkzeugleiste). Wie die Werkzeugleiste steht sie in einer Reihe (oder Spalte) und bricht nie um: eine Taste, die läuft, zeigt Symbol und Namen, eine gesperrte nur ihr Symbol mit dem Schloss (Name und Grund im Tooltip, als Name und Beschreibung der Taste). Waagerecht misst sie in Komfort 521 × 50 px (Werkzeugleiste 381 × 50). Fünf Tasten der Größe M, in dieser Reihenfolge:
 
   | Taste | Symbol | Bereich | Zustand | Tooltip, zweite Zeile |
   |---|---|---|---|---|
   | Gebiet anlegen | `matrix` | Welt | läuft, öffnet den Assistenten | „Kopiert Karten zu einem neuen Gebiet mit eigenem Ort.“ |
   | Raum anlegen | `room` | Welt | läuft, öffnet den Assistenten (mit dem gewählten Ort als Außenseite) | „Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen.“ |
-  | Neue Figur | `figure` | Welt | gesperrt | „Kommt mit 3d.5“ |
-  | Tür verbinden | `door` | Welt | gesperrt | „Kommt mit 3d.5“ |
-  | Neuer Trainer hier | `pokemon` | Pokémon | gesperrt | „Kommt mit 3d.5“ |
+  | Neue Figur | `figure` | Welt | gesperrt, nur Symbol | „Kommt mit 3d.5“ |
+  | Tür verbinden | `door` | Welt | gesperrt, nur Symbol | „Kommt mit 3d.5“ |
+  | Neuer Trainer hier | `pokemon` | Pokémon | gesperrt, nur Symbol | „Kommt mit 3d.5“ |
 
   Die Werkzeug-Buchstaben (V, B, F, T, A, S, G) sind in Erzählen stumm. Beim Wechsel nach Erzählen springt das Werkzeug auf „Auswählen“; ein Werkzeug, das man dort über „+“ gewählt hat, bleibt gewählt.
 - **Entwurf-Schicht** (`world/scene/draft.ts`, eigene Gruppe der Schau, die kein Lader anfasst): Solange ein Assistent in der Welt offen ist und einen Entwurf hat, zeigt die Schau, was er anlegen würde, als geplant:

@@ -63,6 +63,20 @@ describe("RecipeButton", () => {
     expect(key().getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("icon_only_shows_the_symbol_and_keeps_the_name_as_accessible_name", () => {
+    show({ id: "new_figure", label: "Neue Figur", icon: "figure", reason: "Kommt mit 3d.5", iconOnly: true });
+    expect(key().getAttribute("data-icon-only")).toBe("");
+    expect(key().textContent).toBe("");
+    expect(key().getAttribute("aria-label")).toBe("Neue Figur");
+    // The symbol and the lock stay; the reason is still the description.
+    expect(key().querySelectorAll("svg")).toHaveLength(2);
+    expect(document.getElementById(key().getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
+    // Without it the name is visible and no aria-label doubles it.
+    show();
+    expect(key().hasAttribute("data-icon-only")).toBe(false);
+    expect(key().hasAttribute("aria-label")).toBe(false);
+  });
+
   it("takes_the_small_size", () => {
     show({ size: "s" });
     expect(key().getAttribute("data-size")).toBe("s");
