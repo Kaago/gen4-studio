@@ -39,4 +39,11 @@ describe("ContentPage", () => {
     expect(block.querySelector("ins")?.textContent).toBe("Sandgemme");
     expect(block.textContent).toContain("und 3 weitere Felder");
   });
+
+  it("shows_a_flag_row_and_its_detail_with_two_ways", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="flags"]')!;
+    expect(block.querySelectorAll("[data-flag-row]")).toHaveLength(1);
+    expect(block.querySelector("[data-flag-detail] h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+    expect(block.querySelectorAll("[data-flag-use]")).toHaveLength(2);
+  });
 });

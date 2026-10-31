@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { AdoptReport, AssetId, HeaderSummary, MigrateReport, ProjectInfo, RenameResult, RevertReport, TextProjectStatus } from "../api";
+import type { NameReport } from "../api";
+import { invalidateFlagLists } from "../flags/useFlagList";
 import { AGENT_SETTING_UP } from "../technik/TextProjectSurface";
 import type { TextProjectView } from "../technik/TextProjectSurface";
 import { adoptedText } from "../textproject/AdoptDialog";
@@ -147,6 +149,16 @@ export function useTextProjectDialogs({
     bumpIds();
     bumpChanged();
     void session.refreshDirty();
+    // A flag's or variable's own name may be the id: the lists of flags and variables (and the chips of the inspector) read it again.
+    invalidateFlagLists();
+  });
+
+  // An own name or a description of a flag or variable went in (one undo step that wrote files, Technik › Flags und Variablen): said as
+  // the surface words it; the history is read again, Änderungen compares again.
+  const onFlagNamed = useStableCallback((_report: NameReport, said: string) => {
+    session.setMessage({ kind: "info", text: said });
+    bumpChanged();
+    void session.refreshDirty();
   });
 
   // The ids the heads show: a new cache (read anew per kind) for every session and every `idsRevision`; neither is read inside, they are
@@ -191,5 +203,5 @@ export function useTextProjectDialogs({
     toast.lastingInfo(text, { key: HINT_TOAST, actions: [first, { label: "Nicht mehr fragen", onClick: () => dismissHint(forget) }] });
   }
 
-  return { textProject, dialog, closeDialog: () => setDialog(null), onAdopted, onReverted, onLifted, onCancelLift, onRenamed, idCache };
+  return { textProject, dialog, closeDialog: () => setDialog(null), onAdopted, onReverted, onLifted, onCancelLift, onRenamed, idCache, onFlagNamed };
 }

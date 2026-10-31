@@ -1,0 +1,235 @@
+/* Technik › Flags und Variablen: the same surface as Technik › Änderungen (ChangesSurface.module.css), list and detail in two cards. */
+.surface {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+  overflow: auto;
+  padding: var(--g4-raum-32) var(--g4-raum-24);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+}
+
+/* Everything shares one reading width (an empty state centres in it). */
+.surface > * {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 880px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.title {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.text,
+.note,
+.empty,
+.foot,
+.facts,
+.pret {
+  margin: 0;
+}
+
+.text {
+  max-width: 64ch;
+  font: var(--g4-font-text-s);
+}
+
+.note {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* The filters: the chips of kind and area, the boxes, the search; each a row of its own that wraps when narrow. */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.boxes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4) var(--g4-raum-16);
+}
+
+.search {
+  max-width: 360px;
+}
+
+/* The list and the detail of the chosen number: side by side when the surface has room (≥ 760 px), else the detail below the list. */
+.surface > .split {
+  max-width: 1280px;
+  container-type: inline-size;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--g4-raum-16);
+}
+
+@container (min-width: 760px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  /* The detail stays in view while the list scrolls the surface. */
+  .columns > :last-child {
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* The list's card: the head of the column „Live“, the rows, the foot. */
+.list,
+.detail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-12) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+.listHead {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 var(--g4-dichte-zeile-innen);
+}
+
+/* The column „Live“ waits for the play mode (3d.9): its head in the warning's amber, its cells empty. */
+.liveHead,
+.live {
+  width: var(--g4-raum-32);
+  flex: none;
+  text-align: center;
+}
+
+.liveHead {
+  color: var(--g4-status-warnung);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.live {
+  color: var(--g4-text-sekundaer);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+}
+
+.rowEnd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.usage {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-flex;
+}
+
+.empty {
+  padding: var(--g4-raum-8);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.foot {
+  padding: 0 var(--g4-dichte-zeile-innen);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* The detail: the head of the chosen number, then its sections. */
+.detail {
+  padding: var(--g4-raum-12) var(--g4-raum-16);
+}
+
+.detailHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.detailTitle {
+  margin: 0;
+  font: var(--g4-font-text-m);
+  overflow-wrap: anywhere;
+}
+
+/* An own name over the pret name. */
+.own {
+  font: var(--g4-font-text-m-betont);
+}
+
+.pret,
+.facts {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding-top: var(--g4-raum-4);
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: 0 var(--g4-raum-8) var(--g4-raum-8);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.groupHead {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  font-weight: 600;
+}
+
+.uses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-4);
+}
+
+/* The naming dialog's fields, one below the other. */
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}

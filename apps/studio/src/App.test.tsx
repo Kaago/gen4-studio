@@ -11,6 +11,9 @@ import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import { gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
+import { flagUsage, listFlags } from "./api";
+import { FLAGS, flagUsageOf } from "./flags/flagTesting";
+import { invalidateFlagLists } from "./flags/useFlagList";
 import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
@@ -236,6 +239,8 @@ vi.mock("./api", async (importOriginal) => ({
   restoreTextProject: vi.fn(),
   diffEntity: vi.fn(),
   unsavedChanges: vi.fn(),
+  listFlags: vi.fn(),
+  flagUsage: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -347,6 +352,10 @@ describe("App wiring", () => {
     vi.mocked(runChecks).mockResolvedValue(report());
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
     vi.mocked(agentSettings).mockResolvedValue({ settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: 'claude mcp add gen4-studio -- "/x" mcp', open_project: null });
+    // Technik's entry „Flags und Variablen“ reads the flags for its subtitle.
+    invalidateFlagLists();
+    vi.mocked(listFlags).mockResolvedValue(FLAGS);
+    vi.mocked(flagUsage).mockImplementation(async (kind, number) => flagUsageOf(kind, number));
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -1163,7 +1172,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(8);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(9);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -1172,6 +1181,25 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-patch]")?.textContent).toBe("Verfügbar");
       // The world stays mounted behind the surface.
       expect(shown.mounts).toBe(1);
+    });
+
+    it("show_in_directory_opens_technik_flags_on_the_number", async () => {
+      vi.mocked(flagUsage).mockImplementation(async (kind, number) => flagUsageOf(kind, number, { own_id: number === 0x94 ? "FLAG_HAT_MEDAILLE" : null }));
+      // „Im Verzeichnis zeigen“ of a picker in the inspector follows the link of its number.
+      await act(async () => void data().goTo({ kind: "flag", flagKind: "flag", number: 0x94 }));
+      await act(async () => {});
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("flags");
+      const technikRow = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Flags und Variablen"))!;
+      expect(technikRow.getAttribute("aria-selected")).toBe("true");
+      expect(container.querySelector("[data-technik=flags] [data-flag-row='148']")?.getAttribute("aria-selected")).toBe("true");
+      expect(flagUsage).toHaveBeenLastCalledWith("flag", 0x94);
+      expect(container.querySelector("[data-technik=flags] [data-flag-detail] h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+      // Another link from the world: the surface follows it.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () => void data().goTo({ kind: "flag", flagKind: "flag", number: 0x173 }));
+      await act(async () => {});
+      expect(container.querySelector("[data-technik=flags] [data-flag-row='371']")?.getAttribute("aria-selected")).toBe("true");
     });
 
     it("technik_projekt_shows_the_open_projects_preview_and_names_the_start_town_as_the_world_does", async () => {
@@ -2227,6 +2255,14 @@ describe("App wiring", () => {
       expect(paletteInput()).toBeNull();
       await act(async () => paletteButton().click());
       expect(paletteInput()).not.toBeNull();
+    });
+
+    it("flags_und_variablen_opens_technik_flags", async () => {
+      await pressCmdK();
+      await run("Flags und Variablen");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("flags");
+      expect(container.querySelectorAll("[data-technik=flags] [data-flag-row]")).toHaveLength(5);
     });
 
     it("runs_save_after_the_palette_closed", async () => {

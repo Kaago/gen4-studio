@@ -68,6 +68,7 @@ import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { FlagKind } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -325,6 +326,17 @@ function AppBody() {
   });
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
   const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
+  // The number chosen in Technik › Flags und Variablen, kept for the session and the project it was chosen in (a picker's link sets it).
+  const [flagChoice, setFlagChoice] = useState<{ root: string; selected: { kind: FlagKind; number: number } | null } | null>(null);
+  const flagSelected = flagChoice !== null && flagChoice.root === openRoot ? flagChoice.selected : null;
+  const chooseFlag = useCallback((selected: { kind: FlagKind; number: number } | null) => setFlagChoice(openRoot === null ? null : { root: openRoot, selected }), [openRoot]);
+  // Technik › Flags und Variablen, on a number when given (a link, „Im Verzeichnis zeigen“); not while a wizard holds the frame.
+  const showFlags = useStableCallback((selected?: { kind: FlagKind; number: number }) => {
+    if (wizardOpen.current || startOpen || openRoot === null) return;
+    if (selected !== undefined) setFlagChoice({ root: openRoot, selected });
+    setTechnikEntry("flags");
+    setArea("technik");
+  });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
   // builds on the session's build path, so open, save and build wait for it like for a build.
@@ -362,6 +374,7 @@ function AppBody() {
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
     depth: shell.state.depth,
+    onOpenFlag: showFlags,
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
@@ -1171,6 +1184,9 @@ function AppBody() {
       case "previewFromMap":
         void previewFromMap();
         break;
+      case "flags":
+        showFlags();
+        break;
     }
   });
 
@@ -1245,6 +1261,11 @@ function AppBody() {
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
+        flags={
+          info
+            ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed }
+            : undefined
+        }
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

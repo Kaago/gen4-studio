@@ -42,7 +42,8 @@ export type PaletteCommand =
   | "importParts"
   | "previewFrom3d"
   | "previewFromMap"
-  | "gitSetup";
+  | "gitSetup"
+  | "flags";
 
 /** What picking an entry does: follow a link (`goTo`) or run a command. */
 export type PaletteRun = { kind: "goTo"; target: NavTarget } | { kind: "command"; command: PaletteCommand };
@@ -182,6 +183,8 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
     // Only for a project in no repository (never a repository inside one); it commits the saved state, so it waits like saving.
     ...(hasProject && gitSetup ? [{ command: "gitSetup", label: "Git einrichten…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
+    // Technik › Flags und Variablen (3d.1).
+    { command: "flags", label: "Flags und Variablen", icon: "flag", area: "technik", locked: hasProject ? null : NO_PROJECT },
   ];
   return specs.map(({ command, label, icon, area, shortcut, description, locked }) => ({
     id: `cmd-${command}`,

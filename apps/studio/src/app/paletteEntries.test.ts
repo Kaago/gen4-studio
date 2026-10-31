@@ -86,9 +86,10 @@ describe("paletteEntries", () => {
       "Attacken öffnen",
       "Bereich Gegenstände",
       "Bereich Technik",
+      "Flags und Variablen",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken", "Flags und Variablen"]);
     expect(entries.find((e) => e.label === "Als Vorschaubild: 3D-Ansicht")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Als Vorschaubild: Kartenbild der gewählten Karte")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Welt leeren…")?.description).toBe("Erst ein Projekt öffnen");
@@ -291,5 +292,16 @@ describe("paletteEntries", () => {
     expect(byId("cmd-gitSetup", { commands: { ...commands, gitSetup: false } })).toBeUndefined();
     expect(byId("cmd-gitSetup")).toBeUndefined();
     expect(byId("cmd-gitSetup", { hasProject: false, commands: { ...commands, gitSetup: true } })).toBeUndefined();
+  });
+
+  it("flags_and_variables_only_with_a_project", () => {
+    // With a project: Technik › Flags und Variablen, with the flag's symbol.
+    const flags = byId("cmd-flags");
+    expect(flags).toMatchObject({ label: "Flags und Variablen", icon: "flag", area: "technik", group: "Befehle", disabled: false, run: { kind: "command", command: "flags" } });
+    expect(flags?.description).toBeUndefined();
+    // Without one: locked, with the reason.
+    expect(byId("cmd-flags", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
+    // Found by its name.
+    expect(filterItems(paletteEntries(source()), "flags").map((e) => e.id)).toContain("cmd-flags");
   });
 });

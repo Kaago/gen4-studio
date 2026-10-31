@@ -29,6 +29,11 @@ function subscribe(listener: () => void): () => void {
 
 const currentGeneration = () => generation;
 
+/** How often `invalidateFlagLists` was called: another read that shows own names (a number's usage) reads again when it moves. */
+export function useFlagListGeneration(): number {
+  return useSyncExternalStore(subscribe, currentGeneration);
+}
+
 function read(project: ProjectInfo, kind: FlagKind, source: string, revision: number, fresh: boolean): Promise<FlagListDto> {
   let held = reads.get(project);
   if (held === undefined) reads.set(project, (held = new Map()));
@@ -66,7 +71,7 @@ export interface FlagListDeps {
  */
 export function useFlagList(kind: FlagKind, deps: FlagListDeps): { list: FlagListDto | null; error: string | null; reload: () => void } {
   const { project, revision, source = "", fresh = false } = deps;
-  const gen = useSyncExternalStore(subscribe, currentGeneration);
+  const gen = useFlagListGeneration();
   const [shown, setShown] = useState<Shown | null>(null);
   const [reloads, setReloads] = useState(0);
   // A fresh list forgets what it showed as soon as the project is asked for again (the picker opens).

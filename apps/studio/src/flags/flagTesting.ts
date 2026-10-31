@@ -1,4 +1,4 @@
-import type { FlagEntryDto, FlagKind, FlagListDto } from "../api";
+import type { FlagEntryDto, FlagKind, FlagListDto, FlagRefDto, FlagUsageDto } from "../api";
 
 /** One entry of the list as the backend sends it: unused, unnamed, in the general area, unless `over` says otherwise. */
 export function flagEntry(number: number, over: Partial<FlagEntryDto> = {}): FlagEntryDto {
@@ -41,3 +41,36 @@ export const FLAGS: FlagListDto = flagList("flag", [
   flagEntry(0x173, { free: true }),
   flagEntry(0x550, { name: "FLAG_TRAINER_0", area: "trainer", usage: { read: 1, write: 1, unknown: 0, sources: 1 } }),
 ]);
+
+/** One reference as `flag_usage` sends it: an object's visibility flag in event file 1 of Zweiblattdorf (0411), read, unless `over` says otherwise. */
+export function flagRef(over: Partial<FlagRefDto> = {}): FlagRefDto {
+  return {
+    source: { kind: "Event", index: 1 },
+    field: "hidden_flag",
+    slot: 0,
+    access: "read",
+    label: "Objekt 0 · Sichtbarkeits-Flag",
+    source_name: "Eventdatei 0001",
+    nav: { kind: "event", eventFile: 1, eventKind: "object", index: 0, header: 411 },
+    header: 411,
+    header_name: "Zweiblattdorf",
+    ...over,
+  };
+}
+
+/** The usage of `number` of `kind`: unnamed, unused, in the general area, without references, unless `over` says otherwise. */
+export function flagUsageOf(kind: FlagKind, number: number, over: Partial<FlagUsageDto> = {}): FlagUsageDto {
+  return {
+    kind,
+    number,
+    name: null,
+    own_id: null,
+    description: null,
+    area: "general",
+    usage: { read: 0, write: 0, unknown: 0, sources: 0 },
+    reserved: null,
+    refs: [],
+    ms: 1,
+    ...over,
+  };
+}

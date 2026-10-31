@@ -98,3 +98,12 @@ export function flagRows(list: FlagListDto): PickerItem[] {
       }),
     );
 }
+
+/** The kernel's `NOT_A_TEXT_PROJECT`: why an own name needs a text project. */
+export const NOT_A_TEXT_PROJECT = "Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.";
+
+/** Why naming is locked in the DSPRE layout, with the way there. */
+export const NAMING_NEEDS_TEXT_PROJECT = `${NOT_A_TEXT_PROJECT} (Technik › Textprojekt)`;
+
+/** Why a number past the save cannot be named. */
+export const OUTSIDE_THE_SAVE = "Liegt außerhalb des Spielstands.";

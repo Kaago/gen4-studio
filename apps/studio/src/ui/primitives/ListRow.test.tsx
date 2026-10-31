@@ -32,6 +32,17 @@ describe("ListRow and TreeRow", () => {
     expect(row().getAttribute("aria-selected")).toBe("true");
   });
 
+  it("list_row_can_emphasise_its_label_and_set_its_second_line_as_tech", () => {
+    act(() => root.render(<ListRow label="FLAG_HAT_MEDAILLE" subtitle="FLAG_UNUSED_0x0094 · 0x0094 · 148" strong techSubtitle selected={false} onSelect={() => {}} />));
+    const row = container.querySelector("[role=option]")!;
+    const label = document.getElementById(row.getAttribute("aria-labelledby")!)!;
+    const below = document.getElementById(row.getAttribute("aria-describedby")!)!;
+    expect(label.className).toMatch(/strong/);
+    expect(below.className).toMatch(/techSubtitle/);
+    act(() => root.render(<ListRow label="Route 201" subtitle="gebaut" selected={false} onSelect={() => {}} />));
+    expect(document.getElementById(container.querySelector("[role=option]")!.getAttribute("aria-labelledby")!)!.className).not.toMatch(/strong/);
+  });
+
   it("list_row_shows_tech_and_trailing_content_and_passes_data_attributes", () => {
     act(() =>
       root.render(
