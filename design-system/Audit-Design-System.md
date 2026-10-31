@@ -17,7 +17,7 @@ Jede Abweichung trägt eine Einordnung:
 
 Das Gerüst der Idee steht. Raster, Maße, Tokens, Schriften, Symbole und die Komponentenbibliothek sind umgesetzt und werden vom Gate geprüft. Das Scharnier ist reicher als entworfen, und Tüfteln ist durchgehend gebaut.
 
-Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
+Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
 
 1. **Die Tiefe Erzählen fehlt.** Es gibt nur Bauen und Tüfteln, also keine Rezepte und keinen Einsteigermodus (bewusst, 3d).
 2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil und Kampfvorschau stehen seit 3d.3 Teil A (Pokédex, Trainer), das Laden fehlt (bewusst, später: keine Daten).
@@ -69,7 +69,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Verlauf | Undo-Zahl | Menü mit den letzten 10 Schritten und ihren Labels, eigene Taste „Wiederholen“ | Verbesserung |
 | Spielmodus | Scharnier in Bernstein, „Spielt in melonDS“, „Neu laden“, „Stoppen“ | Fehlt; „Hier spielen“ zeigt beim Bauen „Baut …“ | bewusst (Spec 3c §1, Phase 4) |
 | Assistent | Schrittleiste im Scharnier, Vorschau in der Schau | Die Schrittleiste ist da (Titel Zen Maru 15 px statt 16). Der Schritt steht in der Hand, die Schau bleibt ohne Vorschau. Assistenten gibt es nur in der Welt | Vorschau bewusst (3d) |
-| Titelleiste | Projekt, Spiel, Speicherstand, Suche, Aktionen mit „Veröffentlichen“; Windows-Variante | Neu ist „Projekt öffnen“. Es fehlt „Veröffentlichen“. Windows hat keine eigenen Knöpfe, die 40-px-Zeile liegt unter der Systemleiste | Veröffentlichen bewusst (Phase 4); Windows bewusst (Spec 3c §3) |
+| Titelleiste | Projekt, Spiel, Speicherstand, Suche, Aktionen mit „Veröffentlichen“; Windows-Variante | Neu ist „Projekt öffnen“. „Veröffentlichen“ ist seit 4.5 da (zwischen „Bauen“ und „Thema wechseln“, gesperrt mit Hinweis im Tooltip), offen bleibt Windows: Windows hat keine eigenen Knöpfe, die 40-px-Zeile liegt unter der Systemleiste | Windows bewusst (Spec 3c §3) |
 | Atlas | 7 Einträge | Dazu Hilfe und Einstellungen unten. Geschichten ist gesperrt („Kommt mit Phase 3d“). Kompakt ist 56 px breit und zeigt nur Symbole. Während eines Assistenten ist alles außer Welt gesperrt | Verbesserung (Varianten jetzt in der `.fig`) |
 | Deck | Schau und Hand als ein Dock | Zwei Dockview-Instanzen. Bei nur einem Panel gibt es keine Reiterleiste, sondern einen Panelkopf | bewusst (Spec 3c §3) |
 | Hand-Höhe | Je Editor eigene Höhe (286 bis 410) | Eine Höhe je Bereich; das Script hebt die Hand auf mindestens 400 px. Es bleibt der Schlüssel `g4.shell.v1` | bewusst bis auf Weiteres (Spec 3b.3 §9) |
@@ -131,7 +131,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Kontextmenü an Listen- und Baumzeile | teilweise (4.1b) | Rechtsklick, Shift+F10 und Kontextmenü-Taste öffnen das Popup des Menüs. Es trägt bisher nur „… auf Original zurücksetzen…“, nicht die übrigen Einträge des Menüs „Aktionen“ (Plan 4.1b: „gleiche Einträge“); in der `.fig` noch nicht gezeichnet (`openpencil/NACHTRAG-4-1b.md`) |
 | Änderungstabelle | umgesetzt (4.4) | Kein Vorbild in der `.fig`. `ChangeTable`: drei Spalten (Feld, alt, neu) in `code/s`, Feldspalte so breit wie ihr Inhalt (Pfad bricht nur an „.“ und „[“), Wort-Spannen als `<del>` auf `status/fehler-flaeche` (durchgestrichen) und `<ins>` auf `status/erfolg-flaeche` (unterstrichen), fehlende Seite „—“ (vorgelesen „fehlt“), Fußzeile für gekappte Zeilen. Keine neuen Tokens. Offen (Blick): in Dunkel sind die Flächen der Spannen kaum zu sehen (1,23 bzw. 1,35 : 1 gegen `flaeche/blatt`), es tragen die Linien. In der `.fig` seit 29.10.2026: Brett „Komponenten (App): Änderungstabelle und Git“ (Seite „Komponenten“, x 3440, y 15380) |
 | Scharnier | umgesetzt ohne Spielen | siehe Abschnitt 4 |
-| Titelleiste | umgesetzt (macOS) | Windows fehlt |
+| Titelleiste | umgesetzt (macOS) | mit „Veröffentlichen“ (4.5); Windows fehlt |
 | Atlas-Eintrag | erweitert | 64 hoch, Symbol 24, gesperrt, Kompakt |
 | Werkzeug-Taste | umgesetzt | 2 Spalten, Buchstabe oben rechts |
 | Rezept-Taste | **fehlt** | Tiefe Erzählen fehlt |
@@ -182,7 +182,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | 23 | Texte: Archiv 0412 | umgesetzt | Archivnummern echt (Zweiblattdorf ist in Platin DE 0554) |
 | 24 | Spielen: live | offen (Phase 4) | – |
 | 25 | Prüfen und Bauen | teilweise | Befundtabelle ja, Build-Schritte nein (Phase 4) |
-| 26 | Veröffentlichen | teilweise (4.1a: Technik › Veröffentlichen) | zwei Karten statt Assistent, Ziel fest `build/`, ohne Version und Änderungsnotizen; keine Taste in der Titelleiste |
+| 26 | Veröffentlichen | umgesetzt (4.5) | Assistent in vier Schritten, Liste, Titelleiste; `.fig` folgt. Ohne Textexport; die Begleitdatei und die README ersetzen ihn |
 | 27 | Technik: Patches und Plugins | teilweise | nur „Dynamische Header“; Plugins Phase 5 |
 | 28 | Einstellungen | umgesetzt | Tastenkürzel nur mit ⌘ |
 | 29 | Befehlspalette | umgesetzt | – |
@@ -201,6 +201,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 - Technik › Textprojekt (4.3b), mit drei Mustern, die kein Design-Screen kennt: **Änderungen von außen** (Meldung „1 Änderung aus DSPRE übernommen“ mit „Anzeigen“, Abschnitt „Zuletzt übernommen“ mit den Plaketten „aus DSPRE“ und „aus Datei“; abgeglichen beim Öffnen, bei Fokus, vor dem Build und auf Wunsch), **Konflikt** (Zeile mit Plakette „Konflikt“ oder „Ungespeichert“, aufklappbare Feldtabelle Studio / DSPRE, zwei gleichrangige sekundäre Tasten, Warnung vor dem Verwerfen ungespeicherter Änderungen; für DSPRE-Ordner ohne Manifest bleibt der Textdialog von 4.2) und **Textprojekt einrichten** (Dialog mit Prüfliste und Fortschritt in vier Phasen, dazu „Zurücknehmen…“, „Anheben“, der Hinweis beim Öffnen und das Kästchen im Assistenten „Neues Projekt“). Eigene Einordnung: bewusst (Phase 4.3b, Plan „Textprojekt als Quelle“); nicht in der `.fig`, die Vorlage `openpencil/beispiele/textprojekt.body.js` und `openpencil/NACHTRAG-4-3b.md` liegen bereit. Neu in den Bausteinen: die Meldungsart „Warnung“ (bleibt stehen), Meldungen mit Schlüssel, die dauerhafte Info und `Dialog` mit `dismissible`; neues Symbol `textproject`.
 - ID-Zeile und „ID umbenennen…“ (4.3b): In einem Textprojekt nennen die Köpfe von Header, Trainer und Pokédex die symbolische ID (`MAP_…`, `TRAINER_…`, `SPECIES_…`) mit „ID kopieren“; Trainer und Header lassen sich im Menü „Aktionen“ umbenennen (Dialog mit Plan der Verweise). Das schließt die zweite Sprachebene zum Teil (siehe 9, Punkt 6): feste IDs sind nicht umbenennbar, Trainerklassen und Orte nur über MCP.
 - Git einrichten (4.4): Dialog „Git einrichten?“ mit rechtlichem Hinweis (immer), Prüfliste (gespeichert, Git gefunden, was ignoriert wird, vorhandene Vorlagen) und Fortschritt in fünf Phasen; aus Technik › Änderungen, der Palette (nur ohne Repository), dem Kästchen „Git einrichten (nur lokal)“ im Assistenten „Neues Projekt“ und der Rückfrage eines Agenten. Dazu der Dialog „Textprojekt vervollständigen?“ beim Öffnen eines geklonten Textprojekts. Eigene Einordnung: bewusst (Plan 4.4, nur lokal, kein Remote). In der `.fig` seit 29.10.2026: „App: Dialog, Git einrichten“ (x 15200, y 1000, Seite „App: Texte, Technik, Dialoge“), vor dem Lauf; Lauf, Fehler und „Textprojekt vervollständigen?“ sind nicht gezeichnet (`openpencil/NACHTRAG-4-4.md`).
+- Veröffentlichen (4.5): Assistent in vier Schritten (Version, Patch, Prüfen, Fertig) in der Welt-Hand mit Speicherort, Dateiname, Änderungsnotizen, README, Selbstprüfung und „Was du weitergibst“; die Taste „Veröffentlichen“ in der Titelleiste (Tooltip mit Grund, wenn gesperrt); Technik › Veröffentlichen mit der Liste „Bisherige Veröffentlichungen“; Dialog „Stand sichern?“ (ein Commit mit allen Änderungen, lokal, Betreff und Notiz, Prüfliste) aus dem Ergebnis des Assistenten, Technik › Änderungen und der Palette; MCP `publish_patch` und `git_commit_all`. Eigene Einordnung: bewusst (Plan 4.5; kein Remote, kein Push, kein Staging). Die `.fig` folgt (`openpencil/NACHTRAG-4-5.md`).
 
 **Die `.fig` nach dem Nachzug:**
 - Die vier bisherigen Screen-Seiten heißen „Zielbild: …“. Sie bleiben der Entwurf für 3d bis 6, und jeder Screen trägt eine Marke Umgesetzt, Teilweise oder Offen.

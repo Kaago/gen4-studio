@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { assignBase, baseStatus, checkBase, createPatch, errorText, formatBytes, registerBaseRom } from "./api";
+import { assignBase, baseStatus, checkBase, errorText, formatBytes, registerBaseRom } from "./api";
 
 describe("base ROM commands", () => {
   beforeEach(() => {
@@ -20,8 +20,6 @@ describe("base ROM commands", () => {
     expect(invoke).toHaveBeenLastCalledWith("assign_base", { nds: "/roms/Sinnoh-Remix.nds" });
     await registerBaseRom("/elsewhere/Platin.nds");
     expect(invoke).toHaveBeenLastCalledWith("register_base_rom", { path: "/elsewhere/Platin.nds" });
-    await createPatch();
-    expect(invoke).toHaveBeenLastCalledWith("create_patch");
 
     const status = { state: "unassigned", suggestion: "/roms/Sinnoh-Remix.nds" };
     invoke.mockResolvedValueOnce(status);

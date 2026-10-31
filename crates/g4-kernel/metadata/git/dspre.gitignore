@@ -14,10 +14,11 @@
 *.mln
 *.state
 
-# Studio: nur base.json und preview.png sind Projekt, der Rest ist lokal
+# Studio: nur base.json, preview.png und releases.json sind Projekt, der Rest ist lokal
 /.g4/*
 !/.g4/base.json
 !/.g4/preview.png
+!/.g4/releases.json
 
 # rotom: Cache (die Quirks in .rotom/status/compile-state.json bleiben versioniert)
 /.rotom/cache/

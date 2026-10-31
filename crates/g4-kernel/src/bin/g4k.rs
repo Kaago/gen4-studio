@@ -148,6 +148,43 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Publish a release: check version and files, build the project to `build/<Name>.nds`,
+    /// write the patch `<Projekt>-v<Version>.xdelta` (or `--file`) against the base ROM with
+    /// its notes (version, date, change notes) and optionally `README.txt` to `--dir`
+    /// (relative to the project; default `build/`), checked before writing, and append the
+    /// release to `.g4/releases.json`. The base ROM: `--base-rom`, else the sibling `.nds`,
+    /// else `G4_BASE_ROM_DIR`. Prints `published version=… patch=… size=… base=… target=…`,
+    /// a line `file <kind> <path> <size>` per further file and `releases=<count>`; a refusal
+    /// (taken or bad version, existing file without `--overwrite`, no change) exits 1.
+    Publish {
+        project: PathBuf,
+        #[arg(long)]
+        version: String,
+        /// The change notes.
+        #[arg(long, conflicts_with = "notes_file")]
+        notes: Option<String>,
+        /// The change notes from a UTF-8 file.
+        #[arg(long)]
+        notes_file: Option<PathBuf>,
+        /// The folder for patch and texts.
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// The patch's file name (`.xdelta` is added when missing).
+        #[arg(long)]
+        file: Option<String>,
+        /// Also write the change notes as `README.txt` next to the patch.
+        #[arg(long)]
+        readme: bool,
+        /// Replace files that are there already.
+        #[arg(long)]
+        overwrite: bool,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+        /// Print the publish report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -417,7 +454,75 @@ fn run(cli: Cli) -> Result<(), Failure> {
             base_rom,
             json,
         } => diff(&project, &kind, &index, against, base_rom.as_deref(), json),
+        Command::Publish {
+            project,
+            version,
+            notes,
+            notes_file,
+            dir,
+            file,
+            readme,
+            overwrite,
+            base_rom,
+            json,
+        } => {
+            let notes = match notes_file {
+                Some(path) => std::fs::read_to_string(&path)
+                    .map_err(|e| Failure::Message(format!("{}: {e}", path.display())))?,
+                None => notes.unwrap_or_default(),
+            };
+            let opts = g4_kernel::patch::PublishOptions {
+                version,
+                notes,
+                dir,
+                file,
+                readme,
+                overwrite,
+            };
+            publish(&project, &opts, base_rom.as_deref(), json)
+        }
     }
+}
+
+/// `g4k publish`: finds the base ROM by the mark's SHA-1, builds and publishes.
+fn publish(
+    root: &Path,
+    opts: &g4_kernel::patch::PublishOptions,
+    base_rom: Option<&Path>,
+    json: bool,
+) -> Result<(), Failure> {
+    use g4_kernel::patch::{PublishedKind, build_and_publish};
+
+    let mark = required_mark(root)?;
+    let project = Project::open(root)?;
+    let base = required_base(root, &mark, base_rom)?;
+    let report = build_and_publish(&project, &base, opts, &mut |_| {})?;
+    if json {
+        println!("{}", json_line(&report)?);
+        return Ok(());
+    }
+    println!(
+        "published version={} patch={} size={} base={} target={}",
+        report.release.version,
+        report.patch.patch.display(),
+        report.patch.size,
+        report.patch.base_sha1,
+        report.patch.target_sha1
+    );
+    for file in report
+        .files
+        .iter()
+        .filter(|f| f.kind != PublishedKind::Patch)
+    {
+        let kind = match file.kind {
+            PublishedKind::Patch => "patch",
+            PublishedKind::Notes => "notes",
+            PublishedKind::Readme => "readme",
+        };
+        println!("file {kind} {} {}", file.path.display(), file.size);
+    }
+    println!("releases={}", report.releases.releases.len());
+    Ok(())
 }
 
 /// One `--expect CODE=N` of `g4k check`.
@@ -1933,6 +2038,20 @@ enum GitCommand {
         #[arg(long)]
         entries: bool,
     },
+    /// "Stand sichern": refresh the templates, then `git add -A` and one commit of everything
+    /// that changed, in the project's own repository, never a remote. Prints `committed
+    /// <short> "<subject>" files=<n>`, else `not committed: <reason>` with exit 1 when a Git
+    /// subcommand failed. Refused with its sentence and exit 1: no repository, an enclosing
+    /// one, no change since the last commit, no `git`.
+    CommitAll {
+        project: PathBuf,
+        /// The subject (its first line); without one "Stand <YYYY-MM-DD> <HH:MM> UTC".
+        #[arg(long)]
+        message: Option<String>,
+        /// Notes, the commit's body.
+        #[arg(long)]
+        notes: Option<String>,
+    },
 }
 
 fn git(command: GitCommand) -> Result<(), Failure> {
@@ -2007,6 +2126,29 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 None => println!("git not found"),
             }
             Ok(())
+        }
+        GitCommand::CommitAll {
+            project,
+            message,
+            notes,
+        } => {
+            let p = Project::open(&project)?;
+            let cli = g4_kernel::git::find_git();
+            let opts = g4_kernel::git::CommitOptions { message, notes };
+            let report = g4_kernel::git::commit_all(&p, cli.as_ref(), &opts, &mut |_| {})?;
+            match (&report.head, &report.reason) {
+                (Some(head), _) if report.committed => {
+                    println!(
+                        "committed {} \"{}\" files={}",
+                        head.short, report.subject, report.files
+                    );
+                    Ok(())
+                }
+                (_, reason) => {
+                    println!("not committed: {}", reason.as_deref().unwrap_or_default());
+                    Err(Failure::Message("git commit-all failed".into()))
+                }
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderPatchDto, PreviewDto } from "../api";
-import { applyHeaderPatch, baseStatus, createPatch, diffEntity, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, repairHeaderPatch } from "../api";
+import { applyHeaderPatch, baseStatus, diffEntity, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, releases, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
@@ -15,7 +15,8 @@ import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { ProblemsStore, findingId } from "../workbench/problems/problems";
 import { MISSING, READY, resetSpy, withReset } from "../original/resetTesting";
 import type { OriginalStatus } from "../api";
-import { found, missing, patchDto } from "./baseTesting";
+import { releaseOf, releasesOf } from "../publish/publishTesting";
+import { found, missing } from "./baseTesting";
 import { changesWith, entry, report } from "./changesTesting";
 import { diffReport } from "./diffTesting";
 import { gitStatusOf, noRepo } from "../git/gitTesting";
@@ -34,7 +35,7 @@ vi.mock("../api", async (importOriginal) => ({
   projectPreviewGet: vi.fn(),
   projectPreviewSet: vi.fn(),
   baseStatus: vi.fn(),
-  createPatch: vi.fn(),
+  releases: vi.fn(),
   diffEntity: vi.fn(),
 }));
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
@@ -53,7 +54,7 @@ describe("TechnikArea", () => {
   let problems: ProblemsStore;
   let checks: ChecksApi;
   let tools: ToolStatusStore;
-  const handlers = { onBuild: vi.fn(), onBuildFresh: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}), onClearWorld: vi.fn() };
+  const handlers = { onBuild: vi.fn(), onBuildFresh: vi.fn(), onRun: vi.fn(), onPickEmulator: vi.fn(), onOpenProject: vi.fn(), onToggleList: vi.fn(), goTo: vi.fn(), onHeaderPatch: vi.fn(async () => {}), onClearWorld: vi.fn(), onPublish: vi.fn(), onReveal: vi.fn(async (_path: string) => {}) };
 
   beforeEach(() => {
     for (const fn of Object.values(handlers)) fn.mockClear();
@@ -73,7 +74,7 @@ describe("TechnikArea", () => {
     vi.mocked(openPath).mockReset();
     resetToasts();
     vi.mocked(baseStatus).mockReset().mockResolvedValue({ state: "unassigned", suggestion: "/Sinnoh-Remix.nds" });
-    vi.mocked(createPatch).mockReset().mockResolvedValue(patchDto());
+    vi.mocked(releases).mockReset().mockResolvedValue(releasesOf());
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -108,6 +109,7 @@ describe("TechnikArea", () => {
         git={null}
         unsaved={null}
         onGitSetup={() => {}}
+        onCommitAll={() => {}}
         revision={0}
         {...handlers}
         base={project === null ? null : base}
@@ -311,7 +313,7 @@ describe("TechnikArea", () => {
       [{ state: "unassigned", suggestion: null }, "Keine Basis-ROM zugeordnet"],
       [missing(), "Basis-ROM fehlt"],
       [{ state: "unreadable", reason: "kaputt" }, "Basismarke nicht lesbar"],
-      [found(), "Bereit für einen Patch"],
+      [found(), "Bereit zum Veröffentlichen"],
     ];
     for (const [status, text] of cases) {
       act(() => root.render(<></>));
@@ -320,16 +322,40 @@ describe("TechnikArea", () => {
       await settle();
       expect(subtitle("Veröffentlichen")).toBe(text);
     }
-    // After a patch.
-    await click(row("Veröffentlichen"));
-    await click(button("Patch erstellen…"));
-    await click(button("Patch erstellen", dialog()!));
-    await settle();
-    expect(subtitle("Veröffentlichen")).toBe("Patch erstellt");
     // Without a project.
     act(() => root.render(<></>));
     await render({ project: null });
     expect(subtitle("Veröffentlichen")).toBe("Kein Projekt geöffnet");
+  });
+
+  it("veroeffentlichen_subtitle_names_the_last_release", async () => {
+    vi.mocked(baseStatus).mockResolvedValue(found());
+    vi.mocked(releases).mockResolvedValue(releasesOf({ next_version: "0.3.0", releases: [releaseOf({ version: "0.1.0" }), releaseOf({ version: "0.2.0" })] }));
+    await render();
+    await settle();
+    expect(subtitle("Veröffentlichen")).toBe("Veröffentlicht v0.2.0");
+    // Without a found base the base's state comes first (it locks publishing).
+    act(() => root.render(<></>));
+    vi.mocked(baseStatus).mockResolvedValue(missing());
+    await render();
+    await settle();
+    expect(subtitle("Veröffentlichen")).toBe("Basis-ROM fehlt");
+    // A broken list: not readable.
+    act(() => root.render(<></>));
+    vi.mocked(baseStatus).mockResolvedValue(found());
+    vi.mocked(releases).mockRejectedValue({ code: "releases_broken", message: "kaputt", asset: null, problems: [] });
+    await render();
+    await settle();
+    expect(subtitle("Veröffentlichen")).toBe("Nicht lesbar");
+    // The surface hands the wizard and „Im Finder zeigen“ to the app.
+    vi.mocked(releases).mockResolvedValue(releasesOf({ releases: [releaseOf()] }));
+    act(() => root.render(<></>));
+    await render({ start: "veroeffentlichen" });
+    await settle();
+    await click(button("Veröffentlichen…"));
+    expect(handlers.onPublish).toHaveBeenCalledOnce();
+    await click(container.querySelector('button[aria-label="Im Finder zeigen: v0.1.0"]'));
+    expect(handlers.onReveal).toHaveBeenCalledWith("build/Sinnoh-Remix-v0.1.0.xdelta");
   });
 
   it("says_not_built_yet_and_shows_the_chosen_emulator_and_the_ready_tools_in_the_list", async () => {
@@ -430,7 +456,7 @@ describe("TechnikArea", () => {
     await render(built);
     expect(line()).toBeNull();
     await render({ ...built, lastPatchRom: "/p/build/4-2-abn-patch-IPKD.nds" });
-    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds");
+    expect(line()?.textContent).toBe("Build von „Veröffentlichen“ nach build/4-2-abn-patch-IPKD.nds");
     // Directly under the heading, before the table; the fact „Pfad“ still names the ROM of Bauen.
     const heading = [...(surface()?.querySelectorAll("h2") ?? [])].find((h) => h.textContent === "Schritte")!;
     expect(heading.nextElementSibling).toBe(line());
@@ -438,7 +464,7 @@ describe("TechnikArea", () => {
     expect(surface()?.querySelector("dd[title]")?.textContent).toBe("/roms/out.nds");
     // A ROM outside the project shows whole; without steps there is nothing to name.
     await render({ ...built, lastPatchRom: "/elsewhere/x.nds" });
-    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach /elsewhere/x.nds");
+    expect(line()?.textContent).toBe("Build von „Veröffentlichen“ nach /elsewhere/x.nds");
     await render({ lastPatchRom: "/p/build/x.nds" });
     expect(line()).toBeNull();
   });
@@ -649,7 +675,7 @@ describe("TechnikArea", () => {
     expect(projectPreviewGet).not.toHaveBeenCalled();
     expect(subtitle("Projekt")).toBe("Kein Projekt geöffnet");
     await click(row("Veröffentlichen"));
-    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
+    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann veröffentlichst du es hier.");
     expect(baseStatus).not.toHaveBeenCalled();
     // The emulator does not need a project.
     await click(row("Emulator"));

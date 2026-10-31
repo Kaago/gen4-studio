@@ -14,12 +14,13 @@ vi.mock("../../platform/os", () => ({ isMacTauri: () => env.mac }));
 describe("TitleBar", () => {
   let container: HTMLElement;
   let root: Root;
-  const handlers = () => ({ onOpen: vi.fn(), onSave: vi.fn(), onBuild: vi.fn(), onHelp: vi.fn(), onToggleTheme: vi.fn(), onPalette: vi.fn() });
+  const handlers = () => ({ onOpen: vi.fn(), onSave: vi.fn(), onBuild: vi.fn(), onPublish: vi.fn(), onHelp: vi.fn(), onToggleTheme: vi.fn(), onPalette: vi.fn() });
   const base = (over: Partial<TitleBarProps> = {}): TitleBarProps => ({
     projectName: "pt-3c1",
     game: "Platin, DE",
     dirtyCount: 0,
     busy: false,
+    publishLocked: null,
     theme: "hell",
     ...handlers(),
     ...over,
@@ -132,5 +133,34 @@ describe("TitleBar", () => {
     // Without a project the palette still opens: its commands open one.
     show(base({ projectName: null, game: null }));
     expect(palette().disabled).toBe(false);
+  });
+
+  it("calls_on_publish_by_name", () => {
+    const props = base();
+    show(props);
+    act(() => button("Veröffentlichen")!.click());
+    expect(props.onPublish).toHaveBeenCalledOnce();
+    // Between „Bauen“ and „Thema wechseln“.
+    const names = [...container.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"));
+    expect(names.slice(names.indexOf("Bauen"), names.indexOf("Thema wechseln") + 1)).toEqual(["Bauen", "Veröffentlichen", "Thema wechseln"]);
+  });
+
+  it("publish_is_disabled_without_a_project_and_locked_with_its_hint", () => {
+    show(base({ projectName: null, game: null, publishLocked: "Erst eine Basis-ROM zuordnen." }));
+    expect(button("Veröffentlichen")!.disabled).toBe(true);
+    // Without a found base ROM: blocked but focusable, the reason as the hint (the tooltip's second line and the description).
+    const props = base({ publishLocked: "Erst eine Basis-ROM zuordnen." });
+    show(props);
+    expect(button("Veröffentlichen")!.disabled).toBe(false);
+    expect(button("Veröffentlichen")!.getAttribute("aria-disabled")).toBe("true");
+    expect(button("Veröffentlichen")!.getAttribute("aria-description")).toBe("Erst eine Basis-ROM zuordnen.");
+    act(() => button("Veröffentlichen")!.click());
+    expect(props.onPublish).not.toHaveBeenCalled();
+    // While busy (a build, a save, a wizard) it waits like „Bauen“, without a hint.
+    show(base({ busy: true }));
+    expect(button("Veröffentlichen")!.getAttribute("aria-disabled")).toBe("true");
+    expect(button("Veröffentlichen")!.hasAttribute("aria-description")).toBe(false);
+    show(base());
+    expect(button("Veröffentlichen")!.hasAttribute("aria-disabled")).toBe(false);
   });
 });

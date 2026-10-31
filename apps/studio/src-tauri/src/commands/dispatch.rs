@@ -193,6 +193,11 @@ pub const COMMANDS: &[&str] = &[
     "restore_text_project",
     "get_battle_sprite",
     "get_trainer_sprite",
+    "releases",
+    "publish_patch",
+    "reveal_path",
+    "git_commit_all",
+    "git_commit_prepare",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -975,6 +980,54 @@ pub fn dispatch(
         "get_trainer_sprite" => run!(bytes, "get_trainer_sprite", args, { class: u8 }, |a| {
             get_trainer_sprite_impl(state, a.class)
         }),
+        "releases" => run!(json, "releases", args, {}, |_a| releases_impl(state)),
+        // `dir` (relative to the project folder) is the place. The policy is asked about every
+        // file the release writes there and about the built ROM before the place is looked at
+        // on disk (`check_target`, which makes nothing), and once more before the build
+        // (`check_output`, which makes build/ when it may). No live progress over HTTP: the
+        // report carries the time of each phase.
+        "publish_patch" => run!(
+            json, "publish_patch", args,
+            {
+                version: String,
+                notes: Option<String>,
+                dir: Option<String>,
+                file: Option<String>,
+                readme: Option<bool>,
+                overwrite: Option<bool>,
+            },
+            |a| {
+                let opts = PublishArgs {
+                    version: a.version,
+                    notes: a.notes,
+                    dir: a.dir,
+                    file: a.file,
+                    readme: a.readme,
+                    overwrite: a.overwrite,
+                }
+                .options();
+                publish_patch_checked(state, opts, false, Some(policy), &mut |_progress| {})
+            }
+        ),
+        // The command takes only a release file of the list or its folder, nothing else.
+        "reveal_path" => run!(json, "reveal_path", args, { path: String }, |a| {
+            reveal_path_impl(state, &a.path)
+        }),
+        // No live progress over HTTP: the report carries the time of each phase.
+        "git_commit_all" => run!(
+            json, "git_commit_all", args,
+            { message: Option<String>, notes: Option<String> },
+            |a| {
+                let opts = g4_kernel::git::CommitOptions {
+                    message: a.message,
+                    notes: a.notes,
+                };
+                git_commit_all_impl(state, opts, &mut |_progress| {})
+            }
+        ),
+        "git_commit_prepare" => run!(json, "git_commit_prepare", args, {}, |_a| {
+            git_commit_prepare_impl(state)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1352,6 +1405,16 @@ mod tests {
                 json!({ "species": 1, "side": "front" }),
             ),
             ("get_trainer_sprite", json!({ "class": 1 })),
+            ("releases", json!({})),
+            (
+                "publish_patch",
+                json!({ "version": "0.1.0", "notes": "Erste Fassung" }),
+            ),
+            ("reveal_path", json!({ "path": "build/x.xdelta" })),
+            // No repository: refused before git runs.
+            ("git_commit_all", json!({ "message": "Stand" })),
+            // No repository: refused before anything is written.
+            ("git_commit_prepare", json!({})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1439,6 +1502,76 @@ mod tests {
             "register_base_rom",
             json!({ "path": nds.to_str().unwrap() }),
         );
+    }
+
+    #[test]
+    fn publish_patch_puts_its_place_through_the_policy_before_the_build() {
+        use g4_kernel::test_support::{copy_dir, synthetic_project, synthetic_rom};
+        let s = synthetic_project();
+        let (_rom_dir, rom) = synthetic_rom();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("X_DSPRE_contents");
+        copy_dir(s.dir.path(), &root);
+        let nds = tmp.path().join("X.nds");
+        std::fs::copy(&rom, &nds).unwrap();
+        let state = AppState::default();
+        open_project_impl(&state, root.to_str().unwrap()).unwrap();
+        assign_base_impl(&state, nds.to_str().unwrap()).unwrap();
+        let policy = UserPolicy::new(&root, &[], None).unwrap();
+
+        // A place outside the allowed folders: refused, nothing built, no build/ made.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let args = json!({ "version": "0.1.0", "dir": elsewhere.path().to_str().unwrap() });
+        match dispatch(&state, &policy, "publish_patch", args) {
+            Err(DispatchError::Cmd(e)) => assert!(
+                e.message.starts_with("Pfad liegt außerhalb"),
+                "{}",
+                e.message
+            ),
+            other => panic!("{other:?}"),
+        }
+        assert!(!root.join("build").exists());
+        assert!(
+            std::fs::read_dir(elsewhere.path())
+                .unwrap()
+                .next()
+                .is_none()
+        );
+        // An outside place that is a file, or holds the file already: the policy's sentence,
+        // before the place is looked at (never `bad_dir` or `exists`).
+        let file = elsewhere.path().join("datei");
+        std::fs::write(&file, b"x").unwrap();
+        std::fs::write(elsewhere.path().join("X-v0.1.0.xdelta"), b"alt").unwrap();
+        for dir in [file.clone(), elsewhere.path().to_path_buf()] {
+            let args = json!({ "version": "0.1.0", "dir": dir.to_str().unwrap() });
+            match dispatch(&state, &policy, "publish_patch", args) {
+                Err(DispatchError::Cmd(e)) => assert!(
+                    e.code == "error" && e.message.starts_with("Pfad liegt außerhalb"),
+                    "{dir:?}: {}: {}",
+                    e.code,
+                    e.message
+                ),
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!(!root.join("build").exists());
+
+        // In build/ the policy makes the folder and the build runs (and fails on the
+        // synthetic project as build_rom does).
+        let err = match dispatch(
+            &state,
+            &policy,
+            "publish_patch",
+            json!({ "version": "0.1.0" }),
+        ) {
+            Err(DispatchError::Cmd(e)) => e,
+            other => panic!("{other:?}"),
+        };
+        let project = g4_kernel::project::Project::open(&root).unwrap();
+        let out = g4_kernel::patch::default_targets(&project).rom;
+        let plain = build_rom_impl(&state, out.to_str().unwrap(), false).unwrap_err();
+        assert_eq!((err.code, &err.message), (plain.code, &plain.message));
+        assert!(!root.join(".g4/releases.json").exists());
     }
 
     #[test]

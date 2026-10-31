@@ -38,6 +38,7 @@ describe("ChangesSurface", () => {
     onOpenProject.mockClear();
     onAgainst.mockClear();
     onGitSetup.mockClear();
+    onCommitAll.mockClear();
     onReloadUnsaved.mockClear();
     goTo.mockClear();
     vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
@@ -53,6 +54,7 @@ describe("ChangesSurface", () => {
 
   const onAgainst = vi.fn();
   const onGitSetup = vi.fn();
+  const onCommitAll = vi.fn();
   const goTo = vi.fn();
   const gitWith = (status: GitStatus | null, over: Partial<GitStatusApi> = {}): GitStatusApi => ({ status, error: null, refresh: vi.fn(async () => {}), ...over });
   const onReloadUnsaved = vi.fn();
@@ -82,6 +84,7 @@ describe("ChangesSurface", () => {
             unsavedError={unsavedError}
             onReloadUnsaved={onReloadUnsaved}
             onGitSetup={onGitSetup}
+            onCommitAll={onCommitAll}
             goTo={goTo}
             revision={0}
           />,
@@ -410,6 +413,56 @@ describe("ChangesSurface", () => {
       expect(surface()?.textContent).toContain("Wird gelesen …");
     });
 
+    it("head_with_an_own_repo_offers_stand_sichern", async () => {
+      const git = gitWith(gitStatusOf({ changes: 2, entries: [entry()] }));
+      await render({ against: "head", git });
+      const commit = container.querySelector<HTMLButtonElement>("[data-commit-all]")!;
+      expect(commit.textContent).toBe("Stand sichern…");
+      expect(commit.getAttribute("data-kind")).toBe("secondary");
+      expect(commit.hasAttribute("aria-disabled")).toBe(false);
+      // Beside „Neu vergleichen“, in the head of the surface; no primary button.
+      const again = container.querySelector<HTMLElement>("[data-compare-again]")!;
+      expect(commit.parentElement).toBe(again.parentElement);
+      expect(surface()?.querySelector("header")?.contains(commit)).toBe(true);
+      expect(container.querySelectorAll("[data-kind=primary]")).toHaveLength(0);
+      await act(async () => commit.click());
+      expect(onCommitAll).toHaveBeenCalledOnce();
+      expect(git.refresh).not.toHaveBeenCalled();
+      // Nothing changed: still there and free (the dialog says so and locks „Sichern“).
+      await render({ against: "head", git: gitWith(gitStatusOf()) });
+      expect(container.querySelector("[data-commit-all]")?.hasAttribute("aria-disabled")).toBe(false);
+      // A repository without a commit: the first commit is made the same way.
+      await render({ against: "head", git: gitWith(gitStatusOf({ head: null, changes: 4 })) });
+      expect(container.querySelector("[data-commit-all]")?.textContent).toBe("Stand sichern…");
+      // A larger repository around the project, another comparison, a status still read: not offered.
+      await render({ against: "head", git: gitWith(gitStatusOf({ entries: [entry()], repo: { kind: "enclosing", workdir: "/Users/x" } })) });
+      expect(container.querySelector("[data-commit-all]")).toBeNull();
+      expect(button("Neu vergleichen")).toBeDefined();
+      await render({ against: "base", git: gitWith(gitStatusOf()) });
+      expect(container.querySelector("[data-commit-all]")).toBeNull();
+      await render({ against: "saved", unsaved: [], git: gitWith(gitStatusOf()) });
+      expect(container.querySelector("[data-commit-all]")).toBeNull();
+      await render({ against: "head", git: gitWith(null) });
+      expect(container.querySelector("[data-commit-all]")).toBeNull();
+    });
+
+    it("without_git_stand_sichern_is_locked_with_the_reason", async () => {
+      await render({ against: "head", git: gitWith(gitStatusOf({ changes: 2, entries: [entry()], cli: null })) });
+      const commit = container.querySelector<HTMLButtonElement>("[data-commit-all]")!;
+      // Locked but focusable: the reason is its description and its tooltip.
+      expect(isLocked(commit)).toBe(true);
+      expect(reason(commit)).toBe("Git ist nicht installiert.");
+      await act(async () => commit.click());
+      expect(onCommitAll).not.toHaveBeenCalled();
+    });
+
+    it("no_repo_offers_git_setup_not_stand_sichern", async () => {
+      await render({ against: "head", git: gitWith(noRepo()) });
+      expect(button("Git einrichten…")).toBeDefined();
+      expect(container.querySelector("[data-commit-all]")).toBeNull();
+      expect(button("Stand sichern…")).toBeUndefined();
+    });
+
     it("head_without_a_commit_says_so", async () => {
       await render({ against: "head", git: gitWith(gitStatusOf({ head: null })) });
       expect(notices()).toContain("Noch kein Commit: es gibt nichts zu vergleichen.");
@@ -546,6 +599,7 @@ describe("ChangesSurface", () => {
                 git={gitWith(gitStatusOf())}
                 unsaved={null}
                 onGitSetup={onGitSetup}
+                onCommitAll={onCommitAll}
                 goTo={goTo}
                 revision={0}
                 chosen={chosen}
@@ -584,6 +638,7 @@ describe("ChangesSurface", () => {
                 git={gitWith(gitStatusOf())}
                 unsaved={null}
                 onGitSetup={onGitSetup}
+                onCommitAll={onCommitAll}
                 goTo={goTo}
                 revision={0}
                 chosen={chosen}

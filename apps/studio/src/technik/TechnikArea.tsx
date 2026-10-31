@@ -58,7 +58,7 @@ export type TechnikAreaProps = {
   lastSteps: BuildStep[] | null;
   /** The last build was started with „Neu bauen (ohne Cache)“ (its steps say so instead of „erster Build“). */
   lastBuildFresh?: boolean;
-  /** The last steps are those of „Patch erstellen“, which built this ROM (the facts above keep naming the ROM of Bauen); null for a normal build. */
+  /** The last steps are those of a release („Veröffentlichen“), which built this ROM (the facts above keep naming the ROM of Bauen); null for a normal build. */
   lastPatchRom?: string | null;
   /** Builds the ROM (asks where to). */
   onBuild: () => void;
@@ -83,8 +83,12 @@ export type TechnikAreaProps = {
    * it has none. Without it the hint names no town.
    */
   startTown?: (header: number) => string | null;
-  /** The base ROM and the patch (Veröffentlichen), held by the app so a running patch survives leaving Technik; null without a project. */
+  /** The base ROM and the releases (Veröffentlichen), held by the app above the areas; null without a project. */
   base: BaseApi | null;
+  /** „Veröffentlichen…“ (Veröffentlichen): the app opens the wizard. */
+  onPublish: () => void;
+  /** „Im Finder zeigen“ of a release file (Veröffentlichen). */
+  onReveal: (path: string) => Promise<void>;
   /** What of the saved project differs from the base ROM (Änderungen), held by the app; null without a project. */
   changes: ChangesApi | null;
   /** The store's assets with unsaved edits: Änderungen marks their rows „Ungespeichert“. */
@@ -104,6 +108,8 @@ export type TechnikAreaProps = {
   onReloadUnsaved?: () => void;
   /** „Git einrichten…“ (Änderungen against the last commit without a repository): the app's dialog. */
   onGitSetup: () => void;
+  /** „Stand sichern…“ (Änderungen against the last commit, in the project's own repository): the app's dialog. */
+  onCommitAll: () => void;
   /** Moves whenever the compared state may differ (a save, a reset, an edit): the detail of Änderungen reads its diff again. */
   revision: number;
   /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
@@ -214,7 +220,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (
-        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
+        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} onPublish={props.onPublish} onReveal={props.onReveal} />
       ) : entry === "aenderungen" ? (
         <ChangesSurface
           changes={props.changes}
@@ -228,6 +234,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           unsavedError={props.unsavedError}
           onReloadUnsaved={props.onReloadUnsaved}
           onGitSetup={props.onGitSetup}
+          onCommitAll={props.onCommitAll}
           goTo={props.goTo}
           revision={props.revision}
           chosen={props.changesChosen}

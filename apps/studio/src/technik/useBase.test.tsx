@@ -3,9 +3,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignBase, baseStatus, createPatch, registerBaseRom } from "../api";
+import { assignBase, baseStatus, registerBaseRom, releases } from "../api";
 import type { BaseStatus } from "../api";
-import { found, mark, missing, patchDto } from "./baseTesting";
+import { releaseOf, releasesOf } from "../publish/publishTesting";
+import { found, mark, missing } from "./baseTesting";
 import { useBase } from "./useBase";
 import type { BaseApi, UseBaseOptions } from "./useBase";
 
@@ -15,7 +16,7 @@ vi.mock("../api", async (importOriginal) => ({
   checkBase: vi.fn(),
   assignBase: vi.fn(),
   registerBaseRom: vi.fn(),
-  createPatch: vi.fn(),
+  releases: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -34,7 +35,7 @@ describe("useBase", () => {
     vi.mocked(baseStatus).mockReset().mockResolvedValue({ state: "unassigned", suggestion: null });
     vi.mocked(assignBase).mockReset();
     vi.mocked(registerBaseRom).mockReset();
-    vi.mocked(createPatch).mockReset();
+    vi.mocked(releases).mockReset().mockResolvedValue(releasesOf());
     container = document.createElement("div");
     root = createRoot(container);
   });
@@ -75,19 +76,6 @@ describe("useBase", () => {
     expect(shown.status).toEqual({ state: "unassigned", suggestion: null });
   });
 
-  it("runs_the_patch_through_the_given_build_path", async () => {
-    const run = vi.fn(async () => patchDto({ size: 397 }));
-    vi.mocked(baseStatus).mockResolvedValue(found());
-    await act(async () => root.render(<Probe createPatch={run} />));
-    await act(async () => shown.createPatch());
-    expect(run).toHaveBeenCalledOnce();
-    expect(createPatch).not.toHaveBeenCalled();
-    expect(shown.lastPatch?.size).toBe(397);
-    // Another project forgets it.
-    await act(async () => root.render(<Probe project="/b" createPatch={run} />));
-    expect(shown.lastPatch).toBeNull();
-  });
-
   it("assigns_and_reads_the_status_again", async () => {
     const after = found();
     vi.mocked(assignBase).mockResolvedValue(after);
@@ -109,28 +97,63 @@ describe("useBase", () => {
     expect(shown.status?.state).toBe("missing");
   });
 
-  it("keeps_the_last_patch", async () => {
-    vi.mocked(baseStatus).mockResolvedValue(found());
-    vi.mocked(createPatch).mockResolvedValue(patchDto());
+  it("reads_the_releases_with_the_status_and_again_on_request", async () => {
+    // Without Technik on screen nothing is read.
+    await act(async () => root.render(<Probe active={false} />));
+    expect(releases).not.toHaveBeenCalled();
+    expect(shown.releases).toBeNull();
+    expect(shown.releasesError).toBeNull();
+    // With the status: the list.
     await act(async () => root.render(<Probe />));
-    expect(shown.lastPatch).toBeNull();
-    let pending: Promise<void> = Promise.resolve();
-    act(() => {
-      pending = shown.createPatch();
-    });
-    expect(shown.busy).toBe("patch");
-    await act(async () => pending);
-    expect(shown.lastPatch).toEqual(patchDto());
-    expect(shown.busy).toBeNull();
-    // Reading the status again keeps it.
+    expect(baseStatus).toHaveBeenCalledOnce();
+    expect(releases).toHaveBeenCalledOnce();
+    expect(shown.releases).toEqual(releasesOf());
+    // Again on request (after a release), without reading the status.
+    const after = releasesOf({ next_version: "0.2.0", releases: [releaseOf()] });
+    vi.mocked(releases).mockResolvedValue(after);
+    await act(async () => shown.refreshReleases());
+    expect(releases).toHaveBeenCalledTimes(2);
+    expect(baseStatus).toHaveBeenCalledOnce();
+    expect(shown.releases).toEqual(after);
+    // Reading the status again reads only the status.
     await act(async () => shown.refresh());
-    expect(shown.lastPatch).toEqual(patchDto());
+    expect(baseStatus).toHaveBeenCalledTimes(2);
+    expect(releases).toHaveBeenCalledTimes(2);
 
-    // A failed patch says why.
-    vi.mocked(createPatch).mockRejectedValue({ code: "base_missing", message: "Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).", asset: null, problems: [] });
-    await act(async () => shown.createPatch());
-    expect(shown.error).toBe("Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).");
-    expect(shown.errorFrom).toBe("patch");
+    // A broken list: no list, its reason; the status is not touched.
+    const broken = "Die Liste der Veröffentlichungen .g4/releases.json ist nicht lesbar (expected value); sie bleibt, wie sie ist.";
+    vi.mocked(releases).mockRejectedValue({ code: "releases_broken", message: broken, asset: null, problems: [] });
+    await act(async () => shown.refreshReleases());
+    expect(shown.releases).toBeNull();
+    expect(shown.releasesError).toBe(broken);
+    expect(shown.error).toBeNull();
+    expect(shown.status).toEqual({ state: "unassigned", suggestion: null });
+    // Readable again: the reason goes.
+    vi.mocked(releases).mockResolvedValue(after);
+    await act(async () => shown.refreshReleases());
+    expect(shown.releasesError).toBeNull();
+    expect(shown.releases).toEqual(after);
+
+    // Another project starts from nothing and reads its own; an answer for the project before is dropped.
+    let answer: (dto: ReturnType<typeof releasesOf>) => void = () => {};
+    vi.mocked(releases).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    await act(async () => void shown.refreshReleases());
+    vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "B" }));
+    await act(async () => root.render(<Probe project="/b" />));
+    expect(shown.releases?.stem).toBe("B");
+    await act(async () => answer(after));
+    expect(shown.releases?.stem).toBe("B");
+    // No project: nothing.
+    await act(async () => root.render(<Probe project={null} />));
+    expect(shown.releases).toBeNull();
+    expect(shown.releasesError).toBeNull();
+  });
+
+  it("no_patch_step_remains", async () => {
+    // The old card „Patch“ is gone: releases go through the wizard („Veröffentlichen…“) on the session's build path.
+    await act(async () => root.render(<Probe />));
+    expect("createPatch" in shown).toBe(false);
+    expect("lastPatch" in shown).toBe(false);
   });
 
   it("a_refused_register_keeps_the_status_and_says_why", async () => {

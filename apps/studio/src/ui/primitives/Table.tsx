@@ -9,6 +9,8 @@ export type TableColumn = {
   /** Fixed width in pixels; without, the column shares the rest. */
   width?: number;
   align?: "start" | "end";
+  /** The label is for assistive technology only (a column of buttons): the header reads it, nothing shows. */
+  hideLabel?: boolean;
 };
 
 export type TableRow = {
@@ -195,7 +197,7 @@ export function Table({ columns, rows, ariaLabel, selected, onSelect, onDeleteRo
           <tr role="row">
             {columns.map((c) => (
               <th key={c.key} role="columnheader" scope="col" className={c.align === "end" ? styles.end : undefined}>
-                {c.label}
+                {c.hideLabel ? <span className={styles.hiddenLabel}>{c.label}</span> : c.label}
               </th>
             ))}
           </tr>

@@ -101,7 +101,7 @@ describe("check messages", () => {
     );
     expect(checkTitle("build.base-missing", "tuefteln")).toBe("Basis-ROM unbekannt");
     expect(text("build.base-missing")).toBe(
-      "Das Projekt kennt seine Basis-ROM nicht. „Patch erstellen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik unter „Veröffentlichen“ zu.",
+      "Das Projekt kennt seine Basis-ROM nicht. „Veröffentlichen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik unter „Veröffentlichen“ zu.",
     );
     // Bauen says the same; the four are listed under the project.
     expect(findingText(finding("build.member-gap", "error", { args: ["maps", "0005"] }), "bauen")).toBe(text("build.member-gap", ["maps", "0005"]));

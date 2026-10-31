@@ -33,6 +33,13 @@
   gap: var(--g4-raum-8) var(--g4-raum-16);
 }
 
+/* „Neu vergleichen“ and „Stand sichern…“ side by side, each at its own width. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-8);
+}
+
 .headText {
   display: flex;
   min-width: 0;

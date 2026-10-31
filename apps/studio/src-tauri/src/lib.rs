@@ -15,6 +15,7 @@ mod state;
 pub use state::AppState;
 
 use commands::close_project;
+use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
 use commands::split_room;
 use commands::{
@@ -50,6 +51,7 @@ use commands::{changed_from_original, original_status, plan_reset, reset_to_orig
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{get_battle_sprite, get_trainer_sprite};
+use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{project_preview_get, project_preview_set};
 use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
@@ -222,7 +224,12 @@ pub fn run() {
             unsaved_changes,
             restore_text_project,
             get_battle_sprite,
-            get_trainer_sprite
+            get_trainer_sprite,
+            releases,
+            publish_patch,
+            reveal_path,
+            git_commit_all,
+            git_commit_prepare
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

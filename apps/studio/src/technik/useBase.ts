@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { assignBase, baseStatus, checkBase, createPatch as createPatchCmd, errorText, registerBaseRom } from "../api";
-import type { BaseCheck, BaseStatus, PatchDto } from "../api";
-import { useStableCallback } from "../app/useStable";
+import { assignBase, baseStatus, checkBase, errorText, registerBaseRom, releases as readReleases } from "../api";
+import type { BaseCheck, BaseStatus, ReleasesDto } from "../api";
 
-type Step = "check" | "assign" | "register" | "patch";
+type Step = "check" | "assign" | "register";
 
 /**
- * The base ROM of the open project as Technik › Veröffentlichen works on it. `status` is null while it is read (and when reading
- * failed: then `error` says why). `busy` names what runs; a failure of any step becomes `error` (the German sentence of the
- * backend) with `errorFrom` naming the step (`read` for reading the status), and the status stays as it was. `lastPatch` is the
- * patch written for this project in this session.
+ * The base ROM of the open project as Technik › Veröffentlichen works on it, and the project's releases. `status` is null while it is
+ * read (and when reading failed: then `error` says why). `busy` names what runs; a failure of any step becomes `error` (the German
+ * sentence of the backend) with `errorFrom` naming the step (`read` for reading the status), and the status stays as it was. A release
+ * itself runs in the wizard („Veröffentlichen…“) on the session's build path, not here.
  */
 export interface BaseApi {
   status: BaseStatus | null;
@@ -22,45 +21,50 @@ export interface BaseApi {
   assign: (nds: string) => Promise<void>;
   /** Remembers where the base ROM lies now („Basis-ROM suchen…“). */
   register: (path: string) => Promise<void>;
-  /** Saves, builds and writes the patch. */
-  createPatch: () => Promise<void>;
-  lastPatch: PatchDto | null;
   /** Reads the status again. */
   refresh: () => Promise<void>;
+  /** The releases of the project (null while read or on a failure: `releasesError` says why). Read with the status and after a publish. */
+  releases: ReleasesDto | null;
+  /** Why the releases could not be read (a broken or newer `.g4/releases.json`: `releases_broken`); it locks „Veröffentlichen…“. */
+  releasesError: string | null;
+  /** Reads the releases again (after a release). */
+  refreshReleases: () => Promise<void>;
 }
 
 export type UseBaseOptions = {
   /** The open project's folder; null without one (then nothing is read). */
   project: string | null;
-  /** Technik shows: the status is read each time this turns true (an agent may have assigned a base meanwhile). */
+  /** Technik shows: status and releases are read each time this turns true (an agent may have assigned a base or published meanwhile). */
   active: boolean;
-  /** Runs the patch; the app passes the session's build path, so its build and save guards hold while a patch builds. */
-  createPatch?: () => Promise<PatchDto>;
 };
 
 /**
- * Held by the app above the areas, so a running patch, its result and the status survive leaving Technik. Everything resets when another
- * project opens; an answer that arrives for the project before is dropped.
+ * Held by the app above the areas, so the status and the releases survive leaving Technik. Everything resets when another project opens;
+ * an answer that arrives for the project before is dropped.
  */
-export function useBase({ project, active, createPatch: runPatch = createPatchCmd }: UseBaseOptions): BaseApi {
+export function useBase({ project, active }: UseBaseOptions): BaseApi {
   const [status, setStatus] = useState<BaseStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorFrom, setErrorFrom] = useState<BaseApi["errorFrom"]>(null);
   const [busy, setBusy] = useState<Step | null>(null);
-  const [lastPatch, setLastPatch] = useState<PatchDto | null>(null);
-  const patch = useStableCallback(runPatch);
+  const [releases, setReleases] = useState<ReleasesDto | null>(null);
+  const [releasesError, setReleasesError] = useState<string | null>(null);
   // The project the answers belong to, and the number of the last status write: a read that started before a newer write is dropped.
   const current = useRef(project);
   const writes = useRef(0);
+  // The number of the last read of the releases: an older answer is dropped.
+  const releaseReads = useRef(0);
 
   useEffect(() => {
     current.current = project;
     writes.current += 1;
+    releaseReads.current += 1;
     setStatus(null);
     setError(null);
     setErrorFrom(null);
     setBusy(null);
-    setLastPatch(null);
+    setReleases(null);
+    setReleasesError(null);
   }, [project]);
 
   const read = useCallback(async () => {
@@ -79,9 +83,26 @@ export function useBase({ project, active, createPatch: runPatch = createPatchCm
     }
   }, []);
 
+  const refreshReleases = useCallback(async () => {
+    const forProject = current.current;
+    const mine = ++releaseReads.current;
+    try {
+      const next = await readReleases();
+      if (current.current !== forProject || releaseReads.current !== mine) return;
+      setReleases(next);
+      setReleasesError(null);
+    } catch (e) {
+      if (current.current !== forProject || releaseReads.current !== mine) return;
+      setReleases(null);
+      setReleasesError(errorText(e));
+    }
+  }, []);
+
   useEffect(() => {
-    if (project !== null && active) void read();
-  }, [project, active, read]);
+    if (project === null || !active) return;
+    void read();
+    void refreshReleases();
+  }, [project, active, read, refreshReleases]);
 
   /** Runs `step` as `kind`: busy while it runs, the error cleared before and set on a failure; null when it failed or the project changed. */
   const run = useCallback(async <T,>(kind: Step, step: () => Promise<T>): Promise<T | null> => {
@@ -113,10 +134,6 @@ export function useBase({ project, active, createPatch: runPatch = createPatchCm
   const check = useCallback((nds: string) => run("check", () => checkBase(nds)), [run]);
   const assign = useCallback(async (nds: string) => take(await run("assign", () => assignBase(nds))), [run, take]);
   const register = useCallback(async (path: string) => take(await run("register", () => registerBaseRom(path))), [run, take]);
-  const createPatch = useCallback(async () => {
-    const done = await run("patch", patch);
-    if (done !== null) setLastPatch(done);
-  }, [run, patch]);
 
-  return { status, error, errorFrom, busy, check, assign, register, createPatch, lastPatch, refresh: read };
+  return { status, error, errorFrom, busy, check, assign, register, refresh: read, releases, releasesError, refreshReleases };
 }

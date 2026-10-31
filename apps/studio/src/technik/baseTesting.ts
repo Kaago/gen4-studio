@@ -1,4 +1,4 @@
-import type { BaseCheck, BaseMarkDto, BaseStatus, PatchDto, RomInfo } from "../api";
+import type { BaseCheck, BaseMarkDto, BaseStatus, RomInfo } from "../api";
 
 /** Test data for Technik › Veröffentlichen: the base of the test project (Platin DE) in its states. */
 
@@ -52,16 +52,3 @@ export const romInfo = (over: Partial<RomInfo> = {}): RomInfo => ({
 });
 
 export const check = (over: Partial<BaseCheck> = {}): BaseCheck => ({ info: romInfo(), warnings: [], refused: null, ...over });
-
-export const patchDto = (over: Partial<PatchDto> = {}): PatchDto => ({
-  patch: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.xdelta",
-  notes: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.xdelta.txt",
-  rom: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.nds",
-  size: 4813,
-  base_sha1: SHA1,
-  target_sha1: "aa11bb22cc33dd44ee55ff6677889900aabbccdd",
-  encode_ms: 120,
-  verify_ms: 30,
-  build: { saved: 0, packed: [["maps", 3]], rom: "/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 },
-  ...over,
-});

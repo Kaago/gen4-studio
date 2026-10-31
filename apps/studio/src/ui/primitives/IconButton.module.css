@@ -33,3 +33,15 @@
   color: var(--g4-text-deaktiviert);
   cursor: not-allowed;
 }
+
+/* With a hint the tooltip has two lines: the name (and its keys), then the hint. */
+.tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
+}
+
+.hint {
+  color: var(--g4-text-sekundaer);
+}

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { gitStatusOf, noRepo } from "./gitTesting";
-import { NOT_INSTALLED, changesWord, gitFoundText, statusText, statusTooltip } from "./gitWords";
+import { commitReportOf, gitStatusOf, noRepo } from "./gitTesting";
+import { NOT_INSTALLED, changedFilesText, changesWord, commitDoneText, gitFoundText, statusText, statusTooltip } from "./gitWords";
 
 describe("gitWords", () => {
   it("changes_have_none_singular_and_plural", () => {
@@ -49,5 +49,28 @@ describe("gitWords", () => {
     const cli = readFileSync("../../crates/g4-kernel/src/git/cli.rs", "utf8");
     const rust = /pub const NOT_INSTALLED: &str =\s*"((?:[^"\\]|\\.)*)";/.exec(cli);
     expect(rust?.[1]).toBe(NOT_INSTALLED);
+  });
+
+  it("changed_files_have_none_singular_and_plural", () => {
+    expect(changedFilesText(0)).toBe("Keine Änderung seit dem letzten Commit");
+    expect(changedFilesText(1)).toBe("1 geänderte Datei seit dem letzten Commit");
+    expect(changedFilesText(3)).toBe("3 geänderte Dateien seit dem letzten Commit");
+  });
+
+  it("changed_files_without_a_commit_are_those_of_the_first_commit", () => {
+    expect(changedFilesText(1, true)).toBe("1\u00a0Datei für den ersten Commit");
+    expect(changedFilesText(18449, true)).toBe("18.449\u00a0Dateien für den ersten Commit");
+    // Nothing to take: the sentence stays.
+    expect(changedFilesText(0, true)).toBe("Keine Änderung seit dem letzten Commit");
+  });
+
+  it("commit_done_text_names_short_subject_and_count", () => {
+    expect(commitDoneText(commitReportOf())).toBe("Stand gesichert: 9a8b7c6 „Stand 2026-10-31 14:05“ (3\u00a0Dateien).");
+    expect(commitDoneText(commitReportOf({ files: 1, subject: "Veröffentlicht v0.1.0" }))).toBe("Stand gesichert: 9a8b7c6 „Veröffentlicht v0.1.0“ (1\u00a0Datei).");
+    expect(commitDoneText(commitReportOf({ files: 18449 }))).toBe("Stand gesichert: 9a8b7c6 „Stand 2026-10-31 14:05“ (18.449\u00a0Dateien).");
+    // Without a name in Git the commit is Gen4 Studio's, and the message says why.
+    expect(commitDoneText(commitReportOf({ studio_identity: true }))).toBe(
+      "Stand gesichert: 9a8b7c6 „Stand 2026-10-31 14:05“ (3\u00a0Dateien). Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.",
+    );
   });
 });

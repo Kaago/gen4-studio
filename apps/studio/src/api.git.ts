@@ -199,3 +199,42 @@ export const diffEntity = (subject: DiffSubject, against: Against) => invoke<Ent
 
 /** The store's unsaved edits as entities (the header table per header), as „Gegen gespeichert“ lists them. */
 export const unsavedChanges = () => invoke<ChangedEntry[]>("unsaved_changes");
+
+/** A step of „Stand sichern“, reported at its start: the template block brought up to date, `git add -A`, `git commit`. */
+export type CommitPhase = "templates" | "add" | "commit";
+
+/**
+ * What „Stand sichern“ did. `committed` is false with a `reason` (Git's text) when a subcommand failed; `subject` is the commit's first line,
+ * `head` the new commit, `files` the changed paths that went into it; `studio_identity`: Git knows no name yet, so the commit is by „Gen4
+ * Studio“. `phase_ms`: the milliseconds of each phase that ran.
+ */
+export interface CommitReport {
+  committed: boolean;
+  reason: string | null;
+  subject: string;
+  head: HeadInfo | null;
+  files: number;
+  studio_identity: boolean;
+  phase_ms: Partial<Record<CommitPhase, number>>;
+  ms: number;
+}
+
+/**
+ * „Stand sichern“: commits every change of the open project (`git add -A`) in its own repository; `message` is the subject (the backend's
+ * default „Stand <Datum> <Uhrzeit> UTC“ without one), `notes` the body. Refused with `unsaved`, `busy`, `no_repo`, `enclosing_repo`,
+ * `nothing_to_commit` and `no_git` before anything is written. Through the dev bridge (no channel) there are no progress events.
+ */
+export async function gitCommitAll(opts: { message?: string; notes?: string }, onProgress: (p: { phase: CommitPhase }) => void): Promise<CommitReport> {
+  const args: Record<string, unknown> = { ...opts };
+  if (!inTauri()) return invoke<CommitReport>("git_commit_all", args);
+  const progress = new Channel<{ phase: CommitPhase }>();
+  progress.onmessage = onProgress;
+  return invoke<CommitReport>("git_commit_all", { ...args, progress });
+}
+
+/**
+ * What „Stand sichern?“ reads when it opens and after a refusal: the backend's checks (in the project's own repository they bring an outdated
+ * template block up to date, so a file the old block kept out, such as `.g4/releases.json`, counts), then the fresh Git state. No change is
+ * no refusal here: the state then counts 0. Refused with `unsaved`, `busy`, `no_repo`, `enclosing_repo` and `no_git`.
+ */
+export const gitCommitPrepare = () => invoke<GitStatus>("git_commit_prepare");

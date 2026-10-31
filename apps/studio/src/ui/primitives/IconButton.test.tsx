@@ -88,4 +88,27 @@ describe("IconButton", () => {
     act(() => button().click());
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("a_hint_is_the_second_tooltip_line_and_the_description", async () => {
+    vi.useFakeTimers();
+    const onClick = vi.fn();
+    act(() => root.render(<IconButton label="Veröffentlichen" icon="publish" busy hint="Erst eine Basis-ROM zuordnen." onClick={onClick} />));
+    // The name stays the label; the hint is read after it (also while it is blocked, which is when it says why).
+    expect(button().getAttribute("aria-label")).toBe("Veröffentlichen");
+    expect(button().getAttribute("aria-description")).toBe("Erst eine Basis-ROM zuordnen.");
+    await act(async () => {
+      button().dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      button().dispatchEvent(new MouseEvent("mouseenter"));
+      button().dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const tip = document.querySelector("[role=tooltip]")!;
+    const lines = [...tip.querySelectorAll("[data-tip-line]")].map((l) => l.textContent);
+    expect(lines).toEqual(["Veröffentlichen", "Erst eine Basis-ROM zuordnen."]);
+    act(() => button().click());
+    expect(onClick).not.toHaveBeenCalled();
+    // Without a hint: one line, no description.
+    act(() => root.render(<IconButton label="Veröffentlichen" icon="publish" onClick={onClick} />));
+    expect(button().hasAttribute("aria-description")).toBe(false);
+  });
 });

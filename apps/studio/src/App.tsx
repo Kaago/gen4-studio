@@ -30,10 +30,11 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
+import { publishLocked as publishLockOf } from "./publish/publishWords";
 import { useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
-import { focusChangesSurface } from "./technik/ChangesSurface";
+import { focusChangesSurface, focusCommitAll } from "./technik/ChangesSurface";
 import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
@@ -47,6 +48,7 @@ import { baseKey, useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { GitStatusItem } from "./ui/frame/GitStatusItem";
+import { CommitDialog } from "./git/CommitDialog";
 import { GitInitDialog } from "./git/GitInitDialog";
 import { RestoreDialog } from "./git/RestoreDialog";
 import { useGitStatus } from "./git/useGitStatus";
@@ -64,7 +66,7 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
+import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
@@ -326,9 +328,23 @@ function AppBody() {
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
   const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
-  // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
-  // builds on the session's build path, so open, save and build wait for it like for a build.
-  const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
+  // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
+  // builds on the session's build path (`session.publish`) in the wizard.
+  const base = useBase({ project: session.info?.root ?? null, active: area === "technik" });
+  // „Veröffentlichen“ waits for a found base ROM and a readable list of releases (the title bar's button says why): both are read once
+  // when a project opens too (the status by its folder, so reading the same project again hashes nothing anew), not only when Technik
+  // shows; there `useBase` reads them itself.
+  const openedRoot = session.info?.root ?? null;
+  useEffect(() => {
+    if (openedRoot === null || area === "technik") return;
+    void base.refresh();
+    void base.refreshReleases();
+  }, [openedRoot]);
+  const publishLock = session.info === null ? null : publishLockOf(base.status, base.releasesError);
+  // „Stand sichern?“ while open (from the palette, Technik › Änderungen, or the result of „Veröffentlichen“ with its subject and notes as
+  // `preset`); null: closed.
+  // `from`: where it was opened, which says where the focus goes when it closes.
+  const [commitOpen, setCommitOpen] = useState<{ preset: { message: string; notes: string } | null; from: "changes" | "wizard" | "palette" } | null>(null);
   // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
   const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
@@ -388,6 +404,8 @@ function AppBody() {
   const [syncSettled, setSyncSettled] = useState(0);
   // The world model as the last render had it: a wizard's name for what it made goes into the project file (set below, after the model).
   const worldRef = useRef<WorkbenchWorld | null>(null);
+  // The area a wizard was opened from.
+  const wizardFrom = useRef<AreaId>("welt");
   const wizards = useWizards({
     onCreated: async (made) => {
       // The name the wizard asked for is the clear name of the new room (or of the area's header) in the world tree.
@@ -411,9 +429,13 @@ function AppBody() {
     },
     // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
     onOpen: () => {
+      // A wizard that replaces an open one (the world's „Neu anlegen“) keeps the first one's origin, as `useWizards` keeps its opener.
+      if (!wizardOpen.current) wizardFrom.current = area;
       setArea("welt");
       shell.setTool("select");
     },
+    // Left without „Zeigen“: back to the area it was opened from (Technik › Veröffentlichen, the area the palette was used in).
+    onLeave: () => setArea(wizardFrom.current),
   });
   wizardOpen.current = wizards.request !== null;
   useEffect(() => {
@@ -468,10 +490,14 @@ function AppBody() {
     await reloadChanged(assets, true);
   });
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
-    // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
-    if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
+    // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again, and after
+    // a release the list of releases too.
+    if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch" || event.tool === "publish_patch")) void base.refresh();
+    if (session.info !== null && event.tool === "publish_patch") void base.refreshReleases();
     // An agent set up Git: the status line reads the repository.
     if (session.info !== null && event.tool === "git_init") void git.refresh();
+    // An agent saved the state: the status line counts again.
+    if (session.info !== null && event.tool === "git_commit_all") void git.refresh();
     // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
     // never have read the base status).
     if (session.info !== null && event.tool === "assign_base") {
@@ -706,6 +732,40 @@ function AppBody() {
   function openProject() {
     if (!session.busy && wizards.request === null && !startOpen) void session.onOpen(resetProject);
   }
+  /** „Veröffentlichen…“ (title bar, palette): the wizard, with a project whose base ROM is found, while nothing else runs. */
+  function openPublish() {
+    if (session.info && !session.busy && wizards.request === null && !startOpen && publishLock === null) wizards.open({ kind: "publish" });
+  }
+  /**
+   * Where the focus goes when „Stand sichern?“ closes, asked then: from Technik › Änderungen its „Stand sichern…“ (a new button after a first
+   * commit), from the wizard (gone with its result) the title bar's „Veröffentlichen“; from the palette what had it before (Base UI).
+   */
+  const commitFocus = (from: "changes" | "wizard" | "palette") => (): HTMLElement | null => {
+    if (from === "changes") focusCommitAll();
+    return from === "wizard" ? document.querySelector<HTMLElement>('header button[aria-label="Veröffentlichen"]') : null;
+  };
+  /**
+   * The wizard is left; after a release the base status and the list of releases are read again (by Technik itself when the wizard goes
+   * back there: `useBase` reads both when it shows).
+   */
+  function closePublish(published: boolean) {
+    wizards.close();
+    if (!published || wizardFrom.current === "technik") return;
+    void base.refresh();
+    void base.refreshReleases();
+  }
+  /** „Im Finder zeigen“ of a release file; the browser mode has no file manager to open. */
+  const revealRelease = useStableCallback(async (path: string) => {
+    if (!inTauri()) {
+      toast.info("Nur in der App.");
+      return;
+    }
+    try {
+      await revealPath(path);
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+  });
   /**
    * "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
    * project is open (see above). Refused or failed: the wizard stays on its result.
@@ -1027,9 +1087,12 @@ function AppBody() {
           placeShown,
           wizard: wizards.request !== null,
           gitSetup: git.status?.repo.kind === "none",
+          publishLocked: publishLock,
+          // „Stand sichern…“ only in the project's own repository (a larger one around it is the user's to commit).
+          commitAll: git.status?.repo.kind === "own",
         },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status, publishLock],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
@@ -1150,6 +1213,12 @@ function AppBody() {
       case "gitSetup":
         if (session.info && git.status?.repo.kind === "none") openGitSetup(false);
         break;
+      case "publish":
+        openPublish();
+        break;
+      case "commitAll":
+        if (session.info && git.status?.repo.kind === "own") setCommitOpen({ preset: null, from: "palette" });
+        break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
           const { matrix, x, y } = pins.pinned;
@@ -1232,6 +1301,8 @@ function AppBody() {
         }}
         startTown={startTown}
         base={info ? base : null}
+        onPublish={openPublish}
+        onReveal={revealRelease}
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
         textProject={textProject}
@@ -1242,6 +1313,7 @@ function AppBody() {
         unsavedError={unsaved.error}
         onReloadUnsaved={unsaved.reload}
         onGitSetup={() => openGitSetup(true)}
+        onCommitAll={() => setCommitOpen({ preset: null, from: "changes" })}
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
@@ -1311,6 +1383,8 @@ function AppBody() {
                     onOpen={openProject}
                     onSave={() => void session.onSave()}
                     onBuild={() => void session.onBuild()}
+                    onPublish={openPublish}
+                    publishLocked={publishLock}
                     onHelp={onHelp}
                     onPalette={openPalette}
                     paletteDisabled={showsWizard || startOpen}
@@ -1387,6 +1461,16 @@ function AppBody() {
           unsaved={session.dirtyCount + scripts.dirtyCount}
           onSave={session.onSave}
           onRegionApplied={onRegionApplied}
+          publish={{
+            gitOwn: git.status?.repo.kind === "own",
+            onPublish: session.publish,
+            onReveal: revealRelease,
+            onCommit: (preset) => {
+              closePublish(true);
+              setCommitOpen({ preset, from: "wizard" });
+            },
+            onClose: closePublish,
+          }}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
@@ -1446,6 +1530,21 @@ function AppBody() {
               // With the first commit there is something to compare against: Technik › Änderungen shows it.
               if (report.committed) setAgainst("head");
             }}
+          />
+        )}
+        {commitOpen !== null && session.info !== null && (
+          <CommitDialog
+            open
+            status={git.status}
+            unsaved={session.dirtyCount + scripts.dirtyCount > 0}
+            preset={commitOpen.preset}
+            exclusive={session.exclusive}
+            onClose={() => setCommitOpen(null)}
+            // Also after a failed commit (`git add -A` ran): the status line and Technik › Änderungen read the repository again.
+            onDone={() => git.refresh()}
+            // The checks may have refreshed the template block (a repository of 4.4 after a release): the status line follows.
+            onRefresh={() => git.refresh()}
+            finalFocus={commitFocus(commitOpen.from)}
           />
         )}
         {restore !== null && (

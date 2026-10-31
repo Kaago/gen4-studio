@@ -1084,7 +1084,8 @@ pub fn suggest_base(root: &Path) -> Option<PathBuf> {
     (header[0x0C..0x10] == *game_code.as_bytes()).then_some(nds)
 }
 
-fn now_rfc3339() -> String {
+/// The current time as `YYYY-MM-DDTHH:MM:SSZ` (UTC).
+pub fn now_rfc3339() -> String {
     rfc3339_utc(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

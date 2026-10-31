@@ -4,8 +4,9 @@ import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BuildReport, BuildStep, CmdError, PatchDto, ProblemDto } from "../api";
-import { buildRom, createPatch, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, readScript, resolveTextConflicts, runRom, save, saveScript, scriptsStatus } from "../api";
+import type { BuildReport, BuildStep, CmdError, PublishOptionsDto, ProblemDto } from "../api";
+import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, publishPatch, readScript, resolveTextConflicts, runRom, save, saveScript, scriptsStatus } from "../api";
+import { publishReportOf } from "../publish/publishTesting";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus, EditEvent } from "../bus/editBus";
 import { ProblemsStore } from "../workbench/problems/problems";
@@ -19,7 +20,7 @@ import { listToasts, toast } from "../ui/frame/toasts";
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   buildRom: vi.fn(),
-  createPatch: vi.fn(),
+  publishPatch: vi.fn(),
   save: vi.fn(),
   dirty: vi.fn(),
   openProject: vi.fn(),
@@ -491,31 +492,49 @@ describe("useProjectSession with open scripts", () => {
     expect(problems.list().map((p) => [p.message, p.source])).toEqual([["zu breit", "text"]]);
   });
 
-  it("a_patch_stamps_the_build_but_does_not_become_the_rom_of_hier_spielen", async () => {
-    // „Hier spielen“ builds to the last ROM; the ROM next to the patch must keep the SHA-1 its notes name.
-    const patch: PatchDto = {
-      patch: "/p/build/P-CPUD.xdelta",
-      notes: "/p/build/P-CPUD.xdelta.txt",
-      rom: "/p/build/P-CPUD.nds",
-      size: 541,
-      base_sha1: "a".repeat(40),
-      target_sha1: "b".repeat(40),
-      encode_ms: 100,
-      verify_ms: 20,
-      build: report({ rom: "/p/build/P-CPUD.nds", problems: [problem("expanded/textArchives/0007.json", 1, "zu breit", "warning", "text")] }),
-    };
-    vi.mocked(createPatch).mockReset().mockResolvedValue(patch);
+  it("a_release_stamps_the_build_but_does_not_become_the_rom_of_hier_spielen", async () => {
+    // „Hier spielen“ builds to the last ROM; the ROM a release built must keep the SHA-1 its notes name.
+    const opts = (version: string): PublishOptionsDto => ({ version, notes: "", dir: "/h/Sinnoh-Remix/build", file: `Sinnoh-Remix-v${version}.xdelta`, readme: false });
+    // The release's build reports its steps and a warning; an earlier failed build left a compile error behind.
+    const releaseBuild = (o: PublishOptionsDto) => ({ ...publishReportOf(o).build, steps: STEPS, problems: [problem("expanded/textArchives/0007.json", 1, "zu breit", "warning", "text")] });
+    vi.mocked(publishPatch).mockReset().mockImplementation(async (o, onProgress) => {
+      onProgress({ phase: "build" });
+      return { ...publishReportOf(o), build: releaseBuild(o) };
+    });
+    vi.mocked(buildRom).mockRejectedValueOnce({ code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem("expanded/scripts/0003.rotom", 2, "e1")] });
+    await build();
+    expect(problems.list().map((p) => p.message)).toEqual(["e1"]);
+    const onProgress = vi.fn();
     const before = Date.now();
-    await act(async () => void (await session.buildPatch()));
+    await act(async () => void (await session.publish(opts("0.1.0"), onProgress)));
+    expect(publishPatch).toHaveBeenCalledWith(opts("0.1.0"), onProgress);
+    expect(onProgress).toHaveBeenCalledWith({ phase: "build" });
+    // The store is saved first: the backend publishes the saved state and refuses unsaved changes.
+    expect(vi.mocked(save).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(publishPatch).mock.invocationCallOrder[0]!);
     expect(session.lastRom).toBeNull();
     expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
+    expect(session.lastPatchRom).toBe("/h/Sinnoh-Remix/build/Sinnoh-Remix-CPUD.nds");
+    // Its build is the last build: its steps, and its problems in place of the failed build's.
+    expect(session.lastSteps).toEqual(STEPS);
     expect(problems.list().map((p) => [p.message, p.source])).toEqual([["zu breit", "text"]]);
     expect(session.busy).toBe(false);
 
     await build();
     expect(session.lastRom).toBe("/out.nds");
-    await act(async () => void (await session.buildPatch()));
+    await act(async () => void (await session.publish(opts("0.1.1"), onProgress)));
     expect(session.lastRom).toBe("/out.nds");
+
+    // A refusal is thrown on (the wizard says why) and the session is free again.
+    vi.mocked(publishPatch).mockRejectedValueOnce({ code: "exists", message: "Sinnoh-Remix-v0.1.2.xdelta liegt schon am Speicherort; …", asset: null });
+    let thrown: unknown = null;
+    await act(async () => {
+      thrown = await session.publish(opts("0.1.2"), onProgress).then(
+        () => null,
+        (e: unknown) => e,
+      );
+    });
+    expect(thrown).toMatchObject({ code: "exists" });
+    expect(session.busy).toBe(false);
   });
 
   describe("with a project open", () => {

@@ -3,11 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignBase, baseStatus, checkBase, createPatch, registerBaseRom } from "../api";
+import { assignBase, baseStatus, checkBase, registerBaseRom, releases } from "../api";
 import type { BaseStatus } from "../api";
 import { openPath } from "../platform/dialogs";
 import { pressKey } from "../ui/primitives/testUtils";
-import { SHA1, check, found, missing, patchDto } from "./baseTesting";
+import { releaseOf, releasesOf } from "../publish/publishTesting";
+import { dateText } from "../publish/publishWords";
+import { SHA1, check, found, missing } from "./baseTesting";
 import { PublishSurface } from "./PublishSurface";
 import { useBase } from "./useBase";
 import type { BaseApi } from "./useBase";
@@ -18,7 +20,7 @@ vi.mock("../api", async (importOriginal) => ({
   checkBase: vi.fn(),
   assignBase: vi.fn(),
   registerBaseRom: vi.fn(),
-  createPatch: vi.fn(),
+  releases: vi.fn(),
 }));
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
@@ -27,36 +29,45 @@ vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOrig
 const PROJECT = "/p/Sinnoh-Remix_DSPRE_contents";
 const SIBLING = "/p/Sinnoh-Remix.nds";
 
-const baseApi = (status: BaseStatus, busy: BaseApi["busy"]): BaseApi => ({
+const baseApi = (status: BaseStatus, busy: BaseApi["busy"], over: Partial<BaseApi> = {}): BaseApi => ({
   status,
   error: null,
   errorFrom: null,
   busy,
-  lastPatch: null,
   check: vi.fn(async () => null),
   assign: vi.fn(async () => {}),
   register: vi.fn(async () => {}),
-  createPatch: vi.fn(async () => {}),
   refresh: vi.fn(async () => {}),
+  releases: releasesOf(),
+  releasesError: null,
+  refreshReleases: vi.fn(async () => {}),
+  ...over,
 });
 
 describe("PublishSurface", () => {
   let container: HTMLElement;
   let root: Root;
   const onOpenProject = vi.fn();
+  const onPublish = vi.fn();
+  const onReveal = vi.fn(async (_path: string) => {});
+  const handlers = { onOpenProject, onPublish, onReveal };
 
   function Host({ building = false }: { building?: boolean }) {
     const base = useBase({ project: PROJECT, active: true });
-    return <PublishSurface base={base} building={building} onOpenProject={onOpenProject} />;
+    return <PublishSurface base={base} building={building} {...handlers} />;
   }
+  /** The surface with a base as given (no hook). */
+  const shown = (base: BaseApi, building = false) => act(async () => root.render(<PublishSurface base={base} building={building} {...handlers} />));
 
   beforeEach(() => {
     onOpenProject.mockClear();
+    onPublish.mockClear();
+    onReveal.mockClear();
     vi.mocked(baseStatus).mockReset().mockResolvedValue({ state: "unassigned", suggestion: SIBLING });
     vi.mocked(checkBase).mockReset().mockResolvedValue(check());
     vi.mocked(assignBase).mockReset().mockResolvedValue(found({ path: SIBLING, source: "sibling" }));
     vi.mocked(registerBaseRom).mockReset();
-    vi.mocked(createPatch).mockReset().mockResolvedValue(patchDto());
+    vi.mocked(releases).mockReset().mockResolvedValue(releasesOf());
     vi.mocked(openPath).mockReset().mockResolvedValue(null);
     container = document.createElement("div");
     document.body.append(container);
@@ -74,17 +85,17 @@ describe("PublishSurface", () => {
   };
   const surface = () => container.querySelector<HTMLElement>("[data-technik=veroeffentlichen]");
   const baseCard = () => container.querySelector<HTMLElement>("[data-base-state]");
-  const patchCard = () => container.querySelector<HTMLElement>("[data-patch-card]");
+  const publishCard = () => container.querySelector<HTMLElement>("[data-publish-card]");
   const button = (name: string, scope: ParentNode = container) => [...scope.querySelectorAll("button")].find((b) => b.textContent === name);
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
   const dialogTitle = () => document.getElementById(dialog()?.getAttribute("aria-labelledby") ?? "")?.textContent;
   const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 
   it("without_a_project_offers_to_open_one", async () => {
-    await act(async () => root.render(<PublishSurface base={null} building={false} onOpenProject={onOpenProject} />));
+    await act(async () => root.render(<PublishSurface base={null} building={false} {...handlers} />));
     expect(surface()?.querySelector("h1")?.textContent).toBe("Veröffentlichen");
     expect(surface()?.textContent).toContain("Kein Projekt geöffnet.");
-    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
+    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann veröffentlichst du es hier.");
     expect(baseCard()).toBeNull();
     await click(button("Projekt öffnen"));
     expect(onOpenProject).toHaveBeenCalledOnce();
@@ -101,10 +112,9 @@ describe("PublishSurface", () => {
     expect(card.querySelector("[role=status]")?.textContent).toContain("Neben dem Projekt liegt „Sinnoh-Remix.nds“.");
     expect(button("Zuordnen…", card)?.getAttribute("data-kind")).toBe("primary");
     expect(button("Andere Datei wählen…", card)?.getAttribute("data-kind")).toBe("secondary");
-    // The patch waits for a base.
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
-    expect(patchCard()?.textContent).toContain("Erst eine Basis-ROM zuordnen.");
-    expect(patchCard()?.textContent).toContain("Der Patch enthält nur deine Änderungen. Wer dieselbe Basis-ROM hat, wendet ihn mit xdelta3 oder Rom Patcher JS an.");
+    // Publishing waits for a base.
+    expect(button("Veröffentlichen…", publishCard()!)?.disabled).toBe(true);
+    expect(publishCard()?.textContent).toContain("Erst eine Basis-ROM zuordnen.");
 
     // „Andere Datei wählen…“ asks for a .nds and checks it.
     vi.mocked(openPath).mockResolvedValue("/roms/other.nds");
@@ -159,7 +169,7 @@ describe("PublishSurface", () => {
     expect(dialog()).toBeNull();
     expect(baseCard()?.getAttribute("data-base-state")).toBe("found");
     expect(baseCard()?.textContent).toContain("Basis-ROM zugeordnet: Platin DE (Testprojekt).");
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(false);
+    expect(button("Veröffentlichen…", publishCard()!)?.disabled).toBe(false);
   });
 
   it("the_check_dialog_keeps_its_content_while_it_assigns", async () => {
@@ -208,8 +218,8 @@ describe("PublishSurface", () => {
     expect(card.getAttribute("data-base-state")).toBe("missing");
     expect(card.textContent).toContain("Fehlt");
     expect(card.querySelector("[role=status]")?.textContent).toContain("Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).");
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
-    expect(patchCard()?.textContent).toContain("Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).");
+    expect(button("Veröffentlichen…", publishCard()!)?.disabled).toBe(true);
+    expect(publishCard()?.textContent).toContain("Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…).");
 
     // „Basis-ROM suchen…“ remembers where it lies now; a refusal says why and keeps the state.
     vi.mocked(openPath).mockResolvedValue("/roms/HeartGold.nds");
@@ -235,8 +245,8 @@ describe("PublishSurface", () => {
     expect(baseCard()?.getAttribute("data-base-state")).toBe("unreadable");
     expect(baseCard()?.textContent).toContain("Nicht lesbar");
     expect(baseCard()?.querySelector("[role=alert]")?.textContent).toBe(reason);
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
-    expect(patchCard()?.textContent).toContain(reason);
+    expect(button("Veröffentlichen…", publishCard()!)?.disabled).toBe(true);
+    expect(publishCard()?.textContent).toContain(reason);
   });
 
   it("found_base_shows_label_short_sha1_and_path", async () => {
@@ -253,106 +263,165 @@ describe("PublishSurface", () => {
     // Nothing to assign any more.
     expect(button("Zuordnen…")).toBeUndefined();
     expect(button("Basis-ROM suchen…")).toBeUndefined();
-    expect(patchCard()?.textContent).not.toContain("Erst eine Basis-ROM zuordnen.");
-  });
-
-  it("create_patch_asks_first_then_shows_size_path_and_self_check", async () => {
-    // The name comes from the backend's status (the kernel's rule), not from the folder.
-    await show(found({ patch_name: "Mein_Hack-CPUD" }));
-    await click(button("Patch erstellen…", patchCard()!));
-    expect(createPatch).not.toHaveBeenCalled();
-    const asked = dialog()!;
-    expect(dialogTitle()).toBe("Patch erstellen?");
-    expect(asked.textContent).toContain(
-      "Speichert, baut die ROM und schreibt build/Mein_Hack-CPUD.xdelta und build/Mein_Hack-CPUD.xdelta.txt. Ein älterer Patch dort wird ersetzt.",
-    );
-    await click(button("Abbrechen", asked));
-    expect(dialog()).toBeNull();
-    expect(createPatch).not.toHaveBeenCalled();
-
-    let finish: (dto: ReturnType<typeof patchDto>) => void = () => {};
-    vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
-    await click(button("Patch erstellen…", patchCard()!));
-    expect(button("Patch erstellen", dialog()!)?.getAttribute("data-kind")).toBe("primary");
-    await click(button("Patch erstellen", dialog()!));
-    expect(createPatch).toHaveBeenCalledOnce();
-    expect(dialog()).toBeNull();
-    // While it runs: the note, and nothing else changes the project.
-    expect(patchCard()?.textContent).toContain("Baue und erstelle den Patch …");
-    expect(button("Patch erstellen…", patchCard()!)?.getAttribute("aria-disabled")).toBe("true");
-
-    await act(async () => finish(patchDto()));
-    const done = patchCard()!.querySelector<HTMLElement>("[role=status]")!;
-    expect(done.textContent).toContain("Patch erstellt: 4,7 KiB");
-    expect(done.textContent).toContain("/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.xdelta");
-    expect(done.textContent).toContain("Selbstprüfung bestanden: auf die Basis-ROM angewendet ergibt der Patch genau die gebaute ROM.");
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(false);
-    expect(button("Patch erstellen…", patchCard()!)?.hasAttribute("aria-disabled")).toBe(false);
-  });
-
-  it("a_patch_without_changes_is_a_warning_not_a_success", async () => {
-    // The built ROM equals the base ROM: the patch is valid, but it changes nothing.
-    vi.mocked(createPatch).mockResolvedValue(patchDto({ size: 545, target_sha1: SHA1 }));
-    await show(found());
-    await click(button("Patch erstellen…", patchCard()!));
-    await click(button("Patch erstellen", dialog()!));
-    await act(async () => {});
-    const notice = patchCard()!.querySelector<HTMLElement>("[role=status]")!;
-    expect(notice.textContent).toContain("Patch ohne Änderungen: 545 Byte");
-    expect(notice.textContent).toContain("/p/Sinnoh-Remix_DSPRE_contents/build/Sinnoh-Remix-CPUD.xdelta");
-    expect(notice.textContent).toContain("Die gebaute ROM gleicht der Basis-ROM; der Patch ändert nichts.");
-    expect(notice.textContent).not.toContain("Patch erstellt");
-    expect(notice.textContent).not.toContain("Selbstprüfung bestanden");
-    expect(notice.className).toContain("warning");
-    // A patch with changes stays a success.
-    vi.mocked(createPatch).mockResolvedValue(patchDto());
-    await click(button("Patch erstellen…", patchCard()!));
-    await click(button("Patch erstellen", dialog()!));
-    await act(async () => {});
-    const done = patchCard()!.querySelector<HTMLElement>("[role=status]")!;
-    expect(done.textContent).toContain("Patch erstellt: 4,7 KiB");
-    expect(done.className).toContain("success");
-  });
-
-  it("a_failed_patch_shows_the_reason_in_the_patch_card", async () => {
-    vi.mocked(createPatch).mockRejectedValue({ code: "error", message: "Die Selbstprüfung ist gescheitert; kein Patch geschrieben.", asset: null, problems: [] });
-    await show(found());
-    await click(button("Patch erstellen…", patchCard()!));
-    await click(button("Patch erstellen", dialog()!));
-    await act(async () => {});
-    expect(patchCard()?.querySelector("[role=alert]")?.textContent).toBe("Die Selbstprüfung ist gescheitert; kein Patch geschrieben.");
-    expect(baseCard()?.querySelector("[role=alert]")).toBeNull();
+    expect(publishCard()?.textContent).not.toContain("Erst eine Basis-ROM zuordnen.");
   });
 
   it("while_something_runs_no_action_changes_the_project", async () => {
-        for (const [status, busy] of [
-      [{ state: "unassigned", suggestion: SIBLING }, "patch"],
-      [{ state: "unassigned", suggestion: null }, "patch"],
-      [missing(), "patch"],
+    for (const [status, busy] of [
+      [{ state: "unassigned", suggestion: SIBLING }, "assign"],
+      [{ state: "unassigned", suggestion: null }, "check"],
+      [missing(), "assign"],
       [{ state: "unassigned", suggestion: SIBLING }, "check"],
       [missing(), "register"],
     ] as [BaseStatus, BaseApi["busy"]][]) {
-      await act(async () => root.render(<PublishSurface base={baseApi(status, busy)} building={false} onOpenProject={onOpenProject} />));
+      await shown(baseApi(status, busy));
       const buttons = [...baseCard()!.querySelectorAll("button")];
       expect(buttons.length).toBeGreaterThan(0);
-      // Busy blocks with aria-disabled, so the focused button keeps focus; „Patch erstellen…“ without a found base stays `disabled`.
+      // Busy blocks with aria-disabled, so the focused button keeps focus; „Veröffentlichen…“ without a found base stays `disabled`.
       for (const b of buttons) expect(b.getAttribute("aria-disabled")).toBe("true");
-      expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(true);
+      expect(button("Veröffentlichen…", publishCard()!)?.disabled).toBe(true);
     }
-    await act(async () => root.render(<PublishSurface base={baseApi(found(), "patch")} building={false} onOpenProject={onOpenProject} />));
-    expect(button("Patch erstellen…", patchCard()!)?.getAttribute("aria-disabled")).toBe("true");
-    expect(patchCard()?.textContent).toContain("Baue und erstelle den Patch …");
+    // A step of the base card runs with a found base: „Veröffentlichen…“ waits too.
+    await shown(baseApi(found(), "register"));
+    expect(button("Veröffentlichen…", publishCard()!)?.getAttribute("aria-disabled")).toBe("true");
+    await click(button("Veröffentlichen…", publishCard()!));
+    expect(onPublish).not.toHaveBeenCalled();
   });
 
-  it("an_app_build_disables_the_patch_and_the_base_actions", async () => {
+  it("publish_button_opens_the_wizard_when_the_base_is_found", async () => {
+    await show(found());
+    // The head says what a patch is.
+    expect(surface()?.querySelector("header")?.textContent).toContain(
+      "Ein Patch gibt deine Änderungen weiter, ohne die ROM: wer dieselbe Basis-ROM hat, wendet ihn mit Rom Patcher JS oder xdelta3 an.",
+    );
+    const card = publishCard()!;
+    expect(card.querySelector("h2")?.textContent).toBe("Veröffentlichen");
+    expect(card.textContent).toContain("Der Assistent fragt Version und Änderungsnotizen, baut die ROM und schreibt den Patch mit Begleitdatei an den Ort, den du wählst.");
+    const publish = button("Veröffentlichen…", card)!;
+    expect(publish.getAttribute("data-kind")).toBe("primary");
+    expect(publish.disabled).toBe(false);
+    expect(publish.hasAttribute("aria-disabled")).toBe(false);
+    expect(publish.hasAttribute("aria-describedby")).toBe(false);
+    // One primary per card.
+    expect(card.querySelectorAll('[data-kind="primary"]')).toHaveLength(1);
+    expect(baseCard()!.querySelectorAll('[data-kind="primary"]')).toHaveLength(0);
+    await click(publish);
+    expect(onPublish).toHaveBeenCalledOnce();
+    // Nothing is built or written here: the wizard does it.
+    expect(dialog()).toBeNull();
+  });
+
+  it("publish_is_locked_with_the_reason_without_a_base", async () => {
+    for (const [status, reason] of [
+      [{ state: "unassigned", suggestion: SIBLING }, "Erst eine Basis-ROM zuordnen."],
+      [{ state: "unassigned", suggestion: null }, "Erst eine Basis-ROM zuordnen."],
+      [missing(), "Basis-ROM nicht gefunden: Platin DE (Testprojekt) (d40f19ac…)."],
+      [{ state: "unreadable", reason: "Die Basismarke .g4/base.json ist nicht lesbar." }, "Die Basismarke .g4/base.json ist nicht lesbar."],
+    ] as [BaseStatus, string][]) {
+      await shown(baseApi(status, null));
+      const publish = button("Veröffentlichen…", publishCard()!)!;
+      expect(publish.disabled).toBe(true);
+      expect(document.getElementById(publish.getAttribute("aria-describedby")!)?.textContent).toBe(reason);
+      await click(publish);
+      expect(onPublish).not.toHaveBeenCalled();
+    }
+  });
+
+  it("the_list_shows_releases_newest_first_with_date_size_and_reveal", async () => {
+    const outside = "/Users/me/Patches/Sinnoh-Remix-v0.2.0.xdelta";
+    vi.mocked(releases).mockResolvedValue(
+      releasesOf({
+        next_version: "0.3.0",
+        releases: [
+          releaseOf({ version: "0.1.0", date: "2026-10-30T10:00:00Z", size: 4500, notes: "Neue Karte" }),
+          releaseOf({ version: "0.2.0", date: "2026-10-31T09:00:00Z", file: outside, size: 2_202_009, notes: "Zweite Stadt\nNeue Trainer\nFehler behoben" }),
+        ],
+      }),
+    );
+    await show(found());
+    const card = publishCard()!;
+    expect(card.querySelector("h3")?.textContent).toBe("Bisherige Veröffentlichungen");
+    const table = card.querySelector<HTMLElement>('[aria-label="Bisherige Veröffentlichungen"]')!;
+    // The column of „Im Finder zeigen“ is named for a screen reader („Aktion“, visually hidden).
+    expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Version", "Datum", "Datei", "Größe", "Notizen", "Aktion"]);
+    const rows = [...table.querySelectorAll("tbody tr")];
+    const cells = (row: Element) => [...row.querySelectorAll("td")];
+    // Newest first.
+    expect(rows.map((r) => cells(r)[0]!.textContent)).toEqual(["0.2.0", "0.1.0"]);
+    const [newest, oldest] = [cells(rows[0]!), cells(rows[1]!)];
+    expect(newest[1]!.textContent).toBe(dateText("2026-10-31T09:00:00Z"));
+    expect(oldest[1]!.textContent).toBe(dateText("2026-10-30T10:00:00Z"));
+    // The file's name in mono; the full path as its title (in the project: from its root).
+    const file = (cell: HTMLElement) => cell.querySelector<HTMLElement>("[title]")!;
+    expect(file(newest[2]!).textContent).toBe("Sinnoh-Remix-v0.2.0.xdelta");
+    expect(file(newest[2]!).getAttribute("title")).toBe(outside);
+    expect(file(oldest[2]!).textContent).toBe("Sinnoh-Remix-v0.1.0.xdelta");
+    expect(file(oldest[2]!).getAttribute("title")).toBe("/h/Sinnoh-Remix/build/Sinnoh-Remix-v0.1.0.xdelta");
+    expect(newest[3]!.textContent).toBe("2,1 MiB");
+    expect(oldest[3]!.textContent).toBe("4,4 KiB");
+    // The notes' first line; the rest as its title.
+    expect(newest[4]!.textContent).toBe("Zweite Stadt");
+    expect(newest[4]!.querySelector("[title]")?.getAttribute("title")).toBe("Neue Trainer\nFehler behoben");
+    expect(oldest[4]!.textContent).toBe("Neue Karte");
+    expect(oldest[4]!.querySelector("[title]")).toBeNull();
+    // „Im Finder zeigen“ shows the file as the list has it; each row's button is named by its version.
+    expect([...table.querySelectorAll("tbody button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Im Finder zeigen: v0.2.0", "Im Finder zeigen: v0.1.0"]);
+    const reveal = newest[5]!.querySelector<HTMLButtonElement>('button[aria-label="Im Finder zeigen: v0.2.0"]')!;
+    await click(reveal);
+    expect(onReveal).toHaveBeenCalledWith(outside);
+    await click(oldest[5]!.querySelector('button[aria-label="Im Finder zeigen: v0.1.0"]'));
+    expect(onReveal).toHaveBeenLastCalledWith("build/Sinnoh-Remix-v0.1.0.xdelta");
+    expect(card.textContent).not.toContain("Noch keine Veröffentlichung.");
+  });
+
+  it("an_empty_list_says_so", async () => {
+    await show(found());
+    const card = publishCard()!;
+    expect(card.querySelector("h3")?.textContent).toBe("Bisherige Veröffentlichungen");
+    expect(card.textContent).toContain("Noch keine Veröffentlichung.");
+    expect(card.querySelector("table")).toBeNull();
+    // Before the list is read: no claim either way.
+    await shown(baseApi(found(), null, { releases: null }));
+    expect(publishCard()?.textContent).not.toContain("Noch keine Veröffentlichung.");
+    expect(publishCard()?.querySelector("table")).toBeNull();
+  });
+
+  it("a_broken_releases_file_locks_publishing_with_its_reason", async () => {
+    const broken = "Die Liste der Veröffentlichungen .g4/releases.json ist nicht lesbar (expected value); sie bleibt, wie sie ist.";
+    vi.mocked(releases).mockRejectedValue({ code: "releases_broken", message: broken, asset: null, problems: [] });
+    await show(found());
+    const card = publishCard()!;
+    // The reason instead of the table; the base card stays as it is.
+    expect(card.querySelector("table")).toBeNull();
+    expect(card.querySelector("[role=alert]")?.textContent).toBe(broken);
+    expect(card.textContent).not.toContain("Noch keine Veröffentlichung.");
+    expect(baseCard()?.getAttribute("data-base-state")).toBe("found");
+    expect(baseCard()?.querySelector("[role=alert]")).toBeNull();
+    // „Veröffentlichen…“ is locked, and its note says why.
+    const publish = button("Veröffentlichen…", card)!;
+    expect(publish.disabled).toBe(true);
+    expect(document.getElementById(publish.getAttribute("aria-describedby")!)?.textContent).toBe(broken);
+    await click(publish);
+    expect(onPublish).not.toHaveBeenCalled();
+    // Only read: nothing here writes the list.
+    expect(releases).toHaveBeenCalledOnce();
+  });
+
+  it("while_the_app_builds_publish_waits_aria_disabled", async () => {
     // A build or save of the app runs (session busy): nothing here may start another build or change the project.
     await show(found());
     await act(async () => root.render(<Host building />));
-    expect(button("Patch erstellen…", patchCard()!)?.getAttribute("aria-disabled")).toBe("true");
-    expect(patchCard()?.textContent).not.toContain("Baue und erstelle den Patch …");
+    const publish = () => button("Veröffentlichen…", publishCard()!)!;
+    expect(publish().getAttribute("aria-disabled")).toBe("true");
+    // Not `disabled`: the focused button keeps focus; a click does nothing.
+    expect(publish().disabled).toBe(false);
+    await click(publish());
+    expect(onPublish).not.toHaveBeenCalled();
     await act(async () => root.render(<Host />));
-    expect(button("Patch erstellen…", patchCard()!)?.disabled).toBe(false);
-    expect(button("Patch erstellen…", patchCard()!)?.hasAttribute("aria-disabled")).toBe(false);
+    expect(publish().disabled).toBe(false);
+    expect(publish().hasAttribute("aria-disabled")).toBe(false);
+    await click(publish());
+    expect(onPublish).toHaveBeenCalledOnce();
 
     act(() => root.unmount());
     root = createRoot(container);
@@ -363,17 +432,13 @@ describe("PublishSurface", () => {
   });
 
   it("the_assigned_notice_goes_when_the_next_step_starts", async () => {
-    let finish: (dto: ReturnType<typeof patchDto>) => void = () => {};
-    vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
     await show();
     await click(button("Zuordnen…", baseCard()!));
     await click(button("Zuordnen", dialog()!));
     await act(async () => {});
     expect(baseCard()?.textContent).toContain("Basis-ROM zugeordnet: Platin DE (Testprojekt).");
-    await click(button("Patch erstellen…", patchCard()!));
-    await click(button("Patch erstellen", dialog()!));
-    expect(baseCard()?.textContent).not.toContain("Basis-ROM zugeordnet");
-    await act(async () => finish(patchDto()));
+    await click(button("Veröffentlichen…", publishCard()!));
+    expect(onPublish).toHaveBeenCalledOnce();
     expect(baseCard()?.textContent).not.toContain("Basis-ROM zugeordnet");
   });
 
@@ -410,8 +475,8 @@ describe("PublishSurface", () => {
       await click(other);
       expect(checkBase).toHaveBeenCalledOnce();
       expect(openPath).not.toHaveBeenCalled();
-      // „Patch erstellen…“ is blocked for another reason (no base ROM): it stays natively disabled.
-      expect((button("Patch erstellen…", patchCard()!) as HTMLButtonElement).disabled).toBe(true);
+      // „Veröffentlichen…“ is blocked for another reason (no base ROM): it stays natively disabled.
+      expect((button("Veröffentlichen…", publishCard()!) as HTMLButtonElement).disabled).toBe(true);
       await act(async () => answer(check()));
       expect(dialogTitle()).toBe("Basis-ROM zuordnen?");
       expect(assign.hasAttribute("aria-disabled")).toBe(false);
@@ -475,19 +540,19 @@ describe("PublishSurface", () => {
       expect(focused()).toBe(button("Andere Datei wählen…", baseCard()!));
     });
 
-    it("after_a_successful_assignment_focus_goes_to_patch_erstellen", async () => {
+    it("after_a_successful_assignment_focus_goes_to_veroeffentlichen", async () => {
       await show();
       await press(button("Zuordnen…", baseCard()!));
       await click(button("Zuordnen", dialog()!));
       await settle();
       expect(dialog()).toBeNull();
       expect(button("Zuordnen…")).toBeUndefined();
-      const patch = button("Patch erstellen…", patchCard()!) as HTMLButtonElement;
-      expect(patch.disabled).toBe(false);
-      expect(focused()).toBe(patch);
+      const publish = button("Veröffentlichen…", publishCard()!) as HTMLButtonElement;
+      expect(publish.disabled).toBe(false);
+      expect(focused()).toBe(publish);
     });
 
-    it("basis_rom_suchen_keeps_focus_while_it_runs_and_moves_to_patch_erstellen_on_success", async () => {
+    it("basis_rom_suchen_keeps_focus_while_it_runs_and_moves_to_veroeffentlichen_on_success", async () => {
       await show(missing());
       let finish: (s: BaseStatus) => void = () => {};
       vi.mocked(registerBaseRom).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
@@ -505,7 +570,7 @@ describe("PublishSurface", () => {
       await settle();
       expect(baseCard()?.getAttribute("data-base-state")).toBe("found");
       expect(button("Basis-ROM suchen…")).toBeUndefined();
-      expect(focused()).toBe(button("Patch erstellen…", patchCard()!));
+      expect(focused()).toBe(button("Veröffentlichen…", publishCard()!));
     });
 
     it("a_failed_or_cancelled_search_keeps_focus_on_basis_rom_suchen", async () => {
@@ -521,33 +586,6 @@ describe("PublishSurface", () => {
       expect(focused()).toBe(button("Basis-ROM suchen…", baseCard()!));
     });
 
-    it("patch_erstellen_keeps_focus_when_cancelled_while_running_and_after_the_patch", async () => {
-      await show(found());
-      const patch = () => button("Patch erstellen…", patchCard()!) as HTMLButtonElement;
-      await press(patch());
-      expect(dialogTitle()).toBe("Patch erstellen?");
-      await click(button("Abbrechen", dialog()!));
-      await settle();
-      expect(focused()).toBe(patch());
-
-      let finish: (dto: ReturnType<typeof patchDto>) => void = () => {};
-      vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
-      await press(patch());
-      await click(button("Patch erstellen", dialog()!));
-      await settle();
-      // The patch builds: the button is aria-disabled and has focus, a second activation does nothing.
-      expect(focused()).toBe(patch());
-      expect(patch().disabled).toBe(false);
-      expect(patch().getAttribute("aria-disabled")).toBe("true");
-      await click(patch());
-      expect(dialog()).toBeNull();
-      await act(async () => finish(patchDto()));
-      await settle();
-      expect(patchCard()?.textContent).toContain("Patch erstellt: 4,7 KiB");
-      expect(focused()).toBe(patch());
-      expect(patch().hasAttribute("aria-disabled")).toBe(false);
-    });
-
     it("focus_the_user_moved_elsewhere_while_a_step_ran_stays_there", async () => {
       await show({ state: "unassigned", suggestion: null });
       const elsewhere = document.createElement("button");
@@ -561,16 +599,18 @@ describe("PublishSurface", () => {
     });
   });
 
-  it("the_patch_note_describes_the_patch_button", async () => {
+  it("the_publish_note_describes_the_publish_button", async () => {
     await show();
-    const describedBy = () => button("Patch erstellen…", patchCard()!)?.getAttribute("aria-describedby");
-    // Blocked: the reason.
-    expect(document.getElementById(describedBy()!)?.textContent).toBe("Erst eine Basis-ROM zuordnen.");
+    const describedBy = () => button("Veröffentlichen…", publishCard()!)?.getAttribute("aria-describedby");
+    // Blocked: the reason, beside the button.
+    const note = document.getElementById(describedBy()!)!;
+    expect(note.textContent).toBe("Erst eine Basis-ROM zuordnen.");
+    expect(publishCard()!.contains(note)).toBe(true);
     // Found and idle: nothing to describe.
-    await act(async () => root.render(<PublishSurface base={baseApi(found(), null)} building={false} onOpenProject={onOpenProject} />));
-    expect(button("Patch erstellen…", patchCard()!)?.hasAttribute("aria-describedby")).toBe(false);
-    // Running: the note about the build.
-    await act(async () => root.render(<PublishSurface base={baseApi(found(), "patch")} building={false} onOpenProject={onOpenProject} />));
-    expect(document.getElementById(describedBy()!)?.textContent).toBe("Baue und erstelle den Patch …");
+    await shown(baseApi(found(), null));
+    expect(button("Veröffentlichen…", publishCard()!)?.hasAttribute("aria-describedby")).toBe(false);
+    // A broken list: its reason.
+    await shown(baseApi(found(), null, { releases: null, releasesError: "kaputt" }));
+    expect(document.getElementById(describedBy()!)?.textContent).toBe("kaputt");
   });
 });

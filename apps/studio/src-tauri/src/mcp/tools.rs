@@ -246,7 +246,8 @@ impl ResourceUri {
 /// write past the store too: setting it up, taking it back and lifting it open the session
 /// anew, the sync and the choice of a conflict write sources and members, and an id rename is
 /// a file step of its own (its undo writes every file back). „Git einrichten“ writes the
-/// templates and a repository past the store. `apply_fix` with `create_script` or
+/// templates and a repository past the store; publishing builds and writes a release past it,
+/// „Stand sichern“ commits, and its checks may write the `.gitignore` block. `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
@@ -279,13 +280,17 @@ const NOT_IN_BATCH: &[&str] = &[
     "resolve_external_conflict",
     "rename_id",
     "git_init",
+    "publish_patch",
+    "git_commit_all",
+    "git_commit_prepare",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
 /// from start to end, UI test 4.3b U4), by command name (so `g4_call` counts too): setting the
 /// project up as text project, about a minute, and „Git einrichten“ (`git add` of a DSPRE
-/// folder, about 10 s). Never in a batch ([`NOT_IN_BATCH`]).
-const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init"];
+/// folder, about 10 s), and a release (a whole build, a minute or two). Never in a batch
+/// ([`NOT_IN_BATCH`]).
+const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init", "publish_patch"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
@@ -955,7 +960,10 @@ impl<'a> Call<'a> {
     /// `text_export` answers `unsaved`, `base_missing`, `not_adopted` and `unsynced` unasked, and
     /// `adopt_text_project` `unsaved`, `base_missing` and Diamond/Pearl.
     /// `resolve_external_conflict` names the unit and the version that stays. `git_init`
-    /// answers `unsaved` (and `busy`) unasked.
+    /// answers `unsaved` (and `busy`) unasked. `publish_patch` (asked only with `overwrite` or
+    /// a `dir` outside `build/`) answers the refusals of `check_publish_patch` unasked and names
+    /// the patch file; `git_commit_all` answers `unsaved`, `no_repo`, `enclosing_repo`,
+    /// `no_git` and `nothing_to_commit` unasked.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -985,6 +993,25 @@ impl<'a> Call<'a> {
             ("resolve_external_conflict", _) => Ok(conflict_question(why, args)),
             ("git_init", Some(_)) => {
                 crate::commands::check_git_init(self.state)?;
+                Ok(why.to_owned())
+            }
+            ("publish_patch", Some(_)) => {
+                let opts = serde_json::from_value::<crate::commands::PublishArgs>(args.clone())
+                    .map_err(|e| {
+                        ToolError::refused(
+                            "bad_args",
+                            format!("Ungültige Argumente für publish_patch: {e}"),
+                        )
+                    })?
+                    .options();
+                // The policy first: a place it does not allow is refused before it is looked at.
+                let policy: &dyn crate::commands::policy::Policy = self.policy;
+                let targets =
+                    crate::commands::check_publish_patch(self.state, &opts, Some(policy))?;
+                Ok(format!("{why}: {}", targets.patch.display()))
+            }
+            ("git_commit_all", Some(_)) => {
+                crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
             }
             _ => Ok(why.to_owned()),
@@ -4340,5 +4367,212 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         assert!(!d.root.join(".gitignore").exists());
         assert!(!d.root.join(".git").exists());
+    }
+    #[test]
+    fn batch_refuses_publish_patch_and_git_commit_all() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        for (tool, args) in [
+            ("publish_patch", json!({ "version": "0.1.0" })),
+            ("git_commit_all", json!({})),
+        ] {
+            for call in [
+                json!({ "tool": tool, "arguments": args }),
+                json!({ "tool": "g4_call", "arguments": { "command": tool, "args": args } }),
+            ] {
+                let mut calls = three_edits();
+                calls.push(call);
+                let (code, message, details) =
+                    failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+                assert_eq!(code, "error", "{message}");
+                assert_eq!(details["index"], 3);
+                assert!(
+                    message.ends_with(&format!("{tool} geht nicht in g4_batch")),
+                    "{message}"
+                );
+            }
+        }
+        // The checks of „Stand sichern“ (no tool of their own, only through `g4_call`) may bring
+        // the template block of `.gitignore` up to date: a write past the store.
+        let mut calls = three_edits();
+        calls.push(json!({ "tool": "g4_call", "arguments": { "command": "git_commit_prepare", "args": {} } }));
+        let (code, message, details) =
+            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+        assert_eq!(code, "error", "{message}");
+        assert_eq!(details["index"], 3);
+        assert!(
+            message.ends_with("git_commit_prepare geht nicht in g4_batch"),
+            "{message}"
+        );
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        // The list reads, and goes into a batch.
+        assert!(!not_in_batch("releases", &json!({})));
+        assert!(LONG_TOOLS.contains(&"publish_patch"));
+    }
+
+    /// Review Focus: `publish_patch` in the app with the grant „Lesen und bearbeiten“ asks only
+    /// when it would replace a file (or write outside build/); an existing file without
+    /// `overwrite` and every other refusal come back unasked.
+    #[test]
+    fn publish_asks_only_when_it_would_overwrite() {
+        let d = shared_dspre();
+        let call = |args: Value| failed(d.toolbox.call("publish_patch", args, AGENT));
+        // No base ROM: no question, base_missing.
+        let (code, message, _) = call(json!({ "version": "0.1.0" }));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("base_missing", patch::NO_MARK)
+        );
+        assert_eq!(d.state.agents.status().question, None);
+        // Also with overwrite: refused before the question.
+        let (code, _, _) = call(json!({ "version": "0.1.0", "overwrite": true }));
+        assert_eq!(code, "base_missing");
+        assert_eq!(d.state.agents.status().question, None);
+
+        // The user assigns the base ROM (the grant follows the project's new key).
+        crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
+        let root = crate::commands::open_project_arc(&d.state)
+            .unwrap()
+            .root
+            .clone();
+        let project = Project::open(&root).unwrap();
+        let file = root
+            .join("build")
+            .join(patch::release_file_name(&project, "0.1.0"));
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, b"alt").unwrap();
+
+        // An existing file without overwrite: exists, unasked.
+        let (code, message, _) = call(json!({ "version": "0.1.0" }));
+        assert_eq!(code, "exists", "{message}");
+        assert_eq!(d.state.agents.status().question, None);
+        // A taken or unsafe version: unasked too, also with overwrite.
+        let (code, _, _) = call(json!({ "version": "0 1", "overwrite": true }));
+        assert_eq!(code, "bad_version");
+        assert_eq!(d.state.agents.status().question, None);
+
+        // With overwrite: the question names the patch file; declined, nothing is touched.
+        let user = answer_next(&d.state, "deny");
+        let (code, _, _) = call(json!({ "version": "0.1.0", "overwrite": true }));
+        let question = user.join().unwrap();
+        assert_eq!(code, "needs_confirmation");
+        assert_eq!(
+            question.what,
+            Some(format!("Patch ersetzen: {}", file.display()))
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), b"alt");
+        assert!(!root.join(patch::RELEASES_FILE).exists());
+    }
+
+    /// A `dir` outside the allowed folders is refused by the policy before it is looked at:
+    /// a place that is a file (or does not exist) answers the policy's sentence, never
+    /// `bad_dir` or `exists`, in the app before any question and headless as well.
+    #[test]
+    fn publish_refuses_a_place_outside_before_looking_at_it() {
+        let elsewhere = tempfile::tempdir().unwrap();
+        let file = elsewhere.path().join("datei");
+        std::fs::write(&file, b"x").unwrap();
+        let existing = elsewhere.path().join("ordner");
+        std::fs::create_dir(&existing).unwrap();
+        std::fs::write(existing.join("X-v0.1.0.xdelta"), b"alt").unwrap();
+        let places = [
+            file.clone(),
+            existing.clone(),
+            elsewhere.path().join("fehlt"),
+        ];
+        let outside = |code: &str, message: &str, place: &Path| {
+            assert_eq!(code, "error", "{message}");
+            assert!(
+                message.starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                "{place:?}: {message}"
+            );
+            assert!(!message.contains("kein Ordner"), "{message}");
+            assert!(!message.contains("liegt schon"), "{message}");
+        };
+
+        // In the app, with and without a base ROM, with and without overwrite.
+        let d = shared_dspre();
+        for assigned in [false, true] {
+            if assigned {
+                crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
+            }
+            for place in &places {
+                for overwrite in [false, true] {
+                    let args = json!({ "version": "0.1.0", "dir": place.to_str().unwrap(),
+                                       "overwrite": overwrite });
+                    let (code, message, _) = failed(d.toolbox.call("publish_patch", args, AGENT));
+                    outside(&code, &message, place);
+                    assert_eq!(d.state.agents.status().question, None);
+                }
+            }
+        }
+        // Headless with --allow-irreversible: the same refusal, nothing built.
+        let (fixture, toolbox) = open_toolbox(ALL);
+        for place in &places {
+            let args = json!({ "version": "0.1.0", "dir": place.to_str().unwrap() });
+            let (code, message, _) = failed(toolbox.call("publish_patch", args, AGENT));
+            outside(&code, &message, place);
+        }
+        assert!(!fixture.dir.path().join("build").exists());
+        assert_eq!(
+            std::fs::read(existing.join("X-v0.1.0.xdelta")).unwrap(),
+            b"alt"
+        );
+    }
+
+    /// `git_commit_all` cannot be undone: headless it needs `--allow-irreversible`; in the
+    /// app unsaved changes and a project without a repository come back unasked, and only a
+    /// commit that would run asks „Stand sichern“.
+    #[test]
+    fn git_commit_all_needs_confirmation_and_refuses_unsaved_unasked() {
+        let (fixture, toolbox) = open_toolbox(WRITE);
+        let (code, message, _) = failed(toolbox.call("git_commit_all", json!({}), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message
+                .starts_with("git_commit_all lässt sich nicht rückgängig machen (Stand sichern)"),
+            "{message}"
+        );
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+
+        let d = shared_dspre();
+        d.toolbox
+            .call(
+                "set_matrix_cell",
+                json!({ "index": 0, "x": 0, "y": 0, "map": 1 }),
+                AGENT,
+            )
+            .unwrap();
+        let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("unsaved", crate::commands::COMMIT_UNSAVED)
+        );
+        assert_eq!(d.state.agents.status().question, None);
+        d.toolbox.call("save", json!({}), AGENT).unwrap();
+        let (code, message, _) = failed(d.toolbox.call("git_commit_all", json!({}), AGENT));
+        assert_eq!(
+            (code.as_str(), message.as_str()),
+            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+        );
+        assert_eq!(d.state.agents.status().question, None);
+
+        // In a repository with a change (and git installed) the call asks „Stand sichern“.
+        let home = tempfile::tempdir().unwrap();
+        if g4_kernel::test_support::GitFixture::cli(home.path()).is_none() {
+            return;
+        }
+        g4_kernel::test_support::GitFixture::init(&d.root);
+        let user = answer_next(&d.state, "deny");
+        let (code, _, _) = failed(d.toolbox.call(
+            "git_commit_all",
+            json!({ "message": "Stand" }),
+            AGENT,
+        ));
+        let question = user.join().unwrap();
+        assert_eq!(question.what.as_deref(), Some("Stand sichern"));
+        assert_eq!(code, "needs_confirmation");
+        assert!(!d.root.join(".git/refs/heads/main").exists(), "no commit");
     }
 }

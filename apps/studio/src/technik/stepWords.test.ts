@@ -59,11 +59,11 @@ describe("stepWords", () => {
   });
 
   it("names_the_patch_build_with_its_rom_relative_to_the_project_when_inside_it", () => {
-    expect(patchBuildNote("/p/build/4-2-abn-patch-IPKD.nds", "/p")).toBe("Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds");
-    expect(patchBuildNote("/p/build/x.nds", "/p/")).toBe("Build von „Patch erstellen“ nach build/x.nds");
+    expect(patchBuildNote("/p/build/4-2-abn-patch-IPKD.nds", "/p")).toBe("Build von „Veröffentlichen“ nach build/4-2-abn-patch-IPKD.nds");
+    expect(patchBuildNote("/p/build/x.nds", "/p/")).toBe("Build von „Veröffentlichen“ nach build/x.nds");
     // A sibling folder that only shares the prefix, and a path elsewhere, stay whole.
-    expect(patchBuildNote("/pp/build/x.nds", "/p")).toBe("Build von „Patch erstellen“ nach /pp/build/x.nds");
-    expect(patchBuildNote("/roms/x.nds", "/p")).toBe("Build von „Patch erstellen“ nach /roms/x.nds");
+    expect(patchBuildNote("/pp/build/x.nds", "/p")).toBe("Build von „Veröffentlichen“ nach /pp/build/x.nds");
+    expect(patchBuildNote("/roms/x.nds", "/p")).toBe("Build von „Veröffentlichen“ nach /roms/x.nds");
   });
 
   it("formats_seconds_with_a_comma", () => {

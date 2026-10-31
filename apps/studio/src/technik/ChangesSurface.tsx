@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
 import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
+import { NO_GIT_FOR_COMMIT } from "../git/gitWords";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
@@ -109,6 +110,17 @@ export function focusChangesSurface() {
   queueMicrotask(() => {
     const surface = document.querySelector<HTMLElement>("[data-technik=aenderungen]");
     if (surface !== null) fallbackOf(surface)?.focus();
+  });
+}
+
+/**
+ * Puts focus on „Stand sichern…“ of the shown surface (else `fallbackOf`) once the commit that is under way has landed: after the first
+ * commit of a repository the surface shows the list, whose button is a new one. For the dialog „Stand sichern?“ opened from here.
+ */
+export function focusCommitAll() {
+  queueMicrotask(() => {
+    const surface = document.querySelector<HTMLElement>("[data-technik=aenderungen]");
+    if (surface !== null) (surface.querySelector<HTMLElement>("[data-commit-all]") ?? fallbackOf(surface))?.focus();
   });
 }
 
@@ -223,6 +235,8 @@ export type ChangesSurfaceProps = {
   onReloadUnsaved?: () => void;
   /** „Git einrichten…“: the app's dialog. */
   onGitSetup: () => void;
+  /** „Stand sichern…“ (against the last commit, in the project's own repository): the app's dialog. */
+  onCommitAll: () => void;
   /** „Öffnen“ in the detail. */
   goTo: (target: NavTarget) => void;
   /** Moves whenever the compared state may differ: the detail reads its diff again. */
@@ -254,13 +268,13 @@ function headLead(git: GitStatus): string {
  * this surface only shows them.
  */
 export function ChangesSurface(props: ChangesSurfaceProps) {
-  const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, goTo, revision } = props;
+  const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, onCommitAll, goTo, revision } = props;
   const { where, fallback, ...keep } = useKeepFocus();
   // The chosen entity (by its subject, the same in every comparison): the app's when it holds it, else this surface's.
   const [own, setOwn] = useState<DiffSubject | null>(null);
   const chosen = props.chosen !== undefined ? props.chosen : own;
   const choose = props.onChoose ?? setOwn;
-  const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
+  const shown = changes === null ? null : against === "head" ? headShown(git, onGitSetup, onCommitAll) : against === "saved" ? savedShown(unsaved, unsavedError, onReloadUnsaved) : baseShown(changes, status);
   const entries = shown?.entries ?? null;
   const entry = chosen === null ? null : (entries?.find((e) => sameSubject(e.subject, chosen)) ?? null);
   // A list that is read and lacks the chosen entity forgets it; a list still read keeps it for when it comes, and so does the base list
@@ -350,8 +364,34 @@ function baseShown(changes: ChangesApi, status: OriginalStatus | null): Shown {
   };
 }
 
-/** „Gegen letzten Commit“: the entries of the Git status; without a repository the offer to set one up, without a commit why nothing is compared. */
-function headShown(git: GitStatusApi | null, onGitSetup: () => void): Shown {
+/**
+ * „Stand sichern…“ beside „Neu vergleichen“, only in the project's own repository (a larger one around it is the user's to commit). It
+ * stays free without a change (the dialog says so); without `git` it waits, focusable, with the reason as its description and tooltip.
+ */
+function CommitAllButton({ status, onCommitAll }: { status: GitStatus; onCommitAll: () => void }) {
+  const noteId = useId();
+  const locked = status.cli === null;
+  const button = (
+    <Button kind="secondary" data-commit-all="" aria-disabled={locked || undefined} aria-describedby={locked ? noteId : undefined} onClick={() => !locked && onCommitAll()}>
+      Stand sichern…
+    </Button>
+  );
+  if (!locked) return button;
+  return (
+    <>
+      <Tooltip content={NO_GIT_FOR_COMMIT}>{button}</Tooltip>
+      <span id={noteId} hidden>
+        {NO_GIT_FOR_COMMIT}
+      </span>
+    </>
+  );
+}
+
+/**
+ * „Gegen letzten Commit“: the entries of the Git status; without a repository the offer to set one up, without a commit why nothing is
+ * compared. In the project's own repository „Stand sichern…“ (also for the first commit of a repository set up by hand).
+ */
+function headShown(git: GitStatusApi | null, onGitSetup: () => void, onCommitAll: () => void): Shown {
   const empty = "Seit dem letzten Commit nichts geändert.";
   const status = git?.status ?? null;
   const failed = git?.error ?? null;
@@ -375,13 +415,24 @@ function headShown(git: GitStatusApi | null, onGitSetup: () => void): Shown {
       empty,
     };
   }
-  if (status.head === null) return { before: <Notice kind="info">Noch kein Commit: es gibt nichts zu vergleichen.</Notice>, entries: null, empty };
+  const commit = status.repo.kind === "own" ? <CommitAllButton status={status} onCommitAll={onCommitAll} /> : null;
+  if (status.head === null) {
+    return {
+      action: commit === null ? undefined : <div className={styles.actions}>{commit}</div>,
+      before: <Notice kind="info">Noch kein Commit: es gibt nichts zu vergleichen.</Notice>,
+      entries: null,
+      empty,
+    };
+  }
   return {
     lead: headLead(status),
     action: (
-      <Button kind="secondary" data-compare-again="" onClick={() => void git!.refresh()}>
-        Neu vergleichen
-      </Button>
+      <div className={styles.actions}>
+        <Button kind="secondary" data-compare-again="" onClick={() => void git!.refresh()}>
+          Neu vergleichen
+        </Button>
+        {commit}
+      </div>
     ),
     before: failed !== null && <Notice kind="error">{failed}</Notice>,
     entries: status.entries,

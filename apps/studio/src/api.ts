@@ -455,6 +455,8 @@ export interface AssetId {
  * nothing knows).
  * Git (4.4): "restore_needed" (`openProject` of a text project without its game files, a fresh Git clone: `restoreTextProject` completes
  * it), "unsaved" (`gitInit` before anything is written), "no_repo", "no_commit" and "not_diffable" (the diff of an entity).
+ * Veröffentlichen (4.5): "bad_version", "version_taken", "bad_file", "bad_dir", "exists", "no_changes" and "releases_broken" (`publishPatch`,
+ * nothing written; `releases` too for a broken list); „Stand sichern“: "enclosing_repo", "nothing_to_commit" and "no_git" (`gitCommitAll`).
  */
 export interface CmdError {
   code:
@@ -479,7 +481,17 @@ export interface CmdError {
     | "restore_needed"
     | "no_repo"
     | "no_commit"
-    | "not_diffable";
+    | "not_diffable"
+    | "bad_version"
+    | "version_taken"
+    | "bad_file"
+    | "bad_dir"
+    | "exists"
+    | "no_changes"
+    | "releases_broken"
+    | "enclosing_repo"
+    | "nothing_to_commit"
+    | "no_git";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -511,7 +523,17 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "restore_needed" ||
       o.code === "no_repo" ||
       o.code === "no_commit" ||
-      o.code === "not_diffable") &&
+      o.code === "not_diffable" ||
+      o.code === "bad_version" ||
+      o.code === "version_taken" ||
+      o.code === "bad_file" ||
+      o.code === "bad_dir" ||
+      o.code === "exists" ||
+      o.code === "no_changes" ||
+      o.code === "releases_broken" ||
+      o.code === "enclosing_repo" ||
+      o.code === "nothing_to_commit" ||
+      o.code === "no_git") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -1034,3 +1056,4 @@ export * from "./api.textproject";
 export * from "./project/api.preview";
 export * from "./project/api.start";
 export * from "./project/api.templates";
+export * from "./api.publish";

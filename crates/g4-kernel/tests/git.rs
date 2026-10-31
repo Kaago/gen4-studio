@@ -5,8 +5,9 @@
 //! clone with `core.autocrlf=true` builds byte-equal. The gate of phase 4: the same copy set up
 //! as text project builds the base ROM byte-equal, also from a clone completed from the base
 //! ROM (`textproject::restore`). A trainer and a text changed through the store show by entity
-//! and field name against `HEAD` and the base ROM. Each run prints one line for the gate
-//! document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
+//! and field name against `HEAD` and the base ROM. "Stand sichern" after a release commits the
+//! release list and the changed member, nothing under `build/`. Each run prints one line for the
+//! gate document. Git runs in an isolated environment (`GitFixture::cli`) with an identity set
 //! through the environment; repositories only in temp folders, never a remote.
 mod common;
 
@@ -631,4 +632,94 @@ fn trainer_and_text_changes_show_with_field_names_against_head_and_base() {
     if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
         assert!(status_ms <= 500, "status_ms={status_ms}");
     }
+}
+
+/// "Stand sichern" after a release: the release list and the changed map member are
+/// committed, the patch and its texts under `build/` are not; the status is empty afterwards
+/// and there is no remote.
+#[test]
+fn publish_then_commit_all_leaves_status_empty_and_no_remote() {
+    use g4_kernel::git::{CommitOptions, CommitPhase, commit_all};
+    use g4_kernel::patch::{PublishOptions, build_and_publish};
+    use g4_kernel::project::AssetKind;
+
+    let home = tempfile::tempdir().unwrap();
+    let Some(cli) = git_cli(home.path()) else {
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let (_, mark) = assign_base(&root, &nds).unwrap();
+    let base = BaseRom::open(&nds, Some(&mark.sha1)).unwrap();
+    let project = Project::open(&root).unwrap();
+    let init = git_init(&project, Some(&cli), &InitOptions::default(), &mut |_| {}).unwrap();
+    assert!(init.committed, "{init:?}");
+
+    // One permission byte of map 3, as in `publish_after_a_map_edit_writes_a_small_patch_…`.
+    project.ensure_unpacked(AssetKind::Map).unwrap();
+    let map = project.member_path(AssetKind::Map, 3);
+    let mut bytes = std::fs::read(&map).unwrap();
+    bytes[0x20] ^= 0x80;
+    std::fs::write(&map, bytes).unwrap();
+
+    let opts = PublishOptions {
+        version: "0.1.0".into(),
+        notes: "Erste Fassung".into(),
+        dir: None,
+        file: None,
+        readme: true,
+        overwrite: false,
+    };
+    let published = build_and_publish(&project, &base, &opts, &mut |_| {}).unwrap();
+    assert!(root.join(".g4/releases.json").is_file());
+    assert!(published.patch.patch.starts_with(root.join("build")));
+
+    let report = commit_all(
+        &project,
+        Some(&cli),
+        &CommitOptions {
+            message: Some("Veröffentlicht v0.1.0".into()),
+            notes: Some("Erste Fassung".into()),
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    assert!(report.committed, "{report:?}");
+    assert_eq!(
+        report.head.as_ref().unwrap().summary,
+        "Veröffentlicht v0.1.0"
+    );
+    assert!(report.files >= 2, "files={}", report.files);
+
+    let (after, status_ms) = changes(&root);
+    assert!(after.is_empty(), "after the commit: {after:?}");
+    let index = GitRepo::discover(&root)
+        .unwrap()
+        .unwrap()
+        .index_paths()
+        .unwrap();
+    assert!(
+        index.iter().any(|p| p == ".g4/releases.json"),
+        "the release list"
+    );
+    assert!(index.iter().any(|p| p == ".g4/base.json"), "the base mark");
+    assert!(
+        !index.iter().any(|p| p.starts_with("build/")),
+        "no patch, no texts, no ROM"
+    );
+    no_remote(&root);
+
+    let ms = |phase| report.phase_ms.get(&phase).copied().unwrap_or(0);
+    println!(
+        "commit {} files={} add_ms={} commit_ms={} status_ms={}",
+        project.game_code,
+        report.files,
+        ms(CommitPhase::Add),
+        ms(CommitPhase::Commit),
+        status_ms
+    );
 }
