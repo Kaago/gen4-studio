@@ -174,7 +174,94 @@ nichts. „Datei entfernen“ ist deklariert, ausgeführt wird es ab 3d.4.
 
 ## Nutzungsindex
 
-Kommt mit Task 4 von 3d.1.
+Der Verweisindex (`crates/g4-kernel/src/data/refs.rs`) kennt Flags und Variablen als Ziele
+`Target::Flag(n)` und `Target::Var(n)`. Jeder Verweis trägt einen Zugriff `access`: `read`,
+`write`, `read_write` oder `unknown` (`Access`, im DTO `RefDto.access`). Alle übrigen Ziele
+(Arten, Attacken, Items, Trainer, Klassen, Begegnungsdateien) werden nur gelesen und haben
+`read`. Begründung: [Gutachten B](../research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md)
+§1.1 und §3.2.
+
+### Scripts
+
+Quelle sind die Script-Quellen `expanded/scripts/NNNN.rotom` (nur mit übernommenen Scripts), wie
+für Trainer und Items. Implementierung: `crates/g4-kernel/src/data/refs/flagvars.rs`
+(`FlagVarTable`, `script_flagvar_refs`), die Regeln in
+`crates/g4-kernel/metadata/script_flagvars.yaml`. `field` eines Verweises ist rotoms
+Befehlsname (auch für einen DSPRE-Namen oder einen Alias des Befehls in der Quelle), bei einer
+Bedingung `if` (auch `else if`), `while` oder `match`; `slot` ist die Zeile des Arguments.
+
+**Welche Parameter.** Ein Parameter eines Befehls ist
+
+| Rolle | wenn |
+|---|---|
+| Trainer-Flag | die Liste `trainer_flags` ihn nennt (`SetTrainerFlag`, `ClearTrainerFlag`, `CheckTrainerFlag`) |
+| Flag | die Liste `flags` ihn nennt (gleich welchen Typs), sonst sein Typ `flag` ist oder sein Name in `name_rule.flag` steht |
+| Variable | die Liste `vars` ihn nennt, sonst sein Typ `var` oder `flex` ist oder sein Name in `name_rule.var` steht |
+
+`name_rule` sind rotoms Parameternamen für Flag (4) und Variable (22), wörtlich aus
+`src/decompiler/ir_to_source.rs:28-58` (rotom v0.7.0, `param_semantics`), ohne Rücksicht auf
+Groß- und Kleinschreibung. Die Namensregel gilt nur für Parameter mit 16-Bit-Typ (`u16`, `var`,
+`flex`, `flag`): HeartGolds `u8`-Parameter `flag` (`SafariZoneAction`) und `shiny_flag`
+(`WildBattle`) sind ein Modus und ein Schalter. Befehle, deren Parameter nur je Variante eines
+Modus existieren (Platin `MysteryGiftGive`, `CallTVBroadcast`, `CallTVInterview`), tragen
+nichts bei.
+
+**Zugriff.** Ein Eintrag einer Liste nennt ihn selbst. Ohne Eintrag ist ein Flag
+`flag_default` (`read`: nur `SetFlag`/`ClearFlag` und ihre Varianten über eine Variable
+schreiben, und die stehen in der Liste). Eine Variable ohne Eintrag:
+
+- Platin (`var_default: database`): das `access` des Parameters in der gebündelten Datenbank,
+  übersetzt mit `access_words` (`read` → `read`, `must_write`/`may_write` → `write`,
+  `read_must_write`/`read_may_write` → `read_write`, `none` → `unknown`); ohne `access`
+  `unknown`. Makros (`SetVar`, `CompareVar`, `GoToIfEq`, …) tragen in der Datenbank kein
+  `access`; ihr Zugriff kommt aus den Befehlen, zu denen sie sich entfalten, und steht in der
+  Liste `vars` (`SetVar`: `destVarID` `write`, `valueOrVarID` `read`).
+- HeartGold (`var_default: borrow`): die Datenbank hat keine Angaben. Der Kernel borgt den
+  Zugriff des gleichnamigen Platin-Befehls, Parameter an derselben Stelle, wenn er dort eine
+  Variable ist; sonst `unknown`. Ausnahmen (Liste `vars`): `SetVar` schreibt, `CopyVar` und
+  `SetOrCopyVar` schreiben das Ziel und lesen die Quelle, `AddVar`/`SubVar` lesen und schreiben.
+
+**Welcher Wert zählt.**
+
+| Parameter | Wert | ergibt |
+|---|---|---|
+| Variable | `0x4000`–`0x7FFF` | `Var(n)` |
+| Variable | ab `0x8000` | nur gezählt (`ScriptCounts.script_local`) |
+| Variable | unter `0x4000` | nichts (ein Wert) |
+| Flag | `1`–`0x3FFF` | `Flag(n)` |
+| Flag | `0` | nichts (kein Flag) |
+| Flag | ab `0x4000` | nur gezählt (`ScriptCounts.dynamic`, ein Flag aus einer Variable) |
+| Trainer-Flag | Trainer `n` ab 1 | `Flag(0x550 + n)`, solange es im Bereich `trainer` liegt; der Verweis auf `Trainer(n)` bleibt |
+| Trainer-Flag | ab `0x4000` | nur gezählt (`dynamic`) |
+
+Ein Argument zählt, wenn es eine Zahl ist oder ein Bezeichner, den der Build auflöst: ein Alias
+der Datei, die IDs des Textprojekts (auch ein eigener Name wie `FLAG_HAT_MEDAILLE`), rotoms
+eigene Namen (`FLAG_UNUSED_0x0094`, `VAR_RESULT`). Ein Ausdruck, ein unbekannter Name, ein
+Alias ohne Wert und ein Name, den die Datei selbst deklariert, zählen nicht.
+
+**Bedingungen.** `if`, `else if` und `while` lesen, was sie prüfen: `!`, `&&` und `||`
+verbinden Bedingungen; ein nackter Bezeichner, dessen Name mit `FLAG_` beginnt und auflöst, ist
+ein Flag (`read`, wie rotom ihn zu `CheckFlag` lowert); ein Operand eines Vergleichs (und ein
+nackter Operand, den rotom zu `CompareVarValue x, 0` lowert) ab `0x4000` ist eine Variable
+(`read`), ab `0x8000` nur gezählt. Der Kopf von `match` ist ein solcher Operand. Ein Aufruf in
+einer Bedingung (`CheckItem(ITEM_POTION, 1) == 1`) ist ein Befehl wie jeder andere; seine
+Ergebnisvariable ist kein Verweis. Quelle: rotom `src/compiler/ir/lowerer.rs:1300-1356,
+1792-1807`.
+
+**Nicht indexiert, nur gezählt.** Variablen ab `0x8000` (Script-lokale Register) und Flags oder
+Trainer aus einer Variable. Die Zähler je Datei summiert der Index: `RefIndex::script_counts`
+liefert `ScriptCounts { script_local, dynamic }`.
+
+**Nicht lesbar.** Eine Quelle, die nicht parst, trägt nichts bei, weder Verweise noch Zähler;
+rotoms Parser ist fehlertolerant, ein halb geschriebenes Script liefert die Teile, die er
+versteht.
+
+Eine Prüfung (`script_flagvars_name_existing_commands_and_params`) hält die Datei ehrlich: jeder
+Eintrag nennt einen Befehl und Parameter der Datenbank seiner Familie, `access_words` deckt jedes
+`access` der Datenbank.
+
+Events, Level-Scripts, Trainer-Objekte und die Reservierung der Vorlage kommen mit Task 4 von
+3d.1.
 
 ## RAM-Lage
 

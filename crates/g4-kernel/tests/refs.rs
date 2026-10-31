@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use g4_formats::data::encounter::{Encounters, Slot};
 use g4_formats::data::evolution::EvoEntry;
 use g4_formats::data::learnset::LearnEntry;
-use g4_kernel::data::refs::{Ref, RefIndex, Target};
+use g4_kernel::data::refs::{Access, Ref, RefIndex, Target};
 use g4_kernel::project::{AssetKind, Project};
 use g4_kernel::store::{AssetId, MapHeader, ObjectEvent, Store};
 use g4_kernel::test_support::TextFixture;
@@ -190,6 +190,7 @@ fn r(source: AssetId, field: &'static str, slot: Option<u16>, target: Target) ->
         field,
         slot,
         target,
+        access: Access::Read,
     }
 }
 
@@ -935,13 +936,18 @@ fn a_variable_argument_is_no_reference() {
          \x20   End\nscript Second #2:\n    End\n",
     );
     let mut index = RefIndex::new();
+    // The variables themselves are targets of their own (`data::refs::flagvars`).
     let all = index
-        .refs_where(&st, |_| true)
+        .refs_where(&st, |t| !matches!(t, Target::Flag(_) | Target::Var(_)))
         .unwrap()
         .into_iter()
         .filter(|r| r.source.kind == AssetKind::Script)
         .collect::<Vec<_>>();
     assert!(all.is_empty(), "{all:?}");
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Var(0x4000)),
+        [r(SCRIPT_0, "CheckItem", Some(4), Target::Var(0x4000))]
+    );
 }
 
 #[test]

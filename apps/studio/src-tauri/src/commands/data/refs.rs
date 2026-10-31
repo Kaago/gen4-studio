@@ -57,6 +57,7 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
         source,
         field,
         slot,
+        access,
         ..
     } in found
     {
@@ -160,6 +161,7 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
             label,
             source_name,
             nav,
+            access,
         });
     }
     Ok(out)

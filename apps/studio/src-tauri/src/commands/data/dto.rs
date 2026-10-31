@@ -684,7 +684,8 @@ pub fn subject_to_nav(
 
 /// One reference: `field` (slot `slot`) of `source` points at the target. `label` says where
 /// in German ("Begegnungen 0012, Gras Platz 3"), `source_name` names the source on its own
-/// ("Begegnungen 0012", "Staravia", "Wanderer Kai"), `nav` where a click leads.
+/// ("Begegnungen 0012", "Staravia", "Wanderer Kai"), `nav` where a click leads, `access` what
+/// the source does with the target (`read`, `write`, `read_write`, `unknown`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RefDto {
     pub source: AssetId,
@@ -693,6 +694,7 @@ pub struct RefDto {
     pub label: String,
     pub source_name: String,
     pub nav: NavTargetDto,
+    pub access: g4_kernel::data::refs::Access,
 }
 
 /// What `set_trainer_texts` did: the assets it changed (empty: nothing) and the Problems rows

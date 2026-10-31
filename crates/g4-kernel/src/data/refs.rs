@@ -1,5 +1,5 @@
-//! The reference index: which headers, events and data members point at a species, move,
-//! item, trainer, trainer class or encounter file.
+//! The reference index: which headers, events, data members and script sources point at a
+//! species, move, item, trainer, trainer class, encounter file, flag or variable.
 //!
 //! Sources and what they reference:
 //! - the header table: `wild_pokemon` → encounter file (Platinum and DP u16, 0xFFFF none;
@@ -19,6 +19,12 @@
 //!   a number or an identifier the build resolves (an alias of the file, the text project's
 //!   ids, rotom's own names such as `TRAINER_<NAME>_<NNN>` or `ITEM_…`); a value from
 //!   `0x4000` on is a variable, never a reference.
+//! - script sources, flags and variables: the parameters `metadata/script_flagvars.yaml`
+//!   declares per family (by type, rotom's name rule and entries, [`flagvars`]) and the
+//!   conditions of `if`, `while` and `match` → flag or variable with its [`Access`]; variables
+//!   from `0x8000` on and flags named through a variable are only counted ([`ScriptCounts`]).
+//!
+//! Every reference but those of flags and variables reads its target ([`Access::Read`]).
 //!
 //! The value 0 is "none" for species, moves, items and the trainers of scripts and is never
 //! a reference; trainer classes and encounter files count from 0.
@@ -47,7 +53,7 @@ use g4_formats::data::record::RawRecord;
 use g4_formats::data::trainer::{Party, PartyMon, TrainerProps};
 use g4_formats::game::Family;
 use rotom::compiler::ast::{Expression, ExpressionKind};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
@@ -58,6 +64,8 @@ use crate::scripts::{self, AstItem};
 use crate::store::{Loaded, Store};
 use crate::textproject::ids::{Stamp, stamp, watched};
 use crate::textproject::include::ScriptLookup;
+
+mod flagvars;
 
 /// What a reference points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,16 +81,50 @@ pub enum Target {
     TrainerClass(u8),
     /// An encounter file: an encounter member index.
     Encounter(u16),
+    /// A flag: a number `1..0x4000` (0 is "no flag").
+    Flag(u16),
+    /// A variable: a number `0x4000..0x8000` (from `0x8000` on they are local to a script and
+    /// never a target).
+    Var(u16),
+}
+
+/// What a reference does with its target: flags and variables are read, written or both
+/// (`Unknown` where the rules do not say); every other target is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    Read,
+    Write,
+    ReadWrite,
+    Unknown,
 }
 
 /// One reference: `field` of `source` (entry `slot` of it, where the field is a list)
-/// points at `target`.
+/// points at `target` and does `access` with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ref {
     pub source: AssetId,
     pub field: &'static str,
     pub slot: Option<u16>,
     pub target: Target,
+    pub access: Access,
+}
+
+/// What the scripts use without a target: variables from 0x8000 on and flags named through a
+/// variable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct ScriptCounts {
+    /// Variable arguments and condition operands from `0x8000` on (local to a script).
+    pub script_local: u32,
+    /// Flag and trainer flag arguments from `0x4000` on: the flag is the value of a variable.
+    pub dynamic: u32,
+}
+
+impl ScriptCounts {
+    fn add(&mut self, other: ScriptCounts) {
+        self.script_local += other.script_local;
+        self.dynamic += other.dynamic;
+    }
 }
 
 /// Overworld scripts that start a trainer battle: script `3000 + n - 1` is trainer `n`
@@ -177,6 +219,8 @@ struct Built {
     generation: u64,
     sources: BTreeMap<(usize, u16), Vec<Ref>>,
     scripts: ScriptSources,
+    /// The counts of every script file that has any.
+    counts: BTreeMap<u16, ScriptCounts>,
 }
 
 /// References to species, moves, items, trainers, trainer classes and encounter files; see
@@ -234,6 +278,16 @@ impl RefIndex {
             .count())
     }
 
+    /// What the script sources use without a target, summed over the files (see
+    /// [`ScriptCounts`]); builds or refreshes the index like [`RefIndex::refs`].
+    pub fn script_counts(&mut self, store: &Store) -> Result<ScriptCounts, KernelError> {
+        let mut sum = ScriptCounts::default();
+        for counts in self.current(store)?.counts.values() {
+            sum.add(*counts);
+        }
+        Ok(sum)
+    }
+
     /// Recomputes the references of the sources the store changed since the index was
     /// built or last refreshed and returns them (only sources; other changed assets are
     /// skipped). Also re-parses the script sources whose `stat` changed since they were read
@@ -269,15 +323,18 @@ impl RefIndex {
         }
         built.generation = generation;
         let mut changed = changed;
-        for (file, refs) in reread {
+        for (file, read) in reread {
             let id = script_id(file);
-            match refs {
-                Some(refs) if !refs.is_empty() => {
-                    built.sources.insert(key(id), refs);
-                }
-                _ => {
-                    built.sources.remove(&key(id));
-                }
+            let (refs, counts) = read.unwrap_or_default();
+            if refs.is_empty() {
+                built.sources.remove(&key(id));
+            } else {
+                built.sources.insert(key(id), refs);
+            }
+            if counts == ScriptCounts::default() {
+                built.counts.remove(&file);
+            } else {
+                built.counts.insert(file, counts);
             }
             changed.push(id);
         }
@@ -305,15 +362,23 @@ impl RefIndex {
             .map(|(id, refs)| (key(id), refs))
             .collect();
         let (scripts, read) = ScriptSources::default().refresh(store.project())?;
-        for (file, refs) in read {
-            if let Some(refs) = refs.filter(|r| !r.is_empty()) {
+        let mut counts = BTreeMap::new();
+        for (file, (refs, file_counts)) in read
+            .into_iter()
+            .filter_map(|(file, read)| Some((file, read?)))
+        {
+            if !refs.is_empty() {
                 sources.insert(key(script_id(file)), refs);
+            }
+            if file_counts != ScriptCounts::default() {
+                counts.insert(file, file_counts);
             }
         }
         self.built = Some(Built {
             generation,
             sources,
             scripts,
+            counts,
         });
         Ok(())
     }
@@ -473,6 +538,7 @@ impl Refs {
             // Slots are list positions far below 65536.
             slot: slot.map(|s| s as u16),
             target,
+            access: Access::Read,
         });
     }
 
@@ -849,8 +915,8 @@ fn lookup_stamps(project: &Project) -> Stamps {
         .collect()
 }
 
-/// Script files with their references read anew (`None`: the source is gone).
-type ScriptReads = Vec<(u16, Option<Vec<Ref>>)>;
+/// Script files with their references and counts read anew (`None`: the source is gone).
+type ScriptReads = Vec<(u16, Option<(Vec<Ref>, ScriptCounts)>)>;
 
 /// Files relative to the root with their stamps.
 type Stamps = Vec<(PathBuf, Stamp)>;
@@ -897,8 +963,7 @@ impl ScriptSources {
             .collect();
         if !reread.is_empty() {
             let made = lookup.get_or_insert_with(|| Arc::new(ScriptLookup::of(project)));
-            let table = script_ref_table(project.family);
-            out.extend(read_scripts(&dir, &reread, table, made)?);
+            out.extend(read_scripts(&dir, &reread, project.family, made)?);
         }
         out.sort_by_key(|(file, _)| *file);
         Ok((
@@ -915,12 +980,12 @@ fn source_file(dir: &Path, file: u16) -> PathBuf {
     dir.join(format!("{file:04}.rotom"))
 }
 
-/// The references of the sources `files` in `dir`, read and parsed on several threads; a
-/// source gone since it was listed is `None`.
+/// The references and counts of the sources `files` in `dir`, read and parsed on several
+/// threads; a source gone since it was listed is `None`.
 fn read_scripts(
     dir: &Path,
     files: &[u16],
-    table: &'static ScriptRefTable,
+    family: Family,
     lookup: &ScriptLookup,
 ) -> Result<ScriptReads, KernelError> {
     let readers = std::thread::available_parallelism()
@@ -941,7 +1006,7 @@ fn read_scripts(
                             match std::fs::read(&path) {
                                 Ok(bytes) => {
                                     let text = String::from_utf8_lossy(&bytes);
-                                    Ok((file, Some(script_refs(file, &text, table, lookup)?)))
+                                    Ok((file, Some(script_refs(file, &text, family, lookup)?)))
                                 }
                                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                                     Ok((file, None))
@@ -968,16 +1033,19 @@ fn read_scripts(
     Ok(out)
 }
 
-/// The references of the source `text` of script file `file`, in source order.
+/// The references of the source `text` of script file `file` (those of [`ScriptRefTable`] in
+/// source order, then the flags and variables in source order) and its counts. Parsed once;
+/// both tables resolve identifiers through the same [`ScriptNames`].
 fn script_refs(
     file: u16,
     text: &str,
-    table: &'static ScriptRefTable,
+    family: Family,
     lookup: &ScriptLookup,
-) -> Result<Vec<Ref>, KernelError> {
+) -> Result<(Vec<Ref>, ScriptCounts), KernelError> {
     let Some(ast) = scripts::parse_source(text)? else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), ScriptCounts::default()));
     };
+    let table = script_ref_table(family);
     let mut aliases: Vec<(&str, &Expression, usize)> = Vec::new();
     let mut declared: HashSet<&str> = HashSet::new();
     let mut commands: Vec<(&str, &[Expression])> = Vec::new();
@@ -987,7 +1055,7 @@ fn script_refs(
             declared.insert(name);
         }
         AstItem::Command { name, args } => commands.push((name, args)),
-        AstItem::Expression(_) => {}
+        AstItem::Expression(_) | AstItem::Condition { .. } => {}
     });
     let names = ScriptNames {
         aliases,
@@ -1019,10 +1087,20 @@ fn script_refs(
                 field: command,
                 slot: Some(u16::try_from(line).unwrap_or(u16::MAX)),
                 target: param.target.target(value),
+                access: Access::Read,
             });
         }
     }
-    Ok(out.refs)
+    let (flags, counts) = flagvars::script_flagvar_refs(
+        file,
+        text,
+        &ast,
+        &names,
+        flagvars::flagvar_table(family),
+        family,
+    );
+    out.refs.extend(flags);
+    Ok((out.refs, counts))
 }
 
 /// How an identifier in a source resolves, as rotom's lowering does for an argument: an

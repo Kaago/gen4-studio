@@ -1072,6 +1072,13 @@ pub(crate) enum AstItem<'a> {
     Declared(&'a str),
     /// An expression; nested ones (operands, call arguments, command arguments) each too.
     Expression(&'a rotom::compiler::ast::Expression),
+    /// The condition of `if` (also of `else if`) or `while`, the head of `match`: `keyword` is
+    /// `if`, `while` or `match`. Reported before the condition's own [`AstItem::Expression`]s and
+    /// [`AstItem::Command`]s, which follow as for any expression.
+    Condition {
+        keyword: &'static str,
+        expression: &'a rotom::compiler::ast::Expression,
+    },
 }
 
 /// Calls `f` with every [`AstItem`] of the parsed source `file`, in source order (the
@@ -1115,11 +1122,19 @@ fn visit_statements<'a>(
                 body,
                 elseblock,
             } => {
+                f(AstItem::Condition {
+                    keyword: "if",
+                    expression: condition,
+                });
                 visit_expression(condition, f);
                 visit_statements(body, f);
                 visit_statements(elseblock.as_deref().unwrap_or_default(), f);
             }
             StatementKind::WhileStatement { condition, body } => {
+                f(AstItem::Condition {
+                    keyword: "while",
+                    expression: condition,
+                });
                 visit_expression(condition, f);
                 visit_statements(body, f);
             }
@@ -1128,6 +1143,10 @@ fn visit_statements<'a>(
                 cases,
                 default,
             } => {
+                f(AstItem::Condition {
+                    keyword: "match",
+                    expression: subject,
+                });
                 visit_expression(subject, f);
                 for case in cases {
                     for value in &case.values {

@@ -351,7 +351,7 @@ pub(crate) fn g4_only_uses(project: &Project) -> Result<Vec<String>, KernelError
                     found.push((e.span.start, name.clone()));
                 }
             }
-            AstItem::Command { .. } => {}
+            AstItem::Command { .. } | AstItem::Condition { .. } => {}
         });
         let rel = path.strip_prefix(&project.root).unwrap_or(&path);
         for (at, name) in found.into_iter().filter(|(_, n)| !local.contains(n)) {
