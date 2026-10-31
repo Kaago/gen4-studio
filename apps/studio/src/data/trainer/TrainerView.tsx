@@ -126,7 +126,9 @@ function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: str
   const { names } = useDataArea("pokemon");
   const first = doc.party[0];
   const shown: Foe = first ? foe : "trainer";
-  const request: BattleSpriteRequest | null = first ? { species: first.species, ...(first.form > 0 ? { form: first.form } : {}), side: "front" } : null;
+  // Only an explicit ♀ asks for the female picture (HeartGold's gender field; Platinum has none, and the low nibble of byte 1 is an IV
+  // byte there, so `genderOf` is not used). The backend falls back to the other gender when a species has no picture of that one.
+  const request: BattleSpriteRequest | null = first ? { species: first.species, ...(first.form > 0 ? { form: first.form } : {}), side: "front", ...(first.gender === 2 ? { female: true } : {}) } : null;
   const monUrl = useIcon(request && shown === "pokemon" ? battleSpriteKey(request) : null, () => battleSprite(request!), true);
   const classUrl = useIcon(trainerSpriteKey(doc.class), () => trainerSprite(doc.class), true);
   const options = first

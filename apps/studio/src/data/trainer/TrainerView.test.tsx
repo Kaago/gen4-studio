@@ -182,6 +182,26 @@ describe("TrainerView", () => {
       expect(getBattleSprite).toHaveBeenCalledWith({ species: 201, form: 5, side: "front" });
     });
 
+    it("an_explicitly_female_first_pokemon_asks_for_the_female_picture_and_an_unset_gender_does_not", async () => {
+      wireApi(() => trainerDoc({ party: [{ ...JENS.party[0]!, gender: 2 }] }));
+      await h.open();
+      await choose("Erstes Pokémon");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front", female: true });
+      h.unmount();
+      for (const gender of [null, 0, 1]) {
+        vi.mocked(getBattleSprite).mockClear();
+        resetIcons();
+        wireApi(() => trainerDoc({ party: [{ ...JENS.party[0]!, gender }] }));
+        h = trainerHarness();
+        await h.open();
+        await choose("Erstes Pokémon");
+        expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front" });
+        expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ female: true }));
+        h.unmount();
+      }
+      h = trainerHarness();
+    });
+
     it("without_a_team_only_the_trainer_is_offered", async () => {
       wireApi(() => trainerDoc({ party: [], events: [] }));
       await h.open(12, "bauen");
