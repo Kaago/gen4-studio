@@ -1003,7 +1003,10 @@ impl<'a> Call<'a> {
                         )
                     })?
                     .options();
-                let targets = crate::commands::check_publish_patch(self.state, &opts)?;
+                // The policy first: a place it does not allow is refused before it is looked at.
+                let policy: &dyn crate::commands::policy::Policy = self.policy;
+                let targets =
+                    crate::commands::check_publish_patch(self.state, &opts, Some(policy))?;
                 Ok(format!("{why}: {}", targets.patch.display()))
             }
             ("git_commit_all", Some(_)) => {
@@ -4447,6 +4450,62 @@ mod tests {
         );
         assert_eq!(std::fs::read(&file).unwrap(), b"alt");
         assert!(!root.join(patch::RELEASES_FILE).exists());
+    }
+
+    /// A `dir` outside the allowed folders is refused by the policy before it is looked at:
+    /// a place that is a file (or does not exist) answers the policy's sentence, never
+    /// `bad_dir` or `exists`, in the app before any question and headless as well.
+    #[test]
+    fn publish_refuses_a_place_outside_before_looking_at_it() {
+        let elsewhere = tempfile::tempdir().unwrap();
+        let file = elsewhere.path().join("datei");
+        std::fs::write(&file, b"x").unwrap();
+        let existing = elsewhere.path().join("ordner");
+        std::fs::create_dir(&existing).unwrap();
+        std::fs::write(existing.join("X-v0.1.0.xdelta"), b"alt").unwrap();
+        let places = [
+            file.clone(),
+            existing.clone(),
+            elsewhere.path().join("fehlt"),
+        ];
+        let outside = |code: &str, message: &str, place: &Path| {
+            assert_eq!(code, "error", "{message}");
+            assert!(
+                message.starts_with("Pfad liegt außerhalb der erlaubten Ordner: "),
+                "{place:?}: {message}"
+            );
+            assert!(!message.contains("kein Ordner"), "{message}");
+            assert!(!message.contains("liegt schon"), "{message}");
+        };
+
+        // In the app, with and without a base ROM, with and without overwrite.
+        let d = shared_dspre();
+        for assigned in [false, true] {
+            if assigned {
+                crate::commands::assign_base_impl(&d.state, d.nds.to_str().unwrap()).unwrap();
+            }
+            for place in &places {
+                for overwrite in [false, true] {
+                    let args = json!({ "version": "0.1.0", "dir": place.to_str().unwrap(),
+                                       "overwrite": overwrite });
+                    let (code, message, _) = failed(d.toolbox.call("publish_patch", args, AGENT));
+                    outside(&code, &message, place);
+                    assert_eq!(d.state.agents.status().question, None);
+                }
+            }
+        }
+        // Headless with --allow-irreversible: the same refusal, nothing built.
+        let (fixture, toolbox) = open_toolbox(ALL);
+        for place in &places {
+            let args = json!({ "version": "0.1.0", "dir": place.to_str().unwrap() });
+            let (code, message, _) = failed(toolbox.call("publish_patch", args, AGENT));
+            outside(&code, &message, place);
+        }
+        assert!(!fixture.dir.path().join("build").exists());
+        assert_eq!(
+            std::fs::read(existing.join("X-v0.1.0.xdelta")).unwrap(),
+            b"alt"
+        );
     }
 
     /// `git_commit_all` cannot be undone: headless it needs `--allow-irreversible`; in the

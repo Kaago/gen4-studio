@@ -26,6 +26,7 @@ use tauri::ipc::Channel;
 
 use super::BuildDto;
 use super::base::{base_missing, found_base};
+use super::policy::Policy;
 use crate::errors::CmdError;
 use crate::state::AppState;
 
@@ -127,12 +128,41 @@ struct Checked {
     targets: PublishTargets,
 }
 
+/// Asks `check` of `policy` about every file a release writes: the patch, its notes, the
+/// README when it is written, and the built ROM.
+fn place(
+    policy: &dyn Policy,
+    targets: &PublishTargets,
+    check: fn(&dyn Policy, &str) -> Result<PathBuf, CmdError>,
+) -> Result<(), CmdError> {
+    let files = [
+        Some(&targets.patch),
+        Some(&targets.notes),
+        targets.readme.as_ref(),
+        Some(&targets.rom),
+    ];
+    for path in files.into_iter().flatten() {
+        let text = path.to_str().ok_or_else(|| {
+            CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
+        })?;
+        check(policy, text)?;
+    }
+    Ok(())
+}
+
 /// The refusals of a release that need no build, in this order: a session that refuses
-/// writes (`busy`), unsaved changes (`unsaved`, [`PUBLISH_UNSAVED`]), then the kernel's
-/// `check_publish` (`releases_broken`, `bad_version`, `version_taken`, `bad_file`, `bad_dir`,
-/// `exists` without `overwrite`) and last the base ROM (`base_missing` with the reason of the
-/// base status; searching it may hash a ROM). Writes nothing.
-fn checked(state: &AppState, opts: &PublishOptions) -> Result<Checked, CmdError> {
+/// writes (`busy`), unsaved changes (`unsaved`, [`PUBLISH_UNSAVED`]), the list and the version
+/// (`releases_broken`, `bad_version`, `version_taken`), the file name (`bad_file`), then the
+/// place under `policy` (`Policy::check_target`, which makes nothing) before anything at it is
+/// looked at, so a place outside the allowed folders is refused alike whether it exists or
+/// not; then the files there (`bad_dir`, `exists` without `overwrite`) and last the base ROM
+/// (`base_missing` with the reason of the base status; searching it may hash a ROM). `policy`
+/// is the dispatch caller's (`None`: the user's own release in the app). Writes nothing.
+fn checked(
+    state: &AppState,
+    opts: &PublishOptions,
+    policy: Option<&dyn Policy>,
+) -> Result<Checked, CmdError> {
     let project = {
         let mut guard = super::lock(state)?;
         let session = super::session(&mut guard)?;
@@ -142,7 +172,15 @@ fn checked(state: &AppState, opts: &PublishOptions) -> Result<Checked, CmdError>
         }
         Arc::clone(&session.project)
     };
-    let targets = patch::check_publish(&project, opts).map_err(publish_error)?;
+    // `patch::check_publish`, with the policy before the place is looked at.
+    let releases = patch::read_releases(&project.root).map_err(publish_error)?;
+    patch::check_version(&opts.version, &releases)
+        .map_err(|why| publish_error(KernelError::Refused(why)))?;
+    let targets = patch::targets_for(&project, opts).map_err(publish_error)?;
+    if let Some(policy) = policy {
+        place(policy, &targets, |policy, path| policy.check_target(path))?;
+    }
+    patch::check_targets(&targets, opts.overwrite).map_err(publish_error)?;
     let (mark, hit) = found_base(state, &project.root)?;
     Ok(Checked {
         project,
@@ -153,14 +191,16 @@ fn checked(state: &AppState, opts: &PublishOptions) -> Result<Checked, CmdError>
 }
 
 /// The refusals before the question and before the build (`unsaved`, `base_missing`,
-/// `bad_version`, `version_taken`, `bad_file`, `bad_dir`, `exists`, `releases_broken`, and
-/// `busy` while the project is set up as text project or its state is saved in Git); writes
+/// `bad_version`, `version_taken`, `bad_file`, `bad_dir`, `exists`, `releases_broken`, `busy`
+/// while the project is set up as text project or its state is saved in Git, and the
+/// refusal of `policy` for a place it does not allow, before the place is looked at); writes
 /// nothing. The targets the release would write.
 pub(crate) fn check_publish_patch(
     state: &AppState,
     opts: &PublishOptions,
+    policy: Option<&dyn Policy>,
 ) -> Result<PublishTargets, CmdError> {
-    Ok(checked(state, opts)?.targets)
+    Ok(checked(state, opts, policy)?.targets)
 }
 
 /// The build of [`publish_patch_with`]: the state and the built ROM's path in, the build's
@@ -168,7 +208,8 @@ pub(crate) fn check_publish_patch(
 pub(crate) type Build<'a> = dyn Fn(&AppState, &str) -> Result<BuildDto, CmdError> + 'a;
 
 /// Publishes a release of the open project: refused as [`check_publish_patch`] says, then
-/// `check` is asked about the targets (the policy of the dispatch caller), then the build
+/// `policy` (the dispatch caller's; `None` in the app) has the last word on every target with
+/// `Policy::check_output` (which makes a missing `build/`), then the build
 /// (phase `Build`: the sync of a text project, the session's save and the build to
 /// `build/<patch_name>.nds`, as `create_patch` builds), then `patch::publish_built` (phases
 /// `Encode`, `Verify`, `Write`, `Record`). `turn`: the sync before the build takes the agents'
@@ -177,10 +218,10 @@ pub(crate) fn publish_patch_checked(
     state: &AppState,
     opts: PublishOptions,
     turn: bool,
-    check: &dyn Fn(&PublishTargets) -> Result<(), CmdError>,
+    policy: Option<&dyn Policy>,
     progress: &mut dyn FnMut(PublishProgress),
 ) -> Result<PublishReport, CmdError> {
-    publish_patch_with(state, opts, turn, check, progress, &|state, rom| {
+    publish_patch_with(state, opts, turn, policy, progress, &|state, rom| {
         super::build_synced(state, rom, false)
     })
 }
@@ -191,7 +232,7 @@ pub(crate) fn publish_patch_with(
     state: &AppState,
     opts: PublishOptions,
     turn: bool,
-    check: &dyn Fn(&PublishTargets) -> Result<(), CmdError>,
+    policy: Option<&dyn Policy>,
     progress: &mut dyn FnMut(PublishProgress),
     build: &Build<'_>,
 ) -> Result<PublishReport, CmdError> {
@@ -201,8 +242,10 @@ pub(crate) fn publish_patch_with(
         mark,
         hit,
         targets,
-    } = checked(state, &opts)?;
-    check(&targets)?;
+    } = checked(state, &opts, policy)?;
+    if let Some(policy) = policy {
+        place(policy, &targets, |policy, path| policy.check_output(path))?;
+    }
     let rom = targets.rom.to_str().ok_or_else(|| {
         CmdError::from(format!(
             "Pfad ist kein gültiger Text: {}",
@@ -249,7 +292,7 @@ pub fn publish_patch_impl(
     opts: PublishOptions,
     progress: &mut dyn FnMut(PublishProgress),
 ) -> Result<PublishReport, CmdError> {
-    publish_patch_checked(state, opts, true, &|_| Ok(()), progress)
+    publish_patch_checked(state, opts, true, None, progress)
 }
 
 /// Shows `path` in the file manager (macOS `open -R`, Windows `explorer /select,`, Linux
@@ -508,7 +551,7 @@ mod tests {
         assert_eq!(err.code, "releases_broken");
         assert!(err.message.starts_with(RELEASES_BROKEN), "{}", err.message);
         // Publishing is refused with it too, and the file stays as it was.
-        let err = check_publish_patch(&d.state, &opts("0.1.0")).unwrap_err();
+        let err = check_publish_patch(&d.state, &opts("0.1.0"), None).unwrap_err();
         assert_eq!(err.code, "releases_broken");
         assert_eq!(
             std::fs::read(d.root.join(RELEASES_FILE)).unwrap(),
@@ -539,7 +582,7 @@ mod tests {
                 &d.state,
                 opts,
                 false,
-                &|_| Ok(()),
+                None,
                 &mut |p| phases.push(p.phase),
                 &build,
             )
@@ -629,7 +672,8 @@ mod tests {
         .unwrap();
         save_impl(&d.state).unwrap();
 
-        let checked_targets = std::cell::RefCell::new(None);
+        // Through the user's policy: it allows build/ and makes it.
+        let policy = super::super::policy::UserPolicy::new(&d.root, &[], None).unwrap();
         let mut phases = Vec::new();
         let mut options = opts("0.1.0");
         options.notes = "Erste Fassung".into();
@@ -637,10 +681,7 @@ mod tests {
             &d.state,
             options,
             false,
-            &|targets| {
-                *checked_targets.borrow_mut() = Some(targets.clone());
-                Ok(())
-            },
+            Some(&policy),
             &mut |p| phases.push(p.phase),
             &fake_build(d.nds.clone()),
         )
@@ -664,10 +705,8 @@ mod tests {
             ]
         );
         assert!(report.phase_ms.contains_key(&PublishPhase::Build));
-        let targets = checked_targets.into_inner().unwrap();
-        assert_eq!(targets.patch, d.root.join("build/X-v0.1.0.xdelta"));
         assert_eq!(
-            targets.rom,
+            report.patch.rom,
             patch::default_targets(&Project::open(&d.root).unwrap()).rom
         );
 
@@ -679,7 +718,7 @@ mod tests {
             &d.state,
             opts("0.1.0"),
             false,
-            &|_| Ok(()),
+            None,
             &mut |_| {},
             &|_, _| panic!("built"),
         )
@@ -697,7 +736,7 @@ mod tests {
             &d.state,
             opts("0.1.0"),
             false,
-            &|_| Ok(()),
+            None,
             &mut |_| {},
             &move |_, rom| {
                 std::fs::create_dir_all(Path::new(rom).parent().unwrap()).unwrap();

@@ -1372,7 +1372,7 @@ static TOOLS: &[ToolDef] = &[
     ToolDef {
         name: "publish_patch",
         title: "Publish a patch",
-        description: "Saves, builds the ROM and publishes a release: an xdelta patch \
+        description: "Builds the saved project's ROM and publishes a release: an xdelta patch \
                       <project>-v<version>.xdelta against the base ROM at dir (default build/ \
                       in the project), its notes file with version, date and the change notes, \
                       optionally README.txt; records the release in .g4/releases.json; the \
@@ -1421,7 +1421,8 @@ fn publish_args() -> Value {
                              / \\ : * ? \" < > |, at most 32 characters, not yet released"),
             "notes": text("the change notes, written into the notes file (and README.txt)"),
             "dir": text("the folder of the release, relative to the project or absolute \
-                         (default build/); outside build/ the call asks first"),
+                         (default build/); it must exist, except build/; outside build/ the \
+                         call asks first"),
             "file": text("the patch's file name (default <project>-v<version>.xdelta; \
                           .xdelta is added when missing)"),
             "readme": {

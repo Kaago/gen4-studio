@@ -27,6 +27,10 @@ pub trait Policy: Send + Sync {
     /// `build_rom`: the target `out`, whose canonical parent must be allowed. The file
     /// itself need not exist.
     fn check_output(&self, out: &str) -> Result<PathBuf, CmdError>;
+    /// The rules of [`Policy::check_output`] without making anything: a target directly in a
+    /// missing `build/` that `check_output` would make counts as allowed. For a check before
+    /// the command looks at the target on disk (`publish_patch`).
+    fn check_target(&self, out: &str) -> Result<PathBuf, CmdError>;
     /// Map part import: the canonical path of an existing file that may be read.
     fn read_path(&self, path: &str) -> Result<PathBuf, CmdError>;
     /// Map part export: where `path` may be written (the rules of `check_output`).
@@ -156,6 +160,11 @@ impl UserPolicy {
             .is_some_and(|path| path.starts_with(self.build_dir()))
     }
 
+    /// Whether `parent` is the project's `build/` and does not exist yet.
+    fn is_missing_build(&self, parent: &Path) -> bool {
+        !parent.exists() && self.locate(parent).as_deref() == Some(self.build_dir().as_path())
+    }
+
     /// `path` as a path to look up: relative ones start at the project folder.
     fn resolve(&self, path: &str) -> PathBuf {
         self.project.join(path)
@@ -242,18 +251,30 @@ impl Policy for UserPolicy {
 
     fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
         let full = self.resolve(out);
-        let name = full
-            .file_name()
-            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {out}")))?;
         let parent = full.parent().unwrap_or(&self.project);
         // A target directly in `build/` makes the folder, which a fresh project lacks.
-        if !parent.exists() && self.locate(parent).as_deref() == Some(self.build_dir().as_path()) {
+        if self.is_missing_build(parent) {
             std::fs::create_dir(self.build_dir()).map_err(|e| {
                 CmdError::from(format!(
                     "Ordner nicht anlegbar: {}: {e}",
                     self.build_dir().display()
                 ))
             })?;
+        }
+        self.check_target(out)
+    }
+
+    fn check_target(&self, out: &str) -> Result<PathBuf, CmdError> {
+        let full = self.resolve(out);
+        let name = full
+            .file_name()
+            .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {out}")))?;
+        let parent = full.parent().unwrap_or(&self.project);
+        // `check_output` would make the missing `build/`: nothing is there to look at yet.
+        if self.is_missing_build(parent) {
+            let target = self.build_dir().join(name);
+            self.check_writable(&target, out)?;
+            return Ok(target);
         }
         let parent = self.canonicalize_inside(parent, out, |p| self.may_write(p))?;
         self.check_writable(&parent, out)?;
@@ -447,6 +468,43 @@ mod tests {
         assert!(p.check_output("build/../../x.nds").is_err());
         assert!(p.check_output("out.nds").is_err());
         assert!(!dir.path().join("build").exists());
+    }
+
+    #[test]
+    fn check_target_follows_check_output_and_makes_nothing() {
+        let dir = project();
+        let other = tempfile::tempdir().unwrap();
+        let p = policy(&dir);
+        let build = dir.path().canonicalize().unwrap().join("build");
+        // A target in the missing build/ is allowed, and build/ is not made.
+        assert_eq!(
+            p.check_target("build/a.xdelta").unwrap(),
+            build.join("a.xdelta")
+        );
+        assert!(!build.exists());
+        assert!(p.check_target("build/sub/a.xdelta").is_err());
+        // Outside: refused with the same words, whether the place exists or is a file.
+        let file = other.path().join("datei");
+        fs::write(&file, b"x").unwrap();
+        for out in [
+            file.join("a.xdelta"),
+            other.path().join("fehlt/a.xdelta"),
+            other.path().join("a.xdelta"),
+        ] {
+            let shown = out.to_str().unwrap();
+            let err = p.check_target(shown).unwrap_err();
+            assert_eq!(
+                err.message,
+                format!("Pfad liegt außerhalb der erlaubten Ordner: {shown}")
+            );
+        }
+        assert!(!build.exists());
+        // Once build/ is there, both answer the same.
+        p.check_output("build/a.xdelta").unwrap();
+        assert_eq!(
+            p.check_target("build/b.xdelta").unwrap(),
+            p.check_output("build/b.xdelta").unwrap()
+        );
     }
 
     #[test]

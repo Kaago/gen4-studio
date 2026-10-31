@@ -110,21 +110,29 @@ impl DevPolicy {
     /// exists and passes `check_canonical`: a project without `build/` takes its first build
     /// target (`create_patch`). Nothing deeper and no other name is made.
     fn make_build_dir(&self, parent: &Path, shown: &str) -> Result<(), CmdError> {
+        let Some(build) = self.build_dir_to_make(parent, shown)? else {
+            return Ok(());
+        };
+        std::fs::create_dir(&build)
+            .map_err(|e| CmdError::from(format!("Ordner nicht anlegbar: {}: {e}", build.display())))
+    }
+
+    /// The canonical `build/` [`DevPolicy::make_build_dir`] would make for `parent`, without
+    /// making it; `None` when it makes nothing.
+    fn build_dir_to_make(&self, parent: &Path, shown: &str) -> Result<Option<PathBuf>, CmdError> {
         // A dangling link exists as a link and is left for the checks to refuse.
         if parent.symlink_metadata().is_ok() || parent.file_name() != Some(BUILD_DIR.as_ref()) {
-            return Ok(());
+            return Ok(None);
         }
         let above = match parent.parent() {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
         };
         let Ok(above) = above.canonicalize() else {
-            return Ok(());
+            return Ok(None);
         };
         self.check_canonical(&above, shown)?;
-        let build = above.join(BUILD_DIR);
-        std::fs::create_dir(&build)
-            .map_err(|e| CmdError::from(format!("Ordner nicht anlegbar: {}: {e}", build.display())))
+        Ok(Some(above.join(BUILD_DIR)))
     }
 }
 
@@ -172,6 +180,18 @@ impl Policy for DevPolicy {
     /// the folder above it is allowed, as `UserPolicy` makes a fresh project's `build/`.
     fn check_output(&self, out: &str) -> Result<PathBuf, CmdError> {
         let path = Path::new(out);
+        let parent = match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        self.make_build_dir(parent, out)?;
+        self.check_target(out)
+    }
+
+    /// The rules of `check_output` without making anything: a target in the missing `build/`
+    /// it would make counts as allowed.
+    fn check_target(&self, out: &str) -> Result<PathBuf, CmdError> {
+        let path = Path::new(out);
         let name = path
             .file_name()
             .ok_or_else(|| CmdError::from(format!("Kein Dateiname: {out}")))?;
@@ -179,8 +199,10 @@ impl Policy for DevPolicy {
             Some(p) if !p.as_os_str().is_empty() => p,
             _ => Path::new("."),
         };
-        self.make_build_dir(parent, out)?;
-        let parent = canonicalize(parent, out)?;
+        let parent = match self.build_dir_to_make(parent, out)? {
+            Some(build) => build,
+            None => canonicalize(parent, out)?,
+        };
         self.check_canonical(&parent, out)?;
         let full = parent.join(name);
         if full.symlink_metadata().is_ok() {

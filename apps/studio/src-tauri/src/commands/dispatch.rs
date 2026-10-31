@@ -969,10 +969,11 @@ pub fn dispatch(
             }
         ),
         "releases" => run!(json, "releases", args, {}, |_a| releases_impl(state)),
-        // `dir` (relative to the project folder) is the place; once the refusals are past and
-        // before the build, the policy has the last word on every file the release writes
-        // there and on the built ROM (and makes build/ when it may). No live progress over
-        // HTTP: the report carries the time of each phase.
+        // `dir` (relative to the project folder) is the place. The policy is asked about every
+        // file the release writes there and about the built ROM before the place is looked at
+        // on disk (`check_target`, which makes nothing), and once more before the build
+        // (`check_output`, which makes build/ when it may). No live progress over HTTP: the
+        // report carries the time of each phase.
         "publish_patch" => run!(
             json, "publish_patch", args,
             {
@@ -993,14 +994,7 @@ pub fn dispatch(
                     overwrite: a.overwrite,
                 }
                 .options();
-                publish_patch_checked(state, opts, false, &|targets| {
-                    // The place first: a refused one leaves no build/ behind.
-                    let files = [Some(&targets.patch), Some(&targets.notes), targets.readme.as_ref()];
-                    for path in files.into_iter().chain([Some(&targets.rom)]).flatten() {
-                        policy.check_output(&path_text(path)?)?;
-                    }
-                    Ok(())
-                }, &mut |_progress| {})
+                publish_patch_checked(state, opts, false, Some(policy), &mut |_progress| {})
             }
         ),
         // The command takes only a release file of the list or its folder, nothing else.
@@ -1521,6 +1515,24 @@ mod tests {
                 .next()
                 .is_none()
         );
+        // An outside place that is a file, or holds the file already: the policy's sentence,
+        // before the place is looked at (never `bad_dir` or `exists`).
+        let file = elsewhere.path().join("datei");
+        std::fs::write(&file, b"x").unwrap();
+        std::fs::write(elsewhere.path().join("X-v0.1.0.xdelta"), b"alt").unwrap();
+        for dir in [file.clone(), elsewhere.path().to_path_buf()] {
+            let args = json!({ "version": "0.1.0", "dir": dir.to_str().unwrap() });
+            match dispatch(&state, &policy, "publish_patch", args) {
+                Err(DispatchError::Cmd(e)) => assert!(
+                    e.code == "error" && e.message.starts_with("Pfad liegt außerhalb"),
+                    "{dir:?}: {}: {}",
+                    e.code,
+                    e.message
+                ),
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!(!root.join("build").exists());
 
         // In build/ the policy makes the folder and the build runs (and fails on the
         // synthetic project as build_rom does).
