@@ -120,6 +120,37 @@ describe("AreaGrid", () => {
     expect(onCellClick).toHaveBeenCalledWith(2, 1, { shift: false, alt: false });
   });
 
+  it("draft_cells_render_dashed_with_data_draft_cell", () => {
+    const onExtend = vi.fn();
+    const onCellClick = vi.fn();
+    // (2, 0) is an empty cell of the matrix, (3, 1) a "+" beside it, (1, 0) a filled cell: all three planned.
+    show({ draftCells: [{ x: 2, y: 0 }, { x: 3, y: 1 }, { x: 1, y: 0 }], extendable: new Set(["3,1", "1,1"]), onExtend, onCellClick });
+    const planned = [...container.querySelectorAll<HTMLElement>("[data-draft-cell]")];
+    expect(planned.map((e) => e.getAttribute("data-draft-cell")).sort()).toEqual(["1,0", "2,0", "3,1"]);
+    for (const el of planned) {
+      expect(el.tagName).toBe("BUTTON");
+      expect(el.className).toMatch(/draft/);
+      const [x, y] = el.getAttribute("data-draft-cell")!.split(",");
+      expect(el.getAttribute("aria-label")).toBe(`Geplant: Karte bei x ${x}, y ${y}`);
+    }
+    // A cell of the matrix stays that cell (and its clicks); the "+" it replaces still reports its target; the other "+" stays.
+    expect(cell(2, 0)?.getAttribute("data-draft-cell")).toBe("2,0");
+    expect(cell(0, 0)?.hasAttribute("data-draft-cell")).toBe(false);
+    expect(cell(0, 0)?.className).not.toMatch(/draft/);
+    act(() => cell(2, 0)?.click());
+    expect(onCellClick).toHaveBeenCalledWith(2, 0, { shift: false, alt: false });
+    expect([...container.querySelectorAll("[data-extend]")].map((e) => e.getAttribute("data-extend"))).toEqual(["1,1"]);
+    act(() => container.querySelector<HTMLElement>('[data-draft-cell="3,1"]')?.click());
+    expect(onExtend).toHaveBeenCalledWith(3, 1);
+    // A planned cell past the edge brings its column along, also without "+".
+    show({ draftCells: [{ x: 3, y: 0 }] });
+    expect(container.querySelector('[role="group"]')?.children).toHaveLength(8);
+    expect(container.querySelector('[data-draft-cell="3,0"]')).not.toBeNull();
+    expect(container.querySelector("[data-extend]")).toBeNull();
+    show();
+    expect(container.querySelector("[data-draft-cell]")).toBeNull();
+  });
+
   it("marks_foreign_cells", () => {
     show({ foreign: new Set(["0,0", "2,0"]) });
     const marked = [...container.querySelectorAll("[data-foreign]")].map((e) => e.getAttribute("data-cell"));

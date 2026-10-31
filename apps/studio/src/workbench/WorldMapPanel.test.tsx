@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
+import type { DraftDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../api";
 import { extendArea, getMatrix } from "../api";
 import { headerIdentity } from "./headerIdentity";
 import { buildWorld } from "./worldModel";
@@ -562,6 +562,33 @@ describe("WorldMapPanel", () => {
     expect([...container.querySelectorAll("[data-extend]")].map((e) => e.getAttribute("data-extend")).sort()).toEqual(["0,1", "1,0"]);
     expect(container.querySelector("[data-world-viewport]")).toBeNull();
     expect(container.querySelector("[data-place-key]")).toBeNull();
+  });
+
+  it("passes_the_draft_cells_of_the_shown_matrix", async () => {
+    serveMatrices();
+    const draft: DraftDto = {
+      cells: [
+        { matrix: 0, x: 2, y: 0, source_map: 1 },
+        { matrix: 7, x: 0, y: 1, source_map: 700 },
+        { matrix: 20, x: 1, y: 0, source_map: 50 },
+        // A matrix the recipe creates: no grid shows it.
+        { matrix: null, x: 0, y: 0, source_map: 50 },
+      ],
+      tiles: [{ matrix: 0, x: 70, z: 5 }],
+      events: [],
+      messages: [],
+      notes: [],
+      irreversible: [],
+    };
+    const planned = () => [...container.querySelectorAll("[data-draft-cell]")].map((e) => e.getAttribute("data-draft-cell"));
+    await show(worldContext({ selected: 1, draft }));
+    expect(viewOf()).toBe("w0");
+    expect(planned()).toEqual(["2,0"]);
+    await show(worldContext({ selected: 4, draft }));
+    expect(viewOf()).toBe("plan");
+    expect(planned()).toEqual(["1,0"]);
+    await show(worldContext({ selected: 4, draft: null }));
+    expect(planned()).toEqual([]);
   });
 
   it("labels_the_room_plan_raster_in_tuefteln", async () => {

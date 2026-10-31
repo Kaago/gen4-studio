@@ -67,7 +67,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -902,6 +902,8 @@ function AppBody() {
   const onMapImported = useStableCallback((map: number) =>
     afterMapImport(map, { bus, invalidate: (m) => thumbnails.invalidate(m), refreshDirty: () => session.refreshDirty() }),
   );
+  // What an open wizard plans (its recipe's draft): the scene and the world map draw it dashed until the wizard closes or creates.
+  const [draft] = useState<DraftDto | null>(null);
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -919,6 +921,7 @@ function AppBody() {
     problems,
     checks,
     dataStore,
+    draft,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;

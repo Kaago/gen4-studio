@@ -1,0 +1,83 @@
+import * as THREE from "three";
+import type { DraftDto, MatrixDto } from "../../api";
+import { szene } from "../../ui/tokens/tokens";
+import { MAP_SIZE, cellOrigin, cellY, cellYAtTile } from "../layout";
+import { MARKER_Y, PLACEHOLDER_SIZE, markerPlaceholder } from "../markers";
+import { OVERLAY_Y } from "./content";
+import type { SceneHost } from "./SceneHost";
+
+/** Opacity of everything the draft layer draws: planned, not there yet. */
+export const DRAFT_OPACITY = 0.5;
+/** Dash and gap of the planned cell and tile frames, in tiles. */
+export const DRAFT_DASH = { dashSize: 1, gapSize: 0.5 };
+/** The frames float this far over the overlay plane of their cell. */
+const FRAME_LIFT = 0.1;
+
+/** Height of matrix cell (`col`, `row`); a cell beside the matrix (a planned extension) has no altitude yet and lies on the ground. */
+function cellHeight(matrix: MatrixDto, col: number, row: number): number {
+  return col < matrix.width && row < matrix.height ? cellY(matrix, col, row) : 0;
+}
+
+/**
+ * A dashed rectangle (four segments) from (`x0`, `z0`) to (`x1`, `z1`) at height `y`, in the selection colour at half opacity: the
+ * selection colour dashed says „geplant“. Drawn over everything (no depth test) after the tiles.
+ */
+function dashedFrame(x0: number, z0: number, x1: number, z1: number, y: number): THREE.LineSegments {
+  const geometry = new THREE.BufferGeometry();
+  // Four segments, each a pair of points: north, east, south, west.
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([
+    x0, y, z0, x1, y, z0,
+    x1, y, z0, x1, y, z1,
+    x1, y, z1, x0, y, z1,
+    x0, y, z1, x0, y, z0,
+  ], 3));
+  const material = new THREE.LineDashedMaterial({ color: szene.auswahl.halo, ...DRAFT_DASH, transparent: true, opacity: DRAFT_OPACITY, depthTest: false });
+  const frame = new THREE.LineSegments(geometry, material);
+  // The dashes are laid out along the distances of the line.
+  frame.computeLineDistances();
+  frame.renderOrder = 11;
+  return frame;
+}
+
+/** Frees what `group` holds: each frame's geometry and material, each marker's material and its placeholder (a sprite's geometry is three's shared one). */
+function clear(group: THREE.Group) {
+  for (const child of [...group.children]) {
+    group.remove(child);
+    if (child instanceof THREE.Sprite) {
+      child.material.map?.dispose();
+      child.material.dispose();
+    } else if (child instanceof THREE.LineSegments) {
+      child.geometry.dispose();
+      (child.material as THREE.Material).dispose();
+    }
+  }
+}
+
+/** Replaces the draft layer of `h` with `draft` for `matrix` (null: nothing); returns how many cells, tiles and markers it drew. Does not render. */
+export function setDraft(h: SceneHost, draft: DraftDto | null, matrix: MatrixDto | null): number {
+  clear(h.draft);
+  let drawn = 0;
+  if (draft && matrix) {
+    const on = (item: { matrix: number | null }) => item.matrix === matrix.index;
+    for (const cell of draft.cells.filter(on)) {
+      const { x, z } = cellOrigin(cell.x, cell.y);
+      h.draft.add(dashedFrame(x, z, x + MAP_SIZE, z + MAP_SIZE, OVERLAY_Y + cellHeight(matrix, cell.x, cell.y) + FRAME_LIFT));
+      drawn++;
+    }
+    for (const tile of draft.tiles.filter(on)) {
+      h.draft.add(dashedFrame(tile.x, tile.z, tile.x + 1, tile.z + 1, OVERLAY_Y + cellYAtTile(matrix, tile.x, tile.z) + FRAME_LIFT));
+      drawn++;
+    }
+    for (const event of draft.events.filter(on)) {
+      // The placeholder of the marker's kind; a `look` gets its sprite later (3d.5).
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerPlaceholder(event.kind), transparent: true, opacity: DRAFT_OPACITY, depthTest: false }));
+      sprite.scale.set(PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1);
+      sprite.position.set(event.x + 0.5, MARKER_Y + cellYAtTile(matrix, event.x, event.z), event.z + 0.5);
+      sprite.renderOrder = 11;
+      h.draft.add(sprite);
+      drawn++;
+    }
+  }
+  h.draftCount = drawn;
+  return drawn;
+}

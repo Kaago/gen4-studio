@@ -50,6 +50,11 @@ export interface AreaGridProps {
   still?: boolean;
   /** The words of the tooltips (Bauen: "Nummer", Tüfteln: "Header"), for a grid that shows pictures in both depths; default: `tinker`. */
   depth?: Depth;
+  /**
+   * The cells an open wizard plans (its draft), drawn dashed and marked `data-draft-cell`: a cell of the matrix stays that cell, a "+" or
+   * a position past the edge becomes the planned cell (the extra column or row appears for it).
+   */
+  draftCells?: readonly { x: number; y: number }[];
 }
 
 interface CellProps {
@@ -63,6 +68,8 @@ interface CellProps {
   size: 32 | 64;
   selected: boolean;
   foreign: boolean;
+  /** An open wizard plans this cell. */
+  draft: boolean;
   /** The grid has a header section. */
   hasHeaders: boolean;
   cache: ThumbnailCache;
@@ -75,7 +82,7 @@ interface CellProps {
 }
 
 /** Memoised: a selection change or a new picture renders only the cells whose props changed, not the whole grid. */
-const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, hasHeaders, cache, tinker, techWords, still, onClick, onDoubleClick }: CellProps) {
+const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size, selected, foreign, draft, hasHeaders, cache, tinker, techWords, still, onClick, onDoubleClick }: CellProps) {
   const box = useRef<HTMLElement>(null);
   const visible = useVisible(box, map !== null);
   // Only a cell in view asks for its picture, so a big grid does not queue hundreds of jobs the user never sees.
@@ -95,7 +102,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
     backgroundColor: !pictured && tinted ? color : undefined, /* dyn */
     boxShadow: tinted ? `inset 0 -4px 0 ${color}` : undefined, /* dyn */
   };
-  const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : "", foreign ? styles.foreign : ""].join(" ");
+  const classes = [styles.cell, size === 64 ? styles.big : styles.small, map === null ? styles.empty : "", selected ? styles.selected : "", foreign ? styles.foreign : "", draft ? styles.draft : ""].join(" ");
 
   const content =
     map === null ? (
@@ -117,6 +124,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   const shared = {
     "data-cell": cellKey(x, y),
     "data-foreign": foreign ? "" : undefined,
+    "data-draft-cell": draft ? cellKey(x, y) : undefined,
     "data-raw": tinker && map !== null ? rawCell(map, hasHeaders ? header : null, altitude) : undefined,
     title: parts.join(" · "),
   };
@@ -133,6 +141,7 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
       ref={box as RefObject<HTMLButtonElement | null>}
       type="button"
       {...shared}
+      aria-label={draft ? draftLabel(x, y) : undefined}
       aria-pressed={selected}
       className={classes}
       style={style} /* dyn */
@@ -144,11 +153,14 @@ const Cell = memo(function Cell({ x, y, map, header, altitude, area, color, size
   );
 });
 
+/** The words of a cell an open wizard plans. */
+const draftLabel = (x: number, y: number) => `Geplant: Karte bei x ${x}, y ${y}`;
+
 /** The words of a "+" button; the extendable cells of the world map say the step cannot be undone. */
 const plusLabel = (x: number, y: number, notUndoable: boolean) => `Karte bei x ${x}, y ${y} anlegen${notUndoable ? " (nicht rückgängig)" : ""}`;
 
 /** The cells of a matrix as a grid of map pictures; shared by the matrix panel, the wizards and the world map. */
-export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth }: AreaGridProps) {
+export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, onCellClick, onCellDoubleClick, onExtend, extendable, window, foreign, label, cache = thumbnails, colorOf, tinker = false, still = false, depth, draftCells }: AreaGridProps) {
   const techWords = depth === undefined ? tinker : depthAtLeast(depth, "tuefteln");
   // The tileset of each header, looked up once per header list instead of a search per cell.
   const areaOf = useMemo(() => new Map(headers.map((h) => [h.id, h.area_data_id])), [headers]);
@@ -158,8 +170,11 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
   const y1 = Math.min(matrix.height, window ? window.y + window.height : matrix.height);
   // The "+" column and row sit past the matrix edge: shown with a window that reaches the edge only.
   const plusKeys = extendable ? [...extendable].map((key) => key.split(",").map(Number)) : null;
-  const extraColumn = x1 === matrix.width && (plusKeys ? plusKeys.some(([x]) => x >= matrix.width) : onExtend !== undefined);
-  const extraRow = y1 === matrix.height && (plusKeys ? plusKeys.some(([, y]) => y >= matrix.height) : onExtend !== undefined);
+  const planned = new Set(draftCells?.map((c) => cellKey(c.x, c.y)));
+  const extraColumn =
+    x1 === matrix.width && ((plusKeys ? plusKeys.some(([x]) => x >= matrix.width) : onExtend !== undefined) || (draftCells?.some((c) => c.x === matrix.width) ?? false));
+  const extraRow =
+    y1 === matrix.height && ((plusKeys ? plusKeys.some(([, y]) => y >= matrix.height) : onExtend !== undefined) || (draftCells?.some((c) => c.y === matrix.height) ?? false));
   const columns = x1 - x0 + (extraColumn ? 1 : 0);
   const sizeClass = cellSize === 64 ? styles.big : styles.small;
   const cells = [];
@@ -167,7 +182,24 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
     for (let x = x0; x < x1 + (extraColumn ? 1 : 0); x++) {
       const key = cellKey(x, y);
       const outside = x >= matrix.width || y >= matrix.height;
-      if (extendable ? extendable.has(key) : outside) {
+      const plus = extendable ? extendable.has(key) : outside && onExtend !== undefined;
+      if (planned.has(key) && (plus || outside)) {
+        // The planned cell in place of the "+" (a click still reports the target) or past the edge.
+        const text = draftLabel(x, y);
+        cells.push(
+          <button
+            type="button"
+            key={key}
+            data-draft-cell={key}
+            aria-label={text}
+            title={text}
+            className={`${styles.cell} ${sizeClass} ${styles.extend} ${styles.draft}`}
+            onClick={plus ? () => onExtend?.(x, y) : undefined}
+          />,
+        );
+        continue;
+      }
+      if (plus) {
         const text = plusLabel(x, y, extendable !== undefined);
         cells.push(
           <button type="button" key={key} data-extend={key} aria-label={text} title={text} className={`${styles.cell} ${sizeClass} ${styles.extend}`} onClick={() => onExtend?.(x, y)}>
@@ -197,6 +229,7 @@ export function AreaGrid({ matrix, headers, areaFallback, cellSize, selected, on
           size={cellSize}
           selected={selected?.has(key) ?? false}
           foreign={foreign?.has(key) ?? false}
+          draft={planned.has(key)}
           hasHeaders={matrix.headers != null}
           cache={cache}
           tinker={tinker}

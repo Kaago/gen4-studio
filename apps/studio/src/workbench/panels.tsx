@@ -295,6 +295,7 @@ export function WorldPanel() {
         onEventMoved={d.onEventMoved}
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}
+        draft={d.draft}
       />
       {/* The layer bar and the toolbar; they read the shell themselves, so moving the toolbar does not render the scene. */}
       <SceneOverlays
@@ -346,7 +347,7 @@ export function WorldMapTab() {
   const pinnedCell = useMatrixSelection();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged, draft } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
     () => ({
@@ -368,8 +369,9 @@ export function WorldMapTab() {
       counts: memberCounts,
       onEdited: onMatrixEdited,
       onCountsChanged,
+      draft,
     }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged],
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged, draft],
   );
   return <WorldMapPanel context={context} />;
 }

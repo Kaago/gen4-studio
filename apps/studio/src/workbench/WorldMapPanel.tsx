@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../api";
+import type { DraftDto, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
@@ -57,6 +57,11 @@ export interface WorldMapContext {
   onEdited: (index: number) => void | Promise<void>;
   /** A map was appended ("+"): refresh the member counts. */
   onCountsChanged: () => void | Promise<void>;
+  /**
+   * What an open wizard plans (null or absent: nothing): its cells on the shown world map or room plan are drawn dashed. Cells of a
+   * matrix the recipe creates (`matrix` null) show on no grid.
+   */
+  draft?: DraftDto | null;
 }
 
 const CELL_SIZE = 32;
@@ -434,6 +439,14 @@ const PlaceList = memo(function PlaceList({ places, depth, links, selected, open
 
 const NO_LINKS: RoomLink[] = [];
 const NO_CELLS: ReadonlySet<string> = new Set();
+const NO_DRAFT_CELLS: readonly { x: number; y: number }[] = [];
+
+/** The cells of `draft` on matrix `index` (none without either). */
+function draftCellsOf(draft: DraftDto | null | undefined, index: number | null): readonly { x: number; y: number }[] {
+  if (!draft || index === null) return NO_DRAFT_CELLS;
+  const cells = draft.cells.filter((c) => c.matrix === index).map(({ x, y }) => ({ x, y }));
+  return cells.length ? cells : NO_DRAFT_CELLS;
+}
 /** Header 0 (`EVERYWHERE`) fills the landscape cells: it counts as no header here, a click on it never selects it. */
 const LANDSCAPE = 0;
 
@@ -482,6 +495,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     counts,
     onEdited,
     onCountsChanged,
+    draft,
   } = context;
   useCacheProgress(cache, onLoadStatus);
 
@@ -511,6 +525,8 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
   // The matrix of a world map (or of the region while the world is not read), and the one of the room plan.
   const region = view === "plan" || view === "more" ? null : shown;
   const plan = view === "plan" ? shown : null;
+  // The planned cells of the shown matrix (the world map's or the room plan's).
+  const draftCells = useMemo(() => draftCellsOf(draft, shown?.index ?? null), [draft, shown]);
 
   const cellsOfPlaces = useMemo(() => (region ? placeCells(region, places) : []), [region, places]);
   const links = useMemo(() => {
@@ -635,9 +651,10 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           label={!depthAtLeast(depth, "tuefteln") ? `Weltkarte, ${region.height} Zeilen, ${region.width} Spalten` : undefined}
           cache={cache}
           depth={depth}
+          draftCells={draftCells}
         />
       ),
-    [region, headers, areaDataId, marked, colorOf, onCellClick, onCellDoubleClick, onWorldExtend, extendable, half, world, cache, depth],
+    [region, headers, areaDataId, marked, colorOf, onCellClick, onCellDoubleClick, onWorldExtend, extendable, half, world, cache, depth, draftCells],
   );
   const planSelected = useMemo(() => (plan && pinnedCell?.matrix === plan.index ? new Set([cellKey(pinnedCell.x, pinnedCell.y)]) : NO_CELLS), [plan, pinnedCell]);
   const planExtendable = useMemo(() => (plan ? planExtendTargets(plan) : NO_CELLS), [plan]);
@@ -715,6 +732,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
               label={!depthAtLeast(depth, "tuefteln") ? `Raumplan, ${plan.height} Zeilen, ${plan.width} Spalten` : undefined}
               cache={cache}
               depth={depth}
+              draftCells={draftCells}
             />
           ) : (
             <p className={styles.message}>Lade Raumplan …</p>
