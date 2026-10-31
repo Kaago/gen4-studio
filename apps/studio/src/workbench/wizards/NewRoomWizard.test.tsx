@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, recipePlan, tileBehaviors } from "../../api";
-import type { DraftDto, EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import type { DraftDto, EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, RoomSpec, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { visibleWords } from "../../ui/visibleText";
 import { resetTileNames } from "../../world/scene/tileNames";
@@ -668,6 +668,40 @@ describe("NewRoomWizard", () => {
       lockedFiles[5] = "DSPRE";
       await toPlace();
       expect(placeButton()?.textContent).toBe("Spielerhaus");
+    });
+
+    it("plans_with_the_patch_assumed_while_it_is_missing_and_creates_with_the_users_consent", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      // As the kernel: a new header without the patch and without allow_patch is refused.
+      vi.mocked(recipePlan).mockImplementation(async (_recipe, input) =>
+        (input as RoomSpec).header.allow_patch === true ? planned : Promise.reject({ code: "refused", message: "new headers need the dynamic headers patch, apply the patch first", asset: null }),
+      );
+      await toPlace({ applied: false });
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      // The draft shows from the step „Ort“ on, before any consent: the plan writes nothing.
+      expect(vi.mocked(recipePlan).mock.lastCall?.[0]).toBe("create_room");
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as RoomSpec).header.allow_patch).toBe(true);
+      expect(onDraft).toHaveBeenLastCalledWith(planned);
+      await next();
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).not.toContain("Vorschau nicht möglich");
+      expect(container.textContent).not.toContain("dynamic headers");
+      // „Anlegen“ still waits for the user's consent and sends it.
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createRoom).mock.calls[0][0].header.allow_patch).toBe(true);
+      // With the patch in the game nothing is assumed: plan and create send no consent.
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(recipePlan).mockClear();
+      vi.mocked(createRoom).mockClear();
+      await toSummary({ applied: true });
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as RoomSpec).header.allow_patch).toBe(false);
+      await click(button("Anlegen"));
+      expect(vi.mocked(createRoom).mock.calls[0][0].header.allow_patch).toBe(false);
     });
 
     it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {

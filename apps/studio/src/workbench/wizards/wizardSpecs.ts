@@ -210,6 +210,16 @@ function buildingHeader(form: { place: PlaceChoice | null; lookAreaData: number 
   };
 }
 
+/**
+ * The spec a wizard plans its draft with: while the game lacks the Dynamic Headers patch, a new header is planned as if the user had
+ * consented to the patch, so the draft shows before the consent box of the last step (the plan writes nothing; without
+ * `allow_patch` the kernel refuses a new header there). „Anlegen“ sends the spec itself, with the user's own consent.
+ */
+export function planSpec<T extends { header: AssignHeader | null }>(spec: T, patchMissing: boolean): T {
+  if (!patchMissing || !spec.header?.new_header) return spec;
+  return { ...spec, header: { ...spec.header, allow_patch: true } };
+}
+
 /** What `areaSpec` says while a world map is chosen and no cell on it yet: the step's grid hint asks for it, so the step shows no error. */
 export const PICK_TARGET = `Die Zelle wählen, an der das ${TERMS.area.label} auf der ${TERMS.worldMap.label} liegen soll.`;
 

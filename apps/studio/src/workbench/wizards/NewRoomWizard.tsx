@@ -25,7 +25,7 @@ import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
 import type { WizardStep } from "./WizardFrame";
-import { MAP_LAST_TILE, OUTSIDE_AREA, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, placeError, placeForm, roomPlace, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
+import { MAP_LAST_TILE, OUTSIDE_AREA, emptyRoomForm, internalName, isLateFailure, matrixTiles, newHeaderForm, newHeaderValue, mapUnderTile, overviewNote, partialText, placeError, placeForm, planSpec, roomPlace, roomResult, roomSpec, roomSummary, templateWarp, warpOnTile } from "./wizardSpecs";
 import type { HeaderChoiceValue, RoomForm } from "./wizardSpecs";
 import parts from "./WizardStep.module.css";
 import styles from "./NewRoomWizard.module.css";
@@ -59,7 +59,8 @@ interface Props {
   onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
-  onPlay?: () => void;  /** A next step's button on the result (its recipe runs): the app shows what was made and opens that recipe's wizard. */
+  onPlay?: () => void;
+  /** A next step's button on the result (its recipe runs): the app shows what was made and opens that recipe's wizard. */
   onStep?: (id: string, report: RoomReport, spec: RoomSpec) => void;
   /** The draft of the room as planned (null: nothing planned): the scene and the world map draw it until the wizard closes or creates. */
   onDraft: (draft: DraftDto | null) => void;
@@ -181,8 +182,9 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
     outsideWarps: outsideEvents?.warps,
     keptWarps,
   });
-  // What the room will be, planned by the kernel from the same spec „Anlegen“ sends; gone once it is made.
-  const plan = useDraftPlan("create_room", outcome === null && "spec" in built ? built.spec : null, onDraft);
+  // What the room will be, planned by the kernel from the same spec „Anlegen“ sends (the patch assumed while it is missing, see
+  // `planSpec`); gone once it is made.
+  const plan = useDraftPlan("create_room", outcome === null && "spec" in built ? planSpec(built.spec, patch.patch?.applied === false) : null, onDraft);
 
   const candidates = useMemo(() => {
     const outside = places.flatMap((p) => p.headers).filter((h) => h.kind === "outside" || h.header.id === prefill?.outsideHeader);
