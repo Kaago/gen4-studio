@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { getEvents } from "../../api";
-import type { HeaderSummary, RefDto } from "../../api";
+import type { BattleSpriteRequest, HeaderSummary, RefDto } from "../../api";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -8,14 +9,15 @@ import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { renameEntry } from "../../textproject/renameEntry";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { useEntityIds } from "../../textproject/useEntityIds";
-import { Badge, Button, Notice, PokemonCard, Reference } from "../../ui/primitives";
+import { Badge, Button, DSBattlePreview, Notice, PokemonCard, Reference, Segmented } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
-import { monIcon, monIconKey, useIcon } from "../icons";
+import { battleSprite, battleSpriteKey, monIcon, monIconKey, trainerSprite, trainerSpriteKey, useIcon } from "../icons";
 import { itemName } from "../pokedex/pokedexModel";
 import { useDataArea } from "../useDataArea";
 import { PLACEHOLDER_TEXT, docTitle, isDouble, speciesName } from "./trainerModel";
 import type { TrainerDoc } from "./trainerModel";
+import { ClassSprite } from "./ClassSprite";
 import { useTrainer } from "./useTrainer";
 import styles from "./Trainer.module.css";
 
@@ -113,6 +115,38 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
   );
 }
 
+type Foe = "trainer" | "pokemon";
+
+/**
+ * "Kampfvorschau": the DS battle screen with the opponent's side: the trainer's class picture (the box names class and trainer, no level) or
+ * the first Pokémon of the team (front picture, level from the party). One's own side stays empty: there is no player data to show. Without
+ * a team only the trainer is offered.
+ */
+function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: string; foe: Foe; onFoe: Dispatch<SetStateAction<Foe>> }) {
+  const { names } = useDataArea("pokemon");
+  const first = doc.party[0];
+  const shown: Foe = first ? foe : "trainer";
+  const request: BattleSpriteRequest | null = first ? { species: first.species, ...(first.form > 0 ? { form: first.form } : {}), side: "front" } : null;
+  const monUrl = useIcon(request && shown === "pokemon" ? battleSpriteKey(request) : null, () => battleSprite(request!), true);
+  const classUrl = useIcon(trainerSpriteKey(doc.class), () => trainerSprite(doc.class), true);
+  const options = first
+    ? [
+        { value: "trainer" as const, label: "Trainer" },
+        { value: "pokemon" as const, label: "Erstes Pokémon" },
+      ]
+    : [{ value: "trainer" as const, label: "Trainer" }];
+  const side = shown === "pokemon" && first ? { name: speciesName(names.species, first.species), level: first.level, spriteUrl: monUrl } : { name: title, level: 0, spriteUrl: classUrl };
+  return (
+    <section className={styles.section} aria-label="Kampfvorschau" data-ds-battle-section="">
+      <h3 className={styles.sectionTitle}>Kampfvorschau</h3>
+      <DSBattlePreview foe={side} own={null} />
+      <div className={styles.previewControls} data-foe={shown}>
+        <Segmented options={options} value={shown} onChange={onFoe} ariaLabel="Gegnerseite" size="s" />
+      </div>
+    </section>
+  );
+}
+
 /**
  * The view (Schau) of a trainer: class and name, a double battle, the team as cards (a card opens its species), where the trainer stands
  * in the world or the way to place it, a warning for an empty team (the battle crashes). The placeholder of the sight script says what it
@@ -121,21 +155,27 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
 export function TrainerView() {
   const { row, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useTrainer(selected);
+  // The opponent's side of the preview belongs to the view for the session, so the loading gap between two trainers does not reset it.
+  const [foe, setFoe] = useState<Foe>("trainer");
   const reset = useReset();
   // In a text project the head names the trainer's id and offers to rename it.
   const text = useTextProject();
   const ids = useEntityIds("Trainer", text.active);
   if (row === null || selected === null) return null;
   const entityId = ids?.[selected] ?? null;
-  const title = doc && !doc.placeholder && doc.locked === null ? docTitle(doc, names.classes, selected) : labelOf(row);
+  const usable = doc !== null && !doc.placeholder && doc.locked === null;
+  const title = usable ? docTitle(doc, names.classes, selected) : labelOf(row);
   return (
     <section className={styles.view} aria-label={`Übersicht ${title}`} data-trainer={selected}>
       <div className={styles.viewBody}>
         <header className={styles.head}>
-          <h2 className={styles.name}>{title}</h2>
-          <span className={styles.tech}>{row.tech}</span>
-          {entityId !== null && <EntityIdLine id={entityId} />}
-          {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
+          <ClassSprite cls={usable ? doc.class : null} name={title} size={80} />
+          <div className={styles.headText}>
+            <h2 className={styles.name}>{title}</h2>
+            <span className={styles.tech}>{row.tech}</span>
+            {entityId !== null && <EntityIdLine id={entityId} />}
+            {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
+          </div>
           {/* Properties and team; the name and the texts stay (they are text archives). The placeholder is refused with its reason. */}
           <HeadActions items={[resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open), ...(entityId !== null ? [renameEntry(entityId, text.renameId)] : [])]} />
         </header>
@@ -157,6 +197,7 @@ export function TrainerView() {
             </div>
           </section>
         )}
+        {usable && <BattlePreview doc={doc} title={title} foe={foe} onFoe={setFoe} />}
         {doc && !doc.placeholder && <InWorld doc={doc} index={selected} />}
         {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
       </div>

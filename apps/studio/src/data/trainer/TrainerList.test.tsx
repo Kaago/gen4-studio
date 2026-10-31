@@ -19,6 +19,8 @@ vi.mock("../../api", async (importOriginal) => ({
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
   getItemIcon: vi.fn(),
+  getTrainerSprite: vi.fn(),
+  getBattleSprite: vi.fn(),
   dataGet: vi.fn(),
   dataEdit: vi.fn(),
   dataRaw: vi.fn(),

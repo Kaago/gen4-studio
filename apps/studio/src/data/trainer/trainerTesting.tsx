@@ -99,6 +99,8 @@ export function wireApi(doc: () => DataDocDto = () => trainerDoc()) {
   vi.mocked(api.itemTable).mockReset().mockResolvedValue(null);
   vi.mocked(api.getMonIcon).mockReset().mockResolvedValue(null);
   vi.mocked(api.getItemIcon).mockReset().mockResolvedValue(null);
+  vi.mocked(api.getTrainerSprite).mockReset().mockResolvedValue(null);
+  vi.mocked(api.getBattleSprite).mockReset().mockResolvedValue(null);
   vi.mocked(api.dataGet).mockReset().mockImplementation(async (kind) => (kind === "species" ? speciesDoc() : doc()));
   vi.mocked(api.dataEdit).mockReset().mockResolvedValue([{ kind: "Trainer", index: 12 }]);
   vi.mocked(api.dataRaw).mockReset().mockResolvedValue(RAW_TRAINER);
@@ -110,6 +112,8 @@ export function wireApi(doc: () => DataDocDto = () => trainerDoc()) {
 }
 
 /** Staralili's species document: only its learnset matters here (Tackle and Heuler at 1, Ruckzuckhieb at 5). */
+export const SPECIES_DOC = speciesDoc();
+
 function speciesDoc(): DataDocDto {
   const zero = Object.fromEntries(["hp", "attack", "defense", "speed", "sp_attack", "sp_defense"].map((k) => [k, 0]));
   const personal = { ...zero, type1: 0, type2: 2, catch_rate: 0, base_exp: 0, ev_yield_hp: 0, ev_yield_attack: 0, ev_yield_defense: 0, ev_yield_speed: 0, ev_yield_sp_attack: 0, ev_yield_sp_defense: 0, item1: 0, item2: 0, gender_ratio: 0, egg_cycles: 0, base_friendship: 0, growth_rate: 0, egg_group1: 0, egg_group2: 0, ability1: 0, ability2: 0, flee_rate: 0, color: 0, flip: false } as Extract<DataDocDto, { kind: "species" }>["personal"];

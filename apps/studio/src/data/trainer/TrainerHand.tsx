@@ -49,6 +49,7 @@ import {
   withStrength,
 } from "./trainerModel";
 import type { TrainerDoc } from "./trainerModel";
+import { ClassSprite } from "./ClassSprite";
 import { useTrainer } from "./useTrainer";
 import styles from "./Trainer.module.css";
 
@@ -558,6 +559,10 @@ export function TrainerHand() {
           {editError !== null && <Notice kind="error">{editError}</Notice>}
         </div>
       )}
+      <div className={styles.handHead}>
+        <ClassSprite cls={editing.locked ? null : editing.doc.class} name={title} size={48} />
+        <span className={styles.handTitle}>{title}</span>
+      </div>
       <Tabs items={items} value={shown} onChange={(id) => setTab(id as TrainerTab)} ariaLabel={`${title} bearbeiten`}>
         <div className={styles.tabBody}>
           {shown === "team" && <TeamTab e={editing} />}
