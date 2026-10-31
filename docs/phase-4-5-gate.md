@@ -96,14 +96,14 @@ Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreve
 - [ ] 3. MCP `data_edit` Trainer 1 (`party[0].level` +1), `save`.
 - [ ] 4. `publish_patch {"version":"0.1.0","notes":"Erste Fassung","readme":true}` **ohne** `--allow-irreversible`: läuft (keine Frage, nichts wird ersetzt); die Antwort nennt drei Dateien unter `build/` (Patch `<Projekt>-v0.1.0.xdelta`, Begleitdatei `….xdelta.txt`, `README.txt`), `release.version` `0.1.0`, `phase_ms` je Phase und `build`.
 - [ ] 5. Dieselbe Version noch einmal: `version_taken` („Diese Version gibt es schon.“), nichts wird gebaut.
-- [ ] 6. `{"version":"0.1.1"}` ohne `overwrite` auf vorhandenem `file` (`<Projekt>-v0.1.0.xdelta`): `exists`; mit `"overwrite": true` ohne `--allow-irreversible`: `needs_confirmation` („publish_patch lässt sich nicht rückgängig machen (Patch ersetzen: …)“); mit `--allow-irreversible`: ersetzt.
+- [ ] 6. `{"version":"0.1.1"}` ohne `overwrite` auf vorhandenem `file` (`<Projekt>-v0.1.0.xdelta`): `exists`; mit `"overwrite": true` ohne `--allow-irreversible`: `needs_confirmation` („publish_patch lässt sich nicht rückgängig machen (Patch ersetzen); kopflos nur mit --allow-irreversible“; der Pfad steht erst in der Frage der App); mit `--allow-irreversible`: ersetzt.
 - [ ] 7. **Begleitdatei:** `build/<Projekt>-v0.1.0.xdelta.txt` beginnt wie in 4.1a mit den fünf Zeilen `Gen4 Studio: Patch für …`, `Spiel:`, `Basis-ROM SHA-1:`, `Ziel-ROM SHA-1:`, `Studio-Version:`; dazu `Version: 0.1.0`, `Datum: <RFC 3339, UTC>` und am Ende der Absatz `Änderungen:` mit „Erste Fassung“; `README.txt` mit `<Projekt> v0.1.0 (<Tag>)`, den Notizen und `Basis-ROM SHA-1:`.
 - [ ] 8. **Gegenprobe:** `xdelta3 -d -s <nds> <patch> out.nds` (wenn im `PATH`): SHA-1 von `out.nds` = `Ziel-ROM SHA-1` der Begleitdatei = SHA-1 von `build/<Projekt>-<Spielcode>.nds`.
 - [ ] 9. `git -C <Kopie> status --porcelain` zeigt `.g4/releases.json` und den Trainer-Member (je nach Layout `unpacked/…`), nichts unter `build/`.
 - [ ] 10. `git_commit_all {"message":"Veröffentlicht v0.1.0","notes":"Erste Fassung"}` ohne `--allow-irreversible`: `needs_confirmation`; mit: `committed`, `files`, `phase_ms`; danach `git status --porcelain` leer, `git log -1 --format=%B` = Betreff und Body, `git remote -v` leer, `.git/config` ohne `[remote`.
 - [ ] 11. `g4k publish <Kopie> --version 0.2.0 --dir <Temp-Ordner>` (ein vorhandener Ordner): Patch und Begleitdatei liegen dort, `.g4/releases.json` trägt einen Eintrag mit absolutem `file`. Über MCP muss ein `dir` außer `build/` existieren, sonst wird abgelehnt; ein `dir`, das eine Datei ist oder unter einer liegt, ist `bad_dir` („Der Speicherort ist kein Ordner: <Pfad>“), und `.g4/releases.json` bleibt, wie sie war.
-- [ ] 12. `g4k git commit-all <Kopie>` → `committed <kurz> "Stand … UTC" files=…`; ein zweites Mal ohne Änderung → `not committed: Keine Änderung seit dem letzten Commit; nichts zu sichern.` (`NOTHING_TO_COMMIT`), Exit 1.
-- [ ] 13. Verweigerungen von „Stand sichern“ ohne Schreiben: ein Projekt ohne Repository (`no_repo`), in einem größeren Repository (`enclosing_repo`), ohne `git` (`no_git`, mit `G4_GIT=/nicht/da`): je der Satz, nichts wird geschrieben (`.gitignore`, `.gitattributes` unverändert).
+- [ ] 12. `g4k git commit-all <Kopie>` → `committed <kurz> "Stand … UTC" files=…`; ein zweites Mal ohne Änderung wird verweigert: der Satz „Keine Änderung seit dem letzten Commit; nichts zu sichern.“ (`NOTHING_TO_COMMIT`) steht auf stderr, Exit 1, ohne Vorsatz `not committed:`. Diese Zeile auf stdout („not committed: <Grund>“, Exit 1) gibt es nur für einen Commit, der lief und scheiterte (Hook, Signatur).
+- [ ] 13. Verweigerungen von „Stand sichern“ ohne Schreiben: ein Projekt ohne Repository (`no_repo`), in einem größeren Repository (`enclosing_repo`), ohne `git` (`no_git`, mit `G4_GIT=/nicht/da`): je der Satz des Kerns auf stderr mit Exit 1 (kein `not committed:` auf stdout), nichts wird geschrieben (`.gitignore`, `.gitattributes` unverändert).
 
 ```sh
 P=$K/4-5-k<k>_DSPRE_contents; N=$K/4-5-k<k>.nds; G=target/release/g4k
@@ -113,7 +113,7 @@ target/release/studio mcp --project $P --base-rom $N --allow-irreversible    # o
 xdelta3 -d -s $N $P/build/<Projekt>-v0.1.0.xdelta out.nds; shasum out.nds     # = Ziel-ROM SHA-1 der Begleitdatei
 git -C $P status --porcelain; git -C $P log -1 --format=%B; git -C $P remote -v
 $G publish $P --version 0.2.0 --dir <Temp-Ordner>
-$G git commit-all $P; $G git commit-all $P                                    # committed …; not committed: Keine Änderung …
+$G git commit-all $P; $G git commit-all $P                                    # committed … (stdout); dann Exit 1 und der Satz „Keine Änderung …“ auf stderr
 ```
 
 ## (3) Browser-Teil
@@ -172,7 +172,7 @@ Zahlentabelle (Release; Werte aus den gated Tests (1) und dem Szenario (2); „o
 | HeartGold DE | offen | offen | offen | 2, 43, 54 (Implementer-Lauf, unter Last) | 77 (Implementer-Lauf, unter Last) | offen | offen |
 | HeartGold US | offen | offen | offen | offen | offen | offen | offen |
 
-Der Build ist der Build von „Prüfen und Bauen“ (kalt oder warm je nach Zustand der Kopie): Er geht in die Spalte „Build (ms)“, Kodieren und Selbstprüfung stehen für sich. „xdelta3 gleich“ heißt: der Patch, mit `xdelta3 -d` auf die Basis-ROM angewandt, ergibt die SHA-1 der gebauten ROM (`offen`, wenn `xdelta3` nicht im `PATH` ist: dann nur der eigene Decoder).
+Der Build ist der Build von „Prüfen und Bauen“ (kalt oder warm je nach Zustand der Kopie): Er geht in die Spalte „Build (ms)“, Kodieren und Selbstprüfung stehen für sich. „xdelta3 gleich“ heißt: der Patch, mit `xdelta3 -d` auf die Basis-ROM angewandt, ergibt die SHA-1 der gebauten ROM. Der Wert steht in der zweiten `publish`-Zeile von `tests/base.rs` (`publish <Spielcode> write_ms=… record_ms=… ms=… second_ms=… xdelta3=…`); ist `xdelta3` nicht im `PATH`, steht dort das Fehlen und nur der eigene Decoder hat geprüft.
 
 ## Befunde
 
