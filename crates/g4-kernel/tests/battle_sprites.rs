@@ -499,6 +499,42 @@ fn without_the_other_archive_a_form_has_no_image_and_no_error() {
     assert_eq!(battle_sprite(&p, front).unwrap(), None);
 }
 
+/// A personal member 494 to 507 has the slots of its form table entry, as `battle_sprite`
+/// draws it from there: no form has female images, so a form with an image is male only.
+/// Without an image of its own (and without its base form) there are no slots.
+#[test]
+fn sprite_slots_of_a_personal_form_come_from_the_form_table() {
+    let (s, p) = synthetic();
+    let male_only = Some(SpriteSlots {
+        female: false,
+        male: true,
+    });
+    // Deoxys, Attack Forme (real front and back), the egg (front only) and Rotom, Heat
+    // (stubs of the measured layout: members, though no images).
+    for personal in [496, 494, 503] {
+        assert_eq!(sprite_slots(&p, personal).unwrap(), male_only, "{personal}");
+    }
+    // The form's members empty: the base form (Deoxys, 386) is not in the synthetic archive,
+    // so no slots, like no image; the egg has no base form at all.
+    let dir = unpacked(&p, AssetKind::OtherPokemonBattleSprites);
+    for member in ["0002", "0003", "0132"] {
+        std::fs::write(dir.join(member), []).unwrap();
+    }
+    assert_eq!(sprite_slots(&p, 496).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 494).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 503).unwrap(), male_only);
+    // Without the form archive: none either.
+    std::fs::remove_dir_all(&dir).unwrap();
+    let packed = p
+        .archives
+        .packed(AssetKind::OtherPokemonBattleSprites)
+        .unwrap();
+    std::fs::remove_file(s.dir.path().join(packed)).unwrap();
+    assert_eq!(sprite_slots(&p, 503).unwrap(), None);
+    // A plain species is unchanged.
+    assert_eq!(sprite_slots(&p, 2).unwrap(), male_only);
+}
+
 /// Every member of the form table is an image or a palette of the measured layout of its
 /// family; the members of one entry are pairwise distinct, its palettes differ.
 #[test]
@@ -800,7 +836,8 @@ fn vanilla_every_battle_sprite_decodes_with_the_measured_counts() {
 /// Every image of `otherPokemonBattleSprites` reads as a linear 160 x 80 image with few areas,
 /// every palette as one palette of 16 colours, and every member of the form table has the
 /// right magic. Each form of the table renders, differs from its base form, and a personal
-/// member (496 to 507, the egg) renders the same as its species and form.
+/// member (496 to 507, the egg) renders the same as its species and form and has male slots
+/// only.
 #[test]
 fn vanilla_every_form_sprite_decodes() {
     let Some(root) = common::vanilla_project() else {
@@ -873,6 +910,18 @@ fn vanilla_every_form_sprite_decodes() {
                 }
                 rendered += usize::from(png.is_some());
             }
+        }
+        // The personal member's slots: no form has female images.
+        if let Some(personal) = entry.personal.filter(|_| !entry.unverified) {
+            let slots = sprite_slots(&p, personal).unwrap();
+            assert_eq!(
+                slots,
+                Some(SpriteSlots {
+                    female: false,
+                    male: true
+                }),
+                "{personal}"
+            );
         }
     }
 

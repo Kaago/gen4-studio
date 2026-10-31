@@ -14,6 +14,7 @@ use crate::commands::*;
 use crate::errors::CmdError;
 use crate::state::AppState;
 use g4_kernel::checks::{FixId, Subject};
+use g4_kernel::data::battle_sprites::Side;
 use g4_kernel::map_import::{Part, Source};
 use g4_kernel::original::ResetTarget;
 use g4_kernel::preview::PreviewSlot;
@@ -190,6 +191,8 @@ pub const COMMANDS: &[&str] = &[
     "diff_entity",
     "unsaved_changes",
     "restore_text_project",
+    "get_battle_sprite",
+    "get_trainer_sprite",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -964,6 +967,14 @@ pub fn dispatch(
                 restore_text_project_impl(state, root, nds, &mut |_progress| {})
             }
         ),
+        "get_battle_sprite" => run!(
+            bytes, "get_battle_sprite", args,
+            { species: u16, form: Option<u8>, side: Side, female: Option<bool>, shiny: Option<bool>, frame: Option<u8> },
+            |a| get_battle_sprite_impl(state, a.species, a.form, a.side, a.female, a.shiny, a.frame)
+        ),
+        "get_trainer_sprite" => run!(bytes, "get_trainer_sprite", args, { class: u8 }, |a| {
+            get_trainer_sprite_impl(state, a.class)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1336,6 +1347,11 @@ mod tests {
             ),
             ("unsaved_changes", json!({})),
             ("restore_text_project", json!({ "root": dir, "nds": null })),
+            (
+                "get_battle_sprite",
+                json!({ "species": 1, "side": "front" }),
+            ),
+            ("get_trainer_sprite", json!({ "class": 1 })),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1600,6 +1616,34 @@ mod tests {
         ] {
             match call(&state, &policy, name, args) {
                 Reply::Bytes(bytes) => assert!(bytes.is_empty(), "{name}"),
+                Reply::Json(v) => panic!("{name}: {v}"),
+            }
+        }
+        // The synthetic battle sprites are there: a PNG, and empty for a species without one.
+        for (name, args, png) in [
+            (
+                "get_battle_sprite",
+                json!({ "species": 1, "side": "front" }),
+                true,
+            ),
+            (
+                "get_battle_sprite",
+                json!({ "species": 1, "form": 0, "side": "back", "female": true, "shiny": true, "frame": 1 }),
+                true,
+            ),
+            (
+                "get_battle_sprite",
+                json!({ "species": 600, "side": "front" }),
+                false,
+            ),
+            ("get_trainer_sprite", json!({ "class": 1 }), true),
+            ("get_trainer_sprite", json!({ "class": 7 }), false),
+        ] {
+            match call(&state, &policy, name, args.clone()) {
+                Reply::Bytes(bytes) => {
+                    assert_eq!(bytes.starts_with(b"\x89PNG"), png, "{name} {args}");
+                    assert_eq!(bytes.is_empty(), !png, "{name} {args}");
+                }
                 Reply::Json(v) => panic!("{name}: {v}"),
             }
         }

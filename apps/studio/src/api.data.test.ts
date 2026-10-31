@@ -11,8 +11,10 @@ import {
   dataList,
   dataRaw,
   fieldLabels,
+  getBattleSprite,
   getItemIcon,
   getMonIcon,
+  getTrainerSprite,
   itemTable,
   machineTable,
   nameTables,
@@ -113,6 +115,21 @@ describe("data commands", () => {
     // A transport that hands an empty body over as null is no icon either, not a TypeError.
     invoke.mockResolvedValueOnce(null);
     expect(await getItemIcon(18)).toBeNull();
+  });
+
+  it("reads battle and trainer sprites with the argument names of the backend", async () => {
+    invoke.mockResolvedValueOnce(new Uint8Array([0x89, 0x50]).buffer);
+    const sprite = await getBattleSprite({ species: 25, side: "back", female: true, shiny: true, frame: 1 });
+    expect(sprite?.byteLength).toBe(2);
+    expect(invoke).toHaveBeenLastCalledWith("get_battle_sprite", { species: 25, side: "back", female: true, shiny: true, frame: 1 });
+    expect(Object.keys(invoke.mock.lastCall?.[1] ?? {}).sort()).toEqual(["female", "form", "frame", "shiny", "side", "species"]);
+    invoke.mockResolvedValueOnce(new ArrayBuffer(0));
+    expect(await getBattleSprite({ species: 600, form: 0, side: "front" })).toBeNull();
+    invoke.mockResolvedValueOnce(new Uint8Array([0x89]).buffer);
+    expect((await getTrainerSprite(3))?.byteLength).toBe(1);
+    expect(invoke).toHaveBeenLastCalledWith("get_trainer_sprite", { class: 3 });
+    invoke.mockResolvedValueOnce(null);
+    expect(await getTrainerSprite(200)).toBeNull();
   });
 });
 

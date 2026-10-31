@@ -261,6 +261,12 @@ export interface TrainerTextInDto {
   text: string;
 }
 
+/** Whether a species has battle images of its own in the female slots and in the male (or only) slots. */
+export interface SpriteSlotsDto {
+  female: boolean;
+  male: boolean;
+}
+
 /**
  * The document of one member, by `kind`. A locked member (wrong length, e.g. a 36-byte item DSPRE wrote) has `locked`
  * and `raw_locked`; its decoded fields are then empty (species: zeros) and must not be shown as values.
@@ -279,6 +285,8 @@ export type DataDocDto =
       raw_locked: number[] | null;
       /** The part `locked` and `raw_locked` are about: Personal, Learnset or Evolution (the first locked one). */
       locked_asset: AssetId | null;
+      /** Which genders have battle images of their own (`getBattleSprite` falls back to the other one silently); null without readable sprites. */
+      sprite_slots: SpriteSlotsDto | null;
     }
   | {
       kind: "move";
@@ -675,3 +683,14 @@ const icon = (bytes: ArrayBuffer | null | undefined): ArrayBuffer | null => (byt
 export const getItemIcon = async (item: number) => icon(await invoke<ArrayBuffer | null>("get_item_icon", { item }));
 /** The menu icon of a personal member as PNG, or null when it has none. */
 export const getMonIcon = async (species: number) => icon(await invoke<ArrayBuffer | null>("get_mon_icon", { species }));
+
+/**
+ * One battle sprite: `form` is the game's form index (0 the base form; a personal member 494 to 507 as `species` names its form
+ * itself), `frame` 0 the left, 1 the right half of the image. Left out: form 0, male, not shiny, frame 0.
+ */
+export type BattleSpriteRequest = { species: number; form?: number; side: "front" | "back"; female?: boolean; shiny?: boolean; frame?: 0 | 1 };
+/** An 80 x 80 battle sprite as PNG, or null when the species has none (an empty female slot shows the male image). */
+export const getBattleSprite = async ({ species, form, side, female, shiny, frame }: BattleSpriteRequest) =>
+  icon(await invoke<ArrayBuffer | null>("get_battle_sprite", { species, form, side, female, shiny, frame }));
+/** The 80 x 80 battle image of trainer class `cls` as PNG, or null when it has none. */
+export const getTrainerSprite = async (cls: number) => icon(await invoke<ArrayBuffer | null>("get_trainer_sprite", { class: cls }));

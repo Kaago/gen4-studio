@@ -1557,3 +1557,202 @@ fn a_locked_species_part_names_its_asset() {
         other => panic!("{other:?}"),
     }
 }
+
+// --- battle sprites ---
+
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+/// Width and height of PNG `bytes` (its IHDR).
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    assert!(
+        bytes.starts_with(PNG_SIGNATURE),
+        "{:?}",
+        &bytes[..8.min(bytes.len())]
+    );
+    let be = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+    (be(16), be(20))
+}
+
+fn front(state: &AppState, species: u16) -> Vec<u8> {
+    get_battle_sprite_impl(state, species, None, Side::Front, None, None, None).unwrap()
+}
+
+#[test]
+fn get_battle_sprite_returns_png_and_empty_for_a_missing_slot() {
+    let (_fixture, state) = open_synthetic();
+    assert_eq!(png_size(&front(&state, 1)), (80, 80));
+    // The right half, shiny, from the back: an image of its own.
+    let back = get_battle_sprite_impl(
+        &state,
+        1,
+        Some(0),
+        Side::Back,
+        Some(true),
+        Some(true),
+        Some(1),
+    )
+    .unwrap();
+    assert_eq!(png_size(&back), (80, 80));
+    assert_ne!(back, front(&state, 1));
+    // Species 600 has no members: an empty body, no error.
+    assert!(front(&state, 600).is_empty());
+    // A personal form member (496, Deoxys Attack Forme) is drawn from the form archive.
+    assert_eq!(png_size(&front(&state, 496)), (80, 80));
+    assert!(
+        get_battle_sprite_impl(&AppState::default(), 1, None, Side::Front, None, None, None)
+            .is_err()
+    );
+}
+
+/// Review focus: a hack's member of another size is drawn in its size, one that is no image
+/// answers empty (the view shows its placeholder), never an error or a panic.
+#[test]
+fn an_unreadable_member_answers_empty_not_an_error() {
+    let (_fixture, state) = open_synthetic();
+    // Species 2 has no female images: the female request answers the male slot's bytes.
+    let male = front(&state, 2);
+    let female =
+        get_battle_sprite_impl(&state, 2, None, Side::Front, Some(true), None, None).unwrap();
+    assert!(!male.is_empty());
+    assert_eq!(female, male);
+    let e = get_battle_sprite_impl(&state, 1, None, Side::Front, None, None, Some(2)).unwrap_err();
+    assert_eq!(e.message, "frame must be 0 or 1");
+
+    let project = crate::commands::open_project_arc(&state).unwrap();
+    project
+        .ensure_unpacked(AssetKind::PokemonBattleSprites)
+        .unwrap();
+    let dir = project.unpacked_dir(AssetKind::PokemonBattleSprites);
+    // Species 1, back, male (member 7): 32 x 32 in tiled mode.
+    std::fs::write(
+        dir.join("0007"),
+        g4_formats::test_support::ncgr_bytes(4, 4, 3, &[0x11; 16 * 32]),
+    )
+    .unwrap();
+    let back = get_battle_sprite_impl(&state, 1, None, Side::Back, None, None, None).unwrap();
+    assert_eq!(png_size(&back), (32, 32));
+    // Species 1, front, male (member 9): seven bytes are no NCGR.
+    std::fs::write(dir.join("0009"), [1u8, 2, 3, 4, 5, 6, 7]).unwrap();
+    assert!(front(&state, 1).is_empty());
+}
+
+#[test]
+fn species_doc_carries_sprite_slots() {
+    let (_fixture, state) = open_synthetic();
+    let slots = |index: u16| match data_get_impl(&state, DataKind::Species, index).unwrap() {
+        DataDocDto::Species { sprite_slots, .. } => sprite_slots,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        slots(2),
+        Some(SpriteSlotsDto {
+            female: false,
+            male: true
+        })
+    );
+    assert_eq!(
+        slots(1),
+        Some(SpriteSlotsDto {
+            female: true,
+            male: true
+        })
+    );
+    // A form member: the forms have no female images.
+    assert_eq!(
+        slots(496),
+        Some(SpriteSlotsDto {
+            female: false,
+            male: true
+        })
+    );
+    // Species 3 lies beyond the synthetic archive (species 0 to 2).
+    assert_eq!(slots(3), None);
+    let doc = serde_json::to_value(data_get_impl(&state, DataKind::Species, 2).unwrap()).unwrap();
+    assert_eq!(
+        doc["sprite_slots"],
+        json!({ "female": false, "male": true })
+    );
+}
+
+#[test]
+fn get_trainer_sprite_returns_png() {
+    let (_fixture, state) = open_synthetic();
+    assert_eq!(
+        png_size(&get_trainer_sprite_impl(&state, 1).unwrap()),
+        (80, 80)
+    );
+    assert_ne!(
+        get_trainer_sprite_impl(&state, 0).unwrap(),
+        get_trainer_sprite_impl(&state, 1).unwrap()
+    );
+    // The synthetic archive has two classes.
+    assert!(get_trainer_sprite_impl(&state, 7).unwrap().is_empty());
+    assert!(get_trainer_sprite_impl(&AppState::default(), 1).is_err());
+}
+
+/// Gated (`G4_TEST_PROJECT`): Pikachu from the front, from the back shiny, and trainer class 1
+/// over the command path, each an 80 x 80 PNG. Prints `sprite <game_code> first_ms=<n>
+/// cached_ms=<n> trainer_ms=<n>`; with `G4_TIMING_STRICT=1` every first request takes at most
+/// 50 ms. Prints `member_counts <game_code> ms=<n> pokegra_parse_ms=<n>` too (the second is
+/// what a packed project's `member_counts` spends on the battle sprite archive).
+#[test]
+fn battle_sprites_over_the_command_path_on_the_vanilla_copy() {
+    let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
+        return;
+    };
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, root.to_str().unwrap()).unwrap();
+    let project = crate::commands::open_project_arc(&state).unwrap();
+    let ms = |since: std::time::Instant| since.elapsed().as_millis();
+
+    let start = std::time::Instant::now();
+    let pikachu = front(&state, 25);
+    let first_ms = ms(start);
+    let start = std::time::Instant::now();
+    assert_eq!(front(&state, 25), pikachu);
+    let cached_ms = ms(start);
+    let start = std::time::Instant::now();
+    let back =
+        get_battle_sprite_impl(&state, 25, None, Side::Back, None, Some(true), None).unwrap();
+    let back_ms = ms(start);
+    let start = std::time::Instant::now();
+    let trainer = get_trainer_sprite_impl(&state, 1).unwrap();
+    let trainer_ms = ms(start);
+    for png in [&pikachu, &back, &trainer] {
+        assert_eq!(png_size(png), (80, 80));
+    }
+    assert_ne!(pikachu, back);
+    eprintln!(
+        "sprite {} first_ms={first_ms} cached_ms={cached_ms} trainer_ms={trainer_ms}",
+        project.game_code
+    );
+
+    let start = std::time::Instant::now();
+    let counts = crate::commands::member_counts_impl(&state).unwrap();
+    let counts_ms = ms(start);
+    let narc = project
+        .archives
+        .packed(AssetKind::PokemonBattleSprites)
+        .map(|rel| root.join(rel))
+        .unwrap();
+    let start = std::time::Instant::now();
+    let members = g4_formats::narc::Narc::read(&std::fs::read(&narc).unwrap())
+        .unwrap()
+        .members
+        .len();
+    let parse_ms = ms(start);
+    assert_eq!(counts[&AssetKind::PokemonBattleSprites], members);
+    eprintln!(
+        "member_counts {} ms={counts_ms} pokegra_parse_ms={parse_ms}",
+        project.game_code
+    );
+    if std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1") {
+        for (what, ms) in [
+            ("first", first_ms),
+            ("back", back_ms),
+            ("trainer", trainer_ms),
+        ] {
+            assert!(ms <= 50, "{what} took {ms} ms");
+        }
+    }
+}

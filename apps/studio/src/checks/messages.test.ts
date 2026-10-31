@@ -115,6 +115,9 @@ describe("check messages", () => {
     expect(findingText(finding("asset.unreadable", "error", { subject: { kind: "project", index: 0 }, key: "unreadable:personal_data", args: ["personal data", "", "no archive"] }), "tuefteln")).toBe(
       "Das Archiv Pokémon-Daten ist nicht lesbar (no archive). Stelle die Datei wieder her; bis dahin prüft das Studio ohne sie.",
     );
+    expect(findingText(finding("asset.unreadable", "error", { key: "unreadable:battle_sprites", args: ["trainer graphics", "12", "bad magic"] }), "tuefteln")).toBe(
+      "Trainerbild 0012 ist nicht lesbar (bad magic). Stelle die Datei wieder her; bis dahin prüft das Studio ohne sie.",
+    );
     expect(findingText(finding("asset.unreadable", "error", { key: "locked:map", args: ["map", "7", "19 bytes"] }), "tuefteln")).toBe(
       "Karte 0007 ist gesperrt (19 bytes): das Studio würde sie nicht Byte für Byte zurückschreiben. Stelle die Datei wieder her, dann lässt sie sich ändern.",
     );

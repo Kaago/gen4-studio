@@ -127,6 +127,7 @@ function speciesDoc(): DataDocDto {
     locked: null,
     raw_locked: null,
     locked_asset: null,
+    sprite_slots: null,
   };
 }
 

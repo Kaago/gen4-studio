@@ -217,12 +217,31 @@ pub struct SpriteSlots {
     pub male: bool,
 }
 
-/// Whether `species` has images of its own per gender. `None` when the family is unverified,
-/// the project has no `pokemonBattleSprites` archive, or the archive has no member of the
-/// species.
+/// Whether `species` (a personal member) has images of its own per gender. A member of 494
+/// and above is resolved like [`battle_sprite`] resolves it: a verified form table entry
+/// gives the slots of its images in `otherPokemonBattleSprites` (no form has female images,
+/// so a form with an image is male only); a form without an image there shows its base form,
+/// whose slots are given. `None` when the family is unverified, the project has no archive to
+/// draw from, or the archive has no member of the species.
 pub fn sprite_slots(project: &Project, species: u16) -> Result<Option<SpriteSlots>, KernelError> {
+    if directions(project.family).is_none() {
+        return Ok(None);
+    }
+    let (species, form) = form_of_personal(species).unwrap_or((species, 0));
+    if let Some(entry) = form_sprite(project.family, species, form) {
+        let slots = form_slots(project, entry)?;
+        // The egg has no base form: its images are only in the form archive.
+        if slots.is_some() || species >= FIRST_FORM_PERSONAL {
+            return Ok(slots);
+        }
+    }
+    base_slots(project, species)
+}
+
+/// The slots of `species` in `pokemonBattleSprites` (members `6·species` to `6·species + 3`).
+fn base_slots(project: &Project, species: u16) -> Result<Option<SpriteSlots>, KernelError> {
     let kind = AssetKind::PokemonBattleSprites;
-    if directions(project.family).is_none() || !has_archive_data(project, kind) {
+    if !has_archive_data(project, kind) {
         return Ok(None);
     }
     let Some(first) = first_member(species) else {
@@ -237,6 +256,28 @@ pub fn sprite_slots(project: &Project, species: u16) -> Result<Option<SpriteSlot
         female: filled(0) || filled(2),
         male: filled(1) || filled(3),
     }))
+}
+
+/// The slots of form `entry` in `otherPokemonBattleSprites`: male (or only) from `back` and
+/// `front`, female from `female_back` and `female_front`. `None` when the archive is missing
+/// or none of the entry's images is a non-empty member.
+fn form_slots(project: &Project, entry: &FormSprite) -> Result<Option<SpriteSlots>, KernelError> {
+    let kind = AssetKind::OtherPokemonBattleSprites;
+    if !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let named = [
+        entry.back,
+        entry.front,
+        entry.female_back,
+        entry.female_front,
+    ];
+    // An image the entry does not name is asked as the last member index and never counted.
+    let read = members(project, kind, named.map(|m| m.unwrap_or(u16::MAX)))?;
+    let filled = |i: usize| named[i].is_some() && read[i].as_ref().is_some_and(|b| !b.is_empty());
+    let male = filled(0) || filled(1);
+    let female = filled(2) || filled(3);
+    Ok((male || female).then_some(SpriteSlots { female, male }))
 }
 
 /// The requested half of a Pokémon's battle sprite as an 80 x 80 PNG (palette index 0

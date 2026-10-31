@@ -56,7 +56,7 @@ export const EVOLUTION: EvoEntryDto[] = [{ method: 4, param: 34, target: 398 }, 
 export const TM = Array.from({ length: 100 }, (_, n) => n === 39 || n === 93);
 
 export function staraviaDoc(over: Partial<Extract<DataDocDto, { kind: "species" }>> = {}): DataDocDto {
-  return { kind: "species", personal: STARAVIA, saved: STARAVIA, learnset: LEARNSET, evolution: EVOLUTION, tm: TM, locked: null, raw_locked: null, locked_asset: null, ...over };
+  return { kind: "species", personal: STARAVIA, saved: STARAVIA, learnset: LEARNSET, evolution: EVOLUTION, tm: TM, locked: null, raw_locked: null, locked_asset: null, sprite_slots: null, ...over };
 }
 
 const named = (length: number, at: Record<number, string>, word: string) => Array.from({ length }, (_, i) => at[i] ?? `${word} ${i}`);

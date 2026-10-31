@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getItemIcon, getMonIcon } from "../api";
-import { itemIcon, itemIconKey, monIcon, peekIcon, resetIcons } from "./icons";
+import { getBattleSprite, getItemIcon, getMonIcon, getTrainerSprite } from "../api";
+import { battleSprite, battleSpriteKey, itemIcon, itemIconKey, monIcon, peekIcon, resetIcons, trainerSprite, trainerSpriteKey } from "./icons";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   getItemIcon: vi.fn(),
   getMonIcon: vi.fn(),
+  getBattleSprite: vi.fn(),
+  getTrainerSprite: vi.fn(),
 }));
 
 const png = () => new Uint8Array([137, 80, 78, 71]).buffer;
@@ -19,6 +21,8 @@ describe("icons", () => {
     URL.revokeObjectURL = vi.fn();
     vi.mocked(getItemIcon).mockReset().mockImplementation(async () => png());
     vi.mocked(getMonIcon).mockReset().mockImplementation(async () => png());
+    vi.mocked(getBattleSprite).mockReset().mockImplementation(async () => png());
+    vi.mocked(getTrainerSprite).mockReset().mockImplementation(async () => png());
   });
 
   it("asks_once_per_icon_and_palette_and_shares_the_url", async () => {
@@ -58,5 +62,35 @@ describe("icons", () => {
     answer(png());
     expect(await late).toBeNull();
     expect(peekIcon("mon:398")).toBeUndefined();
+  });
+
+  it("keys_battle_sprites_by_every_part_of_the_request_with_the_defaults_filled_in", () => {
+    expect(battleSpriteKey({ species: 25, side: "front" })).toBe("battle:25:0:front:0:0:0");
+    expect(battleSpriteKey({ species: 25, form: 0, side: "front", female: false, shiny: false, frame: 0 })).toBe("battle:25:0:front:0:0:0");
+    expect(battleSpriteKey({ species: 479, form: 2, side: "back", female: true, shiny: true, frame: 1 })).toBe("battle:479:2:back:1:1:1");
+    expect(trainerSpriteKey(7)).toBe("trainer:7");
+  });
+
+  it("loads_each_battle_and_trainer_sprite_once_per_key", async () => {
+    const [a, b] = await Promise.all([battleSprite({ species: 25, side: "front" }), battleSprite({ species: 25, form: 0, side: "front" })]);
+    expect(a).toBe("blob:1");
+    expect(b).toBe("blob:1");
+    expect(getBattleSprite).toHaveBeenCalledOnce();
+    expect(getBattleSprite).toHaveBeenCalledWith({ species: 25, side: "front" });
+    // Another side is another image.
+    expect(await battleSprite({ species: 25, side: "back", shiny: true })).toBe("blob:2");
+    expect(getBattleSprite).toHaveBeenCalledTimes(2);
+    expect(peekIcon("battle:25:0:back:0:1:0")).toBe("blob:2");
+
+    vi.mocked(getTrainerSprite).mockResolvedValueOnce(null);
+    expect(await trainerSprite(3)).toBeNull();
+    expect(await trainerSprite(3)).toBeNull();
+    expect(getTrainerSprite).toHaveBeenCalledOnce();
+    expect(getTrainerSprite).toHaveBeenCalledWith(3);
+    expect(peekIcon("trainer:3")).toBeNull();
+    // Another project asks again.
+    resetIcons();
+    expect(await trainerSprite(3)).toBe("blob:3");
+    expect(getTrainerSprite).toHaveBeenCalledTimes(2);
   });
 });
