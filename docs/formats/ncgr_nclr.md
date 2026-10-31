@@ -3,7 +3,7 @@
 Quelle: öffentliche Formatbeschreibungen (gbatek, NDS File Formats) und der Augenschein an den Archiven von
 Platin DE, HeartGold DE und HeartGold US (Dateikopf und Blöcke wie unten, 1:1 geprüft).
 Implementierung: `crates/g4-formats/src/ncgr.rs` und `nclr.rs` (nur Lesen, nichts schreibt sie zurück),
-Symbole als PNG in `crates/g4-kernel/src/data/icons.rs`. Alle Werte Little Endian.
+Symbole als PNG in `crates/g4-kernel/src/data/icons.rs`, Kampfsprites als PNG in `crates/g4-kernel/src/data/battle_sprites.rs` (Metadaten `crates/g4-kernel/metadata/battle_sprites.yaml`). Alle Werte Little Endian.
 
 ## NCLR (`RLCN`)
 
@@ -110,7 +110,7 @@ Alle Archive sind in Platin DE, HeartGold DE und HeartGold US gleich gebaut (gem
 **Plätze je Art.** Member `6 · s + Platz`: Platz 0 Rückseite weiblich, 1 Rückseite männlich oder einzig, 2 Vorderseite
 weiblich, 3 Vorderseite männlich oder einzig; Palette `6 · s + 4` normal, `6 · s + 5` schillernd (je ein NCLR mit
 16 Farben). Ein leeres Member (0 Byte) heißt, dass es kein eigenes Bild gibt (66 Arten ohne Platz 0 und 2, 16 ohne
-Platz 1 und 3). Die Formen im zweiten Archiv folgen einer eigenen Ordnung (Abschnitt „Formen“).
+Platz 1 und 3); das Studio zeigt dann das Bild des anderen Geschlechts derselben Seite. Die Formen im zweiten Archiv folgen einer eigenen Ordnung (Abschnitt „Formen“).
 
 **Bild.** Jedes Bild-NCGR hat 20 × 10 Kacheln, 4 bpp, Kachelmodus 1: 160 × 80 Pixel, zwei Bilder zu 80 × 80
 nebeneinander, links das Standbild, rechts das Animationsbild. Alle Symbole dagegen haben Modus 0.
@@ -160,7 +160,8 @@ Formindex außerhalb des Bereichs als 0 zeigt), für eine Art ohne Formen `pokem
 Eintrags im Archiv, zeigt das Studio Form 0 aus der Tabelle, dann die Art aus `pokemonBattleSprites`; das Ei hat
 keins von beiden. Die Plätze je Geschlecht (`sprite_slots`) folgen derselben Auflösung: eine Form hat nur ein Bild,
 bei einer rein weiblichen Art (Geschlechterverteilung 254, Burmadame) gilt es als weibliches, sonst als männliches
-oder einziges.
+oder einziges. Die Regel mit der 254 gilt für jede Art, nicht nur für Formen; in Vanilla ändert sie nichts, weil
+`pokemonBattleSprites` rein weibliche Arten schon in den weiblichen Plätzen hält.
 
 **Trainer.** Je Klasse `k` fünf Member: Member `5 · k + 4` ist das lineare NCGR (160 × 80, die linke Hälfte ist das
 Bild), die Palette steht in Member `5 · k + 1` (NCLR mit 16 Paletten, genutzt wird die erste); die Member `5 · k` (NCGR
