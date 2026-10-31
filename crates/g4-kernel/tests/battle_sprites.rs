@@ -6,6 +6,7 @@
 //! pixel of a game image is checked or kept.
 mod common;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -511,6 +512,10 @@ fn every_form_entry_names_existing_members_on_the_fixture_layout() {
         assert_eq!(other.len(), common::other_sprite_magics(p.family).len());
         let table = forms(p.family);
         assert!(table.len() > 60, "{:?}: {}", p.family, table.len());
+        // Across the family: an image belongs to one form only, a palette to one species only
+        // (Deoxys and Unown share a palette pair over their forms).
+        let mut image_owner: HashMap<u16, (u16, u8)> = HashMap::new();
+        let mut palette_owner: HashMap<u16, u16> = HashMap::new();
         for entry in table {
             let images: Vec<u16> = [
                 entry.back,
@@ -537,6 +542,12 @@ fn every_form_entry_names_existing_members_on_the_fixture_layout() {
                     member.is_some_and(|b| b.starts_with(b"RGCN")),
                     "{entry:?}: {m}"
                 );
+                let owner = *image_owner.entry(m).or_insert((entry.species, entry.form));
+                assert_eq!(
+                    owner,
+                    (entry.species, entry.form),
+                    "image {m} shared: {entry:?}"
+                );
             }
             for m in palettes {
                 let member = other.get(usize::from(m));
@@ -544,6 +555,8 @@ fn every_form_entry_names_existing_members_on_the_fixture_layout() {
                     member.is_some_and(|b| b.starts_with(b"RLCN")),
                     "{entry:?}: {m}"
                 );
+                let owner = *palette_owner.entry(m).or_insert(entry.species);
+                assert_eq!(owner, entry.species, "palette {m} shared: {entry:?}");
             }
         }
     }
