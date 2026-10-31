@@ -77,13 +77,23 @@ pub enum AssetKind {
     /// store's `TrainerDoc`, see [`Location::MemberPair`]). Store-only like the header table:
     /// it has no archive of its own; its member count is the smaller of the two archives'.
     Trainer,
+    /// The Pokémon battle sprites (`pokemonBattleSprites`): six members per species, four
+    /// encrypted linear NCGR (back and front, female and male) and two NCLR (normal and
+    /// shiny). Read only like the icons (see `data::battle_sprites`).
+    PokemonBattleSprites,
+    /// The battle sprites of the forms and the egg (`otherPokemonBattleSprites`), NCGR and
+    /// NCLR in an order of their own. Read only.
+    OtherPokemonBattleSprites,
+    /// The trainer class graphics (`trainerGraphics`): five members per class, the battle
+    /// image (an encrypted linear NCGR) at `5·k + 4`, its palettes at `5·k + 1`. Read only.
+    TrainerGraphics,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
     /// the store-only kinds and the scripts, then the data kinds, and last the trainer, the
     /// store-only pair of two data kinds.
-    pub const ALL: [AssetKind; 25] = [
+    pub const ALL: [AssetKind; 28] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -109,6 +119,9 @@ impl AssetKind {
         AssetKind::ItemIcons,
         AssetKind::MonIcons,
         AssetKind::Trainer,
+        AssetKind::PokemonBattleSprites,
+        AssetKind::OtherPokemonBattleSprites,
+        AssetKind::TrainerGraphics,
     ];
 
     /// Human-readable name used in error messages.
@@ -139,6 +152,9 @@ impl AssetKind {
             AssetKind::ItemIcons => "item icons",
             AssetKind::MonIcons => "menu icons",
             AssetKind::Trainer => "trainer",
+            AssetKind::PokemonBattleSprites => "battle sprites",
+            AssetKind::OtherPokemonBattleSprites => "form battle sprites",
+            AssetKind::TrainerGraphics => "trainer graphics",
         }
     }
 
@@ -170,6 +186,9 @@ impl AssetKind {
             AssetKind::ItemIcons => 22,
             AssetKind::MonIcons => 23,
             AssetKind::Trainer => 24,
+            AssetKind::PokemonBattleSprites => 25,
+            AssetKind::OtherPokemonBattleSprites => 26,
+            AssetKind::TrainerGraphics => 27,
         }
     }
 }
@@ -230,6 +249,9 @@ struct FamilyArchives {
     trainer_text_offsets: ArchiveEntry,
     item_icons: ArchiveEntry,
     mon_icons: ArchiveEntry,
+    pokemon_battle_sprites: ArchiveEntry,
+    other_pokemon_battle_sprites: ArchiveEntry,
+    trainer_graphics: ArchiveEntry,
     /// Folders DSPRE unpacks that no asset kind covers, packed by the build only (see
     /// [`ArchiveMap::pack_only`]). DP has none.
     #[serde(default)]
@@ -386,6 +408,9 @@ impl ArchiveMap {
                 Some(resolve(archives.mon_icons)),
                 // The trainer is a pair of the two trainer archives, no archive of its own.
                 None,
+                Some(resolve(archives.pokemon_battle_sprites)),
+                Some(resolve(archives.other_pokemon_battle_sprites)),
+                Some(resolve(archives.trainer_graphics)),
             ],
             pack_only: archives.pack_only.into_iter().map(resolve).collect(),
         })
@@ -1229,12 +1254,12 @@ mod tests {
             let map = ArchiveMap::for_game(family, language, code).unwrap();
             // Only HGSS has interior building models and only Platinum and HGSS the
             // Dynamic Headers NARC; every other archive kind exists everywhere, the ten data
-            // kinds and the two icon kinds included. The header table is store-only and never
-            // has an archive.
+            // kinds, the two icon kinds and the three battle sprite kinds included. The header
+            // table is store-only and never has an archive.
             let expected = match family {
-                Family::Dp => 9 + 12,
-                Family::Pt => 10 + 12,
-                Family::Hgss => 11 + 12,
+                Family::Dp => 9 + 15,
+                Family::Pt => 10 + 15,
+                Family::Hgss => 11 + 15,
             };
             assert_eq!(map.kinds().count(), expected, "{code}");
             for kind in AssetKind::ALL {

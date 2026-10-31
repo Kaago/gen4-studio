@@ -98,8 +98,38 @@
 .head {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-12);
+}
+
+/* Name, number, id and the double-battle badge on one line beside the class picture. */
+.headText {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--g4-raum-8);
+}
+
+.previewControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8) var(--g4-raum-16);
+}
+
+/* The head of the hand: the class picture beside the trainer's title. */
+.handHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-8) var(--g4-raum-12) 0;
+}
+
+.handTitle {
+  min-width: 0;
+  font: var(--g4-font-text-m-betont);
 }
 
 .name {

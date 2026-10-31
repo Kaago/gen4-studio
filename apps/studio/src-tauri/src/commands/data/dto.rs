@@ -6,6 +6,7 @@ use g4_formats::data::evolution::EvoEntry;
 use g4_formats::data::learnset::LearnEntry;
 use g4_formats::data::personal::Personal;
 use g4_kernel::checks::{MapCell, Subject};
+use g4_kernel::data::battle_sprites::SpriteSlots;
 use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
 
@@ -307,6 +308,23 @@ pub struct TrainerTextDto {
     pub text: String,
 }
 
+/// Whether a species has battle images of its own in the female slots and in the male (or
+/// only) slots (`battle_sprites::sprite_slots`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SpriteSlotsDto {
+    pub female: bool,
+    pub male: bool,
+}
+
+impl From<SpriteSlots> for SpriteSlotsDto {
+    fn from(slots: SpriteSlots) -> Self {
+        SpriteSlotsDto {
+            female: slots.female,
+            male: slots.male,
+        }
+    }
+}
+
 /// The document of one data member, tagged by `kind`. `locked` is the reason a member cannot
 /// be edited and `raw_locked` its bytes as read; the decoded fields of a locked part are then
 /// empty (Species: zeros) and must not be shown as values.
@@ -327,6 +345,9 @@ pub enum DataDocDto {
         /// The part `locked` and `raw_locked` are about (personal data, learnset or
         /// evolutions; the first locked one).
         locked_asset: Option<AssetId>,
+        /// Which genders have battle images of their own (`get_battle_sprite` falls back to
+        /// the other gender's silently); `None` when the game has no readable sprites.
+        sprite_slots: Option<SpriteSlotsDto>,
     },
     /// A move. `name_archive` is the text archive of the move names (message = move index);
     /// `None` where the game's banks do not name it.

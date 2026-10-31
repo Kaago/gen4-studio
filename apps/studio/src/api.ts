@@ -420,7 +420,11 @@ export type AssetKind =
   | "ItemIcons"
   | "MonIcons"
   /** A trainer: its properties and party members as one asset (the store edits them together). */
-  | "Trainer";
+  | "Trainer"
+  /** Read only: the battle sprites of the Pokémon, the forms and the egg, and the trainer classes. */
+  | "PokemonBattleSprites"
+  | "OtherPokemonBattleSprites"
+  | "TrainerGraphics";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;

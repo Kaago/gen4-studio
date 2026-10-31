@@ -1,6 +1,8 @@
 //! Fixtures for tests in this crate and downstream crates (feature `test-support`).
 #![allow(clippy::unwrap_used)]
 
+use crate::ncgr::{Direction, KEY_ADD, KEY_MUL};
+
 /// One test texture: width, height, format, color0 flag, texel bytes.
 pub type Tex<'a> = (u32, u32, u8, bool, &'a [u8]);
 
@@ -152,6 +154,17 @@ pub fn nclr_bytes(depth: u32, colours: &[u16]) -> Vec<u8> {
 /// A synthetic NCGR with `tiles_x` by `tiles_y` tiles in the header (`0xFFFF` when unknown) and
 /// the raw tile bytes `data`.
 pub fn ncgr_bytes(tiles_x: u16, tiles_y: u16, depth: u32, data: &[u8]) -> Vec<u8> {
+    ncgr_bytes_with_mode(tiles_x, tiles_y, depth, 0, data)
+}
+
+/// `ncgr_bytes` with the tile mode word at 0x24 (`ncgr_bytes` writes 0).
+pub fn ncgr_bytes_with_mode(
+    tiles_x: u16,
+    tiles_y: u16,
+    depth: u32,
+    mode: u32,
+    data: &[u8],
+) -> Vec<u8> {
     let mut b = Vec::new();
     b.extend_from_slice(b"RGCN");
     b.extend_from_slice(&0xFEFFu16.to_le_bytes());
@@ -165,7 +178,7 @@ pub fn ncgr_bytes(tiles_x: u16, tiles_y: u16, depth: u32, data: &[u8]) -> Vec<u8
     b.extend_from_slice(&tiles_x.to_le_bytes());
     b.extend_from_slice(&depth.to_le_bytes());
     b.extend_from_slice(&0x10u32.to_le_bytes()); // mapping
-    b.extend_from_slice(&0u32.to_le_bytes()); // 0: tiled
+    b.extend_from_slice(&mode.to_le_bytes()); // 0: tiled, 1: linear
     b.extend_from_slice(&(data.len() as u32).to_le_bytes());
     b.extend_from_slice(&0x18u32.to_le_bytes());
     b.extend_from_slice(data);
@@ -250,4 +263,26 @@ pub fn bmd0(blocks: &[Vec<u8>]) -> Vec<u8> {
         out.extend_from_slice(b);
     }
     out
+}
+
+/// The inverse of `decrypt` for fixtures: the start word of `direction` must be 0 (it becomes
+/// `seed`). Panics otherwise.
+pub fn encrypt(words: &mut [u16], direction: Direction, seed: u16) {
+    let start = match direction {
+        Direction::Forward => words.first(),
+        Direction::Backward => words.last(),
+    };
+    let Some(&start) = start else {
+        return;
+    };
+    assert_eq!(start, 0, "the plain start word must be 0");
+    let mut key = u32::from(seed);
+    let mut step = |word: &mut u16| {
+        *word ^= (key & 0xFFFF) as u16;
+        key = key.wrapping_mul(KEY_MUL).wrapping_add(KEY_ADD);
+    };
+    match direction {
+        Direction::Forward => words.iter_mut().for_each(&mut step),
+        Direction::Backward => words.iter_mut().rev().for_each(&mut step),
+    }
 }

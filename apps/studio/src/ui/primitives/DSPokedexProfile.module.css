@@ -1,0 +1,97 @@
+/*
+ * All measures in DS pixels times `--ds-scale` (set by DSScreen): picture at x 8, y 16; the text block from x 100, y 12 in lines of 16
+ * on a panel in the status box colours; the Pokédex text in a box like DSScreen's (x 4, height 54, 4 from the bottom).
+ */
+.profile {
+  position: absolute;
+  inset: 0;
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(12px * var(--ds-scale));
+  line-height: calc(16px * var(--ds-scale));
+  font-weight: 400;
+}
+
+.pedestal {
+  position: absolute;
+  left: calc(8px * var(--ds-scale));
+  top: calc(84px * var(--ds-scale));
+  width: calc(80px * var(--ds-scale));
+  height: calc(24px * var(--ds-scale));
+  border-radius: 50%;
+  background: var(--g4-szene-ds-status-rahmen);
+}
+
+/* The sprite keeps its 80 × 80 and is magnified as a whole, so the picture stays pixel sharp and the placeholder grows with it. */
+.picture {
+  position: absolute;
+  left: calc(8px * var(--ds-scale));
+  top: calc(16px * var(--ds-scale));
+  width: 80px;
+  height: 80px;
+  transform: scale(var(--ds-scale));
+  transform-origin: 0 0;
+}
+
+/* Edge 1 plus padding 3 puts the first line at x 100, y 12; six lines of 16 end at y 108. */
+.panel {
+  position: absolute;
+  left: calc(96px * var(--ds-scale));
+  top: calc(8px * var(--ds-scale));
+  width: calc(156px * var(--ds-scale));
+  height: calc(104px * var(--ds-scale));
+  box-sizing: border-box;
+  padding: calc(3px * var(--ds-scale));
+  border: calc(1px * var(--ds-scale)) solid var(--g4-szene-ds-status-rahmen);
+  border-radius: calc(4px * var(--ds-scale));
+  background: var(--g4-szene-ds-status-flaeche);
+  color: var(--g4-szene-ds-status-text);
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(4px * var(--ds-scale));
+  height: calc(16px * var(--ds-scale));
+  white-space: pre;
+  overflow: hidden;
+}
+
+/* A long name ends with an ellipsis instead of being cut off hard (the full name is in `title`); a block, as `text-overflow` does not act on a flex container. */
+.name {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.typeLine {
+  height: calc(16px * var(--ds-scale));
+  overflow: hidden;
+}
+
+/* The type badges are UI primitives of 16 px height; magnified like the picture. */
+.types {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  transform: scale(var(--ds-scale));
+  transform-origin: 0 0;
+}
+
+.textbox {
+  position: absolute;
+  left: calc(4px * var(--ds-scale));
+  bottom: calc(4px * var(--ds-scale));
+  width: calc(248px * var(--ds-scale));
+  height: calc(54px * var(--ds-scale));
+  box-sizing: border-box;
+  padding: calc(6px * var(--ds-scale)) calc(9px * var(--ds-scale));
+  border: calc(2px * var(--ds-scale)) solid var(--g4-szene-ds-textbox-rahmen);
+  border-radius: calc(4px * var(--ds-scale));
+  background: var(--g4-szene-ds-textbox-flaeche);
+  color: var(--g4-szene-ds-textbox-text);
+  white-space: pre-line;
+  overflow: hidden;
+}

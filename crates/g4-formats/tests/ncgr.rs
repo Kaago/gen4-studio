@@ -3,9 +3,10 @@
 #![cfg(feature = "test-support")]
 
 use g4_formats::error::FormatError;
-use g4_formats::ncgr::{Ncgr, render_rgba};
+use g4_formats::ncgr::{Direction, KEY_ADD, KEY_MUL, Ncgr, TileMode, decrypt, render_rgba};
 use g4_formats::nclr::Nclr;
-use g4_formats::test_support::{ncgr_bytes, nclr_bytes};
+use g4_formats::test_support::{encrypt, ncgr_bytes, ncgr_bytes_with_mode, nclr_bytes};
+use proptest::prelude::*;
 
 /// 4 bpp tile bytes: every pixel of tile `t` has index `values[t]`.
 fn flat_tiles(values: &[u8]) -> Vec<u8> {
@@ -186,7 +187,149 @@ fn ncgr_with_a_zero_side_but_tiles_is_rejected_and_renders_nothing() {
         width: 0,
         height: 8,
         bpp: 4,
+        mode: TileMode::Tiled,
         tiles: vec![0x11; 32],
     };
     assert!(render_rgba(&hacked, &palette()).is_empty());
+}
+
+#[test]
+fn read_reports_the_tile_mode() {
+    let data = [0u8; 32];
+    assert_eq!(
+        Ncgr::read(&ncgr_bytes(1, 1, 3, &data)).unwrap().mode,
+        TileMode::Tiled
+    );
+    assert_eq!(
+        Ncgr::read(&ncgr_bytes_with_mode(1, 1, 3, 1, &data))
+            .unwrap()
+            .mode,
+        TileMode::Linear
+    );
+    assert!(matches!(
+        Ncgr::read(&ncgr_bytes_with_mode(1, 1, 3, 2, &data)),
+        Err(FormatError::Unsupported {
+            what: "NCGR tile mode"
+        })
+    ));
+}
+
+#[test]
+fn linear_mode_renders_pixel_by_pixel() {
+    // 20 x 10 tiles, 4 bpp: 160 x 80 pixels. Linear: pixel (x, y) is nibble y * 160 + x, so
+    // (9, 0) is the high nibble of byte 4 and (0, 1) the low nibble of byte 80. Read tiled,
+    // nibble 9 would lie in tile 0 (pixel (1, 1)) and nibble 160 in tile 5.
+    let mut data = vec![0u8; 20 * 10 * 32];
+    data[4] = 0x10; // nibble 9 = index 1
+    data[80] = 0x02; // nibble 160 = index 2
+    let ncgr = Ncgr::read(&ncgr_bytes_with_mode(20, 10, 3, 1, &data)).unwrap();
+    assert_eq!(
+        (ncgr.width, ncgr.height, ncgr.mode),
+        (160, 80, TileMode::Linear)
+    );
+    let rgba = render_rgba(&ncgr, &palette());
+    assert_eq!(rgba.len(), 160 * 80 * 4);
+    let at = |x: usize, y: usize| {
+        let i = (y * 160 + x) * 4;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+    assert_eq!(at(9, 0), [255, 255, 255, 255]);
+    assert_eq!(at(0, 1), [255, 0, 0, 255]);
+    // Nothing else is drawn.
+    assert_eq!(rgba.chunks(4).filter(|p| p[3] != 0).count(), 2);
+}
+
+#[test]
+fn linear_mode_8bpp_reads_one_byte_per_pixel() {
+    let mut data = vec![0u8; 2 * 64];
+    data[8 * 2 + 1] = 3; // row 1 of a 16-wide image, x = 1
+    let ncgr = Ncgr::read(&ncgr_bytes_with_mode(2, 1, 4, 1, &data)).unwrap();
+    let rgba = render_rgba(&ncgr, &palette());
+    let i = (16 + 1) * 4;
+    assert_eq!(&rgba[i..i + 4], &[0, 255, 0, 255]);
+    assert_eq!(rgba.chunks(4).filter(|p| p[3] != 0).count(), 1);
+}
+
+/// The key stream of the generator, `n` words, from `start`.
+fn stream(start: u16, n: usize) -> Vec<u16> {
+    let mut key = u32::from(start);
+    (0..n)
+        .map(|_| {
+            let k = (key & 0xFFFF) as u16;
+            key = key.wrapping_mul(KEY_MUL).wrapping_add(KEY_ADD);
+            k
+        })
+        .collect()
+}
+
+#[test]
+fn decrypt_forward_turns_the_start_word_to_zero_and_follows_the_generator() {
+    let k = stream(0x1234, 3);
+    assert_eq!(k[0], 0x1234);
+    // Plain zeros encrypt to the key stream itself.
+    let mut words = [0x1234, k[1], k[2]];
+    // The second key is the generator's step from the first, written out once by hand.
+    assert_eq!(
+        k[1],
+        (0x1234u32.wrapping_mul(KEY_MUL).wrapping_add(KEY_ADD) & 0xFFFF) as u16
+    );
+    decrypt(&mut words, Direction::Forward);
+    assert_eq!(words, [0, 0, 0]);
+}
+
+#[test]
+fn decrypt_backward_starts_at_the_last_word() {
+    let k = stream(0x1234, 3);
+    let mut words = [k[2], k[1], 0x1234];
+    decrypt(&mut words, Direction::Backward);
+    assert_eq!(words, [0, 0, 0]);
+}
+
+#[test]
+fn decrypt_of_nothing_is_nothing() {
+    for direction in [Direction::Forward, Direction::Backward] {
+        let mut words: [u16; 0] = [];
+        decrypt(&mut words, direction);
+    }
+}
+
+#[test]
+fn ncgr_decrypt_leaves_a_trailing_odd_byte() {
+    let k = stream(0xBEEF, 2);
+    let mut tiles = vec![
+        0xEF,
+        0xBE,
+        0x34 ^ k[1].to_le_bytes()[0],
+        0x12 ^ k[1].to_le_bytes()[1],
+    ];
+    tiles.push(0xA5);
+    // A hand-built image: `read` never yields an odd byte count.
+    let mut ncgr = Ncgr {
+        width: 0,
+        height: 0,
+        bpp: 4,
+        mode: TileMode::Linear,
+        tiles,
+    };
+    ncgr.decrypt(Direction::Forward);
+    assert_eq!(ncgr.tiles, [0, 0, 0x34, 0x12, 0xA5]);
+}
+
+proptest! {
+    #[test]
+    fn encrypt_then_decrypt_is_identity(
+        body in proptest::collection::vec(any::<u16>(), 1..=400),
+        backward in any::<bool>(),
+        seed in any::<u16>(),
+    ) {
+        let direction = if backward { Direction::Backward } else { Direction::Forward };
+        let mut plain = body;
+        let start = if backward { plain.len() - 1 } else { 0 };
+        plain[start] = 0;
+        let mut words = plain.clone();
+        encrypt(&mut words, direction, seed);
+        prop_assert_eq!(words[start], seed);
+        decrypt(&mut words, direction);
+        prop_assert_eq!(words, plain);
+    }
 }

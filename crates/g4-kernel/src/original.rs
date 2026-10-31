@@ -339,6 +339,9 @@ pub fn asset_label(id: AssetId) -> String {
         AssetKind::ItemIcons => "Item-Symbole",
         AssetKind::MonIcons => "Pokémon-Symbole",
         AssetKind::Trainer => "Trainer",
+        AssetKind::PokemonBattleSprites => "Kampfbild",
+        AssetKind::OtherPokemonBattleSprites => "Formen-Kampfbild",
+        AssetKind::TrainerGraphics => "Trainerbild",
     };
     format!("{word} {:04}", id.index)
 }

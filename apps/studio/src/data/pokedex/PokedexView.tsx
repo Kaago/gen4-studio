@@ -1,10 +1,10 @@
 import { id4 } from "../../workbench/terms";
-import { useMemo } from "react";
-import type { DataKind, HeaderSummary, NavTargetDto, RefDto } from "../../api";
-import { Notice, Reference, Sprite, StatBar, TypeBadge } from "../../ui/primitives";
+import { useMemo, useState } from "react";
+import type { BattleSpriteRequest, DataKind, HeaderSummary, NavTargetDto, RefDto, SpeciesRowExtra, SpriteSlotsDto } from "../../api";
+import { DSPokedexProfile, Notice, Reference, Segmented, Sprite, StatBar, Switch, TypeBadge } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
-import { monIcon, monIconKey, useIcon } from "../icons";
+import { battleSprite, battleSpriteKey, monIcon, monIconKey, useIcon } from "../icons";
 import { HeadActions } from "../../original/HeadActions";
 import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { useTextProject } from "../../textproject/TextProjectContext";
@@ -117,12 +117,68 @@ function Uses({ index }: { index: number }) {
   );
 }
 
+const SIDES = [
+  { value: "front", label: "Vorderseite" },
+  { value: "back", label: "Rückseite" },
+] as const;
+
+/**
+ * "Spielerblick": the Pokédex page as the player sees it on the DS (number, name, types, the battle picture), with the side, ♀ and shiny
+ * switches. The switches belong to the view for the session (nothing is saved; `PokedexView` holds them, so the loading gap between two species does not reset them). A gender without an image of its own is locked: the
+ * backend answers the other gender's image silently, so the lock tells what the picture shows.
+ */
+type PlayerChoice = { side: "front" | "back"; female: boolean; shiny: boolean };
+
+function PlayerView({
+  index,
+  number,
+  name,
+  types,
+  slots,
+  choice: { side, female, shiny },
+  onChoice,
+}: {
+  index: number;
+  number: number;
+  name: string;
+  types: readonly [number] | readonly [number, number];
+  slots: SpriteSlotsDto | null;
+  choice: PlayerChoice;
+  onChoice: (patch: Partial<PlayerChoice>) => void;
+}) {
+  // Unknown slots (no readable sprites) lock nothing: the picture is the placeholder anyway.
+  const noFemale = slots !== null && !slots.female;
+  const onlyFemale = slots !== null && !slots.male && slots.female;
+  const isFemale = onlyFemale || (!noFemale && female);
+  const request: BattleSpriteRequest = { species: index, side, female: isFemale, shiny };
+  const url = useIcon(battleSpriteKey(request), () => battleSprite(request), true);
+  const lockText = noFemale ? "Kein eigenes Bild für ♀" : onlyFemale ? "Nur ♀" : null;
+  return (
+    <section className={styles.section} aria-label="Spielerblick" data-ds-profile-section="">
+      <h3 className={styles.sectionTitle}>Spielerblick</h3>
+      <DSPokedexProfile number={number} name={name} types={types} spriteUrl={url} decorative />
+      <div className={styles.profileControls}>
+        <div data-side={side}>
+          <Segmented options={SIDES} value={side} onChange={(next) => onChoice({ side: next })} ariaLabel="Seite" size="s" />
+        </div>
+        <div data-female={isFemale}>
+          <Switch label="Weiblich" checked={isFemale} onChange={(next) => onChoice({ female: next })} disabled={lockText !== null} hint={lockText ?? undefined} />
+        </div>
+        <div data-shiny={shiny}>
+          <Switch label="Schillernd" checked={shiny} onChange={(next) => onChoice({ shiny: next })} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** The view (Schau) of a species: name, types and abilities, its base stats against the average of all species, where it is found and used. */
 export function PokedexView() {
   const { row, rows, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useSpecies(selected);
   const reset = useReset();
   const averages = useMemo(() => statAverages(rows), [rows]);
+  const [choice, setChoice] = useState<PlayerChoice>({ side: "front", female: false, shiny: false });
   const icon = useIcon(selected === null ? null : monIconKey(selected), () => monIcon(selected ?? 0), true);
   // In a text project the head names the species' id (a fixed one: it is not renamed).
   const ids = useEntityIds("Species", useTextProject().active);
@@ -158,6 +214,17 @@ export function PokedexView() {
       <div className={styles.viewBody}>
         {error !== null && <Notice kind="error">{`Diese Art ist nicht lesbar: ${error}`}</Notice>}
         {doc !== null && personalLocked && <Notice kind="warning">{`${lockText(doc.locked ?? "", doc.locked_asset)}. Ihre Werte sind nicht lesbar.`}</Notice>}
+        {doc !== null && !personalLocked && (
+          <PlayerView
+            index={selected}
+            number={(row.extra as SpeciesRowExtra | null)?.number ?? selected}
+            name={name}
+            types={[doc.personal.type1, doc.personal.type2]}
+            slots={doc.sprite_slots}
+            choice={choice}
+            onChoice={(patch) => setChoice((c) => ({ ...c, ...patch }))}
+          />
+        )}
         {doc !== null && !personalLocked && (
           <section className={styles.section} aria-label="Basiswerte">
             <h3 className={styles.sectionTitle}>Basiswerte</h3>

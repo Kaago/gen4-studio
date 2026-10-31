@@ -51,4 +51,13 @@ describe("Sprite", () => {
     // The letter still shows.
     expect(placeholder.textContent).toBe("T");
   });
+
+  it("draws_the_80_pixel_size_of_a_battle_picture", () => {
+    act(() => root.render(<Sprite url="blob:battle-397" label="Staravia" size={80} area="pokemon" />));
+    const img = container.querySelector("img")!;
+    expect(img.getAttribute("width")).toBe("80");
+    expect(img.getAttribute("height")).toBe("80");
+    act(() => root.render(<Sprite url={null} label="Staravia" size={80} area="pokemon" />));
+    expect(container.querySelector("[data-sprite=placeholder]")?.textContent).toBe("S");
+  });
 });

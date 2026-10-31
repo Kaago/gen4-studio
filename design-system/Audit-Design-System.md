@@ -20,7 +20,7 @@ Das Gerüst der Idee steht. Raster, Maße, Tokens, Schriften, Symbole und die Ko
 Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
 
 1. **Die Tiefe Erzählen fehlt.** Es gibt nur Bauen und Tüfteln, also keine Rezepte und keinen Einsteigermodus (bewusst, 3d).
-2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil, Kampfvorschau und Laden fehlen (bewusst, 3d).
+2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil und Kampfvorschau stehen seit 3d.3 Teil A (Pokédex, Trainer), das Laden fehlt (bewusst, später: keine Daten).
 3. **Es gibt keinen Spielmodus.** „Hier spielen“ startet den Emulator extern; ein bernsteinfarbenes Scharnier mit Live-Flags gibt es nicht (bewusst, Phase 4).
 4. **Die zweite Sprachebene ist nur halb da.** Kennungen sind Nummern statt Symbolen. Räume heißen nach ihrem Kürzel (`T01R0102`), Event-Titel sind technisch („Objekt 2 · ID 2“), Grafik und Bewegung sind rohe Zahlen (Lücke).
 5. **„Nie nur Farbe“ gilt in der Szene nicht.** Das Gelände-Overlay hat keine Muster, und die Ereignis-Marker sind Quader statt Formen (bewusst für das Overlay, Phase 6; Lücke für die Marker).
@@ -32,6 +32,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 - **Tokens:**
   - Aus dem Entwurf wurde kein Token entfernt und keiner im Wert geändert.
   - Neu sind nur die 45 Szenen-Tokens `ds`, `typ` und `status`.
+  - Seit 3d.3 Teil A kommen zehn in `ds` dazu (`status`, `kp`, `kampf`).
   - `check-tokens.sh` prüft RGB555, Kontraste und ob die generierten Dateien zum Export passen.
 - **Stilregeln:** `check-styles.sh` verbietet Hex, Primitive und Inline-Styles; die Ausnahmeliste ist leer.
 - **Bernstein:** Er gehört allein dem Spielen. `live/*` nutzen nur „Hier spielen“ im Scharnier und im Ergebnis der Assistenten.
@@ -137,6 +138,8 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Statusleiste | umgesetzt | Befundzahl, Build-Stand, Dichte-Taste |
 | Git in der Statusleiste | umgesetzt (4.4) | Kein Vorbild in der `.fig`. Rechts nach der Befundzahl: leise Taste S mit Symbol `git` (Phosphor `GitBranch`), „main · 3 Änderungen“, „main · noch kein Commit“, „4c1d2e3 (losgelöst) · …“, „Git: nicht lesbar“; ohne Repository kein Element; Klick öffnet Technik › Änderungen gegen den letzten Commit. Zählt Dateien wie `git status`, Technik zählt Einträge (Plan „Zahl der Änderungen“, bewusst); „Dateien“ steht nur im Tooltip. In der `.fig` seit 29.10.2026: in den Frames „App: Technik, Änderungen gegen letzten Commit“ und „… Änderung einer Nachricht“ und mit vier Zuständen im Brett „Komponenten (App): Änderungstabelle und Git“ |
 | DS-Bildschirm | umgesetzt | Kartenbild des Orts als Hintergrund, Steuercodes als Plaketten |
+| DS-Bildschirm: Pokédex-Profil | umgesetzt (3d.3 Teil A) | `DSPokedexProfile` in der Pokédex-Schau („Spielerblick“) mit Vorderseite, Rückseite, Weiblich, Schillernd; Kategorie, Größe, Gewicht und Text stehen als „folgt“ (keine Zukan-Daten gelesen); neue Tokens `szene/ds/status`; Frame in der `.fig` folgt |
+| DS-Bildschirm: Kampfvorschau | umgesetzt (3d.3 Teil A) | `DSBattlePreview` im Trainer (Gegner: Trainer oder erstes Pokémon), eigene Seite leer, feste Lage ohne `pokemonSpriteOffsets`, stilisierter Boden; neue Tokens `szene/ds/kp` und `szene/ds/kampf`; Frame in der `.fig` folgt |
 | Weltmarker | **teilweise** | 3D-Quader und Sprites statt Formen |
 | Pokémon-Karte | umgesetzt (3b.3b) | Radius 12, Menüsymbol aus dem ROM |
 | Story-Knoten | **fehlt** | Geschichten 3d |
@@ -168,9 +171,9 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | 12 | Skript: Mutter, Morgen | teilweise | Reiter „Script“ der Welt-Hand, Scripts nach Nummer |
 | 13 | Flags und Variablen | offen (3d) | nur die Tabelle im Level-Script |
 | 14 | Dialog bearbeiten | teilweise | über Archiv und Nummer im Bereich Texte, kein Weg von der Figur |
-| 15 | Pokédex: Staravia | umgesetzt | ohne DS-Profil; „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
+| 15 | Pokédex: Staravia | umgesetzt | DS-Profil seit 3d.3 Teil A (Text, Kategorie, Größe, Gewicht „folgt“); „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
 | 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht |
-| 17 | Trainer: Wanderer Kai | teilweise | ohne Kampfvorschau, Sichtlinie und Kampfsprites |
+| 17 | Trainer: Wanderer Kai | teilweise | Kampfvorschau und Klassenbild seit 3d.3 Teil A (nur der Gegner); ohne Sichtlinie |
 | 18 | Begegnungen: Route 201 | teilweise | Bauen statt Erzählen: Methodenreiter und Tabelle statt Draufsicht und Regler |
 | 19 | Attacken: Flügelschlag | umgesetzt | ohne DS-Zusammenfassung und Effektivität |
 | 20 | Neuer Trainer: Team | offen (3d) | Dialog „Trainer anlegen…“, dann Reiter Team |

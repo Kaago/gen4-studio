@@ -86,6 +86,8 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
         FromKindField("/target/kind"),
     ),
     arg("diff_entity", "/index", FromKindField("/kind")),
+    arg("get_battle_sprite", "/species", SPECIES),
+    arg("get_trainer_sprite", "/class", TRAINER_CLASS),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -276,6 +278,19 @@ mod tests {
         );
         assert_eq!(
             resolve_args(
+                "get_battle_sprite",
+                json!({ "species": "SPECIES_PIKACHU", "side": "front" }),
+                &fixed()
+            )
+            .unwrap(),
+            json!({ "species": 25, "side": "front" })
+        );
+        assert_eq!(
+            resolve_args("get_trainer_sprite", json!({ "class": "1" }), &fixed()).unwrap(),
+            json!({ "class": 1 })
+        );
+        assert_eq!(
+            resolve_args(
                 "refs",
                 json!({ "target": { "kind": "move", "index": "MOVE_POUND" } }),
                 &fixed()
@@ -402,6 +417,8 @@ mod tests {
             "plan_reset",
             "reset_to_original",
             "diff_entity",
+            "get_battle_sprite",
+            "get_trainer_sprite",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),

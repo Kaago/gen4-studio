@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { entityIds, getEvents } from "../../api";
+import { dataGet, entityIds, getBattleSprite, getEvents, getTrainerSprite } from "../../api";
 import { resetIcons } from "../icons";
-import { PLACEHOLDER_DOC, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
+import { JENS, PLACEHOLDER_DOC, SPECIES_DOC, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
 import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -12,6 +12,8 @@ vi.mock("../../api", async (importOriginal) => ({
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
   getItemIcon: vi.fn(),
+  getTrainerSprite: vi.fn(),
+  getBattleSprite: vi.fn(),
   dataGet: vi.fn(),
   dataEdit: vi.fn(),
   dataRaw: vi.fn(),
@@ -125,5 +127,112 @@ describe("TrainerView", () => {
     expect(entityIds).not.toHaveBeenCalled();
     expect(h.view().querySelector("[data-entity-id]")).toBeNull();
     expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+  });
+
+  describe("class sprite and battle preview", () => {
+    const section = () => h.view().querySelector<HTMLElement>("section[data-ds-battle-section]")!;
+    const choose = async (label: string) => {
+      const segment = [...section().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+      await h.click(segment);
+    };
+
+    it("the_head_shows_the_class_sprite", async () => {
+      vi.mocked(getTrainerSprite).mockResolvedValue(new ArrayBuffer(4));
+      await h.open();
+      expect(getTrainerSprite).toHaveBeenCalledWith(6);
+      const img = h.view().querySelector<HTMLImageElement>("header [data-trainer-sprite] img");
+      expect(img).not.toBeNull();
+      // The head names the trainer already: the picture is decoration.
+      expect(img!.getAttribute("alt")).toBe("");
+    });
+
+    it("the_head_shows_the_placeholder_without_a_class_sprite", async () => {
+      await h.open();
+      expect(h.view().querySelector("header [data-trainer-sprite] [data-sprite=placeholder]")).not.toBeNull();
+    });
+
+    it("the_battle_preview_switches_between_trainer_and_first_pokemon", async () => {
+      await h.open();
+      expect([...h.view().querySelectorAll("section[aria-label]")].map((s) => s.getAttribute("aria-label"))).toEqual(["Übersicht Wanderer Jens", "Team", "Kampfvorschau", "Steht in der Welt"]);
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("trainer");
+      // The trainer before the battle: the class and name in the box, no level, no own side.
+      const foe = section().querySelector('[data-ds-status="foe"]')!;
+      expect(foe.textContent).toContain("Wanderer Jens");
+      expect(foe.textContent).not.toContain("Lv.");
+      expect(section().querySelector('[data-ds-status="own"]')).toBeNull();
+      expect(getBattleSprite).not.toHaveBeenCalled();
+
+      await choose("Erstes Pokémon");
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("pokemon");
+      const mon = section().querySelector('[data-ds-status="foe"]')!;
+      expect(mon.textContent).toContain("Staralili");
+      expect(mon.textContent).toContain("Lv. 12");
+      expect(getBattleSprite).toHaveBeenCalledWith(expect.objectContaining({ species: 396, side: "front" }));
+      expect(section().querySelector('[data-ds-status="own"]')).toBeNull();
+
+      await choose("Trainer");
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("trainer");
+      expect(section().querySelector('[data-ds-status="foe"]')?.textContent).not.toContain("Lv.");
+    });
+
+    it("the_first_pokemon_with_a_form_asks_for_that_form", async () => {
+      wireApi(() => trainerDoc({ party: [{ ...JENS.party[0]!, species: 201, form: 5 }] }));
+      await h.open();
+      await choose("Erstes Pokémon");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 201, form: 5, side: "front" });
+    });
+
+    it("an_explicitly_female_first_pokemon_asks_for_the_female_picture_and_an_unset_gender_does_not", async () => {
+      wireApi(() => trainerDoc({ party: [{ ...JENS.party[0]!, gender: 2 }] }));
+      await h.open();
+      await choose("Erstes Pokémon");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front", female: true });
+      h.unmount();
+      for (const gender of [null, 0, 1]) {
+        vi.mocked(getBattleSprite).mockClear();
+        resetIcons();
+        wireApi(() => trainerDoc({ party: [{ ...JENS.party[0]!, gender }] }));
+        h = trainerHarness();
+        await h.open();
+        await choose("Erstes Pokémon");
+        expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front" });
+        expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ female: true }));
+        h.unmount();
+      }
+      h = trainerHarness();
+    });
+
+    it("without_a_team_only_the_trainer_is_offered", async () => {
+      wireApi(() => trainerDoc({ party: [], events: [] }));
+      await h.open(12, "bauen");
+      expect(section()).not.toBeNull();
+      expect([...section().querySelectorAll<HTMLButtonElement>("button")].map((b) => b.textContent)).toEqual(["Trainer"]);
+      expect(section().querySelector('[data-ds-status="foe"]')?.textContent).toContain("Wanderer Jens");
+    });
+
+    it("the_choice_survives_a_change_of_trainer_and_falls_back_without_a_team", async () => {
+      // Trainer 40 (Kai) has no team: the view stays mounted and shows the trainer, and Jens's choice comes back.
+      wireApi(() => trainerDoc());
+      vi.mocked(dataGet).mockImplementation(async (kind, index) => (kind === "trainer" && index === 40 ? trainerDoc({ name: "Kai", party: [], events: [] }) : kind === "trainer" ? trainerDoc() : SPECIES_DOC));
+      await h.open();
+      await choose("Erstes Pokémon");
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("pokemon");
+      const tree = () => h.list().querySelector<HTMLElement>("[role=tree]")!;
+      await h.click([...tree().querySelectorAll<HTMLElement>("[data-group]")].find((g) => g.textContent?.startsWith("Ohne Ort")));
+      await h.click(tree().querySelector<HTMLElement>('[data-trainer="40"]'));
+      expect(h.view().querySelector("[aria-label^='Übersicht Wanderer Kai']")).not.toBeNull();
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("trainer");
+      // Route 201 closed with the selection of Kai: open it to choose Jens again.
+      await h.click([...tree().querySelectorAll<HTMLElement>("[data-group]")].find((g) => g.textContent?.startsWith("Route 201")));
+      await h.click(tree().querySelector<HTMLElement>('[data-trainer="12"]'));
+      expect(section().querySelector("[data-foe]")?.getAttribute("data-foe")).toBe("pokemon");
+    });
+
+    it("the_placeholder_has_neither_sprite_nor_preview", async () => {
+      wireApi(() => PLACEHOLDER_DOC);
+      await h.open(929);
+      expect(h.view().querySelector("section[data-ds-battle-section]")).toBeNull();
+      expect(getTrainerSprite).not.toHaveBeenCalled();
+    });
   });
 });

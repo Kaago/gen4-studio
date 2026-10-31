@@ -1,6 +1,6 @@
 //! The data commands (spec §8): three generic ones over every data kind (`data_list`,
 //! `data_get`, `data_edit`) plus raw bytes, name tables, the read-only arm9 tables,
-//! references and icons.
+//! references, icons and battle sprites.
 //!
 //! Items are keyed by item id when the arm9 item table is available (`item_table` not null):
 //! rows and `index` are item ids, several of which can share one data member. Without the
@@ -34,6 +34,7 @@ use g4_formats::data::personal::Personal;
 use g4_formats::data::record::{FieldSpan, RawRecord};
 use g4_formats::data::trainer::TrainerProps;
 use g4_formats::game::Family;
+use g4_kernel::data::battle_sprites::{self, Side, SpriteRequest};
 use g4_kernel::data::icons;
 use g4_kernel::data::names::{Bank, NameTables, bank_index};
 use g4_kernel::error::KernelError;
@@ -431,6 +432,12 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         .saved_bytes(personal_id)
         .and_then(|bytes| Personal::read(bytes).ok())
         .map_or_else(|| personal.clone(), |p| PersonalDto::from(&p));
+    // A sprite archive that cannot be read takes nothing from the document: no slots. The gender
+    // ratio as edited makes the one image of a female-only form the female one.
+    let sprite_slots = battle_sprites::sprite_slots(&session.project, index, personal.gender_ratio)
+        .ok()
+        .flatten()
+        .map(SpriteSlotsDto::from);
     Ok(DataDocDto::Species {
         personal,
         saved,
@@ -440,6 +447,7 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         locked: lock.reason,
         raw_locked: lock.raw,
         locked_asset: lock.asset,
+        sprite_slots,
     })
 }
 
@@ -807,6 +815,61 @@ pub fn get_mon_icon_impl(state: &AppState, species: u16) -> Result<Vec<u8>, CmdE
     Ok(icons::mon_icon(&project, species)?.unwrap_or_default())
 }
 
+/// PNG of the requested battle sprite (an 80 x 80 frame; see `battle_sprites::battle_sprite`
+/// for the forms and the fallback to the other gender); empty when the species has none or a
+/// member is no readable image (a hack's broken member: the view shows its placeholder).
+/// `form`, `female`, `shiny` and `frame` default to 0, false, false and 0. Read once per
+/// session ([`Session::battle_sprites`]).
+pub fn get_battle_sprite_impl(
+    state: &AppState,
+    species: u16,
+    form: Option<u8>,
+    side: Side,
+    female: Option<bool>,
+    shiny: Option<bool>,
+    frame: Option<u8>,
+) -> Result<Vec<u8>, CmdError> {
+    let frame = frame.unwrap_or(0);
+    if frame > 1 {
+        return Err(CmdError::from("frame must be 0 or 1"));
+    }
+    let req = SpriteRequest {
+        species,
+        form: form.unwrap_or(0),
+        side,
+        female: female.unwrap_or(false),
+        shiny: shiny.unwrap_or(false),
+        frame,
+    };
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    sprite_bytes(session.battle_sprites.battle_sprite(&session.project, req))
+}
+
+/// PNG of the battle image of trainer class `class`; empty when the class has none or its
+/// member is no readable image. Read once per session.
+pub fn get_trainer_sprite_impl(state: &AppState, class: u8) -> Result<Vec<u8>, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    sprite_bytes(
+        session
+            .battle_sprites
+            .trainer_sprite(&session.project, class),
+    )
+}
+
+/// The bytes of a cached sprite: empty for none and for a member that is no image (a format
+/// error); any other error (the archive cannot be read from disk) is one.
+fn sprite_bytes(
+    png: Result<Option<std::sync::Arc<Vec<u8>>>, KernelError>,
+) -> Result<Vec<u8>, CmdError> {
+    match png {
+        Ok(png) => Ok(png.map(|png| png.as_ref().clone()).unwrap_or_default()),
+        Err(KernelError::Format(_)) => Ok(Vec::new()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Runs `work` on the blocking pool: a cold list, a first reference index or an icon archive
 /// read from disk must not freeze the window (Tauri runs sync commands on the main thread).
 pub(crate) async fn off_main<T: Send + 'static>(
@@ -894,6 +957,35 @@ pub async fn get_mon_icon(
     species: u16,
 ) -> Result<tauri::ipc::Response, CmdError> {
     off_main(app, move |state| get_mon_icon_impl(state, species))
+        .await
+        .map(tauri::ipc::Response::new)
+}
+
+/// PNG bytes (empty: no image); decoded off the main thread, cached per session.
+#[tauri::command]
+pub async fn get_battle_sprite(
+    app: tauri::AppHandle,
+    species: u16,
+    form: Option<u8>,
+    side: Side,
+    female: Option<bool>,
+    shiny: Option<bool>,
+    frame: Option<u8>,
+) -> Result<tauri::ipc::Response, CmdError> {
+    off_main(app, move |state| {
+        get_battle_sprite_impl(state, species, form, side, female, shiny, frame)
+    })
+    .await
+    .map(tauri::ipc::Response::new)
+}
+
+/// PNG bytes (empty: no image); decoded off the main thread, cached per session.
+#[tauri::command]
+pub async fn get_trainer_sprite(
+    app: tauri::AppHandle,
+    class: u8,
+) -> Result<tauri::ipc::Response, CmdError> {
+    off_main(app, move |state| get_trainer_sprite_impl(state, class))
         .await
         .map(tauri::ipc::Response::new)
 }

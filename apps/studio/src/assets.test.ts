@@ -30,6 +30,9 @@ describe("asset labels", () => {
       ItemIcons: "Gegenstand-Symbole",
       MonIcons: "Pokémon-Symbole",
       Trainer: "Trainer",
+      PokemonBattleSprites: "Kampfbild",
+      OtherPokemonBattleSprites: "Formen-Kampfbild",
+      TrainerGraphics: "Trainerbild",
     };
     for (const [kind, label] of Object.entries(expected)) expect(kindLabel(kind as AssetKind)).toBe(label);
   });

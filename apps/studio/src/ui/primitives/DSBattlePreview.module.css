@@ -1,0 +1,135 @@
+/*
+ * All measures in DS pixels times `--ds-scale` (set by DSScreen): grounds 96 × 24 at (152, 72) and (8, 160); pictures 80 × 80 with their
+ * bottom edge on the middle of their ground; status boxes 104 × 28 at (8, 16) and (144, 120).
+ */
+.battle {
+  position: absolute;
+  inset: 0;
+  background: var(--g4-szene-ds-kampf-grund);
+  font-family: var(--g4-schrift-familie-spiel);
+  font-size: calc(10px * var(--ds-scale));
+  line-height: calc(12px * var(--ds-scale));
+  font-weight: 400;
+}
+
+.ground {
+  position: absolute;
+  width: calc(96px * var(--ds-scale));
+  height: calc(24px * var(--ds-scale));
+  box-sizing: border-box;
+  border: calc(1px * var(--ds-scale)) solid var(--g4-szene-ds-kampf-boden-rand);
+  border-radius: 50%;
+  background: var(--g4-szene-ds-kampf-boden);
+}
+
+.foeGround {
+  left: calc(152px * var(--ds-scale));
+  top: calc(72px * var(--ds-scale));
+}
+
+.ownGround {
+  left: calc(8px * var(--ds-scale));
+  top: calc(160px * var(--ds-scale));
+}
+
+/* The sprite keeps its 80 × 80 and is magnified as a whole, so the picture stays pixel sharp and the placeholder grows with it. */
+.picture {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  transform: scale(var(--ds-scale));
+  transform-origin: 0 0;
+}
+
+/* Ground middle (200, 84): picture from x 160, bottom edge at y 84. */
+.foePicture {
+  left: calc(160px * var(--ds-scale));
+  top: calc(4px * var(--ds-scale));
+}
+
+/* Ground middle (56, 172): picture from x 16, bottom edge at y 172. */
+.ownPicture {
+  left: calc(16px * var(--ds-scale));
+  top: calc(92px * var(--ds-scale));
+}
+
+/* Edge 1, padding 1 and two lines of 12 make the 28 of the box. */
+.status {
+  position: absolute;
+  width: calc(104px * var(--ds-scale));
+  height: calc(28px * var(--ds-scale));
+  box-sizing: border-box;
+  padding: calc(1px * var(--ds-scale)) calc(4px * var(--ds-scale));
+  border: calc(1px * var(--ds-scale)) solid var(--g4-szene-ds-status-rahmen);
+  border-radius: calc(3px * var(--ds-scale));
+  background: var(--g4-szene-ds-status-flaeche);
+  color: var(--g4-szene-ds-status-text);
+}
+
+.foeStatus {
+  left: calc(8px * var(--ds-scale));
+  top: calc(16px * var(--ds-scale));
+}
+
+.ownStatus {
+  left: calc(144px * var(--ds-scale));
+  top: calc(120px * var(--ds-scale));
+}
+
+.statusLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(4px * var(--ds-scale));
+  height: calc(12px * var(--ds-scale));
+  white-space: pre;
+  overflow: hidden;
+}
+
+/* A long name ends with an ellipsis instead of being cut off hard (the full name is in `title`); a block, as `text-overflow` does not act on a flex container. */
+.name {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track {
+  display: block;
+  flex: none;
+  width: calc(48px * var(--ds-scale));
+  height: calc(4px * var(--ds-scale));
+  border-radius: calc(1px * var(--ds-scale));
+  background: var(--g4-szene-ds-kp-spur);
+  overflow: hidden;
+}
+
+/* `--hp` (0..1) is set per bar. */
+.fill {
+  display: block;
+  width: calc(var(--hp) * 100%);
+  height: 100%;
+}
+
+.gruen {
+  background: var(--g4-szene-ds-kp-gruen);
+}
+
+.gelb {
+  background: var(--g4-szene-ds-kp-gelb);
+}
+
+.rot {
+  background: var(--g4-szene-ds-kp-rot);
+}
+
+@media (forced-colors: active) {
+  .track {
+    border: 1px solid CanvasText;
+  }
+
+  .fill {
+    background: CanvasText;
+  }
+}

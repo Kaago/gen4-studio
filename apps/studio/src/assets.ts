@@ -26,6 +26,9 @@ const KIND_LABELS: Record<AssetKind, string> = {
   ItemIcons: "Gegenstand-Symbole",
   MonIcons: "Pokémon-Symbole",
   Trainer: "Trainer",
+  PokemonBattleSprites: "Kampfbild",
+  OtherPokemonBattleSprites: "Formen-Kampfbild",
+  TrainerGraphics: "Trainerbild",
 };
 
 /** German display name of an asset kind. */

@@ -203,6 +203,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("unsaved_changes", Kind::Read),
     // A clone is completed before it opens: an agent has no project yet.
     ("restore_text_project", APP_ONLY),
+    ("get_battle_sprite", Kind::Read),
+    ("get_trainer_sprite", Kind::Read),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.

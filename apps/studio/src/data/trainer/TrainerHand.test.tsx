@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataEdit, dataGet, dataRaw } from "../../api";
+import { dataEdit, dataGet, dataRaw, getTrainerSprite } from "../../api";
 import type { EditEvent } from "../../bus/editBus";
 import { ProblemsStore } from "../../workbench/problems/problems";
 import { openSelect, pressKey, typeInto } from "../../ui/primitives/testUtils";
@@ -15,6 +15,8 @@ vi.mock("../../api", async (importOriginal) => ({
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
   getItemIcon: vi.fn(),
+  getTrainerSprite: vi.fn(),
+  getBattleSprite: vi.fn(),
   dataGet: vi.fn(),
   dataEdit: vi.fn(),
   dataRaw: vi.fn(),
@@ -49,6 +51,18 @@ describe("TrainerHand", () => {
   };
   const button = (label: string) => [...h.hand().querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === label);
   const segment = (label: string) => [...h.hand().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+
+  it("the_head_shows_the_class_sprite_small", async () => {
+    vi.mocked(getTrainerSprite).mockResolvedValue(new ArrayBuffer(4));
+    await h.open();
+    expect(getTrainerSprite).toHaveBeenCalledWith(6);
+    const img = h.hand().querySelector<HTMLImageElement>("[data-trainer-sprite] img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("width")).toBe("48");
+    expect(img!.getAttribute("alt")).toBe("");
+    // The picture stands beside the title of the hand.
+    expect(h.hand().querySelector("[data-trainer-sprite]")?.parentElement?.textContent).toContain("Wanderer Jens");
+  });
 
   it("has_the_tabs_team_and_trainer_and_the_raw_data_while_tinkering", async () => {
     await h.open(12, "bauen");

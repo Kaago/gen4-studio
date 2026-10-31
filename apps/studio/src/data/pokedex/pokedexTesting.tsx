@@ -56,7 +56,7 @@ export const EVOLUTION: EvoEntryDto[] = [{ method: 4, param: 34, target: 398 }, 
 export const TM = Array.from({ length: 100 }, (_, n) => n === 39 || n === 93);
 
 export function staraviaDoc(over: Partial<Extract<DataDocDto, { kind: "species" }>> = {}): DataDocDto {
-  return { kind: "species", personal: STARAVIA, saved: STARAVIA, learnset: LEARNSET, evolution: EVOLUTION, tm: TM, locked: null, raw_locked: null, locked_asset: null, ...over };
+  return { kind: "species", personal: STARAVIA, saved: STARAVIA, learnset: LEARNSET, evolution: EVOLUTION, tm: TM, locked: null, raw_locked: null, locked_asset: null, sprite_slots: { female: true, male: true }, ...over };
 }
 
 const named = (length: number, at: Record<number, string>, word: string) => Array.from({ length }, (_, i) => at[i] ?? `${word} ${i}`);
@@ -115,6 +115,7 @@ export function wireApi(doc: () => DataDocDto = () => staraviaDoc()) {
   vi.mocked(api.nameTables).mockReset().mockResolvedValue(POKEDEX_NAMES);
   vi.mocked(api.itemTable).mockReset().mockResolvedValue(null);
   vi.mocked(api.getMonIcon).mockReset().mockResolvedValue(null);
+  vi.mocked(api.getBattleSprite).mockReset().mockResolvedValue(null);
   vi.mocked(api.getItemIcon).mockReset().mockResolvedValue(null);
   vi.mocked(api.dataGet).mockReset().mockImplementation(async () => doc());
   vi.mocked(api.dataEdit).mockReset().mockResolvedValue([{ kind: "Personal", index: 397 }]);

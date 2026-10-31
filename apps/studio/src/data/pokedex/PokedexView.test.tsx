@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataGet, entityIds, refs } from "../../api";
+import { dataGet, entityIds, getBattleSprite, refs } from "../../api";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { STARAVIA, pokedexHarness, staraviaDoc, wireApi } from "./pokedexTesting";
@@ -13,6 +13,7 @@ vi.mock("../../api", async (importOriginal) => ({
   nameTables: vi.fn(),
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
+  getBattleSprite: vi.fn(),
   getItemIcon: vi.fn(),
   dataGet: vi.fn(),
   dataEdit: vi.fn(),
@@ -42,7 +43,7 @@ describe("PokedexView", () => {
     await h.open();
     const head = h.view().querySelector("h2")!;
     expect(head.textContent).toBe("Staravia");
-    expect([...h.view().querySelectorAll("[data-type]")].map((b) => b.textContent)).toEqual(["Normal", "Flug"]);
+    expect([...h.view().querySelectorAll("header [data-type]")].map((b) => b.textContent)).toEqual(["Normal", "Flug"]);
     expect(h.view().textContent).toContain("Bedroher");
   });
 
@@ -145,6 +146,131 @@ describe("PokedexView", () => {
     await h.open();
     expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
     expect(contextTexts(h.q<HTMLElement>('[data-species="397"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+  });
+
+  describe("player view (Spielerblick)", () => {
+    const profile = () => h.view().querySelector<HTMLElement>("section[data-ds-profile-section]")!;
+    const press = async (text: string) => {
+      const button = [...profile().querySelectorAll<HTMLElement>("button")].find((b) => b.textContent === text);
+      await h.click(button);
+    };
+    const switchOf = (label: string) => [...profile().querySelectorAll<HTMLElement>("label")].find((l) => l.textContent?.startsWith(label))?.querySelector<HTMLElement>("[role=switch]") ?? null;
+
+    it("the_profile_shows_number_name_and_types", async () => {
+      await h.open();
+      expect(profile().getAttribute("aria-label")).toBe("Spielerblick");
+      // Above the base values.
+      const sections = [...h.view().querySelectorAll("section[aria-label]")].map((s) => s.getAttribute("aria-label"));
+      expect(sections.indexOf("Spielerblick")).toBeGreaterThanOrEqual(0);
+      expect(sections.indexOf("Spielerblick")).toBeLessThan(sections.indexOf("Basiswerte"));
+      const ds = profile().querySelector("[data-ds-profile]")!;
+      expect(ds.textContent).toContain("Nr. 397");
+      expect(ds.textContent).toContain("Staravia");
+      expect([...ds.querySelectorAll("[data-type]")].map((b) => b.getAttribute("data-type"))).toEqual(["0", "2"]);
+      // The head names the species already: the screen is only decoration.
+      expect(profile().querySelector("[aria-label^='Pokédex-Profil']")).toBeNull();
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 397, side: "front", female: false, shiny: false });
+    });
+
+    it("switching_side_asks_for_the_back_sprite", async () => {
+      await h.open();
+      expect(profile().querySelector("[data-side]")?.getAttribute("data-side")).toBe("front");
+      await press("Rückseite");
+      expect(profile().querySelector("[data-side]")?.getAttribute("data-side")).toBe("back");
+      expect(getBattleSprite).toHaveBeenLastCalledWith({ species: 397, side: "back", female: false, shiny: false });
+      await press("Vorderseite");
+      // The front picture is cached already: no second request, the side is back to front.
+      expect(profile().querySelector("[data-side]")?.getAttribute("data-side")).toBe("front");
+      expect(vi.mocked(getBattleSprite)).toHaveBeenCalledTimes(2);
+    });
+
+    it("female_is_locked_without_an_own_image", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ sprite_slots: { female: false, male: true } }));
+      await h.open();
+      const female = switchOf("Weiblich")!;
+      expect(female.getAttribute("aria-disabled")).toBe("true");
+      expect(female.getAttribute("aria-checked")).toBe("false");
+      expect(profile().textContent).toContain("Kein eigenes Bild für ♀");
+      // The reason is the switch's description, so it is read with "Weiblich", not with the next switch.
+      expect(document.getElementById(female.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Kein eigenes Bild für ♀");
+      expect(switchOf("Schillernd")!.hasAttribute("aria-describedby")).toBe(false);
+      await h.click(female);
+      expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ female: true }));
+    });
+
+    it("female_is_on_and_locked_for_a_species_with_only_a_female_image", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ sprite_slots: { female: true, male: false } }));
+      await h.open();
+      const female = switchOf("Weiblich")!;
+      expect(female.getAttribute("aria-disabled")).toBe("true");
+      expect(female.getAttribute("aria-checked")).toBe("true");
+      expect(profile().textContent).toContain("Nur ♀");
+      expect(document.getElementById(female.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Nur ♀");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 397, side: "front", female: true, shiny: false });
+    });
+
+    it("female_asks_with_female_true_when_both_images_exist", async () => {
+      await h.open();
+      expect(profile().textContent).not.toContain("Kein eigenes Bild");
+      await h.click(switchOf("Weiblich"));
+      expect(profile().querySelector("[data-female]")?.getAttribute("data-female")).toBe("true");
+      expect(getBattleSprite).toHaveBeenLastCalledWith({ species: 397, side: "front", female: true, shiny: false });
+    });
+
+    it("a_locked_species_does_not_take_the_female_choice_along_and_gives_it_back", async () => {
+      await h.open();
+      await h.click(switchOf("Weiblich"));
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("true");
+      // Staralili (396) has no image of its own for ♀.
+      vi.mocked(dataGet).mockImplementation(async (_kind, index) => staraviaDoc({ sprite_slots: { female: index !== 396, male: true } }));
+      vi.mocked(getBattleSprite).mockClear();
+      await h.click(h.q<HTMLElement>('[data-species="396"]'));
+      await flush();
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("false");
+      expect(switchOf("Weiblich")!.getAttribute("aria-disabled")).toBe("true");
+      expect(profile().textContent).toContain("Kein eigenes Bild für ♀");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front", female: false, shiny: false });
+      expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ species: 396, female: true }));
+      // Back to a species with both images: the choice is on again.
+      await h.click(h.q<HTMLElement>('[data-species="397"]'));
+      await flush();
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("true");
+      expect(switchOf("Weiblich")!.hasAttribute("aria-describedby")).toBe(false);
+      // (That picture is cached from before: no new request.)
+      expect(profile().querySelector("[data-female]")?.getAttribute("data-female")).toBe("true");
+    });
+
+    it("shiny_asks_with_shiny_true", async () => {
+      await h.open();
+      expect(profile().querySelector("[data-shiny]")?.getAttribute("data-shiny")).toBe("false");
+      await h.click(switchOf("Schillernd"));
+      expect(profile().querySelector("[data-shiny]")?.getAttribute("data-shiny")).toBe("true");
+      expect(getBattleSprite).toHaveBeenLastCalledWith({ species: 397, side: "front", female: false, shiny: true });
+    });
+
+    it("shows_the_picture_the_project_has", async () => {
+      vi.mocked(getBattleSprite).mockResolvedValue(new ArrayBuffer(4));
+      await h.open();
+      expect(profile().querySelector("[data-sprite=picture]")).not.toBeNull();
+      expect(profile().querySelector("[data-sprite=placeholder]")).toBeNull();
+    });
+
+    it("without_a_sprite_the_profile_shows_the_placeholder", async () => {
+      vi.mocked(getBattleSprite).mockResolvedValue(null);
+      await h.open();
+      expect(profile().querySelector("[data-sprite=placeholder]")).not.toBeNull();
+      expect(profile().querySelector("[data-sprite=picture]")).toBeNull();
+      // The profile is still there with its number and name.
+      expect(profile().textContent).toContain("Nr. 397");
+    });
+
+    it("a_species_with_unreadable_personal_data_has_no_profile_but_the_notice", async () => {
+      vi.mocked(dataGet).mockResolvedValue(staraviaDoc({ locked: "personal 0397: 36 bytes, expected 44", raw_locked: [], locked_asset: { kind: "Personal", index: 397 } }));
+      await h.open();
+      // No types to draw: the section stays out instead of showing wrong ones.
+      expect(h.view().querySelector("section[data-ds-profile-section]")).toBeNull();
+      expect(h.view().textContent).toContain("Pokémon-Daten 0397: 36 Bytes statt 44");
+    });
   });
 
   it("text_project_shows_the_species_id", async () => {

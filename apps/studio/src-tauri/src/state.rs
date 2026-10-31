@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 
 use g4_kernel::checks::{ChecksReport, Group, IgnoreSet, Overlay, Runner, Snapshot, SnapshotCache};
+use g4_kernel::data::battle_sprites::BattleSpriteCache;
 use g4_kernel::data::names::NameTables;
 use g4_kernel::data::refs::RefIndex;
 use g4_kernel::git::GitCli;
@@ -26,6 +27,8 @@ pub struct Session {
     pub store: Store,
     /// The overworld table and the decoded object sprites of this project.
     pub sprites: SpriteCache,
+    /// The decoded battle sprites of Pokémon and trainers of this project, as PNG.
+    pub battle_sprites: BattleSpriteCache,
     /// The `rotom-lsp` of this project, started by `lsp_start` and stopped with the session.
     pub lsp: Option<LspProcess>,
     /// Names of species, moves, items, ... read from the store's text archives, cached per bank.
@@ -57,6 +60,7 @@ impl Session {
             project,
             store,
             sprites: SpriteCache::new(),
+            battle_sprites: BattleSpriteCache::new(),
             lsp: None,
             names: NameTables::new(),
             refs: RefIndex::new(),

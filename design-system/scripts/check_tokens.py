@@ -72,7 +72,8 @@ for mode, t in themes.items():
         if c < need:
             print(f'Kontrast {mode}: {fg} auf {bg} = {c:.2f} (mindestens {need})')
             fail += 1
-for box in ['textbox', 'schild']:
+# The DS boxes: dialog box, sign and the battle status box carry game text on their surface.
+for box in ['textbox', 'schild', 'status']:
     c = ratio(szene[f'ds/{box}/text'], szene[f'ds/{box}/flaeche'])
     if c < 4.5:
         print(f'Kontrast Szene: ds/{box}/text auf ds/{box}/flaeche = {c:.2f} (mindestens 4.5)')

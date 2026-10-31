@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Badge, DSScreen, Segmented, Tabs } from "../../primitives";
+import { Badge, DSBattlePreview, DSPokedexProfile, DSScreen, Segmented, Tabs } from "../../primitives";
 import type { BadgeKind } from "../../primitives";
 import { pages as textPages } from "../../../workbench/text/textModel";
 import styles from "../Gallery.module.css";
@@ -17,11 +17,19 @@ const files = [
 
 const mapStub = <div className={styles.mapStub} />;
 
+// Placeholders only: the gallery shows no game pictures.
+const hpOptions = [
+  { value: "1", label: "Voll" },
+  { value: "0.4", label: "40 %" },
+  { value: "0.1", label: "10 %" },
+];
+
 export function ScreenPage() {
   const dialog = useMemo(() => textPages(sample), []);
   const sign = useMemo(() => textPages(signSample), []);
   const [page, setPage] = useState("0");
   const [tab, setTab] = useState("a");
+  const [hp, setHp] = useState("0.4");
   const [open, setOpen] = useState(files);
   const options = dialog.map((_, i) => ({ value: String(i), label: `Seite ${i + 1}` }));
   const close = (id: string) => {
@@ -47,6 +55,50 @@ export function ScreenPage() {
           <DSScreen variant="sign" pages={sign} page={0} scale={1} background={mapStub} />
           <DSScreen variant="empty" pages={[]} page={0} scale={1} background={mapStub} />
           <DSScreen variant="sign" pages={sign} page={0} scale={2} background={mapStub} />
+        </div>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Pokédex-Profil</h2>
+        <p className={styles.note}>
+          Bild auf dem Sockel, rechts Nummer, Name, Typen und Daten, unten der Pokédex-Text. Fehlt ein Wert, steht „folgt“; ohne Bild der
+          Anfangsbuchstabe.
+        </p>
+        <div className={styles.row}>
+          <DSPokedexProfile number={397} name="Staravia" types={[0, 2]} spriteUrl={null} scale={1} />
+          <DSPokedexProfile
+            number={393}
+            name="Plinfa"
+            types={[11]}
+            spriteUrl={null}
+            category="Pinguin"
+            height="0,4 m"
+            weight="5,2 kg"
+            text={"Ein stolzes Pokémon, das\nkeine Hilfe annimmt."}
+            scale={2}
+          />
+        </div>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Kampfvorschau</h2>
+        <p className={styles.note}>
+          Gegner oben rechts mit Statuskasten oben links, eigenes Pokémon unten links. Der KP-Balken ist über der Hälfte grün, über einem
+          Fünftel gelb, sonst rot. Ohne Level zeigt der Kasten nur den Namen (ein Trainer vor dem Kampf).
+        </p>
+        <Segmented options={hpOptions} value={hp} onChange={setHp} ariaLabel="KP des eigenen Pokémon" size="s" />
+        <div className={styles.row}>
+          <DSBattlePreview
+            foe={{ name: "Staravia", level: 12, spriteUrl: null }}
+            own={{ name: "Panflam", level: 9, spriteUrl: null, hp: Number(hp) }}
+            scale={1}
+          />
+          <DSBattlePreview foe={{ name: "Ass-Trainer Lutz", level: 0, spriteUrl: null }} own={null} scale={1} />
+          <DSBattlePreview
+            foe={{ name: "Staravia", level: 12, spriteUrl: null }}
+            own={{ name: "Panflam", level: 9, spriteUrl: null, hp: Number(hp) }}
+            scale={2}
+          />
         </div>
       </section>
 

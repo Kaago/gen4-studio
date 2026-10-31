@@ -1,0 +1,207 @@
+# Battle sprites (pokemonBattleSprites, otherPokemonBattleSprites, trainerGraphics): the decryption
+# direction per archive and family, measured on Platinum DE, HeartGold DE and HeartGold US
+# (docs/research/2026-10-30-phase-3d/gutachten-c-sprites-krypto.py), and the form table of
+# otherPokemonBattleSprites (3d.3 Task 3, by eye). DP is unverified: no project at hand.
+direction:
+  pt:   { pokemon: forward, other: forward, trainer: forward }
+  hgss: { pokemon: forward, other: forward, trainer: backward }
+  dp:   { unverified: true, pokemon: forward, other: forward, trainer: forward }
+# The form table: per family, the members of each form's images in otherPokemonBattleSprites,
+# checked by eye on Platinum DE and HeartGold DE (docs/research/2026-10-30-phase-3d/
+# task3-3d3-formen.md; HeartGold US is byte-identical). `form` is the game's form index. Form 0
+# of every species with forms has an entry too: the game draws such a species only from this
+# archive, and its entry in pokemonBattleSprites differs for most (Cherrim there is the Sunshine
+# Form, Burmy's shiny palette there is its normal one; measured 2026-10-31, 3d.3 final review).
+# The egg (personal member 494) lives here alone. `personal` names the personal member 494 to
+# 507 a form has (form 0 has none: it is the species itself); `back` and `front` are images
+# (160 x 80, two frames), `palette` and `shiny` NCLR members. No form has female images of its
+# own (`female_back`, `female_front`). An entry marked `unverified: true` is ignored and form 0
+# is shown, as for a form without an entry. Diamond/Pearl has no table (unverified).
+forms:
+  pt:
+    # Deoxys (386): back 2f, front 2f + 1; one palette pair for every form. 0 Normal, 1 Attack, 2 Defense, 3 Speed
+    - { species: 386, form: 0, back: 0, front: 1, palette: 154, shiny: 155 }
+    - { species: 386, form: 1, personal: 496, back: 2, front: 3, palette: 154, shiny: 155 }
+    - { species: 386, form: 2, personal: 497, back: 4, front: 5, palette: 154, shiny: 155 }
+    - { species: 386, form: 3, personal: 498, back: 6, front: 7, palette: 154, shiny: 155 }
+    # Unown (201): back 8 + 2f, front 9 + 2f; one palette pair. Forms 0..25 A..Z, 26 !, 27 ?
+    - { species: 201, form: 0, back: 8, front: 9, palette: 156, shiny: 157 }
+    - { species: 201, form: 1, back: 10, front: 11, palette: 156, shiny: 157 }
+    - { species: 201, form: 2, back: 12, front: 13, palette: 156, shiny: 157 }
+    - { species: 201, form: 3, back: 14, front: 15, palette: 156, shiny: 157 }
+    - { species: 201, form: 4, back: 16, front: 17, palette: 156, shiny: 157 }
+    - { species: 201, form: 5, back: 18, front: 19, palette: 156, shiny: 157 }
+    - { species: 201, form: 6, back: 20, front: 21, palette: 156, shiny: 157 }
+    - { species: 201, form: 7, back: 22, front: 23, palette: 156, shiny: 157 }
+    - { species: 201, form: 8, back: 24, front: 25, palette: 156, shiny: 157 }
+    - { species: 201, form: 9, back: 26, front: 27, palette: 156, shiny: 157 }
+    - { species: 201, form: 10, back: 28, front: 29, palette: 156, shiny: 157 }
+    - { species: 201, form: 11, back: 30, front: 31, palette: 156, shiny: 157 }
+    - { species: 201, form: 12, back: 32, front: 33, palette: 156, shiny: 157 }
+    - { species: 201, form: 13, back: 34, front: 35, palette: 156, shiny: 157 }
+    - { species: 201, form: 14, back: 36, front: 37, palette: 156, shiny: 157 }
+    - { species: 201, form: 15, back: 38, front: 39, palette: 156, shiny: 157 }
+    - { species: 201, form: 16, back: 40, front: 41, palette: 156, shiny: 157 }
+    - { species: 201, form: 17, back: 42, front: 43, palette: 156, shiny: 157 }
+    - { species: 201, form: 18, back: 44, front: 45, palette: 156, shiny: 157 }
+    - { species: 201, form: 19, back: 46, front: 47, palette: 156, shiny: 157 }
+    - { species: 201, form: 20, back: 48, front: 49, palette: 156, shiny: 157 }
+    - { species: 201, form: 21, back: 50, front: 51, palette: 156, shiny: 157 }
+    - { species: 201, form: 22, back: 52, front: 53, palette: 156, shiny: 157 }
+    - { species: 201, form: 23, back: 54, front: 55, palette: 156, shiny: 157 }
+    - { species: 201, form: 24, back: 56, front: 57, palette: 156, shiny: 157 }
+    - { species: 201, form: 25, back: 58, front: 59, palette: 156, shiny: 157 }
+    - { species: 201, form: 26, back: 60, front: 61, palette: 156, shiny: 157 }
+    - { species: 201, form: 27, back: 62, front: 63, palette: 156, shiny: 157 }
+    # Castform (351): backs 64..67, fronts 68..71; normal palettes 158..161, shiny 162..165. 0 Normal, 1 Sunny, 2 Rainy, 3 Snowy
+    - { species: 351, form: 0, back: 64, front: 68, palette: 158, shiny: 162 }
+    - { species: 351, form: 1, back: 65, front: 69, palette: 159, shiny: 163 }
+    - { species: 351, form: 2, back: 66, front: 70, palette: 160, shiny: 164 }
+    - { species: 351, form: 3, back: 67, front: 71, palette: 161, shiny: 165 }
+    # Burmy (412): back 72 + 2f, front 73 + 2f; palettes 166 + 2f, shiny 167 + 2f. 0 Plant, 1 Sandy, 2 Trash
+    - { species: 412, form: 0, back: 72, front: 73, palette: 166, shiny: 167 }
+    - { species: 412, form: 1, back: 74, front: 75, palette: 168, shiny: 169 }
+    - { species: 412, form: 2, back: 76, front: 77, palette: 170, shiny: 171 }
+    # Wormadam (413): back 78 + 2f, front 79 + 2f; palettes 172 + 2f, shiny 173 + 2f. 0 Plant, 1 Sandy, 2 Trash
+    - { species: 413, form: 0, back: 78, front: 79, palette: 172, shiny: 173 }
+    - { species: 413, form: 1, personal: 499, back: 80, front: 81, palette: 174, shiny: 175 }
+    - { species: 413, form: 2, personal: 500, back: 82, front: 83, palette: 176, shiny: 177 }
+    # Shellos (422): backs 84, 85, fronts 86, 87; palettes 178 + 2f, shiny 179 + 2f. 0 West, 1 East Sea
+    - { species: 422, form: 0, back: 84, front: 86, palette: 178, shiny: 179 }
+    - { species: 422, form: 1, back: 85, front: 87, palette: 180, shiny: 181 }
+    # Gastrodon (423): backs 88, 89, fronts 90, 91; palettes 182 + 2f, shiny 183 + 2f. 0 West, 1 East Sea
+    - { species: 423, form: 0, back: 88, front: 90, palette: 182, shiny: 183 }
+    - { species: 423, form: 1, back: 89, front: 91, palette: 184, shiny: 185 }
+    # Cherrim (421): backs 92, 93, fronts 94, 95; palettes 186 + f, shiny 188 + f. 0 Overcast, 1 Sunshine
+    - { species: 421, form: 0, back: 92, front: 94, palette: 186, shiny: 188 }
+    - { species: 421, form: 1, back: 93, front: 95, palette: 187, shiny: 189 }
+    # Arceus (493): back 96 + 2f, front 97 + 2f; palettes 190 + 2f, shiny 191 + 2f. Form = type (9 is ???)
+    - { species: 493, form: 0, back: 96, front: 97, palette: 190, shiny: 191 }
+    - { species: 493, form: 1, back: 98, front: 99, palette: 192, shiny: 193 }
+    - { species: 493, form: 2, back: 100, front: 101, palette: 194, shiny: 195 }
+    - { species: 493, form: 3, back: 102, front: 103, palette: 196, shiny: 197 }
+    - { species: 493, form: 4, back: 104, front: 105, palette: 198, shiny: 199 }
+    - { species: 493, form: 5, back: 106, front: 107, palette: 200, shiny: 201 }
+    - { species: 493, form: 6, back: 108, front: 109, palette: 202, shiny: 203 }
+    - { species: 493, form: 7, back: 110, front: 111, palette: 204, shiny: 205 }
+    - { species: 493, form: 8, back: 112, front: 113, palette: 206, shiny: 207 }
+    - { species: 493, form: 9, back: 114, front: 115, palette: 208, shiny: 209 }
+    - { species: 493, form: 10, back: 116, front: 117, palette: 210, shiny: 211 }
+    - { species: 493, form: 11, back: 118, front: 119, palette: 212, shiny: 213 }
+    - { species: 493, form: 12, back: 120, front: 121, palette: 214, shiny: 215 }
+    - { species: 493, form: 13, back: 122, front: 123, palette: 216, shiny: 217 }
+    - { species: 493, form: 14, back: 124, front: 125, palette: 218, shiny: 219 }
+    - { species: 493, form: 15, back: 126, front: 127, palette: 220, shiny: 221 }
+    - { species: 493, form: 16, back: 128, front: 129, palette: 222, shiny: 223 }
+    - { species: 493, form: 17, back: 130, front: 131, palette: 224, shiny: 225 }
+    # The egg: front 132 only, one palette (no back, no shiny palette). 133 / 227 is the Manaphy egg (no form)
+    - { species: 494, form: 0, personal: 494, front: 132, palette: 226 }
+    # Shaymin (492): back 134 + 2f, front 135 + 2f; palettes 228 + 2f, shiny 229 + 2f. 0 Land, 1 Sky
+    - { species: 492, form: 0, back: 134, front: 135, palette: 228, shiny: 229 }
+    - { species: 492, form: 1, personal: 502, back: 136, front: 137, palette: 230, shiny: 231 }
+    # Rotom (479): back 138 + 2f, front 139 + 2f; palettes 232 + 2f, shiny 233 + 2f. 0 Normal, 1 Heat, 2 Wash, 3 Frost, 4 Fan, 5 Mow
+    - { species: 479, form: 0, back: 138, front: 139, palette: 232, shiny: 233 }
+    - { species: 479, form: 1, personal: 503, back: 140, front: 141, palette: 234, shiny: 235 }
+    - { species: 479, form: 2, personal: 504, back: 142, front: 143, palette: 236, shiny: 237 }
+    - { species: 479, form: 3, personal: 505, back: 144, front: 145, palette: 238, shiny: 239 }
+    - { species: 479, form: 4, personal: 506, back: 146, front: 147, palette: 240, shiny: 241 }
+    - { species: 479, form: 5, personal: 507, back: 148, front: 149, palette: 242, shiny: 243 }
+    # Giratina (487): back 150 + 2f, front 151 + 2f; palettes 244 + 2f, shiny 245 + 2f. 0 Altered, 1 Origin
+    - { species: 487, form: 0, back: 150, front: 151, palette: 244, shiny: 245 }
+    - { species: 487, form: 1, personal: 501, back: 152, front: 153, palette: 246, shiny: 247 }
+  # The same images as pt (the altered Giratina, 150 and 151, is redrawn); four Pichu images
+  # (154 to 157) come before the palette block, so every palette member is 4 higher.
+  hgss:
+    # Deoxys (386)
+    - { species: 386, form: 0, back: 0, front: 1, palette: 158, shiny: 159 }
+    - { species: 386, form: 1, personal: 496, back: 2, front: 3, palette: 158, shiny: 159 }
+    - { species: 386, form: 2, personal: 497, back: 4, front: 5, palette: 158, shiny: 159 }
+    - { species: 386, form: 3, personal: 498, back: 6, front: 7, palette: 158, shiny: 159 }
+    # Unown (201)
+    - { species: 201, form: 0, back: 8, front: 9, palette: 160, shiny: 161 }
+    - { species: 201, form: 1, back: 10, front: 11, palette: 160, shiny: 161 }
+    - { species: 201, form: 2, back: 12, front: 13, palette: 160, shiny: 161 }
+    - { species: 201, form: 3, back: 14, front: 15, palette: 160, shiny: 161 }
+    - { species: 201, form: 4, back: 16, front: 17, palette: 160, shiny: 161 }
+    - { species: 201, form: 5, back: 18, front: 19, palette: 160, shiny: 161 }
+    - { species: 201, form: 6, back: 20, front: 21, palette: 160, shiny: 161 }
+    - { species: 201, form: 7, back: 22, front: 23, palette: 160, shiny: 161 }
+    - { species: 201, form: 8, back: 24, front: 25, palette: 160, shiny: 161 }
+    - { species: 201, form: 9, back: 26, front: 27, palette: 160, shiny: 161 }
+    - { species: 201, form: 10, back: 28, front: 29, palette: 160, shiny: 161 }
+    - { species: 201, form: 11, back: 30, front: 31, palette: 160, shiny: 161 }
+    - { species: 201, form: 12, back: 32, front: 33, palette: 160, shiny: 161 }
+    - { species: 201, form: 13, back: 34, front: 35, palette: 160, shiny: 161 }
+    - { species: 201, form: 14, back: 36, front: 37, palette: 160, shiny: 161 }
+    - { species: 201, form: 15, back: 38, front: 39, palette: 160, shiny: 161 }
+    - { species: 201, form: 16, back: 40, front: 41, palette: 160, shiny: 161 }
+    - { species: 201, form: 17, back: 42, front: 43, palette: 160, shiny: 161 }
+    - { species: 201, form: 18, back: 44, front: 45, palette: 160, shiny: 161 }
+    - { species: 201, form: 19, back: 46, front: 47, palette: 160, shiny: 161 }
+    - { species: 201, form: 20, back: 48, front: 49, palette: 160, shiny: 161 }
+    - { species: 201, form: 21, back: 50, front: 51, palette: 160, shiny: 161 }
+    - { species: 201, form: 22, back: 52, front: 53, palette: 160, shiny: 161 }
+    - { species: 201, form: 23, back: 54, front: 55, palette: 160, shiny: 161 }
+    - { species: 201, form: 24, back: 56, front: 57, palette: 160, shiny: 161 }
+    - { species: 201, form: 25, back: 58, front: 59, palette: 160, shiny: 161 }
+    - { species: 201, form: 26, back: 60, front: 61, palette: 160, shiny: 161 }
+    - { species: 201, form: 27, back: 62, front: 63, palette: 160, shiny: 161 }
+    # Castform (351)
+    - { species: 351, form: 0, back: 64, front: 68, palette: 162, shiny: 166 }
+    - { species: 351, form: 1, back: 65, front: 69, palette: 163, shiny: 167 }
+    - { species: 351, form: 2, back: 66, front: 70, palette: 164, shiny: 168 }
+    - { species: 351, form: 3, back: 67, front: 71, palette: 165, shiny: 169 }
+    # Burmy (412)
+    - { species: 412, form: 0, back: 72, front: 73, palette: 170, shiny: 171 }
+    - { species: 412, form: 1, back: 74, front: 75, palette: 172, shiny: 173 }
+    - { species: 412, form: 2, back: 76, front: 77, palette: 174, shiny: 175 }
+    # Wormadam (413)
+    - { species: 413, form: 0, back: 78, front: 79, palette: 176, shiny: 177 }
+    - { species: 413, form: 1, personal: 499, back: 80, front: 81, palette: 178, shiny: 179 }
+    - { species: 413, form: 2, personal: 500, back: 82, front: 83, palette: 180, shiny: 181 }
+    # Shellos (422)
+    - { species: 422, form: 0, back: 84, front: 86, palette: 182, shiny: 183 }
+    - { species: 422, form: 1, back: 85, front: 87, palette: 184, shiny: 185 }
+    # Gastrodon (423)
+    - { species: 423, form: 0, back: 88, front: 90, palette: 186, shiny: 187 }
+    - { species: 423, form: 1, back: 89, front: 91, palette: 188, shiny: 189 }
+    # Cherrim (421)
+    - { species: 421, form: 0, back: 92, front: 94, palette: 190, shiny: 192 }
+    - { species: 421, form: 1, back: 93, front: 95, palette: 191, shiny: 193 }
+    # Arceus (493)
+    - { species: 493, form: 0, back: 96, front: 97, palette: 194, shiny: 195 }
+    - { species: 493, form: 1, back: 98, front: 99, palette: 196, shiny: 197 }
+    - { species: 493, form: 2, back: 100, front: 101, palette: 198, shiny: 199 }
+    - { species: 493, form: 3, back: 102, front: 103, palette: 200, shiny: 201 }
+    - { species: 493, form: 4, back: 104, front: 105, palette: 202, shiny: 203 }
+    - { species: 493, form: 5, back: 106, front: 107, palette: 204, shiny: 205 }
+    - { species: 493, form: 6, back: 108, front: 109, palette: 206, shiny: 207 }
+    - { species: 493, form: 7, back: 110, front: 111, palette: 208, shiny: 209 }
+    - { species: 493, form: 8, back: 112, front: 113, palette: 210, shiny: 211 }
+    - { species: 493, form: 9, back: 114, front: 115, palette: 212, shiny: 213 }
+    - { species: 493, form: 10, back: 116, front: 117, palette: 214, shiny: 215 }
+    - { species: 493, form: 11, back: 118, front: 119, palette: 216, shiny: 217 }
+    - { species: 493, form: 12, back: 120, front: 121, palette: 218, shiny: 219 }
+    - { species: 493, form: 13, back: 122, front: 123, palette: 220, shiny: 221 }
+    - { species: 493, form: 14, back: 124, front: 125, palette: 222, shiny: 223 }
+    - { species: 493, form: 15, back: 126, front: 127, palette: 224, shiny: 225 }
+    - { species: 493, form: 16, back: 128, front: 129, palette: 226, shiny: 227 }
+    - { species: 493, form: 17, back: 130, front: 131, palette: 228, shiny: 229 }
+    # The egg
+    - { species: 494, form: 0, personal: 494, front: 132, palette: 230 }
+    # Shaymin (492)
+    - { species: 492, form: 0, back: 134, front: 135, palette: 232, shiny: 233 }
+    - { species: 492, form: 1, personal: 502, back: 136, front: 137, palette: 234, shiny: 235 }
+    # Rotom (479)
+    - { species: 479, form: 0, back: 138, front: 139, palette: 236, shiny: 237 }
+    - { species: 479, form: 1, personal: 503, back: 140, front: 141, palette: 238, shiny: 239 }
+    - { species: 479, form: 2, personal: 504, back: 142, front: 143, palette: 240, shiny: 241 }
+    - { species: 479, form: 3, personal: 505, back: 144, front: 145, palette: 242, shiny: 243 }
+    - { species: 479, form: 4, personal: 506, back: 146, front: 147, palette: 244, shiny: 245 }
+    - { species: 479, form: 5, personal: 507, back: 148, front: 149, palette: 246, shiny: 247 }
+    # Giratina (487)
+    - { species: 487, form: 0, back: 150, front: 151, palette: 248, shiny: 249 }
+    - { species: 487, form: 1, personal: 501, back: 152, front: 153, palette: 250, shiny: 251 }
+    # Pichu (172): back 154 + 2f, front 155 + 2f; palettes 252 + 2f, shiny 253 + 2f. 0 Normal, 1 Spiky-eared
+    - { species: 172, form: 0, back: 154, front: 155, palette: 252, shiny: 253 }
+    - { species: 172, form: 1, back: 156, front: 157, palette: 254, shiny: 255 }

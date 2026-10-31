@@ -1,4 +1,5 @@
-//! NCGR (Nitro character graphics): the 8 x 8 tiles of the menu and item icons. Layout in
+//! NCGR (Nitro character graphics): the 8 x 8 tiles of the menu and item icons and the linear
+//! bitmaps of the battle sprites, plus the decryption of the latter. Layout in
 //! `docs/formats/ncgr_nclr.md`. This is a decoder only; nothing writes an NCGR.
 
 use crate::error::FormatError;
@@ -14,6 +15,7 @@ const SECTION_HEAD: usize = 8;
 const TILES_Y_AT: usize = HEADER_LEN + 8;
 const TILES_X_AT: usize = HEADER_LEN + 10;
 const DEPTH_AT: usize = HEADER_LEN + 12;
+const MODE_AT: usize = HEADER_LEN + 0x14;
 const DATA_SIZE_AT: usize = HEADER_LEN + 0x18;
 const DATA_OFFSET_AT: usize = HEADER_LEN + 0x1C;
 /// A tile count that the header leaves open (the ROM's icon files do).
@@ -23,8 +25,17 @@ const UNKNOWN: u16 = 0xFFFF;
 const DEFAULT_TILES_X: usize = 4;
 const TILE: usize = 8;
 
-/// The tiles of an NCGR in 1D tile order (tile `n` lies at column `n % width_in_tiles`, row
-/// `n / width_in_tiles` of the image).
+/// How the pixel data is laid out (header offset `0x24`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileMode {
+    /// 8 x 8 tiles in 1D tile order (0): the icons.
+    Tiled,
+    /// Pixel by pixel, row after row (1): the battle sprites.
+    Linear,
+}
+
+/// The pixel data of an NCGR: in `Tiled` mode in 1D tile order (tile `n` lies at column
+/// `n % width_in_tiles`, row `n / width_in_tiles` of the image), in `Linear` mode row by row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ncgr {
     /// Image size in pixels, a multiple of 8.
@@ -32,6 +43,7 @@ pub struct Ncgr {
     pub height: usize,
     /// Bits per pixel, 4 or 8.
     pub bpp: u8,
+    pub mode: TileMode,
     /// The raw tile bytes: per tile 32 bytes (4 bpp, the low nibble is the left pixel) or 64
     /// bytes (8 bpp), one row of 8 pixels after the other.
     pub tiles: Vec<u8>,
@@ -56,8 +68,8 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<usize, FormatError> {
 impl Ncgr {
     /// Reads the character section. The header's tile counts give the size; when it leaves
     /// them open (`0xFFFF`, as every icon in the ROM does), the image is four tiles wide
-    /// (32 pixels) and as high as the data needs. The mapping flag (tiled or scanned) and
-    /// further sections are ignored.
+    /// (32 pixels) and as high as the data needs. The tile mode is read (0 tiled, 1 linear,
+    /// anything else is `Unsupported`); the mapping flag and further sections are ignored.
     pub fn read(bytes: &[u8]) -> Result<Ncgr, FormatError> {
         if bytes.get(0..4) != Some(MAGIC.as_slice()) {
             return Err(FormatError::BadMagic { expected: "RGCN" });
@@ -77,6 +89,15 @@ impl Ncgr {
             _ => {
                 return Err(FormatError::Unsupported {
                     what: "NCGR colour depth",
+                });
+            }
+        };
+        let mode = match u32_at(bytes, MODE_AT)? {
+            0 => TileMode::Tiled,
+            1 => TileMode::Linear,
+            _ => {
+                return Err(FormatError::Unsupported {
+                    what: "NCGR tile mode",
                 });
             }
         };
@@ -121,8 +142,54 @@ impl Ncgr {
             width: across * TILE,
             height: down * TILE,
             bpp,
+            mode,
             tiles: tiles.to_vec(),
         })
+    }
+
+    /// `decrypt` over the tile bytes as little-endian words; a trailing odd byte is left as is.
+    pub fn decrypt(&mut self, direction: Direction) {
+        let (pairs, _) = self.tiles.as_chunks_mut::<2>();
+        let mut words: Vec<u16> = pairs.iter().map(|w| u16::from_le_bytes(*w)).collect();
+        decrypt(&mut words, direction);
+        for (pair, word) in pairs.iter_mut().zip(words) {
+            *pair = word.to_le_bytes();
+        }
+    }
+}
+
+/// The order in which `decrypt` walks the words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// From the first word to the last; the key starts as the first word.
+    Forward,
+    /// From the last word to the first; the key starts as the last word.
+    Backward,
+}
+
+/// Multiplier of the key generator (32 bit, wrapping).
+pub const KEY_MUL: u32 = 0x41C6_4E6D;
+/// Increment of the key generator.
+pub const KEY_ADD: u32 = 0x6073;
+
+/// Decrypts in place: the key starts as the first word in `direction`, every word is XORed with
+/// `key & 0xFFFF`, then `key = key * KEY_MUL + KEY_ADD` (wrapping). Measured in gutachten C §3.2.
+pub fn decrypt(words: &mut [u16], direction: Direction) {
+    let start = match direction {
+        Direction::Forward => words.first(),
+        Direction::Backward => words.last(),
+    };
+    let Some(&start) = start else {
+        return;
+    };
+    let mut key = u32::from(start);
+    let mut step = |word: &mut u16| {
+        *word ^= (key & 0xFFFF) as u16;
+        key = key.wrapping_mul(KEY_MUL).wrapping_add(KEY_ADD);
+    };
+    match direction {
+        Direction::Forward => words.iter_mut().for_each(&mut step),
+        Direction::Backward => words.iter_mut().rev().for_each(&mut step),
     }
 }
 
@@ -133,6 +200,9 @@ pub fn render_rgba(ncgr: &Ncgr, palette: &[u16; 16]) -> Vec<u8> {
     let tiles_across = ncgr.width / TILE;
     if tiles_across == 0 {
         return Vec::new();
+    }
+    if ncgr.mode == TileMode::Linear {
+        return render_linear(ncgr, palette);
     }
     let tile_bytes = TILE * TILE * usize::from(ncgr.bpp) / 8;
     let mut rgba = vec![0u8; ncgr.width * ncgr.height * 4];
@@ -156,6 +226,31 @@ pub fn render_rgba(ncgr: &Ncgr, palette: &[u16; 16]) -> Vec<u8> {
                 let out = ((ty + py) * ncgr.width + tx + px) * 4;
                 rgba[out..out + 4].copy_from_slice(&[r, g, b, 255]);
             }
+        }
+    }
+    rgba
+}
+
+/// `Linear` mode: pixel `(x, y)` is nibble `y * width + x` (byte `y * width + x` at 8 bpp);
+/// data that ends early leaves the rest transparent.
+fn render_linear(ncgr: &Ncgr, palette: &[u16; 16]) -> Vec<u8> {
+    let mut rgba = vec![0u8; ncgr.width * ncgr.height * 4];
+    for y in 0..ncgr.height {
+        for x in 0..ncgr.width {
+            let at = y * ncgr.width + x;
+            let index = if ncgr.bpp == 4 {
+                ncgr.tiles.get(at / 2).map(|b| (b >> (4 * (at % 2))) & 0x0F)
+            } else {
+                ncgr.tiles.get(at).copied()
+            };
+            let Some(&colour) = index
+                .filter(|&i| i != 0)
+                .and_then(|i| palette.get(usize::from(i)))
+            else {
+                continue;
+            };
+            let [r, g, b] = rgb(colour);
+            rgba[at * 4..at * 4 + 4].copy_from_slice(&[r, g, b, 255]);
         }
     }
     rgba
