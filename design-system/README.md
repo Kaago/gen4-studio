@@ -682,7 +682,7 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   | Auslöser | der Satz „Geschichte und Schritt kommen mit 3d.7.“, keine Felder |
   | Gebiet, Raum | ein Abschnitt „Ort“ mit „Ort“ (Name), „Aussehen“ (`LookField`, das Kartenbild des Aussehens wie im Assistenten), „Musik (Tag)“ und „Musik (Nacht)“ |
 
-  Nicht in Erzählen: Position (x, z), Lokale ID, Sichtlinie und Sichtweite und alle Felder ohne Erzählensicht (Karten, Texte und Scripts, Wetter, Kamera). Die Musik sind Zahlfelder ohne die Umschalter „Dez | Hex“ (der Umschalter gehört Tüfteln). Bauen und Tüfteln zeigen die Felder wie bisher.
+  Nicht in Erzählen: Position (x, z), Höhe (y), Lokale ID, Sichtlinie und Sichtweite und alle Felder ohne Erzählensicht (Karten, Texte und Scripts, Wetter, Kamera). Die Musik sind Zahlfelder ohne die Umschalter „Dez | Hex“ (der Umschalter gehört Tüfteln). Bauen und Tüfteln zeigen die Felder wie bisher.
 - **Zusammenfassung der Assistenten:** Die Sätze des Kerns („Legt Header 598 an …“) stehen nur in Tüfteln; sie sind in dessen Wörtern geschrieben. Bauen und Erzählen behalten die eigenen Zeilen des Assistenten. In jeder Tiefe zeigt ein gescheiterter Entwurf die Warnung „Vorschau nicht möglich: {Grund}“ (`Notice`, Warnung); das Anlegen bleibt möglich, es antwortet mit seiner eigenen Ablehnung.
 - **Ergebnis mit nächstem Schritt** (`DoneResult`, `data-next-steps`): Unter der Erfolgsmeldung steht die Überschrift „Als Nächstes“ (`text/s` 600, sekundär) und darunter die Rezepte als Tasten der Größe S, danach die Zeilen als Text. Die Schritte nennt der Kern (`next_steps`). Eine Taste, die läuft, öffnet das Rezept (wie die Leiste); eine, die es noch nicht gibt, ist gesperrt und sagt warum:
 
