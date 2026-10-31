@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel) [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle) und [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel) [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle) [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -47,7 +47,7 @@ Seit Phase 3c hat die App das Doppeldeck-Raster. Die älteren Abschnitte dieser 
 
 | Fläche | Was dort ist | Zum Bedienen |
 |---|---|---|
-| Titelleiste (40 px) | „Projekt öffnen“, Projektname mit Spiel-Plakette, die Zeile „Ungespeichert“ (liest sich „N Änderungen nicht gespeichert“, ohne Änderungen „Alles gespeichert“), die Palette (Schaltfläche „Suchen oder Befehl eingeben“ oder ⌘K, siehe unten), „Speichern“ (⌘S), „Bauen“, „Thema wechseln“, „Hilfe“ | Rolle `button` mit dem Namen; „Bauen“ fragt im Browser-Modus nach dem Pfad (siehe Werkzeuge unten). Ersetzt die alte „Toolbar“ |
+| Titelleiste (40 px) | „Projekt öffnen“, Projektname mit Spiel-Plakette, die Zeile „Ungespeichert“ (liest sich „N Änderungen nicht gespeichert“, ohne Änderungen „Alles gespeichert“), die Palette (Schaltfläche „Suchen oder Befehl eingeben“ oder ⌘K, siehe unten), „Speichern“ (⌘S), „Bauen“, „Veröffentlichen“ (seit 4.5; gesperrt mit Hinweis im Tooltip, wenn die Basis-ROM fehlt), „Thema wechseln“, „Hilfe“ | Rolle `button` mit dem Namen; „Bauen“ fragt im Browser-Modus nach dem Pfad (siehe Werkzeuge unten). Ersetzt die alte „Toolbar“ |
 | Atlas (88 px, Kompakt 56 px nur Symbole, der `aria-label` bleibt) | `nav` „Bereiche“: „Start“, „Welt“, „Geschichten“ (gesperrt, Tooltip „Kommt mit Phase 3d“, bis 3b.4a „Kommt mit Phase 3b.4“), „Pokémon“, „Gegenstände“, „Texte“, „Technik“; unten „Hilfe“ und „Einstellungen“. Der aktive Bereich trägt `aria-current="page"` | Tab von Eintrag zu Eintrag, Enter öffnet. „Hilfe“ öffnet den Dialog mit dem Glossar, das früher „Begriffe“ hieß (`workbench/terms.ts`) |
 | Liste (272 px) | je Bereich: „Welt“ mit den Abschnitten „Orte“ und „In dieser Szene“ (Welt), „Textarchive“ (Texte), die Liste des Unterbereichs (Pokémon: Pokédex oder Attacken; Gegenstände), „Technik“; Start und Einstellungen haben keine | Griff am rechten Rand (Doppelklick) oder Palette „Liste ein/aus“ klappt sie ein |
 | Scharnier (44 px, über der Schau) | Brotkrume (Welt: Ort › Header › Auswahl, eine gewählte Karte in Bauen „Karte 0412“ mit „Zelle 3, 27“ grau, in Tüfteln „Zelle 3, 27“; Texte: Texte › Archiv › Nachricht; Pokémon: Pokémon › Pokédex › STARAVIA, das zweite Glied öffnet das Menü der Unterbereiche; Gegenstände: Gegenstände › Tasche Medizin › Trank, ein Klick auf die Tasche filtert die Liste; jedes Glied klickbar), Umschalter „Bauen“ / „Tüfteln“ (Tüfteln zeigt im Inspector Rohwerte, Hex-Felder und Bezeichner, in Probleme und Script Dateipfade, den Reiter „Raster“ mit Header-ID und Höhe je Zelle, in Pokémon und Gegenstände die Rohdaten als Hexblock und Dez/Hex an den Zahlfeldern), Prüflicht (Schaltfläche `button[data-light]`; seit 3b.4a drei Zähler `[data-count=error|warning|info]`, `aria-label` „3 Fehler, 102 Warnungen, 10 Hinweise“ bzw. „Alles stimmig“, während eines Prüflaufs `data-running`, ein Kreisel und der Fortschritt „Prüft … Texte 312/724“; Klick öffnet „Probleme“), Verlauf-Menü („Verlauf, N Schritte“), „Wiederholen“ (⇧⌘Z), „Hier spielen“ (speichert, baut und startet den Emulator; im Browser-Modus baut es nur; ⌘R nur in der App). Im Assistenten die Schrittleiste (siehe unten) | Das Scharnier steht über der Schau, hat keinen Griff und lässt sich nicht ziehen (die Höhe der Hand ändert der Teiler darunter). Öffnet sich ein Script, hebt die App die Hand auf mindestens 400 px |
@@ -652,6 +652,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **4.1b:** das Kontextmenü in der echten App (Zwei-Finger-Klick auf dem Trackpad, Shift+F10 in WebKit, die Kontextmenü-Taste mit einer PC-Tastatur), die Fortschrittszahlen von Technik › Änderungen in der App (die Brücke hat keinen `Channel`), ein Urteil über die englischen Feldnamen in den Vorschau-Zeilen; der Blick auf die 17 Bilder `blick-*.png` (Dialog Karte, Header, Script und Technik › Änderungen in Hell, Dunkel, Kompakt). Liste mit Ort: [phase-4-1b-gate.md](phase-4-1b-gate.md), Abschnitte „Hand“ und „Blick“.
 - **4.3b:** die DSPRE-Gegenprobe (DSPRE öffnet einen eingerichteten Ordner, speichert eine Änderung, die App übernimmt sie beim Fokus; was DSPRE dabei unter `unpacked/` und `expanded/` schreibt), der Fensterfokus in der gepackten Tauri-App (`onFocusChanged`), die Fortschrittsphasen von „Einrichten…“ und die laufende Phase „Textprojekt einrichten“ im Assistenten (die Brücke hat keinen `Channel`); der Blick auf die Bilder des UI-Tests (`blick-*.png`, `gate3-*.png`, `mcp-*.png`) in Hell, Dunkel und Kompakt. Liste mit Ort: [phase-4-3b-gate.md](phase-4-3b-gate.md), Abschnitte „Hand“ und „Blick“.
 - **4.4:** das eigene Git-Werkzeug des Nutzers zeigt ein eingerichtetes Repo mit dem Commit „Ausgangsstand“ und ohne Remote; „Git einrichten“ in der gepackten App, die aus dem Finder gestartet wurde (findet Git trotz kurzem `PATH`); die Fortschrittsphasen von „Git einrichten“, der Phase „Git einrichten“ im Assistenten und „Textprojekt vervollständigen“ (die Brücke hat keinen `Channel`); Windows (`find_git` mit `%ProgramFiles%`, `core.autocrlf`); der Blick auf die 59 Bilder `blick-*.png` (Technik › Änderungen mit drei Vergleichen und den Formen, die Dialoge, die Statusleiste in Hell, Dunkel, Kompakt; der Kontrast von `<ins>`/`<del>` in Dunkel). Liste mit Ort: [phase-4-4-gate.md](phase-4-4-gate.md), Abschnitte „Hand“ und „Blick“.
+- **4.5:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; „Im Finder zeigen“ in der gepackten App (macOS markiert die Datei, Linux öffnet nur den Ordner, Windows ungeprüft); das eigene Git-Werkzeug zeigt den Commit „Veröffentlicht v0.1.0“ mit Body und ohne Remote; der Blick auf Titelleiste, Assistent, Fläche und Dialog „Stand sichern?“ in Hell, Dunkel, Kompakt. Liste mit Ort: [phase-4-5-gate.md](phase-4-5-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
 
@@ -1071,3 +1072,74 @@ scripts/agent/mcp.sh call diff_entity '{"kind":"trainer","index":1,"against":"he
 scripts/agent/mcp.sh call diff_entity '{"kind":"file","path":"../x","against":"head"}'  # not_diffable
 git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # beide leer
 ```
+
+## Phase 4.5 ([phase-4-5-gate.md](phase-4-5-gate.md))
+
+4.5 bringt „Veröffentlichen“ als Zwischenphase: den Assistenten in vier Schritten (Version, Patch, Prüfen, Fertig) mit selbstgeprüftem xdelta-Patch, Begleitdatei, wahlweise `README.txt` und dem Eintrag in `.g4/releases.json`, die Taste in der Titelleiste, die Liste „Bisherige Veröffentlichungen“ in Technik › Veröffentlichen und „Stand sichern…“ (ein Commit mit allen Änderungen, nur lokal). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `4-5-<zweck>_DSPRE_contents` und `.nds` `4-5-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (je mit `g4k base assign`), `web`, `mcp` und `ui` (Platin DE, Basis zugeordnet, `g4k git init`) für Browser, MCP über die Brücke und die Bilder. Repositories entstehen **nur in den Kopien**, nie im Repo des Studios; kein Remote, kein Push. Die Test-Umgebung läuft nur auf `G4_VITE_PORT=1730 G4_BRIDGE_PORT=1731` (die übrigen Ports gehören den parallelen Phasen). `G4_ROMS_DIR` absolut, `G4_BASE_ROM_DIR=<Roms>/_testkopien`; `git --version` notieren (ohne `git` melden die Git-Tests `skipped: git not found`). Alle Kopien, Ausgabe-Ordner (`<name>-out/`, `<name>-ort/`) nach dem Gate löschen (`Manual` und `_saves` bleiben).
+
+**Wo was ist:** Titelleiste, Taste „Veröffentlichen“ (Rolle `button`; gesperrt `aria-disabled` mit `aria-description` = Grund, Tooltip mit zweiter Zeile). Technik › „Veröffentlichen“ (`[data-technik=veroeffentlichen]`): Karte „Basis-ROM“ `[data-base-state]`, Karte „Veröffentlichen“ `[data-publish-card]` mit „Veröffentlichen…“ und der Tabelle „Bisherige Veröffentlichungen“ (Zeilen `[data-release=<Version>]`, „Im Finder zeigen“ je Zeile). Der Assistent (Rolle `dialog` „Veröffentlichen“, Atlas auf Welt): Schritte `[data-publish-step=version|patch|check]`, Pfad `[data-publish-dir]`, Lauf `[data-publish-progress]` (`role="status"`), „Ersetzen“ `[data-publish-overwrite]`, Vorschau `[data-publish-preview]`, im Ergebnis „Stand sichern…“ `[data-publish-commit]` (nur mit eigenem Repository). Der Dialog „Stand sichern?“ `[data-commit-dialog]` mit Prüfliste `[data-check]`, Feldern „Betreff“ und „Notiz“, Lauf `[data-commit-progress]`; in Technik › Änderungen „Gegen letzten Commit“ die Taste `[data-commit-all]`; die Statusleiste `[data-git-status]` danach „main · keine Änderung“. Meldungen: Assistent „Veröffentlicht: v0.1.0“, Toast „Stand gesichert: <kurz> „<Betreff>“ (<n> Dateien).“, Sperren „Diese Version gibt es schon.“, „<Datei> liegt schon am Speicherort …“, „Erst eine Basis-ROM zuordnen.“, „Git ist nicht installiert.“.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | im Hintergrund, allein; die neuen gated Tests laufen im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht nichts Neues |
+| (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `publish …` und `commit …` in die Zahlentabelle |
+| (2) Szenario kopflos | Agent | Release-`g4k` und `studio mcp --project <Kopie> --base-rom <nds> [--allow-irreversible]` über JSON-RPC, Ablauf unten |
+| (3) Browser | Agent | Test-Umgebung auf 1730/1731, Ablauf unten |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| (4) Rom Patcher JS, „Im Finder zeigen“, eigenes Git-Werkzeug | Hand | siehe „Was beim Nutzer bleibt“ |
+| Blick | Agent + Blick | Bilder `blick-*.png` unter `target/agent/gate-<datum>/4-5/` |
+
+**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+G4_TEST_PROJECT="$K/4-5-<k>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test base publish_after_a_map_edit -- --nocapture --test-threads 1
+G4_TEST_PROJECT="$K/4-5-<k>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test git publish_then_commit_all -- --nocapture --test-threads 1
+G4_TEST_PROJECT="$K/4-5-<k>_DSPRE_contents" \
+  cargo test --release -p studio --all-features --lib publish_and_commit_over_the_command_path_on_the_vanilla_copy -- --nocapture --test-threads 1
+```
+
+Auf stderr stehen `publish <Spielcode> size=… build_ms=… encode_ms=… verify_ms=…` und `commit <Spielcode> files=… add_ms=… commit_ms=… status_ms=…`. Die Git-Tests richten Git in einer eigenen Umgebung ein (`GIT_CONFIG_GLOBAL` leer, `GIT_CONFIG_NOSYSTEM=1`, `HOME` im Temp-Ordner); die Einstellungen des Nutzers wirken nicht. Zeitgrenzen binden nur mit `G4_TIMING_STRICT=1`; scheitert ein Zeittest unter Last, einmal allein wiederholen und beide Werte notieren.
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` (`G=target/release/g4k`):
+
+```sh
+P=$K/4-5-k<k>_DSPRE_contents; N=$K/4-5-k<k>.nds
+$G base assign $P $N; $G git init $P                                          # committed Ausgangsstand files=…
+target/release/studio mcp --project $P --base-rom $N                          # ohne --allow-irreversible
+#   data_edit Trainer 1 (party[0].level +1), save
+#   publish_patch {"version":"0.1.0","notes":"Erste Fassung","readme":true}   → läuft OHNE Frage; drei Dateien unter build/
+#   publish_patch {"version":"0.1.0"} nochmal                                 → version_taken
+#   publish_patch {"version":"0.1.1","file":"<Projekt>-v0.1.0.xdelta"}        → exists
+#   publish_patch {"version":"0.1.1","file":"<Projekt>-v0.1.0.xdelta","overwrite":true} → needs_confirmation
+#   git_commit_all {"message":"Veröffentlicht v0.1.0","notes":"Erste Fassung"} → needs_confirmation
+target/release/studio mcp --project $P --base-rom $N --allow-irreversible     # overwrite → ersetzt; git_commit_all → committed
+xdelta3 -d -s $N $P/build/<Projekt>-v0.1.0.xdelta out.nds; shasum out.nds      # = Ziel-ROM SHA-1 der Begleitdatei = SHA-1 von build/<Projekt>-<Spielcode>.nds
+git -C $P status --porcelain; git -C $P log -1 --format=%B; git -C $P remote -v; grep -c '\[remote' $P/.git/config   # leer; Betreff und Body; leer; 0
+$G publish $P --version 0.2.0 --dir <Temp-Ordner>                             # Dateien dort, releases.json mit absolutem file
+$G git commit-all $P; $G git commit-all $P                                    # committed …; not committed: Keine Änderung seit dem letzten Commit; nichts zu sichern.
+```
+
+Vor dem ersten Commit zeigt `git status --porcelain` `.g4/releases.json` und den Trainer-Member, nichts unter `build/`. Die Begleitdatei trägt die fünf Zeilen wie 4.1a (`Gen4 Studio: Patch für …`, `Spiel:`, `Basis-ROM SHA-1:`, `Ziel-ROM SHA-1:`, `Studio-Version:`), dazu `Version:` und `Datum:` (RFC 3339, UTC) und am Ende den Absatz `Änderungen:`; `README.txt` hat `<Projekt> v<Version> (<Tag>)`, die Notizen und `Basis-ROM SHA-1:`. Die Verweigerungen von „Stand sichern“ (`no_repo`, `enclosing_repo`, `no_git` mit `G4_GIT=/nicht/da`, `nothing_to_commit`) schreiben nichts: `.gitignore` und `.gitattributes` bleiben, wie sie waren.
+
+**Browser (3)**, Test-Umgebung auf 1730/1731 (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1730 G4_BRIDGE_PORT=1731 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1730/?project=<…>/_testkopien/4-5-web_DSPRE_contents`, 1440 × 900. Ablauf: Technik › Veröffentlichen (leere Liste), Titelleiste „Veröffentlichen“, Assistent mit Vorschlag `0.1.0` und `4-5-web-v0.1.0.xdelta`, Notizen, „Ordner wählen…“ (Pfadfeld im Browser-Modus), Kästchen README, „Weiter“ bis „Prüfen“ (drei Dateien, Hinweis ohne ROM-Inhalt, kein „Zurück“), „Fertig“, „Stand sichern…“ aus dem Ergebnis (Betreff „Veröffentlicht v0.1.0“, Notizen, Prüfliste), „Sichern“, Toast und Statusleiste „main · keine Änderung“, `git -C <Kopie> log -1`/`remote -v`/`status --porcelain`; zweiter Assistent mit derselben Version (Sperre am Feld) und mit dem Dateinamen von Hand (Fehlermeldung, „Ersetzen“); die `.nds` umbenennen (Titelleiste und Palette gesperrt mit „Basis-ROM nicht gefunden: …“), zurückbenennen; Technik › Änderungen „Gegen letzten Commit“: „Stand sichern…“ ohne Voreinstellung (Betreff „Stand <Datum> <Uhrzeit>“); ohne `git` (`G4_GIT=/nicht/da` für die Brücke) ist die Taste gesperrt mit „Git ist nicht installiert.“; ein eigenes Repository ohne Commit bietet „Stand sichern…“ ebenfalls an. Bilder nach `target/agent/gate-<datum>/4-5/` (Namen im Gate, Abschnitt „Blick“). Im Browser-Modus fehlen die Phasen des Laufs (die Brücke hat keinen `Channel`) und „Im Finder zeigen“ sagt „Nur in der App.“.
+
+**MCP (3)** über die Brücke (Kopie `4-5-mcp` mit zugeordneter Basis-ROM und Git in der Seite geöffnet):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                    # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call publish_patch '{"version":"0.1.0"}'                # läuft OHNE Frage (nichts wird ersetzt)
+scripts/agent/mcp.sh call publish_patch '{"version":"0.1.1","file":"4-5-mcp-v0.1.0.xdelta","overwrite":true}' > target/agent/mcp-publish.out 2>&1 &
+scripts/agent/call.sh agent_status                                           # question: „Patch ersetzen: …“
+# im Browser-Fenster „Zulassen“, oder: scripts/agent/call.sh agent_answer '{"question":<id>,"answer":"allow"}'
+scripts/agent/mcp.sh call git_commit_all '{}' > target/agent/mcp-commit.out 2>&1 &
+scripts/agent/call.sh agent_status                                           # question: „Stand sichern“
+git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # beide leer
+```
+
+`publish_patch` ohne `overwrite` fragt nicht: es legt nur neue Dateien unter `build/` an, und eine vorhandene Datei lehnt es mit `exists` ab, statt zu fragen; unumkehrbar wird es mit `overwrite: true` und mit einem `dir` außerhalb von `build/` („Bauen außerhalb von build/“). `git_commit_all` fragt immer. Beide sind nicht in `g4_batch` erlaubt. Der Eintrag in `.g4/releases.json` bleibt in jedem Fall; `undo` nimmt ihn nicht zurück.
