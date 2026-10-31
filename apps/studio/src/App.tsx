@@ -429,7 +429,8 @@ function AppBody() {
     },
     // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
     onOpen: () => {
-      wizardFrom.current = area;
+      // A wizard that replaces an open one (the world's „Neu anlegen“) keeps the first one's origin, as `useWizards` keeps its opener.
+      if (!wizardOpen.current) wizardFrom.current = area;
       setArea("welt");
       shell.setTool("select");
     },

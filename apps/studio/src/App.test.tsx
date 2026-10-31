@@ -2205,6 +2205,32 @@ describe("App wiring", () => {
       expect(weltDeck().contains(document.activeElement)).toBe(true);
     });
 
+    it("a_wizard_that_replaces_an_open_one_keeps_the_first_origin", async () => {
+      const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      vi.mocked(baseStatus).mockResolvedValue(found({ patch_name: "p-CPUE" }));
+      vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build" }));
+      await act(async () => atlasEntry("Technik")!.click());
+      await settle();
+      const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+      await act(async () => technikRow("Veröffentlichen").click());
+      const opener = () => [...container.querySelectorAll<HTMLButtonElement>("[data-publish-card] button")].find((b) => b.textContent === "Veröffentlichen…")!;
+      await act(async () => opener().focus());
+      await act(async () => opener().click());
+      await settle();
+      expect(container.querySelector("[data-publish-step]")).not.toBeNull();
+      // „Gebiet anlegen…“ from the world (its „Neu anlegen“) replaces it while the world shows.
+      await act(async () => data().onOpenWizard({ kind: "area", prefill: { matrix: 0 } }));
+      await settle();
+      expect(container.querySelector("[data-publish-step]")).toBeNull();
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      pressKey(document.activeElement as HTMLElement, "Escape");
+      await settle();
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      // Back where the first wizard was opened, with the focus on its (rebuilt) opener.
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(document.activeElement).toBe(opener());
+    });
+
     it("keeps the workbench's keys off and the tool on Auswählen while a wizard is open", async () => {
       env.tauri = true;
       vi.mocked(save).mockResolvedValue(undefined as never);
