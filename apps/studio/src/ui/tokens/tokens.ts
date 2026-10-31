@@ -44,6 +44,16 @@ export const szene = {
     'schild/rahmen': 0x6B5229,
     'schild/text': 0x423921,
     'pfeil': 0x4A5263,
+    'status/flaeche': 0xF7F7FF,
+    'status/rahmen': 0x4A5263,
+    'status/text': 0x394252,
+    'kp/spur': 0x5A6373,
+    'kp/gruen': 0x42C652,
+    'kp/gelb': 0xEFCE29,
+    'kp/rot': 0xDE3142,
+    'kampf/grund': 0x6BA5DE,
+    'kampf/boden': 0x7BB54A,
+    'kampf/boden-rand': 0x529C39,
   },
 } as const;
 

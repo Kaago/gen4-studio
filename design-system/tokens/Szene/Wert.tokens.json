@@ -133,6 +133,52 @@
   "pfeil": {
    "$type": "color",
    "$value": "#4A5263"
+  },
+  "status": {
+   "flaeche": {
+    "$type": "color",
+    "$value": "#F7F7FF"
+   },
+   "rahmen": {
+    "$type": "color",
+    "$value": "#4A5263"
+   },
+   "text": {
+    "$type": "color",
+    "$value": "#394252"
+   }
+  },
+  "kp": {
+   "spur": {
+    "$type": "color",
+    "$value": "#5A6373"
+   },
+   "gruen": {
+    "$type": "color",
+    "$value": "#42C652"
+   },
+   "gelb": {
+    "$type": "color",
+    "$value": "#EFCE29"
+   },
+   "rot": {
+    "$type": "color",
+    "$value": "#DE3142"
+   }
+  },
+  "kampf": {
+   "grund": {
+    "$type": "color",
+    "$value": "#6BA5DE"
+   },
+   "boden": {
+    "$type": "color",
+    "$value": "#7BB54A"
+   },
+   "boden-rand": {
+    "$type": "color",
+    "$value": "#529C39"
+   }
   }
  },
  "typ": {

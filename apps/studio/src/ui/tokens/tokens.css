@@ -112,6 +112,16 @@
   --g4-szene-ds-schild-rahmen: #6B5229;
   --g4-szene-ds-schild-text: #423921;
   --g4-szene-ds-pfeil: #4A5263;
+  --g4-szene-ds-status-flaeche: #F7F7FF;
+  --g4-szene-ds-status-rahmen: #4A5263;
+  --g4-szene-ds-status-text: #394252;
+  --g4-szene-ds-kp-spur: #5A6373;
+  --g4-szene-ds-kp-gruen: #42C652;
+  --g4-szene-ds-kp-gelb: #EFCE29;
+  --g4-szene-ds-kp-rot: #DE3142;
+  --g4-szene-ds-kampf-grund: #6BA5DE;
+  --g4-szene-ds-kampf-boden: #7BB54A;
+  --g4-szene-ds-kampf-boden-rand: #529C39;
   --g4-szene-typ-normal-grund: #A5A57B;
   --g4-szene-typ-normal-schrift: #182131;
   --g4-szene-typ-kampf-grund: #BD3129;

@@ -25,6 +25,8 @@ export type DSScreenProps = {
    * assistive technology instead of being a group „DS-Bildschirm, …“.
    */
   decorative?: boolean;
+  /** The group's name instead of „DS-Bildschirm, …“, for a screen that draws something of its own (a Pokédex profile, a battle preview). */
+  label?: string;
 };
 
 function useScale(given: number | undefined) {
@@ -56,13 +58,13 @@ function Part({ segment }: { segment: Segment }) {
   return <>{segment.text.replace(/\\\\/g, "\\")}</>;
 }
 
-export function DSScreen({ variant, pages, page, scale: given, background, decorative = false }: DSScreenProps) {
+export function DSScreen({ variant, pages, page, scale: given, background, decorative = false, label: named }: DSScreenProps) {
   const { frame, scale } = useScale(given);
   // No pages count as one empty page; a page index outside the list is clamped.
   const total = Math.max(1, pages.length);
   const index = Math.min(Math.max(0, Math.trunc(page)), total - 1);
   const shown = pages[index];
-  const label = variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`;
+  const label = named ?? (variant === "empty" ? "DS-Bildschirm, leer" : `DS-Bildschirm, Seite ${index + 1} von ${total}`);
   return (
     <div ref={frame} className={styles.frame} aria-hidden={decorative || undefined}>
       <div role={decorative ? undefined : "group"} aria-label={decorative ? undefined : label} className={styles.screen} style={{ "--ds-scale": scale } /* dyn */}>

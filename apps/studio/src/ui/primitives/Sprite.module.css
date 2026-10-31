@@ -25,6 +25,11 @@ img.sprite {
   height: 48px;
 }
 
+.s80 {
+  width: 80px;
+  height: 80px;
+}
+
 .placeholder {
   align-items: center;
   justify-content: center;
@@ -36,6 +41,10 @@ img.sprite {
 .s48.placeholder {
   font: var(--g4-font-text-l);
   font-weight: 700;
+}
+
+.s80.placeholder {
+  font: var(--g4-font-titel-m);
 }
 
 .pokemon {

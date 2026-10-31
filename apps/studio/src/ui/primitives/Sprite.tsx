@@ -5,14 +5,15 @@ export type SpriteProps = {
   url: string | null;
   /** What the picture shows; its text alternative, and the placeholder's letter. */
   label: string;
-  size: 24 | 32 | 48;
+  /** 24, 32, 48 for lists and cards; 80 for a battle picture (the DS profile and battle preview). */
+  size: 24 | 32 | 48 | 80;
   /** The area whose colours the placeholder takes. */
   area: "pokemon" | "gegenstaende";
   /** Beside text that already names it (a list row): hidden from assistive technology, so the name is not read twice. */
   decorative?: boolean;
 };
 
-const sizeClass = { 24: styles.s24, 32: styles.s32, 48: styles.s48 } as const;
+const sizeClass = { 24: styles.s24, 32: styles.s32, 48: styles.s48, 80: styles.s80 } as const;
 
 /** A game picture drawn pixel for pixel; without one, the first letter of the label on the area's colour. */
 export function Sprite({ url, label, size, area, decorative = false }: SpriteProps) {

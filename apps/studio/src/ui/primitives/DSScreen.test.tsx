@@ -88,6 +88,14 @@ describe("DSScreen", () => {
     expect(container.firstElementChild?.hasAttribute("aria-hidden")).toBe(false);
   });
 
+  it("takes_a_given_name_for_a_screen_that_draws_its_own_content", () => {
+    act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={1} label="Pokédex-Profil Staravia" />));
+    expect(group()?.getAttribute("aria-label")).toBe("Pokédex-Profil Staravia");
+    act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={1} label="Pokédex-Profil Staravia" decorative />));
+    expect(group()).toBeNull();
+    expect(container.querySelector("[aria-label]")).toBeNull();
+  });
+
   it("sizes_itself_by_the_integer_scale_through_a_custom_property", () => {
     act(() => root.render(<DSScreen variant="empty" pages={[]} page={0} scale={3} />));
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("3");
