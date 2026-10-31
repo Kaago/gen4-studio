@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataGet, dataList, getMonIcon, itemTable, nameTables, refs } from "../api";
+import { dataGet, dataList, getBattleSprite, getMonIcon, itemTable, nameTables, refs } from "../api";
 import { readShellState, writeShellState } from "../ui/frame/shellState";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { MOVES, NAMES, SPECIES, dataHarness, flush, move, openMenu, projectDp, species } from "./dataTesting";
@@ -16,6 +16,7 @@ vi.mock("../api", async (importOriginal) => ({
   nameTables: vi.fn(),
   itemTable: vi.fn(),
   getMonIcon: vi.fn(),
+  getBattleSprite: vi.fn(),
   getItemIcon: vi.fn(),
   dataGet: vi.fn(),
   refs: vi.fn(),
@@ -32,6 +33,7 @@ describe("PokemonArea", () => {
     vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
     vi.mocked(itemTable).mockReset().mockResolvedValue(null);
     vi.mocked(getMonIcon).mockReset().mockResolvedValue(new Uint8Array([137, 80, 78, 71]).buffer);
+    vi.mocked(getBattleSprite).mockReset().mockResolvedValue(null);
     vi.mocked(dataGet).mockReset().mockImplementation(async () => staraviaDoc());
     vi.mocked(refs).mockReset().mockResolvedValue([]);
     URL.createObjectURL = vi.fn(() => "blob:icon");

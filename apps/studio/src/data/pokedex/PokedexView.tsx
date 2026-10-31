@@ -1,10 +1,10 @@
 import { id4 } from "../../workbench/terms";
-import { useMemo } from "react";
-import type { DataKind, HeaderSummary, NavTargetDto, RefDto } from "../../api";
-import { Notice, Reference, Sprite, StatBar, TypeBadge } from "../../ui/primitives";
+import { useMemo, useState } from "react";
+import type { BattleSpriteRequest, DataKind, HeaderSummary, NavTargetDto, RefDto, SpeciesRowExtra, SpriteSlotsDto } from "../../api";
+import { DSPokedexProfile, Notice, Reference, Segmented, Sprite, StatBar, Switch, TypeBadge } from "../../ui/primitives";
 import type { Area } from "../../ui/primitives";
 import type { NavTarget } from "../../workbench/navigation";
-import { monIcon, monIconKey, useIcon } from "../icons";
+import { battleSprite, battleSpriteKey, monIcon, monIconKey, useIcon } from "../icons";
 import { HeadActions } from "../../original/HeadActions";
 import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { useTextProject } from "../../textproject/TextProjectContext";
@@ -117,6 +117,47 @@ function Uses({ index }: { index: number }) {
   );
 }
 
+const SIDES = [
+  { value: "front", label: "Vorderseite" },
+  { value: "back", label: "Rückseite" },
+] as const;
+
+/**
+ * "Spielerblick": the Pokédex page as the player sees it on the DS (number, name, types, the battle picture), with the side, ♀ and shiny
+ * switches. The switches belong to this view for the session (nothing is saved). A gender without an image of its own is locked: the
+ * backend answers the other gender's image silently, so the lock tells what the picture shows.
+ */
+function PlayerView({ index, number, name, types, slots }: { index: number; number: number; name: string; types: readonly [number] | readonly [number, number]; slots: SpriteSlotsDto | null }) {
+  const [side, setSide] = useState<"front" | "back">("front");
+  const [female, setFemale] = useState(false);
+  const [shiny, setShiny] = useState(false);
+  // Unknown slots (no readable sprites) lock nothing: the picture is the placeholder anyway.
+  const noFemale = slots !== null && !slots.female;
+  const onlyFemale = slots !== null && !slots.male && slots.female;
+  const isFemale = onlyFemale || (!noFemale && female);
+  const request: BattleSpriteRequest = { species: index, side, female: isFemale, shiny };
+  const url = useIcon(battleSpriteKey(request), () => battleSprite(request), true);
+  const lockText = noFemale ? "Kein eigenes Bild für ♀" : onlyFemale ? "Nur ♀" : null;
+  return (
+    <section className={styles.section} aria-label="Spielerblick" data-ds-profile-section="">
+      <h3 className={styles.sectionTitle}>Spielerblick</h3>
+      <DSPokedexProfile number={number} name={name} types={types} spriteUrl={url} decorative />
+      <div className={styles.profileControls}>
+        <div data-side={side}>
+          <Segmented options={SIDES} value={side} onChange={setSide} ariaLabel="Seite" size="s" />
+        </div>
+        <div data-female={isFemale}>
+          <Switch label="Weiblich" checked={isFemale} onChange={setFemale} disabled={lockText !== null} />
+        </div>
+        <div data-shiny={shiny}>
+          <Switch label="Schillernd" checked={shiny} onChange={setShiny} />
+        </div>
+        {lockText !== null && <span className={styles.note}>{lockText}</span>}
+      </div>
+    </section>
+  );
+}
+
 /** The view (Schau) of a species: name, types and abilities, its base stats against the average of all species, where it is found and used. */
 export function PokedexView() {
   const { row, rows, labelOf, names, selected } = useDataArea("pokemon");
@@ -158,6 +199,15 @@ export function PokedexView() {
       <div className={styles.viewBody}>
         {error !== null && <Notice kind="error">{`Diese Art ist nicht lesbar: ${error}`}</Notice>}
         {doc !== null && personalLocked && <Notice kind="warning">{`${lockText(doc.locked ?? "", doc.locked_asset)}. Ihre Werte sind nicht lesbar.`}</Notice>}
+        {doc !== null && !personalLocked && (
+          <PlayerView
+            index={selected}
+            number={(row.extra as SpeciesRowExtra | null)?.number ?? selected}
+            name={name}
+            types={[doc.personal.type1, doc.personal.type2]}
+            slots={doc.sprite_slots}
+          />
+        )}
         {doc !== null && !personalLocked && (
           <section className={styles.section} aria-label="Basiswerte">
             <h3 className={styles.sectionTitle}>Basiswerte</h3>
