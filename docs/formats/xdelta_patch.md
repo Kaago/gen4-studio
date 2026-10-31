@@ -128,10 +128,11 @@ Temp-Datei und Umbenennen:
   Ergebnis `KernelError::Refused` mit „Die Liste der Veröffentlichungen ist nicht lesbar: <Pfad>:
   <Grund>“ bzw. „… nicht lesbar (Fassung 2 ist neuer als diese App)“ (`RELEASES_BROKEN`); die Datei
   bleibt Byte für Byte, auch `append_release` überschreibt sie nicht.
-- `next_version`: für die leere Liste `0.1.0`; sonst die Version der letzten Veröffentlichung mit
-  `major.minor.patch`, Patchzahl plus eins, ein Anhang (`-beta`, `+build`) entfällt (`2.0.0-beta` →
-  `2.0.1`, `1.2.9` → `1.2.10`); eine Version, die nicht aus drei Zahlen besteht (`final`), bleibt
-  stehen, der Entwickler tippt die nächste.
+- `next_version`: für die leere Liste `0.1.0`; sonst die ersten drei Zahlen der Version der letzten
+  Veröffentlichung (`major.minor.patch`, durch Punkte getrennt) mit Patchzahl plus eins; alles
+  danach (`-beta`, `+build`, `rc1`, `.4`) entfällt (`2.0.0-beta` → `2.0.1`, `1.2.9` → `1.2.10`,
+  `1.2.3rc1` → `1.2.4`, `1.2.3.4` → `1.2.4`); eine Version ohne diesen Anfang (`final`, `1.2`,
+  `v1.2.3`) bleibt stehen, der Entwickler tippt die nächste.
 - `check_version`: `Err(BAD_VERSION)` für eine leere Version, eine mit mehr als 32 Zeichen oder mit
   Leerraum, Steuerzeichen oder einem von `/ \ : * ? " < > |`; `Err(VERSION_TAKEN)` („Diese Version
   gibt es schon.“) für eine, die die Liste schon hat (genau gleich); sonst `Ok`.

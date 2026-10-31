@@ -117,38 +117,37 @@ pub fn append_release(root: &Path, release: Release) -> Result<Releases, KernelE
     Ok(releases)
 }
 
-/// The proposal for the next version: [`FIRST_VERSION`] for an empty list; else the last
-/// release's `major.minor.patch` with the patch number one higher and a suffix (`-beta`,
-/// `+build`) dropped; a version that is not three numbers stays as it is (the user types
-/// the next one).
+/// The proposal for the next version: [`FIRST_VERSION`] for an empty list; else the leading
+/// `major.minor.patch` (three numbers separated by dots) of the last release's version with
+/// the patch number one higher and everything after it (`-beta`, `rc1`, `.4`) dropped; a
+/// version without that prefix stays as it is (the user types the next one).
 pub fn next_version(releases: &Releases) -> String {
     let Some(last) = releases.last() else {
         return FIRST_VERSION.to_owned();
     };
-    let core = last
-        .version
-        .split(['-', '+'])
-        .next()
-        .unwrap_or(&last.version);
-    let parts: Vec<&str> = core.split('.').collect();
-    let numbers: Option<Vec<u64>> = match parts.as_slice() {
-        [_, _, _] => parts
-            .iter()
-            .map(|p| {
-                (!p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-                    .then(|| p.parse().ok())
-                    .flatten()
-            })
-            .collect(),
-        _ => None,
-    };
-    match numbers.as_deref() {
-        Some(&[major, minor, patch]) => match patch.checked_add(1) {
-            Some(patch) => format!("{major}.{minor}.{patch}"),
-            None => last.version.clone(),
-        },
-        _ => last.version.clone(),
+    leading_numbers(&last.version)
+        .and_then(|[major, minor, patch]| {
+            Some(format!("{major}.{minor}.{}", patch.checked_add(1)?))
+        })
+        .unwrap_or_else(|| last.version.clone())
+}
+
+/// The numbers of a leading `\d+.\d+.\d+`, if the version starts with one.
+fn leading_numbers(version: &str) -> Option<[u64; 3]> {
+    let mut rest = version;
+    let mut numbers = [0u64; 3];
+    for (i, number) in numbers.iter_mut().enumerate() {
+        if i > 0 {
+            rest = rest.strip_prefix('.')?;
+        }
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        *number = rest[..digits].parse().ok()?;
+        rest = &rest[digits..];
     }
+    Some(numbers)
 }
 
 /// `Err(BAD_VERSION)` for a version that is empty, longer than [`VERSION_MAX`] characters or
@@ -264,6 +263,12 @@ mod tests {
         assert_eq!(next("1.2.9"), "1.2.10");
         assert_eq!(next("2.0.0-beta"), "2.0.1");
         assert_eq!(next("2.0.0+b5"), "2.0.1");
+        assert_eq!(next("1.2.3rc1"), "1.2.4");
+        assert_eq!(next("1.2.3_b"), "1.2.4");
+        assert_eq!(next("1.2.3.4"), "1.2.4");
+        assert_eq!(next("v1.2.3"), "v1.2.3");
+        assert_eq!(next(".1.2.3"), ".1.2.3");
+        assert_eq!(next("1..3"), "1..3");
         assert_eq!(next("final"), "final");
         assert_eq!(next("1.2"), "1.2");
         assert_eq!(next("1.x.3"), "1.x.3");

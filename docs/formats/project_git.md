@@ -52,8 +52,8 @@ Bericht als `ignored_archives` (die vanilla DSPRE-Ordner: 36 in Platin, 40 in He
 Versioniert bleiben: `unpacked/`, `expanded/`, `arm9/`, die Overlays, die übrigen `files/` (auch die
 NARCs ohne `unpacked/`-Ordner), `header.yaml`, `config.yaml`, `g4-world.json`, `g4-checks.json`,
 `rotom.toml`, `.rotom/command_database` (ohne die ID-Dateien `.g4-ids-*`),
-`.rotom/status/compile-state.json`, `.g4/base.json`, `.g4/preview.png`, `.g4/releases.json`, die `.gitignore` und die
-`.gitattributes`.
+`.rotom/status/compile-state.json`, `.g4/base.json`, `.g4/preview.png`, `.g4/releases.json`, die
+`.gitignore` und die `.gitattributes`.
 
 ### Textprojekt (`text.gitignore`)
 
@@ -75,10 +75,10 @@ Wurzel gegen die Liste. `expanded/` steht nicht darin: es bleibt versioniert.
 
 Versioniert bleiben: die Dateien aus `textproject::sources()` (`g4-project.json`, `data/`,
 `expanded/textArchives/*.json`, `expanded/scripts/`, `rotom.toml`, `.rotom/command_database/`,
-`g4-world.json`, `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`), `.g4/releases.json`, der Rest von `expanded/`,
-die `.gitignore` und die `.gitattributes`. Die ID-Dateien für rotom
-(`.rotom/command_database/.g4-ids-*.json`) zählt `sources()` nicht mit, und die Vorlage ignoriert
-sie.
+`g4-world.json`, `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`), außerdem
+`.g4/releases.json`, der Rest von `expanded/`, die `.gitignore` und die `.gitattributes`. Die
+ID-Dateien für rotom (`.rotom/command_database/.g4-ids-*.json`) zählt `sources()` nicht mit, und die
+Vorlage ignoriert sie.
 
 **Hinweis H2** (Abnahme 4.3a): Der Export nimmt jede Datei der Wurzel, die keine Spieldatei ist, als
 Blob unter `data/raw/` auf. Eine Sicherung neben `data/` (`data.prev/`, `g4-project.json.prev`)
@@ -331,8 +331,8 @@ Ein Diff dauert auf Platin DE und HeartGold US höchstens 14 ms (Debug, `tests/d
 
 Die oberste Ebene von `.g4/` hält Projekt-Metadaten: die Basismarke `base.json`
 ([project_base.md](project_base.md)), das Vorschaubild `preview.png` und die Liste der
-Veröffentlichungen `releases.json` ([xdelta_patch.md](xdelta_patch.md#veröffentlichungen-g4releasesjson)).
-Alles andere ist lokal und
+Veröffentlichungen `releases.json`
+([xdelta_patch.md](xdelta_patch.md#veröffentlichungen-g4releasesjson)). Alles andere ist lokal und
 darf fehlen: `tmp/` (atomares Schreiben), `build/` (Build-Zustand, Fingerprints), `cache/`
 (Basisschicht, Modelle), `backup/` (Schnappschüsse). Neue Caches sind damit ohne Änderung der
 Vorlage ignoriert.
