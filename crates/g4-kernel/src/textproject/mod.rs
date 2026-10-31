@@ -40,6 +40,7 @@ mod export;
 pub mod ids;
 mod import;
 pub mod include;
+pub mod kinds;
 mod locate;
 pub mod manifest;
 pub mod migrate;

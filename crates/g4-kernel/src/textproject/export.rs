@@ -32,7 +32,7 @@ use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
 use super::manifest::{Manifest, SchemaState, manifest_for, read_manifest, refusal, schema_state};
 use super::quirks::{quirks_from_state, write_quirks};
-use super::registry::{IDS_DIR, Symbols, registry_file, trainer_baptism_name};
+use super::registry::{IDS_DIR, REGISTRY_KINDS, Symbols, registry_file, trainer_baptism_name};
 use super::schema::data::{
     EncounterEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity, TrainerTextTableEntity,
     export_items,
@@ -683,15 +683,10 @@ pub(crate) fn remove_if_empty(dir: &Path) -> Result<(), KernelError> {
 
 /// Deletes the visible files in `data/ids/` that are no register; their number.
 fn remove_unwritten_registers(root: &Path) -> Result<u32, KernelError> {
-    let registers: BTreeSet<&str> = [
-        SymbolKind::Map,
-        SymbolKind::Trainer,
-        SymbolKind::TrainerClass,
-        SymbolKind::Place,
-    ]
-    .into_iter()
-    .filter_map(registry_file)
-    .collect();
+    let registers: BTreeSet<&str> = REGISTRY_KINDS
+        .into_iter()
+        .filter_map(registry_file)
+        .collect();
     let dir = root.join(IDS_DIR);
     let mut removed = 0;
     for name in file_names(&dir)? {

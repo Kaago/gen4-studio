@@ -41,7 +41,10 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
     "language": "en_US"
   },
   "studioVersion": "0.1.0",
-  "schemas": {},
+  "schemas": {
+    "flags": 1,
+    "vars": 1
+  },
   "plugins": []
 }
 ```
@@ -54,7 +57,8 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `game.family` | `pt` oder `hgss` |
 | `game.language` | Sprachschlüssel (`de_DE`, `en_US`, …) |
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
-| `schemas`, `plugins` | reserviert; Phase 4 hält den Inhalt unverändert, liest ihn aber nicht (`textproject.reserved`) |
+| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
+| `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
 
 Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](project_base.md)).
 
@@ -76,8 +80,12 @@ Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](projec
 | `trainer_text_offsets` | Archiv-Member | `trainerTextOffset` |
 | `map_textures`, `building_textures` | – | `mapTextures`, `buildingTextures`: nur `NNNN.nsbtx`, wo der Member von der Basisschicht abweicht |
 | `building_models`, `interior_building_models` | – | `exteriorBuildingModels`, `interiorBuildingModels` (nur HeartGold/SoulSilver): nur `NNNN.nsbmd` bei Abweichung |
+| `flags` | eigener Name eines Flags (`NNNN.json`, dezimal) | keiner: Datenart ohne ROM-Gegenstück, `{id, description?}` ([flags_vars.md](flags_vars.md)) |
+| `vars` | eigener Name einer Variable (`NNNN.json`, dezimal, `16492.json`) | keiner, wie `flags` |
 
-Eine Art, deren Archiv das Spiel nicht hat, fehlt. Items gibt es nur mit geprüfter Item-Tabelle
+`flags` und `vars` sind Datenarten (`textproject/kinds.rs`): Export und Import fassen sie nicht an,
+nur der Check liest sie, und es gibt eine Datei nur für eine Nummer mit eigenem Namen. Eine Art,
+deren Archiv das Spiel nicht hat, fehlt. Items gibt es nur mit geprüfter Item-Tabelle
 (`arm9_tables.yaml`); ohne sie laufen die Item-Member wie alles Nicht-Abgebildete (Blob bei
 Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weitere
 `{"id": …, "same_member_as": "<ID>"}`; ein Member, auf den keine ID zeigt, ist ein Blob, wo er
@@ -274,8 +282,12 @@ Spezies (mit Formen), Attacken, Items, Fähigkeiten und Typen haben feste englis
 3-Clause, Lizenz in `LICENSE-PokeAPI.txt`). Eine Nummer ohne Eintrag heißt `PREFIX_NNNN` (vier
 Stellen, auch über der Tabelle).
 
-Maps, Trainer, Trainerklassen und Orte haben Register `data/ids/<art>.json`: ein JSON-Objekt
-ID → Nummer, Schlüssel sortiert, ohne eigenes Versionsfeld.
+Maps, Trainer, Trainerklassen und Orte haben Register `data/ids/<art>.json`, dazu die eigenen
+Namen der Flags und Variablen (`flags.json`, `vars.json`): sechs Register, je ein JSON-Objekt
+ID → Nummer, Schlüssel sortiert, ohne eigenes Versionsfeld. Der Export schreibt alle sechs (leer
+als `{}`). Flags und Variablen werden nie getauft: ihr Register hält nur Namen, die „Als eigenes
+Flag benennen…“ vergeben hat, die pret-Namen stehen nicht darin
+([flags_vars.md](flags_vars.md)).
 
 ```json
 {
@@ -292,7 +304,9 @@ Ortsnamen-Bank. Normalisierung: Markup weg, `♂/♀` → `_M/_F`, deutsche Umla
 bei deutscher Projektsprache, Diakritika weg, Nicht-Alphanumerisches → `_`, groß; leer oder nur
 Ziffern → `PREFIX_NNNN`. Gleichstand in Nummernreihenfolge `_2`, `_3`, … (nächstes freies Suffix).
 Eingefroren: ein vorhandener Eintrag bleibt, auch wenn sich der Name ändert oder die Nummer
-verschwindet (`textproject.id-dangling`). Ein Register darf keine ID doppelt nennen, keine Nummer
+verschwindet (`textproject.id-dangling`: Maps und Trainer über ihrer höchsten Datei unter
+`data/`, eine Lücke darunter ist kein verschwundener Eintrag; Flags und Variablen nie, ihnen fehlt
+höchstens die Entitätsdatei). Ein Register darf keine ID doppelt nennen, keine Nummer
 doppelt vergeben und keine fremde Fallback-ID tragen (`textproject.schema` an der Stelle der ID).
 
 **Eine Entität von Hand anhängen.** Eine neue Entität hat eine Nummer, die kein Member und kein
@@ -816,8 +830,10 @@ aus (nur mit einer Decomp-Wurzel; ein Test merkt, wenn sich das ändert), lädt 
 `*.json` direkt in seinem Konstantenordner (`database_dir` aus `rotom.toml`, sonst
 `.rotom/command_database/`) als `{"<Nummer>": "<NAME>"}`. Gen4 Studio schreibt dort je Art eine
 Datei `.g4-ids-<art>.json` (`species` mit den Formen, `moves`, `items`, `abilities`, `types`,
-`maps`, `trainers`, `trainer_classes`, `places`): die IDs der festen Tabellen und der Register,
-aufsteigend nach Nummer, kanonisches JSON. Ersatz-IDs (`TRAINER_0005`) werden nicht für jede
+`maps`, `trainers`, `trainer_classes`, `places`, `flags`, `vars`): die IDs der festen Tabellen und
+der Register, aufsteigend nach Nummer, kanonisches JSON. `-flags` und `-vars` gibt es nur mit
+Registereinträgen und enthalten nur die eigenen Namen; die pret-Namen kennt rotom aus seiner
+Datenbank, ein Script mit dem pret-Namen übersetzt zu denselben Bytes wie eines mit dem eigenen. Ersatz-IDs (`TRAINER_0005`) werden nicht für jede
 Nummer erzeugt; ein Registereintrag in der Ersatzform der eigenen Nummer (ein Trainer ohne Namen
 wurde so getauft, oder eine ID wurde so umbenannt) steht aber darin wie jede andere ID.
 
@@ -917,8 +933,11 @@ oben).
 
 ## ID umbenennen
 
-Eine **Register-ID** (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`) lässt sich umbenennen; die
-IDs der festen Tabellen (Spezies, Formen, Attacken, Items, Fähigkeiten, Typen) bleiben fest. Die
+Eine **Register-ID** (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, und die eigenen Namen
+`FLAG_`, `VAR_`) lässt sich umbenennen; die IDs der festen Tabellen (Spezies, Formen, Attacken,
+Items, Fähigkeiten, Typen) und die pret-Namen der Flags und Variablen (`Unbekannte ID: …`) bleiben
+fest. Ein eigener Flag-Name zieht dabei auch die `id` seiner Entitätsdatei `data/flags/NNNN.json`
+nach (sie liegt unter `data/`). Die
 Art einer ID gibt das längste passende Präfix: `TRAINER_CLASS_X` ist eine Trainerklasse, kein
 Trainer. Kernel: `textproject::rename::{plan_rename, rename_id, rename_id_files}`, kopflos
 `g4k text rename-id <projekt> <alt> <neu> [--json]` (ohne Undo).
@@ -928,12 +947,14 @@ Zeichen; nicht vergeben (auch nicht als `MAP_<interner Name>` eines anderen Head
 Ersatz-ID einer anderen Nummer (die eigene, `TRAINER_0005` für Trainer 5, ist erlaubt und steht
 als Registereintrag in den ID-Dateien, Scripts übersetzen weiter); nicht ein
 Name, den rotom schon mit anderer Nummer kennt (er fiele aus den ID-Dateien, siehe „IDs in
-Scripts“). Jede Ablehnung kommt, bevor eine Datei geschrieben wird, mit einem dieser Sätze:
+Scripts“); bei Flags und Variablen nicht der pret-Name einer anderen Nummer (geprüft vor der Form,
+pret-Namen haben ein kleines `0x`). Jede Ablehnung kommt, bevor eine Datei geschrieben wird, mit einem dieser Sätze:
 
 - `Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“.` (eine ältere oder
   neuere Schema-Version: der Satz des Manifests)
 - `Unbekannte ID: {alt}.`
-- `{alt} steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_).`
+- `{alt} steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).`
+- `{neu} ist der pret-Name der Nummer {n}.` (Flags und Variablen)
 - `Die neue ID muss mit {PRÄFIX}_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten (höchstens 64 Zeichen).`
 - `{neu} wäre eine ID der Art TRAINER_CLASS_; die neue ID muss mit TRAINER_ beginnen, nicht mit TRAINER_CLASS_.`
 - `{neu} gibt es schon (Nummer {n}).`
@@ -997,7 +1018,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 
 | Code | Schwere | Bedeutung |
 |---|---|---|
-| `textproject.schema` | Fehler | Datei passt nicht zum Schema: kein JSON, unbekannter oder vertippter Schlüssel, falscher Typ, Wert außerhalb des Bereichs, Lücke in der Nummerierung |
+| `textproject.schema` | Fehler | Datei passt nicht zum Schema: kein JSON, unbekannter oder vertippter Schlüssel, falscher Typ, Wert außerhalb des Bereichs, Lücke in der Nummerierung; als Warnung: `schemas` nennt für eine Datenart eine höhere Version, als die Fassung kennt |
 | `textproject.unknown-id` | Fehler | eine ID, die keine Tabelle und kein Register kennt |
 | `textproject.id-mismatch` | Fehler | `id` ist nicht die ID der Nummer der Datei |
 | `textproject.side-file` | Fehler | ein Beifile `{"file"}` fehlt oder ist nicht lesbar |
@@ -1010,8 +1031,8 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |
 | `textproject.unknown-art` | Warnung | ein Ordner unter `data/`, den keine Art kennt; bleibt unberührt |
-| `textproject.reserved` | Info | `schemas` oder `plugins` im Manifest sind nicht leer |
-| `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt |
+| `textproject.reserved` | Info | `schemas` hat einen Schlüssel, der keine Datenart ist, oder `plugins` ist nicht leer |
+| `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt (Flags, Variablen: der eigene Name hat keine Entitätsdatei) |
 | `textproject.id-shadowed` | Warnung | Check: eine ID fehlt in den ID-Dateien für rotom, weil rotom den Namen schon mit anderer Nummer kennt (in Scripts gilt rotoms) oder eine Art davor ihn hat |
 | `textproject.base-unchecked` | Warnung | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
 | `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |

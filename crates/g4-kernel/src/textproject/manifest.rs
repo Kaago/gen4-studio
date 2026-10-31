@@ -1,5 +1,6 @@
-//! The manifest `g4-project.json`: format, schema version, game and Studio version, plus the
-//! reserved `schemas` and `plugins`, kept as they are and not evaluated in phase 4.
+//! The manifest `g4-project.json`: format, schema version, game and Studio version, the
+//! versions of the data kinds in `schemas` (other keys there and `plugins` are reserved, kept as
+//! they are and not evaluated).
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -93,8 +94,9 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
     Ok(manifest)
 }
 
-/// The manifest for `project` in this Studio version; `schemas` and `plugins` come unchanged
-/// from `keep` (the manifest on disk), empty without one.
+/// The manifest for `project` in this Studio version: `schemas` names every data kind with its
+/// version ([`kinds::schemas`](super::kinds::schemas)) and keeps the foreign keys of `keep` (the
+/// manifest on disk), `plugins` come unchanged from `keep`; empty without one.
 pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
     Manifest {
         format: FORMAT.to_owned(),
@@ -105,7 +107,7 @@ pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
             language: project.language.locale_key().to_owned(),
         },
         studio_version: env!("CARGO_PKG_VERSION").to_owned(),
-        schemas: keep.map(|m| m.schemas.clone()).unwrap_or_default(),
+        schemas: super::kinds::schemas(&keep.map(|m| m.schemas.clone()).unwrap_or_default()),
         plugins: keep.map(|m| m.plugins.clone()).unwrap_or_default(),
     }
 }
@@ -318,7 +320,10 @@ mod tests {
             }
         );
         assert_eq!(fresh.studio_version, env!("CARGO_PKG_VERSION"));
-        assert!(fresh.schemas.is_empty());
+        assert_eq!(
+            fresh.schemas,
+            crate::textproject::kinds::schemas(&BTreeMap::new())
+        );
         assert!(fresh.plugins.is_empty());
 
         let mut old = fresh.clone();
@@ -330,9 +335,37 @@ mod tests {
         old.plugins
             .push(serde_json::json!({"name": "x", "enabled": true}));
         let kept = manifest_for(&project, Some(&old));
-        assert_eq!(kept.schemas, old.schemas);
+        assert_eq!(kept.schemas["maps"], old.schemas["maps"]);
+        assert_eq!(kept.schemas.len(), 3, "maps, flags, vars");
         assert_eq!(kept.plugins, old.plugins);
         assert_eq!(kept.studio_version, env!("CARGO_PKG_VERSION"));
         assert_eq!(kept.game, fresh.game);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn manifest_for_writes_the_data_kind_schemas() {
+        let s = crate::test_support::synthetic_project();
+        let project = Project::open(s.dir.path()).unwrap();
+        let fresh = manifest_for(&project, None);
+        assert_eq!(
+            fresh.schemas,
+            BTreeMap::from([
+                ("flags".to_owned(), Value::from(1)),
+                ("vars".to_owned(), Value::from(1)),
+            ])
+        );
+        let mut old = fresh.clone();
+        old.schemas
+            .insert("stories".to_owned(), serde_json::json!({"version": 3}));
+        old.schemas.insert("vars".to_owned(), Value::from(0));
+        assert_eq!(
+            manifest_for(&project, Some(&old)).schemas,
+            BTreeMap::from([
+                ("flags".to_owned(), Value::from(1)),
+                ("stories".to_owned(), serde_json::json!({"version": 3})),
+                ("vars".to_owned(), Value::from(1)),
+            ])
+        );
     }
 }

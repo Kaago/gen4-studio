@@ -1,5 +1,6 @@
 //! The registers `data/ids/*.json` of the kinds without a fixed table (maps, trainers,
-//! trainer classes, places) and their baptism; [`Symbols`] resolves the ids of every kind.
+//! trainer classes, places, and the own names of flags and variables) and their baptism (never
+//! for flags and variables); [`Symbols`] resolves the ids of every kind.
 //!
 //! A register is one JSON object id → number, keys sorted, in the canonical form and without
 //! a version field of its own (the manifest carries the version). Ids are christened once in
@@ -9,7 +10,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use g4_formats::game::Family;
+
 use crate::error::{KernelError, io_at};
+use crate::flags::{FlagKind, NameTable, names};
 use crate::text::Problem;
 
 use super::canon::{parse_json, problem, to_canonical, write_if_changed};
@@ -21,28 +25,31 @@ use super::symbols::{SymbolKind, fallback_id, normalize, parse_fallback, table};
 pub const IDS_DIR: &str = "data/ids";
 
 /// The kinds with a register, in the order [`Symbols`] loads and saves them.
-const REGISTRY_KINDS: [SymbolKind; 4] = [
+pub(crate) const REGISTRY_KINDS: [SymbolKind; 6] = [
     SymbolKind::Map,
     SymbolKind::Trainer,
     SymbolKind::TrainerClass,
     SymbolKind::Place,
+    SymbolKind::Flag,
+    SymbolKind::Var,
 ];
 
 /// The register file of `kind` in [`IDS_DIR`]: `maps.json`, `trainers.json`,
-/// `trainer_classes.json`, `places.json`; `None` for the kinds with a fixed table.
+/// `trainer_classes.json`, `places.json`, `flags.json`, `vars.json`; `None` for the kinds with a
+/// fixed table.
 pub fn registry_file(kind: SymbolKind) -> Option<&'static str> {
     match kind {
         SymbolKind::Map => Some("maps.json"),
         SymbolKind::Trainer => Some("trainers.json"),
         SymbolKind::TrainerClass => Some("trainer_classes.json"),
         SymbolKind::Place => Some("places.json"),
+        SymbolKind::Flag => Some("flags.json"),
+        SymbolKind::Var => Some("vars.json"),
         SymbolKind::Species
         | SymbolKind::Move
         | SymbolKind::Item
         | SymbolKind::Ability
         | SymbolKind::Type => None,
-        // The flags and variables get their registers with their own names.
-        SymbolKind::Flag | SymbolKind::Var => None,
     }
 }
 
@@ -250,18 +257,22 @@ fn duplicate_keys(rel: &Path, bytes: &[u8]) -> Vec<Problem> {
 }
 
 /// Resolves ids for every kind: the fixed tables of species, moves, items, abilities and types,
-/// the registers of maps, trainers, trainer classes and places, and the fallbacks.
+/// the registers of maps, trainers, trainer classes, places, flags and variables, the pret names
+/// of the flags and variables of a family ([`Symbols::with_family`]), and the fallbacks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbols {
     registries: HashMap<SymbolKind, Registry>,
     /// Whether a number without a register entry has its fallback id
     /// ([`Symbols::with_fallbacks`]).
     fallbacks: bool,
+    /// The family whose pret names the flags and variables have after their own names.
+    family: Option<Family>,
 }
 
 impl Symbols {
-    /// The four registers under `root` (missing files are empty); the problems of every broken
-    /// register together as one [`KernelError::Compile`].
+    /// The six registers under `root` (missing files are empty); the problems of every broken
+    /// register together as one [`KernelError::Compile`]. Without a family: flags and variables
+    /// resolve by their own names and fallbacks only ([`Symbols::with_family`]).
     pub fn load(root: &Path) -> Result<Symbols, KernelError> {
         let mut registries = HashMap::new();
         let mut problems = Vec::new();
@@ -278,6 +289,7 @@ impl Symbols {
             Ok(Symbols {
                 registries,
                 fallbacks: false,
+                family: None,
             })
         } else {
             Err(KernelError::Compile(problems))
@@ -287,6 +299,22 @@ impl Symbols {
     /// These symbols with the fallback id (`TRAINER_0001`) for every number of a register kind
     /// that has no entry, so nothing needs a baptism: the ids of a DSPRE folder for the diff,
     /// which never christens ([`crate::diff`]).
+    /// These symbols with the pret names of `family`'s flags and variables: [`Symbols::id`] and
+    /// [`Symbols::number`] of [`SymbolKind::Flag`] and [`SymbolKind::Var`] look at the register
+    /// (the own names) first, then at the pret names ([`crate::flags::names`]; a number's id
+    /// is its main name, every alias resolves). [`Symbols::ids`] stays the register.
+    pub fn with_family(mut self, family: Family) -> Symbols {
+        self.family = Some(family);
+        self
+    }
+
+    /// The pret names of `kind` in the family of these symbols; `None` for a kind other than
+    /// flags and variables, or without a family.
+    fn pret(&self, kind: SymbolKind) -> Option<&'static NameTable> {
+        let kind = FlagKind::from_symbol(kind)?;
+        Some(names(self.family?, kind))
+    }
+
     pub(crate) fn with_fallbacks(mut self) -> Symbols {
         self.fallbacks = true;
         self
@@ -305,8 +333,9 @@ impl Symbols {
             .or_insert_with(|| Registry::new(kind))
     }
 
-    /// The id of number `n` of `kind` from its table or register; `None` without an entry
-    /// (the caller writes the number then), unless the symbols have fallbacks
+    /// The id of number `n` of `kind` from its table or register (a flag or variable without
+    /// an own name: its pret name, [`Symbols::with_family`]); `None` without an entry (the
+    /// caller writes the number then), unless the symbols have fallbacks
     /// ([`Symbols::with_fallbacks`]): then a register kind answers the fallback id.
     pub fn id(&self, kind: SymbolKind, n: u32) -> Option<String> {
         match table(kind) {
@@ -315,6 +344,7 @@ impl Symbols {
                 .registries
                 .get(&kind)
                 .and_then(|r| r.id_of(n))
+                .or_else(|| self.pret(kind)?.name(u16::try_from(n).ok()?))
                 .map(str::to_owned)
                 .or_else(|| self.fallbacks.then(|| fallback_id(kind, n))),
         }
@@ -329,15 +359,17 @@ impl Symbols {
             .unwrap_or_default()
     }
 
-    /// The number of `id` of `kind`: from its table or register, else from the fallback form
-    /// `PREFIX_NNNN`; `None` for an unknown id.
+    /// The number of `id` of `kind`: from its table or register (flags and variables then by
+    /// their pret names, [`Symbols::with_family`]), else from the fallback form `PREFIX_NNNN`;
+    /// `None` for an unknown id.
     pub fn number(&self, kind: SymbolKind, id: &str) -> Option<u32> {
         let known = match table(kind) {
             Some(table) => table.number(id),
             None => self
                 .registries
                 .get(&kind)
-                .and_then(|r| r.ids.get(id).copied()),
+                .and_then(|r| r.ids.get(id).copied())
+                .or_else(|| self.pret(kind)?.number(id).map(u32::from)),
         };
         known.or_else(|| parse_fallback(kind, id))
     }
@@ -393,6 +425,9 @@ mod tests {
             Some("trainer_classes.json")
         );
         assert_eq!(registry_file(SymbolKind::Place), Some("places.json"));
+        assert_eq!(registry_file(SymbolKind::Flag), Some("flags.json"));
+        assert_eq!(registry_file(SymbolKind::Var), Some("vars.json"));
+        assert_eq!(REGISTRY_KINDS.len(), 6);
         assert_eq!(registry_file(SymbolKind::Species), None);
         assert_eq!(registry_file(SymbolKind::Type), None);
     }
@@ -663,8 +698,8 @@ mod tests {
         // `maps.json` is not canonical, so it is rewritten too.
         assert_eq!(
             symbols.save(root).unwrap(),
-            4,
-            "maps, places, trainers, classes"
+            6,
+            "maps, places, trainers, classes, flags, vars"
         );
         assert_eq!(symbols.save(root).unwrap(), 0);
         assert_eq!(
@@ -675,6 +710,9 @@ mod tests {
             std::fs::read(root.join("data/ids/trainers.json")).unwrap(),
             b"{}\n"
         );
+        for empty in ["data/ids/flags.json", "data/ids/vars.json"] {
+            assert_eq!(std::fs::read(root.join(empty)).unwrap(), b"{}\n", "{empty}");
+        }
         assert_eq!(
             std::fs::read(root.join("data/ids/places.json")).unwrap(),
             b"{\n  \"PLACE_KLEINDORF\": 0\n}\n"
@@ -682,5 +720,72 @@ mod tests {
         let again = Symbols::load(root).unwrap();
         assert_eq!(again.number(SymbolKind::Place, "PLACE_KLEINDORF"), Some(0));
         assert_eq!(again.number(SymbolKind::Map, "MAP_T01"), Some(3));
+    }
+
+    #[test]
+    fn flags_and_variables_resolve_the_register_then_the_pret_names() {
+        use g4_formats::game::Family;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(IDS_DIR)).unwrap();
+        std::fs::write(
+            root.join("data/ids/flags.json"),
+            "{\"FLAG_HAT_MEDAILLE\": 148}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("data/ids/vars.json"),
+            "{\"VAR_ZAEHLER\": 16492}\n",
+        )
+        .unwrap();
+        let plain = Symbols::load(root).unwrap();
+        // Without a family: the register and the fallbacks only.
+        assert_eq!(
+            plain.number(SymbolKind::Flag, "FLAG_HAT_MEDAILLE"),
+            Some(148)
+        );
+        assert_eq!(plain.number(SymbolKind::Flag, "FLAG_UNUSED_0x0094"), None);
+        assert_eq!(plain.number(SymbolKind::Flag, "FLAG_0149"), Some(149));
+        assert_eq!(plain.id(SymbolKind::Flag, 149), None);
+
+        let symbols = plain.with_family(Family::Pt);
+        assert_eq!(
+            symbols.id(SymbolKind::Flag, 148).as_deref(),
+            Some("FLAG_HAT_MEDAILLE"),
+            "the own name first"
+        );
+        assert_eq!(
+            symbols.id(SymbolKind::Flag, 149).as_deref(),
+            Some("FLAG_UNUSED_0x0095")
+        );
+        assert_eq!(
+            symbols.number(SymbolKind::Flag, "FLAG_UNUSED_0x0094"),
+            Some(148)
+        );
+        assert_eq!(
+            symbols.number(SymbolKind::Flag, "FLAG_HAT_MEDAILLE"),
+            Some(148)
+        );
+        assert_eq!(symbols.number(SymbolKind::Var, "VAR_ZAEHLER"), Some(0x406C));
+        assert_eq!(
+            symbols.id(SymbolKind::Var, 0x406C).as_deref(),
+            Some("VAR_ZAEHLER")
+        );
+        // Aliases resolve, the main name is the id.
+        assert_eq!(symbols.number(SymbolKind::Var, "VARS_START"), Some(0x4000));
+        assert_eq!(
+            symbols.id(SymbolKind::Var, 0x4000).as_deref(),
+            Some("VAR_MAP_LOCAL_0x00")
+        );
+        assert_eq!(symbols.number(SymbolKind::Flag, "VAR_RESULT"), None);
+        assert_eq!(symbols.id(SymbolKind::Flag, 0xFFFF_0000), None);
+        // The register lists the own names only.
+        assert_eq!(
+            symbols.ids(SymbolKind::Flag),
+            [(148, "FLAG_HAT_MEDAILLE".to_owned())]
+        );
+        // Other kinds are untouched by the family.
+        assert_eq!(symbols.number(SymbolKind::Map, "MAP_0003"), Some(3));
     }
 }

@@ -11,10 +11,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::textproject::symbols::SymbolKind;
 
+mod entities;
 mod names;
 mod ranges;
 mod save_layout;
 
+pub use entities::{
+    FlagEntity, HAS_OWN_NAME, ID_REQUIRED, NOTHING_TO_CHANGE, NameReport, NameRequest, TakenBy,
+    entity_rel, name_flag, name_flag_files, not_in_save_text, own_names, read_entity, taken_text,
+};
 pub use names::{NameTable, name_is_unused, names};
 pub use ranges::{
     Area, Range, Ranges, area_of, hidden_items_base, in_save, pool_range, ranges, trainer_flag,
@@ -30,6 +35,15 @@ pub enum FlagKind {
 }
 
 impl FlagKind {
+    /// The flag kind of a [`SymbolKind`]: `Flag`, `Var`, `None` for every other kind.
+    pub fn from_symbol(symbol: SymbolKind) -> Option<FlagKind> {
+        match symbol {
+            SymbolKind::Flag => Some(FlagKind::Flag),
+            SymbolKind::Var => Some(FlagKind::Var),
+            _ => None,
+        }
+    }
+
     /// The kind of id the number has: [`SymbolKind::Flag`] or [`SymbolKind::Var`].
     pub fn symbol(self) -> SymbolKind {
         match self {
@@ -77,5 +91,8 @@ mod tests {
         assert_eq!(FlagKind::Var.folder(), "vars");
         assert_eq!(FlagKind::Flag.word(), "Flag");
         assert_eq!(FlagKind::Var.word(), "Variable");
+        assert_eq!(FlagKind::from_symbol(SymbolKind::Flag), Some(FlagKind::Flag));
+        assert_eq!(FlagKind::from_symbol(SymbolKind::Var), Some(FlagKind::Var));
+        assert_eq!(FlagKind::from_symbol(SymbolKind::Trainer), None);
     }
 }

@@ -1,5 +1,7 @@
-//! „ID umbenennen“: a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`) gets a new
-//! name everywhere it is written, as one step on the undo stack.
+//! „ID umbenennen“: a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, and the own
+//! names `FLAG_`, `VAR_`) gets a new name everywhere it is written, as one step on the undo
+//! stack. The pret names of flags and variables are no register ids: they cannot be renamed, and
+//! no own name may take the pret name of another number.
 //!
 //! What is renamed: the register entry (`data/ids/<kind>.json`, which also renames the `id` of
 //! the entity's JSON below), every JSON string that reads the old id (keys too) in the files
@@ -30,6 +32,7 @@ use serde::Serialize;
 
 use crate::checks::IGNORE_FILE;
 use crate::error::{KernelError, guard_panic, io_at};
+use crate::flags::{FlagKind, names};
 use crate::fsutil::Journal;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts::{self, SourceKind};
@@ -59,7 +62,7 @@ pub const NOT_A_TEXT_PROJECT: &str =
 pub const SAME_ID: &str = "Die neue ID ist die alte.";
 
 /// Every kind, to split an id by its longest prefix (`TRAINER_CLASS_X` is a class).
-const KINDS: [SymbolKind; 9] = [
+const KINDS: [SymbolKind; 11] = [
     SymbolKind::Species,
     SymbolKind::Move,
     SymbolKind::Item,
@@ -69,6 +72,8 @@ const KINDS: [SymbolKind; 9] = [
     SymbolKind::Trainer,
     SymbolKind::TrainerClass,
     SymbolKind::Place,
+    SymbolKind::Flag,
+    SymbolKind::Var,
 ];
 
 /// One file a rename writes, relative to the root, and how many references it changes there.
@@ -139,7 +144,7 @@ pub fn rename_id(
     let project = store.project_arc();
     project.editable()?;
     let (plan, step) = prepared_step(&project, old_id, new_id)?;
-    let warnings = apply(&project, &step)?;
+    let warnings = apply_file_step(&project, &step)?;
     let change = store.record_file_step(&format!("ID umbenannt: {old_id} → {new_id}"), step);
     Ok(RenameResult {
         plan,
@@ -162,7 +167,7 @@ pub fn rename_id_files(
     let started = Instant::now();
     project.editable()?;
     let (plan, step) = prepared_step(project, old_id, new_id)?;
-    let warnings = apply(project, &step)?;
+    let warnings = apply_file_step(project, &step)?;
     Ok(RenameFilesResult {
         plan,
         ms: ms_since(started),
@@ -199,8 +204,12 @@ fn prepared_step(
 }
 
 /// Writes the files of `step` (put back on a failure) under the sync's lock, so a scan never
-/// sees a half-renamed tree, then [`after_move`]; its warnings.
-fn apply(project: &Project, step: &FileStep) -> Result<Vec<String>, KernelError> {
+/// sees a half-renamed tree, then [`after_move`]; its warnings. Also the step of naming a flag
+/// or variable ([`crate::flags::name_flag`]), which has the same follow-ups.
+pub(crate) fn apply_file_step(
+    project: &Project,
+    step: &FileStep,
+) -> Result<Vec<String>, KernelError> {
     sync::locked(&project.root, || {
         let paths: Vec<&Path> = step.files.iter().map(|f| f.path.as_path()).collect();
         let in_step = before_move(project, &paths);
@@ -269,7 +278,7 @@ pub fn kind_of(id: &str) -> Option<SymbolKind> {
 }
 
 /// The sentence for a new id of `kind` that breaks the rules of an id.
-fn format_text(kind: SymbolKind) -> String {
+pub(crate) fn format_text(kind: SymbolKind) -> String {
     format!(
         "Die neue ID muss mit {}_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
          (höchstens {MAX_ID_LEN} Zeichen).",
@@ -279,7 +288,7 @@ fn format_text(kind: SymbolKind) -> String {
 
 /// Whether `id` is the prefix of `kind`, `_` and at least one of `A–Z`, `0–9`, `_`, at most
 /// [`MAX_ID_LEN`] characters in all.
-fn well_formed(kind: SymbolKind, id: &str) -> bool {
+pub(crate) fn well_formed(kind: SymbolKind, id: &str) -> bool {
     id.len() <= MAX_ID_LEN
         && id
             .strip_prefix(kind.prefix())
@@ -323,7 +332,7 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
         return Ok(Err(if fixed {
             format!(
                 "{old} steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit \
-                 Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_)."
+                 Register (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_)."
             )
         } else {
             unknown_id_text(old)
@@ -335,6 +344,14 @@ fn judge(project: &Project, old: &str, new: &str) -> Result<Result<Judged, Strin
     };
     if new == old {
         return Ok(Err(SAME_ID.to_owned()));
+    }
+    // A flag or variable: its own name must not be the pret name of another number (checked
+    // before the form, as pret names may have a lower-case `0x`).
+    if let Some(owner) = FlagKind::from_symbol(kind)
+        .and_then(|flag| names(project.family, flag).number(new))
+        .filter(|&n| u32::from(n) != number)
+    {
+        return Ok(Err(format!("{new} ist der pret-Name der Nummer {owner}.")));
     }
     if !well_formed(kind, new) {
         return Ok(Err(format_text(kind)));

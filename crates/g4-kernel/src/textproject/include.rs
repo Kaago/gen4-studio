@@ -45,8 +45,9 @@ pub const ID_FILE_PREFIX: &str = ".g4-ids-";
 /// The kinds with ids, in the order their names are checked against each other, with the
 /// name part of their file: `.g4-ids-species.json` (the forms included), `…-moves`,
 /// `…-items`, `…-abilities`, `…-types`, `…-maps`, `…-trainers`, `…-trainer_classes`,
-/// `…-places`.
-const KINDS: [(SymbolKind, &str); 9] = [
+/// `…-places`, `…-flags`, `…-vars`. The flags and variables have only their register entries
+/// (the own names): their pret names are rotom's own already.
+const KINDS: [(SymbolKind, &str); 11] = [
     (SymbolKind::Species, "species"),
     (SymbolKind::Move, "moves"),
     (SymbolKind::Item, "items"),
@@ -56,6 +57,8 @@ const KINDS: [(SymbolKind, &str); 9] = [
     (SymbolKind::Trainer, "trainers"),
     (SymbolKind::TrainerClass, "trainer_classes"),
     (SymbolKind::Place, "places"),
+    (SymbolKind::Flag, "flags"),
+    (SymbolKind::Var, "vars"),
 ];
 
 /// The file name of the id file of the kind named `stem`.
