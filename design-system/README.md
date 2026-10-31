@@ -659,7 +659,7 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   | Taste | Symbol | Bereich | Zustand | Tooltip, zweite Zeile |
   |---|---|---|---|---|
   | Gebiet anlegen | `matrix` | Welt | läuft, öffnet den Assistenten | „Kopiert Karten zu einem neuen Gebiet mit eigenem Ort.“ |
-  | Raum anlegen | `room` | Welt | läuft, öffnet den Assistenten (mit der gewählten Tür nach draußen) | „Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen.“ |
+  | Raum anlegen | `room` | Welt | läuft, öffnet den Assistenten (mit dem gewählten Ort als Außenseite) | „Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen.“ |
   | Neue Figur | `figure` | Welt | gesperrt | „Kommt mit 3d.5“ |
   | Tür verbinden | `door` | Welt | gesperrt | „Kommt mit 3d.5“ |
   | Neuer Trainer hier | `pokemon` | Pokémon | gesperrt | „Kommt mit 3d.5“ |

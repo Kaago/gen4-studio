@@ -4,7 +4,7 @@
   //                Figur in Erzählen: Aussehen (Sprite und „Ändern…“), Bewegung (Wort), Blickrichtung, Trainer; Statusleiste ohne Werkzeugkürzel
   //   'entwurf'    „App: Welt, Erzählen, Entwurf Raum anlegen“: der Assistent „Raum anlegen“ im Scharnier (Schrittleiste Vorlage, Ort, Eingang,
   //                Zusammenfassung, Schritt 4), in der Schau der Entwurf (gestrichelter Zellrahmen und halbtransparenter Marker der Tür), unten die
-  //                Zusammenfassung mit den Sätzen des Assistenten und der Plakette „Nicht rückgängig“ (die Sätze des Kerns stehen nur in Tüfteln)
+  //                Zusammenfassung mit den Zeilen des Assistenten und der Plakette „Nicht rückgängig“ (die Sätze des Kerns stehen nur in Tüfteln)
   //   'brett'      „Komponenten (App): Rezept-Taste und Segmente“ (Seite „Komponenten“): die Rezept-Taste in vier Zuständen, in vier Bereichsfarben
   //                und in Größe S, die Segmente „Tiefe“ in drei Zuständen, das Ergebnis „Als Nächstes“ mit den Tasten
   // Quellen: apps/studio/src/ui/frame/{shellState,Hinge,RecipeBar}.tsx und .module.css, ui/primitives/RecipeButton.tsx und .module.css,
@@ -116,26 +116,39 @@
 
   // ----- 'entwurf': „Raum anlegen“ vor dem Anlegen, der Entwurf in der Schau -----
   if (MODE === 'entwurf') {
-    const SH = 548 - DI.reiter;
+    // Dock wie assistent-ort.body.js: unter dem Streifen des Assistenten (286) bleiben 502; Schau und Script/Probleme im Verhältnis 548 : 788
+    const DH = 832 - DI.scharnier - 286, SH = Math.round(DH * 548 / 788), SZ = SH - DI.reiter;
     // Entwurf (world/scene/draft.ts): gestrichelter Rahmen (Strich 1, Lücke 0,5 Kachel) in auswahl/halo bei 50 %, hier um die Zelle des neuen
-    // Raums neben dem Gebäude; 1 × 1 Kachelrahmen um die geplante Tür; der Marker der Tür als Platzhalter halbtransparent (kein Sprite vor 3d.5)
+    // Raums am rechten Rand; 1 × 1 Kachelrahmen um die geplante Tür; der Marker der Tür als Platzhalter halbtransparent (kein Sprite vor 3d.5)
     const Zelle = (x, y, w, h) => <Frame name="Entwurf: Zelle" position="absolute" x={x} y={y} w={w} h={h} opacity={0.5} stroke={v('auswahl/halo')} strokeWidth={2} strokeDash={[8, 4]} dashPattern={[8, 4]} />;
     const Kachel = (x, y) => <Frame name="Entwurf: Kachel" position="absolute" x={x} y={y} w={18} h={18} opacity={0.5} stroke={v('auswahl/halo')} strokeWidth={2} strokeDash={[6, 3]} dashPattern={[6, 3]} />;
     const Marker = (x, y) => <Frame name="Entwurf: Marker Tür" position="absolute" x={x} y={y} w={14} h={14} rounded={2} opacity={0.5} bg={v('ereignis/warp')} stroke="#101821" strokeWidth={1} />;
-    const szeneBild = Welt3D({ w: SW, h: SH, sel: -1, children: [LayerBar(8, 8), Zelle(430, 120, 140, 110), Kachel(468, 238), Marker(470, 240), LegendBtn(8, SH - 40)] });
-    const schau = DockGroup({ name: 'Gruppe Schau', tabs: ['3D', 'Weltkarte'], active: '3D', focused: false, h: 548 - 286 + 44, bg: 'flaeche/welt', children: szeneBild });
+    const schau = DockGroup({ name: 'Gruppe Schau', tabs: ['3D', 'Weltkarte'], active: '3D', focused: false, h: SH, bg: 'flaeche/welt',
+      children: Welt3D({ w: SW, h: SZ, sel: -1, children: [LayerBar(8, 8), Zelle(600, 140, 100, 84), Kachel(640, 204), Marker(642, 206), LegendBtn(8, SZ - 40)] }) });
+    const unten = DockGroup({ name: 'Gruppe Script und Probleme', tabs: ['Script', 'Probleme'], active: 'Script', focused: false, h: DH - SH, edge: 'top',
+      children: Empty('Kein Script geöffnet.', 'Eine Scriptdatei öffnet sich über den Ort, ein Event oder ein Problem.') });
     const inspector = DockGroup({ name: 'Gruppe Inspector', tabs: ['Inspector'], active: 'Inspector', focused: false, w: 340, edge: 'left',
       children: [InspectorHead({ word: 'Gebiet', icon: 'ph:globe', title: 'Zweiblattdorf', ident: 'Zweiblattdorf · T01' }), Section({ title: 'Ort', children: Row({ label: 'Ort', children: Field('Zweiblattdorf') }) })] });
-    const dock = <Frame name="Dock Welt" flex="row" w="fill" h={832 - DI.scharnier - 286}>
-      <Frame name="Mitte" flex="col" grow={1} h="fill">{schau}</Frame>
+    const dock = <Frame name="Dock Welt" flex="row" w="fill" h={DH}>
+      <Frame name="Mitte" flex="col" grow={1} h="fill">{schau}{unten}</Frame>
       {inspector}
     </Frame>;
-    // Zusammenfassung (Schritt 4): die Zeilen des Assistenten in Erzählen (roomSummary), kein Satz des Kerns; Fuß mit dem ersten Satz und der Plakette
-    const spalte = WizardCol([
-      Notice('Legt den Raum „Haus 5“ mit einer Kopie der Karte 0411 an, mit Gebäuden.', 'info'),
-      Notice('Legt eine Tür zwischen „Haus 5“ und Zweiblattdorf an.', 'info'),
-    ], true);
-    const hand = WizardHand({ name: 'Assistent: Zusammenfassung', cols: [spalte], foot: 'Legt den Raum „Haus 5“ mit einer Kopie der Karte 0411 an, mit Gebäuden.' });
+    // Zusammenfassung (Schritt 4): die Zeilen von roomSummary in Erzählen (building, kein Satz des Kerns) in einer Meldung (Info), wie NewRoomWizard sie
+    // zeigt: der Satz zum Raum, buildingLines (Ort, Aussehen, leere Liste), Eingang mit Rückweg und der Satz zum Rückgängigmachen; Fuß mit dem ersten Satz
+    const ZEILEN = [
+      'Legt den Raum „Haus 5“ mit einer Kopie der Karte 0411 an, mit Gebäuden.',
+      'Neuer Ort „Haus 5“.',
+      'Aussehen wie Zweiblattdorf.',
+      'Eine neue, leere Liste der Figuren und Türen.',
+      'Verbindet Zweiblattdorf (Kachel x 106, z 874) mit dem neuen Raum.',
+      'Der Rückweg liegt im neuen Raum auf Kachel x 3, z 6.',
+      'Anlegen lässt sich nicht rückgängig machen.',
+    ];
+    const meldung = <Frame name="Meldung" flex="row" items="start" gap={8} px={12} py={8} w="fill" rounded={6} bg={v('status/info-flaeche')}>
+      {I('ph:info-fill', 18, 'info')}<Frame flex="col" grow={1}>{ZEILEN.map((z) => T(z, { width: 700 }))}</Frame>
+    </Frame>;
+    const spalte = WizardCol([meldung], true);
+    const hand = WizardHand({ name: 'Assistent: Zusammenfassung', cols: [spalte], foot: ZEILEN[0] });
     return Window({ name: NAMES.entwurf, active: 'welt', dark: DARK, title: { project: 'Sinnoh-Remix', game: 'Platin, DE' },
       status: Statusbar({ keys: [['↵', 'Anlegen'], ['⌘[', 'Zurück'], ['Esc', 'Abbrechen']], info: 'Schritt 4 von 4: Zusammenfassung' }),
       children: [liste, <Frame name="Werkbank" flex="col" grow={1} h="fill">{WizardBar({ title: 'Raum anlegen', steps: ['Vorlage', 'Ort', 'Eingang', 'Zusammenfassung'], step: 3, last: 'Anlegen', b: 'welt' })}{dock}{hand}</Frame>] });
