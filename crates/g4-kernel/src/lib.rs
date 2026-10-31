@@ -7,7 +7,6 @@ mod disk;
 pub mod dynamic_headers;
 pub mod error;
 pub mod export;
-pub mod flags;
 mod fsutil;
 pub mod git;
 pub mod map_import;
@@ -28,3 +27,7 @@ pub mod text;
 pub mod textproject;
 pub mod tiles;
 pub mod world_meta;
+
+// Appended last on purpose (parallel phases append here); rustfmt must not sort it up.
+#[rustfmt::skip]
+pub mod flags;

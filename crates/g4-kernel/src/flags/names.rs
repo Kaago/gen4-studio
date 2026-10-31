@@ -12,9 +12,10 @@ use crate::scripts::scrcmd_database;
 /// The names of one kind in one family.
 #[derive(Debug, Default)]
 pub struct NameTable {
-    /// Every name of a number, in the order of the database file; the main name is
-    /// `all[main]`.
+    /// The names of each number that has one, ascending by number; an [`Entry`] keeps them in the
+    /// order of the database file and the index of the main name.
     all: BTreeMap<u16, Entry>,
+    /// Number of every name, aliases included.
     numbers: HashMap<String, u16>,
 }
 
