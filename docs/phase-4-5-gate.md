@@ -136,6 +136,7 @@ Test-Umgebung auf 1730/1731, Kopie `4-5-web` (Platin DE, Basis zugeordnet, Git e
   - `scripts/agent/mcp.sh call publish_patch '{"version":"0.1.0"}'` läuft ohne Frage;
   - `scripts/agent/mcp.sh call publish_patch '{"version":"0.1.1","file":"4-5-mcp-v0.1.0.xdelta","overwrite":true}'` fragt „„agent-gate“ möchte: Patch ersetzen: …“ (`agent_status` zeigt die Frage, `agent_answer` oder „Zulassen“ im Fenster);
   - `scripts/agent/mcp.sh call git_commit_all '{}'` fragt „Stand sichern“.
+- [ ] 14. **Repository aus 4.4:** eine weitere Kopie (`4-5-alt`, Basis zugeordnet, `g4k git init`); in der Seite Trainer 1 ändern und speichern (sonst gäbe es nichts zu veröffentlichen); in `.gitignore` die Zeile `!/.g4/releases.json` von Hand löschen (der Block von 4.4) und beides committen (`git -C <Kopie> add -A && git -C <Kopie> commit -m "Block von 4.4"`). In der Seite veröffentlichen (Assistent bis „Fertig“): die Statusleiste sagt danach „keine Änderung“ (der alte Block hält `.g4/releases.json` draußen). „Stand sichern…“ aus dem Ergebnis: die Prüfliste zeigt kurz „Änderungen werden geprüft …“ (`git_commit_prepare` frischt den Block auf), dann „2 geänderte Dateien seit dem letzten Commit“, „Sichern“ ist frei (nicht „Keine Änderung seit dem letzten Commit“), die Statusleiste folgt mit „2 Änderungen“; „Sichern“ → `git -C <Kopie> show --stat --format= HEAD` nennt `.gitignore` und `.g4/releases.json`, `.gitignore` enthält wieder `!/.g4/releases.json`, `status --porcelain` leer.
 
 Nicht im Browser prüfbar: die Fortschrittsphasen (`Channel`), „Im Finder zeigen“ (Toast „Nur in der App.“), die Kästchen- und Dateidialoge des Tauri-Fensters.
 
@@ -158,6 +159,7 @@ Beim Nutzer (Abschnitte „Hand“ und „Blick“ unten): Rom Patcher JS mit de
 | (3) 1 bis 7 Assistent, Ergebnis, „Stand sichern“, Liste | Agent | offen | – |
 | (3) 8 bis 12 Sperren, „Ersetzen“, gesperrte Taste, ohne Git, ohne Commit | Agent | offen | – |
 | (3) 13 MCP über die Brücke | Agent | offen | – |
+| (3) 14 Repository aus 4.4: „Stand sichern“ nach dem Veröffentlichen frei | Agent | offen | – |
 | Rom Patcher JS mit der eigenen Basis-ROM | Hand | offen | – |
 | „Im Finder zeigen“ in der gepackten App | Hand | offen | – |
 | Eigenes Git-Werkzeug zeigt den Commit mit Body, ohne Remote | Hand | offen | – |

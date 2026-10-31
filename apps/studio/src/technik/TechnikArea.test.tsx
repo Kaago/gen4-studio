@@ -675,7 +675,7 @@ describe("TechnikArea", () => {
     expect(projectPreviewGet).not.toHaveBeenCalled();
     expect(subtitle("Projekt")).toBe("Kein Projekt geöffnet");
     await click(row("Veröffentlichen"));
-    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
+    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann veröffentlichst du es hier.");
     expect(baseStatus).not.toHaveBeenCalled();
     // The emulator does not need a project.
     await click(row("Emulator"));

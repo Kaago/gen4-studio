@@ -154,7 +154,9 @@ fn file_name(file: &str) -> Result<String, KernelError> {
     Ok(format!("{stem}{XDELTA}"))
 }
 
-/// `Refused("<name> " + EXISTS)` when a target exists and `overwrite` is false.
+/// `Refused("<name> " + EXISTS)` when the patch or its notes exist and `overwrite` is false.
+/// `README.txt` never counts: it describes the newest release in its folder and is always
+/// replaced.
 pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), KernelError> {
     // The first existing path of the folder and those above it must be a folder.
     for ancestor in targets.dir.ancestors() {
@@ -172,12 +174,7 @@ pub fn check_targets(targets: &PublishTargets, overwrite: bool) -> Result<(), Ke
     if overwrite {
         return Ok(());
     }
-    let files = [
-        Some(&targets.patch),
-        Some(&targets.notes),
-        targets.readme.as_ref(),
-    ];
-    for file in files.into_iter().flatten() {
+    for file in [&targets.patch, &targets.notes] {
         if std::fs::symlink_metadata(file).is_ok() {
             let name = file.file_name().unwrap_or(file.as_os_str());
             return Err(KernelError::Refused(format!(
@@ -578,7 +575,7 @@ mod tests {
         assert!(!targets.rom.exists());
         assert_eq!(std::fs::read(&targets.patch).unwrap(), b"old patch");
 
-        // Only the notes or only README.txt count as well.
+        // Only the notes count as well; README.txt never does (it is always replaced).
         std::fs::remove_file(&targets.patch).unwrap();
         std::fs::write(&targets.notes, b"old notes").unwrap();
         let err = check_publish(&project, &opts("0.1.0")).unwrap_err();
@@ -591,8 +588,7 @@ mod tests {
             readme: true,
             ..opts("0.1.0")
         };
-        let err = check_publish(&project, &with_readme).unwrap_err();
-        assert_eq!(refused(&err), format!("README.txt {EXISTS}"));
+        assert!(check_publish(&project, &with_readme).is_ok());
 
         // With overwrite it runs through and replaces the files.
         std::fs::write(&targets.patch, b"old patch").unwrap();
@@ -610,6 +606,38 @@ mod tests {
             b"old readme"
         );
         assert_eq!(report.releases.releases.len(), 1);
+    }
+
+    #[test]
+    fn a_second_release_in_the_same_folder_replaces_readme() {
+        let fx = TextFixture::dspre();
+        let stem = project_stem(&fx.project());
+        let first = PublishOptions {
+            notes: "Erste Fassung".into(),
+            readme: true,
+            ..opts("0.1.0")
+        };
+        publish(&fx, &first).0.unwrap();
+        let readme = fx.root().join("build").join("README.txt");
+        let text = std::fs::read_to_string(&readme).unwrap();
+        assert!(text.starts_with(&format!("{stem} v0.1.0 (")), "{text}");
+
+        // Without overwrite: README.txt of the first release is no collision.
+        let second = PublishOptions {
+            notes: "Zweite Fassung".into(),
+            readme: true,
+            ..opts("0.1.1")
+        };
+        let report = publish(&fx, &second).0.unwrap();
+        assert_eq!(report.releases.releases.len(), 2);
+        let text = std::fs::read_to_string(&readme).unwrap();
+        assert!(text.starts_with(&format!("{stem} v0.1.1 (")), "{text}");
+        assert!(text.contains("Zweite Fassung\n"), "{text}");
+        assert!(!text.contains("Erste Fassung"), "{text}");
+        // Both patches stay.
+        let build = fx.root().join("build");
+        assert!(build.join(format!("{stem}-v0.1.0.xdelta")).is_file());
+        assert!(build.join(format!("{stem}-v0.1.1.xdelta")).is_file());
     }
 
     #[test]

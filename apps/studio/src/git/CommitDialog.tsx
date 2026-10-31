@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { errorText, gitCommitAll } from "../api";
+import { errorText, gitCommitAll, gitCommitPrepare } from "../api";
 import type { CommitPhase, CommitReport, GitStatus } from "../api";
 import { commitSubjectNow } from "../publish/publishWords";
 import { toast } from "../ui/frame/toasts";
@@ -29,6 +29,8 @@ export type CommitDialogProps = {
   onClose: () => void;
   /** It ran (also when the commit failed): the app reads the status again. */
   onDone: (report: CommitReport) => void | Promise<void>;
+  /** The backend's checks ran (on opening, after a refusal) and may have refreshed the template block: the app reads the status again. */
+  onRefresh?: () => void | Promise<void>;
   /** Runs it while nothing else may write (the app's session is busy meanwhile); by default it just runs. */
   exclusive?: <T>(work: () => Promise<T>) => Promise<T>;
   /** Where focus goes once the dialog has closed (`Dialog.finalFocus`), asked then; null or absent: back to the element that had it. */
@@ -39,9 +41,11 @@ export type CommitDialogProps = {
  * „Stand sichern?“: one commit of every change of the project (never a choice of files), in its own repository. What is checked before
  * (everything saved, the `git` found, something changed), the subject and an optional note, then on „Sichern“ the phases. While it runs
  * the dialog has no button and stays. A refusal shows its sentence and the dialog can try again; a commit that failed (a hook, signing)
- * shows Git's reason and leaves only „Schließen“.
+ * shows Git's reason and leaves only „Schließen“. On opening (with everything saved and a `git` found) and after a refusal it runs the
+ * backend's checks (`gitCommitPrepare`): they bring an outdated template block up to date, so the changes it counts are those the commit
+ * would take (after a release in a repository of 4.4, `.g4/releases.json` and the block).
  */
-export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, exclusive = (work) => work(), finalFocus }: CommitDialogProps) {
+export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, onRefresh, exclusive = (work) => work(), finalFocus }: CommitDialogProps) {
   const [subject, setSubject] = useState(() => preset?.message ?? commitSubjectNow(new Date()));
   const [notes, setNotes] = useState(() => preset?.notes ?? "");
   const [running, setRunning] = useState(false);
@@ -53,6 +57,30 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, e
   // The preset of this opening, read when it opens (the owner may pass a new object with each render).
   const presetRef = useRef(preset);
   presetRef.current = preset;
+  // The Git state the backend's checks answered; dropped when the owner reads a newer one.
+  const [prepared, setPrepared] = useState<GitStatus | null>(null);
+  const [checking, setChecking] = useState(false);
+  // Each run of the checks; an answer of an older one (or after the dialog went) is dropped.
+  const prepareRun = useRef(0);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  /** The backend's checks and the fresh state; `keepError`: a refusal of the commit stays shown instead of the checks' own. */
+  const prepare = async (keepError: boolean) => {
+    const run = ++prepareRun.current;
+    setChecking(true);
+    try {
+      const fresh = await gitCommitPrepare();
+      if (run !== prepareRun.current) return;
+      setPrepared(fresh);
+    } catch (e) {
+      if (run !== prepareRun.current) return;
+      if (!keepError) setError(errorText(e));
+    } finally {
+      if (run === prepareRun.current) setChecking(false);
+    }
+    await onRefreshRef.current?.();
+  };
 
   // Each opening starts over: the preset's subject and notes, or the subject of now.
   useEffect(() => {
@@ -64,8 +92,24 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, e
     setFailed(null);
   }, [open]);
 
-  const git = status === null ? undefined : status.cli;
-  const changes = status?.changes ?? null;
+  // A newer read of the owner replaces the answer of the checks.
+  useEffect(() => setPrepared(null), [status]);
+
+  const gitFound = status !== null && status.cli !== null;
+  // With everything saved and a `git` found (else a row already says what is missing), the checks run once per opening.
+  useEffect(() => {
+    if (!open || unsaved || !gitFound) return;
+    void prepare(false);
+    return () => {
+      prepareRun.current += 1;
+      setChecking(false);
+    };
+    // `prepare` reads only refs and setters.
+  }, [open, unsaved, gitFound]);
+
+  const shown = prepared ?? status;
+  const git = shown === null ? undefined : shown.cli;
+  const changes = shown?.changes ?? null;
   const rows: CheckRow[] = [
     unsaved ? { id: "saved", state: "error", text: "Erst speichern" } : { id: "saved", state: "ok", text: "Alles gespeichert" },
     git === undefined
@@ -73,10 +117,14 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, e
       : git === null
         ? { id: "git", state: "error", text: "Git ist nicht installiert" }
         : { id: "git", state: "ok", text: gitFoundText(git.version) },
-    ...(changes === null ? [] : [{ id: "changes", state: changes === 0 ? "warning" : "ok", text: changedFilesText(changes) } satisfies CheckRow]),
+    ...(checking
+      ? [{ id: "changes", state: "info", text: "Änderungen werden geprüft …" } satisfies CheckRow]
+      : changes === null
+        ? []
+        : [{ id: "changes", state: changes === 0 ? "warning" : "ok", text: changedFilesText(changes) } satisfies CheckRow]),
   ];
   const message = subject.trim();
-  const ready = !unsaved && git !== undefined && git !== null && changes !== null && changes > 0 && message !== "";
+  const ready = !unsaved && !checking && git !== undefined && git !== null && changes !== null && changes > 0 && message !== "";
 
   const run = async () => {
     if (!ready || busy.current) return;
@@ -95,6 +143,8 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, e
       }
     } catch (e) {
       setError(errorText(e));
+      // The state may have moved (a save elsewhere, a refreshed block): the checks again, the refusal stays shown.
+      void prepare(true);
     } finally {
       busy.current = false;
       setRunning(false);

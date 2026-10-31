@@ -15,6 +15,7 @@ mod state;
 pub use state::AppState;
 
 use commands::close_project;
+use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
 use commands::split_room;
 use commands::{
@@ -224,7 +225,8 @@ pub fn run() {
             releases,
             publish_patch,
             reveal_path,
-            git_commit_all
+            git_commit_all,
+            git_commit_prepare
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

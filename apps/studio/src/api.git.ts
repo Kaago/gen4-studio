@@ -231,3 +231,10 @@ export async function gitCommitAll(opts: { message?: string; notes?: string }, o
   progress.onmessage = onProgress;
   return invoke<CommitReport>("git_commit_all", { ...args, progress });
 }
+
+/**
+ * What „Stand sichern?“ reads when it opens and after a refusal: the backend's checks (in the project's own repository they bring an outdated
+ * template block up to date, so a file the old block kept out, such as `.g4/releases.json`, counts), then the fresh Git state. No change is
+ * no refusal here: the state then counts 0. Refused with `unsaved`, `busy`, `no_repo`, `enclosing_repo` and `no_git`.
+ */
+export const gitCommitPrepare = () => invoke<GitStatus>("git_commit_prepare");

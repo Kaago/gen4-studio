@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { gitCommitAll } from "../api";
-import type { CommitPhase, CommitReport } from "../api";
+import { gitCommitAll, gitCommitPrepare } from "../api";
+import type { CommitPhase, CommitReport, GitStatus } from "../api";
 import { listToasts, resetToasts } from "../ui/frame/toasts";
 import { pressKey } from "../ui/primitives/testUtils";
 import { CommitDialog } from "./CommitDialog";
@@ -14,6 +14,7 @@ import { commitReportOf, gitStatusOf } from "./gitTesting";
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   gitCommitAll: vi.fn(),
+  gitCommitPrepare: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -25,9 +26,16 @@ describe("CommitDialog", () => {
   let root: Root;
   const onClose = vi.fn();
   const onDone = vi.fn();
+  const onRefresh = vi.fn();
 
-  const show = (over: Partial<CommitDialogProps> = {}) =>
-    act(async () => root.render(<CommitDialog open status={gitStatusOf({ changes: 3 })} unsaved={false} preset={null} onClose={onClose} onDone={onDone} {...over} />));
+  /** Shows the dialog; unless the test set them, the backend's checks answer the status it is given. */
+  const show = (over: Partial<CommitDialogProps> = {}, prepared?: GitStatus) => {
+    const status = over.status === undefined ? gitStatusOf({ changes: 3 }) : over.status;
+    if (status !== null) vi.mocked(gitCommitPrepare).mockResolvedValue(prepared ?? status);
+    return act(async () =>
+      root.render(<CommitDialog open status={status} unsaved={false} preset={null} onClose={onClose} onDone={onDone} onRefresh={onRefresh} {...over} />),
+    );
+  };
   const dialog = () => document.querySelector<HTMLElement>("[data-commit-dialog]");
   const buttons = () => [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].filter((b) => b.textContent !== "");
   const labels = () => buttons().map((b) => b.textContent);
@@ -61,8 +69,10 @@ describe("CommitDialog", () => {
     vi.setSystemTime(new Date(2026, 9, 31, 14, 5, 30));
     onClose.mockReset();
     onDone.mockReset();
+    onRefresh.mockReset();
     resetToasts();
     vi.mocked(gitCommitAll).mockReset();
+    vi.mocked(gitCommitPrepare).mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -139,10 +149,51 @@ describe("CommitDialog", () => {
     expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("Erst speichern: der Commit nimmt den gespeicherten Stand.");
     expect(labels()).toEqual(["Abbrechen", "Sichern"]);
     expect(button("Sichern")?.disabled).toBe(false);
+    // The checks ran again after the refusal, and the app read the status.
+    expect(gitCommitPrepare).toHaveBeenCalledTimes(2);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
     expect(onDone).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     await act(async () => button("Abbrechen")!.click());
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("the_checks_on_opening_give_the_changes_the_commit_would_take", async () => {
+    // A repository of 4.4 after a release: the status counts nothing, the checks refresh the block and count it and the list.
+    let answer: (s: GitStatus) => void = () => {};
+    vi.mocked(gitCommitPrepare).mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    await act(async () =>
+      root.render(<CommitDialog open status={gitStatusOf({ changes: 0 })} unsaved={false} preset={null} onClose={onClose} onDone={onDone} onRefresh={onRefresh} />),
+    );
+    expect(gitCommitPrepare).toHaveBeenCalledOnce();
+    expect(rows()).toEqual(["ok: Alles gespeichert", "ok: Git gefunden: 2.47.1", "info: Änderungen werden geprüft …"]);
+    expect(button("Sichern")?.disabled).toBe(true);
+    expect(onRefresh).not.toHaveBeenCalled();
+    await act(async () => answer(gitStatusOf({ changes: 2 })));
+    expect(rows()).toEqual(["ok: Alles gespeichert", "ok: Git gefunden: 2.47.1", "ok: 2 geänderte Dateien seit dem letzten Commit"]);
+    expect(button("Sichern")?.disabled).toBe(false);
+    // The app reads the status again, so the status line follows.
+    expect(onRefresh).toHaveBeenCalledOnce();
+    vi.mocked(gitCommitAll).mockResolvedValueOnce(commitReportOf({ files: 2 }));
+    await act(async () => button("Sichern")!.click());
+    expect(gitCommitAll).toHaveBeenCalledOnce();
+  });
+
+  it("the_checks_wait_for_saving_and_git_and_show_their_refusal", async () => {
+    // Unsaved or without git a row says why; the checks do not run.
+    await show({ unsaved: true });
+    await show({ unsaved: true, status: gitStatusOf({ changes: 2, cli: null }) });
+    expect(gitCommitPrepare).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    root = createRoot(container);
+    // A refusal of the checks shows its sentence and locks nothing more than the status does.
+    vi.mocked(gitCommitPrepare).mockRejectedValueOnce({ code: "enclosing_repo", message: "Das Projekt liegt in einem größeren Repository.", asset: null });
+    await act(async () =>
+      root.render(<CommitDialog open status={gitStatusOf({ changes: 0 })} unsaved={false} preset={null} onClose={onClose} onDone={onDone} onRefresh={onRefresh} />),
+    );
+    expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("Das Projekt liegt in einem größeren Repository.");
+    expect(rows()[2]).toBe("warning: Keine Änderung seit dem letzten Commit");
+    expect(button("Sichern")?.disabled).toBe(true);
   });
 
   it("a_preset_fills_subject_and_notes", async () => {

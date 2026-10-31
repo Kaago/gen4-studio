@@ -156,7 +156,9 @@ overwrite }`, `check_publish`, `publish_built`, `build_and_publish`).
   `.xdelta`) oder eines der Zeichen `/ \ : * ? " < > |` oder ein Steuerzeichen enthält, wird mit
   „Der Dateiname darf nicht leer sein und weder / \ : * ? " < > | noch Steuerzeichen enthalten.“
   abgelehnt (`BAD_FILE`).
-- Begleitdatei `<Patch>.txt` und, mit `readme`, `README.txt` im selben Ordner.
+- Begleitdatei `<Patch>.txt` und, mit `readme`, `README.txt` im selben Ordner. `README.txt` beschreibt
+  immer die neueste Veröffentlichung in diesem Ordner und wird stets ersetzt (keine Rückfrage, kein
+  `EXISTS`).
 - Die gebaute ROM geht immer nach `build/<Projekt>-<Spielcode>.nds` (`default_targets`), auch wenn der
   Patch woanders hin geht; sie gehört nicht zu dem, was weitergegeben wird („Kein ROM-Inhalt, nur der
   Patch: wer ihn anwendet, braucht dieselbe Basis-ROM.“, `NO_ROM_CONTENT`).
@@ -168,10 +170,14 @@ Rückfrage): die Liste `.g4/releases.json` ist lesbar (`RELEASES_BROKEN`), die V
 
 - ist der Ordner oder der erste vorhandene Ordner darüber eine Datei, lautet die Ablehnung „Der
   Speicherort ist kein Ordner: <Pfad>“ (`NOT_A_FOLDER`);
-- liegt der Patch, die Begleitdatei oder (mit `readme`) `README.txt` schon dort und ist `overwrite`
-  falsch, lautet sie „<Dateiname> liegt schon am Speicherort; wähle einen anderen Namen oder ersetze
-  die Datei.“ (`EXISTS`, mit dem Namen der ersten vorhandenen Datei davor). Mit `overwrite` werden die
-  Dateien ersetzt; eine vergebene Version bleibt auch dann abgelehnt.
+- liegt der Patch oder die Begleitdatei schon dort und ist `overwrite` falsch, lautet sie
+  „<Dateiname> liegt schon am Speicherort; wähle einen anderen Namen oder ersetze die Datei.“
+  (`EXISTS`, mit dem Namen der ersten vorhandenen Datei davor). `README.txt` zählt nicht: eine zweite
+  Veröffentlichung mit `readme` im selben Ordner ersetzt sie ohne `overwrite`. Mit `overwrite` werden
+  die Dateien ersetzt; eine vergebene Version bleibt auch dann abgelehnt. Wer bei „Ersetzen“ von Hand
+  den Dateinamen einer früheren Veröffentlichung einträgt, überschreibt deren Patch; ihr Eintrag in
+  `.g4/releases.json` zeigt dann auf den neuen Patch, und `size` und `baseSha1` dieses alten Eintrags
+  stimmen nicht mehr.
 
 **Ablauf** (`build_and_publish`; die App baut über ihren eigenen Weg und ruft `publish_built`). Jede
 Phase wird gemeldet, wenn sie beginnt (`PublishProgress { phase }`); eine Ablehnung der Vorprüfung,

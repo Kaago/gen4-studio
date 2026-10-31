@@ -83,7 +83,7 @@ export function PublishSurface({ base, building, onOpenProject, onPublish, onRev
   if (base === null) {
     return (
       <Surface>
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann erstellt Technik hier seinen Patch." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
+        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann veröffentlichst du es hier." action={{ label: "Projekt öffnen", onClick: onOpenProject }} />
       </Surface>
     );
   }

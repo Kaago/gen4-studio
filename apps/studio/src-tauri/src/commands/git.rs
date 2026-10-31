@@ -434,6 +434,21 @@ pub(crate) fn check_git_commit_all(state: &AppState) -> Result<Arc<Project>, Cmd
     Ok(project)
 }
 
+/// What the dialog „Stand sichern“ reads when it opens and after a refusal: the checks of
+/// [`check_git_commit_all`] (in the project's own repository they refresh an outdated Gen4
+/// Studio block first, so a file the old block kept out, such as `.g4/releases.json`, counts as
+/// a change), then the fresh status ([`git_status_impl`]). `nothing_to_commit` is no refusal
+/// here: the status then counts no change and the dialog says so. The other refusals (`busy`,
+/// `unsaved`, `no_repo`, `enclosing_repo`, `no_git`) come back with their codes.
+pub fn git_commit_prepare_impl(state: &AppState) -> Result<GitStatusDto, CmdError> {
+    match check_git_commit_all(state) {
+        Ok(_) => {}
+        Err(e) if e.code == "nothing_to_commit" => {}
+        Err(e) => return Err(e),
+    }
+    git_status_impl(state)
+}
+
 /// „Stand sichern“ with the `git` CLI `git::find_git` finds: see [`git_commit_all_with`].
 pub fn git_commit_all_impl(
     state: &AppState,
@@ -533,6 +548,14 @@ pub async fn restore_text_project(
     })
     .await
     .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+/// The checks of „Stand sichern“ and the fresh status ([`git_commit_prepare_impl`]).
+#[tauri::command]
+pub async fn git_commit_prepare(app: tauri::AppHandle) -> Result<GitStatusDto, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || git_commit_prepare_impl(&app.state::<AppState>()))
+        .await
+        .map_err(|e| CmdError::from(e.to_string()))?
 }
 
 /// „Stand sichern“: `message` is the subject (default „Stand <Datum> <Uhrzeit> UTC“), `notes`
@@ -1198,6 +1221,86 @@ mod tests {
         assert!(!config.contains("[remote"), "{config}");
         // Writable again.
         crate::commands::save_impl(&state).unwrap();
+    }
+
+    #[test]
+    fn prepare_refuses_unsaved_and_no_repo_with_their_codes() {
+        let (fixture, state) = open_synthetic();
+        let err = git_commit_prepare_impl(&state).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+        );
+        GitFixture::init(fixture.dir.path());
+        set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
+        let err = git_commit_prepare_impl(&state).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", COMMIT_UNSAVED)
+        );
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+        // No project open: an error.
+        assert!(git_commit_prepare_impl(&AppState::default()).is_err());
+    }
+
+    /// A repository set up by 4.4 (its block keeps all of `.g4/` out) after a release: the
+    /// status counts no change, `git_commit_prepare` refreshes the block, and then the block
+    /// and `.g4/releases.json` count, so „Sichern“ is free; after the commit it answers the
+    /// status with no change instead of `nothing_to_commit`.
+    #[test]
+    fn prepare_refreshes_an_old_block_so_the_release_list_counts() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = GitFixture::cli(home.path()) else {
+            return;
+        };
+        let (fixture, state) = open_synthetic();
+        let root = fixture.dir.path();
+        write_templates(&Project::open(root).unwrap()).unwrap();
+        let ignore = root.join(".gitignore");
+        let text = std::fs::read_to_string(&ignore).unwrap();
+        let old = text.replace("!/.g4/releases.json\n", "");
+        assert_ne!(old, text);
+        std::fs::write(&ignore, &old).unwrap();
+        GitFixture::init(root);
+        GitFixture::commit_all(root, "Block von 4.4");
+        std::fs::write(root.join(".g4/releases.json"), "{}\n").unwrap();
+        state.git_cli.set(Some(cli.clone()));
+        let before = git_status_impl(&state).unwrap();
+        assert_eq!(before.changes, 0, "ignored by the old block");
+
+        let status = git_commit_prepare_impl(&state).unwrap();
+        assert_eq!(
+            status.changes, 2,
+            "the block and the list: {:?}",
+            status.entries
+        );
+        let ignore_now = std::fs::read_to_string(&ignore).unwrap();
+        assert!(
+            ignore_now.contains("\n!/.g4/releases.json\n"),
+            "{ignore_now}"
+        );
+        // Over the bridge too, with the same answer.
+        let reply = dispatch(
+            &state,
+            &UserPolicy::new(root, &[], None).unwrap(),
+            "git_commit_prepare",
+            json!({}),
+        )
+        .unwrap();
+        let Reply::Json(value) = reply else {
+            panic!("a JSON reply")
+        };
+        assert_eq!(value["changes"], 2, "{value}");
+
+        let report =
+            git_commit_all_with(&state, Some(&cli), CommitOptions::default(), &mut |_| {}).unwrap();
+        assert!(report.committed, "{report:?}");
+        assert_eq!(report.files, 2, "{report:?}");
+        // Nothing left: the status with no change, not the refusal.
+        let status = git_commit_prepare_impl(&state).unwrap();
+        assert_eq!(status.changes, 0, "{:?}", status.entries);
+        let config = std::fs::read_to_string(root.join(".git/config")).unwrap();
+        assert!(!config.contains("[remote"), "{config}");
     }
 
     /// The vanilla copy (`G4_TEST_PROJECT`, written only as a copy) over the command path:

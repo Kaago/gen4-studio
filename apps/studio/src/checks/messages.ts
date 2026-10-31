@@ -242,7 +242,7 @@ export const CHECK_MESSAGES: Readonly<Record<string, CheckMessage>> = {
     group: "cheap",
     severity: "info",
     title: "Basis-ROM unbekannt",
-    text: "Das Projekt kennt seine Basis-ROM nicht. „Patch erstellen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik unter „Veröffentlichen“ zu.",
+    text: "Das Projekt kennt seine Basis-ROM nicht. „Veröffentlichen“ und „Auf Original zurücksetzen“ brauchen sie. Ordne sie in Technik unter „Veröffentlichen“ zu.",
   },
   "asset.unreadable": {
     group: "cheap",

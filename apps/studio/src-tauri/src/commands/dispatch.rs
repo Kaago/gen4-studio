@@ -194,6 +194,7 @@ pub const COMMANDS: &[&str] = &[
     "publish_patch",
     "reveal_path",
     "git_commit_all",
+    "git_commit_prepare",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1013,6 +1014,9 @@ pub fn dispatch(
                 git_commit_all_impl(state, opts, &mut |_progress| {})
             }
         ),
+        "git_commit_prepare" => run!(json, "git_commit_prepare", args, {}, |_a| {
+            git_commit_prepare_impl(state)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1393,6 +1397,8 @@ mod tests {
             ("reveal_path", json!({ "path": "build/x.xdelta" })),
             // No repository: refused before git runs.
             ("git_commit_all", json!({ "message": "Stand" })),
+            // No repository: refused before anything is written.
+            ("git_commit_prepare", json!({})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

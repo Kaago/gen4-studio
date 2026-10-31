@@ -10,7 +10,7 @@ import { check, found } from "./technik/baseTesting";
 import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import { gitCommitAll, gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
+import { gitCommitAll, gitCommitPrepare, gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
 import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
@@ -241,6 +241,7 @@ vi.mock("./api", async (importOriginal) => ({
   unsavedChanges: vi.fn(),
   releases: vi.fn(),
   publishPatch: vi.fn(),
+  gitCommitPrepare: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -345,6 +346,8 @@ describe("App wiring", () => {
     localStorage.setItem("g4.textProjectHint./p", "dismissed");
     // A folder in no Git repository: the status line shows nothing of Git.
     vi.mocked(gitStatus).mockResolvedValue(noRepo());
+    // The checks of „Stand sichern?“ answer what the status says.
+    vi.mocked(gitCommitPrepare).mockImplementation(() => gitStatus());
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );

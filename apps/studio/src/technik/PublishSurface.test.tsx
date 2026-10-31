@@ -95,7 +95,7 @@ describe("PublishSurface", () => {
     await act(async () => root.render(<PublishSurface base={null} building={false} {...handlers} />));
     expect(surface()?.querySelector("h1")?.textContent).toBe("Veröffentlichen");
     expect(surface()?.textContent).toContain("Kein Projekt geöffnet.");
-    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann erstellt Technik hier seinen Patch.");
+    expect(surface()?.textContent).toContain("Öffne ein Projekt, dann veröffentlichst du es hier.");
     expect(baseCard()).toBeNull();
     await click(button("Projekt öffnen"));
     expect(onOpenProject).toHaveBeenCalledOnce();

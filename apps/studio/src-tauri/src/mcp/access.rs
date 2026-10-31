@@ -210,6 +210,8 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     // An agent reads the list from the answers of publish_patch; it opens no file manager.
     ("reveal_path", APP_ONLY),
     ("git_commit_all", Kind::Irreversible("Stand sichern")),
+    // Writes the template block (as „Stand sichern“ would), then reads the status.
+    ("git_commit_prepare", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -848,6 +850,7 @@ mod tests {
         assert_eq!(kind("publish_patch"), Kind::Depends);
         assert_eq!(kind("reveal_path"), APP_ONLY);
         assert_eq!(kind("git_commit_all"), Kind::Irreversible("Stand sichern"));
+        assert_eq!(kind("git_commit_prepare"), Kind::Write);
     }
 
     #[test]

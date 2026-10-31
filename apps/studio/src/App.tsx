@@ -1524,6 +1524,8 @@ function AppBody() {
             onClose={() => setCommitOpen(null)}
             // Also after a failed commit (`git add -A` ran): the status line and Technik › Änderungen read the repository again.
             onDone={() => git.refresh()}
+            // The checks may have refreshed the template block (a repository of 4.4 after a release): the status line follows.
+            onRefresh={() => git.refresh()}
           />
         )}
         {restore !== null && (
