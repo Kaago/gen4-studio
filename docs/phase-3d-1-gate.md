@@ -192,6 +192,8 @@ Zahlentabelle (Release; (1) aus den gated Tests, Szenario aus (2); was der Brows
 
 Keine Befunde in (1) und (2): jeder Schritt war im ersten Versuch grün, kein Zeittest rot.
 
+Fix des abschließenden Reviews (R17, Flags ab `0x4000`): ein Flag-Argument ab `0x4000` ist jetzt ein Flag, wenn es als Flag-Name geschrieben ist und der Befehl das Flag als Zahl nimmt (`SetFlag FLAG_TEMP_x4000`, `CheckFlag FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE`). Die gated Läufe danach (Release, je Spiel) zeigen dieselben Zahlen wie oben (`dynamic` 8 / 16, `flags_distinct` 1 796 / 1 613): die dekompilierten Vanilla-Quellen schreiben solche Namen nur bei `SetFlagVar`/`ClearFlagVar` (HeartGold Script 0952, `FLAG_TEMP_x4001`), deren Parameter der Befehl als Variable liest; sie bleiben Flags aus Variablen.
+
 Befunde des UI-Tests und des abschließenden Reviews: wird im Browser-Teil ergänzt.
 
 ## Hinweise
