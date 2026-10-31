@@ -184,8 +184,10 @@ fn event_patch(what: &str) -> Value {
     nested(&format!(
         "{what}: any of x, z, script, event_type, graphics_id, movement_type, dir, local_id, \
          dest_header_id, dest_warp_id, height, width, length, trainer_type (objects: 1 = the \
-         trainer sees the player), sight (objects: range in tiles); fields as get_events \
-         returns them, fields the class does not have are ignored"
+         trainer sees the player), sight (objects: range in tiles), hidden_flag (objects: the \
+         flag that hides it while set, 0 none), var and value (coord: it fires while the \
+         variable holds the value, var 0 none); fields as get_events returns them, fields the \
+         class does not have are ignored"
     ))
 }
 
@@ -344,7 +346,7 @@ static TOOLS: &[ToolDef] = &[
         title: "Get events",
         description: "Returns the events of one event file: background events, objects \
                       (people, trainers, items), warps and coordinate triggers, each with its \
-                      position and fields.",
+                      position and fields (an object's hidden_flag, a trigger's var and value).",
         input_schema: || object(json!({ "event_file": event_file() }), &["event_file"]),
         output_schema: answers_object,
         route: renamed("get_events", &[("event_file", "eventFileId")]),
@@ -1295,8 +1297,9 @@ static TOOLS: &[ToolDef] = &[
         name: "rename_id",
         title: "Rename id",
         description: "Renames a register id of a text project (MAP_, TRAINER_, TRAINER_CLASS_, \
-                      PLACE_) with every reference in data/, g4-world.json, g4-checks.json and \
-                      the script sources. It is one undo step; not in g4_batch.",
+                      PLACE_, FLAG_, VAR_ (own flag and variable names)) with every reference in \
+                      data/, g4-world.json, g4-checks.json and the script sources. It is one \
+                      undo step; not in g4_batch.",
         input_schema: || {
             object(
                 json!({
@@ -1368,7 +1371,102 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("diff_entity"),
     },
+    // Flags and variables (3d.1).
+    ToolDef {
+        name: "list_flags",
+        title: "List flags or variables",
+        description: "Lists every flag (kind flag) or variable (kind var) the game names or the \
+                      project uses: number, the pret name and its aliases, the project's own id \
+                      and description (text projects), its area (map_local, general, \
+                      hidden_items, trainer, system, daily, temp, object_gfx, script_local, \
+                      outside), how often scripts, events, level scripts and trainers read and \
+                      write it, whether it is free (general area, unused, no own name, pret name \
+                      unused, not reserved by a recipe) and how many places a map-local number \
+                      is used at. Also the size of the free pool and the counts of script-local \
+                      variables and flags named through a variable, which are not indexed.",
+        input_schema: || object(json!({ "kind": flag_kind() }), &["kind"]),
+        output_schema: answers_object,
+        route: command("list_flags"),
+    },
+    ToolDef {
+        name: "flag_usage",
+        title: "Where a flag or variable is used",
+        description: concat!(
+            "Every reference to one flag or variable with its access (read, write, read_write, \
+             unknown), the source (event file and event, script file and line, level script \
+             and condition, trainer), the header it belongs to and the place in the app it \
+             opens. number takes a number or a name (FLAG_…, VAR_…, also an own id). ",
+            data_note!()
+        ),
+        input_schema: || {
+            object(
+                json!({ "kind": flag_kind(), "number": flag_number() }),
+                &["kind", "number"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("flag_usage"),
+    },
+    ToolDef {
+        name: "free_flag",
+        title: "A free flag or variable",
+        description: "The smallest free number of the general area (unused in the index, no own \
+                      name, pret name unused, not reserved); pool_empty when there is none. Take \
+                      it with name_flag or write it into hidden_flag or a trigger.",
+        input_schema: || object(json!({ "kind": flag_kind() }), &["kind"]),
+        output_schema: answers_object,
+        route: command("free_flag"),
+    },
+    ToolDef {
+        name: "name_flag",
+        title: "Name a flag or variable",
+        description: "Gives a number of a text project its own id (FLAG_… or VAR_…, A-Z, 0-9 \
+                      and _, at most 64 characters, not taken) and/or a description, written to \
+                      data/ids/<kind>.json and data/<kind>/NNNN.json and to rotom's id files, \
+                      as one undo step. The pret name stays valid. A number outside the save, \
+                      a taken id or the DSPRE layout are refused before anything is written; a \
+                      number with another own id is renamed with rename_id.",
+        input_schema: || {
+            object(
+                json!({
+                    "kind": flag_kind(),
+                    "number": flag_number(),
+                    "id": {
+                        "type": ["string", "null"],
+                        "description": "the own id (FLAG_… for a flag, VAR_… for a variable); \
+                                        required for a number without an own name, else its \
+                                        own id or left out",
+                    },
+                    "description": {
+                        "type": ["string", "null"],
+                        "description": "what the number is for; left out: as it is, empty: \
+                                        none",
+                    },
+                }),
+                &["kind", "number"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("name_flag"),
+    },
 ];
+
+/// The `kind` of the flag tools.
+fn flag_kind() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["flag", "var"],
+        "description": "flag or var (variable)",
+    })
+}
+
+/// The `number` of `flag_usage` and `name_flag`.
+fn flag_number() -> Value {
+    id_or_number(
+        "the number (a flag from 1, a variable from 0x4000 = 16384) or its name: the pret name \
+         (FLAG_UNUSED_0x0094, VAR_…) or the project's own id",
+    )
+}
 
 /// The kinds of `g4_kernel::diff::DiffSubject`, in its order.
 const DIFF_KINDS: [&str; 18] = [
@@ -1615,6 +1713,9 @@ mod tests {
                 "external_changes",
                 "git_status",
                 "diff_entity",
+                "list_flags",
+                "flag_usage",
+                "free_flag",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1664,6 +1765,7 @@ mod tests {
             "resolve_external_conflict",
             "rename_id",
             "git_init",
+            "name_flag",
         ]
         .into_iter()
         .collect();
@@ -1679,6 +1781,7 @@ mod tests {
             assert!(matches!(kind_of(command), Kind::Irreversible(_)), "{name}");
         }
         assert_eq!(kind_of("rename_id"), Kind::Write);
+        assert_eq!(kind_of("name_flag"), Kind::Write);
     }
 
     #[test]
@@ -1790,6 +1893,7 @@ mod tests {
             "plan_fix",
             "plan_reset",
             "diff_entity",
+            "flag_usage",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -2034,6 +2138,13 @@ mod tests {
             ),
             // Templates only: a test never runs the user's `git`.
             ("git_init", json!({ "templates_only": true })),
+            ("list_flags", json!({ "kind": "flag" })),
+            ("flag_usage", json!({ "kind": "flag", "number": 148 })),
+            ("free_flag", json!({ "kind": "var" })),
+            (
+                "name_flag",
+                json!({ "kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null }),
+            ),
         ]
     }
 

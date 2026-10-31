@@ -86,6 +86,14 @@ impl Session {
         let _ = self.refs.refresh(&self.store);
     }
 
+    /// Brings the reference index up to date after a command wrote script sources past the
+    /// store (a save, a new script file, a new script): the sources are statted now, whatever
+    /// the index's time gate says, so a query right after it sees them. Cheap when the index
+    /// was never built; a failed refresh is tried again on the next use.
+    pub fn scripts_written(&mut self) {
+        let _ = self.refs.refresh_scripts_now(&self.store);
+    }
+
     /// Forgets the reference index after the files on disk may have changed behind the store
     /// (a member reloaded from disk): the next use builds it again from the disk, which also
     /// sees members the store never loaded.

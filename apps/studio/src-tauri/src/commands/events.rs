@@ -44,7 +44,9 @@ impl EventKind {
 /// does not have is ignored. `x` and `z` are cut to the kind's field type (`u16` for warps and
 /// objects, `i16` for coordinate triggers, `i32` for background events); a value outside it
 /// refuses the whole call. Objects only: `trainer_type` (1 = the trainer sees the player, 0 = only
-/// talking starts the battle) and `sight`, the range in tiles stored in object `data[0]`.
+/// talking starts the battle), `sight`, the range in tiles stored in object `data[0]`, and
+/// `hidden_flag`, the flag that hides the object while it is set (0: none). Coordinate triggers
+/// only: `var` and `value`, the trigger fires while variable `var` holds `value` (0: none).
 #[derive(Debug, Default, Deserialize)]
 pub struct EventPatch {
     pub x: Option<i32>,
@@ -62,6 +64,9 @@ pub struct EventPatch {
     pub length: Option<u16>,
     pub trainer_type: Option<u16>,
     pub sight: Option<u16>,
+    pub hidden_flag: Option<u16>,
+    pub var: Option<u16>,
+    pub value: Option<u16>,
 }
 
 /// `v` as the field type `T`, or `OutOfRange` (`max` is the largest value `T` holds).
@@ -106,6 +111,9 @@ impl EventPatch {
             && s.length.is_none()
             && s.trainer_type.is_none()
             && s.sight.is_none()
+            && s.hidden_flag.is_none()
+            && s.var.is_none()
+            && s.value.is_none()
     }
 
     /// Applies the patch to event `index` of `kind`, or fails without changing anything.
@@ -171,6 +179,9 @@ impl EventPatch {
                 if let Some(v) = self.sight {
                     next.data[0] = v;
                 }
+                if let Some(v) = self.hidden_flag {
+                    next.hidden_flag = v;
+                }
                 *slot = next;
             }
             EventKind::Warp => {
@@ -218,6 +229,12 @@ impl EventPatch {
                 }
                 if let Some(v) = self.length {
                     next.length = v;
+                }
+                if let Some(v) = self.var {
+                    next.var = v;
+                }
+                if let Some(v) = self.value {
+                    next.value = v;
                 }
                 *slot = next;
             }
@@ -516,6 +533,7 @@ mod tests {
         );
         let c = &ev.coords[0];
         assert_eq!((c.x, c.z, c.width, c.length, c.script), (-3, 5, 1, 1, 0));
+        assert_eq!((c.var, c.value), (0, 0));
         let b = &ev.bg[0];
         assert_eq!(
             (b.x, b.z, b.y, b.script, b.event_type),
@@ -534,6 +552,80 @@ mod tests {
             ),
             (12, 13, 0, 0, 0, 0, 0)
         );
+        assert_eq!(o.hidden_flag, 0);
+    }
+
+    #[test]
+    fn update_event_patches_hidden_flag_var_and_value() {
+        let (_s, state) = open_synthetic();
+        add_event_impl(&state, 0, EventKind::Object, 12, 13, None, None).unwrap();
+        add_event_impl(&state, 0, EventKind::Coord, 4, 5, None, None).unwrap();
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            0,
+            patch(|p| p.hidden_flag = Some(0x173)),
+        )
+        .unwrap();
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Coord,
+            0,
+            patch(|p| {
+                p.var = Some(0x40A5);
+                p.value = Some(2);
+            }),
+        )
+        .unwrap();
+        {
+            let mut guard = lock(&state).unwrap();
+            let file = session(&mut guard).unwrap().store.event(0).unwrap();
+            assert_eq!(file.object_events[0].hidden_flag, 0x173);
+            let trigger = &file.coord_events[0];
+            assert_eq!((trigger.var, trigger.value), (0x40A5, 2));
+        }
+        let ev = get_events_impl(&state, 0).unwrap();
+        assert_eq!(ev.objects[0].hidden_flag, 0x173);
+        assert_eq!((ev.coords[0].var, ev.coords[0].value), (0x40A5, 2));
+        // An edit, not a move; one undo step each.
+        assert_eq!(
+            history_impl(&state).unwrap().undo,
+            ["add event", "add event", "edit event", "edit event"]
+        );
+        undo_impl(&state).unwrap();
+        let ev = get_events_impl(&state, 0).unwrap();
+        assert_eq!((ev.coords[0].var, ev.coords[0].value), (0, 0));
+        // A new object takes the flag in its patch; other kinds ignore the three fields.
+        let placed = add_event_impl(
+            &state,
+            0,
+            EventKind::Object,
+            3,
+            3,
+            Some(patch(|p| p.hidden_flag = Some(0x20))),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            get_events_impl(&state, 0).unwrap().objects[usize::from(placed)].hidden_flag,
+            0x20
+        );
+        add_event_impl(&state, 0, EventKind::Warp, 1, 1, None, None).unwrap();
+        update_event_impl(
+            &state,
+            0,
+            EventKind::Warp,
+            0,
+            patch(|p| {
+                p.hidden_flag = Some(1);
+                p.var = Some(0x4000);
+                p.value = Some(1);
+            }),
+        )
+        .unwrap();
+        assert_eq!(get_events_impl(&state, 0).unwrap().warps[0].x, 1);
     }
 
     #[test]

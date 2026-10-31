@@ -42,6 +42,45 @@ fn encounter_field(field: &str) -> &str {
     }
 }
 
+/// The field of a level script's references (its conditions); every other reference of a
+/// script file comes from its rotom source, with the command as field and the line as slot.
+pub(crate) const LEVEL_SCRIPT_FIELD: &str = "var_conditions";
+
+/// The name of script file `file` as a source, what of it refers and where a click leads: a
+/// level script („Level-Script 0005“, „Bedingung 1 · var_conditions“, its header `header` when
+/// one uses it, else the file), else a rotom source („Scriptdatei 0101“, „Zeile 12 ·
+/// SetFlag“, the file at that line).
+pub(crate) fn script_place(
+    file: u16,
+    field: &str,
+    slot: Option<u16>,
+    header: Option<u16>,
+) -> (String, String, NavTargetDto) {
+    if field == LEVEL_SCRIPT_FIELD {
+        let nav = match header {
+            Some(id) => NavTargetDto::Header { id },
+            None => NavTargetDto::Script { file, line: None },
+        };
+        return (
+            format!("Level-Script {file:04}"),
+            format!("Bedingung {} · {field}", slot.unwrap_or(0) + 1),
+            nav,
+        );
+    }
+    let what = match slot {
+        Some(line) => format!("Zeile {line} · {field}"),
+        None => field.to_owned(),
+    };
+    (
+        format!("Scriptdatei {file:04}"),
+        what,
+        NavTargetDto::Script {
+            file,
+            line: slot.map(u32::from),
+        },
+    )
+}
+
 /// Every reference to `target`, in the index's order, with label, source name and navigation
 /// target.
 pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
@@ -146,6 +185,7 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                 format!("Team{}", place(slot)),
                 NavTargetDto::Trainer { index },
             ),
+            AssetKind::Script => script_place(index, field, slot, None),
             // The index has no other sources; one added later needs a label and a target here.
             _ => continue,
         };

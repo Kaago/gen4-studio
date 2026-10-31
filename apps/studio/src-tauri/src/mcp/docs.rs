@@ -34,6 +34,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         "evolution",
         include_str!("../../../../../docs/formats/evolution.md"),
     ),
+    (
+        "flags_vars",
+        include_str!("../../../../../docs/formats/flags_vars.md"),
+    ),
     ("item", include_str!("../../../../../docs/formats/item.md")),
     (
         "learnset",

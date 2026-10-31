@@ -278,7 +278,7 @@ pub fn kind_of(id: &str) -> Option<SymbolKind> {
 }
 
 /// The sentence for a new id of `kind` that breaks the rules of an id.
-pub(crate) fn format_text(kind: SymbolKind) -> String {
+pub fn format_text(kind: SymbolKind) -> String {
     format!(
         "Die neue ID muss mit {}_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
          (höchstens {MAX_ID_LEN} Zeichen).",

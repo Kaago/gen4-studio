@@ -122,6 +122,8 @@ pub struct ObjectDto {
     pub trainer_type: u16,
     /// The sight range in tiles (object `data[0]`).
     pub sight: u16,
+    /// The flag that hides the object while it is set; 0: none.
+    pub hidden_flag: u16,
     pub x: u16,
     pub z: u16,
     pub y: i32,
@@ -145,6 +147,9 @@ pub struct CoordDto {
     pub z: i16,
     pub width: u16,
     pub length: u16,
+    /// The trigger fires while variable `var` holds `value`; `var` 0: none.
+    pub var: u16,
+    pub value: u16,
 }
 
 /// The events of one event file. Coordinates are absolute tiles over the whole matrix
@@ -211,6 +216,7 @@ impl EventsDto {
                     dir: e.dir,
                     trainer_type: e.trainer_type,
                     sight: e.data[0],
+                    hidden_flag: e.hidden_flag,
                     x: e.x,
                     z: e.z,
                     y: e.y,
@@ -240,6 +246,8 @@ impl EventsDto {
                     z: e.z,
                     width: e.width,
                     length: e.length,
+                    var: e.var,
+                    value: e.value,
                 })
                 .collect(),
         })

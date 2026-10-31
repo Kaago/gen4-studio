@@ -610,6 +610,14 @@ pub enum NavTargetDto {
     Encounter {
         index: u16,
     },
+    /// A flag or a variable in the list of flags and variables (Technik). Mirrors
+    /// `NavTarget`; no backend answer leads to one yet.
+    #[allow(dead_code)]
+    #[serde(rename_all = "camelCase")]
+    Flag {
+        flag_kind: g4_kernel::flags::FlagKind,
+        number: u16,
+    },
 }
 
 /// Where a finding about `subject` leads (spec 3b.4 §5): the spot its `key` names when the

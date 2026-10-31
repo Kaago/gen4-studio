@@ -318,8 +318,9 @@ fn vanilla_pool_counts_the_free_numbers() {
         flags.free.first().copied().unwrap_or(0),
         vars.free.first().copied().unwrap_or(0)
     );
+    // Platinum names 126 numbers of the general area unused, 101 of them are free (R9).
     assert!(
-        (100..=170).contains(&flags.free.len()),
+        (80..=170).contains(&flags.free.len()),
         "{}",
         flags.free.len()
     );

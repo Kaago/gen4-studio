@@ -28,7 +28,8 @@ pub(crate) enum RefKindOf {
     /// Always this kind.
     Fixed(SymbolKind),
     /// From the text at this pointer of the arguments ([`kind_named`]: `species`, `learnset`,
-    /// `evolution` → species, `move`, `item`, `trainer`, `trainer_class`, `header` → map); a
+    /// `evolution` → species, `move`, `item`, `trainer`, `trainer_class`, `header` → map,
+    /// `flag`, `var` → the pret names and own ids of flags and variables); a
     /// kind without ids (an encounter file, a map) takes numbers only.
     FromKindField(&'static str),
     /// A `data_edit` patch value: by the patch's variant (the key the `*` stands for) and its
@@ -86,6 +87,8 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
         FromKindField("/target/kind"),
     ),
     arg("diff_entity", "/index", FromKindField("/kind")),
+    arg("flag_usage", "/number", FromKindField("/kind")),
+    arg("name_flag", "/number", FromKindField("/kind")),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -97,6 +100,8 @@ fn kind_named(name: &str) -> Option<SymbolKind> {
         "trainer" => Some(SymbolKind::Trainer),
         "trainer_class" => Some(SymbolKind::TrainerClass),
         "header" => Some(SymbolKind::Map),
+        "flag" => Some(SymbolKind::Flag),
+        "var" => Some(SymbolKind::Var),
         _ => None,
     }
 }
@@ -301,6 +306,34 @@ mod tests {
     }
 
     #[test]
+    fn flag_and_var_numbers_take_pret_names() {
+        let synthetic = g4_kernel::test_support::synthetic_project();
+        let project = g4_kernel::project::Project::open(synthetic.dir.path()).unwrap();
+        let platinum = Resolver::for_project(&project).unwrap();
+        for command in ["flag_usage", "name_flag"] {
+            assert_eq!(
+                resolve_args(
+                    command,
+                    json!({ "kind": "flag", "number": "FLAG_UNUSED_0x0094" }),
+                    &platinum
+                )
+                .unwrap(),
+                json!({ "kind": "flag", "number": 148 }),
+                "{command}"
+            );
+        }
+        assert_eq!(
+            resolve_args(
+                "flag_usage",
+                json!({ "kind": "var", "number": "VAR_UNUSED_0x406C" }),
+                &platinum
+            )
+            .unwrap(),
+            json!({ "kind": "var", "number": 0x406C })
+        );
+    }
+
+    #[test]
     fn patch_values_of_reference_fields_are_resolved() {
         let patch = |variant: &str, field: &str, value: Value| {
             json!({ "kind": "species", "index": 1,
@@ -402,6 +435,8 @@ mod tests {
             "plan_reset",
             "reset_to_original",
             "diff_entity",
+            "flag_usage",
+            "name_flag",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),

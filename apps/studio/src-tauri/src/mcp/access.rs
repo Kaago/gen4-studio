@@ -203,6 +203,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("unsaved_changes", Kind::Read),
     // A clone is completed before it opens: an agent has no project yet.
     ("restore_text_project", APP_ONLY),
+    ("list_flags", Kind::Read),
+    ("flag_usage", Kind::Read),
+    ("free_flag", Kind::Read),
+    // One undo step, like rename_id.
+    ("name_flag", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -818,5 +823,15 @@ mod tests {
         assert_eq!(kind("git_init"), Kind::Irreversible("Git einrichten"));
         // A clone is completed before it opens.
         assert_eq!(kind("restore_text_project"), APP_ONLY);
+    }
+
+    #[test]
+    fn flag_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["list_flags", "flag_usage", "free_flag"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step, like rename_id.
+        assert_eq!(kind("name_flag"), Kind::Write);
     }
 }
