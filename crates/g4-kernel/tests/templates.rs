@@ -744,6 +744,9 @@ fn script_files(project: &Project) -> ScriptFiles {
         }
     }
     let state = root.join(".rotom/status/compile-state.json");
+    if let Ok(bytes) = std::fs::read(&state) {
+        files.insert(state.strip_prefix(root).unwrap().to_path_buf(), bytes);
+    }
     let entries = std::fs::read(&state)
         .ok()
         .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
@@ -755,30 +758,24 @@ fn script_files(project: &Project) -> ScriptFiles {
 /// The source of the synthetic town's script file 0.
 const TOWN_SOURCE: &str = "expanded/scripts/0000.rotom";
 
-/// The paths whose bytes differ between `a` and `b` (a file on one side only included), and
-/// the compile state entries that differ: an entry on one side only, and the one of `town` (the
-/// town's source, relative to the root). The compile also marks other sources it compiled again
-/// to the same member (a decompiled level script becomes "Compiled", hashes equal); the
-/// recipe does not put those back.
-fn differing(a: &ScriptFiles, b: &ScriptFiles, town: &str) -> Vec<String> {
+/// The paths whose bytes differ between `a` and `b` (a file on one side only included; rotom's
+/// compile state file is one of them), and every compile state entry that differs.
+fn differing(a: &ScriptFiles, b: &ScriptFiles) -> Vec<String> {
     let paths: std::collections::BTreeSet<_> = a.files.keys().chain(b.files.keys()).collect();
     let mut out: Vec<String> = paths
         .into_iter()
         .filter(|p| a.files.get(*p) != b.files.get(*p))
         .map(|p| p.display().to_string())
         .collect();
-    if a.entries != b.entries {
-        let keys: std::collections::BTreeSet<String> = [&a.entries, &b.entries]
-            .into_iter()
-            .filter_map(|e| e.as_object())
-            .flat_map(|o| o.keys().cloned())
-            .collect();
-        for key in keys {
-            let (x, y) = (a.entries.get(&key), b.entries.get(&key));
-            let compared = key == town || x.is_none() || y.is_none();
-            if compared && x != y {
-                out.push(format!("compile state {key}: {x:?} / {y:?}"));
-            }
+    let keys: std::collections::BTreeSet<String> = [&a.entries, &b.entries]
+        .into_iter()
+        .filter_map(|e| e.as_object())
+        .flat_map(|o| o.keys().cloned())
+        .collect();
+    for key in keys {
+        let (x, y) = (a.entries.get(&key), b.entries.get(&key));
+        if x != y {
+            out.push(format!("compile state {key}: {x:?} / {y:?}"));
         }
     }
     out
@@ -818,7 +815,7 @@ fn plan_of_the_empty_region_counts_the_border_cells() {
     assert!(!draft.irreversible.is_empty(), "the border map stays");
     // Planning writes nothing.
     assert_eq!(disk_state(&store), before);
-    let differ = differing(&script_files(store.project()), &files, TOWN_SOURCE);
+    let differ = differing(&script_files(store.project()), &files);
     assert!(differ.is_empty(), "differ: {differ:?}");
     assert_eq!((store.undo_depth(), store.dirty()), (depth, dirty));
     // The refusals of apply are the plan's too.
@@ -945,7 +942,7 @@ fn undo_and_redo_of_the_empty_region_restore_every_file() {
     for id in [text_id(433), HEADERS, MATRIX_0] {
         assert!(restored.contains(&id), "{id} not restored: {restored:?}");
     }
-    let differ = differing(&script_files(&project), &before, TOWN_SOURCE);
+    let differ = differing(&script_files(&project), &before);
     assert!(differ.is_empty(), "differ: {differ:?}");
     assert!(!project.root.join(&level_source).exists());
     assert!(!project.root.join(&level_member).exists());
@@ -956,7 +953,7 @@ fn undo_and_redo_of_the_empty_region_restore_every_file() {
 
     // Redo: the state after apply again.
     store.redo().unwrap();
-    let differ = differing(&script_files(&project), &applied, TOWN_SOURCE);
+    let differ = differing(&script_files(&project), &applied);
     assert!(differ.is_empty(), "differ: {differ:?}");
     assert_ne!(store.current_bytes(text_id(433)).unwrap(), archive);
     assert_eq!(
@@ -964,7 +961,7 @@ fn undo_and_redo_of_the_empty_region_restore_every_file() {
         Some(REGION_LABEL)
     );
     store.undo().unwrap();
-    let differ = differing(&script_files(&project), &before, TOWN_SOURCE);
+    let differ = differing(&script_files(&project), &before);
     assert!(differ.is_empty(), "differ: {differ:?}");
 }
 
@@ -981,7 +978,7 @@ fn undo_refuses_a_script_changed_meanwhile() {
     let changed = script_files(&project);
     let why = refused(store.undo());
     assert!(why.contains("Scriptdatei 0000"), "{why}");
-    let differ = differing(&script_files(&project), &changed, TOWN_SOURCE);
+    let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
 }
 
@@ -1088,8 +1085,9 @@ fn vanilla_empty_region_has_no_check_errors() {
     assert!(plan_empty_region(&mut store).unwrap().already_empty);
 }
 
-/// Gated: one undo takes the world back, its scripts and text archives included (the border
-/// map stays); redo brings the empty region back. Every text archive the compile touched must
+/// Gated: one undo takes the world back, its scripts, text archives and rotom's compile state
+/// included (the border map stays, the only path `git status` names); redo brings the empty
+/// region back. Every text archive the compile touched must
 /// be one `empty_region::town_archives` names (saved before the compile); one that is not is
 /// printed (its undo would fall back to the store's copy).
 #[test]
@@ -1099,6 +1097,28 @@ fn vanilla_empty_region_undo_restores_the_world() {
     };
     let project = Arc::new(Project::open(&root).unwrap());
     scripts::adopt(&project, &mut |_| {}).unwrap();
+    // „Git einrichten“ as the Studio does it (when Git is installed): the adopted project is
+    // the first commit, so `git status` after undo names what undo leaves.
+    let committed = g4_kernel::git::find_git().is_some_and(|cli| {
+        g4_kernel::git::git_init(&project, Some(&cli), &Default::default(), &mut |_| {})
+            .unwrap()
+            .committed
+    });
+    let git_status = || {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    if committed {
+        assert_eq!(git_status(), Vec::<String>::new());
+    }
     let mut store = Store::new(Arc::clone(&project));
     let plan = plan_empty_region(&mut store).unwrap();
     let ids = [HEADERS, MATRIX_0, event_id(plan.town_event_file)];
@@ -1140,7 +1160,7 @@ fn vanilla_empty_region_undo_restores_the_world() {
         "not saved before the compile: {unsaved:?}"
     );
     let applied = script_files(&project);
-    assert!(!differing(&applied, &files, &town_source).is_empty());
+    assert!(!differing(&applied, &files).is_empty());
 
     let restored = store.undo().unwrap();
     for id in ids {
@@ -1154,16 +1174,26 @@ fn vanilla_empty_region_undo_restores_the_world() {
     assert!(store.dirty().is_empty(), "{:?}", store.dirty());
     assert!(store.history().0.is_empty());
     // The scripts, their members, the compile state and the text archives as before.
-    let differ = differing(&script_files(&project), &files, &town_source);
+    let differ = differing(&script_files(&project), &files);
     assert!(differ.is_empty(), "differ after undo: {differ:?}");
     assert_eq!(state_entry(&project, &town_source), entry);
-    // The border map stays as a member nothing uses.
-    assert!(
-        store
-            .project()
-            .member_path(AssetKind::Map, report.border_map)
-            .is_file()
-    );
+    // The border map stays as a member nothing uses: the one path `git status` names.
+    let border = store
+        .project()
+        .member_path(AssetKind::Map, report.border_map);
+    assert!(border.is_file());
+    if committed {
+        let status = git_status();
+        eprintln!("{}: git status after undo {status:?}", project.game_code);
+        let border = border
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(status, [format!("?? {border}")]);
+    } else {
+        eprintln!("git status not checked: Git is not installed");
+    }
 
     // Redo brings the empty region back, files included.
     store.redo().unwrap();
@@ -1171,7 +1201,7 @@ fn vanilla_empty_region_undo_restores_the_world() {
         store.history().0.last().map(String::as_str),
         Some(REGION_LABEL)
     );
-    let differ = differing(&script_files(&project), &applied, &town_source);
+    let differ = differing(&script_files(&project), &applied);
     assert!(differ.is_empty(), "differ after redo: {differ:?}");
 }
 

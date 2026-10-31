@@ -1853,6 +1853,43 @@ pub fn script_file_step(
     })
 }
 
+/// rotom's compile state file (`.rotom/status/compile-state.json`) as it is on disk; `None`
+/// without one.
+pub fn snapshot_compile_state(project: &Project) -> Result<Option<Vec<u8>>, KernelError> {
+    read_if_present(&state_path(project)?)
+}
+
+/// The step of rotom's compile state file from `before` to the bytes on disk now, as one file
+/// (kind `Recipe`, asset `asset`, no rotom entry). A compile writes the whole file anew, its
+/// entries in the order of rotom's `HashMap`, and marks every source it compiled again (a
+/// decompiled one becomes "Compiled"), so only the file's bytes put back make it as it was;
+/// entries set one by one ([`set_state_entry`]) would not. Empty when the bytes are the same.
+pub fn compile_state_step(
+    project: &Project,
+    asset: crate::project::AssetId,
+    before: Option<Vec<u8>>,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind};
+
+    let path = state_path(project)?;
+    let after = read_if_present(&path)?;
+    let files = if before == after {
+        Vec::new()
+    } else {
+        vec![FileChange {
+            path,
+            before,
+            after,
+        }]
+    };
+    Ok(FileStep {
+        asset,
+        files,
+        rotom_entry: None,
+        kind: FileStepKind::Recipe,
+    })
+}
+
 /// A text archive as it is on disk: its JSON (`expanded/textArchives/NNNN.json`) and its
 /// member, each `None` when absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

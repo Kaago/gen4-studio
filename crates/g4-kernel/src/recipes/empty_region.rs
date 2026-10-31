@@ -212,10 +212,11 @@ pub fn plan(store: &mut Store, _: &EmptyRegionInput) -> Result<Draft, KernelErro
 /// script), matrix 0 (every cell outside the town gets the border map, the town's header and
 /// its altitude), the border map (every cell blocked) and the kept event files (the town
 /// without figures and triggers, the dropped warps gone). Last the file steps of the level
-/// script file, the town's script file (sources, member, compile-state entry) and every text
-/// archive the compile wrote (JSON and member, from the copies [`town_archives`] names, taken
-/// before the first write; an archive outside them falls back to the store's copy, which is
-/// the state before the compile) are merged with the transaction into one undo step.
+/// script file and the town's script file (sources and member), of every text archive the
+/// compile wrote (JSON and member, from the copies [`town_archives`] names, taken before the
+/// first write; an archive outside them falls back to the store's copy, which is the state
+/// before the compile) and of rotom's compile state file as a whole (bytes before the first
+/// write) are merged with the transaction into one undo step.
 pub fn apply(
     store: &mut Store,
     _: &EmptyRegionInput,
@@ -236,9 +237,10 @@ pub fn apply(
 
     // The files as they are before the first write.
     let archives = town_archives(store, &plan)?;
-    let (before_town, before_level, next_level, mut saved) = {
+    let (before_town, before_level, next_level, mut saved, before_state) = {
         let project = store.project();
         let next_level = scripts::next_script_file(project)?;
+        let before_state = scripts::snapshot_compile_state(project)?;
         let saved = archives
             .iter()
             .map(|&a| Ok((a, scripts::snapshot_archive(project, a)?)))
@@ -248,6 +250,7 @@ pub fn apply(
             scripts::snapshot_script(project, next_level)?,
             next_level,
             saved,
+            before_state,
         )
     };
 
@@ -347,9 +350,19 @@ pub fn apply(
             scripts::script_file_step(project, level_script, &before_level)?,
             scripts::script_file_step(project, town_file, &before_town)?,
         ];
+        // The compile state goes back as a whole file (last step): the compile rewrote all of
+        // it, and an entry set on top would write it anew in another order.
+        for step in &mut steps {
+            step.rotom_entry = None;
+        }
         for (&index, before) in &saved {
             steps.push(scripts::archive_file_step(project, index, before)?);
         }
+        let town = AssetId {
+            kind: AssetKind::Script,
+            index: town_file,
+        };
+        steps.push(scripts::compile_state_step(project, town, before_state)?);
         steps
     };
     let mut change: Option<ChangeId> = transaction;

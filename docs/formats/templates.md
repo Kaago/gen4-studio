@@ -69,10 +69,10 @@ Vorbedingungen, in dieser Reihenfolge und jede vor der ersten Plattenänderung:
 
 Danach liest der Kernel noch die Quelle der Scriptdatei der Stadt (sie muss eine rotom-Quelle sein)
 und baut daraus Start-Script und Level-Script, bevor er schreibt. Vor dem ersten Schreiben sichert er
-die Dateien, die der Schritt zurücknehmen kann: Quelle (`.rotom`/`.json`), Member und Eintrag in
-`compile-state.json` der Scriptdatei der Stadt und der künftigen Level-Script-Datei (nichts da), dazu
-JSON und Member der Textarchive, in die die Übersetzung schreiben kann (`town_archives`: das des
-Start-Headers und das jedes Headers mit der Scriptdatei der Stadt).
+die Dateien, die der Schritt zurücknehmen kann: Quelle (`.rotom`/`.json`) und Member der Scriptdatei
+der Stadt und der künftigen Level-Script-Datei (nichts da), JSON und Member der Textarchive, in die die
+Übersetzung schreiben kann (`town_archives`: das des Start-Headers und das jedes Headers mit der
+Scriptdatei der Stadt), und rotoms `.rotom/status/compile-state.json` als ganze Datei.
 
 **Sofort auf der Platte** (die Rand-Karte bleibt nach ⌘Z als unverwiesenes Member, alles Übrige nimmt
 der Schritt zurück):
@@ -97,16 +97,23 @@ Schritt verschmolzen; ⌘Z holt die Welt und die Dateien zurück, ⌘⇧Z bringt
 | Matrix 0 | jede Rand-Zelle: Rand-Karte, Header der Stadt, Höhe der ersten Stadtzelle; leere Zellen bleiben leer |
 | Rand-Karte (`Tx::edit_map`) | alle 1024 Kollisionszellen `{kind 0, collision 0x80}` |
 | Eventdateien der behaltenen Header | die Stadt ohne Figuren und Auslöser (Warps und Schilder bleiben); wegfallende Warps entfernt; Warps in eine Datei, die Warps verlor, auf die neuen Nummern umgezählt |
-| Level-Script-Datei (Dateischritt `script_file_step`) | Quelle `NNNN.json`, Member und Eintrag in `compile-state.json` entstehen; ⌘Z entfernt sie |
-| Scriptdatei der Stadt (Dateischritt) | Quelle `NNNN.rotom`, Member und Eintrag in `compile-state.json` wie vor dem Anhängen |
+| Level-Script-Datei (Dateischritt `script_file_step`) | Quelle `NNNN.json` und Member entstehen; ⌘Z entfernt sie |
+| Scriptdatei der Stadt (Dateischritt) | Quelle `NNNN.rotom` und Member wie vor dem Anhängen |
 | berührte Textarchive (Dateischritt `archive_file_step`) | `expanded/textArchives/NNNN.json` und Member wie vorher; ⌘Z und ⌘⇧Z laden ein geladenes Archiv danach neu (`reload_from_disk`) |
 
 Ein Textarchiv, das die Übersetzung berührt, ohne in `town_archives` zu stehen, bekommt als `before`
 die geladene Kopie des Stores (der Stand vor der Übersetzung; sein Member behält, was die Übersetzung
 schrieb, das zurückgelegte JSON gilt und der nächste Build kodiert es); ist es nicht geladen, nimmt ⌘Z
 es nicht zurück. Auf Platin DE und HeartGold DE kommt das nicht vor (Test
-`vanilla_empty_region_undo_restores_the_world`). Andere Quellen, die die Übersetzung neu übersetzt
-(Member gleich, Status in `compile-state.json` „Compiled“ statt „Decompiled“), setzt ⌘Z nicht zurück.
+`vanilla_empty_region_undo_restores_the_world`).
+
+`compile-state.json` geht als ganze Datei zurück (Dateischritt `compile_state_step`, Asset die
+Scriptdatei der Stadt): die Übersetzung schreibt die Datei ganz neu, die Einträge in der Reihenfolge
+von rotoms `HashMap`, und markiert jede Quelle, die sie neu übersetzt, als „Compiled“ (auch eine
+übernommene „Decompiled“ mit gleichem Member). Einträge einzeln zurückgesetzt (`set_state_entry`)
+gäben die Datei in anderer Reihenfolge wieder; im DSPRE-Layout ist sie versioniert, so dass `git
+status` nach ⌘Z nur die Rand-Karte nennt. Darum lehnt ⌘Z auch ab, wenn seit dem Schritt irgendeine
+Übersetzung lief (etwa im Script-Editor), und nennt dann die Scriptdatei der Stadt.
 
 Hat jemand eine der Dateien seit dem Schritt geändert (von Hand, im Script-Editor), lehnt ⌘Z mit
 `Refused` („Scriptdatei NNNN wurde nach dem Rezept geändert; ⌘Z nimmt den Schritt nicht zurück, er
