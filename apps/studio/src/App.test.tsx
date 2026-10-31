@@ -1909,6 +1909,25 @@ describe("App wiring", () => {
     expect(told()).toHaveLength(2);
   });
 
+  it("erzaehlen_silences_the_tool_letters_and_puts_the_tool_back_on_auswaehlen", async () => {
+    const letter = (key: string) => act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    const pressHinge = (name: string) =>
+      act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name)!.click());
+    shown.worldVisible = true;
+    await letter("b");
+    expect(data().tool).toBe("paint");
+    // Erzählen has recipes instead of tools: the tool it came with is gone, and a letter changes nothing and tells nothing.
+    await pressHinge("Erzählen");
+    expect(data().tool).toBe("select");
+    await letter("g");
+    expect(data().tool).toBe("select");
+    expect(listToasts().filter((t) => t.text === "Werkzeuge wirken in der 3D-Ansicht")).toEqual([]);
+    // Back in Bauen the letters work again.
+    await pressHinge("Bauen");
+    await letter("g");
+    expect(data().tool).toBe("building");
+  });
+
   it("repairing_the_patch_in_technik_says_so_and_closes_the_broken_patch_toast", async () => {
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: true, narc: "unpacked/dynamicHeaders" });
     vi.mocked(repairHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });

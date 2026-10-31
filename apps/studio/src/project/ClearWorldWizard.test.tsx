@@ -51,6 +51,7 @@ describe("ClearWorldWizard", () => {
     onClose: vi.fn<ClearWorldWizardProps["onClose"]>(),
     onShow: vi.fn<ClearWorldWizardProps["onShow"]>(),
     onPlay: vi.fn<NonNullable<ClearWorldWizardProps["onPlay"]>>(),
+    onStep: vi.fn<NonNullable<ClearWorldWizardProps["onStep"]>>(),
   };
   beforeEach(() => {
     container = document.createElement("div");
@@ -203,5 +204,17 @@ describe("ClearWorldWizard", () => {
     await flush();
     expect(handlers.onShow).toHaveBeenCalledTimes(2);
     expect(handlers.onPlay).toHaveBeenCalledOnce();
+  });
+
+  it("the_result_offers_gebiet_anlegen_and_opens_it", async () => {
+    await show();
+    await click(button("Weiter"));
+    await click(button("Welt leeren"));
+    await flush();
+    const area = container.querySelector<HTMLButtonElement>('button[data-recipe="create_area"]')!;
+    expect(area.textContent).toBe("Gebiet anlegen");
+    expect(area.disabled).toBe(false);
+    await click(area);
+    expect(handlers.onStep).toHaveBeenCalledExactlyOnceWith("create_area", REPORT);
   });
 });

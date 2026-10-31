@@ -51,7 +51,8 @@ interface Props {
   onHeaderPatchRepaired?: () => void;
   onError: (e: unknown) => void;
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
-  onPlay?: () => void;
+  onPlay?: () => void;  /** A next step's button on the result (its recipe runs): the app shows what was made and opens that recipe's wizard. */
+  onStep?: (id: string, report: AreaReport, spec: AreaSpec) => void;
 }
 
 type Outcome = { kind: "done"; report: AreaReport; spec: AreaSpec } | { kind: "partial"; message: string };
@@ -78,7 +79,7 @@ const OWN_MAP = "own";
 const gridLabel = (what: string, matrix: { width: number; height: number }) => `${what}, ${matrix.height} Zeilen, ${matrix.width} Spalten`;
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay }: Props) {
+export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onStep }: Props) {
   const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const building = !depthAtLeast(depth, "tuefteln");
   // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
@@ -403,7 +404,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
   let play: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const { report, spec } = outcome;
-    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec, depth)} />;
+    result = <DoneResult title="Gebiet angelegt" {...areaResult(report, spec, depth)} onStep={onStep && ((id) => onStep(id, report, spec))} />;
     onShow = () => void show(report, spec);
     if (onPlay) play = () => void showAndPlay(report, spec);
   } else if (outcome?.kind === "partial") {

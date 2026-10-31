@@ -1,16 +1,17 @@
 import { useMemo } from "react";
 import type { World } from "../workbench/worldModel";
-import type { AdoptProgressDto, AdoptReportDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, ScriptsStatusDto, WarpLink } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
 import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
 import { useShell } from "../ui/frame/ShellContext";
 import { buildPlaces } from "../workbench/places";
+import { recipeRequest } from "../workbench/recipes";
 import { NewAreaWizard } from "../workbench/wizards/NewAreaWizard";
 import { NewRoomWizard } from "../workbench/wizards/NewRoomWizard";
 import { areaResult, roomResult } from "../workbench/wizards/wizardSpecs";
-import type { Wizards } from "./useWizards";
+import type { Created, Wizards } from "./useWizards";
 
 interface Props {
-  wizards: Pick<Wizards, "request" | "close" | "created">;
+  wizards: Pick<Wizards, "request" | "open" | "close" | "created">;
   headers: HeaderSummary[];
   matrices: MatrixSummary[];
   /** The world model (null: not read yet): the area wizard in Bauen offers its world maps and areas as sources. It is passed in because the host lives beside the workbench, outside the context `useWorld` reads. */
@@ -57,13 +58,23 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  */
 export function WizardHost(props: Props) {
   const { wizards, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
-  const { request, close, created } = wizards;
+  const { request, open, close, created } = wizards;
   // Bauen gives a new area or room a place and a look; Tüfteln lets the user choose its header.
   const depth = useShell().viewDepth;
   // Only the room wizard reads the places, so no other request (nor a closed host) groups the headers.
   const wantsPlaces = request?.kind === "room";
   const places = useMemo(() => (wantsPlaces ? buildPlaces(headers, matrices) : []), [wantsPlaces, headers, matrices]);
   if (!request) return null;
+  // A next step of a result: show what the wizard made (as „Zeigen“ does), then open the step's wizard; „Raum anlegen“ puts its door
+  // outside into the header just made. A step without a wizard does nothing (its button is locked anyway).
+  const step = (id: string, made: Created) => {
+    const next = recipeRequest(id, made.header);
+    if (next) void created(made).then(() => open(next));
+  };
+  const areaMade = (report: AreaReport, spec: AreaSpec): Created => ({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec, depth).lines[0], name: spec.name });
+  const roomMade = (report: RoomReport, spec: RoomSpec): Created => ({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec, depth).lines[0], name: spec.name });
+  // The town is a header of matrix 0 (the recipe looks for it there).
+  const regionMade = (report: RegionReport): Created => ({ matrix: 0, header: report.plan.start_header, announcement: clearedAnnouncement(report) });
   switch (request.kind) {
     case "area":
       return (
@@ -78,7 +89,8 @@ export function WizardHost(props: Props) {
           counts={counts}
           prefill={areaPrefill(request.prefill, selected)}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: report.header, announcement: areaResult(report, spec, depth).lines[0], name: spec.name })}
+          onCreated={(report, spec) => created(areaMade(report, spec))}
+          onStep={(id, report, spec) => step(id, areaMade(report, spec))}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
@@ -100,7 +112,8 @@ export function WizardHost(props: Props) {
           prefill={request.prefill}
           lastTile={lastTile}
           onClose={close}
-          onCreated={(report, spec) => created({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec, depth).lines[0], name: spec.name })}
+          onCreated={(report, spec) => created(roomMade(report, spec))}
+          onStep={(id, report, spec) => step(id, roomMade(report, spec))}
           onHeaderPatch={onHeaderPatch}
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
@@ -116,8 +129,8 @@ export function WizardHost(props: Props) {
           onSave={props.onSave}
           onApplied={props.onRegionApplied}
           onClose={close}
-          // The town is a header of matrix 0 (the recipe looks for it there).
-          onShow={(report) => created({ matrix: 0, header: report.plan.start_header, announcement: clearedAnnouncement(report) })}
+          onShow={(report) => created(regionMade(report))}
+          onStep={(id, report) => step(id, regionMade(report))}
           onPlay={onPlay}
         />
       );

@@ -173,6 +173,17 @@ describe("NewRoomWizard", () => {
     expect(onCreated).toHaveBeenCalledWith(report, spec);
   });
 
+  it("the_result_offers_neue_figur_hier_locked", async () => {
+    await show();
+    await toEntrance();
+    await next();
+    await click(button("Anlegen"));
+    // The kernel's next step after a room, as a recipe button that waits for 3d.5.
+    const keys = [...container.querySelectorAll<HTMLButtonElement>("button[data-recipe]")];
+    expect(keys.map((b) => [b.getAttribute("data-recipe"), b.textContent, b.disabled])).toEqual([["new_figure", "Neue Figur hier", true]]);
+    expect(document.getElementById(keys[0]!.getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
+  });
+
   it("keeps_the_default_door_inside_and_leaves_the_door_outside_open_without_a_hovered_tile_or_template_warp", async () => {
     lastTile.mockReturnValue(null);
     await show();

@@ -1,9 +1,10 @@
-import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NextStep, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
 import { UNNAMED_PLACE } from "../places";
+import { nextStepsFor } from "../recipes";
 import { TERMS, id4, numberText } from "../terms";
 import type { WarpTile } from "../warpTile";
 import type { World } from "../worldModel";
@@ -374,12 +375,24 @@ function snapshotLine(report: Pick<AreaReport, "patched" | "snapshot">, depth: D
   return !depthAtLeast(depth, "tuefteln") ? "Die alten Dateien sind unter .g4/backup gesichert." : `Sicherung des alten Ordners: ${report.snapshot}`;
 }
 
-/** What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and that the patch kept the old files). */
-export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
+/** A wizard's result: what it made, where to go on in words, and the recipes that make sense next. */
+export interface WizardOutcome {
+  lines: string[];
+  next: string[];
+  steps: NextStep[];
+}
+
+/**
+ * What `create_area` made, in words, and where to go on from there; Bauen names the area and its maps only (and that the patch kept the old
+ * files). The steps are the kernel's for the recipe (the wizard still calls the old command, which answers none).
+ */
+export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "tuefteln"): WizardOutcome {
   const snapshot = snapshotLine(report, depth);
+  const steps = nextStepsFor("create_area");
   if (!depthAtLeast(depth, "tuefteln")) {
     const count = report.maps.length;
     return {
+      steps,
       lines: [`${TERMS.area.label} „${spec.name}“ angelegt: ${count} ${count === 1 ? TERMS.map.label : TERMS.map.plural}.`, ...(snapshot ? [snapshot] : [])],
       // An area on a world map lies beside its neighbours: no door needed.
       next: [spec.target ? SEAMLESS : `Mit der Welt verbinden: ${SET_DOOR}`, `Ansehen: „Zeigen“ öffnet das neue ${TERMS.area.label}`],
@@ -400,6 +413,7 @@ export function areaResult(report: AreaReport, spec: AreaSpec, depth: Depth = "t
   if (snapshot) lines.push(snapshot);
   return {
     lines,
+    steps,
     next: [
       spec.target ? `Nahtlos begehbar: vom Nachbargebiet in ${TERMS.matrix.label} ${id4(report.matrix)} aus hinüberlaufen.` : `Mit der Welt verbinden: ${SET_DOOR} (Ziel im Event-Editor wählen)`,
       `Karten prüfen: ${TERMS.matrix.label}-Tab`,
@@ -789,9 +803,9 @@ const SEAMLESS = "Nahtlos begehbar: vom Nachbargebiet aus hinüberlaufen.";
 
 /**
  * What `create_room` made, in words, and where to go on from there; Bauen names the room, its map and the doors, never its raster or
- * header. Both say where the patch the call applied put the old header folder.
+ * header. Both say where the patch the call applied put the old header folder. The steps are the kernel's for the recipe.
  */
-export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "tuefteln"): { lines: string[]; next: string[] } {
+export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "tuefteln"): WizardOutcome {
   const building = !depthAtLeast(depth, "tuefteln");
   const lines = building
     ? [`${TERMS.room.label} „${spec.name}“ angelegt: ${TERMS.map.label} ${id4(report.map)}.`]
@@ -810,6 +824,7 @@ export function roomResult(report: RoomReport, spec: RoomSpec, depth: Depth = "t
   if (snapshot) lines.push(snapshot);
   return {
     lines,
+    steps: nextStepsFor("create_room"),
     next:
       spec.entrance === null
         ? [`Eingang verbinden: ${SET_DOOR}`, building ? FURNISH : `Innenraum einrichten: ${TERMS.map.label} im Raster-Tab bearbeiten`]

@@ -1,6 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { FloatingToolbar, isLowView, shownAnchor, toolbarMinHeight } from "../ui/frame/FloatingToolbar";
+import { RecipeBar } from "../ui/frame/RecipeBar";
 import { useShell } from "../ui/frame/ShellContext";
+import { depthAtLeast } from "../ui/frame/shellState";
+import { RECIPE_BAR, recipeRequest } from "./recipes";
+import type { RecipeEntry } from "./recipes";
 import { SceneBar } from "./SceneBar";
 import type { SceneBarProps } from "./SceneBar";
 import styles from "./SceneOverlays.module.css";
@@ -11,11 +15,11 @@ import { useWorkbench } from "./WorkbenchContext";
  * The bars floating over the 3D view, in one corner: the layer bar (with the top-down switch) at the top left, the toolbar under it (anchor left), beside it (top),
  * or at the bottom middle. It covers the view without taking its pointer; only the bars do. A sibling of the scene: reading the shell here
  * renders the bars, never the scene. In a view lower than `toolbarMinHeight` an upright toolbar lies flat at the top; the anchor the
- * shell remembers stays (and is the one the toolbar's menu ticks).
+ * shell remembers stays (and is the one the toolbar's menu ticks). Erzählen shows its recipes there instead of the tools.
  */
 export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown" | "onTopDown"> }) {
-  const { tool, onTool, eventFileId, eventLock } = useWorkbench();
-  const { state, setToolbar, setTopDown, density } = useShell();
+  const { tool, onTool, eventFileId, eventLock, selected, onOpenWizard } = useWorkbench();
+  const { state, setToolbar, setTopDown, density, viewDepth } = useShell();
   const box = useRef<HTMLDivElement>(null);
   const minHeight = toolbarMinHeight(density);
   // Only whether the view is too low is kept, not its height, and the bars are memoised: dragging the splitter re-renders this component
@@ -36,20 +40,32 @@ export function SceneOverlays({ layers }: { layers: Omit<SceneBarProps, "topDown
   // The four event tools wait for a shown place and an event file that may be written.
   const eventsBlocked = eventToolsBlocked(eventLock, eventFileId);
   const anchor = shownAnchor(state.toolbar, low);
+  // „Raum anlegen“ puts the door outside into the selected area or room.
+  const onRecipe = useCallback(
+    (id: RecipeEntry["id"]) => {
+      const request = recipeRequest(id, selected);
+      if (request) onOpenWizard(request);
+    },
+    [selected, onOpenWizard],
+  );
   return (
     <div ref={box} className={styles.overlays} data-scene-overlays="" data-anchor={anchor}>
       <SceneBar {...layers} topDown={state.topDown} onTopDown={setTopDown} />
-      <FloatingToolbar
-        tools={TOOLS}
-        tool={tool}
-        onTool={onTool}
-        eventsBlocked={eventsBlocked}
-        density={density}
-        anchor={anchor}
-        chosen={state.toolbar}
-        onAnchor={setToolbar}
-        area={area}
-      />
+      {!depthAtLeast(viewDepth, "bauen") ? (
+        <RecipeBar entries={RECIPE_BAR} onRecipe={onRecipe} density={density} anchor={anchor} />
+      ) : (
+        <FloatingToolbar
+          tools={TOOLS}
+          tool={tool}
+          onTool={onTool}
+          eventsBlocked={eventsBlocked}
+          density={density}
+          anchor={anchor}
+          chosen={state.toolbar}
+          onAnchor={setToolbar}
+          area={area}
+        />
+      )}
     </div>
   );
 }

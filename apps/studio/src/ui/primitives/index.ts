@@ -82,3 +82,5 @@ export { CheckList } from "./CheckList";
 export type { CheckListProps, CheckRow, CheckState } from "./CheckList";
 export { DRAG_SLOP, Splitter } from "./Splitter";
 export type { SplitterProps } from "./Splitter";
+export { RecipeButton } from "./RecipeButton";
+export type { RecipeButtonProps } from "./RecipeButton";

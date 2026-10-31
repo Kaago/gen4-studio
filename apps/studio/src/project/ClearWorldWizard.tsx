@@ -3,6 +3,7 @@ import { applyEmptyRegion, errorText, nameTables, planEmptyRegion } from "../api
 import type { AdoptProgressDto, AdoptReportDto, RegionPlan, RegionReport, ScriptsStatusDto } from "../api";
 import { Notice } from "../ui/primitives";
 import { AdoptProgress } from "../workbench/script/AdoptBox";
+import { nextStepsFor } from "../workbench/recipes";
 import { TERMS, id4 } from "../workbench/terms";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
@@ -26,7 +27,8 @@ export interface ClearWorldWizardProps {
   /** "Zeigen": the app shows the start town in the world. */
   onShow: (report: RegionReport) => Promise<void>;
   /** "Hier spielen" on the result: after the town was shown, the app saves, builds and runs. */
-  onPlay?: () => void;
+  onPlay?: () => void;  /** A next step's button on the result („Gebiet anlegen“): the app shows the town and opens that recipe's wizard. */
+  onStep?: (id: string, report: RegionReport) => void;
 }
 
 type PlanState = { kind: "loading" } | { kind: "ready"; plan: RegionPlan } | { kind: "failed"; message: string };
@@ -68,7 +70,7 @@ function borderLine(n: number): string {
 const starterLine = (plan: RegionPlan, species: string) => `Ein Start-Script gibt dir ${species} auf Level ${plan.starter_level}, den Pokédex und die Laufschuhe.`;
 
 /** "Welt leeren": the empty-region recipe on the open project. Shows what stays and what goes, clears what is in the way, then applies it. */
-export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay }: ClearWorldWizardProps) {
+export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep }: ClearWorldWizardProps) {
   const [planState, setPlanState] = useState<PlanState>({ kind: "loading" });
   // The species names of the project; null: not read (or not readable), the starter goes by its number.
   const [species, setSpecies] = useState<readonly string[] | null>(null);
@@ -277,6 +279,9 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
         title="Welt geleert"
         lines={[`Randkarte ${id4(report.border_map)}, Level-Script ${id4(report.level_script)}, Start-Script ${id4(file)} #${n}`]}
         next={["Mit „Hier spielen“: Intro, zu Hause aufwachen, draußen wartet dein erstes Pokémon."]}
+        // The step the kernel names after the empty region; the wizard still calls the old command, which answers none.
+        steps={nextStepsFor("empty_region")}
+        onStep={onStep && ((id) => onStep(id, report))}
       />
     );
     showIt = () => void show(report);

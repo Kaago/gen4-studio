@@ -7,6 +7,7 @@ import { InspectorHead } from "../../../workbench/inspector/InspectorHead";
 import type { InspectorHeadProps } from "../../../workbench/inspector/InspectorHead";
 import { SceneHierarchy } from "../../../workbench/SceneHierarchy";
 import type { SceneRef } from "../../../workbench/sceneModel";
+import { RECIPE_BAR } from "../../../workbench/recipes";
 import { TOOLS } from "../../../workbench/tools";
 import { WizardBar } from "../../../workbench/wizards/WizardBar";
 import deckStyles from "../../frame/Deck.module.css";
@@ -14,10 +15,11 @@ import { tabMenuItems } from "../../frame/dockMenu";
 import { FloatingToolbar } from "../../frame/FloatingToolbar";
 import { Hinge } from "../../frame/Hinge";
 import { Palette } from "../../frame/Palette";
+import { RecipeBar } from "../../frame/RecipeBar";
 import { ShellProvider } from "../../frame/ShellContext";
 import type { Tool, ToolbarAnchor } from "../../frame/shellState";
 import { StartPane } from "../../frame/StartPane";
-import { Button, Kbd, Splitter, Tabs } from "../../primitives";
+import { Button, Kbd, RecipeButton, Splitter, Tabs } from "../../primitives";
 import type { PickerItem, TabItem } from "../../primitives";
 import styles from "../Gallery.module.css";
 
@@ -529,6 +531,36 @@ export function FramePage() {
           <ToolbarView anchor="left" />
           <ToolbarView anchor="top" />
           <ToolbarView anchor="left" blocked="Erst einen Ort wählen." />
+        </div>
+      </section>
+
+      <section className={styles.block} data-gallery="rezept-taste">
+        <h2 className={styles.blockTitle}>Rezept-Taste</h2>
+        <p className={styles.note}>
+          Ein Rezept in Erzählen: das Symbol auf einer Kachel in der Farbe seines Bereichs, daneben der Name. Ruhe, Hover (Zeiger darauf: Fläche wie das Deck), Aktiv (Kobalt-Kante) und Gesperrt
+          (gedämpft, mit Schloss, der Tooltip nennt den Grund). Die kleine Größe steht im Ergebnis eines Assistenten.
+        </p>
+        <div className={styles.row}>
+          <RecipeButton id="create_area" label="Gebiet anlegen" icon="matrix" area="welt" hint="Kopiert Karten zu einem neuen Gebiet mit eigenem Ort." onClick={noop} />
+          <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" hint="Zeiger darauf zeigt den Hover." onClick={noop} />
+          <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" pressed onClick={noop} />
+          <RecipeButton id="new_figure" label="Neue Figur" icon="figure" area="welt" reason="Kommt mit 3d.5" onClick={noop} />
+        </div>
+        <div className={styles.row}>
+          <RecipeButton id="new_trainer_here" label="Neuer Trainer hier" icon="pokemon" area="pokemon" onClick={noop} size="s" />
+          <RecipeButton id="story" label="Neue Geschichte" icon="stories" area="geschichten" onClick={noop} size="s" />
+          <RecipeButton id="text" label="Neuer Text" icon="texts" area="texte" onClick={noop} size="s" />
+          <RecipeButton id="adjust_terrain" label="Gelände anpassen" icon="paint" area="welt" reason="Kommt mit Phase 6" onClick={noop} size="s" />
+        </div>
+      </section>
+
+      <section className={styles.block}>
+        <h2 className={styles.blockTitle}>Rezept-Leiste</h2>
+        <p className={styles.note}>In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker. Gebiet und Raum öffnen ihre Assistenten, die anderen Rezepte kommen mit 3d.5.</p>
+        <div className={styles.toolbarViews}>
+          <div className={styles.toolbarView}>
+            <RecipeBar entries={RECIPE_BAR} onRecipe={noop} density="komfort" anchor="left" />
+          </div>
         </div>
       </section>
 

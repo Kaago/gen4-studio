@@ -20,6 +20,13 @@
   font: var(--g4-font-text-s-betont);
 }
 
+/* The next steps as recipe buttons, side by side, wrapping. */
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--g4-raum-8);
+}
+
 .next {
   margin: 0;
   padding-left: var(--g4-raum-16);

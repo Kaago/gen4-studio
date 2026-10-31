@@ -53,7 +53,7 @@ import { useGitStatus } from "./git/useGitStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
-import { AREAS } from "./ui/frame/shellState";
+import { AREAS, depthAtLeast } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
@@ -588,6 +588,13 @@ function AppBody() {
     shell.setTool(next);
     if (next === "paint") setShowPermissions(true);
   });
+  // Erzählen has recipes instead of tools: a tool left over from Bauen would act unseen, so it goes back to "Auswählen" (a trainer waiting
+  // to be placed keeps the figure tool, whose click is the placement). The tool letters are silent there (`toolLocked`).
+  const narrating = !depthAtLeast(depth, "bauen");
+  const { tool: currentTool, setTool, pendingTrainer: waiting } = shell;
+  useEffect(() => {
+    if (narrating && currentTool !== "select" && waiting === null) setTool("select");
+  }, [narrating, currentTool, waiting, setTool]);
   // The trainer rows while a trainer waits to be placed: the status line and the undo step name it by class and name.
   const pendingTrainer = shell.pendingTrainer;
   const placingRows = useDataLists(dataStore, pendingTrainer !== null ? session.info : null)?.trainers ?? null;
@@ -641,7 +648,7 @@ function AppBody() {
     onSceneBack: sceneHistory.back,
     onSceneForward: sceneHistory.forward,
     area,
-    toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
+    toolLocked: (t) => narrating || (eventsBlockedRef.current && isEventTool(t)),
     toolsShown: () => docks.welt.current?.getPanel("world")?.api.isVisible ?? false,
     onToolsHidden: () => {
       if (toolsToasted.current) return;

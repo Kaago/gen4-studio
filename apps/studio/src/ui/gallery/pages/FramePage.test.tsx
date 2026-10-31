@@ -161,4 +161,15 @@ describe("FramePage", () => {
     expect(locked.textContent).toContain("Eventdatei gesperrt");
     expect(locked.querySelector('[data-scene-group="warp"]')?.textContent).toContain("Gesperrt");
   });
+
+  it("shows_the_recipe_button_at_rest_pressed_and_locked_and_the_recipe_bar", () => {
+    const keys = [...container.querySelectorAll<HTMLButtonElement>('[data-gallery="rezept-taste"] button[data-recipe]')];
+    expect(keys.slice(0, 4).map((b) => [b.textContent, b.getAttribute("aria-pressed"), b.disabled])).toEqual([
+      ["Gebiet anlegen", null, false],
+      ["Raum anlegen", null, false],
+      ["Raum anlegen", "true", false],
+      ["Neue Figur", null, true],
+    ]);
+    expect(container.querySelectorAll('[role="toolbar"][aria-label="Rezepte"] button[data-recipe]')).toHaveLength(5);
+  });
 });

@@ -1,6 +1,9 @@
+import type { NextStep } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { Notice } from "../../ui/primitives";
+import { Notice, RecipeButton } from "../../ui/primitives";
+import type { Area, IconName } from "../../ui/primitives";
+import { RECIPE_BAR } from "../recipes";
 import { TERMS } from "../terms";
 import styles from "./WizardResult.module.css";
 
@@ -9,10 +12,23 @@ interface DoneProps {
   title: string;
   lines: string[];
   next: string[];
+  /** The recipes that make sense next (the kernel's table): a button each, a locked one says why. */
+  steps?: NextStep[];
+  /** A step's button was pressed (locked ones have no click). */
+  onStep?: (id: string) => void;
 }
 
-/** The result step of a wizard that created everything: what it made and what to do next (the frame adds "Zeigen" and "Hier spielen"). */
-export function DoneResult({ title, lines, next }: DoneProps) {
+/** A step's symbol and area: the bar's for its recipe, else the world's with the terrain's symbol (`adjust_terrain`) or a plus. */
+function stepLook(id: string): { icon: IconName; area: Area } {
+  const entry = RECIPE_BAR.find((r) => r.id === id);
+  return entry ?? { icon: id === "adjust_terrain" ? "paint" : "plus", area: "welt" };
+}
+
+/**
+ * The result step of a wizard that created everything: what it made and what to do next, the recipes as buttons first, the lines of text
+ * after them (the frame adds "Zeigen" and "Hier spielen").
+ */
+export function DoneResult({ title, lines, next, steps = [], onStep }: DoneProps) {
   return (
     <div className={styles.result}>
       <Notice kind="success" title={title}>
@@ -23,6 +39,22 @@ export function DoneResult({ title, lines, next }: DoneProps) {
         ))}
       </Notice>
       <h3 className={styles.heading}>Als Nächstes</h3>
+      {steps.length > 0 && (
+        <div className={styles.steps} data-next-steps="">
+          {steps.map((s) => (
+            <RecipeButton
+              key={s.id}
+              id={s.id}
+              label={s.label}
+              icon={stepLook(s.id).icon}
+              area={stepLook(s.id).area}
+              reason={s.available ? null : (s.reason ?? "Noch nicht verfügbar")}
+              onClick={() => onStep?.(s.id)}
+              size="s"
+            />
+          ))}
+        </div>
+      )}
       <ul className={styles.next}>
         {next.map((line) => (
           <li key={line}>{line}</li>
