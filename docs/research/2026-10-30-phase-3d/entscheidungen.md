@@ -110,7 +110,7 @@ Reihenfolge: (3d.1 ∥ 3d.2 ∥ 3d.3 ∥ 4.5) → (3d.4 ∥ 3d.5) → 3d.6 → (
 
 - Ob arm9 oder Overlays Flags oder Variablen setzen, die kein Script nennt (HGSS: 153 `UNK`-Flags und 82 Variablen ohne Nutzung; Abgleich mit `pokeheartgold` offline nicht möglich); bis dahin gilt nur der allgemeine Bereich als Pool und „frei“ heißt „im Index unbenutzt“.
 - Das Ende der Flags im Platin-Spielstand (`0xB60` wie HGSS, gemessen 364 Byte; die Datenbank nennt Namen bis `0xFFF`); ein Schreibtest nur in einer Testkopie mit Blick auf den Folgeblock.
-- Ob der GDB-Stub von melonDS 1.1 Speicher liest, ohne anzuhalten (Probe vor 3d.9).
+- ~~Ob der GDB-Stub von melonDS 1.1 Speicher liest, ohne anzuhalten (Probe vor 3d.9).~~ **Geklärt am 2026-10-31** ([Probe](probe-gdb-stub.md)): ja, Lesen und Schreiben bei laufender Emulation (≈ 9–13 ms je Paket, Halt nur beim Verbinden); 3d.9 geht über Weg 3. Bedingungen: `[Instance0.Gdb] Enabled = true` in `~/Library/Preferences/melonDS/melonDS.toml`, JIT aus, Pakete ≤ 512 Byte, ein Client, erstes `+` binnen 1 s.
 - Ob rotom eine geänderte Literal-Nachricht beim erneuten Compile an denselben Index schreibt (Plan von 3d.5 prüft es; davon hängt ab, ob der Dialog-Editor Literale in der Quelle oder Nachrichten im Archiv bearbeitet).
 - Ob DSPRE beim Entfernen Nummern nachrückt oder nur das letzte Member entfernt (Hand in DSPRE, vor der Spezifikation von 3d.4).
 - Die Reihenfolge der Formen in `otherPokemonBattleSprites` (157 bzw. 161 Bilder; Plan-Task in 3d.3 wie Task 0 von 3b.3a) und die Felder von `pokemonSpriteOffsets` (89 Byte je Art).
