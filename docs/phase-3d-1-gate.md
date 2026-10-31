@@ -14,7 +14,7 @@ Wer was prüft: Die Spalte „Wer“ sagt **Agent** (die Test-Umgebung aus [docs
 
 Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
 
-- **Technik-Eintrag** „Flags und Variablen“ (Symbol `flag`, der letzte Eintrag nach „Werkzeuge“), Untertitel „4.097 Flags · 135 frei“ (die Zahlen der gewählten Art), beim Lesen „Wird gelesen …“, ohne Projekt „Kein Projekt“. Palette: „Flags und Variablen“.
+- **Technik-Eintrag** „Flags und Variablen“ (Symbol `flag`, der letzte Eintrag nach „Werkzeuge“), Untertitel etwa „4.097 Flags · 101 frei“ (Platin DE mit übernommenen Scripts; die Zahlen der gewählten Art), beim Lesen „Wird gelesen …“, ohne Projekt „Kein Projekt“. Palette: „Flags und Variablen“.
 - **Fläche** `[data-technik=flags]`: Titel „Flags und Variablen“, Satz „Welche Flags und Variablen das Spiel kennt und wo Scripts, Figuren, Auslöser, Level-Scripts und Trainer sie setzen oder prüfen.“; im DSPRE-Layout die Info „Eigene Namen gibt es im Textprojekt: Technik › Textprojekt › „Als Textprojekt einrichten…“.“; ohne übernommene Scripts „Scripts sind noch nicht übernommen: Script-Verweise fehlen im Index, „frei“ ist darum nur ein Hinweis.“.
 - **Filter** `[data-flag-filter]`: „Flags | Variablen“, „Alle“ und je Bereich („allgemein“, „kartenlokal“, „Trainer“, „versteckte Items“, „System“, „Tagesflags“, „Script-lokal“ …), Kästchen „nur unbenutzt“, „nur frei“, „nur mit eigenem Namen“, Suche „Name oder Nummer suchen“ (eigener Name, pret-Name, Aliasse, Nummer hex und dezimal).
 - **Liste** `[data-flag-list]`, Zeile `[data-flag-row=<Nummer dezimal>]`: Name (eigener fett), darunter grau in Mono der pret-Name und „0x0094 · 148“; rechts „gesetzt N · geprüft M“ (· „unklar K“), „unbenutzt“, kartenlokal „an 54 Orten“, Plaketten `[data-flag-badge=free]` „frei“ und `[data-flag-badge=reserved]` „reserviert“ (Titel „Vorlage „Leere Region““); Spalte „Live“ (Kopf `[data-flag-live-head]` in Bernstein, Zellen `[data-flag-live]` „–“, Tooltip „Kommt mit dem Spielmodus (3d.9)“); leer „Nichts passt zu Filter und Suche.“; Fuß `[data-flag-list-foot]` „{n} von {m} · Script-lokale Variablen … Vorkommen, Flags aus Variablen … (nicht im Index)“. Liste und Detail nebeneinander in `[data-flag-split]`.
@@ -37,16 +37,16 @@ So durchgeführt am 2026-10-31 auf dem Stand `8316e0b` ((1) ab 20:33):
 
 ## (1) Automatik
 
-Nach Entscheidung R4 läuft hier nicht `scripts/gate.sh` als Ganzes (das macht die Hauptsitzung auf main nach dem Merge der Welle), sondern die Schritte, die 3d.1 berührt, einzeln. Die neuen gated Tests laufen in `scripts/gate.sh` im Schritt der gated Tests je Projekt (Debug) ohne Änderung am Skript mit; `vanilla_index_builds_under_a_second` bleibt im Zeitschritt (Release, `G4_TIMING_STRICT=1`).
+Nach Entscheidung R4 läuft hier nicht `scripts/gate.sh` als Ganzes (das macht die Hauptsitzung auf main nach dem Merge der Welle), sondern die Schritte, die 3d.1 berührt, einzeln. Die neuen gated Tests laufen in `scripts/gate.sh` im Schritt der gated Tests je Projekt (Debug) ohne Änderung am Skript mit; `vanilla_index_builds_under_a_second` bleibt im Zeitschritt (Release, `G4_TIMING_STRICT=1`). `vanilla_flag_index_is_fast` urteilt in `scripts/gate.sh` nur nicht streng (Debug, `G4_TIMING_STRICT` entfernt, die Zeiten werden nur gedruckt); die Grenzen der Spezifikation hält der strenge Release-Lauf dieses Gates fest ((1) 8).
 
 Alle Schritte grün im ersten Versuch, 2026-10-31 20:33 bis 21:38 auf `8316e0b` (Logs `target/agent/gate-2026-10-31/3d-1/auto/<schritt>.log`, Zeiten und Last in `summary.txt`):
 
 - [x] 1. `cargo fmt --check` (3 s) und `cargo clippy --workspace --all-targets --all-features -- -D warnings` (23 s), sauber.
-- [x] 2. `cargo test -p g4-kernel --all-features` ohne ROM-Daten (`G4_TEST_PROJECT` und die Werkzeug-Variablen entfernt wie in `scripts/gate.sh`): 1 486 bestanden in 37 Testzielen, 0 ignoriert (`g4emu_games_yaml_carries_the_same_block` läuft seit Task 8 mit), 2 407 s bei Last 34 → 19.
+- [x] 2. `cargo test -p g4-kernel --all-features` ohne ROM-Daten (`G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` entfernt wie in `scripts/gate.sh`): 1 486 bestanden in 37 Testzielen, 0 ignoriert (`g4emu_games_yaml_carries_the_same_block` läuft seit Task 8 mit), 2 407 s bei Last 34 → 19.
 - [x] 3. `cargo test -p studio --all-features` ohne ROM-Daten: Bibliothek 663 bestanden, 1 ignoriert; `mcp_http` 5, `mcp_proxy` 10, `mcp_stdio` 28; 172 s.
 - [x] 4. `pnpm test` in `apps/studio`: 338 Dateien, 3 412 Tests bestanden, 1 übersprungen (154 s); `pnpm build` grün (31 s).
 - [x] 5. `bash scripts/check-styles.sh` und `bash scripts/check-tokens.sh` grün.
-- [x] 6. `cd scripts/g4emu && uv run pytest -q`: 371 bestanden (Unit und die vier Integrationstests mit Kern und Spielständen), 19 s.
+- [x] 6. `cd scripts/g4emu && uv run pytest -q` mit `G4_ROMS_DIR` auf den Klonen im Scratchpad (Vorbereitung 2; `env G4_ROMS_DIR=<scratchpad>/roms3d1 bash -c 'cd scripts/g4emu && uv run pytest -q'`), also ohne ein Original zu öffnen: 371 bestanden (Unit und die vier Integrationstests mit Kern und Spielständen), 19 s.
 - [x] 7. Release-Bau von `studio`, `g4k` und den Testbinaries: 257 s.
 - [x] 8. **Gated `tests/flags.rs`** (Release, `--nocapture --test-threads 1`, mit `G4_TIMING_STRICT=1` für alle fünf Tests, die Zeitgrenzen also bindend): je 5/5 auf Platin DE (212 s), HeartGold DE (252 s) und HeartGold US (220 s).
    - `vanilla_flag_names_count_the_metadata`: Platin 4 097 Flags / 307 Variablen, HeartGold DE und US je 2 244 / 386.
@@ -97,11 +97,12 @@ Befehle aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `P` = `$K/3d
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-env -u G4_TEST_PROJECT cargo test -p g4-kernel --all-features
-env -u G4_TEST_PROJECT cargo test -p studio --all-features
+env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP cargo test -p g4-kernel --all-features
+env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP cargo test -p studio --all-features
 (cd apps/studio && pnpm test && pnpm build)
 bash scripts/check-styles.sh; bash scripts/check-tokens.sh
-(cd scripts/g4emu && uv run pytest -q)                      # Unit und Integration
+S=<scratchpad>/roms3d1      # cp -c-Klone der drei .nds und Symlink _testkopien/_saves (Vorbereitung 2)
+env G4_ROMS_DIR=$S bash -c 'cd scripts/g4emu && uv run pytest -q'   # Unit und Integration, kein Original geöffnet
 G4_TEST_PROJECT=$P G4_TIMING_STRICT=1 \
   cargo test --release -p g4-kernel --all-features --test flags -- --nocapture --test-threads 1
 G4_TEST_PROJECT=$P G4_TIMING_STRICT=1 \
@@ -148,9 +149,9 @@ Wird im Browser-Teil ergänzt (UI-Test nach dem abschließenden Review, Entschei
 
 - [ ] 1. Technik › „Flags und Variablen“: der Untertitel zählt 4.097 Flags; Filter „nur frei“; eine Zeile wählen.
 - [ ] 2. Detail mit Wegen: Klick auf einen Script-Weg öffnet den Script-Editor an der Zeile, Klick auf eine Figur wählt sie in der Schau.
-- [ ] 3. Picker im Inspector einer Figur: „Freies Flag nehmen“, speichern, `scripts/agent/call.sh get_events '{"event_file_id":<n>}'` zeigt `hidden_flag`.
+- [ ] 3. Picker im Inspector einer Figur: „Freies Flag nehmen“, speichern, `scripts/agent/call.sh get_events '{"eventFileId":<n>}'` zeigt `hidden_flag`.
 - [ ] 4. Level-Script: „Neue Variable“ über den Picker.
-- [ ] 5. DSPRE-Layout: „Als eigenes Flag benennen…“ gesperrt mit Grund (`NOT_A_TEXT_PROJECT` und der Weg Technik › Textprojekt).
+- [ ] 5. DSPRE-Layout: „Als eigenes Flag benennen…“ gesperrt mit Grund: Tooltip „Kein Textprojekt: IDs gibt es erst nach „Als Textprojekt einrichten…“. (Technik › Textprojekt)“; über MCP antwortet `name_flag` mit dem Code `not_text_project`.
 - [ ] 6. `3d-1-ui-text` (Textprojekt): benennen → Register `data/ids/flags.json`, `data/flags/NNNN.json` und `.g4-ids-flags.json` auf der Platte; „Umbenennen…“ → Script-Quelle und Entität folgen, ⌘Z nimmt es als ein Schritt zurück.
 - [ ] 7. MCP über die Brücke (`3d-1-mcp`, Freigabe „Lesen und bearbeiten“): `list_flags {"kind":"flag"}`, `flag_usage {"kind":"flag","number":"FLAG_UNUSED_0x0094"}`, `free_flag {"kind":"var"}` (ohne übernommene Scripts `scripts_not_adopted`), `name_flag {…}` → `not_text_project` im DSPRE-Layout.
 - [ ] 8. Konsole und Brückenlog ohne Fehler.
@@ -204,7 +205,7 @@ Befunde des UI-Tests und des abschließenden Reviews: wird im Browser-Teil ergä
 ## Hand
 
 - [ ] **Eigener Name in DSPRE:** ein Textprojekt mit eigenem Flag-Namen zurück ins DSPRE-Layout („Zurücknehmen“) und in DSPRE öffnen: DSPRE liest den Konstantenordner nie, die Scripts zeigen weiter die pret-Namen bzw. Nummern, nichts bricht.
-- [ ] **HeartGold US im Emulator:** `expect-flag` auf `IPKE` (Zeiger `0x02111880`, sonst wie IPKD) ist nur in `games.yaml` übernommen und nicht gemessen; `hg-flag.yaml` mit `game: IPKE` auf einer frischen Kopie von HeartGold US laufen lassen.
+- [ ] **HeartGold US im Emulator:** `expect-flag` auf `IPKE` (Zeiger `0x02111880`, sonst wie IPKD) ist nur in `games.yaml` übernommen und nicht gemessen; `hg-flag.yaml` legt `game: IPKD` fest; für HeartGold US eine Kopie mit `game: IPKE` im Scratchpad anlegen (`sed 's/^game: IPKD$/game: IPKE/' scripts/agent/scenarios/hg-flag.yaml > <scratchpad>/hgus-flag.yaml`) und sie auf einer frischen Kopie von HeartGold US mit denselben `--set` wie HeartGold DE laufen lassen (`BASIS=../<Kopie>.nds`, `NEUER_HEADER=540`, `X_FIGUR=15`, `Z_FIGUR=13`; Kacheln und Header-Zahl sind für US nicht gemessen).
 
 ## Blick
 
