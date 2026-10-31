@@ -80,4 +80,20 @@ describe("filterItems", () => {
   it("returns_nothing_when_nothing_matches", () => {
     expect(filterItems(items, "qqq")).toEqual([]);
   });
+
+  it("keywords_are_found_like_the_label_but_not_shown", () => {
+    const named: PickerItem[] = [
+      { id: 148, label: "FLAG_HAT_MEDAILLE", tech: "0x0094", keywords: ["FLAG_UNUSED_0x0094", "0x94"] },
+      { id: 150, label: "Flag 0x0096", keywords: ["FLAG_ALT"] },
+    ];
+    expect(ids(filterItems(named, "flag_unused"))).toEqual([148]);
+    expect(ids(filterItems(named, "0x94"))).toEqual([148]);
+    expect(ids(filterItems(named, "alt"))).toEqual([150]);
+    // A keyword that starts with the query ranks like a label that does: before the label match inside.
+    const ranked: PickerItem[] = [
+      { id: 1, label: "Das FLAG_X" },
+      { id: 2, label: "Anders", keywords: ["FLAG_X"] },
+    ];
+    expect(ids(filterItems(ranked, "flag_x"))).toEqual([2, 1]);
+  });
 });

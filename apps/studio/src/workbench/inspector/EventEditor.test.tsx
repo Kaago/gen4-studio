@@ -3,8 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getEvents, resolveScript, updateEvent } from "../../api";
-import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import { getEvents, listFlags, resolveScript, updateEvent } from "../../api";
+import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
+import { FLAGS, flagEntry, flagList } from "../../flags/flagTesting";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
@@ -12,14 +13,14 @@ import type { EventEditorContext } from "./EventEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), listFlags: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const header = (id: number, event: number, script: number): HeaderSummary => ({ id, internal_name: `H${id}`, location_index: 0, kanto: false, location_name: "", matrix_id: 0, area_data_id: 0, event_file_id: event, text_archive_id: 0, script_file_id: script, level_script_id: 0 });
-const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
-const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
+const npc: ObjectDto = { index: 2, local_id: 1, graphics_id: 5, movement_type: 0, script: 4, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 3, z: 4, y: 0 };
+const events = (): EventsDto => ({ event_file_id: 8, locked: null, bg: [], objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, hidden_flag: 0, x: 0, z: 0, y: 0 }, { ...npc, index: 1 }, npc], coords: [], warps: [] });
 
 describe("EventEditor scripts", () => {
   let container: HTMLElement;
@@ -394,10 +395,62 @@ describe("EventEditor scripts", () => {
       withObject({ script: 3355 });
       await show(context({ trainers, family: "Dp" }), "object", 0);
       expect(trainerRowText()).toBe("");
-      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), coords: [{ index: 0, script: 3355, x: 1, z: 1, width: 1, length: 1 }] }));
+      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), coords: [{ index: 0, script: 3355, x: 1, z: 1, width: 1, length: 1, var: 0, value: 0 }] }));
       await show(context({ trainers }), "coord", 0);
       expect(trainerRowText()).toBe("");
     });
+  });
+
+  it("a_pick_field_renders_the_flag_field_and_commits_the_number", async () => {
+    const project: ProjectInfo = { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: 1 };
+    const VARS = flagList("var", [flagEntry(0x4030, { name: "VAR_UNUSED_0x4030" }), flagEntry(0x4031, { own_id: "VAR_BESUCHE" })]);
+    vi.mocked(listFlags).mockReset().mockImplementation(async (kind) => (kind === "flag" ? FLAGS : VARS));
+    vi.mocked(getEvents).mockImplementation(async () => ({
+      ...events(),
+      objects: [{ ...npc, index: 0, hidden_flag: 0x94 }],
+      coords: [{ index: 0, script: 7, x: 1, z: 1, width: 1, length: 1, var: 0x4031, value: 2 }],
+    }));
+    const goTo = vi.fn();
+    await show(context({ project, goTo }), "object", 0);
+    // The flag by its name, the number in mono, the hint of Bauen under it.
+    const chip = () => container.querySelector<HTMLButtonElement>("[data-flag-field='hidden_flag']")!;
+    expect(chip().textContent).toBe("FLAG_HAT_MEDAILLE0x0094");
+    expect(container.textContent).toContain("Sichtbarkeits-Flag");
+    expect(container.textContent).toContain("Die Figur ist da, solange das Flag 0 ist.");
+    expect(container.querySelector("input[aria-label='Sichtbarkeits-Flag']")).toBeNull();
+    // „Im Verzeichnis zeigen“ leads to the flag.
+    await click(button("Wählen…"));
+    await flush();
+    await act(async () => void [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Im Verzeichnis zeigen")!.click());
+    await flush();
+    expect(goTo).toHaveBeenCalledWith({ kind: "flag", flagKind: "flag", number: 0x94 });
+    // The picker writes the number, also 0 („Keins“): one undoable change of that field.
+    await click(button("Wählen…"));
+    await flush();
+    await act(async () => void options()[0]!.click());
+    await flush();
+    expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { hidden_flag: 0 });
+    expect(onChanged).toHaveBeenCalledWith(8);
+    expect(chip().textContent).toBe("Keins");
+
+    // A trigger: the variable picked, the value a number with its hint.
+    await show(context({ project, goTo }), "coord", 0);
+    expect(container.querySelector("[data-flag-field='var']")?.textContent).toBe("VAR_BESUCHE0x4031");
+    expect(field("Wert").value).toBe("2");
+    expect(container.textContent).toContain("Der Auslöser feuert, wenn die Variable diesen Wert hat.");
+    await click(button("Wählen…"));
+    await flush();
+    expect(document.querySelector("[role=dialog]")?.textContent).toContain("Variable wählen");
+    await act(async () => void options().find((o) => o.textContent?.includes("VAR_UNUSED_0x4030"))!.click());
+    await flush();
+    expect(updateEvent).toHaveBeenLastCalledWith(8, "coord", 0, { var: 0x4030 });
+    await typeAndBlur("Wert", "0");
+    expect(updateEvent).toHaveBeenLastCalledWith(8, "coord", 0, { value: 0 });
+
+    // Tüfteln: the number field next to the name, no hints.
+    await show(context({ project, goTo }), "object", 0, "tuefteln");
+    expect(field("Sichtbarkeits-Flag").value).toBe("148");
+    expect(container.textContent).not.toContain("Die Figur ist da, solange das Flag 0 ist.");
   });
 
   it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {

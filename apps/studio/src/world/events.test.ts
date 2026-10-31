@@ -45,10 +45,10 @@ describe("event texts", () => {
   });
 
   it("describes objects, triggers and background events", () => {
-    const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, dir: 1, trainer_type: 0, sight: 0, x: 12, z: 13, y: -1 };
+    const object = { index: 2, local_id: 7, graphics_id: 9, movement_type: 3, script: 2001, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 12, z: 13, y: -1 };
     expect(eventTitle("object", object, "bauen")).toBe("Objekt 2 · ID 7");
     expect(eventDetails("object", object)).toBe("Position x 12, z 13, y -1 · Grafik 9 · Bewegung 3 · Script 2001");
-    const coord = { index: 1, script: 9000, x: 3, z: 5, width: 2, length: 1 };
+    const coord = { index: 1, script: 9000, x: 3, z: 5, width: 2, length: 1, var: 0, value: 0 };
     expect(eventTitle("coord", coord, "bauen")).toBe("Trigger 1 · Script 9000");
     expect(eventDetails("coord", coord)).toBe("Position x 3, z 5 · Größe 2 × 1");
     const bg = { index: 0, script: 100, event_type: 1, x: 20, z: 21, y: 0 };

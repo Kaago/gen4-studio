@@ -1,0 +1,15 @@
+/* A flag or variable field: the name chip and „Wählen…“ on one line (wrapping when narrow), the number field of Tüfteln below. */
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}

@@ -32,14 +32,14 @@ const events: EventsDto = {
   event_file_id: 7,
   locked: null,
   objects: [
-    { index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, trainer_type: 0, sight: 0, x: 10, z: 20, y: 0 },
-    { index: 1, local_id: 2, graphics_id: 4, movement_type: 0, script: 3, dir: 0, trainer_type: 0, sight: 0, x: 11, z: 21, y: 0 },
+    { index: 0, local_id: 1, graphics_id: 3, movement_type: 0, script: 2, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 10, z: 20, y: 0 },
+    { index: 1, local_id: 2, graphics_id: 4, movement_type: 0, script: 3, dir: 0, trainer_type: 0, sight: 0, hidden_flag: 0, x: 11, z: 21, y: 0 },
   ],
   warps: [
     { index: 0, x: 8, z: 9, dest_header_id: 414, dest_warp_id: 0, height: 0 },
     { index: 1, x: 9, z: 9, dest_header_id: 999, dest_warp_id: 0, height: 0 },
   ],
-  coords: [{ index: 0, script: 5, x: 1, z: 2, width: 1, length: 1 }],
+  coords: [{ index: 0, script: 5, x: 1, z: 2, width: 1, length: 1, var: 0, value: 0 }],
   bg: [{ index: 0, script: 12, event_type: 0, x: 4, z: 5, y: 0 }],
 };
 

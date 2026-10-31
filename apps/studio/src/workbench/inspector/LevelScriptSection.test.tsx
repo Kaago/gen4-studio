@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readScript, resolveScript, saveLevelScript } from "../../api";
+import { listFlags, readScript, resolveScript, saveLevelScript } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
+import { flagEntry, flagList } from "../../flags/flagTesting";
 import { openSelect } from "../../ui/primitives/testUtils";
 import { LevelScriptSection } from "./LevelScriptSection";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), readScript: vi.fn(), saveLevelScript: vi.fn(), resolveScript: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), readScript: vi.fn(), saveLevelScript: vi.fn(), resolveScript: vi.fn(), listFlags: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -24,6 +25,8 @@ const DOC: LevelScriptDoc = {
   ],
   var_conditions: [{ var: 16384, value: 1, script_id: 4 }],
 };
+
+const VARS = flagList("var", [flagEntry(16384, { name: "VAR_MAP_LOCAL_0x00", area: "map_local" }), flagEntry(16385, { own_id: "VAR_BESUCHE" })]);
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -43,9 +46,12 @@ describe("LevelScriptSection", () => {
   let openProject: ProjectInfo | null = projectA;
   const isCurrentProject = (p: ProjectInfo | null) => p === openProject;
   type Over = Partial<Parameters<typeof LevelScriptSection>[0]>;
+  // Tüfteln by default: the variables are number fields there too (Bauen shows only the name and „Wählen…“).
   const show = (over: Over = {}) =>
     act(async () =>
-      root.render(<LevelScriptSection header={header} levelScriptId={1} project={projectA} adopted revision={0} onOpenScript={onOpenScript} onCreate={onCreate} onSaved={onSaved} isCurrentProject={isCurrentProject} onError={onError} {...over} />),
+      root.render(
+        <LevelScriptSection header={header} levelScriptId={1} project={projectA} adopted revision={0} depth="tuefteln" onOpenScript={onOpenScript} onCreate={onCreate} onSaved={onSaved} isCurrentProject={isCurrentProject} onError={onError} {...over} />,
+      ),
     );
   beforeEach(() => {
     container = document.createElement("div");
@@ -54,6 +60,7 @@ describe("LevelScriptSection", () => {
     vi.mocked(readScript).mockReset().mockResolvedValue({ kind: "levelScript", doc: structuredClone(DOC) });
     vi.mocked(saveLevelScript).mockReset().mockResolvedValue(ok);
     vi.mocked(resolveScript).mockReset();
+    vi.mocked(listFlags).mockReset().mockResolvedValue(VARS);
     for (const fn of [onOpenScript, onCreate, onSaved, onError]) fn.mockReset();
     openProject = projectA;
     onCreate.mockResolvedValue(undefined);
@@ -143,6 +150,48 @@ describe("LevelScriptSection", () => {
     // The new row is shown at once, before and without a re-read.
     expect(rows("Kopfeinträge")).toHaveLength(3);
     expect(readScript).toHaveBeenCalledTimes(1);
+  });
+
+  it("the_variable_is_a_flag_field", async () => {
+    const onShowFlag = vi.fn();
+    // A project of its own: the variables read for projectA in the tests before are shared (one read per project and revision).
+    const project = { ...projectA };
+    openProject = project;
+    await show({ depth: "bauen", onShowFlag, project });
+    await flush();
+    expect(listFlags).toHaveBeenCalledWith("var");
+    // The stored variable by its name with the number in mono; in Bauen no number field.
+    const chip = (key: string) => container.querySelector<HTMLButtonElement>(`[data-flag-field='${key}']`)!;
+    expect(chip("var:1").textContent).toBe("VAR_MAP_LOCAL_0x000x4000");
+    expect(chip("var:new").textContent).toBe("Keins");
+    expect(container.querySelector('input[aria-label="Variable 1"]')).toBeNull();
+    expect(container.querySelector('input[aria-label="Neue Variable"]')).toBeNull();
+    // Value and script of a condition stay number fields.
+    expect([field("Wert 1").value, field("Script der Bedingung 1").value]).toEqual(["1", "4"]);
+    const pick = async (opener: string, label: string) => {
+      await click(container.querySelector(`button[aria-label="${opener}"]`));
+      await flush();
+      await act(async () => void optionEls().find((o) => o.textContent?.includes(label))!.click());
+      await flush();
+    };
+    // A picked variable is saved at once, like a typed one.
+    await pick("Variable 1 wählen…", "VAR_BESUCHE");
+    expect(vi.mocked(saveLevelScript).mock.calls[0]![1].var_conditions).toEqual([{ var: 16385, value: 1, script_id: 4 }]);
+    // The new condition takes its variable from the picker too.
+    await pick("Neue Variable wählen…", "VAR_BESUCHE");
+    expect(chip("var:new").textContent).toBe("VAR_BESUCHE0x4001");
+    await click(button("Bedingung hinzufügen"));
+    await flush();
+    expect(vi.mocked(saveLevelScript).mock.calls[1]![1].var_conditions).toEqual([
+      { var: 16385, value: 1, script_id: 4 },
+      { var: 16385, value: 0, script_id: 0 },
+    ]);
+    // „Im Verzeichnis zeigen“ leads to the variable.
+    await click(container.querySelector('button[aria-label="Variable 1 wählen…"]'));
+    await flush();
+    await click([...document.querySelectorAll("[role=dialog] button")].find((b) => b.textContent === "Im Verzeichnis zeigen"));
+    await flush();
+    expect(onShowFlag).toHaveBeenCalledWith("var", 16385);
   });
 
   it("adds_a_var_condition_and_removes_an_entry", async () => {

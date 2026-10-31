@@ -183,7 +183,7 @@ function PickerBody({
         </div>
         {filters && filters.length > 0 && filter !== undefined && onFilter && (
           <div className={styles.filters}>
-            <Segmented size="s" ariaLabel="Filter" options={filters} value={filter} onChange={onFilter} />
+            <Segmented size="s" wrap ariaLabel="Filter" options={filters} value={filter} onChange={onFilter} />
           </div>
         )}
         <Combobox.List className={styles.list} aria-label="Treffer">

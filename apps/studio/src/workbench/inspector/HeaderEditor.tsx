@@ -298,6 +298,8 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
             onSaved={onLevelScriptSaved}
             isCurrentProject={isCurrentProject}
             onError={onError}
+            depth={depth}
+            onShowFlag={(flagKind, number) => goTo({ kind: "flag", flagKind, number })}
           />
         )}
         {depth === "tuefteln" && header !== null && <TechnicalSection model={{ kind: "header", id }} source={{ kind: "header", header }} />}

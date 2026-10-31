@@ -1,4 +1,4 @@
-import type { AssetId, EventKind, ProblemDto } from "./api";
+import type { AssetId, EventKind, FlagKind, ProblemDto } from "./api";
 import { invoke } from "./platform/transport";
 import type { HexFieldSpan } from "./ui/primitives/HexBlock";
 
@@ -444,7 +444,8 @@ export type NavTargetDto =
   | { kind: "move"; index: number }
   | { kind: "item"; id: number }
   | { kind: "trainer"; index: number }
-  | { kind: "encounter"; index: number };
+  | { kind: "encounter"; index: number }
+  | { kind: "flag"; flagKind: FlagKind; number: number };
 
 /**
  * One reference: `field` (entry `slot`) of `source` points at the target; `label` says where in German ("Staravia, Lernset Platz 4"),

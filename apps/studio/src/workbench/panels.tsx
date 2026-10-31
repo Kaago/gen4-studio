@@ -493,6 +493,7 @@ export function InspectorPanel() {
         trainers,
         needTrainers,
         onError: d.onError,
+        project: d.info,
       }}
       matrixEditor={{
         dirty: d.dirtyAssets,

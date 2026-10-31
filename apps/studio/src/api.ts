@@ -191,6 +191,8 @@ export interface ObjectDto {
   trainer_type: number;
   /** The sight range in tiles (object `data[0]`). */
   sight: number;
+  /** The flag that hides the object while it is set (0: none). */
+  hidden_flag: number;
   x: number;
   z: number;
   y: number;
@@ -212,6 +214,9 @@ export interface CoordDto {
   z: number;
   width: number;
   length: number;
+  /** The variable the trigger watches (0: none) and the value at which it fires. */
+  var: number;
+  value: number;
 }
 
 /** The four classes of events in an event file. */
@@ -348,6 +353,12 @@ export interface EventPatch {
   trainer_type?: number;
   /** Objects only: the sight range in tiles (object `data[0]`). */
   sight?: number;
+  /** Objects only: the flag that hides the object while it is set (0: none). */
+  hidden_flag?: number;
+  /** Coordinate triggers only: the variable the trigger watches (0: none). */
+  var?: number;
+  /** Coordinate triggers only: the value of `var` at which it fires. */
+  value?: number;
 }
 /** A decoded overworld sprite: RGBA8, row-major, row 0 is the top. */
 export interface SpriteDto {
@@ -451,6 +462,8 @@ export interface AssetId {
  * nothing knows).
  * Git (4.4): "restore_needed" (`openProject` of a text project without its game files, a fresh Git clone: `restoreTextProject` completes
  * it), "unsaved" (`gitInit` before anything is written), "no_repo", "no_commit" and "not_diffable" (the diff of an entity).
+ * Flags and variables (3d.1, `api.flags.ts`): "scripts_not_adopted" and "pool_empty" (`freeFlag`), "invalid_id", "taken" and "refused"
+ * (`nameFlag`).
  */
 export interface CmdError {
   code:
@@ -475,7 +488,12 @@ export interface CmdError {
     | "restore_needed"
     | "no_repo"
     | "no_commit"
-    | "not_diffable";
+    | "not_diffable"
+    | "scripts_not_adopted"
+    | "pool_empty"
+    | "invalid_id"
+    | "taken"
+    | "refused";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
@@ -507,7 +525,12 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "restore_needed" ||
       o.code === "no_repo" ||
       o.code === "no_commit" ||
-      o.code === "not_diffable") &&
+      o.code === "not_diffable" ||
+      o.code === "scripts_not_adopted" ||
+      o.code === "pool_empty" ||
+      o.code === "invalid_id" ||
+      o.code === "taken" ||
+      o.code === "refused") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
     (o.problems === undefined || Array.isArray(o.problems))
@@ -1030,3 +1053,4 @@ export * from "./api.textproject";
 export * from "./project/api.preview";
 export * from "./project/api.start";
 export * from "./project/api.templates";
+export * from "./api.flags";

@@ -15,6 +15,8 @@ export interface EventFieldSpec {
   max: number;
   /** Named choices (a facing): the field is a select, and a stored value without a name is still shown. */
   options?: { value: number; label: string }[];
+  /** A flag or a variable: the field shows its name and picks it (`FlagField`); 0 is none and stays a valid value. */
+  pick?: "flag" | "var";
 }
 
 /** The way an object faces; the game stores it as 0 to 3. */
@@ -78,15 +80,23 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "script", label: TERMS.script.label, ...U16 },
         { key: "trainer_type", label: "Sichtlinie", ...U16, options: SIGHTLINES },
         { key: "sight", label: "Sichtweite", min: 0, max: SIGHT_MAX },
+        { key: "hidden_flag", label: "Sichtbarkeits-Flag", ...U16, pick: "flag" },
       ];
     case "coord":
-      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
+      return [
+        ...position,
+        { key: "width", label: "Breite", ...U16 },
+        { key: "length", label: "Länge", ...U16 },
+        { key: "script", label: TERMS.script.label, ...U16 },
+        { key: "var", label: "Variable", ...U16, pick: "var" },
+        { key: "value", label: "Wert", ...U16 },
+      ];
     case "bg":
       return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
 }
 
-const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];
+const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight", "hidden_flag", "var", "value"];
 
 function value(e: EventData, key: string): number {
   return Number((e as unknown as Record<string, unknown>)[key]);

@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
-import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
+import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
+import { FlagField } from "../../flags/FlagField";
 import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -12,6 +13,7 @@ import { TERMS, id4, termFor } from "../terms";
 import { AddEvent } from "./AddEvent";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldSpecs } from "./eventFields";
+import type { EventFieldKey } from "./eventFields";
 import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
@@ -55,7 +57,15 @@ export interface EventEditorContext {
   /** Asks for the trainer rows (the field shows a trainer, or its picker opens). */
   needTrainers?: () => void;
   onError: (e: unknown) => void;
+  /** The open project: the flag and variable fields read their names from it (none: they show the numbers). */
+  project?: ProjectInfo | null;
 }
+
+/** Sentences under fields in Bauen: what the flag of a figure and the value of a trigger do. */
+const BAUEN_HINTS: Partial<Record<EventFieldKey, string>> = {
+  hidden_flag: "Die Figur ist da, solange das Flag 0 ist.",
+  value: "Der Auslöser feuert, wenn die Variable diesen Wert hat.",
+};
 
 
 /**
@@ -65,7 +75,7 @@ export interface EventEditorContext {
  * its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
-  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
+  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -171,9 +181,30 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
               kind === "object" && spec.key === "script" && family !== "Dp" ? (
                 <TrainerField script={value} family={family} trainers={trainers} needTrainers={needTrainers} goTo={goTo} onPick={pickTrainer} disabled={readOnly} />
               ) : null;
+            const hint = depth === "bauen" ? BAUEN_HINTS[spec.key] : undefined;
+            const pick = spec.pick;
+            if (pick !== undefined) {
+              // A flag or a variable: its name with the picker (and the number in Tüfteln); 0 is none and is written like any number.
+              return (
+                <FlagField
+                  key={spec.key}
+                  kind={pick}
+                  label={spec.label}
+                  value={value}
+                  onCommit={(n) => commit(spec.key, spec.label, n)}
+                  disabled={readOnly}
+                  depth={depth}
+                  project={project}
+                  revision={revision}
+                  onShowInDirectory={(number) => goTo({ kind: "flag", flagKind: pick, number })}
+                  field={spec.key}
+                  hint={hint}
+                />
+              );
+            }
             return (
               <Fragment key={spec.key}>
-                <InspectorRow label={spec.label}>
+                <InspectorRow label={spec.label} hint={hint}>
                   {spec.options ? (
                     <SelectField label={spec.label} value={value} options={spec.options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
                   ) : (

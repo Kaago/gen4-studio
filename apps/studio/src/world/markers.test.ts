@@ -12,12 +12,12 @@ const events = (): EventsDto => ({
   event_file_id: 1,
   locked: null,
   bg: [{ index: 0, script: 1, event_type: 1, x: 20, z: 21, y: 0 }],
-  objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x: 12, z: 13, y: 0 }],
+  objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 12, z: 13, y: 0 }],
   warps: [
     { index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 },
     { index: 1, x: 70, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 },
   ],
-  coords: [{ index: 0, script: 9000, x: 3, z: 5, width: 4, length: 2 }],
+  coords: [{ index: 0, script: 9000, x: 3, z: 5, width: 4, length: 2, var: 0, value: 0 }],
 });
 
 /**
@@ -78,14 +78,14 @@ describe("altitude", () => {
   };
 
   it("lifts a marker by the height of the cell of its tile", () => {
-    const set = buildMarkers(raised, { ...events(), objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x: 40, z: 3, y: 0 }] });
+    const set = buildMarkers(raised, { ...events(), objects: [{ index: 0, local_id: 0, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 40, z: 3, y: 0 }] });
     expect(instancePosition(at(set, "object"), 0)).toEqual([40.5, 1, 3.5]);
     // An event in the flat cell stays down.
     expect(instancePosition(at(set, "bg"), 0)[1]).toBe(MARKER_Y);
   });
 
   it("lifts the beacon, the area plane and the outline too", () => {
-    const e = { ...events(), warps: [{ index: 0, x: 40, z: 3, dest_header_id: 1, dest_warp_id: 0, height: 0 }], coords: [{ index: 0, script: 9000, x: 40, z: 5, width: 4, length: 2 }] };
+    const e = { ...events(), warps: [{ index: 0, x: 40, z: 3, dest_header_id: 1, dest_warp_id: 0, height: 0 }], coords: [{ index: 0, script: 9000, x: 40, z: 5, width: 4, length: 2, var: 0, value: 0 }] };
     const set = buildMarkers(raised, e);
     const warpMeshes = [...set.entries.entries()].filter(([, en]) => en.kind === "warp").map(([m]) => m);
     expect(warpMeshes.map((m) => instancePosition(m, 0)[1])).toEqual([MARKER_Y + 1, 0.6 + 1]);
@@ -239,7 +239,7 @@ describe("object sprites", () => {
   });
 
   it("gives every object its own sprite and leaves those outside the matrix out", () => {
-    const object = (index: number, x: number) => ({ index, local_id: index, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x, z: 3, y: 0 });
+    const object = (index: number, x: number) => ({ index, local_id: index, graphics_id: 0, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x, z: 3, y: 0 });
     const set = buildMarkers(matrix, { ...events(), objects: [object(0, 4), object(1, 5), object(2, 900)] });
     const sprites = [...set.entries.entries()].filter(([o]) => o instanceof THREE.Sprite);
     expect(sprites.map(([, e]) => e.data.map((d) => d.index))).toEqual([[0], [1]]);
