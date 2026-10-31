@@ -156,10 +156,19 @@ describe("FlagDetail", () => {
     await show({ kind: "var", number: 0x4030, entry: flagEntry(0x4030), usage: flagUsageOf("var", 0x4030), textProject: false });
     expect(button("Als eigene Variable benennen…")?.getAttribute("aria-disabled")).toBe("true");
     // A number outside the save cannot be named, in a text project either.
-    await show({ number: 0xfff, entry: flagEntry(0xfff, { area: "outside" }), usage: flagUsageOf("flag", 0xfff, { area: "outside" }) });
+    await show({ number: 0xfff, entry: flagEntry(0xfff, { area: "outside", in_save: false }), usage: flagUsageOf("flag", 0xfff, { area: "outside", in_save: false }) });
     const outside = button("Als eigenes Flag benennen…")!;
     expect(outside.getAttribute("aria-disabled")).toBe("true");
     expect(reason(outside)).toBe("Liegt außerhalb des Spielstands.");
+    // HeartGold's temporary flags and the script-local variables have their area, yet lie outside the save too.
+    await show({ number: 0x4000, entry: flagEntry(0x4000, { area: "temp", in_save: false }), usage: flagUsageOf("flag", 0x4000, { area: "temp", in_save: false }) });
+    expect(reason(button("Als eigenes Flag benennen…")!)).toBe("Liegt außerhalb des Spielstands.");
+    await show({ kind: "var", number: 0x800c, entry: flagEntry(0x800c, { name: "VAR_RESULT", area: "script_local", in_save: false }), usage: null });
+    const local = button("Als eigene Variable benennen…")!;
+    expect(local.getAttribute("aria-disabled")).toBe("true");
+    expect(reason(local)).toBe("Liegt außerhalb des Spielstands.");
+    await act(async () => local.click());
+    expect(handlers.onName).not.toHaveBeenCalled();
     // In a text project, a number of the save is named.
     await show({ number: 0x96, entry: UNUSED, usage: plain });
     const open = button("Als eigenes Flag benennen…")!;

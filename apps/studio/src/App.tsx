@@ -116,6 +116,7 @@ import { usePreviews } from "./project/usePreviews";
 import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
+import { invalidateFlagLists } from "./flags/useFlagList";
 
 /** The message that says what a wizard made, unless an error is showing: that one stays. */
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
@@ -167,6 +168,7 @@ const AGENT_SAVES: ReadonlySet<string> = new Set([
   "create_trainer",
   "resolve_external_conflict",
   "rename_id",
+  "name_flag",
 ]);
 
 /** The agents' commands that write the saved project only through a file step (a script, texture or model, see `writesFiles`). */
@@ -325,7 +327,14 @@ function AppBody() {
     setArea("technik");
   });
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
-  const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
+  const [idsRevision, bumpIdsRevision] = useReducer((n: number) => n + 1, 0);
+  // The same moves may add, change or take back an own name of a flag or variable (`name_flag`, `rename_id`, their undo, a synced
+  // data/ids/flags.json) that neither the events' nor the scripts' revision tells of: the flag lists (the inspector's and the level
+  // scripts' chips, Technik) read again with the ids.
+  const bumpIds = useCallback(() => {
+    bumpIdsRevision();
+    invalidateFlagLists();
+  }, []);
   // The number chosen in Technik › Flags und Variablen, kept for the session and the project it was chosen in (a picker's link sets it).
   const [flagChoice, setFlagChoice] = useState<{ root: string; selected: { kind: FlagKind; number: number } | null } | null>(null);
   const flagSelected = flagChoice !== null && flagChoice.root === openRoot ? flagChoice.selected : null;
@@ -493,8 +502,8 @@ function AppBody() {
     }
     // What the saved project holds may differ now: Technik › Änderungen compares again.
     if (AGENT_SAVES.has(event.tool) || (AGENT_FILE_STEPS.has(event.tool) && writesFiles(event.assets))) bumpChanged();
-    // An agent renamed an id, or undid or redid a step (a rename's among them): the heads read the ids again.
-    if (event.tool === "rename_id" || event.tool === "undo" || event.tool === "redo") bumpIds();
+    // An agent renamed an id, named a flag or variable, or undid or redid a step (a rename's among them): the heads read the ids again.
+    if (event.tool === "rename_id" || event.tool === "name_flag" || event.tool === "undo" || event.tool === "redo") bumpIds();
     // An agent chose a side of a conflict: after its assets were read again, the sync lists what is still open (as after the user's choice).
     const resolved = event.tool === "resolve_external_conflict" && isTextProject;
     agentReloads.current = agentReloads.current

@@ -74,6 +74,7 @@ const flagEntry: FlagEntryDto = {
   own_id: "FLAG_HAT_MEDAILLE",
   description: "Die Medaille ist abgeholt.",
   area: "general",
+  in_save: true,
   usage: { read: 1, write: 1, unknown: 0, sources: 2 },
   free: false,
   reserved: null,
@@ -97,6 +98,7 @@ const flagUsageExample: FlagUsageDto = {
   own_id: flagEntry.own_id,
   description: flagEntry.description,
   area: "general",
+  in_save: true,
   usage: flagEntry.usage,
   reserved: null,
   refs: [

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { errorText, freeFlag } from "../api";
 import type { FlagArea, FlagKind, ProjectInfo } from "../api";
 import { Button, Picker, Tooltip } from "../ui/primitives";
-import { NONE_ITEM, SCRIPTS_NOT_INDEXED, areaWord, flagRows, poolEmptyText } from "./flagWords";
+import { NONE_ITEM, areaWord, flagRows, poolEmptyText, scriptsNotIndexedText } from "./flagWords";
 import { useFlagList } from "./useFlagList";
 import styles from "./FlagPicker.module.css";
 
@@ -59,7 +59,7 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
     [list],
   );
 
-  const locked = list === null ? null : !list.scripts_indexed ? SCRIPTS_NOT_INDEXED : list.pool_free === 0 ? poolEmptyText(kind) : null;
+  const locked = list === null ? null : !list.scripts_indexed ? scriptsNotIndexedText(kind) : list.pool_free === 0 ? poolEmptyText(kind) : null;
   const why = refusal ?? locked;
   const take = async () => {
     setBusy(true);

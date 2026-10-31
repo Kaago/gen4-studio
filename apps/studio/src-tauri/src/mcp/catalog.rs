@@ -1379,7 +1379,8 @@ static TOOLS: &[ToolDef] = &[
                       project uses: number, the pret name and its aliases, the project's own id \
                       and description (text projects), its area (map_local, general, \
                       hidden_items, trainer, system, daily, temp, object_gfx, script_local, \
-                      outside), how often scripts, events, level scripts and trainers read and \
+                      outside), whether the save holds it (in_save; only then it takes an own \
+                      name), how often scripts, events, level scripts and trainers read and \
                       write it, whether it is free (general area, unused, no own name, pret name \
                       unused, not reserved by a recipe) and how many places a map-local number \
                       is used at. Also the size of the free pool and the counts of script-local \

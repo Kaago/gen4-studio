@@ -29,9 +29,10 @@ use crate::errors::CmdError;
 use crate::state::{AppState, Session};
 
 /// One number of the list: its pret name (`name`, the main name; the others in `aliases`), its
-/// own name and description in a text project, its area, how the index knows it to be used,
-/// whether it is free (the pool), which recipe reserves it, and at how many places (distinct
-/// headers) a map-local number is used (0 for every other area).
+/// own name and description in a text project, its area, whether the save holds it (`in_save`:
+/// only such a number takes an own name), how the index knows it to be used, whether it is free
+/// (the pool), which recipe reserves it, and at how many places (distinct headers) a map-local
+/// number is used (0 for every other area).
 #[derive(Debug, Clone, Serialize)]
 pub struct FlagEntryDto {
     pub number: u16,
@@ -40,6 +41,7 @@ pub struct FlagEntryDto {
     pub own_id: Option<String>,
     pub description: Option<String>,
     pub area: Area,
+    pub in_save: bool,
     pub usage: Usage,
     pub free: bool,
     pub reserved: Option<String>,
@@ -80,7 +82,8 @@ pub struct FlagRefDto {
     pub header_name: Option<String>,
 }
 
-/// `flag_usage`: one number with its names, area, usage and every reference.
+/// `flag_usage`: one number with its names, area, whether the save holds it, usage and every
+/// reference.
 #[derive(Debug, Clone, Serialize)]
 pub struct FlagUsageDto {
     pub kind: FlagKind,
@@ -89,6 +92,7 @@ pub struct FlagUsageDto {
     pub own_id: Option<String>,
     pub description: Option<String>,
     pub area: Area,
+    pub in_save: bool,
     pub usage: Usage,
     pub reserved: Option<String>,
     pub refs: Vec<FlagRefDto>,
@@ -107,9 +111,21 @@ pub struct FreeFlagDto {
 }
 
 /// Why `free_flag` refuses a project whose scripts are not adopted (code
-/// `scripts_not_adopted`).
+/// `scripts_not_adopted`), for a flag.
 pub const SCRIPTS_NOT_INDEXED: &str = "Erst Scripts übernehmen: ohne Script-Quellen weiß der \
                                        Index nicht, welche Flags Scripts benutzen.";
+
+/// [`SCRIPTS_NOT_INDEXED`] for a variable.
+pub const SCRIPTS_NOT_INDEXED_VARS: &str = "Erst Scripts übernehmen: ohne Script-Quellen weiß \
+                                            der Index nicht, welche Variablen Scripts benutzen.";
+
+/// Why `free_flag` refuses `kind` while the scripts are not adopted.
+pub fn scripts_not_indexed_text(kind: FlagKind) -> &'static str {
+    match kind {
+        FlagKind::Flag => SCRIPTS_NOT_INDEXED,
+        FlagKind::Var => SCRIPTS_NOT_INDEXED_VARS,
+    }
+}
 
 /// The target of number `n` of `kind`.
 fn target(kind: FlagKind, n: u16) -> Target {
@@ -145,7 +161,8 @@ fn reservations(family: Family, kind: FlagKind) -> BTreeMap<u16, &'static str> {
 }
 
 /// The free numbers of `kind` (ascending) and how many numbers the general area has; none
-/// for a family without a general range (Diamond and Pearl).
+/// for a family without a general range (none today: Diamond and Pearl take Platinum's ranges,
+/// `dp: { like: pt }` in `flag_ranges.yaml`).
 fn free_numbers(
     project: &Project,
     usage: &BTreeMap<u16, Usage>,
@@ -349,6 +366,7 @@ pub fn list_flags_impl(state: &AppState, kind: FlagKind) -> Result<FlagListDto, 
                 own_id: own.map(|e| e.id.clone()),
                 description: own.map(|e| e.description.clone()).filter(|d| !d.is_empty()),
                 area: area_of(family, kind, n),
+                in_save: flags::in_save(family, kind, n),
                 usage: usage.get(&n).copied().unwrap_or_default(),
                 free: free_set.contains(&n),
                 reserved: reserved.get(&n).map(|word| (*word).to_owned()),
@@ -410,6 +428,7 @@ pub fn flag_usage_impl(
         own_id: own.as_ref().map(|e| e.id.clone()),
         description: own.map(|e| e.description).filter(|d| !d.is_empty()),
         area: area_of(family, kind, number),
+        in_save: flags::in_save(family, kind, number),
         usage,
         reserved: reservations(family, kind)
             .get(&number)
@@ -422,7 +441,7 @@ pub fn flag_usage_impl(
 /// The smallest free number of `kind`; `pool_empty` (with [`flags::pool_empty_text`]) when
 /// there is none. Without adopted scripts the index does not see what scripts use, so a number
 /// a vanilla script sets could look free: refused with `scripts_not_adopted`
-/// ([`SCRIPTS_NOT_INDEXED`]).
+/// ([`scripts_not_indexed_text`]).
 pub fn free_flag_impl(state: &AppState, kind: FlagKind) -> Result<FreeFlagDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
@@ -430,7 +449,7 @@ pub fn free_flag_impl(state: &AppState, kind: FlagKind) -> Result<FreeFlagDto, C
     if !scripts::is_adopted(&project) {
         return Err(CmdError::refused(
             "scripts_not_adopted",
-            SCRIPTS_NOT_INDEXED,
+            scripts_not_indexed_text(kind),
         ));
     }
     let usage = session.refs.usage(&session.store, kind)?;
@@ -632,6 +651,8 @@ mod tests {
         assert_eq!(nameless.name, None);
         assert!(nameless.aliases.is_empty());
         assert_eq!(nameless.area, Area::Outside);
+        assert!(!nameless.in_save);
+        assert!(rival.in_save);
         assert_eq!(nameless.usage.read, 1);
         // Unused and named unused: free; the pool counts it.
         let unused = entry(&list, 0x94);
@@ -652,6 +673,7 @@ mod tests {
         // The JSON the app reads.
         let row = json_of(entry(&list, RIVAL));
         assert_eq!(row["area"], "general");
+        assert_eq!(row["in_save"], true);
         assert_eq!(row["usage"]["read"], 1);
     }
 
@@ -679,6 +701,9 @@ mod tests {
         let result = entry(&list, 0x800C);
         assert_eq!(result.area, Area::ScriptLocal);
         assert!(!result.free);
+        // Outside the save: it takes no own name (the kernel refuses), the app locks naming.
+        assert!(!result.in_save);
+        assert!(done.in_save);
         assert!(list.pool_free > 0);
         assert!(
             list.entries
@@ -825,17 +850,25 @@ mod tests {
     fn free_flag_needs_adopted_scripts() {
         let (_s, state) = open_synthetic();
         // Without the script sources the index cannot see what scripts use.
-        for kind in [FlagKind::Flag, FlagKind::Var] {
+        for (kind, text) in [
+            (FlagKind::Flag, SCRIPTS_NOT_INDEXED),
+            (FlagKind::Var, SCRIPTS_NOT_INDEXED_VARS),
+        ] {
             let err = free_flag_impl(&state, kind).unwrap_err();
             assert_eq!(
                 (err.code, err.message.as_str()),
-                ("scripts_not_adopted", SCRIPTS_NOT_INDEXED)
+                ("scripts_not_adopted", text)
             );
         }
         assert_eq!(
             SCRIPTS_NOT_INDEXED,
             "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags \
              Scripts benutzen."
+        );
+        assert_eq!(
+            SCRIPTS_NOT_INDEXED_VARS,
+            "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche \
+             Variablen Scripts benutzen."
         );
         // The list still lists, free as computed, and says the scripts are not indexed.
         let list = list_flags_impl(&state, FlagKind::Flag).unwrap();

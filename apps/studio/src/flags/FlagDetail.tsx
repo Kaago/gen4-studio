@@ -128,7 +128,10 @@ export function FlagDetail({ kind, number, entry, usage, busy, error, textProjec
   const pret = names?.name ?? null;
   const reserved = names?.reserved ?? null;
   const description = names?.description ?? null;
-  const why = !textProject ? NAMING_NEEDS_TEXT_PROJECT : area === "outside" ? OUTSIDE_THE_SAVE : readOnly ? BUSY : null;
+  // Only a number the save holds takes an own name (the kernel refuses the others): outside every range, HeartGold's temporary flags,
+  // the script-local variables.
+  const inSave = names?.in_save ?? true;
+  const why = !textProject ? NAMING_NEEDS_TEXT_PROJECT : !inSave ? OUTSIDE_THE_SAVE : readOnly ? BUSY : null;
   const refs = usage?.refs ?? [];
   const groups = (list: FlagRefDto[]): Group[] =>
     mapLocal

@@ -184,6 +184,16 @@ describe("FlagPicker", () => {
     expect(freeFlag).not.toHaveBeenCalled();
   });
 
+  it("scripts_not_adopted_lock_the_free_var_with_the_variable_sentence", async () => {
+    vi.mocked(listFlags).mockResolvedValue({ ...VARS, scripts_indexed: false });
+    await show({ kind: "var", value: 0 }, "var");
+    const take = button("Freie Variable nehmen")!;
+    expect(take.getAttribute("aria-disabled")).toBe("true");
+    expect(reason(take)).toBe("Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Variablen Scripts benutzen.");
+    await click(take);
+    expect(freeFlag).not.toHaveBeenCalled();
+  });
+
   it("every_opening_reads_anew_so_an_adoption_unlocks_the_free_flag", async () => {
     // Read before the scripts were adopted: locked.
     vi.mocked(listFlags).mockResolvedValue({ ...FLAGS, scripts_indexed: false });

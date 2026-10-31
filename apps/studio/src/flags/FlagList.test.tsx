@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FlagEntryDto, FlagListDto } from "../api";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
-import { FlagList } from "./FlagList";
+import { FlagList, ROW_LIMIT } from "./FlagList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -105,5 +105,30 @@ describe("FlagList", () => {
     // Nothing left after filter and search.
     await show(FLAGS, []);
     expect(container.querySelector("[data-flag-list]")?.textContent).toContain("Nichts passt zu Filter und Suche.");
+  });
+
+  it("a_capped_list_counts_the_rows_it_shows", async () => {
+    const many = flagList(
+      "flag",
+      Array.from({ length: ROW_LIMIT + 20 }, (_, i) => flagEntry(i + 1)),
+      { counts: { script_local: 0, dynamic: 3 } },
+    );
+    await show(many);
+    const foot = () => container.querySelector("[data-flag-list-foot]")?.textContent;
+    expect(container.querySelectorAll("[data-flag-row]")).toHaveLength(ROW_LIMIT);
+    expect(foot()).toBe("500 von 520 gezeigt · Script-lokale Variablen 0 Vorkommen, Flags aus Variablen 3 (nicht im Index)");
+    // The cap note stays.
+    expect(container.textContent).toContain("Die ersten 500 Zeilen; Suche und Filter erreichen die übrigen.");
+    // The chosen row past the cap shows as well, and counts.
+    await show(many, many.entries, ROW_LIMIT + 10);
+    expect(container.querySelectorAll("[data-flag-row]")).toHaveLength(ROW_LIMIT + 1);
+    expect(foot()).toMatch(/^501 von 520 gezeigt · /);
+    // After a filter: of how many it matched, and of the whole.
+    await show(many, many.entries.slice(0, ROW_LIMIT + 5));
+    expect(foot()).toMatch(/^500 von 505 gezeigt, 520 insgesamt · /);
+    // Not capped: the plan's foot, unchanged.
+    await show(many, many.entries.slice(0, 7));
+    expect(foot()).toMatch(/^7 von 520 · /);
+    expect(container.textContent).not.toContain("Die ersten 500 Zeilen");
   });
 });

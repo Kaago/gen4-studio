@@ -27,7 +27,7 @@ export interface FlagUsageCounts {
 
 /**
  * One number of the list: its pret name (`name`, the main one; the others in `aliases`), its own name and description in a text project,
- * its area, its usage, whether it is free (the pool), which recipe reserves it (`reserved`, a German word) and at how many places
+ * its area, whether the save holds it (`in_save`: only such a number takes an own name), its usage, whether it is free (the pool), which recipe reserves it (`reserved`, a German word) and at how many places
  * (distinct headers) a map-local number is used (0 for every other area).
  */
 export interface FlagEntryDto {
@@ -37,6 +37,7 @@ export interface FlagEntryDto {
   own_id: string | null;
   description: string | null;
   area: FlagArea;
+  in_save: boolean;
   usage: FlagUsageCounts;
   free: boolean;
   reserved: string | null;
@@ -76,7 +77,7 @@ export interface FlagRefDto {
   header_name: string | null;
 }
 
-/** `flagUsage`: one number with its names, area, usage and every reference. */
+/** `flagUsage`: one number with its names, area, whether the save holds it, usage and every reference. */
 export interface FlagUsageDto {
   kind: FlagKind;
   number: number;
@@ -84,6 +85,7 @@ export interface FlagUsageDto {
   own_id: string | null;
   description: string | null;
   area: FlagArea;
+  in_save: boolean;
   usage: FlagUsageCounts;
   reserved: string | null;
   refs: FlagRefDto[];

@@ -60,6 +60,15 @@ const FlagRow = memo(function FlagRow({ entry, kind, selected, onSelect }: { ent
   );
 });
 
+/**
+ * How many rows the foot counts: „2 von 5“ (filter and search let 2 of 5 through); when the list is capped at `ROW_LIMIT`, the rows it
+ * renders: „500 von 4.097 gezeigt“, after a filter „500 von 2.000 gezeigt, 4.097 insgesamt“.
+ */
+function shownText(rendered: number, matching: number, total: number): string {
+  if (rendered >= matching) return `${de(matching)} von ${de(total)}`;
+  return matching === total ? `${de(rendered)} von ${de(total)} gezeigt` : `${de(rendered)} von ${de(matching)} gezeigt, ${de(total)} insgesamt`;
+}
+
 export type FlagListProps = {
   /** The list as read (its kind and the counts of the foot). */
   list: FlagListDto;
@@ -72,8 +81,8 @@ export type FlagListProps = {
 
 /**
  * The numbers of a kind as a list with the column „Live“ (empty until the play mode, 3d.9), „Nichts passt zu Filter und Suche.“ when
- * nothing is left, and the foot: how many of how many, and what scripts use without a number (script-local variables, flags from variables).
- * The first `ROW_LIMIT` rows show, and the chosen one wherever it is.
+ * nothing is left, and the foot: how many of how many (when capped, how many rows show), and what scripts use without a number (script-local
+ * variables, flags from variables). The first `ROW_LIMIT` rows show, and the chosen one wherever it is.
  */
 export function FlagList({ list, entries, selected, onSelect }: FlagListProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -99,7 +108,7 @@ export function FlagList({ list, entries, selected, onSelect }: FlagListProps) {
       )}
       {entries.length > ROW_LIMIT && <p className={styles.note}>{`Die ersten ${de(ROW_LIMIT)} Zeilen; Suche und Filter erreichen die übrigen.`}</p>}
       <p className={styles.foot} data-flag-list-foot="">
-        {`${de(entries.length)} von ${de(list.entries.length)} · Script-lokale Variablen ${de(list.counts.script_local)} Vorkommen, Flags aus Variablen ${de(list.counts.dynamic)} (nicht im Index)`}
+        {`${shownText(rows.length, entries.length, list.entries.length)} · Script-lokale Variablen ${de(list.counts.script_local)} Vorkommen, Flags aus Variablen ${de(list.counts.dynamic)} (nicht im Index)`}
       </p>
     </div>
   );

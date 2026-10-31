@@ -13,7 +13,7 @@ import { finding, report } from "./checks/checksTesting";
 import { gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
 import { flagUsage, listFlags } from "./api";
 import { FLAGS, flagUsageOf } from "./flags/flagTesting";
-import { invalidateFlagLists } from "./flags/useFlagList";
+import { invalidateFlagLists, useFlagList } from "./flags/useFlagList";
 import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
@@ -3110,6 +3110,46 @@ describe("App wiring", () => {
       expect(tauriEvents.has("agent-event")).toBe(true);
     }
 
+    it("own_flag_names_outside_technik_follow_undo_and_an_agents_naming", async () => {
+      // A chip of the inspector or a level script: the flag list of the events (or scripts), whose revision no naming moves.
+      function Chip() {
+        const { list } = useFlagList("flag", { project: CHIP_PROJECT, revision: 0, source: "events" });
+        const entry = list?.entries.find((e) => e.number === 0x94);
+        return <span data-chip="">{entry === undefined ? "" : (entry.own_id ?? entry.name)}</span>;
+      }
+      const CHIP_PROJECT = { root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 2 };
+      const pret = { ...FLAGS, entries: FLAGS.entries.map((e) => (e.number === 0x94 ? { ...e, own_id: null, description: null } : e)) };
+      await inTheApp();
+      const host = document.createElement("div");
+      document.body.append(host);
+      const chipRoot = createRoot(host);
+      const chip = () => host.querySelector("[data-chip]")?.textContent;
+      try {
+        await act(async () => chipRoot.render(<Chip />));
+        await flush();
+        expect(chip()).toBe("FLAG_HAT_MEDAILLE");
+        // ⌘Z takes the naming back: the chip shows the pret name again.
+        vi.mocked(listFlags).mockResolvedValue(pret);
+        vi.mocked(undo).mockResolvedValueOnce([]);
+        await pressUndo();
+        await flush();
+        expect(chip()).toBe("FLAG_UNUSED_0x0094");
+        // An agent names it (name_flag): the chip follows.
+        vi.mocked(listFlags).mockResolvedValue(FLAGS);
+        await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "name_flag", label: null, assets: [] });
+        await flush();
+        expect(chip()).toBe("FLAG_HAT_MEDAILLE");
+        // An agent's undo takes it back again.
+        vi.mocked(listFlags).mockResolvedValue(pret);
+        await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "undo", label: null, assets: [] });
+        await flush();
+        expect(chip()).toBe("FLAG_UNUSED_0x0094");
+      } finally {
+        act(() => chipRoot.unmount());
+        host.remove();
+      }
+    });
+
     it("counts_and_reloads_what_an_agent_changed_like_after_undo", async () => {
       await inTheApp();
       await select(listed[0]);
@@ -3282,7 +3322,7 @@ describe("App wiring", () => {
       expect(changedFromOriginal).toHaveBeenCalledTimes(6);
       // So does every other agent tool that writes files of the saved project.
       let calls = 6;
-      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer"];
+      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer", "name_flag"];
       for (const [i, tool] of writers.entries()) {
         await emit({ kind: "changed", seq: 10 + i, client: "Claude Code", tool, label: null, assets: [] });
         await flush();

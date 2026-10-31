@@ -1,6 +1,6 @@
 import type { FlagEntryDto, FlagKind, FlagListDto, FlagRefDto, FlagUsageDto } from "../api";
 
-/** One entry of the list as the backend sends it: unused, unnamed, in the general area, unless `over` says otherwise. */
+/** One entry of the list as the backend sends it: unused, unnamed, in the general area (in the save), unless `over` says otherwise. */
 export function flagEntry(number: number, over: Partial<FlagEntryDto> = {}): FlagEntryDto {
   return {
     number,
@@ -9,6 +9,7 @@ export function flagEntry(number: number, over: Partial<FlagEntryDto> = {}): Fla
     own_id: null,
     description: null,
     area: "general",
+    in_save: true,
     usage: { read: 0, write: 0, unknown: 0, sources: 0 },
     free: false,
     reserved: null,
@@ -67,6 +68,7 @@ export function flagUsageOf(kind: FlagKind, number: number, over: Partial<FlagUs
     own_id: null,
     description: null,
     area: "general",
+    in_save: true,
     usage: { read: 0, write: 0, unknown: 0, sources: 0 },
     reserved: null,
     refs: [],

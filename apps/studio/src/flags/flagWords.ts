@@ -5,6 +5,11 @@ import type { PickerItem } from "../ui/primitives";
 /** Why „Freies Flag nehmen“ is locked while the scripts are not adopted (the backend's `scripts_not_adopted`). */
 export const SCRIPTS_NOT_INDEXED = "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags Scripts benutzen.";
 
+/** Why taking a free number of `kind` is locked while the scripts are not adopted: the flag sentence, or its variable form. */
+export function scriptsNotIndexedText(kind: FlagKind): string {
+  return kind === "flag" ? SCRIPTS_NOT_INDEXED : "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Variablen Scripts benutzen.";
+}
+
 /** Why the pool of `kind` has nothing to give (the kernel's `pool_empty_text`). */
 export function poolEmptyText(kind: FlagKind): string {
   return kind === "flag" ? "Kein freies Flag im allgemeinen Bereich." : "Keine freie Variable im allgemeinen Bereich.";
