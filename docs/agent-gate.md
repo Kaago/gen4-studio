@@ -1096,7 +1096,7 @@ Teil A von 3d.3 bringt die Kampfsprites (nur lesen, PNG über `get_battle_sprite
 ```sh
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
 G4_TEST_PROJECT="$K/3d-3-<k>_DSPRE_contents" \
-  cargo test --release -p g4-kernel --all-features --test battle_sprites -- --nocapture --test-threads 1
+  cargo test --release -p g4-kernel --all-features --test battle_sprites -- --nocapture
 #   23 bestanden, 1 ignoriert; Zeilen: sprites <Spielcode> pokemon=… forms=… trainers=… components=… corners=… palettes16=… ms=…
 #   forms <Spielcode> images=… palettes=… entries=… rendered=… form0=… form0_like_pokegra=[…] female_only=…
 G4_TIMING_STRICT=1 G4_TEST_PROJECT="$K/3d-3-<k>_DSPRE_contents" \

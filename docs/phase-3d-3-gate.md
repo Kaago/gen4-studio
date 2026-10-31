@@ -21,9 +21,9 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung), Teil A:
 
 Teil B (folgt mit Teil B): Reiter `[data-tab="eggMoves"]`, `[data-egg-budget]`, die Sätze „Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“ und „Ei-Attacken: Overlay 5 trägt an 0x2923E keine Tabelle (Signatur fehlt)“ und das Feld `egg_moves` der Spezies-JSON.
 
-# Teil A
+## Teil A
 
-## Vorbereitung
+### Vorbereitung
 
 So durchgeführt am 2026-10-31 auf dem Stand `a6f2d41`:
 
@@ -37,7 +37,7 @@ So durchgeführt am 2026-10-31 auf dem Stand `a6f2d41`:
 3. **Ausgaben** unter `target/agent/gate-2026-10-31/3d-3/` im Worktree (nicht im Repo): `gated-release.log`, `mcp-*.out` und `mcp-data_get-397.json`, `ui-*.log`, die Bilder `blick-*.png`, `galerie-*.png`, `pokedex-*.png`, `montage-*.png` und der Ordner `bridge-pt`. Den Ordner vor `git worktree remove` sichern.
 4. **Last:** `uptime` im Lauf: 1-Minuten-Last 6 bis 12, weil andere Orchestratoren gleichzeitig arbeiteten (in einem Lauf des abschließenden Reviews bis 18, siehe Zahlentabelle).
 
-## (1) Automatik
+### (1) Automatik
 
 - [x] 1. `G4_TEST_PROJECT=<Kopie> cargo test --release -p g4-kernel --all-features --test battle_sprites -- --nocapture` auf `3d-3-{pt,hgde,hgus}`: je 23 bestanden, 1 ignoriert (der Helfer, der Bilder zum Ansehen außerhalb des Repos schreibt). Die gedruckten Zeilen:
    - Platin DE (CPUD): `pokemon=1812 forms=157 trainers=105 components=1.4 corners=1778 palettes16=988 ms=3723`, `trainer_components=1.7`, Formen `images=157 palettes=96 components=1.1 entries=77 rendered=306 form0=12 form0_like_pokegra=[201, 351, 479, 487] female_only=3`.
@@ -48,15 +48,15 @@ So durchgeführt am 2026-10-31 auf dem Stand `a6f2d41`:
 4. Aus Task 3 (selber Branch, früher): die gated Build-Tests `pack_only_entries_repack_byte_identical`, `vanilla_rebuild_matches_dsrom_cli` und `base_assign_on_the_vanilla_folder_has_no_warning_and_rebuilds_the_nds` auf Platin DE und HeartGold DE grün (die Sprite-Archive wanderten aus `pack_only` in benannte Arten).
 5. **Nicht gelaufen:** `scripts/gate.sh` als Ganzes. Die Hauptsitzung führt es nach dieser Welle auf main aus; die neuen gated Tests laufen dort im Schritt der gated Tests je Projekt (Debug) mit, das Skript braucht dafür nichts Neues. Die gated Tests für die Ei-Attacken und für die Textprojekte aus Task 11 folgen mit Teil B.
 
-## (2) Kopflos und MCP
+### (2) Kopflos und MCP
 
-- [x] 1. MCP über die Brücke (`scripts/agent/mcp.sh`, lokale Agenten an, Expertenwerkzeuge an, Freigabe „Lesen“): `g4_call get_battle_sprite {"species":"SPECIES_STARAVIA","side":"front"}` antwortet `{"result":{"bytes":1496}}`; `g4_call get_trainer_sprite {"class":1}` `{"bytes":1691}`; `frame:2` den Fehler „frame must be 0 or 1“; die Art 600 `{"bytes":0}`. `data_get species SPECIES_STARAVIA` trägt `sprite_slots {female:true, male:true}`, die Art 500 `{female:true, male:false}`.
-- [x] 2. **Base64 (Ruling R7):** der Plan nahm an, `g4_call` liefere Base64 eines PNG. Gemessen und in [docs/mcp.md](mcp.md) beschrieben: `g4_call` und `g4_batch` antworten für Bildbefehle wie für `get_mon_icon` mit `{"bytes": <Länge>}`; nur die Brücke gibt die PNG-Bytes zurück (`call.sh` druckt dafür „<n> Bytes“). Ein Bildwerkzeug für Agenten bleibt offen (Abschnitt „Offen“).
+- [x] 1. MCP über die Brücke auf Port 1721 (`scripts/agent/mcp.sh`, Kopie `3d-3-web`, Platin DE; lokale Agenten an, Expertenwerkzeuge an, Freigabe „Lesen“): `g4_call get_battle_sprite {"species":"SPECIES_STARAVIA","side":"front"}` antwortet `{"result":{"bytes":1496}}`; `g4_call get_trainer_sprite {"class":1}` `{"bytes":1691}`; `frame:2` den Fehler „frame must be 0 or 1“; die Art 600 `{"bytes":0}`. `data_get species SPECIES_STARAVIA` trägt `sprite_slots {female:true, male:true}`, die Art 500 `{female:true, male:false}`.
+- [x] 2. **Base64 (Ruling R7):** der Plan nahm an, `g4_call` liefere Base64 eines PNG. Gemessen und in [docs/mcp.md](mcp.md) beschrieben: `g4_call` und `g4_batch` antworten für Bildbefehle wie für `get_mon_icon` mit `{"bytes": <Länge>}`; nur die Brücke gibt die PNG-Bytes zurück (`call.sh` druckt dafür „<n> bytes“). Ein Bildwerkzeug für Agenten bleibt offen (Abschnitt „Offen“).
 - [x] 3. Zeit über die Brücke (Debug-Brücke, Kopie `3d-3-web`, `curl`, erste Anfrage je Bild): Art 397 vorn über `call.sh`; 25 vorn 15 ms (wieder 2 ms), 6 hinten 13 ms, 150 schillernd 12 ms, 494 (Ei) 8 ms, 421 Form 1 11 ms, 413 schillernd 10 ms, 412 schillernd 11 ms, 407 ♀ 16 ms, 3 ♀ 16 ms, Trainerklasse 5 14 ms, Klasse 104 11 ms; Klasse 105 und Art 600 liefern einen leeren Körper (0 B). Alle höchstens 16 ms, die Grenze ist 50 ms.
 
 Das Szenario kopflos für die Ei-Attacken (`data_get` und `data_edit` auf `egg_moves`, `g4k build`, `g4k check-data`, Platin mit Budget und Patch) folgt mit Teil B.
 
-## (3) Browser
+### (3) Browser
 
 Test-Umgebung auf 1720/1721, Kopien `3d-3-web` (Platin DE) und `3d-3-hgweb` (HeartGold DE), Chrome headless wie in „Vorbereitung“.
 
@@ -67,7 +67,7 @@ Test-Umgebung auf 1720/1721, Kopien `3d-3-web` (Platin DE) und `3d-3-hgweb` (Hea
 - [x] 5. Galerie (`?gallery`, Seite „Bildschirm“): Pokédex-Profil und Kampfvorschau mit Platzhaltern.
 - [x] 6. Blick Hell, Dunkel, Kompakt: Bilder unter `target/agent/gate-2026-10-31/3d-3/`: `blick-pokedex-profil-{vorn,hinten,schillernd}-{hell,dunkel,kompakt}.png` und `blick-pokedex-profil-weiblich-hell.png` (HeartGold mit dem Vorsatz `blick-pokedex-profil-hg-`), `blick-trainer-{kopf,kampfvorschau-trainer,kampfvorschau-pokemon}-{hell,dunkel,kompakt}.png` (HeartGold `-hg-`), `galerie-{profil,kampf}-{hell,dunkel,kompakt}.png`, `pokedex-pt-{387,25,413,421,412,500,503,494}.png` und `pokedex-hg-{172,413,421,500,503}.png`. Der Pedestal (`status/rahmen`, graue Ellipse) ist auf dem dunklen DS-Grund in Hell und Dunkel zu sehen; der Text in den mit `transform` vergrößerten Plaketten ist bei Maßstab 2 in Chrome scharf.
 
-## (4) Hand und Blick
+### (4) Hand und Blick
 
 Beim Nutzer (Abschnitt „Hand“ und „Blick“ unten und die Tabelle „Ergebnis“):
 
@@ -76,7 +76,7 @@ Beim Nutzer (Abschnitt „Hand“ und „Blick“ unten und die Tabelle „Ergeb
 - **Formen am Augenschein:** [task3-3d3-formen.md](research/2026-10-30-phase-3d/task3-3d3-formen.md).
 - **`.fig`:** die Frames für `DSPokedexProfile` und `DSBattlePreview` folgen (OpenPencil war nicht erreichbar; `design-system/README.md`, „Nachtrag 3d.3“).
 
-## Ergebnis
+### Ergebnis
 
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
@@ -104,9 +104,9 @@ Zahlentabelle (Teil A; Release, Werte aus den gated Tests (1), in Klammern aus (
 
 Zeiten der gated Läufe (`ms=` im Test, Release): Platin DE 3 723, HeartGold DE 3 204, HeartGold US 2 664 für alle 1 812 Pokémon-Bilder und die Trainer; unter Last im Lauf des abschließenden Reviews Platin DE 16 811, HeartGold DE 3 765, HeartGold US 3 547 (Last um 18). Eine Grenze setzt der Test dafür nicht.
 
-## Befunde
+### Befunde
 
-### UI-Test (2026-10-31)
+#### UI-Test (2026-10-31)
 
 | Nr. | Schwere | Befund | Fix |
 |---|---|---|---|
@@ -114,7 +114,7 @@ Zeiten der gated Läufe (`ms=` im Test, Release): Platin DE 3 723, HeartGold DE 
 | U2 | Klein (Blick) | In Dunkel ist der eigene Grund des DS-Bildschirms (`ds/grund`) fast der Grund der App; die Kante des Bildschirms verschwindet fast (der vorhandene Rahmen von `DSScreen`, nicht neu in 3d.3). | Keine Änderung; der Nutzer entscheidet am Bild. |
 | U3 | Klein (Blick) | Kleine Arten stehen in der Kampfvorschau über dem Boden (feste Lage ohne `pokemonSpriteOffsets`, Planentscheidung „feste Lage“). | Keine Änderung; Bilder `blick-trainer-kampfvorschau-pokemon-*.png`. |
 
-### Abschließendes Review von Teil A
+#### Abschließendes Review von Teil A
 
 Das Review des ganzen Teils (Opus) fand einen wichtigen Punkt und mehrere kleine; eine Fix-Runde (`476f0e3`, `6331244`), danach sauber.
 
@@ -125,7 +125,7 @@ Das Review des ganzen Teils (Opus) fand einen wichtigen Punkt und mehrere kleine
 | 5 | Klein | Die Sätze zu den Bildbefehlen in `docs/mcp.md` trennten einen Absatz. | `476f0e3`. |
 | 3, 4, 6, 7, 8 | Klein | Dekodieren eines ersten Bildes unter der Sitzungssperre (8 bis 15 ms); `data_get species` liest das `pokegra`-NARC je Aufruf bei gepackten Projekten (5 bis 7 ms); „Nr.“ zeigt für Formen 494 bis 507 den Personal-Member; Sprite 48 ist nicht ganzzahlig skaliert (vom Plan vorgegeben); `TileMode` ist streng (Plan-Entscheidung). | Geparkt (Plan- und Bestandsentscheidungen, nicht tragend; Abschnitt „Offen“). |
 
-## Offen
+### Offen
 
 Ohne Einfluss auf Teil A; was ein Nutzer bemerken kann:
 
@@ -137,7 +137,7 @@ Ohne Einfluss auf Teil A; was ein Nutzer bemerken kann:
 - **Geparkt aus den Reviews:** das Dekodieren eines ersten Bildes hält die Sitzungssperre (8 bis 15 ms); `data_get species` parst das `pokegra`-NARC je Aufruf bei gepackten Projekten; ein Fehler eines kaputten Archivs wird als „kein Bild“ gemeldet und nicht gemerkt; „Nr.“ zeigt für Formen 494 bis 507 den Personal-Member (`SpeciesRowExtra`); die Pokédex-Textbox schneidet nach zwei Zeilen ohne Hinweis ab (heute „folgt“); die KP-Farbe und die Prozentzahl können an den Schwellen auseinandergehen (gerundet gegen ungerundet); `level` wird nicht normiert („Lv. 12.5“).
 - **Beim Nutzer:** Hand (Bilder gegen das Spiel), Blick (U2, U3), `.fig` (Frames).
 
-# Teil B
+## Teil B
 
 Teil B (Ei-Attacken: Plan-Tasks 8 bis 12) wartet, bis 3d.1 auf main ist: die Ei-Attacken brauchen dessen Stand als Quelle für `Target::Move` und die Textprojekt-Dateien. Prüfung am 2026-10-31: 3d.1 ist nicht auf main (`git grep -l flags.json main -- crates/g4-kernel/src/textproject` leer, main `c6345d6`). Die Punkte stehen offen und kommen mit Teil B in dieses Dokument:
 
