@@ -45,7 +45,9 @@ function StatusBox({ side, which }: { side: BattleSide; which: Which }) {
   const colour = hpColour(hp);
   return (
     <div className={`${styles.status} ${which === "foe" ? styles.foeStatus : styles.ownStatus}`} data-ds-status={which}>
-      <div className={styles.statusLine}>{side.name}</div>
+      <div className={`${styles.statusLine} ${styles.name}`} title={side.name}>
+        {side.name}
+      </div>
       {hasLevel(side) && (
         <div className={styles.statusLine}>
           <span>{`Lv. ${side.level}`}</span>

@@ -86,6 +86,15 @@
   overflow: hidden;
 }
 
+/* A long name ends with an ellipsis instead of being cut off hard (the full name is in `title`); a block, as `text-overflow` does not act on a flex container. */
+.name {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .track {
   display: block;
   flex: none;

@@ -58,7 +58,9 @@ export function DSPokedexProfile({ number, name, types, spriteUrl, category, hei
           </div>
           <div className={styles.panel}>
             <div className={styles.line}>{`Nr. ${String(Math.max(0, Math.trunc(number))).padStart(3, "0")}`}</div>
-            <div className={styles.line}>{name}</div>
+            <div className={`${styles.line} ${styles.name}`} title={name}>
+              {name}
+            </div>
             <div className={styles.typeLine}>
               <div className={styles.types}>
                 {/* The game stores a single type twice. */}

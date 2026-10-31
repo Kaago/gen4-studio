@@ -95,6 +95,14 @@ describe("DSBattlePreview", () => {
     expect(img.getAttribute("width")).toBe("80");
   });
 
+  it("carries_the_full_name_in_title_on_a_name_line_that_ends_with_an_ellipsis", () => {
+    const lutz: BattleSide = { name: "Ass-Trainer Lutz", level: 0, spriteUrl: null };
+    act(() => root.render(<DSBattlePreview foe={lutz} own={panflam} scale={1} decorative />));
+    const names = [...container.querySelectorAll<HTMLElement>("[data-ds-status] [title]")];
+    expect(names.map((e) => e.getAttribute("title"))).toEqual(["Ass-Trainer Lutz", "Panflam"]);
+    for (const el of names) expect(el.className).toMatch(/name/);
+  });
+
   it("draws_at_the_given_scale_and_hides_when_decorative", () => {
     act(() => root.render(<DSBattlePreview foe={staravia} own={panflam} scale={3} />));
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("3");

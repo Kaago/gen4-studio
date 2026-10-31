@@ -76,6 +76,14 @@ describe("DSPokedexProfile", () => {
     expect(img.getAttribute("width")).toBe("80");
   });
 
+  it("carries_the_full_name_in_title_on_a_name_line_that_ends_with_an_ellipsis", () => {
+    const name = "Burmadame, Lumpenumhang";
+    act(() => root.render(<DSPokedexProfile number={500} name={name} types={[0]} spriteUrl={null} scale={1} decorative />));
+    const el = texts(name)[0] as HTMLElement;
+    expect(el.getAttribute("title")).toBe(name);
+    expect(el.className).toMatch(/name/);
+  });
+
   it("draws_at_the_given_scale", () => {
     act(() => root.render(<DSPokedexProfile number={397} name="Staravia" types={[0, 2]} spriteUrl={null} scale={2} />));
     expect(group()?.style.getPropertyValue("--ds-scale")).toBe("2");
