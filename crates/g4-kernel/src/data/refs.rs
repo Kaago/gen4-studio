@@ -8,7 +8,12 @@
 //! - trainer properties → trainer class and items; trainer parties → species, items, moves
 //!   (a trainer the store holds as a document, `AssetKind::Trainer`, is read from that
 //!   document with its unsaved edits; a change of it recomputes both of its sources)
-//! - object events: a script in [`TRAINER_SCRIPTS`] or [`PARTNER_SCRIPTS`] → trainer
+//! - object events: a script in [`TRAINER_SCRIPTS`] or [`PARTNER_SCRIPTS`] → trainer, and its
+//!   "defeated" flag `0x550 + n` (read and written by the engine, field `script`); a non-zero
+//!   `hidden_flag` → that flag (read, field `hidden_flag`)
+//! - background events of type [`HIDDEN_ITEM_EVENT_TYPE`] with script `8000 + n` → the flag of
+//!   hidden item `n` (read and written, field `hidden_item`; none past the range)
+//! - triggers: a variable `0x4000..0x8000` → that variable (read, field `var`)
 //! - personal data: `item1`, `item2` → items
 //! - learnsets → moves
 //! - evolutions: the target → species; the parameter → item, move or species by method
@@ -23,6 +28,9 @@
 //!   declares per family (by type, rotom's name rule and entries, [`flagvars`]) and the
 //!   conditions of `if`, `while` and `match` → flag or variable with its [`Access`]; variables
 //!   from `0x8000` on and flags named through a variable are only counted ([`ScriptCounts`]).
+//! - level scripts (`expanded/scripts/NNNN.json`, the same source id as a `.rotom` file of that
+//!   number): each `var_conditions[i]` with a variable `0x4000..0x8000` → that variable (read,
+//!   field `var_conditions`, slot `i`); a `var` of 0 ends the table.
 //!
 //! Every reference but those of flags and variables reads its target ([`Access::Read`]).
 //!
@@ -38,12 +46,15 @@
 //! through the store: a refresh re-reads every source whose `stat` changed (a removed one
 //! drops its references), and all of them when the files the identifiers resolve by changed
 //! (`rotom.toml`, rotom's constant folder, the manifest and the registers). A source that
-//! does not parse contributes nothing.
+//! does not parse contributes nothing. Statting the sources is the expensive part of a refresh:
+//! it runs at most every [`REFRESH_SCRIPTS_EVERY`] ([`RefIndex::refresh_scripts_now`] forces it),
+//! the store's changes are asked every time.
 
 use std::collections::{BTreeMap, HashSet};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use g4_formats::data::encounter::{DualSlot, Encounters, Method};
 use g4_formats::data::evolution::{EVO_ENTRIES, Evolution};
@@ -59,8 +70,9 @@ use uxie::map_header::MapHeader;
 
 use crate::disk::Disk;
 use crate::error::KernelError;
+use crate::flags::{FlagKind, hidden_item_flag, trainer_flag};
 use crate::project::{AssetId, AssetKind, Project};
-use crate::scripts::{self, AstItem};
+use crate::scripts::{self, AstItem, LevelScriptDoc, SourceKind};
 use crate::store::{Loaded, Store};
 use crate::textproject::ids::{Stamp, stamp, watched};
 use crate::textproject::include::ScriptLookup;
@@ -126,6 +138,40 @@ impl ScriptCounts {
         self.dynamic += other.dynamic;
     }
 }
+
+/// How often the index knows a flag or a variable to be read and written, by how many sources
+/// ([`RefIndex::usage`]). A reference that reads and writes counts for both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Usage {
+    pub read: u32,
+    pub write: u32,
+    pub unknown: u32,
+    /// The distinct sources with a reference to it.
+    pub sources: u32,
+}
+
+impl Usage {
+    fn add(&mut self, access: Access) {
+        match access {
+            Access::Read => self.read += 1,
+            Access::Write => self.write += 1,
+            Access::ReadWrite => {
+                self.read += 1;
+                self.write += 1;
+            }
+            Access::Unknown => self.unknown += 1,
+        }
+    }
+}
+
+/// Least time between two stats of the script sources inside [`RefIndex::refresh`].
+pub const REFRESH_SCRIPTS_EVERY: Duration = Duration::from_millis(250);
+
+/// The `event_type` of a background event that is a hidden item.
+pub const HIDDEN_ITEM_EVENT_TYPE: u16 = 2;
+
+/// Script `HIDDEN_ITEM_SCRIPTS + n` of a background event is hidden item `n`.
+pub const HIDDEN_ITEM_SCRIPTS: u16 = 8000;
 
 /// Overworld scripts that start a trainer battle: script `3000 + n - 1` is trainer `n`
 /// (spec §2, "Event ↔ Trainer").
@@ -223,11 +269,14 @@ struct Built {
     counts: BTreeMap<u16, ScriptCounts>,
 }
 
-/// References to species, moves, items, trainers, trainer classes and encounter files; see
-/// the module documentation. Belongs to one store (change generations are per store).
+/// References to species, moves, items, trainers, trainer classes, encounter files, flags and
+/// variables; see the module documentation. Belongs to one store (change generations are per
+/// store).
 #[derive(Default)]
 pub struct RefIndex {
     built: Option<Built>,
+    /// When the script sources were last statted (the time gate of [`RefIndex::refresh`]).
+    scripts_checked: Option<Instant>,
 }
 
 impl RefIndex {
@@ -288,18 +337,64 @@ impl RefIndex {
         Ok(sum)
     }
 
+    /// Every flag (or variable) the index knows a reference to, with how often it is read and
+    /// written and by how many sources: one pass over the index, no cache. Builds or refreshes
+    /// the index like [`RefIndex::refs`].
+    pub fn usage(
+        &mut self,
+        store: &Store,
+        kind: FlagKind,
+    ) -> Result<BTreeMap<u16, Usage>, KernelError> {
+        let number = |target: Target| match (kind, target) {
+            (FlagKind::Flag, Target::Flag(n)) | (FlagKind::Var, Target::Var(n)) => Some(n),
+            _ => None,
+        };
+        let mut out: BTreeMap<u16, Usage> = BTreeMap::new();
+        // The last source counted per number: a source's references are next to each other.
+        let mut last: BTreeMap<u16, AssetId> = BTreeMap::new();
+        for r in self.current(store)?.sources.values().flatten() {
+            let Some(n) = number(r.target) else { continue };
+            let usage = out.entry(n).or_default();
+            usage.add(r.access);
+            if last.insert(n, r.source) != Some(r.source) {
+                usage.sources += 1;
+            }
+        }
+        Ok(out)
+    }
+
     /// Recomputes the references of the sources the store changed since the index was
     /// built or last refreshed and returns them (only sources; other changed assets are
     /// skipped). Also re-parses the script sources whose `stat` changed since they were read
     /// (a save in the script editor, DSPRE, a branch switch; all of them when the files their
-    /// identifiers resolve by changed); a removed source drops its references. Does nothing on
-    /// an index not built yet: it stays lazy. On an error the index stays as it was, so the
-    /// next call tries the same sources again.
+    /// identifiers resolve by changed); a removed source drops its references. The sources are
+    /// statted at most every [`REFRESH_SCRIPTS_EVERY`]: within that time of the last stat only
+    /// the store's changes are refreshed ([`RefIndex::refresh_scripts_now`] stats them
+    /// whatever the gate says). Does nothing on an index not built yet: it stays lazy. On an
+    /// error the index stays as it was, so the next call tries the same sources again.
     pub fn refresh(&mut self, store: &Store) -> Result<Vec<AssetId>, KernelError> {
+        let due = self
+            .scripts_checked
+            .is_none_or(|at| at.elapsed() >= REFRESH_SCRIPTS_EVERY);
+        self.refresh_with(store, due)
+    }
+
+    /// [`RefIndex::refresh`] with the script sources statted now, whatever the time gate says
+    /// (after a save of a source, and in tests).
+    pub fn refresh_scripts_now(&mut self, store: &Store) -> Result<Vec<AssetId>, KernelError> {
+        self.refresh_with(store, true)
+    }
+
+    /// [`RefIndex::refresh`], the script sources statted when `scripts` says so.
+    fn refresh_with(&mut self, store: &Store, scripts: bool) -> Result<Vec<AssetId>, KernelError> {
         let Some(built) = &mut self.built else {
             return Ok(Vec::new());
         };
-        let (scripts, reread) = built.scripts.refresh(store.project())?;
+        let statted = if scripts {
+            Some(built.scripts.refresh(store.project())?)
+        } else {
+            None
+        };
         let (generation, changed) = store.changes_since(built.generation);
         let changed = with_dependents(changed);
         if !changed.is_empty() {
@@ -323,6 +418,9 @@ impl RefIndex {
         }
         built.generation = generation;
         let mut changed = changed;
+        let Some((scripts, reread)) = statted else {
+            return Ok(changed);
+        };
         for (file, read) in reread {
             let id = script_id(file);
             let (refs, counts) = read.unwrap_or_default();
@@ -339,6 +437,7 @@ impl RefIndex {
             changed.push(id);
         }
         built.scripts = scripts;
+        self.scripts_checked = Some(Instant::now());
         Ok(changed)
     }
 
@@ -380,6 +479,7 @@ impl RefIndex {
             scripts,
             counts,
         });
+        self.scripts_checked = Some(Instant::now());
         Ok(())
     }
 
@@ -416,7 +516,7 @@ fn collect_refs(
             continue;
         }
         match store.peek(id) {
-            Some(value) => out.push((id, value_refs(id, value))),
+            Some(value) => out.push((id, value_refs(id, value, family))),
             None => unloaded.push(id),
         }
     }
@@ -463,7 +563,7 @@ fn disk_refs(disk: &Disk<&Project>, id: AssetId, family: Family) -> Result<Vec<R
             .unwrap_or_default()),
         AssetKind::TrainerParty => party_refs(disk, id, family),
         _ => Ok(disk_value(disk, id, family)?
-            .map(|value| value_refs(id, &value))
+            .map(|value| value_refs(id, &value, family))
             .unwrap_or_default()),
     }
 }
@@ -490,13 +590,13 @@ fn disk_value(
     Ok(Loaded::from_bytes(id.kind, &bytes, family, "").ok())
 }
 
-/// The references of a store value of source `id`.
-fn value_refs(id: AssetId, value: &Loaded) -> Vec<Ref> {
+/// The references of a store value of source `id` in a game of `family`.
+fn value_refs(id: AssetId, value: &Loaded, family: Family) -> Vec<Ref> {
     let mut out = Refs::new(id);
     match value {
         Loaded::HeaderTable(headers) => header_refs(&mut out, headers),
         Loaded::Encounter(e) => encounter_refs(&mut out, e),
-        Loaded::Event(e) => event_refs(&mut out, e),
+        Loaded::Event(e) => event_refs(&mut out, e, family),
         Loaded::Personal(p) => personal_refs(&mut out, p),
         Loaded::Learnset(l) => learnset_refs(&mut out, l),
         Loaded::Evolution(e) => evolution_refs(&mut out, e),
@@ -532,13 +632,23 @@ impl Refs {
     }
 
     fn push(&mut self, field: &'static str, slot: Option<usize>, target: Target) {
+        self.push_access(field, slot, target, Access::Read);
+    }
+
+    fn push_access(
+        &mut self,
+        field: &'static str,
+        slot: Option<usize>,
+        target: Target,
+        access: Access,
+    ) {
         self.refs.push(Ref {
             source: self.source,
             field,
             // Slots are list positions far below 65536.
             slot: slot.map(|s| s as u16),
             target,
-            access: Access::Read,
+            access,
         });
     }
 
@@ -642,8 +752,14 @@ fn encounter_refs(out: &mut Refs, encounters: &Encounters) {
     }
 }
 
-fn event_refs(out: &mut Refs, events: &EventFile) {
+/// The references of an event file: per object its visibility flag, its trainer and the
+/// trainer's "defeated" flag; then the hidden items among the background events; then the
+/// variables of the triggers. Flag 0 and variable 0 are none.
+fn event_refs(out: &mut Refs, events: &EventFile, family: Family) {
     for (slot, object) in events.object_events.iter().enumerate() {
+        if object.hidden_flag != 0 {
+            out.push("hidden_flag", Some(slot), Target::Flag(object.hidden_flag));
+        }
         let start = [&TRAINER_SCRIPTS, &PARTNER_SCRIPTS]
             .into_iter()
             .find(|range| range.contains(&object.script))
@@ -651,8 +767,43 @@ fn event_refs(out: &mut Refs, events: &EventFile) {
         if let Some(start) = start {
             let trainer = object.script - start + 1;
             out.push("script", Some(slot), Target::Trainer(trainer));
+            // The engine reads the flag before the battle and sets it after a win.
+            if let Some(flag) = trainer_flag(family, trainer) {
+                out.push_access("script", Some(slot), Target::Flag(flag), Access::ReadWrite);
+            }
         }
     }
+    for (slot, bg) in events.bg_events.iter().enumerate() {
+        if bg.event_type != HIDDEN_ITEM_EVENT_TYPE {
+            continue;
+        }
+        let flag = bg
+            .script
+            .checked_sub(HIDDEN_ITEM_SCRIPTS)
+            .and_then(|item| hidden_item_flag(family, item));
+        // The engine checks the flag to show the item and sets it when it is picked up.
+        if let Some(flag) = flag {
+            out.push_access(
+                "hidden_item",
+                Some(slot),
+                Target::Flag(flag),
+                Access::ReadWrite,
+            );
+        }
+    }
+    for (slot, trigger) in events.coord_events.iter().enumerate() {
+        if let Some(var) = variable(trigger.var) {
+            out.push("var", Some(slot), Target::Var(var));
+        }
+    }
+}
+
+/// `n` as a variable that is a target: `0x4000..0x8000` (0 is none, below `0x4000` there is no
+/// variable, from `0x8000` on it is local to a script).
+fn variable(n: u16) -> Option<u16> {
+    (FIRST_VARIABLE..SCRIPT_LOCAL)
+        .contains(&i32::from(n))
+        .then_some(n)
 }
 
 fn personal_refs(out: &mut Refs, personal: &Personal) {
@@ -886,6 +1037,9 @@ pub(crate) fn script_ref_table(family: Family) -> &'static ScriptRefTable {
 /// Numbers from here on in a command argument name a variable.
 const FIRST_VARIABLE: i32 = 0x4000;
 
+/// Variables from here on are local to a script.
+const SCRIPT_LOCAL: i32 = 0x8000;
+
 /// The source of script file `file`.
 fn script_id(file: u16) -> AssetId {
     AssetId {
@@ -921,23 +1075,32 @@ type ScriptReads = Vec<(u16, Option<(Vec<Ref>, ScriptCounts)>)>;
 /// Files relative to the root with their stamps.
 type Stamps = Vec<(PathBuf, Stamp)>;
 
+#[cfg(test)]
+thread_local! {
+    /// How often this thread statted the script sources ([`ScriptSources::refresh`]).
+    pub(crate) static SCRIPT_STATS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// What the index knows of the script sources: the stamps of the lookup's files with the lookup
-/// made from them (kept while they stay: making it reads rotom's constants), and the stamp of
-/// every `.rotom` source as last read.
+/// made from them (kept while they stay: making it reads rotom's constants), and the kind and
+/// stamp of every source (`.rotom` or level script `.json`) as last read.
 #[derive(Default)]
 struct ScriptSources {
     lookup: Option<(Stamps, Option<Arc<ScriptLookup>>)>,
-    stamps: BTreeMap<u16, Stamp>,
+    stamps: BTreeMap<u16, (SourceKind, Stamp)>,
 }
 
 impl ScriptSources {
     /// The sources now and the references of each one to read again (`None`: removed): every
-    /// source whose stamp changed, all of them when the lookup's files changed (or on the first
-    /// call). Without adopted scripts there are none. Reads everything before it returns, so a
-    /// failure leaves the index as it was.
+    /// source whose kind or stamp changed, every `.rotom` source when the lookup's files changed
+    /// (or on the first call; a level script names no identifiers). Without adopted scripts
+    /// there are none. Reads everything before it returns, so a failure leaves the index as it
+    /// was.
     fn refresh(&self, project: &Project) -> Result<(ScriptSources, ScriptReads), KernelError> {
+        #[cfg(test)]
+        SCRIPT_STATS.with(|n| n.set(n.get() + 1));
         let dir = project.expanded_dir(AssetKind::Script);
-        let files = scripts::rotom_sources(project)?;
+        let files = script_sources(project, &dir)?;
         let lookup_now = lookup_stamps(project);
         let kept = self
             .lookup
@@ -946,9 +1109,9 @@ impl ScriptSources {
             .map(|(_, lookup)| lookup.clone());
         let all = kept.is_none();
         let mut lookup = kept.flatten();
-        let stamps: BTreeMap<u16, Stamp> = files
-            .iter()
-            .map(|&file| (file, stamp(&source_file(&dir, file))))
+        let stamps: BTreeMap<u16, (SourceKind, Stamp)> = files
+            .into_iter()
+            .map(|(file, kind)| (file, (kind, stamp(&source_file(&dir, file, kind)))))
             .collect();
         let mut out: ScriptReads = self
             .stamps
@@ -956,14 +1119,23 @@ impl ScriptSources {
             .filter(|file| !stamps.contains_key(file))
             .map(|&file| (file, None))
             .collect();
-        let reread: Vec<u16> = stamps
+        let reread: Vec<(u16, SourceKind)> = stamps
             .iter()
-            .filter(|&(file, now)| all || self.stamps.get(file) != Some(now))
-            .map(|(&file, _)| file)
+            .filter(|&(file, now)| {
+                (all && now.0 == SourceKind::Script) || self.stamps.get(file) != Some(now)
+            })
+            .map(|(&file, &(kind, _))| (file, kind))
             .collect();
+        if reread.iter().any(|&(_, kind)| kind == SourceKind::Script) {
+            lookup.get_or_insert_with(|| Arc::new(ScriptLookup::of(project)));
+        }
         if !reread.is_empty() {
-            let made = lookup.get_or_insert_with(|| Arc::new(ScriptLookup::of(project)));
-            out.extend(read_scripts(&dir, &reread, project.family, made)?);
+            out.extend(read_scripts(
+                &dir,
+                &reread,
+                project.family,
+                lookup.as_deref(),
+            )?);
         }
         out.sort_by_key(|(file, _)| *file);
         Ok((
@@ -976,17 +1148,41 @@ impl ScriptSources {
     }
 }
 
-fn source_file(dir: &Path, file: u16) -> PathBuf {
-    dir.join(format!("{file:04}.rotom"))
+/// The script sources of an adopted project by number (none without one): the `.rotom`
+/// sources and the level scripts (`.json`); a number with both is its `.rotom`, as
+/// [`scripts::source_kind`] has it.
+fn script_sources(project: &Project, dir: &Path) -> Result<BTreeMap<u16, SourceKind>, KernelError> {
+    if !scripts::is_adopted(project) {
+        return Ok(BTreeMap::new());
+    }
+    let mut out: BTreeMap<u16, SourceKind> = scripts::numbered_files(dir, Some("json"))?
+        .into_iter()
+        .map(|file| (file, SourceKind::LevelScript))
+        .collect();
+    out.extend(
+        scripts::numbered_files(dir, Some("rotom"))?
+            .into_iter()
+            .map(|file| (file, SourceKind::Script)),
+    );
+    Ok(out)
 }
 
-/// The references and counts of the sources `files` in `dir`, read and parsed on several
-/// threads; a source gone since it was listed is `None`.
+/// `NNNN.rotom` or `NNNN.json` in `dir`.
+fn source_file(dir: &Path, file: u16, kind: SourceKind) -> PathBuf {
+    match kind {
+        SourceKind::LevelScript => dir.join(format!("{file:04}.json")),
+        _ => dir.join(format!("{file:04}.rotom")),
+    }
+}
+
+/// The references and counts of the sources `files` (number and kind) in `dir`, read and parsed
+/// on several threads; a source gone since it was listed is `None`. A `.rotom` source needs the
+/// `lookup` (without one it contributes nothing).
 fn read_scripts(
     dir: &Path,
-    files: &[u16],
+    files: &[(u16, SourceKind)],
     family: Family,
-    lookup: &ScriptLookup,
+    lookup: Option<&ScriptLookup>,
 ) -> Result<ScriptReads, KernelError> {
     let readers = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
@@ -1001,10 +1197,16 @@ fn read_scripts(
                         .iter()
                         .skip(first)
                         .step_by(readers)
-                        .map(|&file| {
-                            let path = source_file(dir, file);
+                        .map(|&(file, kind)| {
+                            let path = source_file(dir, file, kind);
                             match std::fs::read(&path) {
+                                Ok(bytes) if kind == SourceKind::LevelScript => {
+                                    Ok((file, Some(level_script_refs(file, &bytes))))
+                                }
                                 Ok(bytes) => {
+                                    let Some(lookup) = lookup else {
+                                        return Ok((file, Some(Default::default())));
+                                    };
                                     let text = String::from_utf8_lossy(&bytes);
                                     Ok((file, Some(script_refs(file, &text, family, lookup)?)))
                                 }
@@ -1031,6 +1233,29 @@ fn read_scripts(
         out.extend(part?);
     }
     Ok(out)
+}
+
+/// The references of the level script `bytes` (its JSON) of script file `file`: the variable of
+/// each condition, read (field `var_conditions`, slot the index). `var` 0 ends the table as it
+/// does in the engine; a variable from `0x8000` on is only counted. A level script that does
+/// not read contributes nothing.
+fn level_script_refs(file: u16, bytes: &[u8]) -> (Vec<Ref>, ScriptCounts) {
+    let mut counts = ScriptCounts::default();
+    let Ok(doc) = serde_json::from_slice::<LevelScriptDoc>(bytes) else {
+        return (Vec::new(), counts);
+    };
+    let mut out = Refs::new(script_id(file));
+    for (slot, condition) in doc.var_conditions.iter().enumerate() {
+        if condition.var == 0 {
+            break;
+        }
+        match variable(condition.var) {
+            Some(var) => out.push("var_conditions", Some(slot), Target::Var(var)),
+            None if i32::from(condition.var) >= SCRIPT_LOCAL => counts.script_local += 1,
+            None => {}
+        }
+    }
+    (out.refs, counts)
 }
 
 /// The references of the source `text` of script file `file` (those of [`ScriptRefTable`] in
@@ -1223,7 +1448,9 @@ mod tests {
         let p = fx.project();
         let made = || LOOKUPS_MADE.with(std::cell::Cell::get);
         let (first, read) = ScriptSources::default().refresh(&p).unwrap();
-        assert_eq!(read.len(), 1);
+        // Every source: the `.rotom` one and the level scripts (`.json`) of the fixture.
+        assert!(read.iter().any(|&(file, _)| file == 0));
+        assert_eq!(read.len(), first.stamps.len());
         let after_first = made();
         // A saved source is read again with the lookup made before.
         fx.write(
@@ -1240,8 +1467,84 @@ mod tests {
             "TRAINER_YOUNGSTER_KAY",
         );
         let (_, read) = second.refresh(&p).unwrap();
+        // Every `.rotom` source again; a level script names no identifiers.
         assert_eq!(read.len(), 1, "all sources again");
         assert_eq!(made(), after_first + 1);
+    }
+
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn refresh_stats_scripts_at_most_every_250_ms() {
+        use crate::textproject::include::LOOKUPS_MADE;
+
+        let fx = crate::test_support::TextFixture::exported();
+        fx.write(
+            "expanded/scripts/0000.rotom",
+            b"script Main #1:\n    SetFlag 0x173\n    End\n",
+        );
+        let st = Store::new(Arc::new(fx.project()));
+        let made = || LOOKUPS_MADE.with(std::cell::Cell::get);
+        let stats = || SCRIPT_STATS.with(std::cell::Cell::get);
+        let (made_before, stats_before) = (made(), stats());
+        let mut index = RefIndex::new();
+        // Two queries right after each other: the build stats the sources, the refresh of the
+        // second query does not.
+        assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
+        assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
+        assert_eq!(made(), made_before + 1);
+        assert_eq!(stats(), stats_before + 1);
+        // Forced: statted again, the lookup kept.
+        assert_eq!(index.refresh_scripts_now(&st).unwrap(), []);
+        assert_eq!(stats(), stats_before + 2);
+        assert_eq!(made(), made_before + 1);
+        // Past the gate a plain refresh stats again.
+        std::thread::sleep(REFRESH_SCRIPTS_EVERY + std::time::Duration::from_millis(20));
+        assert_eq!(index.refresh(&st).unwrap(), []);
+        assert_eq!(stats(), stats_before + 3);
+        assert_eq!(index.refresh(&st).unwrap(), []);
+        assert_eq!(stats(), stats_before + 3);
+    }
+
+    fn bg(script: u16, event_type: u16) -> uxie::event_file::BgEvent {
+        uxie::event_file::BgEvent {
+            script,
+            event_type,
+            x: 0,
+            z: 0,
+            y: 0,
+            player_facing_dir: 0,
+        }
+    }
+
+    #[test]
+    fn hgss_hidden_items_start_at_0x320() {
+        // HeartGold has 231 hidden items from flag 0x320 (`HIDDEN_ITEMS_FLAG_BASE`).
+        let events = EventFile {
+            bg_events: vec![bg(8003, 2), bg(8230, 2), bg(8231, 2), bg(7999, 2)],
+            object_events: Vec::new(),
+            warp_events: Vec::new(),
+            coord_events: Vec::new(),
+        };
+        let source = id(AssetKind::Event, 7);
+        let mut out = Refs::new(source);
+        event_refs(&mut out, &events, Family::Hgss);
+        let flags: Vec<(Option<u16>, Target, Access)> = out
+            .refs
+            .iter()
+            .map(|r| (r.slot, r.target, r.access))
+            .collect();
+        assert_eq!(
+            flags,
+            [
+                (Some(0), Target::Flag(0x323), Access::ReadWrite),
+                (Some(1), Target::Flag(0x406), Access::ReadWrite),
+            ]
+        );
+        assert!(out.refs.iter().all(|r| r.field == "hidden_item"));
+        // Platinum: 0x2DA + 3.
+        let mut out = Refs::new(source);
+        event_refs(&mut out, &events, Family::Pt);
+        assert_eq!(out.refs[0].target, Target::Flag(0x2DD));
     }
 
     #[test]

@@ -13,6 +13,7 @@ use crate::textproject::symbols::SymbolKind;
 
 mod entities;
 mod names;
+mod pool;
 mod ranges;
 mod save_layout;
 
@@ -21,8 +22,13 @@ pub use entities::{
     entity_rel, name_flag, name_flag_files, not_in_save_text, own_names, read_entity, taken_text,
 };
 pub use names::{NameTable, name_is_unused, names};
+pub use pool::{
+    POOL_EMPTY, POOL_EMPTY_VAR, Pool, RESERVED_BY_EMPTY_REGION, free_flag, free_var, pool,
+    pool_empty_text, reserved,
+};
 pub use ranges::{
-    Area, Range, Ranges, area_of, hidden_items_base, in_save, pool_range, ranges, trainer_flag,
+    Area, Range, Ranges, area_of, hidden_item_flag, hidden_items_base, in_save, pool_range, ranges,
+    trainer_flag,
 };
 pub use save_layout::{SaveBlock, save_block};
 

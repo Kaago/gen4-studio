@@ -47,7 +47,7 @@ impl Area {
 }
 
 /// A range of numbers, both ends inclusive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Range {
     pub area: Area,
     pub start: u16,
@@ -150,6 +150,18 @@ pub fn hidden_items_base(family: Family) -> Option<u16> {
         .iter()
         .find(|r| r.area == Area::HiddenItems)
         .map(|r| r.start)
+}
+
+/// The flag of hidden item `item` (an overworld background event with script `8000 + item`):
+/// `hidden_items.start + item`, while it is in the range.
+pub fn hidden_item_flag(family: Family, item: u16) -> Option<u16> {
+    let range = of_kind(family, FlagKind::Flag)
+        .iter()
+        .find(|r| r.area == Area::HiddenItems)?;
+    range
+        .start
+        .checked_add(item)
+        .filter(|flag| *flag <= range.end)
 }
 
 /// The "defeated" flag of `trainer`: `trainer.start + trainer`, while it is in the range.
@@ -273,6 +285,11 @@ mod tests {
         assert_eq!((hgss.start, hgss.end), (0x4030, 0x416F));
         assert_eq!(hidden_items_base(Pt), Some(0x2DA));
         assert_eq!(hidden_items_base(Hgss), Some(0x320));
+        assert_eq!(hidden_item_flag(Pt, 3), Some(0x2DD));
+        assert_eq!(hidden_item_flag(Pt, 283), Some(0x3F5));
+        assert_eq!(hidden_item_flag(Pt, 284), None);
+        assert_eq!(hidden_item_flag(Hgss, 230), Some(0x406));
+        assert_eq!(hidden_item_flag(Hgss, 231), None);
     }
 
     #[test]

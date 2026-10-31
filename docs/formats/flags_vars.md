@@ -6,7 +6,8 @@ Flag ist eine Nummer ab 1 (0 heißt „kein Flag“), eine Variable eine Nummer 
 gibt es keine; ab `0x8000` sind es Script-lokale Register). Implementierung:
 `crates/g4-kernel/src/flags.rs` (`FlagKind`), `flags/names.rs` (`names`, `NameTable`,
 `name_is_unused`), `flags/ranges.rs` (`Area`, `ranges`, `area_of`, `in_save`), `flags/entities.rs`
-(`FlagEntity`, `own_names`, `name_flag`), `textproject/kinds.rs` (`DataKind`, `DATA_KINDS`).
+(`FlagEntity`, `own_names`, `name_flag`), `flags/pool.rs` (`pool`, `free_flag`, `reserved`),
+`textproject/kinds.rs` (`DataKind`, `DATA_KINDS`).
 
 Begründung und Messungen: [Gutachten B](../research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md)
 (§1 Namen und Bereiche, §2 eigene Namen) und
@@ -260,8 +261,81 @@ Eine Prüfung (`script_flagvars_name_existing_commands_and_params`) hält die Da
 Eintrag nennt einen Befehl und Parameter der Datenbank seiner Familie, `access_words` deckt jedes
 `access` der Datenbank.
 
-Events, Level-Scripts, Trainer-Objekte und die Reservierung der Vorlage kommen mit Task 4 von
-3d.1.
+### Events
+
+Quelle sind die Eventdateien (`AssetKind::Event`), wie für die Trainer hinter Objekten. Je Datei
+stehen zuerst die Objekte (je Objekt Sichtbarkeits-Flag, Trainer, Trainer-Flag), dann die
+Hintergrund-Events, dann die Auslöser; `slot` ist der Index des Events in seiner Liste.
+
+| Feld | Event | Ziel | Zugriff |
+|---|---|---|---|
+| `hidden_flag` | Objekt mit `hidden_flag ≠ 0` | `Flag(hidden_flag)` | `read` (ist das Flag gesetzt, bleibt das Objekt verborgen) |
+| `script` | Objekt mit Script `3000`–`4999` (Trainer `n` = Script − 2999) oder `5000`–`6999` (Partner, Script − 4999) | `Trainer(n)` wie bisher **und** `Flag(0x550 + n)`, solange es im Bereich `trainer` liegt | `read` bzw. `read_write` (die Engine prüft das Flag vor dem Kampf und setzt es nach dem Sieg) |
+| `hidden_item` | Hintergrund-Event mit `event_type == 2` und Script `8000 + n` | `Flag(hidden_items.start + n)`: Platin `0x2DA + n`, HeartGold `0x320 + n`; über die Länge des Bereichs hinaus (284 bzw. 231) kein Verweis | `read_write` (geprüft, ob das Item liegt, gesetzt beim Aufheben) |
+| `var` | Auslöser mit `var` `0x4000`–`0x7FFF` | `Var(var)` | `read` (der Auslöser läuft, wenn die Variable `value` hat) |
+
+Ein Sichtbarkeits-Flag 0 und eine Auslöser-Variable 0 sind kein Verweis (kein Flag, keine
+Variable); der Wert bleibt speicherbar. Begründung: Gutachten B §1.3 und §3.2 Punkt 3. Ob jedes
+Hintergrund-Event mit einem Script `8000 + n` den Typ 2 hat, prüft der gated Test
+`vanilla_usage_matches_a_recount_of_the_sources` (`hidden_item_other_type=0` in Platin DE und
+HeartGold DE).
+
+### Level-Scripts
+
+`expanded/scripts/NNNN.json` (rotoms `LevelScript`, nur mit übernommenen Scripts) hat dieselbe
+Quell-ID wie eine `.rotom`-Datei dieser Nummer (`AssetKind::Script`, eine Nummer, eine Quelle;
+gibt es beide, gilt die `.rotom` wie bei `scripts::source_kind`). Jede Bedingung
+`var_conditions[i]` mit `var` `0x4000`–`0x7FFF` ist `Var(var)`, `read`, Feld `var_conditions`,
+Slot `i`. `var` 0 beendet die Tabelle wie in der Engine: weder dieser Eintrag noch die folgenden
+zählen. Eine Variable ab `0x8000` wird nur gezählt (`ScriptCounts.script_local`). Eine JSON, die
+nicht liest, trägt nichts bei.
+
+### Aktualisieren
+
+`RefIndex::refresh` fragt den Store jedes Mal nach seinen Änderungen (billig), stattet die
+Script-Quellen (`.rotom` und `.json`, das teure Stück) aber höchstens alle 250 ms
+(`REFRESH_SCRIPTS_EVERY`): liegt das letzte Statten weniger lange zurück, bleibt der Script-Teil
+aus. `rebuild_full` und `RefIndex::refresh_scripts_now` setzen die Sperre; `refresh_scripts_now`
+stattet unabhängig von ihr (nach dem Speichern einer Quelle, in Tests). Folge: speichert der
+Script-Editor eine Quelle und fragt die Oberfläche innerhalb von 250 ms nach dem letzten Statten,
+zeigt sie noch den alten Stand, bis eine spätere Abfrage oder `refresh_scripts_now` sie liest.
+Ändern sich die Dateien, nach denen Bezeichner auflösen, liest der Index alle `.rotom`-Quellen neu;
+die Level-Scripts nennen keine Bezeichner und werden nur bei geändertem Stempel neu gelesen.
+
+### Nutzung
+
+`RefIndex::usage(store, kind) -> BTreeMap<u16, Usage { read, write, unknown, sources }>`: jede
+Nummer, zu der der Index einen Verweis kennt, in einem Durchlauf über den Index, ohne Cache.
+`read_write` zählt bei `read` und `write`, `sources` sind die verschiedenen Quellen.
+`RefIndex::script_counts` liefert dazu die Zähler `ScriptCounts { script_local, dynamic }`.
+
+## Frei
+
+`flags::pool(project, usage, kind) -> Pool { kind, range, free, total, reserved }`
+(`crates/g4-kernel/src/flags/pool.rs`). Eine Nummer ist **frei**, wenn
+
+- sie im allgemeinen Bereich liegt (`area_of == General`; die versteckten Items darin sind ihr
+  eigener Bereich, kartenlokale, Trainer-, System- und Tagesflags sind nie frei),
+- der Nutzungsindex keinen Verweis auf sie kennt (jeder Zugriff zählt),
+- sie keinen eigenen Namen hat (`own_names`),
+- ihr pret-Name fehlt oder unbenutzt heißt (`name_is_unused`: `UNUSED`, `DUMMY`, `UNK`),
+- und kein Rezept sie reserviert.
+
+Der Namens-Teil engt nur ein: `FLAG_UNUSED_0x0096` an einem Objekt (Platin) ist nicht frei, und
+ein vanilla benannter Fortschritts-Flag ohne Script-Verweis (die Engine setzt ihn) ist es nie.
+`free` ist aufsteigend; `free_flag`/`free_var` geben die kleinste Nummer, `None` bei leerem Pool
+(`pool_empty_text`: „Kein freies Flag im allgemeinen Bereich.“ / „Keine freie Variable im
+allgemeinen Bereich.“). `total` ist die Zahl der Nummern des allgemeinen Bereichs ohne die
+versteckten Items: Platin 1 011 Flags und 240 Variablen, HeartGold 1 065 und 320.
+Gemessen auf den deutschen Vanilla-Spielen mit übernommenen Scripts (gated `tests/flags.rs`):
+Platin 101 freie Flags und 20 freie Variablen (kleinste `0x0042`, `0x4031`), HeartGold 154 und 81
+(`0x0040`, `0x4034`).
+
+**Reservierung.** Die Variable, mit der die Vorlage „Leere Region“ ihr Startscript als gelaufen
+markiert (`done_var` in `metadata/templates.yaml`: Platin `VAR_UNUSED_0x406C`, HeartGold
+`VAR_UNK_4031`), ist keine Referenz (eine `Ref` braucht eine Quelle mit Ort), sondern eine
+Reservierung: `flags::reserved(family)` nennt sie mit dem Wort „Vorlage „Leere Region““,
+`pool` nimmt sie aus „frei“ und führt sie in `Pool.reserved`.
 
 ## RAM-Lage
 
