@@ -930,6 +930,121 @@ fn cli_patch_create_with_a_missing_base_names_it() {
     assert!(!root.join("build").exists());
 }
 
+#[test]
+fn cli_publish_prints_the_files_and_the_count() {
+    use g4_kernel::patch::{
+        BAD_FILE, BAD_VERSION, EXISTS, NO_CHANGES, RELEASES_FILE, release_file_name,
+    };
+    use g4_kernel::project::{AssetKind, Project};
+
+    // The synthetic project does not build to a ROM: here only the refusals before the build.
+    let (_tmp, root, nds) = dspre_layout();
+    g4k()
+        .args(["base", "assign"])
+        .arg(&root)
+        .arg(&nds)
+        .assert()
+        .success();
+    let publish = |root: &std::path::Path, nds: &std::path::Path, args: &[&str]| {
+        let mut command = g4k();
+        command
+            .arg("publish")
+            .arg(root)
+            .args(args)
+            .arg("--base-rom")
+            .arg(nds);
+        command
+    };
+    let build = root.join("build");
+    std::fs::create_dir_all(&build).unwrap();
+    let old = build.join("X-v0.1.0.xdelta");
+    std::fs::write(&old, b"old patch").unwrap();
+    publish(
+        &root,
+        &nds,
+        &["--version", "0.1.0", "--notes", "Erste Fassung", "--readme"],
+    )
+    .assert()
+    .code(1)
+    .stderr(contains(format!("X-v0.1.0.xdelta {EXISTS}")));
+    publish(&root, &nds, &["--version", "1 0"])
+        .assert()
+        .code(1)
+        .stderr(contains(BAD_VERSION));
+    publish(&root, &nds, &["--version", "0.1.0", "--file", "a/b"])
+        .assert()
+        .code(1)
+        .stderr(contains(BAD_FILE));
+    publish(
+        &root,
+        &nds,
+        &["--version", "0.1.0", "--notes", "a", "--notes-file", "b"],
+    )
+    .assert()
+    .code(2);
+    assert_eq!(std::fs::read(&old).unwrap(), b"old patch");
+    assert!(!root.join(RELEASES_FILE).exists());
+    assert_eq!(std::fs::read_dir(&build).unwrap().count(), 1);
+
+    // The whole run: gated on a copy of the vanilla project.
+    let Some((_copy_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    g4k()
+        .args(["base", "assign"])
+        .arg(&copy)
+        .arg(&nds)
+        .assert()
+        .success();
+    // Unchanged, the build is the base ROM: nothing to publish, nothing written.
+    publish(&copy, &nds, &["--version", "0.1.0"])
+        .assert()
+        .code(1)
+        .stderr(contains(NO_CHANGES));
+    assert!(!copy.join(RELEASES_FILE).exists());
+    // One permission byte of map 3.
+    let project = Project::open(&copy).unwrap();
+    project.ensure_unpacked(AssetKind::Map).unwrap();
+    let map = project.member_path(AssetKind::Map, 3);
+    let mut bytes = std::fs::read(&map).unwrap();
+    bytes[0x20] ^= 0x80;
+    std::fs::write(&map, bytes).unwrap();
+    let assert = publish(
+        &copy,
+        &nds,
+        &["--version", "0.1.0", "--notes", "Erste Fassung", "--readme"],
+    )
+    .assert()
+    .success();
+    let out = stdout_of(&assert);
+    println!("{out}");
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(
+        lines[0].starts_with("published version=0.1.0 patch="),
+        "{out}"
+    );
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with("file ")).count(),
+        2,
+        "{out}"
+    );
+    assert!(lines[1].starts_with("file notes "), "{out}");
+    assert!(lines[2].starts_with("file readme "), "{out}");
+    assert_eq!(lines.last(), Some(&"releases=1"), "{out}");
+
+    // Another version onto the same file: refused without --overwrite.
+    let first = release_file_name(&Project::open(&copy).unwrap(), "0.1.0");
+    publish(&copy, &nds, &["--version", "0.1.1", "--file", &first])
+        .assert()
+        .code(1)
+        .stderr(contains(format!("{first} {EXISTS}")));
+    let releases = g4_kernel::patch::read_releases(&copy).unwrap();
+    assert_eq!(releases.releases.len(), 1);
+}
+
 /// Unpacks every archive of the project the way the base layer has them.
 fn unpack_all(root: &std::path::Path) {
     use g4_kernel::project::{AssetKind, Project};

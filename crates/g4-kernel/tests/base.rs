@@ -308,3 +308,116 @@ fn patch_after_map_and_after_map_script_text_is_small_and_applies() {
     );
     eprintln!("xdelta3 cross-check: map={crossed_map} all={crossed_all} stress={crossed_stress}");
 }
+
+/// A release after one map byte: `build_and_publish` writes a patch of at most 1 KiB with its
+/// notes and `README.txt`, the patch applies (own decoder and, if in the `PATH`, `xdelta3`),
+/// and every release is in `.g4/releases.json`.
+#[test]
+fn publish_after_a_map_edit_writes_a_small_patch_that_applies() {
+    use g4_kernel::patch::{
+        PublishOptions, PublishPhase, PublishedKind, build_and_publish, default_targets,
+        read_releases,
+    };
+    use g4_kernel::project::AssetKind;
+
+    let Some((_tmp, copy)) = common::vanilla_copy() else {
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let (_, mark) = assign_base(&copy, &nds).unwrap();
+    let base = BaseRom::open(&nds, Some(&mark.sha1)).unwrap();
+    let project = Project::open(&copy).unwrap();
+
+    // Map: one permission byte of map 3, as in `patch_after_map_and_after_map_script_text_…`.
+    project.ensure_unpacked(AssetKind::Map).unwrap();
+    let map = project.member_path(AssetKind::Map, 3);
+    let mut bytes = std::fs::read(&map).unwrap();
+    bytes[0x20] ^= 0x80;
+    std::fs::write(&map, bytes).unwrap();
+
+    let opts = PublishOptions {
+        version: "0.1.0".into(),
+        notes: "Karte 3 geändert".into(),
+        dir: None,
+        file: None,
+        readme: true,
+        overwrite: false,
+    };
+    let mut phases = Vec::new();
+    let report = build_and_publish(&project, &base, &opts, &mut |p| phases.push(p.phase)).unwrap();
+    assert_eq!(
+        phases,
+        [
+            PublishPhase::Build,
+            PublishPhase::Encode,
+            PublishPhase::Verify,
+            PublishPhase::Write,
+            PublishPhase::Record
+        ]
+    );
+    let rom = default_targets(&project).rom;
+    assert_eq!(report.patch.rom, rom);
+    assert_eq!(report.patch.base_sha1, mark.sha1);
+    let target_sha1 = inspect_rom(&rom).unwrap().sha1;
+    assert_eq!(report.patch.target_sha1, target_sha1);
+    assert!(report.patch.size <= 1024, "patch {} B", report.patch.size);
+    let kinds: Vec<PublishedKind> = report.files.iter().map(|f| f.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            PublishedKind::Patch,
+            PublishedKind::Notes,
+            PublishedKind::Readme
+        ]
+    );
+
+    let patch = std::fs::read(&report.patch.patch).unwrap();
+    let decoded = g4_xdelta::decode(base.bytes(), &patch).unwrap();
+    let decoded_sha1: String = {
+        use sha1::{Digest, Sha1};
+        Sha1::digest(&decoded)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    };
+    assert_eq!(decoded_sha1, target_sha1);
+    drop(decoded);
+    let crossed = xdelta3_applies(&nds, &report.patch.patch, &target_sha1);
+
+    let notes = std::fs::read_to_string(&report.patch.notes).unwrap();
+    assert!(notes.contains("\nVersion: 0.1.0\n"), "{notes}");
+    assert!(notes.contains("Änderungen:\nKarte 3 geändert\n"), "{notes}");
+    let releases = read_releases(&copy).unwrap();
+    assert_eq!(releases.releases.len(), 1);
+    assert_eq!(releases.releases[0].size, report.patch.size);
+
+    // A second release with the next version.
+    let second = PublishOptions {
+        version: "0.1.1".into(),
+        readme: false,
+        ..opts
+    };
+    let again = build_and_publish(&project, &base, &second, &mut |_| {}).unwrap();
+    assert_eq!(again.releases.releases.len(), 2);
+    assert_eq!(read_releases(&copy).unwrap().releases.len(), 2);
+
+    let ms = |phase| report.phase_ms.get(&phase).copied().unwrap_or_default();
+    eprintln!(
+        "publish {} size={} build_ms={} encode_ms={} verify_ms={}",
+        base.game_code(),
+        report.patch.size,
+        ms(PublishPhase::Build),
+        ms(PublishPhase::Encode),
+        ms(PublishPhase::Verify)
+    );
+    eprintln!(
+        "publish {} write_ms={} record_ms={} ms={} second_ms={} xdelta3={crossed}",
+        base.game_code(),
+        ms(PublishPhase::Write),
+        ms(PublishPhase::Record),
+        report.ms,
+        again.ms
+    );
+}

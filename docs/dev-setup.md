@@ -166,7 +166,7 @@ beschrieben.
 
 | Variable | Bedeutung | Gebraucht von |
 |---|---|---|
-| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` und `crates/g4-kernel/tests/diff.rs` (4.4) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs`, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) und `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` (4.4) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
+| `G4_TEST_PROJECT` | ds-rom-Projektordner (`..._DSPRE_contents`) | die Vanilla-Tests in `g4-formats`, `g4-kernel` und `studio`; `crates/g4-kernel/tests/base.rs` (4.1a; dazu `publish_after_a_map_edit_writes_a_small_patch_that_applies`, 4.5), der gated Teil von `cli_publish_prints_the_files_and_the_count` in `crates/g4-kernel/tests/cli.rs` (4.5) und `crates/g4-kernel/tests/original.rs` (4.1b), `crates/g4-kernel/tests/textproject_source.rs` (4.3b), `crates/g4-kernel/tests/git.rs` und `crates/g4-kernel/tests/diff.rs` (4.4) sowie `reset_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/original.rs`, `mcp_with_ids_acts_like_numbers_on_the_vanilla_copy` in `apps/studio/src-tauri/src/mcp/tools.rs` (4.3b) und `git_and_diff_over_the_command_path_on_the_vanilla_copy` in `apps/studio/src-tauri/src/commands/git.rs` (4.4) brauchen dazu die `.nds` direkt neben dem Ordner (Basis-ROM über `suggest_base`, nur gelesen) |
 | `G4_APICULA` | voller Pfad zu `tools/apicula/bin/apicula` | die Modell-Tests (`export`, Gebäude-GLB in `studio`) |
 | `G4_DSROM_CLI` | voller Pfad zur ds-rom-CLI `dsrom` | `vanilla_rebuild_matches_dsrom_cli` in `crates/g4-kernel/tests/build.rs` |
 | `G4_ROTOM_LSP` | voller Pfad zu `tools/rotom/bin/rotom-lsp` | nur das Gate-Skript reicht ihn durch; die Unit-Tests von `lsp.rs` brauchen ihn nicht (Fake-Server) |
@@ -460,9 +460,10 @@ target/debug/g4k base check <projekt>                    # mark=…, sha1=…, s
 target/debug/g4k base check <projekt> --rom <rom.nds>   # prüft die .nds als Basis-ROM, je Warnung eine Zeile warning:
 target/debug/g4k base assign <projekt> <rom.nds>        # schreibt .g4/base.json; falsches Spiel: Exit 1
 target/debug/g4k patch create <projekt> [--base-rom <rom.nds>] [--out <patch>] [--json]
+target/debug/g4k publish <projekt> --version <v> [--notes <text> | --notes-file <pfad>] [--dir <ordner>] [--file <name>] [--readme] [--overwrite] [--base-rom <rom.nds>] [--json]
 ```
 
-`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. Ohne Marke endet es mit Exit 1 und „Diesem Projekt ist keine Basis-ROM zugeordnet. Ordne sie mit `g4k base assign <Projekt> <nds>` zu.“; eine unlesbare oder neuere Marke lehnt es mit denselben Sätzen ab wie App und MCP. `base assign` und `patch create` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
+`patch create` baut nach `build/<Name>.nds` und schreibt `build/<Name>.xdelta` mit `<Name>.xdelta.txt` (`<Name>` = `<Projekt>-<Spielcode>`); die Basis-ROM kommt aus `--base-rom`, sonst der Nachbar-`.nds`, sonst `G4_BASE_ROM_DIR`. Ohne Marke endet es mit Exit 1 und „Diesem Projekt ist keine Basis-ROM zugeordnet. Ordne sie mit `g4k base assign <Projekt> <nds>` zu.“; eine unlesbare oder neuere Marke lehnt es mit denselben Sätzen ab wie App und MCP. `publish` (4.5) baut genauso, schreibt die Veröffentlichung `<Projekt>-v<Version>.xdelta` mit Begleitdatei und wahlweise `README.txt` nach `--dir` (Standard `build/`) und trägt sie in `.g4/releases.json` ein; Ausgabe und Ablehnungen in [docs/formats/xdelta_patch.md](formats/xdelta_patch.md#veröffentlichen). `base assign`, `patch create` und `publish` schreiben ins Projekt: nur auf Kopien unter `_testkopien`.
 
 Die gated Tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; die Basis-ROM ist die `.nds` neben dem Original, gefunden über `suggest_base` und nur gelesen; was schreibt, arbeitet auf `vanilla_copy()`):
 
@@ -472,13 +473,14 @@ Die gated Tests in `crates/g4-kernel/tests/base.rs` (`G4_TEST_PROJECT`; die Basi
 | `base_rom_members_equal_the_vanilla_folders` | die Archive aus der ROM gleich den Ordnern des Projekts |
 | `base_rom_header_table_equals_the_vanilla_project` | die Header-Tabelle aus dem ARM9 der ROM gleich der des Projekts |
 | `patch_after_map_and_after_map_script_text_is_small_and_applies` | Patch nach einer Kartenänderung ≤ 1 KiB, nach Karte, Script und Text an einer Stelle ≤ 16 KiB, Erzeugen ≤ 1 s, mit dem eigenen Decoder und (wenn im `PATH`) mit `xdelta3 -d` angewandt gleich; Textarchiv 0 als Stresszeile ohne Grenze |
+| `publish_after_a_map_edit_writes_a_small_patch_that_applies` (4.5) | `build_and_publish` nach einem Kartenbyte (`0.1.0`, mit `README.txt`): Phasen `build`, `encode`, `verify`, `write`, `record` in dieser Reihenfolge, Patch ≤ 1 KiB, mit dem eigenen Decoder und (wenn im `PATH`) mit `xdelta3 -d` angewandt gleich der gebauten ROM, Begleitdatei mit `Version:` und `Änderungen:`, ein Eintrag in `.g4/releases.json`; `0.1.1` danach gibt zwei Einträge; druckt `publish <Spielcode> size=… build_ms=… encode_ms=… verify_ms=…` |
 
 ```sh
 G4_TEST_PROJECT="/<absoluter Pfad zu Roms>/Pokemon - Platin-Edition (Germany)_DSPRE_contents" \
   cargo test -p g4-kernel --all-features --test base -- --nocapture --test-threads 1
 ```
 
-So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …` und `xdelta3 cross-check: map=… all=… stress=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
+So lief es im Gate von 4.1a; in einem Worktree, in dem `-p` und `--test` den Download von rotom auslösen (siehe oben), dasselbe mit `cargo test --workspace --all-features --test base -- …`. Auf stderr stehen `rebuild <Spielcode> sha1=… equal`, `patch-sizes <Spielcode> map=… all=… encode_ms=…/… verify_ms=…/…`, `patch-stress …`, `xdelta3 cross-check: map=… all=… stress=…` und (4.5) `publish <Spielcode> size=… build_ms=… encode_ms=… verify_ms=…`. Gemessen am 2026-10-27 (Debug-Build): 132 s (Platin DE), 232 s (HeartGold DE), 139 s (HeartGold US) für die vier Tests; Werte in [docs/phase-4-1a-gate.md](phase-4-1a-gate.md). In `scripts/gate.sh` laufen sie im Schritt der gated Tests je Projekt mit.
 
 #### Auf Original zurücksetzen (4.1b)
 

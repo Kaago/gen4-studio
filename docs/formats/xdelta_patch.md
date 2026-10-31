@@ -4,8 +4,10 @@ Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Der Export „
 (Technik › Veröffentlichen, `g4k patch create`, MCP `create_patch`) schreibt einen VCDIFF-Patch, der
 die Basis-ROM des Projekts in die gebaute ROM überführt, und daneben eine Begleitdatei.
 Implementierung: `crates/g4-kernel/src/patch.rs` (`patch_name`, `default_targets`, `meta`,
-`app_header`, `notes`, `notes_path`, `create_patch`, `build_and_create`), Kodierer
-`crates/g4-xdelta` (xdelta3 3.0.12, Apache-2.0, siehe dessen `NOTICE`).
+`app_header`, `notes`, `notes_path`, `create_patch`, `build_and_create`), die Liste der
+Veröffentlichungen `patch/release.rs`, das Veröffentlichen `patch/publish.rs` (Abschnitt
+[Veröffentlichen](#veröffentlichen)), Kodierer `crates/g4-xdelta` (xdelta3 3.0.12, Apache-2.0,
+siehe dessen `NOTICE`).
 
 ## Ziel und Name
 
@@ -138,6 +140,91 @@ Temp-Datei und Umbenennen:
   gibt es schon.“) für eine, die die Liste schon hat (genau gleich); sonst `Ok`.
 - Dateiname des Patches: `<Projekt>-v<Version>.xdelta` (`release_file_name`), `<Projekt>` ist der
   Ordnername ohne `_DSPRE_contents`, bereinigt wie im Patchnamen (`project_stem`, ohne Spielcode).
+
+## Veröffentlichen
+
+Der Assistent „Veröffentlichen“, MCP `publish_patch` und `g4k publish` schreiben eine Veröffentlichung
+über `crates/g4-kernel/src/patch/publish.rs` (`PublishOptions { version, notes, dir, file, readme,
+overwrite }`, `check_publish`, `publish_built`, `build_and_publish`).
+
+**Ziele** (`targets_for`, legt nichts an):
+
+- Ordner: `dir`, ein relativer Pfad liegt relativ zur Projektwurzel; ohne Angabe `build/` im Projekt.
+  Er wird beim Schreiben angelegt, wenn er fehlt.
+- Patch: `<Projekt>-v<Version>.xdelta` (`release_file_name`) oder `file`; fehlt dort die Endung
+  `.xdelta`, wird sie ergänzt. Ein Name, der leer ist (auch nur Leerzeichen und Punkte vor
+  `.xdelta`) oder eines der Zeichen `/ \ : * ? " < > |` oder ein Steuerzeichen enthält, wird mit
+  „Der Dateiname darf nicht leer sein und weder / \ : * ? " < > | noch Steuerzeichen enthalten.“
+  abgelehnt (`BAD_FILE`).
+- Begleitdatei `<Patch>.txt` und, mit `readme`, `README.txt` im selben Ordner.
+- Die gebaute ROM geht immer nach `build/<Projekt>-<Spielcode>.nds` (`default_targets`), auch wenn der
+  Patch woanders hin geht; sie gehört nicht zu dem, was weitergegeben wird („Kein ROM-Inhalt, nur der
+  Patch: wer ihn anwendet, braucht dieselbe Basis-ROM.“, `NO_ROM_CONTENT`).
+
+**Vorprüfung** (`check_publish`, vor dem Build, schreibt nichts; App und MCP rufen sie vor einer
+Rückfrage): die Liste `.g4/releases.json` ist lesbar (`RELEASES_BROKEN`), die Version gültig und frei
+(`check_version`: `BAD_VERSION`, `VERSION_TAKEN`), der Dateiname gültig (`BAD_FILE`), und
+(`check_targets`):
+
+- ist der Ordner oder der erste vorhandene Ordner darüber eine Datei, lautet die Ablehnung „Der
+  Speicherort ist kein Ordner: <Pfad>“ (`NOT_A_FOLDER`);
+- liegt der Patch, die Begleitdatei oder (mit `readme`) `README.txt` schon dort und ist `overwrite`
+  falsch, lautet sie „<Dateiname> liegt schon am Speicherort; wähle einen anderen Namen oder ersetze
+  die Datei.“ (`EXISTS`, mit dem Namen der ersten vorhandenen Datei davor). Mit `overwrite` werden die
+  Dateien ersetzt; eine vergebene Version bleibt auch dann abgelehnt.
+
+**Ablauf** (`build_and_publish`; die App baut über ihren eigenen Weg und ruft `publish_built`). Jede
+Phase wird gemeldet, wenn sie beginnt (`PublishProgress { phase }`); eine Ablehnung der Vorprüfung,
+eine fehlende Basismarke oder eine Basis-ROM anderer SHA-1 („Diesem Projekt ist keine Basis-ROM
+zugeordnet.“, `base::other_rom`) melden keine Phase und bauen nichts.
+
+| Phase | Was geschieht | `phase_ms` |
+|---|---|---|
+| `build` | `build::build` nach `build/<Projekt>-<Spielcode>.nds` (nur `build_and_publish`) | gemessen |
+| `encode` | `publish_built` prüft erneut (`check_publish`, Marke); ist die SHA-1 der gebauten ROM die der Basis-ROM, lautet die Ablehnung „Die gebaute ROM gleicht der Basis-ROM; es gibt nichts zu veröffentlichen.“ (`NO_CHANGES`), vor dem Kodieren, nichts geschrieben, kein Eintrag; sonst wird kodiert | `encode_ms` |
+| `verify` | Selbstprüfung wie unten; scheitert sie, wird nichts geschrieben | `verify_ms` |
+| `write` | Patch und Begleitdatei wie unten, dann `README.txt` über Temp-Datei und Umbenennen; scheitert `README.txt`, bleiben Patch und Begleitdatei, der Fehler nennt die Datei, und es gibt keinen Eintrag | gemessen |
+| `record` | `append_release` mit Version, Datum, Datei, Notizen, `baseSha1` und Größe des Patches | gemessen |
+
+Name im App-Header und in der Anwenden-Zeile ist der Dateistamm des Patches ohne `.xdelta` (etwa
+`Mein Hack-v0.1.0`), nicht `<Projekt>-<Spielcode>`; die Begleitdatei hat `Version:`, `Datum:` und
+`Änderungen:` (siehe oben). Das Ergebnis `PublishReport` nennt den Eintrag, den `PatchReport`, die
+Dateien in der Reihenfolge Patch, Begleitdatei, `README.txt` (`files`, je Art, Pfad, Größe), die
+Liste danach, `phase_ms` und die Gesamtzeit `ms`.
+
+**`README.txt`** (`readme_text`): ein Text ohne Prüfsummen-Kopf für die, denen der Patch weitergegeben
+wird. `{Projekt}` ist der Dateistamm des Patches ohne `-v{version}` am Ende (ein eigener Name bleibt
+ganz), `{Tag}` der Tag aus `Datum` (`YYYY-MM-DD`), `{notes}` die Notizen wie in der Begleitdatei;
+ohne Notizen (nur Leerraum zählt als keine) steht dort „Keine Änderungsnotizen.“:
+
+```text
+{Projekt} v{version} ({Tag})
+
+{notes}
+
+Basis-ROM SHA-1: {base_sha1}
+Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.
+```
+
+**Kopflos:**
+
+```sh
+g4k publish <projekt> --version <v> [--notes <text> | --notes-file <pfad>] [--dir <ordner>] \
+  [--file <name>] [--readme] [--overwrite] [--base-rom <nds>] [--json]
+```
+
+Die Basis-ROM kommt wie bei `patch create` aus `--base-rom`, sonst der Nachbar-`.nds`, sonst
+`G4_BASE_ROM_DIR`. Ausgabe:
+
+```text
+published version=<v> patch=<pfad> size=<n> base=<sha1> target=<sha1>
+file notes <pfad> <n>
+file readme <pfad> <n>
+releases=<anzahl>
+```
+
+(`file readme` nur mit `--readme`); `--json` druckt den `PublishReport` als eine Zeile. Jede Ablehnung
+endet wie bei `patch create` mit Exit 1 und dem Satz auf stderr (`error: …`).
 
 ## Selbstprüfung und Schreiben
 

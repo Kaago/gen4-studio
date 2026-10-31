@@ -16,8 +16,14 @@ use crate::error::{KernelError, io_at};
 use crate::project::Project;
 use crate::start::{BaseMark, read_base_mark};
 
+pub mod publish;
 pub mod release;
 
+pub use publish::{
+    BAD_FILE, EXISTS, NO_CHANGES, NO_ROM_CONTENT, NOT_A_FOLDER, PublishOptions, PublishPhase,
+    PublishProgress, PublishReport, PublishTargets, PublishedFile, PublishedKind,
+    build_and_publish, check_publish, check_targets, publish_built, readme_text, targets_for,
+};
 pub use release::{
     BAD_VERSION, FIRST_VERSION, RELEASES_BROKEN, RELEASES_FILE, RELEASES_VERSION, Release,
     Releases, VERSION_MAX, VERSION_TAKEN, append_release, check_version, next_version,
@@ -198,11 +204,8 @@ pub fn notes_with(
             release.version, release.date
         ));
     }
-    text.push_str(&format!(
-        "\n\
-         Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit \
-         Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.\n"
-    ));
+    text.push('\n');
+    text.push_str(&apply_line(name));
     if let Some(release) = release {
         let changes = release.notes.trim_end();
         if !changes.trim().is_empty() {
@@ -210,6 +213,15 @@ pub fn notes_with(
         }
     }
     text
+}
+
+/// The paragraph `Anwenden: …` of the notes and `README.txt` for the patch `<name>.xdelta`,
+/// ending in `\n`.
+pub(crate) fn apply_line(name: &str) -> String {
+    format!(
+        "Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit \
+         Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.\n"
+    )
 }
 
 /// Writes a patch from `base` to the ROM at `built_rom` to `out` and its notes next to it.
@@ -233,14 +245,35 @@ pub fn create_patch_with_notes(
     meta: &PatchMeta,
     release: Option<&ReleaseInfo<'_>>,
 ) -> Result<PatchReport, KernelError> {
-    create_patch_with(base, built_rom, out, meta, release, &|source, patch| {
-        g4_xdelta::decode(source, patch)
-            .map_err(|_| KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
-    })
+    create_patch_with(
+        base,
+        built_rom,
+        out,
+        meta,
+        release,
+        &decode,
+        Run {
+            on_phase: &mut |_| {},
+            refuse_unchanged: false,
+        },
+    )
+}
+
+/// The decoder of the self-check: xdelta's, a failure is [`SELF_CHECK_FAILED`].
+pub(crate) fn decode(source: &[u8], patch: &[u8]) -> Result<Vec<u8>, KernelError> {
+    g4_xdelta::decode(source, patch).map_err(|_| KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
 }
 
 /// The decoder of the self-check: source and patch in, the decoded target out.
-type Verify = dyn Fn(&[u8], &[u8]) -> Result<Vec<u8>, KernelError>;
+pub(crate) type Verify = dyn Fn(&[u8], &[u8]) -> Result<Vec<u8>, KernelError>;
+
+/// What a release adds to a patch run: the phases `Encode`, `Verify` and `Write` reported as
+/// they start, and the refusal of a built ROM equal to the base.
+pub(crate) struct Run<'a> {
+    pub(crate) on_phase: &'a mut dyn FnMut(PublishPhase),
+    /// `Refused(publish::NO_CHANGES)` before encoding when the built ROM is the base ROM.
+    pub(crate) refuse_unchanged: bool,
+}
 
 /// [`create_patch`] with the decoder of the self-check replaced, for tests.
 pub(crate) fn create_patch_with(
@@ -250,17 +283,27 @@ pub(crate) fn create_patch_with(
     meta: &PatchMeta,
     release: Option<&ReleaseInfo<'_>>,
     verify: &Verify,
+    run: Run<'_>,
 ) -> Result<PatchReport, KernelError> {
+    let Run {
+        on_phase,
+        refuse_unchanged,
+    } = run;
     let target = std::fs::read(built_rom).map_err(io_at(built_rom))?;
     let target_sha1 = sha1_hex(&target);
+    if refuse_unchanged && target_sha1.eq_ignore_ascii_case(base.sha1()) {
+        return Err(KernelError::Refused(publish::NO_CHANGES.to_owned()));
+    }
     let header = app_header(meta, base.sha1());
 
+    on_phase(PublishPhase::Encode);
     let started = Instant::now();
     let patch = g4_xdelta::encode(base.bytes(), &target, header.as_bytes())
         .map_err(|e| KernelError::Refused(format!("Patch nicht erstellt: {e}")))?;
     let encode_ms = elapsed_ms(started);
     drop(target);
 
+    on_phase(PublishPhase::Verify);
     let started = Instant::now();
     let decoded = verify(base.bytes(), &patch)?;
     if sha1_hex(&decoded) != target_sha1 {
@@ -269,6 +312,7 @@ pub(crate) fn create_patch_with(
     let verify_ms = elapsed_ms(started);
     drop(decoded);
 
+    on_phase(PublishPhase::Write);
     let notes_file = notes_path(out);
     let text = notes_with(meta, base.sha1(), &target_sha1, release);
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -308,7 +352,7 @@ pub(crate) fn create_patch_with(
 
 /// Writes `bytes` to `.<file name>.tmp` next to `path` and returns that path; removed again
 /// on an error.
-fn write_tmp(path: &Path, bytes: &[u8]) -> Result<PathBuf, KernelError> {
+pub(crate) fn write_tmp(path: &Path, bytes: &[u8]) -> Result<PathBuf, KernelError> {
     let name = path
         .file_name()
         .ok_or_else(|| KernelError::Refused(format!("{}: kein Dateiname", path.display())))?;
@@ -327,14 +371,14 @@ fn write_tmp(path: &Path, bytes: &[u8]) -> Result<PathBuf, KernelError> {
     Ok(tmp)
 }
 
-fn sha1_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha1_hex(bytes: &[u8]) -> String {
     Sha1::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
 }
 
-fn elapsed_ms(started: Instant) -> u64 {
+pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
@@ -607,8 +651,19 @@ mod tests {
             bytes[0x100] ^= 1;
             Ok(bytes)
         };
-        let err =
-            create_patch_with(&f.base, &f.built, &out, &test_meta(), None, &wrong).unwrap_err();
+        let err = create_patch_with(
+            &f.base,
+            &f.built,
+            &out,
+            &test_meta(),
+            None,
+            &wrong,
+            Run {
+                on_phase: &mut |_| {},
+                refuse_unchanged: false,
+            },
+        )
+        .unwrap_err();
         assert!(
             matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
@@ -618,8 +673,19 @@ mod tests {
         let broken = |_: &[u8], _: &[u8]| -> Result<Vec<u8>, KernelError> {
             Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
         };
-        let err =
-            create_patch_with(&f.base, &f.built, &out, &test_meta(), None, &broken).unwrap_err();
+        let err = create_patch_with(
+            &f.base,
+            &f.built,
+            &out,
+            &test_meta(),
+            None,
+            &broken,
+            Run {
+                on_phase: &mut |_| {},
+                refuse_unchanged: false,
+            },
+        )
+        .unwrap_err();
         assert!(
             matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
