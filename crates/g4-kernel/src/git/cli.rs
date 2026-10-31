@@ -1,6 +1,7 @@
 //! "Git einrichten": the project's templates, then `git init` and the first commit
-//! [`FIRST_COMMIT`] with the `git` CLI. The Studio runs only the subcommands of its private
-//! `Sub` (never a remote, push, fetch, pull, clone or config), each with
+//! [`FIRST_COMMIT`] with the `git` CLI; "Stand sichern" ([`commit_all`]): the templates, then
+//! `git add -A` and a commit with a subject and notes. The Studio runs only the subcommands of
+//! its private `Sub` (never a remote, push, fetch, pull, clone or config), each with
 //! `GIT_TERMINAL_PROMPT=0`, an empty stdin and a time limit of five minutes. Reading the
 //! repository afterwards is `gix`'s ([`super::repo`]). Format: `docs/formats/project_git.md`.
 
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::error::KernelError;
-use crate::git::repo::{GitRepo, HeadInfo};
+use crate::git::repo::{GitRepo, GitStatus, HeadInfo, RepoKind};
 use crate::git::templates::{Layout, TemplateReport, layout_of, write_templates};
 use crate::project::Project;
 
@@ -36,6 +37,19 @@ pub const COMMIT_FAILED: &str = "Der erste Commit ist gescheitert";
 pub const INIT_FAILED: &str = "Git konnte das Repository nicht anlegen";
 /// Git's part of the answer when a subcommand ran longer than its five minutes.
 pub const TIMED_OUT: &str = "Git hat nach 5 Minuten nicht geantwortet.";
+/// "Stand sichern" without a `git` CLI.
+pub const GIT_NEEDED: &str = "Git ist nicht installiert; „Stand sichern“ braucht die git-Kommandozeile (git-scm.com/downloads).";
+/// "Stand sichern" in a project without a repository.
+pub const NO_REPO_TO_COMMIT: &str =
+    "Dieses Projekt liegt in keinem Git-Repository; richte Git zuerst ein.";
+/// "Stand sichern" in a project below a larger repository's work tree.
+pub const ENCLOSING_REPO: &str = "Das Projekt liegt in einem größeren Git-Repository; sichere den Stand dort mit deinem Git-Werkzeug.";
+/// "Stand sichern" without a change since `HEAD`.
+pub const NOTHING_TO_COMMIT: &str = "Keine Änderung seit dem letzten Commit; nichts zu sichern.";
+/// How the answer starts when `git add` or the commit of "Stand sichern" failed.
+pub const COMMIT_ALL_FAILED: &str = "Der Commit ist gescheitert";
+/// How the answer of a failed "Stand sichern" ends: `HEAD` stays, the work tree too.
+const COMMIT_ALL_KEPT: &str = "Es ist nichts committet; deine Änderungen bleiben im Projekt.";
 
 /// How long one subcommand may run before it is killed.
 const TIMEOUT: Duration = Duration::from_secs(300);
@@ -106,6 +120,47 @@ pub struct InitReport {
     pub files: u32,
     pub studio_identity: bool,
     pub phase_ms: BTreeMap<InitPhase, u64>,
+    pub ms: u64,
+}
+
+/// The options of [`commit_all`]: the subject (`message`, its first line; without one
+/// [`default_subject`]) and the notes, the commit's body.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommitOptions {
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// A step of [`commit_all`], reported at its start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitPhase {
+    Templates,
+    Add,
+    Commit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct CommitProgress {
+    pub phase: CommitPhase,
+}
+
+/// What [`commit_all`] did. `committed` is false with a `reason` (a sentence with Git's words)
+/// when a subcommand failed; `subject` the commit's first line; `head` the new commit; `files`
+/// the changed paths that went into it; `studio_identity`: the commit is by [`STUDIO_NAME`].
+/// `phase_ms`: each phase that ran with its milliseconds; `ms` the whole.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CommitReport {
+    pub committed: bool,
+    pub reason: Option<String>,
+    pub subject: String,
+    pub head: Option<HeadInfo>,
+    pub files: u32,
+    pub studio_identity: bool,
+    pub phase_ms: BTreeMap<CommitPhase, u64>,
     pub ms: u64,
 }
 
@@ -184,7 +239,7 @@ fn verify(path: PathBuf) -> Option<GitCli> {
         version: String::new(),
         env: Vec::new(),
     };
-    let out = run(&cli, None, Sub::Version, TIMEOUT).ok()?;
+    let out = run(&cli, None, &Sub::Version, TIMEOUT).ok()?;
     if !out.status.success() {
         return None;
     }
@@ -264,7 +319,7 @@ pub fn git_init(
     };
 
     let t = begin(InitPhase::Init);
-    let ran = run(cli, Some(root), Sub::Init, TIMEOUT);
+    let ran = run(cli, Some(root), &Sub::Init, TIMEOUT);
     report.phase_ms.insert(InitPhase::Init, millis(t));
     if !succeeded(&ran) {
         report.reason = Some(failed(INIT_FAILED, &ran));
@@ -272,7 +327,7 @@ pub fn git_init(
     }
 
     let t = begin(InitPhase::Add);
-    let ran = run(cli, Some(root), Sub::Add, TIMEOUT);
+    let ran = run(cli, Some(root), &Sub::Add, TIMEOUT);
     report.phase_ms.insert(InitPhase::Add, millis(t));
     if !succeeded(&ran) {
         report.reason = Some(failed(COMMIT_FAILED, &ran));
@@ -280,21 +335,8 @@ pub fn git_init(
     }
 
     let t = begin(InitPhase::Commit);
-    let ident = run(cli, Some(root), Sub::Ident, TIMEOUT);
-    let ran = match ident {
-        Err(RunError::TimedOut) => Err(RunError::TimedOut),
-        ident => {
-            report.studio_identity = !succeeded(&ident);
-            run(
-                cli,
-                Some(root),
-                Sub::Commit {
-                    studio_identity: report.studio_identity,
-                },
-                TIMEOUT,
-            )
-        }
-    };
+    let (ran, studio_identity) = commit(cli, root, FIRST_COMMIT.to_owned(), None);
+    report.studio_identity = studio_identity;
     report.phase_ms.insert(InitPhase::Commit, millis(t));
     if !succeeded(&ran) {
         report.reason = Some(failed(COMMIT_FAILED, &ran));
@@ -306,6 +348,155 @@ pub fn git_init(
     })?;
     report.head = repo.head()?;
     report.files = u32::try_from(repo.index_paths()?.len()).unwrap_or(u32::MAX);
+    report.committed = report.head.is_some();
+    finish(report)
+}
+
+/// `git commit -q -m <subject> [-m <body>]` in `root`, by the user's identity when Git has one
+/// configured (`git var GIT_COMMITTER_IDENT` with `user.useConfigOnly`), else by
+/// [`STUDIO_NAME`] for this commit only. Also returns whether it was the studio identity.
+fn commit(
+    cli: &GitCli,
+    root: &Path,
+    subject: String,
+    body: Option<String>,
+) -> (Result<Ran, RunError>, bool) {
+    let ident = run(cli, Some(root), &Sub::Ident, TIMEOUT);
+    if let Err(RunError::TimedOut) = ident {
+        return (Err(RunError::TimedOut), false);
+    }
+    let studio_identity = !succeeded(&ident);
+    let sub = Sub::Commit {
+        studio_identity,
+        subject,
+        body,
+    };
+    (run(cli, Some(root), &sub, TIMEOUT), studio_identity)
+}
+
+/// „Stand {YYYY-MM-DD} {HH:MM} UTC“, the time now (the kernel knows no time zone; the app and
+/// `g4k` give their own subject in local time).
+pub fn default_subject() -> String {
+    let now = crate::start::now_rfc3339();
+    // `YYYY-MM-DDTHH:MM:SSZ`
+    format!("Stand {} {} UTC", &now[..10], &now[11..16])
+}
+
+/// The subject of `opts`: `message` trimmed to its first line, else (none or empty)
+/// [`default_subject`].
+pub fn subject_of(opts: &CommitOptions) -> String {
+    opts.message
+        .as_deref()
+        .map(str::trim)
+        .and_then(|m| m.lines().next())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map_or_else(default_subject, str::to_owned)
+}
+
+/// The refusals of "Stand sichern", before any subcommand runs, in this order: no repository
+/// holds the project ([`NO_REPO_TO_COMMIT`]), an enclosing one does ([`ENCLOSING_REPO`]), no
+/// `cli` ([`GIT_NEEDED`]); each before anything is written. Then the templates are written
+/// ([`write_templates`]; a broken block is its `Err`), since a refreshed block may add a change
+/// (a file a newer template lets in, such as `.g4/releases.json`), and the status is read: no
+/// change is [`NOTHING_TO_COMMIT`]. Else the status, whose paths the commit will take.
+pub fn check_commit_all(project: &Project, cli: Option<&GitCli>) -> Result<GitStatus, KernelError> {
+    let refused = |text: &str| Err(KernelError::Refused(text.to_owned()));
+    let Some(repo) = GitRepo::discover(&project.root)? else {
+        return refused(NO_REPO_TO_COMMIT);
+    };
+    match repo.kind() {
+        RepoKind::Own => {}
+        RepoKind::Enclosing { .. } => return refused(ENCLOSING_REPO),
+        RepoKind::None => return refused(NO_REPO_TO_COMMIT),
+    }
+    if cli.is_none() {
+        return refused(GIT_NEEDED);
+    }
+    write_templates(project)?;
+    let status = repo.status()?;
+    if status.paths.is_empty() {
+        return refused(NOTHING_TO_COMMIT);
+    }
+    Ok(status)
+}
+
+/// "Stand sichern": a commit of everything that changed in the project's own repository, in
+/// the phases of [`CommitPhase`], each reported at its start:
+///
+/// 1. `Templates`: [`check_commit_all`] (its refusals and errors are this call's `Err`).
+/// 2. `Add`: `git add -A`, everything the `.gitignore` lets in, never a selection.
+/// 3. `Commit`: `git commit -q -m <subject> [-m <notes>]`, the subject from [`subject_of`],
+///    the notes trimmed as the body (empty: none); the identity as in [`git_init`].
+///
+/// An unborn `HEAD` (a repository without a commit) is no refusal: this commit is the first. A
+/// failing subcommand is no `Err`: `committed` stays false and `reason` carries Git's stderr
+/// (at most 400 characters) after [`COMMIT_ALL_FAILED`]; `HEAD` stays where it was. Nothing
+/// here adds a remote, turns off a setting of the user or skips a hook.
+pub fn commit_all(
+    project: &Project,
+    cli: Option<&GitCli>,
+    opts: &CommitOptions,
+    progress: &mut dyn FnMut(CommitProgress),
+) -> Result<CommitReport, KernelError> {
+    let started = Instant::now();
+    let root = project.root.as_path();
+    let mut begin = |phase: CommitPhase| {
+        progress(CommitProgress { phase });
+        Instant::now()
+    };
+    let millis = |t: Instant| u64::try_from(t.elapsed().as_millis()).unwrap_or(u64::MAX);
+
+    let t = begin(CommitPhase::Templates);
+    let status = check_commit_all(project, cli)?;
+    let Some(cli) = cli else {
+        return Err(KernelError::Refused(GIT_NEEDED.to_owned()));
+    };
+    let mut report = CommitReport {
+        committed: false,
+        reason: None,
+        subject: subject_of(opts),
+        head: None,
+        files: u32::try_from(status.paths.len()).unwrap_or(u32::MAX),
+        studio_identity: false,
+        phase_ms: BTreeMap::from([(CommitPhase::Templates, millis(t))]),
+        ms: 0,
+    };
+    let finish = |mut report: CommitReport| {
+        report.ms = millis(started);
+        Ok(report)
+    };
+
+    let t = begin(CommitPhase::Add);
+    let ran = run(cli, Some(root), &Sub::Add, TIMEOUT);
+    report.phase_ms.insert(CommitPhase::Add, millis(t));
+    if !succeeded(&ran) {
+        report.reason = Some(failed(COMMIT_ALL_FAILED, &ran));
+        return finish(report);
+    }
+
+    let t = begin(CommitPhase::Commit);
+    let body = opts
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|notes| !notes.is_empty())
+        .map(str::to_owned);
+    let (ran, studio_identity) = commit(cli, root, report.subject.clone(), body);
+    report.studio_identity = studio_identity;
+    report.phase_ms.insert(CommitPhase::Commit, millis(t));
+    if !succeeded(&ran) {
+        report.reason = Some(failed(COMMIT_ALL_FAILED, &ran));
+        return finish(report);
+    }
+
+    let repo = GitRepo::discover(root)?.ok_or_else(|| {
+        KernelError::Git(format!(
+            "{}: no repository after the commit",
+            root.display()
+        ))
+    })?;
+    report.head = repo.head()?;
     report.committed = report.head.is_some();
     finish(report)
 }
@@ -332,7 +523,7 @@ fn succeeded(ran: &Result<Ran, RunError>) -> bool {
 
 /// Runs `sub` with `cli` in `dir`: an empty stdin, `GIT_TERMINAL_PROMPT=0`, none of
 /// [`REPO_VARS`], then `cli.env`. Killed (with its process group) after `timeout`.
-fn run(cli: &GitCli, dir: Option<&Path>, sub: Sub, timeout: Duration) -> Result<Ran, RunError> {
+fn run(cli: &GitCli, dir: Option<&Path>, sub: &Sub, timeout: Duration) -> Result<Ran, RunError> {
     let mut command = Command::new(&cli.path);
     command.args(sub.args());
     if let Some(dir) = dir {
@@ -423,10 +614,12 @@ fn failed(prefix: &str, ran: &Result<Ran, RunError>) -> String {
         Err(RunError::Spawn(e)) => format!("Git ließ sich nicht starten ({e})"),
     };
     let detail = detail.trim_end_matches('.');
-    let tail = if prefix == INIT_FAILED {
-        "Die Vorlagen sind geschrieben; lege das Repository mit deinem Git-Werkzeug an."
-    } else {
-        "Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug."
+    let tail = match prefix {
+        INIT_FAILED => {
+            "Die Vorlagen sind geschrieben; lege das Repository mit deinem Git-Werkzeug an."
+        }
+        COMMIT_ALL_FAILED => COMMIT_ALL_KEPT,
+        _ => "Repository und Vorlagen sind angelegt; committe mit deinem Git-Werkzeug.",
     };
     format!("{prefix}: {detail}. {tail}")
 }
@@ -457,7 +650,7 @@ fn stderr_detail(stderr: &[u8], status: Option<ExitStatus>) -> String {
 }
 
 /// The only subcommands the Studio runs: never a remote, push, fetch, pull, clone or config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Sub {
     /// `git --version`.
     Version,
@@ -469,26 +662,34 @@ enum Sub {
     /// configured (or `GIT_COMMITTER_*`) identity, instead of making one up from the account
     /// and host name.
     Ident,
-    /// `git commit -q -m Ausgangsstand`, with the studio identity as `-c` for this commit only.
-    Commit { studio_identity: bool },
+    /// `git commit -q -m <subject> [-m <body>]` (the first commit: [`FIRST_COMMIT`] without a
+    /// body), with the studio identity as `-c` for this commit only. Each text is one
+    /// argument after its `-m`, never read as an option.
+    Commit {
+        studio_identity: bool,
+        subject: String,
+        body: Option<String>,
+    },
 }
 
 impl Sub {
+    /// Every subcommand, `Commit` with and without the studio identity and a body.
     #[cfg(test)]
-    const ALL: [Sub; 6] = [
-        Sub::Version,
-        Sub::Init,
-        Sub::Add,
-        Sub::Ident,
-        Sub::Commit {
-            studio_identity: false,
-        },
-        Sub::Commit {
-            studio_identity: true,
-        },
-    ];
+    fn all() -> Vec<Sub> {
+        let mut all = vec![Sub::Version, Sub::Init, Sub::Add, Sub::Ident];
+        for studio_identity in [false, true] {
+            for body in [None, Some("Notiz".to_owned())] {
+                all.push(Sub::Commit {
+                    studio_identity,
+                    subject: "Stand 2026-10-31 12:00".to_owned(),
+                    body,
+                });
+            }
+        }
+        all
+    }
 
-    fn args(self) -> Vec<String> {
+    fn args(&self) -> Vec<String> {
         let fixed: &[&str] = match self {
             Sub::Version => &["--version"],
             Sub::Init => &["init", "-q"],
@@ -499,9 +700,13 @@ impl Sub {
                 "var",
                 "GIT_COMMITTER_IDENT",
             ],
-            Sub::Commit { studio_identity } => {
+            Sub::Commit {
+                studio_identity,
+                subject,
+                body,
+            } => {
                 let mut args = Vec::new();
-                if studio_identity {
+                if *studio_identity {
                     args.extend([
                         "-c".to_owned(),
                         format!("user.name={STUDIO_NAME}"),
@@ -509,7 +714,12 @@ impl Sub {
                         format!("user.email={STUDIO_EMAIL}"),
                     ]);
                 }
-                args.extend(["commit", "-q", "-m", FIRST_COMMIT].map(str::to_owned));
+                args.extend(["commit", "-q", "-m"].map(str::to_owned));
+                args.push(subject.clone());
+                if let Some(body) = body {
+                    args.push("-m".to_owned());
+                    args.push(body.clone());
+                }
                 return args;
             }
         };
@@ -633,7 +843,16 @@ mod tests {
     fn the_studio_runs_only_its_own_subcommands() {
         const FORBIDDEN: [&str; 6] = ["push", "remote", "fetch", "pull", "clone", "config"];
         const ALLOWED: [&str; 5] = ["--version", "init", "add", "var", "commit"];
-        for sub in Sub::ALL {
+        let all = Sub::all();
+        assert!(
+            all.iter()
+                .any(|s| matches!(s, Sub::Commit { body: None, .. }))
+        );
+        assert!(
+            all.iter()
+                .any(|s| matches!(s, Sub::Commit { body: Some(_), .. }))
+        );
+        for sub in all {
             let args = sub.args();
             for arg in &args {
                 assert!(!FORBIDDEN.contains(&arg.as_str()), "{sub:?}: {args:?}");
@@ -657,6 +876,78 @@ mod tests {
             }
             assert!(ALLOWED.contains(&rest[0].as_str()), "{sub:?}: {args:?}");
         }
+    }
+
+    #[test]
+    fn commit_args_carry_subject_and_body() {
+        for studio_identity in [false, true] {
+            let sub = Sub::Commit {
+                studio_identity,
+                subject: "Stand 2026-10-31 12:00".into(),
+                body: Some("Notiz".into()),
+            };
+            let args = sub.args();
+            let skip = if studio_identity { 4 } else { 0 };
+            assert_eq!(
+                args[skip..],
+                [
+                    "commit",
+                    "-q",
+                    "-m",
+                    "Stand 2026-10-31 12:00",
+                    "-m",
+                    "Notiz"
+                ],
+                "{args:?}"
+            );
+            let without = Sub::Commit {
+                studio_identity,
+                subject: FIRST_COMMIT.into(),
+                body: None,
+            };
+            assert_eq!(
+                without.args()[skip..],
+                ["commit", "-q", "-m", FIRST_COMMIT],
+                "{:?}",
+                without.args()
+            );
+        }
+    }
+
+    #[test]
+    fn subject_defaults_to_stand_with_utc_time_and_takes_the_first_line() {
+        // `^Stand \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$`, without a regex crate.
+        let shape = |text: &str| {
+            let Some(rest) = text
+                .strip_prefix("Stand ")
+                .and_then(|r| r.strip_suffix(" UTC"))
+            else {
+                return false;
+            };
+            let pattern = "dddd-dd-dd dd:dd";
+            rest.len() == pattern.len()
+                && rest.bytes().zip(pattern.bytes()).all(|(c, p)| match p {
+                    b'd' => c.is_ascii_digit(),
+                    p => c == p,
+                })
+        };
+        let subject = default_subject();
+        assert!(shape(&subject), "{subject}");
+
+        let of = |message: Option<&str>| {
+            subject_of(&CommitOptions {
+                message: message.map(str::to_owned),
+                notes: None,
+            })
+        };
+        assert_eq!(
+            of(Some("Veröffentlicht v0.1.0\nzweite")),
+            "Veröffentlicht v0.1.0"
+        );
+        assert_eq!(of(Some("  Stand Test  \r\nmehr")), "Stand Test");
+        assert!(shape(&of(None)));
+        assert!(shape(&of(Some("  \n "))), "an empty message is none");
+        assert!(!shape("Stand 2026-10-31 12:00"));
     }
 
     #[test]
@@ -705,7 +996,7 @@ mod tests {
         let ran = run(
             &cli,
             Some(dir.path()),
-            Sub::Version,
+            &Sub::Version,
             Duration::from_millis(300),
         );
         assert!(matches!(ran, Err(RunError::TimedOut)), "{ran:?}");
@@ -893,6 +1184,378 @@ mod tests {
             detail.chars().count(),
             STDERR_CHARS + 1,
             "with the ellipsis"
+        );
+    }
+
+    /// A `GitCli` that is never run: the refusals come before any subcommand.
+    fn never_run() -> GitCli {
+        GitCli {
+            path: PathBuf::from("/nicht/da/git"),
+            version: "git version 0".into(),
+            env: Vec::new(),
+        }
+    }
+
+    fn refusal(result: Result<CommitReport, KernelError>) -> String {
+        match result {
+            Err(KernelError::Refused(text)) => text,
+            other => panic!("not refused: {other:?}"),
+        }
+    }
+
+    fn head_of(root: &Path) -> Option<HeadInfo> {
+        GitRepo::discover(root).unwrap().unwrap().head().unwrap()
+    }
+
+    fn index_of(root: &Path) -> Vec<String> {
+        GitRepo::discover(root)
+            .unwrap()
+            .unwrap()
+            .index_paths()
+            .unwrap()
+    }
+
+    fn opts(message: &str, notes: Option<&str>) -> CommitOptions {
+        CommitOptions {
+            message: Some(message.to_owned()),
+            notes: notes.map(str::to_owned),
+        }
+    }
+
+    /// The synthetic DSPRE project set up with "Git einrichten" and `cli`.
+    fn set_up(cli: &GitCli) -> TextFixture {
+        let fx = TextFixture::dspre();
+        let report = git_init(
+            &fx.project(),
+            Some(cli),
+            &InitOptions::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(report.committed, "{report:?}");
+        fx
+    }
+
+    /// One tracked file changed: a comment line at the end of `config.yaml`.
+    fn change_a_file(root: &Path) {
+        let path = root.join("config.yaml");
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("# geändert\n");
+        std::fs::write(&path, text).unwrap();
+    }
+
+    #[test]
+    fn without_a_repo_commit_all_is_refused() {
+        let fx = TextFixture::dspre();
+        let refused = refusal(commit_all(
+            &fx.project(),
+            None,
+            &CommitOptions::default(),
+            &mut |_| {},
+        ));
+        assert_eq!(refused, NO_REPO_TO_COMMIT);
+        assert!(!fx.root().join(".git").exists());
+        assert!(!fx.root().join(".gitignore").exists(), "nothing written");
+
+        // Its own repository with a change, but no `git`.
+        GitFixture::init(fx.root());
+        GitFixture::commit_all(fx.root(), "Ausgangsstand");
+        change_a_file(fx.root());
+        let refused = refusal(commit_all(
+            &fx.project(),
+            None,
+            &CommitOptions::default(),
+            &mut |_| {},
+        ));
+        assert_eq!(refused, GIT_NEEDED);
+        assert!(matches!(
+            check_commit_all(&fx.project(), None),
+            Err(KernelError::Refused(text)) if text == GIT_NEEDED
+        ));
+    }
+
+    #[test]
+    fn an_enclosing_repo_and_a_clean_tree_are_refused_with_their_sentence() {
+        // An enclosing repository (a dotfile repository, say) with the project and a change.
+        let outer = tempfile::tempdir().unwrap();
+        let fx = TextFixture::dspre();
+        let root = outer.path().join("projekt");
+        crate::test_support::copy_dir(fx.root(), &root);
+        GitFixture::init(outer.path());
+        let before = GitFixture::commit_all(outer.path(), "dotfiles");
+        change_a_file(&root);
+        let project = Project::open(&root).unwrap();
+        let refused = refusal(commit_all(
+            &project,
+            Some(&never_run()),
+            &CommitOptions::default(),
+            &mut |_| {},
+        ));
+        assert_eq!(refused, ENCLOSING_REPO);
+        assert_eq!(head_of(&root).unwrap().id, before, "no new commit");
+        assert!(!root.join(".gitignore").exists(), "nothing written");
+
+        // Its own repository, the templates committed, nothing changed since.
+        let fx = TextFixture::dspre();
+        write_templates(&fx.project()).unwrap();
+        GitFixture::init(fx.root());
+        let before = GitFixture::commit_all(fx.root(), "Ausgangsstand");
+        let refused = refusal(commit_all(
+            &fx.project(),
+            Some(&never_run()),
+            &CommitOptions::default(),
+            &mut |_| {},
+        ));
+        assert_eq!(refused, NOTHING_TO_COMMIT);
+        assert_eq!(head_of(fx.root()).unwrap().id, before, "no new commit");
+    }
+
+    #[test]
+    fn commit_all_commits_everything_with_subject_and_body() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        let fx = set_up(&cli);
+        let root = fx.root();
+        let before = head_of(root).unwrap();
+        change_a_file(root);
+        std::fs::write(root.join(".g4/releases.json"), "{}\n").unwrap();
+
+        let mut seen = Vec::new();
+        let report = commit_all(
+            &fx.project(),
+            Some(&cli),
+            &opts(
+                "Veröffentlicht v0.1.0",
+                Some("  Erste Fassung\nKarte 3  \n"),
+            ),
+            &mut |p| seen.push(p.phase),
+        )
+        .unwrap();
+        assert!(report.committed, "{report:?}");
+        assert_eq!(report.reason, None);
+        assert_eq!(report.subject, "Veröffentlicht v0.1.0");
+        assert_eq!(report.files, 2);
+        let head = report.head.as_ref().unwrap();
+        assert_eq!(head.summary, "Veröffentlicht v0.1.0");
+        assert_ne!(head.id, before.id);
+        assert_eq!(head_of(root).as_ref(), Some(head));
+
+        let repo = gix::open(root).unwrap();
+        let commit = repo.head_commit().unwrap();
+        let message = commit.message_raw().unwrap().to_string();
+        assert_eq!(
+            message, "Veröffentlicht v0.1.0\n\nErste Fassung\nKarte 3\n",
+            "the notes are the body"
+        );
+        assert_eq!(commit.parent_ids().count(), 1);
+
+        let status = GitRepo::discover(root).unwrap().unwrap().status().unwrap();
+        assert!(status.paths.is_empty(), "{:?}", status.paths);
+        assert!(index_of(root).iter().any(|p| p == ".g4/releases.json"));
+        assert!(!config(root).contains("[remote"), "{}", config(root));
+
+        let all = [
+            CommitPhase::Templates,
+            CommitPhase::Add,
+            CommitPhase::Commit,
+        ];
+        assert_eq!(seen, all);
+        assert_eq!(report.phase_ms.keys().copied().collect::<Vec<_>>(), all);
+        assert!(report.ms >= report.phase_ms.values().sum::<u64>());
+    }
+
+    #[test]
+    fn commit_all_without_a_message_says_stand_and_without_notes_has_no_body() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        let fx = set_up(&cli);
+        change_a_file(fx.root());
+        let report = commit_all(
+            &fx.project(),
+            Some(&cli),
+            &CommitOptions {
+                message: None,
+                notes: Some(" \n ".into()),
+            },
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(report.committed, "{report:?}");
+        assert!(report.subject.starts_with("Stand "), "{}", report.subject);
+        assert!(report.subject.ends_with(" UTC"), "{}", report.subject);
+        let repo = gix::open(fx.root()).unwrap();
+        let message = repo
+            .head_commit()
+            .unwrap()
+            .message_raw()
+            .unwrap()
+            .to_string();
+        assert_eq!(message, format!("{}\n", report.subject));
+    }
+
+    #[test]
+    fn commit_all_on_an_unborn_head_makes_the_first_commit() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        // `git init` by hand: a repository without a commit.
+        let fx = TextFixture::dspre();
+        GitFixture::init(fx.root());
+        assert_eq!(head_of(fx.root()), None);
+        let report = commit_all(
+            &fx.project(),
+            Some(&cli),
+            &opts("Stand Test", None),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(report.committed, "{report:?}");
+        let head = report.head.unwrap();
+        assert_eq!(head.summary, "Stand Test");
+        assert_eq!(head_of(fx.root()), Some(head));
+        let index = index_of(fx.root());
+        assert_eq!(report.files as usize, index.len());
+        assert!(index.iter().any(|p| p == ".gitignore"));
+        assert!(index.iter().any(|p| p == "config.yaml"));
+        assert!(!config(fx.root()).contains("[remote"));
+    }
+
+    #[test]
+    fn the_templates_are_refreshed_before_the_commit() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        let fx = set_up(&cli);
+        let root = fx.root();
+        // A repository set up by 4.4: its block has no `!/.g4/releases.json` yet.
+        let ignore = root.join(".gitignore");
+        let text = std::fs::read_to_string(&ignore).unwrap();
+        let old = text.replace("!/.g4/releases.json\n", "");
+        assert_ne!(old, text);
+        std::fs::write(&ignore, &old).unwrap();
+        assert!(succeeded(&run(&cli, Some(root), &Sub::Add, TIMEOUT)));
+        let commit = Sub::Commit {
+            studio_identity: true,
+            subject: "Block von 4.4".into(),
+            body: None,
+        };
+        assert!(succeeded(&run(&cli, Some(root), &commit, TIMEOUT)));
+        std::fs::write(root.join(".g4/releases.json"), "{}\n").unwrap();
+        let status = GitRepo::discover(root).unwrap().unwrap().status().unwrap();
+        assert!(status.paths.is_empty(), "ignored by the old block");
+
+        let report =
+            commit_all(&fx.project(), Some(&cli), &opts("Stand", None), &mut |_| {}).unwrap();
+        assert!(report.committed, "{report:?}");
+        assert_eq!(report.files, 2, "the block and the list");
+        assert!(index_of(root).iter().any(|p| p == ".g4/releases.json"));
+        let ignore = std::fs::read_to_string(&ignore).unwrap();
+        assert!(ignore.contains("\n!/.g4/releases.json\n"), "{ignore}");
+        let status = GitRepo::discover(root).unwrap().unwrap().status().unwrap();
+        assert!(status.paths.is_empty(), "{:?}", status.paths);
+    }
+
+    #[test]
+    fn without_an_identity_the_commit_is_by_gen4_studio() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        let fx = set_up(&cli);
+        change_a_file(fx.root());
+        let report =
+            commit_all(&fx.project(), Some(&cli), &opts("Stand", None), &mut |_| {}).unwrap();
+        assert!(report.committed, "{report:?}");
+        assert!(report.studio_identity);
+        assert_eq!(author(fx.root()), format!("{STUDIO_NAME} <{STUDIO_EMAIL}>"));
+        let config = config(fx.root());
+        assert!(!config.contains("[user"), "{config}");
+
+        // With an identity, the user's name.
+        let home = tempfile::tempdir().unwrap();
+        let ada = git(
+            home.path(),
+            &[
+                ("GIT_AUTHOR_NAME", "Ada"),
+                ("GIT_AUTHOR_EMAIL", "ada@example.invalid"),
+                ("GIT_COMMITTER_NAME", "Ada"),
+                ("GIT_COMMITTER_EMAIL", "ada@example.invalid"),
+            ],
+        )
+        .unwrap();
+        change_a_file(fx.root());
+        let report =
+            commit_all(&fx.project(), Some(&ada), &opts("Stand", None), &mut |_| {}).unwrap();
+        assert!(report.committed, "{report:?}");
+        assert!(!report.studio_identity);
+        assert_eq!(author(fx.root()), "Ada <ada@example.invalid>");
+    }
+
+    #[test]
+    fn a_failing_commit_all_reports_git_stderr_and_keeps_the_repo() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = git(home.path(), &[]) else {
+            return;
+        };
+        let fx = set_up(&cli);
+        let before = head_of(fx.root());
+        std::fs::write(fx.root().join("neu.txt"), "neu\n").unwrap();
+        let signing = git(
+            home.path(),
+            &[
+                ("GIT_CONFIG_COUNT", "2"),
+                ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+                ("GIT_CONFIG_VALUE_0", "true"),
+                ("GIT_CONFIG_KEY_1", "gpg.program"),
+                ("GIT_CONFIG_VALUE_1", "false"),
+            ],
+        )
+        .unwrap();
+        let report = commit_all(
+            &fx.project(),
+            Some(&signing),
+            &opts("Stand", None),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(!report.committed);
+        let reason = report.reason.unwrap();
+        assert!(
+            reason.starts_with(&format!("{COMMIT_ALL_FAILED}:")),
+            "{reason}"
+        );
+        assert!(reason.contains("gpg"), "Git's own words: {reason}");
+        assert!(
+            reason.ends_with(&format!(". {COMMIT_ALL_KEPT}")),
+            "{reason}"
+        );
+        assert_eq!(report.head, None);
+        assert_eq!(head_of(fx.root()), before, "HEAD unchanged");
+        // `git add -A` ran: the file is in the index, the work tree as it was.
+        assert!(index_of(fx.root()).iter().any(|p| p == "neu.txt"));
+        assert!(fx.root().join("neu.txt").is_file());
+        assert_eq!(
+            report.phase_ms.keys().copied().collect::<Vec<_>>(),
+            [
+                CommitPhase::Templates,
+                CommitPhase::Add,
+                CommitPhase::Commit
+            ]
+        );
+    }
+
+    #[test]
+    fn a_commit_all_timeout_has_the_same_frame() {
+        let reason = failed(COMMIT_ALL_FAILED, &Err(RunError::TimedOut));
+        assert_eq!(
+            reason,
+            format!("{COMMIT_ALL_FAILED}: {TIMED_OUT} {COMMIT_ALL_KEPT}")
         );
     }
 }

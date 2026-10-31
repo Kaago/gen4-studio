@@ -158,8 +158,11 @@ Vor `init` hört `git_init` ohne Fehler auf, mit `committed: false`:
   Branch und `HEAD` liest `gix` ohnehin ohne installiertes Git.
 
 **Unterbefehle:** Das Studio ruft nur die Unterbefehle seines privaten Enums `Sub`: `--version`,
-`init -q`, `add -A`, `var GIT_COMMITTER_IDENT`, `commit -q -m Ausgangsstand`. Nie `remote`, `push`,
-`fetch`, `pull`, `clone` oder `config`; ein Test prüft die Liste. Jeder Aufruf läuft mit leerem
+`init -q`, `add -A`, `var GIT_COMMITTER_IDENT` und `Sub::Commit { studio_identity, subject, body }`
+= `commit -q -m <Betreff> [-m <Body>]` (hier `commit -q -m Ausgangsstand` ohne Body, für „Stand
+sichern“ siehe unten). Betreff und Body stehen je als eigenes Argument nach ihrem `-m`, nie als
+Option gelesen. Nie `remote`, `push`, `fetch`, `pull`, `clone` oder `config`; ein Test prüft die
+Liste (mit `Commit` mit und ohne Body). Jeder Aufruf läuft mit leerem
 stdin, `GIT_TERMINAL_PROMPT=0`, ohne `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` und die übrigen
 Variablen, die auf ein anderes Repository zeigen (in einem Git-Hook gesetzt), und mit einer
 Zeitgrenze von 300 s; danach wird der Prozess samt Gruppe beendet.
@@ -205,6 +208,66 @@ druckt `branch <b|detached> head <kurz|none> changes <n>` bzw. `no repository`, 
 Gemessen auf Platin DE (vanilla DSPRE-Ordner, Release, 2026-10-29, `tests/git.rs`): 18 449 Dateien
 im Index, 36 ignorierte Archive, `git add -A` 8,8 s, Commit 0,2 s, Status danach 75 ms, `.git`
 gepackt 45,2 MiB (Grenze 65 MiB); ein Klon mit `core.autocrlf=true` baut byte-gleich.
+
+## Stand sichern
+
+`git::cli::commit_all` (`crates/g4-kernel/src/git/cli.rs`) legt einen Commit aller Änderungen im
+eigenen Repository des Projekts an: immer alles, was die `.gitignore` zulässt (`git add -A`), nie
+eine Auswahl, kein Staging. Orte: `g4k git commit-all`; App (Dialog „Stand sichern?“, Technik ›
+Änderungen, Schritt Fertig von „Veröffentlichen“, Palette) und MCP (`git_commit_all`) folgen in
+eigenen Schritten. Phasen (`CommitPhase`, je beim Start gemeldet, die Millisekunden im Bericht
+unter `phase_ms`):
+
+| Phase | Was | Scheitert |
+|---|---|---|
+| `templates` | `check_commit_all`: die Ablehnungen (unten), dann `write_templates`, dann der Status über `gix` | `Err` (Ablehnung als Satz, ein kaputter Block), nichts committet |
+| `add` | `git add -A` | Antwort, siehe unten |
+| `commit` | `git -c user.useConfigOnly=true var GIT_COMMITTER_IDENT`, dann `git commit -q -m <Betreff> [-m <Notiz>]` | Antwort |
+
+**Ablehnungen** (`KernelError::Refused`, vor jedem Unterbefehl, in dieser Reihenfolge):
+
+| Fall | Satz | geschrieben |
+|---|---|---|
+| kein Repository | `NO_REPO_TO_COMMIT` „Dieses Projekt liegt in keinem Git-Repository; richte Git zuerst ein.“ | nichts |
+| umschließendes Repository | `ENCLOSING_REPO` „Das Projekt liegt in einem größeren Git-Repository; sichere den Stand dort mit deinem Git-Werkzeug.“ | nichts |
+| kein `git` | `GIT_NEEDED` „Git ist nicht installiert; „Stand sichern“ braucht die git-Kommandozeile (git-scm.com/downloads).“ | nichts |
+| keine Änderung seit `HEAD` | `NOTHING_TO_COMMIT` „Keine Änderung seit dem letzten Commit; nichts zu sichern.“ | nichts (eine nötige Änderung der Vorlagen wäre selbst eine Änderung) |
+
+Die Vorlagen werden vor dem Status geschrieben, weil ein nachgezogener Block eine Änderung bringen
+kann: ein Repository aus 4.4 kennt `!/.g4/releases.json` noch nicht, nach dem ersten „Stand
+sichern“ stehen Block und Liste im Commit. Ein unbeschriebener `HEAD` (Repository von Hand mit
+`git init`, ohne Commit) ist keine Ablehnung: der Commit wird der erste. `commit_all` packt nicht
+aus (anders als `git_init`).
+
+**Betreff und Notiz** (`CommitOptions { message, notes }`): Betreff ist die erste Zeile von
+`message`, getrimmt; ohne (oder leer) `default_subject()` = „Stand {YYYY-MM-DD} {HH:MM} UTC“ (der
+Kernel kennt keine Zeitzone; App und Assistent geben ihren Betreff in Ortszeit bzw.
+„Veröffentlicht v{Version}“). Die Notiz, getrimmt, ist der Body (zweites `-m`); leer fällt er weg.
+
+**Identität:** wie bei „Git einrichten“: ohne konfigurierte Identität nur dieser Commit mit
+`-c user.name="Gen4 Studio" -c user.email=studio@gen4.invalid` (`studio_identity`), die
+Konfiguration bleibt unberührt.
+
+**Fehler:** Scheitert `git add -A` oder der Commit (ein Hook, eine Signatur), ist das kein `Err`:
+`committed: false`, `reason` = „Der Commit ist gescheitert: `<stderr>`. Es ist nichts committet;
+deine Änderungen bleiben im Projekt.“ (stderr in einer Zeile, auf 400 Zeichen gekürzt; eine
+Zeitüberschreitung im selben Rahmen). `HEAD` bleibt, wo er war; was `git add -A` in den Index
+genommen hat, bleibt dort. Das Studio schaltet nichts ab, was der Nutzer eingestellt hat.
+
+**Bericht** (`CommitReport`): `committed`, `reason`, `subject`, `head` (über `gix`), `files` (die
+geänderten Pfade laut Status vor dem Commit), `studio_identity`, `phase_ms`, `ms`.
+
+**Kein Remote:** wie überall: kein Remote, kein Push; die Tests prüfen `.git/config` auf `[remote`.
+
+**Kopflos:** `g4k git commit-all <root> [--message <Betreff>] [--notes <Text>]` druckt
+`committed <kurz> "<Betreff>" files=<n>`, bei einem gescheiterten Unterbefehl `not committed:
+<Grund>` mit Rückgabe 1; Ablehnungen als Satz (`error: …`) mit Rückgabe 1. Ohne `--message` gilt
+der UTC-Betreff des Kernels; wer die Ortszeit will, gibt `--message`.
+
+Gemessen auf HeartGold DE (vanilla DSPRE-Ordner, eingerichtet, eine Karte geändert, dann
+veröffentlicht; Release, 2026-10-31, `tests/git.rs`): 2 Dateien im Commit (`.g4/releases.json` und
+das Karten-Member; Patch und Texte unter `build/` nicht), `git add -A` 43 ms, Commit 54 ms, Status
+danach 77 ms und leer.
 
 ## Diff je Entität
 

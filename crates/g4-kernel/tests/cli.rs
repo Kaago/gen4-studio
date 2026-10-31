@@ -1783,6 +1783,46 @@ fn cli_git_init_templates_only() {
     assert!(root.join(".gitattributes").is_file());
 }
 
+#[test]
+fn cli_git_commit_all_prints_the_commit() {
+    let s = common::synthetic_project();
+    let root = s.dir.path();
+    let home = tempfile::tempdir().unwrap();
+    let Some(mut init) = g4k_isolated(home.path()) else {
+        return;
+    };
+    init.args(["git", "init"]).arg(root).assert().success();
+    std::fs::write(root.join("notiz.txt"), "neu\n").unwrap();
+
+    let commit_all = || {
+        let mut cmd = g4k_isolated(home.path()).unwrap();
+        cmd.args(["git", "commit-all"]).arg(root).args([
+            "--message",
+            "Stand Test",
+            "--notes",
+            "Notiz",
+        ]);
+        cmd
+    };
+    let assert = commit_all().assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(lines.len(), 1, "{out}");
+    assert!(lines[0].starts_with("committed "), "{out}");
+    assert!(lines[0].ends_with(" \"Stand Test\" files=1"), "{out}");
+    let status = g4_kernel::git::status(root).unwrap();
+    assert!(status.paths.is_empty(), "{:?}", status.paths);
+    assert_eq!(status.head.unwrap().summary, "Stand Test");
+    let config = std::fs::read_to_string(root.join(".git/config")).unwrap();
+    assert!(!config.contains("[remote"), "{config}");
+
+    // Nothing changed since: refused with the sentence, exit 1.
+    commit_all()
+        .assert()
+        .code(1)
+        .stderr(contains(g4_kernel::git::NOTHING_TO_COMMIT));
+}
+
 /// A clone of the exported fixture `fx`: its sources only (no DSPRE part, no members).
 fn text_clone(fx: &common::TextFixture) -> (tempfile::TempDir, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();

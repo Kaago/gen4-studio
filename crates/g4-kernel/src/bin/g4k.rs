@@ -2038,6 +2038,20 @@ enum GitCommand {
         #[arg(long)]
         entries: bool,
     },
+    /// "Stand sichern": refresh the templates, then `git add -A` and one commit of everything
+    /// that changed, in the project's own repository, never a remote. Prints `committed
+    /// <short> "<subject>" files=<n>`, else `not committed: <reason>` with exit 1 when a Git
+    /// subcommand failed. Refused with its sentence and exit 1: no repository, an enclosing
+    /// one, no change since the last commit, no `git`.
+    CommitAll {
+        project: PathBuf,
+        /// The subject (its first line); without one "Stand <YYYY-MM-DD> <HH:MM> UTC".
+        #[arg(long)]
+        message: Option<String>,
+        /// Notes, the commit's body.
+        #[arg(long)]
+        notes: Option<String>,
+    },
 }
 
 fn git(command: GitCommand) -> Result<(), Failure> {
@@ -2112,6 +2126,29 @@ fn git(command: GitCommand) -> Result<(), Failure> {
                 None => println!("git not found"),
             }
             Ok(())
+        }
+        GitCommand::CommitAll {
+            project,
+            message,
+            notes,
+        } => {
+            let p = Project::open(&project)?;
+            let cli = g4_kernel::git::find_git();
+            let opts = g4_kernel::git::CommitOptions { message, notes };
+            let report = g4_kernel::git::commit_all(&p, cli.as_ref(), &opts, &mut |_| {})?;
+            match (&report.head, &report.reason) {
+                (Some(head), _) if report.committed => {
+                    println!(
+                        "committed {} \"{}\" files={}",
+                        head.short, report.subject, report.files
+                    );
+                    Ok(())
+                }
+                (_, reason) => {
+                    println!("not committed: {}", reason.as_deref().unwrap_or_default());
+                    Err(Failure::Message("git commit-all failed".into()))
+                }
+            }
         }
     }
 }
