@@ -33,6 +33,11 @@ dp:
   # Icon archives (Pokémon menu icons, item bag icons), read only. unverified: no DP project at hand.
   item_icons:              { packed: "files/itemtool/itemdata/item_icon.narc", unpacked: "itemIcons" }
   mon_icons:               { packed: "files/poketool/icongra/poke_icon.narc", unpacked: "monIcons" }
+  # Battle sprite archives, read only (`data::battle_sprites`). unverified: no DP project at
+  # hand; DSPRE RomInfo.
+  pokemon_battle_sprites:  { packed: "files/poketool/pokegra/pokegra.narc", unpacked: "pokemonBattleSprites" }
+  other_pokemon_battle_sprites: { packed: "files/poketool/pokegra/otherpoke.narc", unpacked: "otherPokemonBattleSprites" }
+  trainer_graphics:        { packed: "files/poketool/trgra/trfgra.narc", unpacked: "trainerGraphics" }
 pt:
   maps:                    { packed: "files/fielddata/land_data/land_data.narc", unpacked: "maps" }
   matrices:                { packed: "files/fielddata/mapmatrix/map_matrix.narc", unpacked: "matrices" }
@@ -59,6 +64,11 @@ pt:
   # Icon archives, read only. monIcons has 547 members: the NCLR, six animation members, 540 icons.
   item_icons:              { packed: "files/itemtool/itemdata/item_icon.narc", unpacked: "itemIcons" }
   mon_icons:               { packed: "files/poketool/icongra/pl_poke_icon.narc", unpacked: "monIcons" }
+  # Battle sprite archives, read only (`data::battle_sprites`): 2964 members (494 species x 6),
+  # the forms and eggs (253 members), five members per trainer class (525).
+  pokemon_battle_sprites:  { packed: "files/poketool/pokegra/pl_pokegra.narc", unpacked: "pokemonBattleSprites" }
+  other_pokemon_battle_sprites: { packed: "files/poketool/pokegra/pl_otherpoke.narc", unpacked: "otherPokemonBattleSprites" }
+  trainer_graphics:        { packed: "files/poketool/trgra/trfgra.narc", unpacked: "trainerGraphics" }
   pack_only:
     - { packed: "files/data/mmodel/mmodel.narc", unpacked: "OWSprites" }
     - { packed: "files/battle/graphic/pl_batt_bg.narc", unpacked: "battleBg" }
@@ -66,15 +76,12 @@ pt:
     - { packed: "files/battle/b_pl_tower/pl_btdtr.narc", unpacked: "battleTowerTrainers" }
     - { packed: "files/fielddata/areadata/area_build_model/area_build.narc", unpacked: "buildingConfigFiles" }
     - { packed: "files/arc/encdata_ex.narc", unpacked: "encounterExtended" }
-    - { packed: "files/poketool/pokegra/pl_otherpoke.narc", unpacked: "otherPokemonBattleSprites" }
     - { packed: "files/poketool/pokegra/height.narc", unpacked: "pokeHeight" }
     - { packed: "files/poketool/pokegra/height_o.narc", unpacked: "pokeHeightForms" }
-    - { packed: "files/poketool/pokegra/pl_pokegra.narc", unpacked: "pokemonBattleSprites" }
     - { packed: "files/poketool/poke_edit/pl_poke_data.narc", unpacked: "pokemonSpriteOffsets" }
     - { packed: "files/data/weather_sys.narc", unpacked: "synthOverlay" }
     # Japanese and English ROMs keep the trade data in `fielddata`, the others per language.
     - { packed: "files/fielddata/pokemon_trade/fld_trade.narc", by_game: { CPUD: "files/resource/ger/pokemon_trade/fld_trade.narc", CPUF: "files/resource/fra/pokemon_trade/fld_trade.narc", CPUI: "files/resource/ita/pokemon_trade/fld_trade.narc", CPUS: "files/resource/spa/pokemon_trade/fld_trade.narc" }, unpacked: "tradeData" }
-    - { packed: "files/poketool/trgra/trfgra.narc", unpacked: "trainerGraphics" }
   # Not packed (no vanilla NARC; vanilla Platinum projects have neither folder):
   # battleObj: DSPRE names files/battle/graphic/pl_batt_obj.narc, which Platinum does not have.
   # eggMoves: DSPRE's own files/zcustom/egg_moves.narc, written by its egg move patch.
@@ -104,6 +111,11 @@ hgss:
   # Icon archives, read only. monIcons has 551 members: the NCLR, six animation members, 544 icons.
   item_icons:              { packed: "files/a/0/1/8", unpacked: "itemIcons" }
   mon_icons:               { packed: "files/a/0/2/0", unpacked: "monIcons" }
+  # Battle sprite archives, read only (`data::battle_sprites`): 2964 members (494 species x 6),
+  # the forms and eggs (261 members), five members per trainer class (645).
+  pokemon_battle_sprites:  { packed: "files/a/0/0/4", unpacked: "pokemonBattleSprites" }
+  other_pokemon_battle_sprites: { packed: "files/a/1/1/4", unpacked: "otherPokemonBattleSprites" }
+  trainer_graphics:        { packed: "files/a/0/5/8", unpacked: "trainerGraphics" }
   pack_only:
     - { packed: "files/a/0/8/1", unpacked: "OWSprites" }
     - { packed: "files/a/0/0/7", unpacked: "battleBg" }
@@ -114,12 +126,9 @@ hgss:
     # eggMoves: the vanilla NARC a/2/2/9, repacks byte-identical (Platinum's comes from DSPRE's own patch).
     - { packed: "files/a/2/2/9", unpacked: "eggMoves" }
     - { packed: "files/a/2/5/2", unpacked: "headbutt" }
-    - { packed: "files/a/1/1/4", unpacked: "otherPokemonBattleSprites" }
     - { packed: "files/a/0/0/5", unpacked: "pokeHeight" }
-    - { packed: "files/a/0/0/4", unpacked: "pokemonBattleSprites" }
     - { packed: "files/a/1/8/0", unpacked: "pokemonSpriteOffsets" }
     - { packed: "files/a/2/5/3", unpacked: "rockSmash" }
     - { packed: "files/a/2/3/0", unpacked: "safariZone" }
     - { packed: "files/a/0/2/8", unpacked: "synthOverlay" }
     - { packed: "files/a/1/1/2", unpacked: "tradeData" }
-    - { packed: "files/a/0/5/8", unpacked: "trainerGraphics" }

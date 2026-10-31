@@ -57,7 +57,8 @@ pub struct Synthetic {
 /// ds-rom layout for Platinum US with 3 maps, 1 matrix (2x1, maps 0 and 1) and 2 area data
 /// entries, plus the event, text (698 members, see [`PT_TEXT_BANKS`]), texture and building
 /// model archives and the ten data archives (see `write_data_archives`), all packed, plus
-/// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02").
+/// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02"), and the Pokémon and
+/// trainer battle sprite archives (see `write_battle_sprites`).
 pub fn synthetic_project() -> Synthetic {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -180,8 +181,97 @@ pub fn synthetic_project() -> Synthetic {
         "files/fielddata/script/scr_seq.narc",
         &[compile_script(SCRIPT_SOURCE), vec![0, 0, 0, 0], Vec::new()],
     );
+    write_battle_sprites(root);
 
     Synthetic { dir }
+}
+
+/// Seed of the synthetic battle sprites (`encrypt` with `Direction::Forward`, as Platinum).
+pub const SPRITE_SEED: u16 = 0x5A3C;
+/// Colour index 1 of the synthetic Pokémon palettes (member `6·s + 4`, normal; `6·s + 5`,
+/// shiny) and of palette 0 of the synthetic trainer palettes (member `5·k + 1`).
+pub const SPRITE_COLOUR: u16 = 0x001F;
+pub const SPRITE_SHINY_COLOUR: u16 = 0x7C00;
+pub const TRAINER_COLOUR: u16 = 0x03E0;
+/// Species in `pokemonBattleSprites` (six members each) and trainer classes in
+/// `trainerGraphics` (five members each).
+pub const SPRITE_SPECIES: u16 = 3;
+pub const TRAINER_CLASSES: u8 = 2;
+
+/// The plain pixels of synthetic battle sprite `n` (4 bpp, linear, 160 x 80, one nibble per
+/// pixel, low nibble left): index 1 in a rectangle of the left half and a smaller one of the
+/// right half, both placed by `n`. The first word is 0, as `encrypt` needs.
+pub fn battle_sprite_pixels(n: u16) -> Vec<u8> {
+    let n = usize::from(n);
+    let mut index = vec![0u8; 160 * 80];
+    let (x0, y0) = (8 + (n % 8) * 4, 10 + (n % 5) * 3);
+    for y in y0..y0 + 30 {
+        for x in x0..x0 + 20 {
+            index[y * 160 + x] = 1;
+        }
+    }
+    let (x0, y0) = (100 + (n % 6) * 5, 40 + (n % 4) * 2);
+    for y in y0..y0 + 10 {
+        for x in x0..x0 + 12 {
+            index[y * 160 + x] = 1;
+        }
+    }
+    index.chunks(2).map(|p| p[0] | (p[1] << 4)).collect()
+}
+
+/// `pixels` (160 x 80, 4 bpp) as a linear NCGR, encrypted forward with [`SPRITE_SEED`].
+pub fn encrypted_sprite_ncgr(pixels: &[u8]) -> Vec<u8> {
+    use g4_formats::ncgr::Direction;
+    let mut words: Vec<u16> = pixels
+        .chunks(2)
+        .map(|w| u16::from_le_bytes([w[0], w[1]]))
+        .collect();
+    g4_formats::test_support::encrypt(&mut words, Direction::Forward, SPRITE_SEED);
+    let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    g4_formats::test_support::ncgr_bytes_with_mode(20, 10, 3, 1, &bytes)
+}
+
+/// The synthetic battle sprite archives, packed like every archive of the project
+/// (Platinum paths): `pl_pokegra.narc` with [`SPRITE_SPECIES`] species of six members (slots
+/// 0 to 3 image `6·s + slot` of [`battle_sprite_pixels`], species 2 without the female slots
+/// 0 and 2; slot 4 one palette with [`SPRITE_COLOUR`], slot 5 one with
+/// [`SPRITE_SHINY_COLOUR`]) and `trfgra.narc` with [`TRAINER_CLASSES`] classes of five
+/// members (`5·k + 1` 16 palettes, palette 0 with [`TRAINER_COLOUR`]; `5·k + 4` image
+/// `100 + k`; the others placeholders). `otherPokemonBattleSprites` is not written.
+fn write_battle_sprites(root: &Path) {
+    use g4_formats::test_support::nclr_bytes;
+    let palette = |colour: u16| {
+        let mut colours = [0u16; 16];
+        colours[1] = colour;
+        nclr_bytes(3, &colours)
+    };
+    let mut pokemon = Vec::new();
+    for species in 0..SPRITE_SPECIES {
+        for slot in 0..6u16 {
+            pokemon.push(match slot {
+                0 | 2 if species == 2 => Vec::new(),
+                0..=3 => encrypted_sprite_ncgr(&battle_sprite_pixels(6 * species + slot)),
+                4 => palette(SPRITE_COLOUR),
+                _ => palette(SPRITE_SHINY_COLOUR),
+            });
+        }
+    }
+    write_narc(root, "files/poketool/pokegra/pl_pokegra.narc", &pokemon);
+    // 16 palettes: every colour white but index 0, palette 0 index 1 the trainer colour.
+    let mut colours = vec![0x7FFFu16; 256];
+    colours.iter_mut().step_by(16).for_each(|c| *c = 0);
+    colours[1] = TRAINER_COLOUR;
+    let mut trainers = Vec::new();
+    for class in 0..u16::from(TRAINER_CLASSES) {
+        for slot in 0..5u16 {
+            trainers.push(match slot {
+                1 => nclr_bytes(3, &colours),
+                4 => encrypted_sprite_ncgr(&battle_sprite_pixels(100 + class)),
+                _ => vec![0xAA; 8],
+            });
+        }
+    }
+    write_narc(root, "files/poketool/trgra/trfgra.narc", &trainers);
 }
 
 /// HeartGold US (IPKE) built on [`synthetic_project`]: `headers` zeroed HGSS map headers in

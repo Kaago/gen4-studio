@@ -562,8 +562,8 @@ fn archive_map_knows_every_world_kind() {
     ));
     assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
     // Platinum: the eight world archives plus the Dynamic Headers NARC, the scripts and the
-    // ten data archives and the two icon archives.
-    assert_eq!(p.archives.kinds().count(), 22);
+    // ten data archives, the two icon archives and the three battle sprite archives.
+    assert_eq!(p.archives.kinds().count(), 25);
 }
 
 #[test]
@@ -640,7 +640,10 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
             "trainerTextTable",
             "trainerTextOffset",
             "itemIcons",
-            "monIcons"
+            "monIcons",
+            "pokemonBattleSprites",
+            "otherPokemonBattleSprites",
+            "trainerGraphics"
         ]
     );
 }
@@ -675,7 +678,10 @@ fn asset_kind_labels() {
             "trainer text offsets",
             "item icons",
             "menu icons",
-            "trainer"
+            "trainer",
+            "battle sprites",
+            "form battle sprites",
+            "trainer graphics"
         ]
     );
 }
@@ -738,8 +744,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_twenty_five_slots() {
-    assert_eq!(AssetKind::ALL.len(), 25);
+fn asset_kinds_have_twenty_eight_slots() {
+    assert_eq!(AssetKind::ALL.len(), 28);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -766,16 +772,25 @@ fn asset_kinds_have_twenty_five_slots() {
             AssetKind::TrainerTextOffsets,
         ]
     );
-    // The two icon archives follow (slots 22 and 23); the trainer, the store-only pair of the
-    // two trainer archives, closes the list.
+    // The two icon archives follow (slots 22 and 23), then the trainer, the store-only pair of
+    // the two trainer archives, and the three read-only battle sprite archives (25 to 27).
     assert_eq!(
         AssetKind::ALL[22..],
         [
             AssetKind::ItemIcons,
             AssetKind::MonIcons,
-            AssetKind::Trainer
+            AssetKind::Trainer,
+            AssetKind::PokemonBattleSprites,
+            AssetKind::OtherPokemonBattleSprites,
+            AssetKind::TrainerGraphics,
         ]
     );
+    assert_eq!(AssetKind::PokemonBattleSprites.label(), "battle sprites");
+    assert_eq!(
+        AssetKind::OtherPokemonBattleSprites.label(),
+        "form battle sprites"
+    );
+    assert_eq!(AssetKind::TrainerGraphics.label(), "trainer graphics");
 }
 
 #[test]
@@ -826,6 +841,41 @@ fn data_archives_resolve_per_game() {
         packed("ADAE", AssetKind::MonIcons),
         some("files/poketool/icongra/poke_icon.narc")
     );
+    // Battle sprite archives: Platinum and HeartGold/SoulSilver, Diamond unverified.
+    for (code, pokemon, other, trainer) in [
+        (
+            "CPUD",
+            "files/poketool/pokegra/pl_pokegra.narc",
+            "files/poketool/pokegra/pl_otherpoke.narc",
+            "files/poketool/trgra/trfgra.narc",
+        ),
+        ("IPKD", "files/a/0/0/4", "files/a/1/1/4", "files/a/0/5/8"),
+        ("IPGE", "files/a/0/0/4", "files/a/1/1/4", "files/a/0/5/8"),
+        (
+            "ADAE",
+            "files/poketool/pokegra/pokegra.narc",
+            "files/poketool/pokegra/otherpoke.narc",
+            "files/poketool/trgra/trfgra.narc",
+        ),
+    ] {
+        assert_eq!(packed(code, AssetKind::PokemonBattleSprites), some(pokemon));
+        assert_eq!(
+            packed(code, AssetKind::OtherPokemonBattleSprites),
+            some(other)
+        );
+        assert_eq!(packed(code, AssetKind::TrainerGraphics), some(trainer));
+    }
+    let p = Project::open(s.dir.path()).unwrap();
+    for (kind, name) in [
+        (AssetKind::PokemonBattleSprites, "pokemonBattleSprites"),
+        (
+            AssetKind::OtherPokemonBattleSprites,
+            "otherPokemonBattleSprites",
+        ),
+        (AssetKind::TrainerGraphics, "trainerGraphics"),
+    ] {
+        assert_eq!(p.archives.unpacked_name(kind), name);
+    }
 }
 
 #[test]
@@ -966,6 +1016,21 @@ fn pack_only_entries_parse_for_pt_and_hgss() {
         );
     }
     assert!(map("ADAE").pack_only().is_empty(), "dp has no pack entries");
+    // The three battle sprite archives are asset kinds, no pack entries.
+    assert_eq!(map("CPUD").pack_only().len(), 11);
+    assert_eq!(map("IPKD").pack_only().len(), 14);
+    for code in ["CPUD", "IPKE"] {
+        for name in [
+            "pokemonBattleSprites",
+            "otherPokemonBattleSprites",
+            "trainerGraphics",
+        ] {
+            assert!(
+                !map(code).pack_only().iter().any(|(_, u)| u == name),
+                "{code}: {name}"
+            );
+        }
+    }
     // Platinum's trade data: per language outside Japanese and English (`by_game` by the
     // full game code).
     let trade = |code: &str| {

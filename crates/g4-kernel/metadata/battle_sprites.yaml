@@ -1,0 +1,9 @@
+# Battle sprites (pokemonBattleSprites, otherPokemonBattleSprites, trainerGraphics): the decryption
+# direction per archive and family, measured on Platinum DE, HeartGold DE and HeartGold US
+# (docs/research/2026-10-30-phase-3d/gutachten-c-sprites-krypto.py), and the form table of
+# otherPokemonBattleSprites (3d.3 Task 3, by eye). DP is unverified: no project at hand.
+direction:
+  pt:   { pokemon: forward, other: forward, trainer: forward }
+  hgss: { pokemon: forward, other: forward, trainer: backward }
+  dp:   { unverified: true, pokemon: forward, other: forward, trainer: forward }
+forms: []

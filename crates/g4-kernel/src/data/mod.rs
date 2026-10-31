@@ -1,11 +1,13 @@
 //! Kernel side of the data editors (Pokémon, moves, items, trainers, encounters): the
 //! read-only arm9 tables, the text banks per family and language, the form names
 //! (`metadata/species_forms.yaml`, read by the name tables in `names`) and the reference
-//! index (`refs`), the item and menu icons as PNG (`icons`), the game rules the
-//! encounter and trainer editors show (`encounter_rules`, `trainer_rules`), and creating
-//! trainers and encounter files (`trainer_create`, `encounter_create`).
+//! index (`refs`), the item and menu icons as PNG (`icons`), the Pokémon and trainer battle
+//! sprites as PNG (`battle_sprites`), the game rules the encounter and trainer editors show
+//! (`encounter_rules`, `trainer_rules`), and creating trainers and encounter files
+//! (`trainer_create`, `encounter_create`).
 
 pub mod arm9;
+pub mod battle_sprites;
 pub mod encounter_create;
 pub mod encounter_rules;
 pub mod icons;

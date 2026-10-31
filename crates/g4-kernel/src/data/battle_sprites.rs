@@ -1,0 +1,417 @@
+//! Pokémon and trainer battle sprites as PNG, decoded from the ROM's own archives
+//! (`pokemonBattleSprites`, `otherPokemonBattleSprites`, `trainerGraphics`). Nothing is
+//! written; the members come from the unpacked folder or the packed NARC like the icons
+//! (`icons::members`). All three kinds are read-only in the studio.
+//!
+//! Every image is an encrypted linear NCGR of 160 x 80 pixels at 4 bpp: two 80 x 80 frames
+//! side by side. The decryption direction is a property of the archive and the family
+//! (`metadata/battle_sprites.yaml`, measured in gutachten C §3.2); a family marked
+//! `unverified` (Diamond/Pearl) has no sprites at all, neither an image nor an error.
+//!
+//! `pokemonBattleSprites` holds six members per species: back female (0), back male or only
+//! (1), front female (2), front male or only (3), the normal (4) and the shiny palette (5). An
+//! empty member means "no image of its own": the other gender's slot of the same side is shown.
+//! `trainerGraphics` holds five members per trainer class: the image at `5·k + 4`, its 16
+//! palettes at `5·k + 1` (palette 0 is the battle palette).
+
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
+use g4_formats::game::Family;
+use g4_formats::ncgr::{Direction, Ncgr, render_rgba};
+use g4_formats::nclr::Nclr;
+use serde::{Deserialize, Serialize};
+
+use super::icons::{members, png};
+use crate::error::KernelError;
+use crate::project::{AssetKind, Project};
+
+const BATTLE_SPRITES_YAML: &str = include_str!("../../metadata/battle_sprites.yaml");
+
+/// Width and height of one frame; an image holds two frames side by side.
+pub const FRAME: usize = 80;
+/// Members per species in `pokemonBattleSprites`.
+pub const SLOTS_PER_SPECIES: u16 = 6;
+/// Members per trainer class in `trainerGraphics`.
+const SLOTS_PER_CLASS: u16 = 5;
+/// The first personal member that is no plain species (the egg; 496 to 507 are forms).
+const FIRST_FORM_PERSONAL: u16 = 494;
+
+/// Which side of the Pokémon an image shows: the front faces the player (the opponent's view),
+/// the back is the player's own Pokémon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Front,
+    Back,
+}
+
+/// One battle sprite of a Pokémon. `form` is the game's form index (0 is the base form);
+/// `frame` 0 is the left, 1 the right (animation) half of the image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SpriteRequest {
+    pub species: u16,
+    pub form: u8,
+    pub side: Side,
+    pub female: bool,
+    pub shiny: bool,
+    pub frame: u8,
+}
+
+/// The decryption direction of each battle sprite archive of one family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Directions {
+    pub pokemon: Direction,
+    pub other: Direction,
+    pub trainer: Direction,
+}
+
+/// One entry of the form table: the members of a form's images in `otherPokemonBattleSprites`.
+/// `personal` is the personal member of the form (496 to 507, the egg 494), if it has one.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormSprite {
+    pub species: u16,
+    pub form: u8,
+    pub personal: Option<u16>,
+    pub back: Option<u16>,
+    pub front: Option<u16>,
+    pub female_back: Option<u16>,
+    pub female_front: Option<u16>,
+    pub palette: u16,
+    pub shiny: u16,
+    /// Not checked by eye: the base form is shown instead.
+    #[serde(default)]
+    pub unverified: bool,
+}
+
+/// A direction as `battle_sprites.yaml` spells it (g4-formats has no serde).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawDirection {
+    Forward,
+    Backward,
+}
+
+impl From<RawDirection> for Direction {
+    fn from(raw: RawDirection) -> Direction {
+        match raw {
+            RawDirection::Forward => Direction::Forward,
+            RawDirection::Backward => Direction::Backward,
+        }
+    }
+}
+
+/// One family's entry of `direction` in `battle_sprites.yaml`.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawDirections {
+    #[serde(default)]
+    unverified: bool,
+    pokemon: RawDirection,
+    other: RawDirection,
+    trainer: RawDirection,
+}
+
+/// `battle_sprites.yaml`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Metadata {
+    /// Keyed by family: `dp`, `pt`, `hgss`.
+    direction: HashMap<String, RawDirections>,
+    forms: Vec<FormSprite>,
+}
+
+/// The parsed `battle_sprites.yaml`, read once per process.
+fn metadata() -> &'static Metadata {
+    static METADATA: OnceLock<Metadata> = OnceLock::new();
+    // The file is embedded and parsed by a test, so a parse error cannot reach a user.
+    METADATA.get_or_init(|| serde_yaml::from_str(BATTLE_SPRITES_YAML).unwrap_or_default())
+}
+
+/// The decryption directions of `family`, from `battle_sprites.yaml`; `None` for a family
+/// marked `unverified` (Diamond/Pearl).
+pub fn directions(family: Family) -> Option<Directions> {
+    let key = match family {
+        Family::Dp => "dp",
+        Family::Pt => "pt",
+        Family::Hgss => "hgss",
+    };
+    let raw = metadata().direction.get(key)?;
+    (!raw.unverified).then(|| Directions {
+        pokemon: raw.pokemon.into(),
+        other: raw.other.into(),
+        trainer: raw.trainer.into(),
+    })
+}
+
+/// The verified form table entry of `form` of `species`, if there is one.
+pub fn form_sprite(species: u16, form: u8) -> Option<&'static FormSprite> {
+    metadata()
+        .forms
+        .iter()
+        .find(|f| !f.unverified && f.species == species && f.form == form)
+}
+
+/// The species and form of personal member `personal` (496 → Deoxys, form 1), from the form
+/// table; `None` below 494 or for a member the table does not name.
+pub fn form_of_personal(personal: u16) -> Option<(u16, u8)> {
+    if personal < FIRST_FORM_PERSONAL {
+        return None;
+    }
+    metadata()
+        .forms
+        .iter()
+        .find(|f| f.personal == Some(personal))
+        .map(|f| (f.species, f.form))
+}
+
+/// Member `6·species + slot` of `pokemonBattleSprites`: (Back, female) 0, (Back, male) 1,
+/// (Front, female) 2, (Front, male) 3. Saturates for a species beyond any archive.
+pub fn pokemon_member(species: u16, side: Side, female: bool) -> u16 {
+    let slot = match (side, female) {
+        (Side::Back, true) => 0,
+        (Side::Back, false) => 1,
+        (Side::Front, true) => 2,
+        (Side::Front, false) => 3,
+    };
+    species
+        .saturating_mul(SLOTS_PER_SPECIES)
+        .saturating_add(slot)
+}
+
+/// Whether a species has images of its own in the female slots (0 and 2) and in the male or
+/// only slots (1 and 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SpriteSlots {
+    pub female: bool,
+    pub male: bool,
+}
+
+/// Whether `species` has images of its own per gender. `None` when the family is unverified,
+/// the project has no `pokemonBattleSprites` archive, or the archive has no member of the
+/// species.
+pub fn sprite_slots(project: &Project, species: u16) -> Result<Option<SpriteSlots>, KernelError> {
+    let kind = AssetKind::PokemonBattleSprites;
+    if directions(project.family).is_none() || !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let Some(first) = first_member(species) else {
+        return Ok(None);
+    };
+    let slots = members(project, kind, [first, first + 1, first + 2, first + 3])?;
+    if slots.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let filled = |slot: usize| slots[slot].as_ref().is_some_and(|b| !b.is_empty());
+    Ok(Some(SpriteSlots {
+        female: filled(0) || filled(2),
+        male: filled(1) || filled(3),
+    }))
+}
+
+/// The requested half of a Pokémon's battle sprite as an 80 x 80 PNG (palette index 0
+/// transparent); an image of another size than 160 x 80 is given whole. An empty slot falls
+/// back to the other gender's slot of the same side. `None` when both slots are empty, the
+/// frame is neither 0 nor 1, the family is unverified, or the archive lacks the species or
+/// its palette. A member that is not an NCGR or NCLR is an error. `req.form` is not looked at
+/// yet: the form table of `battle_sprites.yaml` is empty, every form shows the base form.
+pub fn battle_sprite(
+    project: &Project,
+    req: SpriteRequest,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let kind = AssetKind::PokemonBattleSprites;
+    let Some(dirs) = directions(project.family) else {
+        return Ok(None);
+    };
+    if req.frame > 1 || !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let Some(first) = first_member(req.species) else {
+        return Ok(None);
+    };
+    let own = pokemon_member(req.species, req.side, req.female);
+    let other = pokemon_member(req.species, req.side, !req.female);
+    let palette = first + 4 + u16::from(req.shiny);
+    let [own, other, colours] = members(project, kind, [own, other, palette])?;
+    let Some(graphic) = [own, other].into_iter().flatten().find(|b| !b.is_empty()) else {
+        return Ok(None);
+    };
+    render(&graphic, colours.as_deref(), dirs.pokemon, req.frame)
+}
+
+/// The battle image of trainer class `class` as an 80 x 80 PNG (the left half of member
+/// `5·k + 4`, with palette 0 of member `5·k + 1`). `None` when the family is unverified or
+/// the archive has no such class.
+pub fn trainer_sprite(project: &Project, class: u8) -> Result<Option<Vec<u8>>, KernelError> {
+    let kind = AssetKind::TrainerGraphics;
+    let Some(dirs) = directions(project.family) else {
+        return Ok(None);
+    };
+    if !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let first = SLOTS_PER_CLASS * u16::from(class);
+    let [graphic, colours] = members(project, kind, [first + 4, first + 1])?;
+    let Some(graphic) = graphic.filter(|b| !b.is_empty()) else {
+        return Ok(None);
+    };
+    render(&graphic, colours.as_deref(), dirs.trainer, 0)
+}
+
+/// The first member of `species` in `pokemonBattleSprites`; `None` when its six members would
+/// lie beyond the largest member index.
+fn first_member(species: u16) -> Option<u16> {
+    let first = species.checked_mul(SLOTS_PER_SPECIES)?;
+    first.checked_add(SLOTS_PER_SPECIES - 1)?;
+    Some(first)
+}
+
+/// Whether the project has the archive of `kind`, unpacked or packed.
+fn has_archive_data(project: &Project, kind: AssetKind) -> bool {
+    project.unpacked_dir(kind).is_dir()
+        || project
+            .archives
+            .packed(kind)
+            .is_some_and(|packed| project.root.join(packed).is_file())
+}
+
+/// Decrypts `graphic`, draws it with the first palette of `colours` and cuts out `frame`.
+/// `None` without a palette or for an image without pixels.
+fn render(
+    graphic: &[u8],
+    colours: Option<&[u8]>,
+    direction: Direction,
+    frame: u8,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let mut ncgr = Ncgr::read(graphic)?;
+    let Some(colours) = colours.filter(|b| !b.is_empty()) else {
+        return Ok(None);
+    };
+    let nclr = Nclr::read(colours)?;
+    let Some(palette) = nclr.palettes.first() else {
+        return Ok(None);
+    };
+    if ncgr.width == 0 || ncgr.height == 0 {
+        return Ok(None);
+    }
+    ncgr.decrypt(direction);
+    let rgba = render_rgba(&ncgr, palette);
+    if (ncgr.width, ncgr.height) != (2 * FRAME, FRAME) {
+        return png(&rgba, ncgr.width, ncgr.height).map(Some);
+    }
+    png(&crop(&rgba, ncgr.width, usize::from(frame)), FRAME, FRAME).map(Some)
+}
+
+/// Frame `frame` (`FRAME` x `FRAME` pixels at `frame · FRAME`) of an RGBA image `width`
+/// pixels wide and `FRAME` high.
+fn crop(rgba: &[u8], width: usize, frame: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(FRAME * FRAME * 4);
+    for row in rgba.chunks_exact(width * 4).take(FRAME) {
+        let start = frame * FRAME * 4;
+        out.extend_from_slice(&row[start..start + FRAME * 4]);
+    }
+    out
+}
+
+/// Decoded battle sprites of one session, as PNG. An image (or "no image") is read once; an
+/// error is not remembered.
+#[derive(Default)]
+pub struct BattleSpriteCache {
+    sprites: HashMap<SpriteRequest, Option<Arc<Vec<u8>>>>,
+    trainers: HashMap<u8, Option<Arc<Vec<u8>>>>,
+}
+
+impl BattleSpriteCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// [`battle_sprite`], read at most once per request.
+    pub fn battle_sprite(
+        &mut self,
+        project: &Project,
+        req: SpriteRequest,
+    ) -> Result<Option<Arc<Vec<u8>>>, KernelError> {
+        if let Some(cached) = self.sprites.get(&req) {
+            return Ok(cached.clone());
+        }
+        let png = battle_sprite(project, req)?.map(Arc::new);
+        self.sprites.insert(req, png.clone());
+        Ok(png)
+    }
+
+    /// [`trainer_sprite`], read at most once per class.
+    pub fn trainer_sprite(
+        &mut self,
+        project: &Project,
+        class: u8,
+    ) -> Result<Option<Arc<Vec<u8>>>, KernelError> {
+        if let Some(cached) = self.trainers.get(&class) {
+            return Ok(cached.clone());
+        }
+        let png = trainer_sprite(project, class)?.map(Arc::new);
+        self.trainers.insert(class, png.clone());
+        Ok(png)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    #[test]
+    fn battle_sprites_yaml_parses_with_three_families() {
+        let parsed: Metadata = serde_yaml::from_str(BATTLE_SPRITES_YAML).unwrap();
+        let mut keys: Vec<&str> = parsed.direction.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["dp", "hgss", "pt"]);
+        assert!(parsed.direction["dp"].unverified);
+    }
+
+    /// A form entry with a personal member 496 to 507 belongs to the species
+    /// `species_forms.yaml` names as that member's base.
+    #[derive(Deserialize)]
+    struct BaseOf {
+        base: u16,
+    }
+
+    #[test]
+    fn form_entries_agree_with_species_forms() {
+        let bases: BTreeMap<u16, BaseOf> =
+            serde_yaml::from_str(include_str!("../../metadata/species_forms.yaml")).unwrap();
+        for form in &metadata().forms {
+            if let Some(base) = form.personal.and_then(|p| bases.get(&p)) {
+                assert_eq!(form.species, base.base, "{form:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn form_of_personal_is_none_below_the_egg() {
+        assert_eq!(form_of_personal(0), None);
+        assert_eq!(form_of_personal(493), None);
+        assert_eq!(form_sprite(0, 0), None);
+    }
+
+    #[test]
+    fn first_member_never_overflows() {
+        assert_eq!(first_member(1), Some(6));
+        assert_eq!(first_member(u16::MAX / 6), None);
+        assert_eq!(first_member(u16::MAX), None);
+        assert_eq!(pokemon_member(u16::MAX, Side::Front, false), u16::MAX);
+    }
+
+    #[test]
+    fn crop_takes_one_frame_per_row() {
+        let width = 2 * FRAME;
+        let rgba: Vec<u8> = (0..width * FRAME)
+            .flat_map(|i| [u8::from(i % width >= FRAME); 4])
+            .collect();
+        assert!(crop(&rgba, width, 0).iter().all(|&b| b == 0));
+        assert!(crop(&rgba, width, 1).iter().all(|&b| b == 1));
+        assert_eq!(crop(&rgba, width, 1).len(), FRAME * FRAME * 4);
+    }
+}

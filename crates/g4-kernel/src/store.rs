@@ -180,7 +180,10 @@ impl Loaded {
             | AssetKind::DynamicHeaders
             | AssetKind::Script
             | AssetKind::ItemIcons
-            | AssetKind::MonIcons => Err(KernelError::NotEditable(kind)),
+            | AssetKind::MonIcons
+            | AssetKind::PokemonBattleSprites
+            | AssetKind::OtherPokemonBattleSprites
+            | AssetKind::TrainerGraphics => Err(KernelError::NotEditable(kind)),
             AssetKind::Encounter => Ok(Loaded::Encounter(Box::new(Encounters::read(
                 bytes, family,
             )?))),

@@ -72,29 +72,40 @@ pub fn png(rgba: &[u8], width: usize, height: usize) -> Result<Vec<u8>, KernelEr
 type MemberPair = (Vec<u8>, Vec<u8>);
 
 /// Members `first` and `second` of the icon archive `kind`, or `None` when the archive lacks
-/// either. Reads the unpacked folder if there is one, else the packed NARC (parsed once for
-/// both members); never unpacks.
+/// either. See [`members`].
 fn member_pair(
     project: &Project,
     kind: AssetKind,
     first: u16,
     second: u16,
 ) -> Result<Option<MemberPair>, KernelError> {
+    let [first, second] = members(project, kind, [first, second])?;
+    Ok(first.zip(second))
+}
+
+/// Members `indices` of the archive `kind`, each `None` when the archive lacks it. Reads the
+/// unpacked folder if there is one, else the packed NARC (parsed once for all members); never
+/// unpacks.
+pub(crate) fn members<const N: usize>(
+    project: &Project,
+    kind: AssetKind,
+    indices: [u16; N],
+) -> Result<[Option<Vec<u8>>; N], KernelError> {
     let dir = project.unpacked_dir(kind);
     if dir.is_dir() {
-        let read = |index: u16| {
+        let mut out = [const { None }; N];
+        for (slot, index) in out.iter_mut().zip(indices) {
             let path = dir.join(format!("{index:04}"));
-            match std::fs::read(&path) {
-                Ok(bytes) => Ok(Some(bytes)),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-                Err(e) => Err(io_at(&path)(e)),
-            }
-        };
-        return Ok(read(first)?.zip(read(second)?));
+            *slot = match std::fs::read(&path) {
+                Ok(bytes) => Some(bytes),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => return Err(io_at(&path)(e)),
+            };
+        }
+        return Ok(out);
     }
     let narc = project.read_packed(kind)?;
-    let get = |index: u16| narc.members.get(usize::from(index)).cloned();
-    Ok(get(first).zip(get(second)))
+    Ok(indices.map(|index| narc.members.get(usize::from(index)).cloned()))
 }
 
 /// The bag icon of item `item_id` as a 32 x 32 PNG (index 0 of the palette transparent).
