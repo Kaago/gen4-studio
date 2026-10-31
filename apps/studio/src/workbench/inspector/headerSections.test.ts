@@ -47,7 +47,9 @@ describe("headerSections", () => {
     for (const family of ["DP", "Pt", "HGSS"] as const) {
       const sections = headerSections(family, "erzaehlen");
       expect(sections.map((s) => [s.id, s.title])).toEqual([["ort", "Ort"]]);
-      expect(sections[0]!.specs.map((s) => s.key).sort()).toEqual(["area_data_id", "location_name", "music_day_id", "music_night_id"]);
+      // In the order of the section: the place first, then its look and music (not the struct's).
+      expect(sections[0]!.specs.map((s) => s.key)).toEqual(["location_name", "area_data_id", "music_day_id", "music_night_id"]);
+      expect(sections[0]!.specs.map((s) => s.label)).toEqual(["Ort", "Aussehen", "Musik (Tag)", "Musik (Nacht)"]);
     }
   });
 });

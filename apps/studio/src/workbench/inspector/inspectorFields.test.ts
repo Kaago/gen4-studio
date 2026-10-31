@@ -61,21 +61,21 @@ describe("the fields each depth shows", () => {
     );
     expect(lines).toMatchInlineSnapshot(`
       [
-        "DP erzaehlen ort: area_data_id music_day_id music_night_id location_name",
+        "DP erzaehlen ort: location_name area_data_id music_day_id music_night_id",
         "DP bauen maps: area_data_id matrix_id wild_pokemon event_file_id location_name location_specifier flags",
         "DP bauen look: music_day_id music_night_id weather_id camera_angle_id battle_background",
         "DP bauen texts: script_file_id level_script_id text_archive_id",
         "DP tuefteln maps: area_data_id matrix_id wild_pokemon event_file_id location_name location_specifier flags",
         "DP tuefteln look: music_day_id music_night_id weather_id camera_angle_id battle_background",
         "DP tuefteln texts: script_file_id level_script_id text_archive_id",
-        "Pt erzaehlen ort: area_data_id music_day_id music_night_id location_name",
+        "Pt erzaehlen ort: location_name area_data_id music_day_id music_night_id",
         "Pt bauen maps: area_data_id matrix_id wild_pokemon event_file_id location_name area_icon location_specifier flags",
         "Pt bauen look: music_day_id music_night_id weather_id camera_angle_id battle_background",
         "Pt bauen texts: script_file_id level_script_id text_archive_id",
         "Pt tuefteln maps: area_data_id matrix_id wild_pokemon event_file_id location_name area_icon location_specifier flags",
         "Pt tuefteln look: music_day_id music_night_id weather_id camera_angle_id battle_background",
         "Pt tuefteln texts: script_file_id level_script_id text_archive_id",
-        "HGSS erzaehlen ort: area_data_id music_day_id music_night_id location_name",
+        "HGSS erzaehlen ort: location_name area_data_id music_day_id music_night_id",
         "HGSS bauen maps: wild_pokemon area_data_id worldmap_x worldmap_y matrix_id event_file_id location_name area_icon kanto_flag location_type follow_mode flags",
         "HGSS bauen look: music_day_id music_night_id weather_id camera_angle_id battle_background",
         "HGSS bauen texts: script_file_id level_script_id text_archive_id",
@@ -102,7 +102,7 @@ describe("the fields each depth shows", () => {
 
   it("names_the_fields_of_erzaehlen_in_the_words_of_the_story", () => {
     const ort = headerSections("Pt", "erzaehlen")[0]!;
-    expect(ort.specs.map((s) => s.label)).toEqual(["Aussehen", "Musik (Tag)", "Musik (Nacht)", "Ort"]);
+    expect(ort.specs.map((s) => s.label)).toEqual(["Ort", "Aussehen", "Musik (Tag)", "Musik (Nacht)"]);
     // Bauen keeps its words.
     const bauen = headerSections("Pt", "bauen").flatMap((s) => s.specs);
     expect(bauen.find((s) => s.key === "area_data_id")?.label).toBe("Area-Data");

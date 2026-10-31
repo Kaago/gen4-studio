@@ -32,7 +32,8 @@ export interface ClearWorldWizardProps {
   /** "Zeigen": the app shows the start town in the world. */
   onShow: (report: RegionReport) => Promise<void>;
   /** "Hier spielen" on the result: after the town was shown, the app saves, builds and runs. */
-  onPlay?: () => void;  /** A next step's button on the result („Gebiet anlegen“): the app shows the town and opens that recipe's wizard. */
+  onPlay?: () => void;
+  /** A next step's button on the result („Gebiet anlegen“): the app shows the town and opens that recipe's wizard. */
   onStep?: (id: string, report: RegionReport) => void;
   /** The draft of the recipe (the border cells of the world map) while it can run (null: nothing planned): the scene and the world map draw it. */
   onDraft: (draft: DraftDto | null) => void;
