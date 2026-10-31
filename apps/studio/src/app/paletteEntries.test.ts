@@ -86,9 +86,10 @@ describe("paletteEntries", () => {
       "Attacken öffnen",
       "Bereich Gegenstände",
       "Bereich Technik",
+      "Veröffentlichen…",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken", "Veröffentlichen…"]);
     expect(entries.find((e) => e.label === "Als Vorschaubild: 3D-Ansicht")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Als Vorschaubild: Kartenbild der gewählten Karte")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Welt leeren…")?.description).toBe("Erst ein Projekt öffnen");
@@ -291,5 +292,23 @@ describe("paletteEntries", () => {
     expect(byId("cmd-gitSetup", { commands: { ...commands, gitSetup: false } })).toBeUndefined();
     expect(byId("cmd-gitSetup")).toBeUndefined();
     expect(byId("cmd-gitSetup", { hasProject: false, commands: { ...commands, gitSetup: true } })).toBeUndefined();
+  });
+
+  it("publish_and_commit_all_follow_their_state", () => {
+    const publish = byId("cmd-publish");
+    expect(publish).toMatchObject({ label: "Veröffentlichen…", icon: "publish", group: "Befehle", disabled: false, run: { kind: "command", command: "publish" } });
+    // Locked, in this order: no project, no found base ROM (its sentence), a save or build running, a wizard open.
+    expect(byId("cmd-publish", { hasProject: false, commands: { ...commands, publishLocked: "Erst eine Basis-ROM zuordnen.", busy: true } })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
+    expect(byId("cmd-publish", { commands: { ...commands, publishLocked: "Erst eine Basis-ROM zuordnen.", busy: true, wizard: true } })).toMatchObject({ disabled: true, description: "Erst eine Basis-ROM zuordnen." });
+    expect(byId("cmd-publish", { commands: { ...commands, publishLocked: null, busy: true, wizard: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
+    expect(byId("cmd-publish", { commands: { ...commands, wizard: true } })).toMatchObject({ disabled: true, description: "Erst den Assistenten abschließen oder abbrechen" });
+
+    // „Stand sichern…“ only with the project's own repository; it waits like saving.
+    expect(byId("cmd-commitAll")).toBeUndefined();
+    expect(byId("cmd-commitAll", { commands: { ...commands, commitAll: false } })).toBeUndefined();
+    expect(byId("cmd-commitAll", { hasProject: false, commands: { ...commands, commitAll: true } })).toBeUndefined();
+    const commit = byId("cmd-commitAll", { commands: { ...commands, commitAll: true } });
+    expect(commit).toMatchObject({ label: "Stand sichern…", icon: "git", group: "Befehle", disabled: false, run: { kind: "command", command: "commitAll" } });
+    expect(byId("cmd-commitAll", { commands: { ...commands, commitAll: true, busy: true } })).toMatchObject({ disabled: true, description: "Erst Speichern oder Bauen abwarten" });
   });
 });

@@ -8,10 +8,13 @@ import { checkProjectDest, createProject, defaultProjectParent, inspectRom, proj
 import { adoptTextProject, assignBase, checkBase, closeProject, externalSync, migrateTextProject, revertTextProject, textProjectStatus } from "./api";
 import { check, found } from "./technik/baseTesting";
 import { BUILD_CONFLICTS } from "./technik/syncWords";
-import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, createPatch, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
+import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
 import { gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
 import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
+import { publishPatch, releases } from "./api";
+import type { PublishOptionsDto } from "./api";
+import { publishReportOf, releasesOf } from "./publish/publishTesting";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
@@ -236,6 +239,8 @@ vi.mock("./api", async (importOriginal) => ({
   restoreTextProject: vi.fn(),
   diffEntity: vi.fn(),
   unsavedChanges: vi.fn(),
+  releases: vi.fn(),
+  publishPatch: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -1199,71 +1204,60 @@ describe("App wiring", () => {
       expect(listToasts().map((t) => [t.kind, t.text])).toEqual([["info", "Vorschaubild gesetzt"]]);
     });
 
-    it("a_running_patch_holds_bauen_and_saving_and_survives_leaving_technik", async () => {
-      const rom = "/p/build/p-CPUE.nds";
-      vi.mocked(baseStatus).mockResolvedValue({
-        state: "found",
-        mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
-        label: "Platin DE (Testprojekt)",
-        path: "/roms/p.nds",
-        source: "known",
-        patch_name: "p-CPUE",
-      });
-      let finish: (dto: Awaited<ReturnType<typeof createPatch>>) => void = () => {};
-      vi.mocked(createPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
-      vi.mocked(save).mockClear();
-      vi.mocked(buildRom).mockClear();
-      await act(async () => atlasEntry("Technik")!.click());
-      const row = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
-      await act(async () => row("Veröffentlichen").click());
-      await act(async () => {});
-      await click("Patch erstellen…");
-      await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Patch erstellen")!.click());
-      expect(createPatch).toHaveBeenCalledOnce();
-      // While it builds: the title bar's Bauen and Speichern wait, ⌘S and ⌘R start nothing, another patch cannot start.
+    it("a_release_runs_on_the_session_build_path_from_the_title_bar_and_its_rom_is_not_the_rom_of_hier_spielen", async () => {
       const titleButton = (name: string) => container.querySelector<HTMLButtonElement>(`header button[aria-label="${name}"]`);
-      // Blocked with aria-disabled (focusable, a click does nothing), not disabled.
-      expect(titleButton("Bauen")?.getAttribute("aria-disabled")).toBe("true");
-      expect(titleButton("Speichern")?.getAttribute("aria-disabled")).toBe("true");
-      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
-      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true })));
-      expect(save).not.toHaveBeenCalled();
-      expect(buildRom).not.toHaveBeenCalled();
-      expect([...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…")?.getAttribute("aria-disabled")).toBe("true");
+      const wizardButton = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
+      // Without a found base ROM (read when the project opened) the title bar's button waits and says why.
+      expect(titleButton("Veröffentlichen")?.getAttribute("aria-disabled")).toBe("true");
+      expect(titleButton("Veröffentlichen")?.getAttribute("aria-description")).toBe("Erst eine Basis-ROM zuordnen.");
+      await act(async () => titleButton("Veröffentlichen")!.click());
+      expect(releases).not.toHaveBeenCalled();
 
-      // Leaving Technik does not lose the patch: it finishes elsewhere, and its build is the session's last build, but its ROM (named in the
-      // notes) does not become the ROM „Hier spielen“ builds to.
-      await act(async () => atlasEntry("Welt")!.click());
-      await act(async () =>
-        finish({
-          patch: "/p/build/p-CPUE.xdelta",
-          notes: "/p/build/p-CPUE.xdelta.txt",
-          rom,
-          size: 812,
-          base_sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4",
-          target_sha1: "aa",
-          encode_ms: 1,
-          verify_ms: 1,
-          build: { saved: 0, packed: [], rom, compiled: [], encoded: [], problems: [], steps: [], ms: 0 },
-        }),
-      );
-      expect(titleButton("Bauen")?.disabled).toBe(false);
-      expect(titleButton("Bauen")?.hasAttribute("aria-disabled")).toBe(false);
+      // The base is found (Technik reads it again when it shows): the wizard opens and reads the releases list.
+      vi.mocked(baseStatus).mockResolvedValue(found({ patch_name: "p-CPUE" }));
       await act(async () => atlasEntry("Technik")!.click());
       await act(async () => {});
-      expect(row("Veröffentlichen").textContent).toContain("Patch erstellt");
-      expect(container.querySelector("[data-patch-card]")?.textContent).toContain("Patch erstellt: 812 Byte");
+      expect(titleButton("Veröffentlichen")?.hasAttribute("aria-disabled")).toBe(false);
+      vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build" }));
+      let finish: (report: ReturnType<typeof publishReportOf>) => void = () => {};
+      vi.mocked(publishPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+      vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      vi.mocked(buildRom).mockClear();
+      await act(async () => titleButton("Veröffentlichen")!.click());
+      await act(async () => {});
+      expect(releases).toHaveBeenCalledOnce();
+      await act(async () => wizardButton("Weiter")!.click());
+      await act(async () => wizardButton("Weiter")!.click());
+      const opts: PublishOptionsDto = { version: "0.1.0", notes: "", dir: "/p/build", file: "p-v0.1.0.xdelta", readme: false };
+      expect(vi.mocked(publishPatch).mock.calls[0]![0]).toEqual(opts);
+      // On the session's build path: the store saved first, Bauen and Speichern wait while it runs, ⌘S saves nothing more.
+      expect(save).toHaveBeenCalledOnce();
+      expect(titleButton("Bauen")?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      expect(save).toHaveBeenCalledOnce();
+      expect(buildRom).not.toHaveBeenCalled();
+
+      const done = publishReportOf(opts);
+      await act(async () => finish(done));
+      await act(async () => {});
+      expect(container.querySelector("[data-publish-step]")?.getAttribute("data-publish-step")).toBe("check");
+      await act(async () => wizardButton("Fertig")!.click());
+      expect(container.textContent).toContain("Veröffentlicht: v0.1.0");
+      vi.mocked(baseStatus).mockClear();
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("[data-wizard] button")].find((b) => b.textContent === "Schließen")!.click());
+      await act(async () => {});
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      // After a release the base status is read again.
+      expect(baseStatus).toHaveBeenCalled();
+
+      // Its build is the session's last build, but its ROM (named in the notes) is not the ROM „Hier spielen“ builds to.
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      const row = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
       expect(row("Prüfen und Bauen").textContent).toContain("gebaut");
       await act(async () => row("Prüfen und Bauen").click());
       expect(container.querySelector("[data-technik]")?.textContent).toContain("gerade eben");
-      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
-      expect(createPatch).toHaveBeenCalledOnce();
-      // The steps are named as the patch build's, with its ROM relative to the project; a normal build afterwards takes the line away.
-      expect(container.querySelector("[data-steps-source]")?.textContent).toBe("Build von „Patch erstellen“ nach build/p-CPUE.nds");
-      vi.mocked(savePath).mockResolvedValue("/out.nds");
-      vi.mocked(buildRom).mockResolvedValue({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 });
-      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("[data-technik] button")].find((b) => b.textContent === "Bauen")!.click());
-      expect(container.querySelector("[data-steps-source]")).toBeNull();
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(done.patch.rom);
     });
 
     describe("keyboard focus through a text conflict", () => {

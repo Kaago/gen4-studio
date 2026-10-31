@@ -42,7 +42,9 @@ export type PaletteCommand =
   | "importParts"
   | "previewFrom3d"
   | "previewFromMap"
-  | "gitSetup";
+  | "gitSetup"
+  | "publish"
+  | "commitAll";
 
 /** What picking an entry does: follow a link (`goTo`) or run a command. */
 export type PaletteRun = { kind: "goTo"; target: NavTarget } | { kind: "command"; command: PaletteCommand };
@@ -75,6 +77,10 @@ export interface CommandState {
   wizard: boolean;
   /** The open project lies in no Git repository (its status read): „Git einrichten…“ is offered. Not given: not offered. */
   gitSetup?: boolean;
+  /** Why „Veröffentlichen…“ waits (no found base ROM, a broken releases list); null or not given: it can open. */
+  publishLocked?: string | null;
+  /** The project's own repository is there: „Stand sichern…“ is offered. Not given: not offered. */
+  commitAll?: boolean;
 }
 
 export interface PaletteData {
@@ -120,7 +126,7 @@ const usedBy = (ids: readonly number[], first = true) => `${first ? "Verwendet" 
 type CommandSpec = { command: PaletteCommand; label: string; icon: IconName; area?: PickerItem["area"]; shortcut?: string; description?: string; locked?: string | null };
 
 function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[] {
-  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, placeShown, wizard, gitSetup = false } = commands;
+  const { busy, hasList, inApp, deck, docked, inspectorFloats, cellChosen, placeShown, wizard, gitSetup = false, publishLocked = null, commitAll = false } = commands;
   // Why a command that works on the open project cannot run now (null: it can).
   const project = !hasProject ? NO_PROJECT : busy ? BUSY : null;
   // Only the world's dock has the Werkbank and an inspector; every dock has the Doppeldeck.
@@ -182,6 +188,10 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "technik", label: "Bereich Technik", icon: "tech", area: "technik" },
     // Only for a project in no repository (never a repository inside one); it commits the saved state, so it waits like saving.
     ...(hasProject && gitSetup ? [{ command: "gitSetup", label: "Git einrichten…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
+    // The wizard builds and writes the release on the session's build path: it waits for a found base ROM, a save or build, and another wizard.
+    { command: "publish", label: "Veröffentlichen…", icon: "publish", locked: !hasProject ? NO_PROJECT : (publishLocked ?? (busy ? BUSY : wizard ? WIZARD_OPEN : null)) },
+    // Only with the project's own repository; it commits the saved state, so it waits like saving.
+    ...(hasProject && commitAll ? [{ command: "commitAll", label: "Stand sichern…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
   ];
   return specs.map(({ command, label, icon, area, shortcut, description, locked }) => ({
     id: `cmd-${command}`,

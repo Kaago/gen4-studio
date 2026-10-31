@@ -30,6 +30,7 @@ import { SettingsArea } from "./einstellungen/SettingsArea";
 import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
+import { publishLocked as publishLockOf } from "./publish/publishWords";
 import { useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
@@ -64,7 +65,7 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { getMatrix, listScriptFiles, redo, textProjectStatus, undo } from "./api";
+import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
@@ -326,9 +327,18 @@ function AppBody() {
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
   const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
-  // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. The patch
-  // builds on the session's build path, so open, save and build wait for it like for a build.
-  const base = useBase({ project: session.info?.root ?? null, active: area === "technik", createPatch: session.buildPatch });
+  // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. A release
+  // („Veröffentlichen“) builds on the session's build path (`session.publish`); the old patch card runs its own command until 4.5 replaces it.
+  const base = useBase({ project: session.info?.root ?? null, active: area === "technik" });
+  // „Veröffentlichen“ waits for a found base ROM (the title bar's button says why): the status is read when a project opens too, not only
+  // when Technik shows.
+  const openedInfo = session.info;
+  useEffect(() => {
+    if (openedInfo !== null) void base.refresh();
+  }, [openedInfo]);
+  const publishLock = session.info === null ? null : publishLockOf(base.status);
+  // „Stand sichern…“ from the result of „Veröffentlichen“: its subject and notes (the dialog comes with the next step of 4.5).
+  const [, setCommitPreset] = useState<{ message: string; notes: string } | null>(null);
   // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
   const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
@@ -706,6 +716,27 @@ function AppBody() {
   function openProject() {
     if (!session.busy && wizards.request === null && !startOpen) void session.onOpen(resetProject);
   }
+  /** „Veröffentlichen…“ (title bar, palette): the wizard, with a project whose base ROM is found, while nothing else runs. */
+  function openPublish() {
+    if (session.info && !session.busy && wizards.request === null && !startOpen && publishLock === null) wizards.open({ kind: "publish" });
+  }
+  /** The wizard is left; after a release the base status is read again (and, with 4.5's list, the releases). */
+  function closePublish(published: boolean) {
+    wizards.close();
+    if (published) void base.refresh();
+  }
+  /** „Im Finder zeigen“ of a release file; the browser mode has no file manager to open. */
+  const revealRelease = useStableCallback(async (path: string) => {
+    if (!inTauri()) {
+      toast.info("Nur in der App.");
+      return;
+    }
+    try {
+      await revealPath(path);
+    } catch (e) {
+      toast.error(errorText(e));
+    }
+  });
   /**
    * "Öffnen" on the result of "Neues Spiel aus ROM": opens the new project (asking before unsaved edits go); the wizard closes when the
    * project is open (see above). Refused or failed: the wizard stays on its result.
@@ -1027,9 +1058,12 @@ function AppBody() {
           placeShown,
           wizard: wizards.request !== null,
           gitSetup: git.status?.repo.kind === "none",
+          publishLocked: publishLock,
+          // „Stand sichern…“ comes with its dialog (the next step of 4.5).
+          commitAll: false,
         },
       }),
-    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status],
+    [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status, publishLock],
   );
   // „Als Vorschaubild“ (phase 4.0 §3.5), from the palette and from the tab menu of „3D“ and „Weltkarte“: the 3D view's picture or the chosen
   // map's picture becomes the project's own preview, said in a toast. Technik takes it at once (`previewWritten`), Start when it shows next.
@@ -1149,6 +1183,12 @@ function AppBody() {
         break;
       case "gitSetup":
         if (session.info && git.status?.repo.kind === "none") openGitSetup(false);
+        break;
+      case "publish":
+        openPublish();
+        break;
+      case "commitAll":
+        // Not offered yet (`commitAll: false`): the dialog „Stand sichern?“ comes with the next step of 4.5.
         break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
@@ -1311,6 +1351,8 @@ function AppBody() {
                     onOpen={openProject}
                     onSave={() => void session.onSave()}
                     onBuild={() => void session.onBuild()}
+                    onPublish={openPublish}
+                    publishLocked={publishLock}
                     onHelp={onHelp}
                     onPalette={openPalette}
                     paletteDisabled={showsWizard || startOpen}
@@ -1387,6 +1429,16 @@ function AppBody() {
           unsaved={session.dirtyCount + scripts.dirtyCount}
           onSave={session.onSave}
           onRegionApplied={onRegionApplied}
+          publish={{
+            gitOwn: git.status?.repo.kind === "own",
+            onPublish: session.publish,
+            onReveal: revealRelease,
+            onCommit: (preset) => {
+              setCommitPreset(preset);
+              closePublish(true);
+            },
+            onClose: closePublish,
+          }}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />

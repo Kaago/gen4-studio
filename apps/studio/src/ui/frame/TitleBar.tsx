@@ -15,6 +15,10 @@ export type TitleBarProps = {
   onOpen: () => void;
   onSave: () => void;
   onBuild: () => void;
+  /** Opens the wizard „Veröffentlichen“. */
+  onPublish: () => void;
+  /** Why „Veröffentlichen“ waits (no found base ROM): shown as hint, the button is aria-disabled. Null: it can open. */
+  publishLocked: string | null;
   onHelp: () => void;
   /** Opens the command palette (also ⌘K). */
   onPalette: () => void;
@@ -31,7 +35,7 @@ const unsavedText = (n: number) => `${n} ${n === 1 ? "Änderung" : "Änderungen"
  * The 40 px bar on top. Its row (and every text in it, since Tauri drags only by the element that carries the attribute)
  * is a drag region; the buttons are not.
  */
-export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, onBuild, onHelp, onPalette, paletteDisabled = false, theme, onToggleTheme }: TitleBarProps) {
+export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, onBuild, onPublish, publishLocked, onHelp, onPalette, paletteDisabled = false, theme, onToggleTheme }: TitleBarProps) {
   const open = projectName !== null;
   const inset = isMacTauri();
   return (
@@ -67,6 +71,7 @@ export function TitleBar({ projectName, game, dirtyCount, busy, onOpen, onSave, 
       <div className={styles.right} data-tauri-drag-region="">
         <IconButton label="Speichern" icon="save" shortcut="⌘S" disabled={!open} busy={busy} onClick={onSave} />
         <IconButton label="Bauen" icon="build" disabled={!open} busy={busy} onClick={onBuild} />
+        <IconButton label="Veröffentlichen" icon="publish" disabled={!open} busy={busy || publishLocked !== null} hint={open ? (publishLocked ?? undefined) : undefined} onClick={onPublish} />
         <IconButton label="Thema wechseln" icon={theme === "hell" ? "moon" : "sun"} onClick={onToggleTheme} />
         <IconButton label="Hilfe" icon="help" onClick={onHelp} />
       </div>

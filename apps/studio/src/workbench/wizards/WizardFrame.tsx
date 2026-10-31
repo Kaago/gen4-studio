@@ -43,6 +43,8 @@ export type WizardFrameProps = {
   showLabel?: string;
   /** "Hier spielen" beside "Zeigen". */
   onPlay?: () => void;
+  /** A last step that is the result itself ("Fertig"): a pill after the steps, ticked once the result shows; the last step still submits. */
+  resultTitle?: string;
 };
 
 /** Where Enter belongs to the control itself (it presses, picks or breaks the line) and never moves the wizard on. */
@@ -75,7 +77,7 @@ const resting = () => document.activeElement === null || document.activeElement 
  * its typed text, a button, a list) or it lands in a text area; Escape cancels by the rules of `escapeCloses` (a field takes back its
  * typed text first); Cmd+[ goes back. Opening puts the focus on the step's first control, closing gives it back to where it was.
  */
-export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, showLabel = "Zeigen", onPlay }: WizardFrameProps) {
+export function WizardFrame({ title, icon, steps, step, onStep, busy, error = null, summary, irreversible = false, result = null, submitLabel, onSubmit, onCancel, onShow, showLabel = "Zeigen", onPlay, resultTitle }: WizardFrameProps) {
   const titleId = useId();
   const frame = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
@@ -87,6 +89,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   const current = steps[step];
   const done = result !== null;
   const last = step === steps.length - 1;
+  // The pills of the bar: the steps, then the result's own when it has one.
+  const titles = resultTitle === undefined ? steps.map((s) => s.title) : [...steps.map((s) => s.title), resultTitle];
 
   const latest = useRef({ step, busy, done, last, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel });
   latest.current = { step, busy, done, last, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel };
@@ -149,8 +153,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   }, [step, done, busy]);
 
   useEffect(() => {
-    wizardStatus.set({ step, count: steps.length, title: current?.title ?? "", done });
-  }, [step, steps.length, current?.title, done]);
+    wizardStatus.set({ step, count: titles.length, title: current?.title ?? "", done });
+  }, [step, titles.length, current?.title, done]);
   useEffect(() => () => wizardStatus.set(null), []);
 
   const stepBar = (
@@ -159,7 +163,8 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
         titleId={titleId}
         title={title}
         icon={icon}
-        steps={steps.map((s) => s.title)}
+        steps={titles}
+        submitAt={steps.length - 1}
         step={step}
         done={done}
         busy={busy}

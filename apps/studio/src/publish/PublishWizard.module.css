@@ -1,0 +1,42 @@
+/* „Veröffentlichen“: the parts of its steps beside the shared ones of `WizardStep.module.css`. */
+
+/* Version and file name: a field up to a readable width. */
+.field {
+  width: 100%;
+  max-width: 320px;
+}
+
+/* The change notes take the column's width. */
+.notes {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* The place of the release, as a path. */
+.path {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+}
+
+/* „Speichern und bauen …“: what runs now. */
+.progress {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* What is handed on: the files with their sizes. */
+.table {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* The result with „Stand sichern…“ below it. */
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-12);
+}

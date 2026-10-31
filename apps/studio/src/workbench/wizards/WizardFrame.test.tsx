@@ -281,4 +281,23 @@ describe("WizardFrame", () => {
     act(() => root.render(null));
     expect(wizardStatus.get()).toBeNull();
   });
+
+  it("a_result_title_is_a_last_pill_after_the_steps_and_the_last_step_still_submits", () => {
+    const pills = () => [...container.querySelectorAll('[aria-label="Schritte"] li')].map((li) => [li.getAttribute("aria-label"), li.getAttribute("data-state")]);
+    show({ start: 2, resultTitle: "Fertig" });
+    expect(pills()).toEqual([
+      ["1. Quelle", "done"],
+      ["2. Anordnung", "done"],
+      ["3. Zusammenfassung", "current"],
+      ["4. Fertig", "open"],
+    ]);
+    // The last real step carries the submit button and Enter submits; the status line counts the result too.
+    expect(button("Anlegen")).toBeDefined();
+    expect(button("Weiter")).toBeUndefined();
+    act(() => button("Anlegen")!.click());
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(wizardStatus.get()).toEqual({ step: 2, count: 4, title: "Zusammenfassung", done: false });
+    show({ start: 2, resultTitle: "Fertig", result: <p>Veröffentlicht.</p> });
+    expect(pills().every(([, state]) => state === "done")).toBe(true);
+  });
 });

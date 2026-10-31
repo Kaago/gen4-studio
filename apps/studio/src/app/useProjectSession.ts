@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, closeProject as closeBackendProject, createPatch, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
-import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, PatchDto, ProjectInfo, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
+import { acceptDisk, buildRom, closeProject as closeBackendProject, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, publishPatch, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
+import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo, PublishOptionsDto, PublishPhase, PublishReportDto, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
 import { formatSeconds } from "../technik/stepWords";
 import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
@@ -120,7 +120,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   const [lastSteps, setLastSteps] = useState<BuildStep[] | null>(null);
   /** Whether the last build was started with „Neu bauen (ohne Cache)“. */
   const [lastBuildFresh, setLastBuildFresh] = useState(false);
-  /** The ROM of the last build when that was the one of „Patch erstellen“ (its steps are the last steps); null when the last build was a normal one. */
+  /** The ROM of the last build when that was the one of a release (its steps, when it answered them, are the last steps); null when the last build was a normal one. */
   const [lastPatchRom, setLastPatchRom] = useState<string | null>(null);
   /** The error texts the builds of this session showed: a successful build closes their toasts (errors stay until closed otherwise). */
   const buildErrors = useRef(new Set<string>());
@@ -447,15 +447,16 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   /**
    * The one build path of the session: `busy` while it runs (the app's open, save and build guards read it), the open scripts saved first
    * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
-   * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or `create_patch`, which builds before it writes the
-   * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache), its ROM becomes the last ROM
-   * only with `ownsRom` (a patch's ROM is not „Hier spielen“'s target: building there would change the ROM its notes name; it is remembered as
-   * `lastPatchRom` so the steps say whose they are), and the unsaved edits are read again. A compile failure puts its problems into the store;
-   * every failure is thrown on. Answers what `run` answered and how many store files were saved ahead of the scripts.
+   * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or a release, which builds before it writes the
+   * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache; a release answers no steps and
+   * no problems: the steps are unknown then, the problems stay), its ROM becomes the last ROM only with `ownsRom` (a release's ROM is not „Hier
+   * spielen“'s target: building there would change the ROM its notes name; it is remembered as `lastPatchRom` so the steps say whose they
+   * are), and the unsaved edits are read again. A compile failure puts its problems into the store; every failure is thrown on. Answers what
+   * `run` answered and how many store files were saved ahead of the scripts.
    */
   async function guardedBuild<R>(
     run: () => Promise<R>,
-    reportOf: (result: R) => BuildReport,
+    reportOf: (result: R) => Pick<BuildReport, "rom"> & Partial<Pick<BuildReport, "steps" | "problems">>,
     ownsRom: boolean,
     fresh = false,
   ): Promise<{ result: R; storeSaved: number }> {
@@ -475,10 +476,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       const report = reportOf(result);
       if (ownsRom) setLastRom(report.rom);
       setLastBuiltAt(Date.now());
-      setLastSteps(report.steps);
+      setLastSteps(report.steps ?? null);
       setLastBuildFresh(fresh);
       setLastPatchRom(ownsRom ? null : report.rom);
-      problems.applyBuildReport(report.problems);
+      if (report.problems) problems.applyBuildReport(report.problems);
       return { result, storeSaved };
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") problems.applyReport(e.problems ?? []);
@@ -588,12 +589,17 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
   }
 
   /**
-   * „Patch erstellen“ (Technik › Veröffentlichen) on the session's build path: saving, Bauen and opening wait for it, and its build counts
-   * as the last build (time, steps, problems), but the ROM it built (`build/<Name>.nds`, named with its SHA-1 in the notes) does not become
-   * the last ROM, so „Hier spielen“ never builds over it. A failure is thrown on: the patch card says why.
+   * „Veröffentlichen“ on the session's build path: saving, Bauen and opening wait for it, the store is saved first (the backend publishes the
+   * saved state and refuses unsaved changes), and its build counts as the last build (its time), but the ROM it built (`build/<Name>.nds`,
+   * named with its SHA-1 in the notes) does not become the last ROM, so „Hier spielen“ never builds over it. `onProgress` follows the phases.
+   * A refusal or failure is thrown on: the wizard says why.
    */
-  async function buildPatch(): Promise<PatchDto> {
-    return (await guardedBuild(createPatch, (dto) => dto.build, false)).result;
+  async function publish(opts: PublishOptionsDto, onProgress: (p: { phase: PublishPhase }) => void): Promise<PublishReportDto> {
+    const run = async () => {
+      await saveStore();
+      return publishPatch(opts, onProgress);
+    };
+    return (await guardedBuild(run, (report) => ({ rom: report.patch.rom }), false)).result;
   }
 
   /**
@@ -704,7 +710,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     currentRoot,
     onSave,
     onBuild,
-    buildPatch,
+    publish,
     resolveConflicts,
     cancelConflicts,
     onPickEmulator,

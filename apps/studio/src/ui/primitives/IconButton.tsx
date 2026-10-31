@@ -15,14 +15,16 @@ export type IconButtonProps = {
   disabled?: boolean;
   /** Blocked for a moment (a build runs): looks disabled through `aria-disabled` but keeps keyboard focus; a click does nothing. */
   busy?: boolean;
+  /** Why it is blocked, or what else to know: the tooltip's second line and the `aria-description`. */
+  hint?: string;
   onClick: () => void;
 };
 
-export function IconButton({ label, icon, shortcut, pressed, disabled, busy = false, onClick }: IconButtonProps) {
+export function IconButton({ label, icon, shortcut, pressed, disabled, busy = false, hint, onClick }: IconButtonProps) {
   const click = () => {
     if (!busy) onClick();
   };
-  const tip = (
+  const name = (
     <>
       {label}
       {shortcut && (
@@ -33,16 +35,27 @@ export function IconButton({ label, icon, shortcut, pressed, disabled, busy = fa
       )}
     </>
   );
+  const tip = hint ? (
+    <span className={styles.tip}>
+      <span data-tip-line="">{name}</span>
+      <span className={styles.hint} data-tip-line="">
+        {hint}
+      </span>
+    </span>
+  ) : (
+    name
+  );
   const glyph = <Icon name={icon} weight={pressed ? "fill" : "regular"} />;
   const button =
     pressed === undefined ? (
-      <button type="button" className={styles.button} aria-label={label} aria-disabled={busy || undefined} disabled={disabled} onClick={click}>
+      <button type="button" className={styles.button} aria-label={label} aria-description={hint} aria-disabled={busy || undefined} disabled={disabled} onClick={click}>
         {glyph}
       </button>
     ) : (
       <Toggle
         className={styles.button}
         aria-label={label}
+        aria-description={hint}
         pressed={pressed}
         aria-disabled={busy || undefined}
         disabled={disabled}

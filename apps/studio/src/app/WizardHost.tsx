@@ -1,6 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { World } from "../workbench/worldModel";
 import type { AdoptProgressDto, AdoptReportDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, ScriptsStatusDto, WarpLink } from "../api";
+import { errorText, releases } from "../api";
+import type { ReleasesDto } from "../api";
+import { PublishWizard } from "../publish/PublishWizard";
+import type { PublishWizardProps } from "../publish/PublishWizard";
 import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
 import { useShell } from "../ui/frame/ShellContext";
 import { buildPlaces } from "../workbench/places";
@@ -43,7 +47,11 @@ interface Props {
   onSave: () => Promise<void>;
   /** "Welt leeren" went in: the world is read again as after ⌘Z. */
   onRegionApplied: (report: RegionReport) => Promise<void>;
+  /** „Veröffentlichen“: what the wizard needs of the app; the host reads the releases list itself when the wizard opens. */
+  publish: PublishHostProps;
 }
+
+type PublishHostProps = Omit<PublishWizardProps, "defaults" | "defaultsError">;
 
 /** The source matrix: the request's, else the selected header's (and then that header's cells are selected). */
 function areaPrefill(requested: { matrix?: number } | undefined, selected: Props["selected"]): { matrix?: number; header?: number } {
@@ -121,5 +129,23 @@ export function WizardHost(props: Props) {
           onPlay={onPlay}
         />
       );
+    case "publish":
+      return <PublishHost {...props.publish} />;
   }
+}
+
+/** „Veröffentlichen“ with the releases list, read once when it opens (its proposal, the stem, the default place, the versions taken). */
+function PublishHost(props: PublishHostProps) {
+  const [list, setList] = useState<{ defaults: ReleasesDto | null; error: string | null }>({ defaults: null, error: null });
+  useEffect(() => {
+    let live = true;
+    releases().then(
+      (defaults) => live && setList({ defaults, error: null }),
+      (e) => live && setList({ defaults: null, error: errorText(e) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return <PublishWizard {...props} defaults={list.defaults} defaultsError={list.error} />;
 }
