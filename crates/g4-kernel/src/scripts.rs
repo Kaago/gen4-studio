@@ -1009,22 +1009,7 @@ pub fn new_script_file_reported(
         SourceKind::LevelScript => ScriptSource::LevelScript(LevelScriptDoc::default()),
         SourceKind::Binary => return Err(KernelError::NotEditable(AssetKind::Script)),
     };
-    let members = ensure_members(project)?;
-    let sources = project.expanded_dir(AssetKind::Script);
-    let highest = [
-        numbered_files(&members, None)?.last().copied(),
-        numbered_files(&sources, Some("rotom"))?.last().copied(),
-        numbered_files(&sources, Some("json"))?.last().copied(),
-    ]
-    .into_iter()
-    .flatten()
-    .max();
-    let file = match highest {
-        None => 0,
-        Some(n) => n
-            .checked_add(1)
-            .ok_or_else(|| KernelError::InvalidProject("no free script file number".into()))?,
-    };
+    let file = next_script_file(project)?;
     write_source(project, file, &source)?;
     let path = source_path(project, file, kind);
     let report = compile(project).inspect_err(|_| {
@@ -1039,6 +1024,27 @@ pub fn new_script_file_reported(
         return Err(KernelError::Compile(problems));
     }
     Ok((file, report.touched_archives))
+}
+
+/// The number [`new_script_file`] gives the next file: one above every member and every
+/// source (0 without any).
+pub fn next_script_file(project: &Project) -> Result<u16, KernelError> {
+    let members = ensure_members(project)?;
+    let sources = project.expanded_dir(AssetKind::Script);
+    let highest = [
+        numbered_files(&members, None)?.last().copied(),
+        numbered_files(&sources, Some("rotom"))?.last().copied(),
+        numbered_files(&sources, Some("json"))?.last().copied(),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    match highest {
+        None => Ok(0),
+        Some(n) => n
+            .checked_add(1)
+            .ok_or_else(|| KernelError::InvalidProject("no free script file number".into())),
+    }
 }
 
 /// The rotom AST of a source, parsed fault-tolerantly (a half-written file still yields its
@@ -1745,6 +1751,163 @@ pub fn reset_script(
     let step = script_step(project, file, base_member)?;
     write_script_step(project, &step)?;
     Ok(step)
+}
+
+// ---------------------------------------------------------------------------------------
+// Recipe steps
+// ---------------------------------------------------------------------------------------
+
+/// A script file as it is on disk: its sources, its member and its compile-state entry (each
+/// `None` when absent). The entry is the one of the rotom source, else of the level script
+/// source; `None` without a source.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScriptSnapshot {
+    pub rotom: Option<Vec<u8>>,
+    pub json: Option<Vec<u8>>,
+    pub member: Option<Vec<u8>>,
+    pub entry: Option<serde_json::Value>,
+}
+
+/// The source whose compile-state entry stands for script file `file`: the rotom source when
+/// `rotom`, else the level script source when `json`, else none.
+fn entry_source(project: &Project, file: u16, rotom: bool, json: bool) -> Option<PathBuf> {
+    match (rotom, json) {
+        (true, _) => Some(source_path(project, file, SourceKind::Script)),
+        (false, true) => Some(source_path(project, file, SourceKind::LevelScript)),
+        (false, false) => None,
+    }
+}
+
+/// Script file `file` as it is on disk now, see [`ScriptSnapshot`]. A file that does not
+/// exist yet is all `None`.
+pub fn snapshot_script(project: &Project, file: u16) -> Result<ScriptSnapshot, KernelError> {
+    let rotom = read_if_present(&source_path(project, file, SourceKind::Script))?;
+    let json = read_if_present(&source_path(project, file, SourceKind::LevelScript))?;
+    let member = current_member(project, file)?;
+    let entry = match entry_source(project, file, rotom.is_some(), json.is_some()) {
+        Some(source) => state_entry(project, &source)?,
+        None => None,
+    };
+    Ok(ScriptSnapshot {
+        rotom,
+        json,
+        member,
+        entry,
+    })
+}
+
+/// The step from `before` to what is on disk now, kind `Recipe`; a path absent on one side is
+/// `None` there. Only the files that differ are in it; the compile-state entry is the one of
+/// the source there is now (else the one there was), when it changed.
+pub fn script_file_step(
+    project: &Project,
+    file: u16,
+    before: &ScriptSnapshot,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind, RotomEntryChange};
+
+    let now = snapshot_script(project, file)?;
+    let source = entry_source(project, file, now.rotom.is_some(), now.json.is_some())
+        .or_else(|| entry_source(project, file, before.rotom.is_some(), before.json.is_some()));
+    let files = [
+        (
+            source_path(project, file, SourceKind::Script),
+            &before.rotom,
+            now.rotom,
+        ),
+        (
+            source_path(project, file, SourceKind::LevelScript),
+            &before.json,
+            now.json,
+        ),
+        (member_file(project, file), &before.member, now.member),
+    ]
+    .into_iter()
+    .filter(|(_, before, after)| *before != after)
+    .map(|(path, before, after)| FileChange {
+        path,
+        before: before.clone(),
+        after,
+    })
+    .collect();
+    let rotom_entry = match source {
+        Some(source) => {
+            let key = state_key(project, &source);
+            let after = state_entry(project, &key)?;
+            (after != before.entry).then(|| RotomEntryChange {
+                source: key,
+                before: before.entry.clone(),
+                after,
+            })
+        }
+        None => None,
+    };
+    Ok(FileStep {
+        asset: crate::project::AssetId {
+            kind: AssetKind::Script,
+            index: file,
+        },
+        files,
+        rotom_entry,
+        kind: FileStepKind::Recipe,
+    })
+}
+
+/// A text archive as it is on disk: its JSON (`expanded/textArchives/NNNN.json`) and its
+/// member, each `None` when absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArchiveSnapshot {
+    pub json: Option<Vec<u8>>,
+    pub member: Option<Vec<u8>>,
+}
+
+/// Text archive `archive` as it is on disk now, see [`ArchiveSnapshot`].
+pub fn snapshot_archive(project: &Project, archive: u16) -> Result<ArchiveSnapshot, KernelError> {
+    Ok(ArchiveSnapshot {
+        json: read_if_present(&crate::text::json_path(project, archive))?,
+        member: read_if_present(&project.member_path(AssetKind::TextArchive, archive))?,
+    })
+}
+
+/// The step of a text archive from `before` to the files on disk now (kind `Recipe`, asset the
+/// archive): its JSON and its member, those that differ.
+pub fn archive_file_step(
+    project: &Project,
+    archive: u16,
+    before: &ArchiveSnapshot,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind};
+
+    let now = snapshot_archive(project, archive)?;
+    let files = [
+        (
+            crate::text::json_path(project, archive),
+            &before.json,
+            now.json,
+        ),
+        (
+            project.member_path(AssetKind::TextArchive, archive),
+            &before.member,
+            now.member,
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, before, after)| *before != after)
+    .map(|(path, before, after)| FileChange {
+        path,
+        before: before.clone(),
+        after,
+    })
+    .collect();
+    Ok(FileStep {
+        asset: crate::project::AssetId {
+            kind: AssetKind::TextArchive,
+            index: archive,
+        },
+        files,
+        rotom_entry: None,
+        kind: FileStepKind::Recipe,
+    })
 }
 
 // ---------------------------------------------------------------------------------------

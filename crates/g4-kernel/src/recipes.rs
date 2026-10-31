@@ -2,13 +2,15 @@
 //! „Gebiet erweitern“, „Welt leeren“ — each with a `plan` that runs every check of the
 //! application and answers a [`Draft`] without writing anything, and an `apply` that creates
 //! the new members first (not undoable; [`Outcome::created`]) and then makes every edit as
-//! **one** undo step. [`area`], [`room`] and [`extend`] hold one recipe each, with its input
-//! (the spec the wizard builds) and its report; [`types`] holds what they share. [`plan`] and
+//! **one** undo step. [`area`], [`room`], [`extend`] and [`empty_region`] hold one recipe
+//! each, with its input (the spec the wizard builds, none for the empty region) and its
+//! report; [`types`] holds what they share. [`plan`] and
 //! [`apply`] dispatch a [`RecipeCall`] (recipe and JSON input) to them, as MCP and `g4k` call
 //! them; [`list`] names the recipes, [`is_irreversible`] says what an application would do
 //! that undo does not take back.
 
 pub mod area;
+pub mod empty_region;
 pub mod extend;
 pub mod room;
 pub mod types;
@@ -44,14 +46,6 @@ pub fn list() -> Vec<RecipeInfo> {
             irreversible: id == RecipeId::EmptyRegion,
         })
         .collect()
-}
-
-/// The refusal of a recipe that is listed but not wired into [`plan`] and [`apply`] yet.
-fn not_wired(recipe: RecipeId) -> KernelError {
-    KernelError::Refused(format!(
-        "{} ist noch nicht als Rezept angeschlossen",
-        recipe.title()
-    ))
 }
 
 /// The input of `call` as its recipe reads it; input of another shape is refused.
@@ -93,7 +87,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::CreateArea => area::plan(store, &input(call)?),
         RecipeId::CreateRoom => room::plan(store, &input(call)?),
         RecipeId::ExtendArea => extend::plan(store, &input(call)?),
-        RecipeId::EmptyRegion => Err(not_wired(call.recipe)),
+        RecipeId::EmptyRegion => empty_region::plan(store, &input(call)?),
     }
 }
 
@@ -103,6 +97,6 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::CreateArea => area::apply(store, &input(call)?)?.into_dto(),
         RecipeId::CreateRoom => room::apply(store, &input(call)?)?.into_dto(),
         RecipeId::ExtendArea => extend::apply(store, &input(call)?)?.into_dto(),
-        RecipeId::EmptyRegion => Err(not_wired(call.recipe)),
+        RecipeId::EmptyRegion => empty_region::apply(store, &input(call)?)?.into_dto(),
     }
 }

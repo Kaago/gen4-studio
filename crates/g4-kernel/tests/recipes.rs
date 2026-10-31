@@ -1,5 +1,6 @@
 //! The recipes module: the list, `plan` (a draft, nothing written) and `apply` (members first,
-//! then one undo step) of "Gebiet anlegen", "Raum anlegen" and "Gebiet erweitern".
+//! then one undo step) of "Gebiet anlegen", "Raum anlegen" and "Gebiet erweitern"; "Welt leeren"
+//! is tested in `tests/templates.rs`.
 //!
 //! Synthetic tests run on `test_support::synthetic_project()` (3 maps, matrix 0 of 2 x 1, 2
 //! headers, 2 event files). The gated test (`G4_TEST_PROJECT`, Platinum DE only) plans and
@@ -599,6 +600,38 @@ fn is_irreversible_follows_allow_patch_and_empty_region() {
     assert_eq!(empty.input, json!({}));
     // Input that is no spec of the recipe is refused.
     assert!(recipes::is_irreversible(&call("create_room", json!({ "name": 1 }))).is_err());
+}
+
+/// `empty_region` goes to `recipes::empty_region` (its own tests are in `tests/templates.rs`,
+/// on the synthetic world there): on the bare synthetic project, whose town T01 has no cell in
+/// matrix 0, plan and apply answer the recipe's refusal and write nothing (reading the town's
+/// name unpacks the text archives).
+#[test]
+fn empty_region_is_planned_and_applied_by_its_module() {
+    let s = common::synthetic_project();
+    let mut store = store_of(s.dir.path());
+    let before = untouched(&store, s.dir.path());
+    let call: RecipeCall = serde_json::from_value(json!({ "recipe": "empty_region" })).unwrap();
+    for result in [
+        recipes::plan(&mut store, &call).map(|_| ()),
+        recipes::apply(&mut store, &call).map(|_| ()),
+    ] {
+        match result {
+            Err(KernelError::Refused(why)) => {
+                assert_eq!(why, "start town T01 has no cell in matrix 0")
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+    let now = untouched(&store, s.dir.path());
+    assert_eq!(
+        (now.undo_depth, now.dirty, now.counts),
+        (before.undo_depth, before.dirty, before.counts)
+    );
+    assert!(
+        now.files == before.files,
+        "a file outside unpacked/ changed"
+    );
 }
 
 /// Gated (Platinum DE only): the room of `pt-raum-assistent.yaml` — a new header 593 as a copy
