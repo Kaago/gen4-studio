@@ -62,6 +62,8 @@ export interface WorldMapContext {
    * matrix the recipe creates (`matrix` null) show on no grid.
    */
   draft?: DraftDto | null;
+  /** Sets the draft: the dialog „Karte bei … anlegen?“ plans its new cell while it is open. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 const CELL_SIZE = 32;
@@ -496,6 +498,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
     onEdited,
     onCountsChanged,
     draft,
+    onDraft,
   } = context;
   useCacheProgress(cache, onLoadStatus);
 
@@ -770,6 +773,7 @@ export const WorldMapPanel = memo(function WorldMapPanel({ context }: { context:
           depth={depth}
           headers={headers}
           counts={counts}
+          onDraft={onDraft}
           onDone={(report) => {
             setExtendAt(null);
             if (report) void afterExtend(extendMatrix.index);

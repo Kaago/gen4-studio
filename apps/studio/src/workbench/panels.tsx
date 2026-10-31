@@ -314,7 +314,7 @@ export function MatrixTab() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const info = d.info;
   const sceneMatrix = d.matrix?.index ?? null;
-  const { goTo, onMatrixEdited, onCountsChanged, onError, headers, areaDataId, memberCounts, bus } = d;
+  const { goTo, onMatrixEdited, onCountsChanged, onError, onDraft, headers, areaDataId, memberCounts, bus } = d;
   // The pictures of the grid come from the app-wide cache; it must not show another project's or tileset's.
   useThumbnailReset(bus, info?.root ?? null, thumbnails);
   // A missing apicula shows once in the status strip (spec §4.4), not as a placeholder tooltip alone.
@@ -334,8 +334,9 @@ export function MatrixTab() {
       onEdited: onMatrixEdited,
       onCountsChanged,
       onError,
+      onDraft,
     }),
-    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError],
+    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError, onDraft],
   );
   return <MatrixPanel context={context} />;
 }
@@ -347,7 +348,7 @@ export function WorldMapTab() {
   const pinnedCell = useMatrixSelection();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged, draft } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged, draft, onDraft } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
     () => ({
@@ -370,8 +371,9 @@ export function WorldMapTab() {
       onEdited: onMatrixEdited,
       onCountsChanged,
       draft,
+      onDraft,
     }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged, draft],
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged, draft, onDraft],
   );
   return <WorldMapPanel context={context} />;
 }

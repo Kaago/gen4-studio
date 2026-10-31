@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createArea, errorText } from "../../api";
-import type { AreaReport, AreaSpec, HeaderFamily, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
+import type { AreaReport, AreaSpec, DraftDto, HeaderFamily, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, WarpLink } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Checkbox, Notice, Segmented, SelectField, TextField } from "../../ui/primitives";
@@ -11,10 +11,12 @@ import { TERMS, id4 } from "../terms";
 import type { World } from "../worldModel";
 import { targetBlock } from "../worldMapView";
 import { useStableCallback } from "../../app/useStable";
+import { DraftNotes } from "./DraftNotes";
 import { HeaderChoice } from "./HeaderChoice";
 import { PatchConsent, patchReady } from "./PatchConsent";
 import { PlaceStep } from "./PlaceStep";
 import type { PlaceStepValue } from "./PlaceStep";
+import { useDraftPlan } from "./useDraftPlan";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { PickGrid } from "./PickGrid";
 import { PlaceOnWorldMap } from "./PlaceOnWorldMap";
@@ -53,6 +55,8 @@ interface Props {
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
   onPlay?: () => void;  /** A next step's button on the result (its recipe runs): the app shows what was made and opens that recipe's wizard. */
   onStep?: (id: string, report: AreaReport, spec: AreaSpec) => void;
+  /** The draft of the area as planned (null: nothing planned): the scene and the world map draw it until the wizard closes or creates. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 type Outcome = { kind: "done"; report: AreaReport; spec: AreaSpec } | { kind: "partial"; message: string };
@@ -79,7 +83,7 @@ const OWN_MAP = "own";
 const gridLabel = (what: string, matrix: { width: number; height: number }) => `${what}, ${matrix.height} Zeilen, ${matrix.width} Spalten`;
 
 /** "Gebiet anlegen": copies maps of an existing matrix into a new one and, if asked, gives it to a header. */
-export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onStep }: Props) {
+export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, prefill, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onStep, onDraft }: Props) {
   const [stored, setForm] = useState<AreaForm>(() => ({ ...emptyAreaForm, sourceMatrix: prefill?.matrix ?? null }));
   const building = !depthAtLeast(depth, "tuefteln");
   // Bauen always makes a new header with an empty event file: what Tüfteln chose does not count there.
@@ -124,6 +128,8 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
   const target = form.worldMap !== null && form.target?.matrix === form.worldMap ? form.target : null;
   const block = targetMatrix && target ? targetBlock(targetMatrix, target, layout.width, layout.height, layout.cells) : null;
   const placed = form.worldMap === null || block?.ok === true;
+  // What the area will be, planned by the kernel from the same spec „Anlegen“ sends; gone once it is made.
+  const plan = useDraftPlan("create_area", outcome === null && "spec" in built && placed ? built.spec : null, onDraft);
   const previewTileset = previewArea(form, headers, source);
   const selectedKeys = useMemo(() => new Set(form.selected.map((c) => cellKey(c.x, c.y))), [form.selected]);
   // The place and colour of every header, built once: a grid asks for each of its cells.
@@ -393,6 +399,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
+          <DraftNotes draft={plan.draft} error={plan.error} />
           {building && <PatchConsent patch={patch.patch} error={patch.error} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />}
         </section>
       ),

@@ -903,7 +903,7 @@ function AppBody() {
     afterMapImport(map, { bus, invalidate: (m) => thumbnails.invalidate(m), refreshDirty: () => session.refreshDirty() }),
   );
   // What an open wizard plans (its recipe's draft): the scene and the world map draw it dashed until the wizard closes or creates.
-  const [draft] = useState<DraftDto | null>(null);
+  const [draft, setDraft] = useState<DraftDto | null>(null);
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -922,6 +922,7 @@ function AppBody() {
     checks,
     dataStore,
     draft,
+    onDraft: setDraft,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
@@ -1404,6 +1405,7 @@ function AppBody() {
           unsaved={session.dirtyCount + scripts.dirtyCount}
           onSave={session.onSave}
           onRegionApplied={onRegionApplied}
+          onDraft={setDraft}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />

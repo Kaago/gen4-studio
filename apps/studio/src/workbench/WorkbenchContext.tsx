@@ -148,6 +148,8 @@ export interface WorkbenchData {
   dataStore: DataStore;
   /** What an open wizard plans (null: nothing): the scene and the world map draw it dashed. */
   draft: DraftDto | null;
+  /** Sets the draft: the dialog „Karte bei … anlegen?“ plans its new cell (a stable function). */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

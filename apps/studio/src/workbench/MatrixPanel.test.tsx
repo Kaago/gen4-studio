@@ -62,6 +62,7 @@ describe("MatrixPanel", () => {
     goTo,
     onEdited,
     onCountsChanged,
+    onDraft: vi.fn(),
     onError,
     ...over,
   });

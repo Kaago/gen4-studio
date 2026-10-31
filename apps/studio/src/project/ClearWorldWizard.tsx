@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { applyEmptyRegion, errorText, nameTables, planEmptyRegion } from "../api";
-import type { AdoptProgressDto, AdoptReportDto, RegionPlan, RegionReport, ScriptsStatusDto } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, DraftDto, RegionPlan, RegionReport, ScriptsStatusDto } from "../api";
 import { Notice } from "../ui/primitives";
 import { AdoptProgress } from "../workbench/script/AdoptBox";
 import { nextStepsFor } from "../workbench/recipes";
 import { TERMS, id4 } from "../workbench/terms";
+import { DraftNotes } from "../workbench/wizards/DraftNotes";
+import { useDraftPlan } from "../workbench/wizards/useDraftPlan";
 import { DoneResult } from "../workbench/wizards/WizardResult";
 import { WizardFrame } from "../workbench/wizards/WizardFrame";
 import type { WizardStep } from "../workbench/wizards/WizardFrame";
@@ -29,10 +31,14 @@ export interface ClearWorldWizardProps {
   /** "Hier spielen" on the result: after the town was shown, the app saves, builds and runs. */
   onPlay?: () => void;  /** A next step's button on the result („Gebiet anlegen“): the app shows the town and opens that recipe's wizard. */
   onStep?: (id: string, report: RegionReport) => void;
+  /** The draft of the recipe (the border cells of the world map) while it can run (null: nothing planned): the scene and the world map draw it. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 type PlanState = { kind: "loading" } | { kind: "ready"; plan: RegionPlan } | { kind: "failed"; message: string };
 
+/** The empty region takes no input. */
+const EMPTY_REGION_INPUT = {};
 const ADOPT_FIRST = "Dafür müssen die Scripts übernommen sein.";
 const SAVE_FIRST = "Speichere zuerst, das Rezept schreibt Scripts direkt auf die Platte.";
 const ALREADY_EMPTY = "Die Welt ist schon leer.";
@@ -70,7 +76,7 @@ function borderLine(n: number): string {
 const starterLine = (plan: RegionPlan, species: string) => `Ein Start-Script gibt dir ${species} auf Level ${plan.starter_level}, den Pokédex und die Laufschuhe.`;
 
 /** "Welt leeren": the empty-region recipe on the open project. Shows what stays and what goes, clears what is in the way, then applies it. */
-export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep }: ClearWorldWizardProps) {
+export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep, onDraft }: ClearWorldWizardProps) {
   const [planState, setPlanState] = useState<PlanState>({ kind: "loading" });
   // The species names of the project; null: not read (or not readable), the starter goes by its number.
   const [species, setSpecies] = useState<readonly string[] | null>(null);
@@ -167,6 +173,8 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
   const speciesName = plan ? species?.[plan.starter_species]?.trim() || `Art ${plan.starter_species}` : "";
   const lines = plan ? [townLine(plan), emptiedLine(plan.emptied.length), borderLine(plan.border_cells), starterLine(plan, speciesName)] : [];
   const ready = plan !== null && !empty && !touched && scripts?.adopted === true && unsaved === 0 && adopting === null && !saving;
+  // The recipe's draft while „Welt leeren“ can run; gone once it ran.
+  const preview = useDraftPlan("empty_region", ready && report === null ? EMPTY_REGION_INPUT : null, onDraft);
 
   let what;
   if (planState.kind === "loading") {
@@ -262,6 +270,7 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
               ))}
             </div>
           </Notice>
+          <DraftNotes draft={preview.draft} error={preview.error} />
         </section>
       ),
     },

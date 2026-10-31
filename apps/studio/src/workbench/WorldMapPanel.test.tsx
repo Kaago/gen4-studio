@@ -95,6 +95,7 @@ describe("WorldMapPanel", () => {
     counts: { Map: 600 },
     onEdited: vi.fn(),
     onCountsChanged: vi.fn(),
+    onDraft: vi.fn(),
     ...extra,
   });
   const show = async (ctx: WorldMapContext) => {

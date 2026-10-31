@@ -3,12 +3,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEmptyRegion, nameTables, planEmptyRegion } from "../api";
-import type { AdoptProgressDto, AdoptReportDto, NameTablesDto, RegionPlan, RegionReport } from "../api";
+import { applyEmptyRegion, nameTables, planEmptyRegion, recipePlan } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, DraftDto, NameTablesDto, RegionPlan, RegionReport } from "../api";
 import { ClearWorldWizard } from "./ClearWorldWizard";
 import type { ClearWorldWizardProps } from "./ClearWorldWizard";
+import { DRAFT_DEBOUNCE_MS } from "../workbench/wizards/useDraftPlan";
 
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), planEmptyRegion: vi.fn(), applyEmptyRegion: vi.fn(), nameTables: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), planEmptyRegion: vi.fn(), applyEmptyRegion: vi.fn(), nameTables: vi.fn(), recipePlan: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -35,6 +36,18 @@ const PLAN: RegionPlan = {
   already_empty: false,
 };
 const REPORT: RegionReport = { plan: PLAN, border_map: 666, level_script: 1234, start_script: [1052, 10], change: 7, changed: [{ kind: "Matrix", index: 0 }] };
+/** The draft of the empty region as the kernel plans it: the border cells of world map 0 (two of 467 here). */
+const DRAFT: DraftDto = {
+  cells: [
+    { matrix: 0, x: 2, y: 27, source_map: 0 },
+    { matrix: 0, x: 4, y: 27, source_map: 0 },
+  ],
+  tiles: [],
+  events: [],
+  messages: [{ archive: 433, text: "Willkommen!" }],
+  notes: ["Behält Zweiblattdorf mit 6 Räumen; 536 Header werden geleert."],
+  irreversible: ["Karte 0000 wird als Rand-Karte kopiert"],
+};
 const ADOPTED = { adopted: true, file_count: 10 };
 const NOT_ADOPTED = { adopted: false, file_count: 10 };
 const species = Array.from({ length: 494 }, (_, i) => `Art${i}`);
@@ -52,6 +65,7 @@ describe("ClearWorldWizard", () => {
     onShow: vi.fn<ClearWorldWizardProps["onShow"]>(),
     onPlay: vi.fn<NonNullable<ClearWorldWizardProps["onPlay"]>>(),
     onStep: vi.fn<NonNullable<ClearWorldWizardProps["onStep"]>>(),
+    onDraft: vi.fn<ClearWorldWizardProps["onDraft"]>(),
   };
   beforeEach(() => {
     container = document.createElement("div");
@@ -60,6 +74,7 @@ describe("ClearWorldWizard", () => {
     vi.mocked(planEmptyRegion).mockReset().mockResolvedValue(PLAN);
     vi.mocked(applyEmptyRegion).mockReset().mockResolvedValue(REPORT);
     vi.mocked(nameTables).mockReset().mockResolvedValue(NAMES);
+    vi.mocked(recipePlan).mockReset().mockResolvedValue(DRAFT);
     for (const fn of Object.values(handlers)) fn.mockReset();
     handlers.onSave.mockResolvedValue(undefined);
     handlers.onApplied.mockResolvedValue(undefined);
@@ -68,6 +83,7 @@ describe("ClearWorldWizard", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   const wizard = (over: Partial<ClearWorldWizardProps> = {}) => <ClearWorldWizard scripts={ADOPTED} unsaved={0} {...handlers} {...over} />;
@@ -216,5 +232,45 @@ describe("ClearWorldWizard", () => {
     expect(area.disabled).toBe(false);
     await click(area);
     expect(handlers.onStep).toHaveBeenCalledExactlyOnceWith("create_area", REPORT);
+  });
+
+  it("shows_the_border_cells_as_draft_when_ready", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await show({ scripts: NOT_ADOPTED });
+    // The scripts are not adopted yet: nothing to plan.
+    await settle();
+    expect(recipePlan).not.toHaveBeenCalled();
+    await act(async () => root.render(wizard({ scripts: ADOPTED })));
+    await settle();
+    expect(recipePlan).toHaveBeenCalledExactlyOnceWith("empty_region", {});
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(DRAFT);
+    await click(button("Weiter"));
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Behält Zweiblattdorf mit 6 Räumen; 536 Header werden geleert.");
+    expect(notes?.textContent).toContain("Karte 0000 wird als Rand-Karte kopiert");
+    // Unsaved edits stand in the way again: the draft goes at once.
+    await act(async () => root.render(wizard({ scripts: ADOPTED, unsaved: 2 })));
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(null);
+    await act(async () => root.render(wizard({ scripts: ADOPTED })));
+    await settle();
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(DRAFT);
+    // Applied: the result shows, the draft is gone.
+    await click(button("Welt leeren"));
+    await flush();
+    expect(text()).toContain("Welt geleert");
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("clears_the_draft_on_cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // The host takes the wizard away when it closes.
+    handlers.onClose.mockImplementation(() => root.render(null));
+    await show();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(DRAFT);
+    await click(button("Abbrechen"));
+    expect(handlers.onClose).toHaveBeenCalledOnce();
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(null);
   });
 });

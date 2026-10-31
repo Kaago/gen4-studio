@@ -3,15 +3,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, tileBehaviors } from "../../api";
-import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, recipePlan, tileBehaviors } from "../../api";
+import type { DraftDto, EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { visibleWords } from "../../ui/visibleText";
 import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
+import { DRAFT_DEBOUNCE_MS } from "./useDraftPlan";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []), placeSlots: vi.fn(), getTextArchive: vi.fn(), recipePlan: vi.fn() }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -37,6 +38,15 @@ const matrices = [summary(0, true), summary(2, false), summary(3, false), summar
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
+// The plan of the room as the kernel answers it: the new matrix (null) and, on the village, the door and its tile.
+const planned: DraftDto = {
+  cells: [{ matrix: null, x: 0, y: 0, source_map: 321 }],
+  tiles: [{ matrix: 0, x: 12, z: 7 }],
+  events: [{ kind: "warp", matrix: 0, x: 12, z: 7, look: null, target: { header: 3, warp: 0 } }],
+  messages: [],
+  notes: ["Legt Raum „Neuer Raum“ als Kopie von Karte 0321 an.", "Der Raum entsteht auf einer neuen Weltkarte."],
+  irreversible: ["Karte 0321 wird kopiert", "Eine neue Weltkarte wird angelegt"],
+};
 const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
@@ -57,6 +67,7 @@ describe("NewRoomWizard", () => {
   const onError = vi.fn();
   const lastTile = vi.fn();
   const onHeaderPatch = vi.fn();
+  const onDraft = vi.fn<(draft: DraftDto | null) => void>();
   let lockedFiles: Record<number, string>;
   beforeEach(() => {
     container = document.createElement("div");
@@ -78,6 +89,8 @@ describe("NewRoomWizard", () => {
       .mockImplementation(async (index) => ({ index, buildings: [], permissions: Array.from({ length: 1024 }, (_, i): [number, number] => (index === 321 && i === 6 * 32 + 5 ? [0x65, 0] : [0, 0])) }));
     vi.mocked(getEvents).mockReset().mockImplementation(async (file) => events(file, lockedFiles[file] ?? null));
     vi.mocked(createRoom).mockReset().mockResolvedValue(report);
+    vi.mocked(recipePlan).mockReset().mockResolvedValue(planned);
+    onDraft.mockReset();
     onClose.mockReset();
     onCreated.mockReset().mockResolvedValue(undefined);
     onError.mockReset();
@@ -92,12 +105,13 @@ describe("NewRoomWizard", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }, depth: Depth = "tuefteln") {
     await act(async () =>
       root.render(
-        <NewRoomWizard depth={depth} headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth={depth} headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />,
       ),
     );
     await flush();
@@ -481,7 +495,7 @@ describe("NewRoomWizard", () => {
     const unknown = buildPlaces(headers, []);
     await act(async () =>
       root.render(
-        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />,
       ),
     );
     await flush();
@@ -757,5 +771,62 @@ describe("NewRoomWizard", () => {
     await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createRoom).not.toHaveBeenCalled();
+  });
+
+  it("shows_the_draft_while_the_entrance_is_complete_and_clears_it_on_cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    // The host takes the wizard away when it closes.
+    onClose.mockImplementation(() => root.render(null));
+    await show();
+    // No template yet: nothing to plan.
+    await settle();
+    expect(recipePlan).not.toHaveBeenCalled();
+    await toEntrance();
+    await settle();
+    expect(recipePlan).toHaveBeenLastCalledWith("create_room", {
+      name: "Neuer Raum",
+      source_map: 321,
+      clear_buildings: false,
+      header: { id: 3, area_data_id: 4, event_file: "New" },
+      entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6, door_tiles: true },
+    });
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await next();
+    expect(current()).toBe("4. Zusammenfassung");
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Der Raum entsteht auf einer neuen Weltkarte.");
+    expect(notes?.textContent).toContain("Nicht rückgängig");
+    expect(notes?.textContent).toContain("Karte 0321 wird kopiert, Eine neue Weltkarte wird angelegt");
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(onClose).toHaveBeenCalledWith(false);
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("warns_when_the_plan_fails_and_still_creates", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(recipePlan).mockRejectedValue({ code: "error", message: "Karte 0321 fehlt", asset: null });
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await next();
+    expect(container.textContent).toContain("Vorschau nicht möglich: Karte 0321 fehlt");
+    expect(onDraft).not.toHaveBeenCalledWith(expect.objectContaining({ notes: expect.anything() }));
+    await click(button("Anlegen"));
+    expect(createRoom).toHaveBeenCalledOnce();
+    // The result is shown: no draft any more.
+    expect(container.querySelector("[data-draft-notes]")).toBeNull();
+  });
+
+  it("clears_the_draft_once_the_room_is_created", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await next();
+    await click(button("Anlegen"));
+    expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
+    expect(onDraft).toHaveBeenLastCalledWith(null);
   });
 });

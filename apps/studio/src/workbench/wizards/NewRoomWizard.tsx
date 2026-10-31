@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoom, errorText } from "../../api";
-import type { HeaderFamily, HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
+import type { DraftDto, HeaderFamily, HeaderSummary, MatrixSummary, MemberCounts, RoomReport, RoomSpec, WarpLink } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, Checkbox, ListRow, Notice, NumberField, Reference, TextField, useRovingList } from "../../ui/primitives";
@@ -15,10 +15,12 @@ import { TERMS, id4 } from "../terms";
 import { useEvents } from "../useEvents";
 import { useMatrix } from "../useMatrix";
 import { useWarpTile } from "../warpTile";
+import { DraftNotes } from "./DraftNotes";
 import { HeaderChoice } from "./HeaderChoice";
 import { PatchConsent, patchReady } from "./PatchConsent";
 import { PlaceStep } from "./PlaceStep";
 import type { PlaceStepValue } from "./PlaceStep";
+import { useDraftPlan } from "./useDraftPlan";
 import { useHeaderPatch } from "./useHeaderPatch";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
@@ -59,6 +61,8 @@ interface Props {
   /** "Hier spielen" on the result: after it was shown, the app saves, builds and runs. */
   onPlay?: () => void;  /** A next step's button on the result (its recipe runs): the app shows what was made and opens that recipe's wizard. */
   onStep?: (id: string, report: RoomReport, spec: RoomSpec) => void;
+  /** The draft of the room as planned (null: nothing planned): the scene and the world map draw it until the wizard closes or creates. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 type Outcome = { kind: "done"; report: RoomReport; spec: RoomSpec } | { kind: "partial"; message: string };
@@ -84,7 +88,7 @@ function withTemplate(form: RoomForm, template: HeaderSummary): RoomForm {
 const clampTile = (n: number) => Math.min(MAP_LAST_TILE, Math.max(0, n));
 
 /** "Raum anlegen": copies a room into a new matrix, gives it to a header and, if asked, puts a door pair between it and an outside header. */
-export function NewRoomWizard({ depth, headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onStep }: Props) {
+export function NewRoomWizard({ depth, headers, links, counts, matrices, matricesLoaded, matricesFailed, shownMatrix, places, prefill, lastTile, onClose, onCreated, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onStep, onDraft }: Props) {
   // Where the pointer was when the wizard opened; the door outside starts there, if that tile is in the outside header's matrix.
   const [hovered] = useState(lastTile);
   const [stored, setForm] = useState<RoomForm>(() => {
@@ -177,6 +181,8 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
     outsideWarps: outsideEvents?.warps,
     keptWarps,
   });
+  // What the room will be, planned by the kernel from the same spec „Anlegen“ sends; gone once it is made.
+  const plan = useDraftPlan("create_room", outcome === null && "spec" in built ? built.spec : null, onDraft);
 
   const candidates = useMemo(() => {
     const outside = places.flatMap((p) => p.headers).filter((h) => h.kind === "outside" || h.header.id === prefill?.outsideHeader);
@@ -478,6 +484,7 @@ export function NewRoomWizard({ depth, headers, links, counts, matrices, matrice
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
+          <DraftNotes draft={plan.draft} error={plan.error} />
           {building && <PatchConsent patch={patch.patch} error={patch.error} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />}
         </section>
       ),

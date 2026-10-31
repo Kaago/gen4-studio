@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { World } from "../workbench/worldModel";
-import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, DraftDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
 import { ClearWorldWizard, clearedAnnouncement } from "../project/ClearWorldWizard";
 import { useShell } from "../ui/frame/ShellContext";
 import { buildPlaces } from "../workbench/places";
@@ -44,6 +44,8 @@ interface Props {
   onSave: () => Promise<void>;
   /** "Welt leeren" went in: the world is read again as after ⌘Z. */
   onRegionApplied: (report: RegionReport) => Promise<void>;
+  /** The open wizard's draft (null: none, or the wizard closed or created): the app hands it to the scene and the world map. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 /** The source matrix: the request's, else the selected header's (and then that header's cells are selected). */
@@ -57,7 +59,7 @@ function areaPrefill(requested: { matrix?: number } | undefined, selected: Props
  * slots); the host lives beside the workbench, not in it, so opening, typing and closing a wizard re-renders none of the workbench's panels.
  */
 export function WizardHost(props: Props) {
-  const { wizards, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay } = props;
+  const { wizards, world, headers, matrices, matricesLoaded, matricesFailed, links, counts, selected, shownMatrix, lastTile, onHeaderPatch, onHeaderPatchRepaired, onError, onPlay, onDraft } = props;
   const { request, open, close, created } = wizards;
   // Bauen gives a new area or room a place and a look; Tüfteln lets the user choose its header.
   const depth = useShell().viewDepth;
@@ -95,6 +97,7 @@ export function WizardHost(props: Props) {
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
           onPlay={onPlay}
+          onDraft={onDraft}
         />
       );
     case "room":
@@ -118,6 +121,7 @@ export function WizardHost(props: Props) {
           onHeaderPatchRepaired={onHeaderPatchRepaired}
           onError={onError}
           onPlay={onPlay}
+          onDraft={onDraft}
         />
       );
     case "clearWorld":
@@ -132,6 +136,7 @@ export function WizardHost(props: Props) {
           onShow={(report) => created(regionMade(report))}
           onStep={(id, report) => step(id, regionMade(report))}
           onPlay={onPlay}
+          onDraft={onDraft}
         />
       );
   }

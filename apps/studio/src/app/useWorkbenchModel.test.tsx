@@ -138,6 +138,7 @@ function Model({ pin = pinned, hover: _hover, message, showEvents = true, depth 
     checks,
     dataStore,
     draft: null,
+    onDraft: noop,
     view: { ...view, showEvents, depth },
   });
   onModel(model);
