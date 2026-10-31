@@ -1,0 +1,17 @@
+# Where the save block lies in RAM, per game code (Gutachten B section 4.2, measured with the
+# g4emu core by comparing the save file with RAM after `continue`).
+#   pointer:     address of a u32 that points at the general block of the save. The pointer is
+#                fixed for a session, but the block it points at moves by up to 0xB4 bytes
+#                between two starts (heap), so always read through the pointer, never from a fixed
+#                address. Before the save is loaded the pointer is not valid.
+#   header:      bytes between the pointer target and the first field the layout counts from.
+#   vars:        offset of the variables from there, vars_count u16 values; variable v is the u16
+#                at 2 * (v - 0x4000).
+#   flags:       offset of the flags from there, flags_bytes bytes; flag n is bit n % 8 of byte
+#                n / 8.
+# The second exact copy of the save (0x0236D6xx on Platinum, 0x023775xx on HeartGold) is the read
+# buffer of the map, it is not live and must not be used.
+# scripts/g4emu/g4emu/games.yaml carries the same values under `save_block` (a test compares them).
+CPUD: { pointer: 0x02101EE0, header: 0x14, vars: 0xDAC, vars_count: 288, flags: 0xFEC, flags_bytes: 364 }
+IPKD: { pointer: 0x02111860, header: 0x10, vars: 0xDE4, vars_count: 368, flags: 0x10C4, flags_bytes: 364 }
+IPKE: { pointer: 0x02111880, header: 0x10, vars: 0xDE4, vars_count: 368, flags: 0x10C4, flags_bytes: 364 }

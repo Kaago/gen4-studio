@@ -7,6 +7,7 @@ mod disk;
 pub mod dynamic_headers;
 pub mod error;
 pub mod export;
+pub mod flags;
 mod fsutil;
 pub mod git;
 pub mod map_import;

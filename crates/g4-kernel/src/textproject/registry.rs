@@ -41,6 +41,8 @@ pub fn registry_file(kind: SymbolKind) -> Option<&'static str> {
         | SymbolKind::Item
         | SymbolKind::Ability
         | SymbolKind::Type => None,
+        // The flags and variables get their registers with their own names.
+        SymbolKind::Flag | SymbolKind::Var => None,
     }
 }
 

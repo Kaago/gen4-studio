@@ -1,0 +1,49 @@
+# Ranges of event flags and variables per game family. Source: Gutachten B section 1.5
+# (docs/research/2026-10-30-phase-3d/gutachten-b-flags-variablen-live.md), the limits checked
+# against the pret names at the borders: Platinum 0x2DA is the first and 0x3F5 the last
+# FLAG_OBTAINED_HIDDEN_..., HeartGold HIDDEN_ITEMS_FLAG_BASE is 0x320 and NUM_HIDDEN_ITEMS is 231
+# (0x320 + 230 = 0x406); TRAINER_FLAG_BASE is 0x550 and the trainer flags run to 0x95F
+# (arm9_tables.yaml: trainer_flag_start 0x550, trainer_flag_capacity 1040).
+#
+# All limits are inclusive. A number belongs to the narrowest range that holds it, so
+# `hidden_items` (inside `general`) wins over `general`. Numbers in no range are "outside"
+# (flag 0 means "no flag", variables below 0x4000 do not exist).
+#
+# flags_end / vars_end are exclusive: the save block holds the flags 1..flags_end (0xB60 = 2912
+# flags = 364 bytes) and the variables 0x4000..vars_end (Platinum 0x4120 = 288 variables, HeartGold
+# 0x4170 = 368; HeartGold's VARS_END names the last variable 0x416F). `script_local` and the
+# HeartGold temporary flags are not part of the save block.
+#
+# Diamond/Pearl: not checked against a ROM, taken as Platinum.
+pt:
+  flags_end: 0xB60
+  vars_end: 0x4120
+  flags:
+    - { area: map_local, start: 0x001, end: 0x040 }
+    - { area: general, start: 0x041, end: 0x54F }
+    - { area: hidden_items, start: 0x2DA, end: 0x3F5 }
+    - { area: trainer, start: 0x550, end: 0x95F }
+    - { area: system, start: 0x960, end: 0xA9F }
+    - { area: daily, start: 0xAA0, end: 0xB5F }
+  vars:
+    - { area: map_local, start: 0x4000, end: 0x401F }
+    - { area: object_gfx, start: 0x4020, end: 0x402F }
+    - { area: general, start: 0x4030, end: 0x411F }
+    - { area: script_local, start: 0x8000, end: 0x8010 }
+hgss:
+  flags_end: 0xB60
+  vars_end: 0x4170
+  flags:
+    - { area: map_local, start: 0x001, end: 0x03F }
+    - { area: general, start: 0x040, end: 0x54F }
+    - { area: hidden_items, start: 0x320, end: 0x406 }
+    - { area: trainer, start: 0x550, end: 0x95F }
+    - { area: system, start: 0x960, end: 0xA9F }
+    - { area: daily, start: 0xAA0, end: 0xB5F }
+    - { area: temp, start: 0x4000, end: 0x403F }
+  vars:
+    - { area: map_local, start: 0x4000, end: 0x401F }
+    - { area: object_gfx, start: 0x4020, end: 0x402F }
+    - { area: general, start: 0x4030, end: 0x416F }
+    - { area: script_local, start: 0x8000, end: 0x800D }
+dp: { like: pt }
