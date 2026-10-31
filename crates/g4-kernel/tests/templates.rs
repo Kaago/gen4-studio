@@ -970,7 +970,13 @@ fn undo_refuses_a_script_changed_meanwhile() {
     let (_s, mut store) = ready_world();
     // A second handle on the project, for its paths while the store is borrowed mutably.
     let project = Project::open(&store.project().root).unwrap();
+    let depth = store.undo_depth();
     empty_region::apply(&mut store, &EmptyRegionInput::default()).unwrap();
+    assert_eq!(store.undo_depth(), depth + 1);
+    let applied = (
+        store.current_bytes(HEADERS).unwrap(),
+        store.current_bytes(MATRIX_0).unwrap(),
+    );
     let source = project.root.join(TOWN_SOURCE);
     let mut text = std::fs::read_to_string(&source).unwrap();
     text.push_str("\n// by hand\n");
@@ -980,6 +986,100 @@ fn undo_refuses_a_script_changed_meanwhile() {
     assert!(why.contains("Scriptdatei 0000"), "{why}");
     let differ = differing(&script_files(&project), &changed);
     assert!(differ.is_empty(), "differ: {differ:?}");
+    // The step left the history; the store keeps the empty region it had.
+    assert_eq!(store.undo_depth(), depth);
+    assert_ne!(
+        store.history().0.last().map(String::as_str),
+        Some(REGION_LABEL)
+    );
+    assert_eq!(
+        (
+            store.current_bytes(HEADERS).unwrap(),
+            store.current_bytes(MATRIX_0).unwrap(),
+        ),
+        applied
+    );
+}
+
+/// rotom's compile state file, relative to the root.
+const STATE_FILE: &str = ".rotom/status/compile-state.json";
+
+/// A compile after the recipe writes rotom's compile state anew (every entry gets a new time,
+/// the entries another order) without changing what it says: undo and redo still restore
+/// every file byte for byte, the compile state as the step wrote it.
+#[test]
+fn undo_and_redo_after_a_compile_restore_every_file() {
+    let (_s, mut store) = ready_world();
+    // A second handle on the project, for its paths while the store is borrowed mutably.
+    let project = Project::open(&store.project().root).unwrap();
+    // The plan unpacks the text archive members (it loads the location bank), as a DSPRE
+    // project has them anyway.
+    plan_empty_region(&mut store).unwrap();
+    let before = script_files(&project);
+    empty_region::apply(&mut store, &EmptyRegionInput::default()).unwrap();
+    let applied = script_files(&project);
+    let state = std::path::Path::new(STATE_FILE);
+
+    let report = scripts::compile(&project).unwrap();
+    assert!(report.compiled.is_empty(), "{report:?}");
+    let compiled = script_files(&project);
+    assert_ne!(compiled.files.get(state), applied.files.get(state));
+
+    store.undo().unwrap();
+    let differ = differing(&script_files(&project), &before);
+    assert!(differ.is_empty(), "differ after undo: {differ:?}");
+
+    // A compile while undone, then redo: the state after apply again.
+    scripts::compile(&project).unwrap();
+    assert_ne!(
+        script_files(&project).files.get(state),
+        before.files.get(state)
+    );
+    store.redo().unwrap();
+    let differ = differing(&script_files(&project), &applied);
+    assert!(differ.is_empty(), "differ after redo: {differ:?}");
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some(REGION_LABEL)
+    );
+}
+
+/// A compile state that says something else after the recipe (here: another command
+/// database, after a compile) makes undo refuse: it names rotom's compile state (not the
+/// town's script) and writes nothing; the step leaves the history.
+#[test]
+fn undo_refuses_a_compile_state_changed_meanwhile() {
+    let (_s, mut store) = ready_world();
+    // A second handle on the project, for its paths while the store is borrowed mutably.
+    let project = Project::open(&store.project().root).unwrap();
+    let depth = store.undo_depth();
+    empty_region::apply(&mut store, &EmptyRegionInput::default()).unwrap();
+    let applied = (
+        store.current_bytes(HEADERS).unwrap(),
+        store.current_bytes(MATRIX_0).unwrap(),
+    );
+    scripts::compile(&project).unwrap();
+    let path = project.root.join(STATE_FILE);
+    let mut state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    state["db_hash"] = serde_json::json!(1);
+    std::fs::write(&path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+    let changed = script_files(&project);
+
+    let why = refused(store.undo());
+    assert!(why.contains("Übersetzungsstand der Scripts"), "{why}");
+    assert!(why.contains(STATE_FILE), "{why}");
+    assert!(!why.contains("Scriptdatei"), "{why}");
+    let differ = differing(&script_files(&project), &changed);
+    assert!(differ.is_empty(), "differ: {differ:?}");
+    assert_eq!(store.undo_depth(), depth);
+    assert_eq!(
+        (
+            store.current_bytes(HEADERS).unwrap(),
+            store.current_bytes(MATRIX_0).unwrap(),
+        ),
+        applied
+    );
 }
 
 #[test]
@@ -1085,6 +1185,30 @@ fn vanilla_empty_region_has_no_check_errors() {
     assert!(plan_empty_region(&mut store).unwrap().already_empty);
 }
 
+/// „Git einrichten“ as the Studio does it, when Git is installed: the adopted project is the
+/// first commit, so `git status` after undo names what undo leaves. False without Git.
+fn commit_project(project: &Project) -> bool {
+    g4_kernel::git::find_git().is_some_and(|cli| {
+        g4_kernel::git::git_init(project, Some(&cli), &Default::default(), &mut |_| {})
+            .unwrap()
+            .committed
+    })
+}
+
+/// `git status --porcelain --untracked-files=all` in `root`, line by line.
+fn git_status(root: &std::path::Path) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Gated: one undo takes the world back, its scripts, text archives and rotom's compile state
 /// included (the border map stays, the only path `git status` names); redo brings the empty
 /// region back. Every text archive the compile touched must
@@ -1097,25 +1221,8 @@ fn vanilla_empty_region_undo_restores_the_world() {
     };
     let project = Arc::new(Project::open(&root).unwrap());
     scripts::adopt(&project, &mut |_| {}).unwrap();
-    // „Git einrichten“ as the Studio does it (when Git is installed): the adopted project is
-    // the first commit, so `git status` after undo names what undo leaves.
-    let committed = g4_kernel::git::find_git().is_some_and(|cli| {
-        g4_kernel::git::git_init(&project, Some(&cli), &Default::default(), &mut |_| {})
-            .unwrap()
-            .committed
-    });
-    let git_status = || {
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["status", "--porcelain", "--untracked-files=all"])
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
-    };
+    let committed = commit_project(&project);
+    let git_status = || git_status(&root);
     if committed {
         assert_eq!(git_status(), Vec::<String>::new());
     }
@@ -1205,7 +1312,9 @@ fn vanilla_empty_region_undo_restores_the_world() {
     assert!(differ.is_empty(), "differ after redo: {differ:?}");
 }
 
-/// Gated: the saved empty region builds.
+/// Gated: the saved empty region builds; ⌘Z after the build (whose compile wrote rotom's
+/// compile state anew) still takes the world back, files included, and `git status` names
+/// only the border map.
 #[test]
 fn vanilla_empty_region_builds() {
     let Some((tmp, root)) = common::vanilla_copy() else {
@@ -1213,9 +1322,13 @@ fn vanilla_empty_region_builds() {
     };
     let project = Arc::new(Project::open(&root).unwrap());
     scripts::adopt(&project, &mut |_| {}).unwrap();
+    let committed = commit_project(&project);
     let mut store = Store::new(Arc::clone(&project));
-    apply_empty_region(&mut store).unwrap();
+    let files = script_files(&project);
+    let region = apply_empty_region(&mut store).unwrap();
     store.save().unwrap();
+    let state = std::path::Path::new(STATE_FILE);
+    let applied = script_files(&project).files.get(state).cloned();
     let out = tmp.path().join("leer.nds");
     let report = g4_kernel::build::build(&project, &out).unwrap();
     let errors: Vec<_> = report
@@ -1232,4 +1345,27 @@ fn vanilla_empty_region_builds() {
     );
     assert!(errors.is_empty(), "{errors:#?}");
     assert!(out.is_file());
+
+    // The build's compile wrote the compile state anew.
+    assert_ne!(script_files(&project).files.get(state), applied.as_ref());
+    store.undo().unwrap();
+    store.save().unwrap();
+    let differ = differing(&script_files(&project), &files);
+    assert!(differ.is_empty(), "differ after undo: {differ:?}");
+    if committed {
+        let status = git_status(&root);
+        eprintln!(
+            "{}: git status after build and undo {status:?}",
+            project.game_code
+        );
+        let border = project
+            .member_path(AssetKind::Map, region.border_map)
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(status, [format!("?? {border}")]);
+    } else {
+        eprintln!("git status not checked: Git is not installed");
+    }
 }
