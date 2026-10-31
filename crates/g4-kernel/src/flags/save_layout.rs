@@ -84,7 +84,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "games.yaml bekommt save_block in Task 8"]
     fn g4emu_games_yaml_carries_the_same_block() {
         let games: std::collections::BTreeMap<String, serde_yaml::Value> =
             serde_yaml::from_str(include_str!("../../../../scripts/g4emu/g4emu/games.yaml"))

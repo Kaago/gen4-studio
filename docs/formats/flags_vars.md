@@ -339,4 +339,37 @@ Reservierung: `flags::reserved(family)` nennt sie mit dem Wort „Vorlage „Lee
 
 ## RAM-Lage
 
-Kommt mit Task 8 von 3d.1.
+Wo die Flags und Variablen des Spielstands im laufenden Spiel liegen (Gutachten B §4.2, gemessen
+mit dem `g4emu`-Kern durch Vergleich des Spielstands mit dem RAM nach `continue`). Dieselben Werte
+stehen zweimal: im Kernel in `crates/g4-kernel/metadata/save_layout.yaml`
+(`flags::save_layout::save_block(code)`) und für `g4emu` in `scripts/g4emu/g4emu/games.yaml` unter
+`save_block`; der Kernel-Test `g4emu_games_yaml_carries_the_same_block` verlangt Gleichheit.
+
+| Spielcode | Zeiger (`pointer`) | Kopf (`header`) | Variablen (`vars`, `vars_count`) | Flags (`flags`, `flags_bytes`) |
+|---|---|---|---|---|
+| CPUD Platin DE | `u32 @ 0x02101EE0` | `0x14` | `0xDAC`, 288 × u16 (`0x4000`–`0x411F`) | `0xFEC`, 364 Byte (`0x000`–`0xB5F`) |
+| IPKD HeartGold DE | `u32 @ 0x02111860` | `0x10` | `0xDE4`, 368 × u16 (`0x4000`–`0x416F`) | `0x10C4`, 364 Byte (`0x000`–`0xB5F`) |
+| IPKE HeartGold US | `u32 @ 0x02111880` | `0x10` | wie IPKD | wie IPKD |
+
+- **Anfang:** `start = (u32 @ pointer) − 0x02000000 + header` (Index in den 4 MiB Hauptspeicher).
+  Der Zeiger ist derselbe u32 wie `location.pointer`: er zeigt auf den allgemeinen Block des
+  Spielstands, der Ort des Spielers liegt im selben Block (`+0x1294` bzw. `+0x1244`).
+- **Flag `n`:** Bit `n % 8` von Byte `start + flags + n / 8`; gültig `0 ≤ n < flags_bytes × 8`
+  (2 912 Flags, `flags_end` `0xB60` aus `flag_ranges.yaml`).
+- **Variable `v`:** u16 little-endian an `start + vars + 2 × (v − 0x4000)`; gültig
+  `0x4000 ≤ v < 0x4000 + vars_count` (`vars_end` aus `flag_ranges.yaml`). Script-lokale
+  Variablen ab `0x8000` liegen nicht im Spielstand.
+- **Zeiger je Sitzung:** Innerhalb einer Sitzung bleibt der Zeigerwert gleich (gemessen über einen
+  Kartenwechsel und 3 000 Bilder). Zwischen zwei Starts wandert der Block um bis zu `0xB4` Byte
+  (Heap, trotz gleicher Eingaben): immer über den Zeiger lesen, nie über eine feste Adresse. Vor
+  dem Laden des Spielstands ist der Zeiger ungültig (Platin gültig ab Bild 107, HeartGold ab 193).
+- **Lesepuffer:** Eine zweite, exakte Kopie des Spielstands liegt bei `0x0236D6xx` (Platin) bzw.
+  `0x023775xx` (HeartGold). Das ist der Lesepuffer der Karte; er ist nicht lebendig und darf
+  weder gelesen noch geschrieben werden.
+- **Schreiben** wirkt, sobald das Spiel den Wert liest. Sichtbarkeits-Flags (`hidden_flag` eines
+  Objekts) wirken erst beim nächsten Laden der Karte (Gutachten B §4.3).
+
+`g4emu` liest und schreibt die Werte mit den Schritten `flag N`, `set-flag N 0|1`, `var N`,
+`set-var N W`, `expect-flag N W` und `expect-var N W` (`scripts/g4emu/g4emu/games.py`:
+`block_start`, `read_flag`, `write_flag`, `read_var`, `write_var`); siehe
+[agent-gate.md](../agent-gate.md), „Werkzeuge“.

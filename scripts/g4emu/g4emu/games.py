@@ -1,4 +1,5 @@
-"""Game table (games.yaml) and reading the player location out of RAM."""
+"""Game table (games.yaml), reading the player location and the save's flags and variables out of
+RAM."""
 
 from __future__ import annotations
 
@@ -38,6 +39,28 @@ class BattleSpec:
 
 
 @dataclass(frozen=True)
+class SaveBlock:
+    """Where the save's flags and variables lie in RAM (games.yaml `save_block`).
+
+    The u32 at `pointer` points at the save's general block; from there `header` bytes on, the
+    variables lie at `vars` (`vars_count` u16 values, variable v at 2 * (v - 0x4000)) and the flags
+    at `flags` (`flags_bytes` bytes, flag n is bit n % 8 of byte n // 8). The kernel's
+    metadata/save_layout.yaml carries the same values (a kernel test compares them).
+    """
+
+    pointer: int
+    header: int
+    vars: int
+    vars_count: int
+    flags: int
+    flags_bytes: int
+
+
+FIRST_VAR = 0x4000
+SAVE_BLOCK_KEYS = ("pointer", "header", "vars", "vars_count", "flags", "flags_bytes")
+
+
+@dataclass(frozen=True)
 class Game:
     code: str
     name: str
@@ -52,6 +75,7 @@ class Game:
     # can move, and where it ends (header, x, y); None where it is not measured
     intro: tuple[str, ...] | None = None
     intro_ends: tuple[int, int, int] | None = None
+    save_block: SaveBlock | None = None  # flags and variables; None where it is not measured
 
 
 def _continue_frames(code: str, entry: dict) -> int:
@@ -104,6 +128,25 @@ def _intro(code: str, entry: dict) -> tuple[tuple[str, ...] | None, tuple[int, i
         raise ValueError(f"games.yaml: {code}: intro_ends ungültig ({e})") from None
 
 
+def _save_block(code: str, entry: dict) -> SaveBlock | None:
+    """`save_block` with all six keys (ints >= 0), or None without the entry."""
+    raw = entry.get("save_block")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"games.yaml: {code}: save_block muss eine Zuordnung sein")
+    missing = [key for key in SAVE_BLOCK_KEYS if key not in raw]
+    if missing:
+        raise ValueError(f"games.yaml: {code}: save_block braucht {', '.join(missing)}")
+    values = []
+    for key in SAVE_BLOCK_KEYS:
+        value = raw[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"games.yaml: {code}: save_block.{key} muss eine ganze Zahl >= 0 sein")
+        values.append(value)
+    return SaveBlock(*values)
+
+
 def load_games(path: Path | None = None) -> dict[str, Game]:
     path = path or Path(__file__).with_name("games.yaml")
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
@@ -123,6 +166,7 @@ def load_games(path: Path | None = None) -> dict[str, Game]:
             home_header=None if entry.get("home_header") is None else int(entry["home_header"]),
             intro=intro,
             intro_ends=intro_ends,
+            save_block=_save_block(code, entry),
         )
     return games
 
@@ -140,3 +184,82 @@ def read_location(ram: bytes | memoryview, game: Game) -> Location | None:
         return None
     header, warp, x, y = _RECORD.unpack_from(ram, start)
     return Location(header, warp, x, y)
+
+
+def _block(game: Game) -> SaveBlock:
+    if game.save_block is None:
+        raise ValueError(f"{game.code}: save_block fehlt in games.yaml")
+    return game.save_block
+
+
+def block_start(ram: bytes | memoryview, game: Game) -> int | None:
+    """RAM index the save layout counts from: (u32 @ pointer) - RAM_BASE + header.
+
+    `None` while the pointer is not valid (before the save is loaded) or the block would overrun
+    RAM. The block moves between two starts (heap), so it is always read through the pointer.
+    """
+    block = _block(game)
+    index = block.pointer - RAM_BASE
+    if index < 0 or index + 4 > len(ram):
+        return None
+    (ptr,) = struct.unpack_from("<I", ram, index)
+    if not RAM_BASE <= ptr < RAM_END:
+        return None
+    start = ptr - RAM_BASE + block.header
+    end = max(block.vars + 2 * block.vars_count, block.flags + block.flags_bytes)
+    if start + end > len(ram):
+        return None
+    return start
+
+
+def _start(ram: bytes | memoryview, game: Game) -> int:
+    start = block_start(ram, game)
+    if start is None:
+        raise ValueError("kein gültiger Spielstand im RAM")
+    return start
+
+
+def _flag_byte(ram: bytes | memoryview, game: Game, n: int) -> int:
+    """RAM index of the byte that holds flag `n`."""
+    block = _block(game)
+    if not 0 <= n < block.flags_bytes * 8:
+        raise ValueError(
+            f"Flag 0x{n:04X} liegt außerhalb des Spielstands (0 bis 0x{block.flags_bytes * 8 - 1:04X})"
+        )
+    return _start(ram, game) + block.flags + n // 8
+
+
+def read_flag(ram: bytes | memoryview, game: Game, n: int) -> bool:
+    """Flag `n`: bit n % 8 of byte n // 8 of the flags."""
+    return bool(ram[_flag_byte(ram, game, n)] >> (n % 8) & 1)
+
+
+def write_flag(ram: bytearray | memoryview, game: Game, n: int, value: bool) -> None:
+    index = _flag_byte(ram, game, n)
+    if value:
+        ram[index] |= 1 << (n % 8)
+    else:
+        ram[index] &= ~(1 << (n % 8)) & 0xFF
+
+
+def _var_at(ram: bytes | memoryview, game: Game, v: int) -> int:
+    """RAM index of the u16 of variable `v`."""
+    block = _block(game)
+    last = FIRST_VAR + block.vars_count - 1
+    if not FIRST_VAR <= v <= last:
+        raise ValueError(
+            f"Variable 0x{v:04X} liegt außerhalb des Spielstands (0x{FIRST_VAR:04X} bis 0x{last:04X})"
+        )
+    return _start(ram, game) + block.vars + 2 * (v - FIRST_VAR)
+
+
+def read_var(ram: bytes | memoryview, game: Game, v: int) -> int:
+    """Variable `v`: the u16 (little-endian) at 2 * (v - 0x4000) of the variables."""
+    (value,) = struct.unpack_from("<H", ram, _var_at(ram, game, v))
+    return value
+
+
+def write_var(ram: bytearray | memoryview, game: Game, v: int, value: int) -> None:
+    if isinstance(value, bool) or not 0 <= value <= 0xFFFF:
+        raise ValueError(f"Wert {value} für Variable 0x{v:04X} liegt außerhalb von 0 bis 65535")
+    struct.pack_into("<H", ram, _var_at(ram, game, v), value)

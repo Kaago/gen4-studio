@@ -1,0 +1,135 @@
+# Platin DE, gate 3d.1: a free flag gets its own name and hides a figure once the player has talked
+# to it, proved in the game by reading the flag from the save block in RAM (`expect-flag`) and by
+# walking through the tile where the figure stood. Headless over MCP (`studio mcp`, one session).
+#
+# The project is set up as a text project first (`adopt_text_project`, which adopts the scripts as
+# well): the own name FLAG_SZENARIO_FIGUR goes to data/ids/flags.json, data/flags/NNNN.json and
+# rotom's id files, so the script `SetFlag FLAG_SZENARIO_FIGUR` compiles. `free_flag` takes the
+# smallest free number of the general area (bound as frei; refused with scripts_not_adopted before
+# the scripts are adopted), `name_flag` names it.
+#
+# The new place is the one of pt-trainer-begegnung.yaml: a NEW header on copies of the Route 201
+# maps 5 and 6 (template 342) with a new event file and a new script file (script 1 empty, the
+# template's level script runs it on entering; script 2 the figure); the bedroom stairs (event
+# file 394, warp 0) lead there, the arrival is a door at (44, 21) and the player steps east off it to
+# (45, 21). North of the arrival lies the tall grass of map 6 (x 42-52, rows 10-19), so the figure
+# stands east of it on plain ground: x 54 (tile 22 of map 6) is open from row 21 up to row 17 and
+# blocked from row 16 on (collision 0x80), read from the copy's map 0006 (`unpacked/maps/0006`,
+# permissions). The figure at (X_FIGUR, Z_FIGUR) = (54, 17) has hidden_flag = the free number, so
+# it shows while the flag is 0 and is gone once the flag is set and the map loads again.
+#
+# Play: arrive, flag 0, walk up from (54, 21): blocked by the figure, the player stops at (54, 18).
+# Talk (script 2 sets the flag), flag 1. Back through the door (push west into it from (45, 21): a
+# door is walked into, not onto) to 415, down the stairs again, flag still 1, and the same walk up
+# now goes one tile further, to (54, 17) where the figure stood (row 16 blocks).
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   BASIS         the .nds beside the copy, relative to the project folder (../<copy>.nds): the
+#                 base ROM that adopt_text_project needs (assign_base)
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   X_FIGUR Z_FIGUR  the figure's tile (54, 17); the stops below are (X_FIGUR, Z_FIGUR + 1) and
+#                 (X_FIGUR, Z_FIGUR), with Z_FIGUR + 1 written as `${Z_FIGUR+1}`
+# Names an edit binds (third element) come from the tools' answers (structuredContent.result): area
+# (create_area), hdr, datei, frei (free_flag: number, name, pool_free).
+# Example (from scripts/g4emu; in a worktree set G4_ROMS_DIR, G4_STUDIO_BIN and G4K_BIN, see
+# docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/pt-flag.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-1-szen-pt_DSPRE_contents --set BASIS=../3d-1-szen-pt.nds \
+#     --out ../../target/agent/gate-$(date +%F)/3d-1/pt-flag \
+#     --set NEUER_HEADER=593 --set X_FIGUR=54 --set Z_FIGUR=17
+game: CPUD
+# --expert: new_script_file and set_permission are no curated tools, they go through g4_call
+mcp: [--allow-irreversible, --expert]
+edits:
+  # (1) base ROM (a text project needs it), patch, text project (adopts the scripts), the new place
+  - [assign_base, {nds: "${BASIS}"}]
+  - [apply_header_patch, {}]
+  - [adopt_text_project, {}]
+  - - create_area
+    - spec:
+        name: Flag-Szenario
+        width: 2
+        height: 1
+        cells:                       # Route 201 (header 342): matrix 0 cells (3, 26) = map 5 and (4, 26) = map 6
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 6, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_FLAG}
+    - area
+  # (2) a new script file on the new header
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, datei]
+  - - set_header
+    - id: "${area.header}"
+      header: {Pt: {$base: "${hdr.Pt}", script_file_id: "${datei}"}}
+  # (3) a free flag with its own name
+  - [free_flag, {kind: flag}, frei]
+  - [name_flag, {kind: flag, number: "${frei.number}", id: FLAG_SZENARIO_FIGUR, description: "Figur im Szenario"}]
+  # (4) the figure (script 2), hidden while the flag is set
+  - - add_event
+    - event_file: "${area.event_file}"
+      kind: object
+      x: "${X_FIGUR}"
+      z: "${Z_FIGUR}"
+      patch: {graphics_id: 6, movement_type: 15, dir: 1, script: 2, trainer_type: 0, sight: 0, hidden_flag: "${frei.number}"}
+  # (5) arrival warp 0 (back to the bedroom stairs) on a door tile (behaviour 0x69, collision 0x80,
+  # as the door tool makes it; x 44 is tile 12 of the second map), the stairs to the new place
+  - [add_event, {event_file: "${area.event_file}", kind: warp, x: 44, z: 21, patch: {dest_header_id: 415, dest_warp_id: 0}}]
+  - [g4_call, {command: set_permission, args: {index: "${area.maps.1.2}", x: 12, y: 21, kind: 105, collision: 128}}]
+  - [update_event, {event_file: 394, kind: warp, index: 0, patch: {dest_header_id: "${area.header}", dest_warp_id: 0}}]
+  # a text literal needs a saved header that uses the script file (it goes to the header's archive)
+  - [save, {}]
+  - - save_script
+    - file: "${datei}"
+      text: |
+        script Main #1:
+            End
+
+        script Figur #2:
+            LockAll
+            FacePlayer
+            Message "Bis bald!"
+            WaitButton
+            CloseMessage
+            SetFlag FLAG_SZENARIO_FIGUR
+            ReleaseAll
+            End
+build: build/out.nds
+play:
+  - continue
+  - expect-map 415
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  - expect-flag ${frei.number} 0
+  # east along row 21 (plain ground), then up: the figure blocks
+  - walk-to ${X_FIGUR} 21
+  - walk-until-blocked up 6
+  - expect-at ${X_FIGUR} ${Z_FIGUR+1}
+  # talk: the script sets the flag
+  - press a
+  - mash a 240
+  - shot gespraech
+  - expect-flag ${frei.number} 1
+  # back through the door to the bedroom, down the stairs again (the map loads anew)
+  - walk-to ${X_FIGUR} 21
+  - walk-to 45 21
+  - press left:30
+  - expect-map 415
+  - wait 150
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 150
+  - expect-flag ${frei.number} 1
+  # the figure is gone: the same walk goes one tile further
+  - walk-to ${X_FIGUR} 21
+  - walk-until-blocked up 6
+  - expect-at ${X_FIGUR} ${Z_FIGUR}
+  - shot weg
