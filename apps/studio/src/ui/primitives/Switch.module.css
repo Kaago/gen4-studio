@@ -62,3 +62,14 @@
 .row[data-disabled] .text {
   color: var(--g4-text-deaktiviert);
 }
+
+.withHint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.hint {
+  font: var(--g4-font-text-xs);
+  color: var(--g4-text-sekundaer);
+}

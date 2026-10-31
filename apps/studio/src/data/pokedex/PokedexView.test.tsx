@@ -191,6 +191,9 @@ describe("PokedexView", () => {
       expect(female.getAttribute("aria-disabled")).toBe("true");
       expect(female.getAttribute("aria-checked")).toBe("false");
       expect(profile().textContent).toContain("Kein eigenes Bild für ♀");
+      // The reason is the switch's description, so it is read with "Weiblich", not with the next switch.
+      expect(document.getElementById(female.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Kein eigenes Bild für ♀");
+      expect(switchOf("Schillernd")!.hasAttribute("aria-describedby")).toBe(false);
       await h.click(female);
       expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ female: true }));
     });
@@ -202,6 +205,7 @@ describe("PokedexView", () => {
       expect(female.getAttribute("aria-disabled")).toBe("true");
       expect(female.getAttribute("aria-checked")).toBe("true");
       expect(profile().textContent).toContain("Nur ♀");
+      expect(document.getElementById(female.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Nur ♀");
       expect(getBattleSprite).toHaveBeenCalledWith({ species: 397, side: "front", female: true, shiny: false });
     });
 
@@ -211,6 +215,29 @@ describe("PokedexView", () => {
       await h.click(switchOf("Weiblich"));
       expect(profile().querySelector("[data-female]")?.getAttribute("data-female")).toBe("true");
       expect(getBattleSprite).toHaveBeenLastCalledWith({ species: 397, side: "front", female: true, shiny: false });
+    });
+
+    it("a_locked_species_does_not_take_the_female_choice_along_and_gives_it_back", async () => {
+      await h.open();
+      await h.click(switchOf("Weiblich"));
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("true");
+      // Staralili (396) has no image of its own for ♀.
+      vi.mocked(dataGet).mockImplementation(async (_kind, index) => staraviaDoc({ sprite_slots: { female: index !== 396, male: true } }));
+      vi.mocked(getBattleSprite).mockClear();
+      await h.click(h.q<HTMLElement>('[data-species="396"]'));
+      await flush();
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("false");
+      expect(switchOf("Weiblich")!.getAttribute("aria-disabled")).toBe("true");
+      expect(profile().textContent).toContain("Kein eigenes Bild für ♀");
+      expect(getBattleSprite).toHaveBeenCalledWith({ species: 396, side: "front", female: false, shiny: false });
+      expect(getBattleSprite).not.toHaveBeenCalledWith(expect.objectContaining({ species: 396, female: true }));
+      // Back to a species with both images: the choice is on again.
+      await h.click(h.q<HTMLElement>('[data-species="397"]'));
+      await flush();
+      expect(switchOf("Weiblich")!.getAttribute("aria-checked")).toBe("true");
+      expect(switchOf("Weiblich")!.hasAttribute("aria-describedby")).toBe(false);
+      // (That picture is cached from before: no new request.)
+      expect(profile().querySelector("[data-female]")?.getAttribute("data-female")).toBe("true");
     });
 
     it("shiny_asks_with_shiny_true", async () => {

@@ -44,6 +44,16 @@ describe("Switch and Checkbox", () => {
     expect(el.getAttribute("aria-disabled") === "true" || el.hasAttribute("data-disabled")).toBe(true);
   });
 
+  it("switch_with_a_hint_is_described_by_it_and_still_named_by_the_label_only", () => {
+    act(() => root.render(<Switch label="Weiblich" checked={false} onChange={() => {}} disabled hint="Kein eigenes Bild" />));
+    const el = container.querySelector("[role=switch]")!;
+    const described = document.getElementById(el.getAttribute("aria-describedby") ?? "");
+    expect(described?.textContent).toBe("Kein eigenes Bild");
+    expect(container.querySelector("label")!.textContent).toBe("Weiblich");
+    act(() => root.render(<Switch label="Weiblich" checked={false} onChange={() => {}} />));
+    expect(container.querySelector("[role=switch]")!.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("checkbox_maps_checked_unchecked_and_mixed_to_aria_checked", () => {
     act(() => root.render(<Checkbox label="Alle" checked={false} onChange={() => {}} />));
     const el = () => container.querySelector("[role=checkbox]")!;
