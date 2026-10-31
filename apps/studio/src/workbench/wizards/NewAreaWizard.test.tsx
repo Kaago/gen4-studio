@@ -55,6 +55,12 @@ const planned: DraftDto = {
   notes: ["Legt Gebiet „Neues Gebiet“ mit 2 Karten an."],
   irreversible: ["2 Karten werden kopiert"],
 };
+// A plan in the kernel's own words, as `recipes/area.rs` writes them (Tüfteln's words).
+const kernelWords: DraftDto = {
+  ...planned,
+  notes: ["Legt Gebiet „Neues Gebiet“ mit 1 Karten an.", "Header 3 zeigt auf die neue Weltkarte."],
+  irreversible: ["Karte 0010 wird kopiert", "Eventdatei 12 wird kopiert"],
+};
 const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 0 };
 
 describe("NewAreaWizard", () => {
@@ -551,6 +557,25 @@ describe("NewAreaWizard", () => {
       await flush();
       expect(onError).toHaveBeenCalledWith(failure);
       expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Gebiet anlegen (boom).");
+    });
+
+    it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      await flush();
+      await next();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect(current()).toBe("4. Zusammenfassung");
+      // The draft still reaches the scene; only the sentences stay out of the wizard.
+      expect(onDraft).toHaveBeenLastCalledWith(kernelWords);
+      expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
+      expect(container.textContent).not.toContain("zeigt auf die neue Weltkarte");
+      expect(container.textContent).not.toContain("Eventdatei 12 wird kopiert");
+      expect(container.querySelector("[data-draft-notes]")).toBeNull();
     });
 
     it("says_no_raster_matrix_or_header_in_building", async () => {

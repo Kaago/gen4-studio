@@ -127,6 +127,7 @@ export function WizardHost(props: Props) {
     case "clearWorld":
       return (
         <ClearWorldWizard
+          depth={depth}
           scripts={props.scripts}
           onAdopt={props.onAdoptScripts}
           unsaved={props.unsaved}

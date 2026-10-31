@@ -399,7 +399,7 @@ export function NewAreaWizard({ depth, world, headers, matrices, matricesLoaded,
           ) : (
             "error" in built && <Notice kind="error">{built.error}</Notice>
           )}
-          <DraftNotes draft={plan.draft} error={plan.error} />
+          <DraftNotes draft={plan.draft} error={plan.error} depth={depth} />
           {building && <PatchConsent patch={patch.patch} error={patch.error} checked={form.patchConsent} onChange={(patchConsent) => setForm((f) => ({ ...f, patchConsent }))} />}
         </section>
       ),

@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyEmptyRegion, nameTables, planEmptyRegion, recipePlan } from "../api";
 import type { AdoptProgressDto, AdoptReportDto, DraftDto, NameTablesDto, RegionPlan, RegionReport } from "../api";
+import { visibleWords } from "../ui/visibleText";
 import { ClearWorldWizard } from "./ClearWorldWizard";
 import type { ClearWorldWizardProps } from "./ClearWorldWizard";
 import { DRAFT_DEBOUNCE_MS } from "../workbench/wizards/useDraftPlan";
@@ -36,7 +37,7 @@ const PLAN: RegionPlan = {
   already_empty: false,
 };
 const REPORT: RegionReport = { plan: PLAN, border_map: 666, level_script: 1234, start_script: [1052, 10], change: 7, changed: [{ kind: "Matrix", index: 0 }] };
-/** The draft of the empty region as the kernel plans it: the border cells of world map 0 (two of 467 here). */
+/** The draft of the empty region as the kernel plans it, in its own words (`recipes/empty_region.rs`): the border cells of world map 0 (two of 467 here). */
 const DRAFT: DraftDto = {
   cells: [
     { matrix: 0, x: 2, y: 27, source_map: 0 },
@@ -86,7 +87,7 @@ describe("ClearWorldWizard", () => {
     vi.useRealTimers();
   });
 
-  const wizard = (over: Partial<ClearWorldWizardProps> = {}) => <ClearWorldWizard scripts={ADOPTED} unsaved={0} {...handlers} {...over} />;
+  const wizard = (over: Partial<ClearWorldWizardProps> = {}) => <ClearWorldWizard depth="tuefteln" scripts={ADOPTED} unsaved={0} {...handlers} {...over} />;
   async function show(over: Partial<ClearWorldWizardProps> = {}) {
     await act(async () => root.render(wizard(over)));
     await flush();
@@ -272,5 +273,19 @@ describe("ClearWorldWizard", () => {
     await click(button("Abbrechen"));
     expect(handlers.onClose).toHaveBeenCalledOnce();
     expect(handlers.onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await show({ depth: "bauen" });
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await click(button("Weiter"));
+    expect(current()).toBe("2. Zusammenfassung");
+    // The draft still reaches the scene; only the sentences stay out of the wizard.
+    expect(handlers.onDraft).toHaveBeenLastCalledWith(DRAFT);
+    expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+    expect(text()).not.toContain("536 Header werden geleert");
+    expect(text()).not.toContain("wird als Rand-Karte kopiert");
+    expect(container.querySelector("[data-draft-notes]")).toBeNull();
   });
 });

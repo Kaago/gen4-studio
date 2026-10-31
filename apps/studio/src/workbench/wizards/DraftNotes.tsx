@@ -1,4 +1,6 @@
 import type { DraftDto } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
+import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Notice } from "../../ui/primitives";
 import parts from "./WizardStep.module.css";
 
@@ -18,10 +20,14 @@ export function DraftFailed({ error }: { error: string | null }) {
   return error === null ? null : <Notice kind="warning">Vorschau nicht möglich: {error}</Notice>;
 }
 
-/** The draft in the step „Zusammenfassung“: its sentences as lines, what undo would not take back behind the badge, or the plan's failure. */
-export function DraftNotes({ draft, error }: { draft: DraftDto | null; error: string | null }) {
+/**
+ * The draft in the step „Zusammenfassung“. The kernel writes its sentences in Tüfteln's words (header, event file, numbers), so
+ * only Tüfteln shows them: the notes as lines and what undo would not take back (the frame's foot carries the badge). Bauen and
+ * Erzählen have the wizard's own lines and the foot's badge; there only a failed plan shows.
+ */
+export function DraftNotes({ draft, error, depth }: { draft: DraftDto | null; error: string | null; depth: Depth }) {
   if (error !== null) return <DraftFailed error={error} />;
-  if (draft === null) return null;
+  if (draft === null || !depthAtLeast(depth, "tuefteln")) return null;
   return (
     <div className={parts.lines} data-draft-notes="">
       {draft.notes.map((note) => (
@@ -29,7 +35,7 @@ export function DraftNotes({ draft, error }: { draft: DraftDto | null; error: st
           {note}
         </p>
       ))}
-      {draft.irreversible.length > 0 && <DraftIrreversible draft={draft} />}
+      {draft.irreversible.length > 0 && <p className={parts.note}>Nicht rückgängig: {draft.irreversible.join(", ")}</p>}
     </div>
   );
 }

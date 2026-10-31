@@ -47,6 +47,12 @@ const planned: DraftDto = {
   notes: ["Legt Raum „Neuer Raum“ als Kopie von Karte 0321 an.", "Der Raum entsteht auf einer neuen Weltkarte."],
   irreversible: ["Karte 0321 wird kopiert", "Eine neue Weltkarte wird angelegt"],
 };
+// The same plan in the kernel's own words, as `recipes/area.rs` and `room.rs` write them (Tüfteln's words).
+const kernelWords: DraftDto = {
+  ...planned,
+  notes: ["Legt Raum „Neuer Raum“ als Kopie von Karte 0321 an.", "Header 3 zeigt auf die neue Weltkarte.", "Header 3 bekommt eine Kopie von Eventdatei 12."],
+  irreversible: ["Karte 0321 wird kopiert", "Eventdatei 12 wird kopiert"],
+};
 const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
@@ -664,6 +670,20 @@ describe("NewRoomWizard", () => {
       expect(placeButton()?.textContent).toBe("Spielerhaus");
     });
 
+    it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+      await toSummary();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect(current()).toBe("4. Zusammenfassung");
+      // The draft still reaches the scene; only the sentences stay out of the wizard.
+      expect(onDraft).toHaveBeenLastCalledWith(kernelWords);
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      expect(container.textContent).not.toContain("zeigt auf die neue Weltkarte");
+      expect(container.textContent).not.toContain("Eventdatei 12 wird kopiert");
+      expect(container.querySelector("[data-draft-notes]")).toBeNull();
+    });
+
     it("says_no_raster_matrix_or_header_in_building", async () => {
       const FORBIDDEN = /Raster|Matrix|Header/;
       const words = () => visibleWords(document.body);
@@ -828,5 +848,19 @@ describe("NewRoomWizard", () => {
     await click(button("Anlegen"));
     expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
     expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("shows_the_kernels_words_in_the_summary_in_tuefteln", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await next();
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Header 3 zeigt auf die neue Weltkarte.");
+    expect(notes?.textContent).toContain("Nicht rückgängig: Karte 0321 wird kopiert, Eventdatei 12 wird kopiert");
+    // The list has no badge of its own: the frame's foot carries it.
+    expect(notes?.querySelector("[class*=badge]")).toBeNull();
   });
 });

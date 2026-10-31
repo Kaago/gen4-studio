@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { applyEmptyRegion, errorText, nameTables, planEmptyRegion } from "../api";
 import type { AdoptProgressDto, AdoptReportDto, DraftDto, RegionPlan, RegionReport, ScriptsStatusDto } from "../api";
+import type { Depth } from "../ui/frame/shellState";
 import { Notice } from "../ui/primitives";
 import { AdoptProgress } from "../workbench/script/AdoptBox";
 import { nextStepsFor } from "../workbench/recipes";
@@ -14,6 +15,8 @@ import parts from "../workbench/wizards/WizardStep.module.css";
 import styles from "./ClearWorldWizard.module.css";
 
 export interface ClearWorldWizardProps {
+  /** The view depth: only Tüfteln shows the kernel's sentences of the draft (they speak of headers and numbers). */
+  depth: Depth;
   /** The project's script status (null: not read yet): the recipe writes rotom sources, so the scripts must be adopted. */
   scripts: ScriptsStatusDto | null;
   /** "Scripts übernehmen": decompiles the project, calling `onProgress` as files are done; the app's status says adopted afterwards. */
@@ -76,7 +79,7 @@ function borderLine(n: number): string {
 const starterLine = (plan: RegionPlan, species: string) => `Ein Start-Script gibt dir ${species} auf Level ${plan.starter_level}, den Pokédex und die Laufschuhe.`;
 
 /** "Welt leeren": the empty-region recipe on the open project. Shows what stays and what goes, clears what is in the way, then applies it. */
-export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep, onDraft }: ClearWorldWizardProps) {
+export function ClearWorldWizard({ depth, scripts, onAdopt, unsaved, onSave, onApplied, onClose, onShow, onPlay, onStep, onDraft }: ClearWorldWizardProps) {
   const [planState, setPlanState] = useState<PlanState>({ kind: "loading" });
   // The species names of the project; null: not read (or not readable), the starter goes by its number.
   const [species, setSpecies] = useState<readonly string[] | null>(null);
@@ -270,7 +273,7 @@ export function ClearWorldWizard({ scripts, onAdopt, unsaved, onSave, onApplied,
               ))}
             </div>
           </Notice>
-          <DraftNotes draft={preview.draft} error={preview.error} />
+          <DraftNotes draft={preview.draft} error={preview.error} depth={depth} />
         </section>
       ),
     },
