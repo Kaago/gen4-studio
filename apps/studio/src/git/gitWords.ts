@@ -59,9 +59,13 @@ export function templatesNote(report: TemplatesRewritten): string {
   return t.layout === "text_project" ? " Die .gitignore von Gen4 Studio versioniert jetzt das Textprojekt." : " Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner.";
 }
 
-/** The checklist's row of „Stand sichern“: the changed paths since the last commit, as the status counts them. */
-export function changedFilesText(n: number): string {
+/**
+ * The checklist's row of „Stand sichern“: the changed paths since the last commit, as the status counts them; in a repository without a
+ * commit (`first`) the files the first commit takes („18.449 Dateien für den ersten Commit“).
+ */
+export function changedFilesText(n: number, first = false): string {
   if (n === 0) return "Keine Änderung seit dem letzten Commit";
+  if (first) return n === 1 ? `1${NBSP}Datei für den ersten Commit` : `${n.toLocaleString("de-DE")}${NBSP}Dateien für den ersten Commit`;
   return n === 1 ? "1 geänderte Datei seit dem letzten Commit" : `${n.toLocaleString("de-DE")} geänderte Dateien seit dem letzten Commit`;
 }
 

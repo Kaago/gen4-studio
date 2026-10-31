@@ -161,7 +161,8 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
         <>
           <Notice kind="error">{refusal.message}</Notice>
           {refusal.code === "exists" && (
-            <Button kind="secondary" data-publish-overwrite="" onClick={() => void run(true)}>
+            // The refusal's way on takes the focus when the run ends (`data-wizard-focus`), not the checkbox above.
+            <Button kind="secondary" data-publish-overwrite="" data-wizard-focus="" onClick={() => void run(true)}>
               Ersetzen
             </Button>
           )}

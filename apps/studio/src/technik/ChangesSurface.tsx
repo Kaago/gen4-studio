@@ -113,6 +113,17 @@ export function focusChangesSurface() {
   });
 }
 
+/**
+ * Puts focus on „Stand sichern…“ of the shown surface (else `fallbackOf`) once the commit that is under way has landed: after the first
+ * commit of a repository the surface shows the list, whose button is a new one. For the dialog „Stand sichern?“ opened from here.
+ */
+export function focusCommitAll() {
+  queueMicrotask(() => {
+    const surface = document.querySelector<HTMLElement>("[data-technik=aenderungen]");
+    if (surface !== null) (surface.querySelector<HTMLElement>("[data-commit-all]") ?? fallbackOf(surface))?.focus();
+  });
+}
+
 /** What `useKeepFocus` gives the surface and what it offers the rows. */
 type KeepFocus = {
   ref: Ref<HTMLElement>;

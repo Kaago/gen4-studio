@@ -342,7 +342,8 @@ describe("PublishSurface", () => {
     const card = publishCard()!;
     expect(card.querySelector("h3")?.textContent).toBe("Bisherige Veröffentlichungen");
     const table = card.querySelector<HTMLElement>('[aria-label="Bisherige Veröffentlichungen"]')!;
-    expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Version", "Datum", "Datei", "Größe", "Notizen", ""]);
+    // The column of „Im Finder zeigen“ is named for a screen reader („Aktion“, visually hidden).
+    expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Version", "Datum", "Datei", "Größe", "Notizen", "Aktion"]);
     const rows = [...table.querySelectorAll("tbody tr")];
     const cells = (row: Element) => [...row.querySelectorAll("td")];
     // Newest first.
@@ -363,11 +364,12 @@ describe("PublishSurface", () => {
     expect(newest[4]!.querySelector("[title]")?.getAttribute("title")).toBe("Neue Trainer\nFehler behoben");
     expect(oldest[4]!.textContent).toBe("Neue Karte");
     expect(oldest[4]!.querySelector("[title]")).toBeNull();
-    // „Im Finder zeigen“ shows the file as the list has it.
-    const reveal = newest[5]!.querySelector<HTMLButtonElement>('button[aria-label="Im Finder zeigen"]')!;
+    // „Im Finder zeigen“ shows the file as the list has it; each row's button is named by its version.
+    expect([...table.querySelectorAll("tbody button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Im Finder zeigen: v0.2.0", "Im Finder zeigen: v0.1.0"]);
+    const reveal = newest[5]!.querySelector<HTMLButtonElement>('button[aria-label="Im Finder zeigen: v0.2.0"]')!;
     await click(reveal);
     expect(onReveal).toHaveBeenCalledWith(outside);
-    await click(oldest[5]!.querySelector('button[aria-label="Im Finder zeigen"]'));
+    await click(oldest[5]!.querySelector('button[aria-label="Im Finder zeigen: v0.1.0"]'));
     expect(onReveal).toHaveBeenLastCalledWith("build/Sinnoh-Remix-v0.1.0.xdelta");
     expect(card.textContent).not.toContain("Noch keine Veröffentlichung.");
   });

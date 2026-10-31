@@ -121,7 +121,7 @@ export function CommitDialog({ open, status, unsaved, preset, onClose, onDone, o
       ? [{ id: "changes", state: "info", text: "Änderungen werden geprüft …" } satisfies CheckRow]
       : changes === null
         ? []
-        : [{ id: "changes", state: changes === 0 ? "warning" : "ok", text: changedFilesText(changes) } satisfies CheckRow]),
+        : [{ id: "changes", state: changes === 0 ? "warning" : "ok", text: changedFilesText(changes, shown?.head === null) } satisfies CheckRow]),
   ];
   const message = subject.trim();
   const ready = !unsaved && !checking && git !== undefined && git !== null && changes !== null && changes > 0 && message !== "";

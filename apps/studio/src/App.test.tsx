@@ -2151,6 +2151,60 @@ describe("App wiring", () => {
       expect(statusLine()).not.toContain("Schritt 1 von 4");
     });
 
+    it("leaving_a_wizard_goes_back_to_the_area_it_was_opened_from_with_the_focus", async () => {
+      const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+      const escape = async () => {
+        pressKey(document.activeElement as HTMLElement, "Escape");
+        await settle();
+      };
+      // From Technik › Veröffentlichen: the wizard is in the world; Technik is rebuilt when it closes, so its new „Veröffentlichen…“
+      // takes the focus.
+      vi.mocked(baseStatus).mockResolvedValue(found({ patch_name: "p-CPUE" }));
+      vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build" }));
+      await act(async () => atlasEntry("Technik")!.click());
+      await settle();
+      const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
+      await act(async () => technikRow("Veröffentlichen").click());
+      const opener = () => [...container.querySelectorAll<HTMLButtonElement>("[data-publish-card] button")].find((b) => b.textContent === "Veröffentlichen…")!;
+      const first = opener();
+      await act(async () => first.focus());
+      await act(async () => first.click());
+      await settle();
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-publish-step]")).not.toBeNull();
+      await escape();
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(first.isConnected).toBe(false);
+      expect(document.activeElement).toBe(opener());
+
+      // From the palette in Technik: back to Technik, the focus not on the body.
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]")!;
+      typeInSearch(paletteInput(), "veröffentlichen");
+      pressKey(paletteInput(), "Enter");
+      await settle();
+      expect(container.querySelector("[data-publish-step]")).not.toBeNull();
+      await escape();
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(document.activeElement).not.toBe(document.body);
+      expect(container.querySelector('[data-technik="veroeffentlichen"]')?.closest("main")?.contains(document.activeElement)).toBe(true);
+
+      // „Gebiet anlegen“ from the palette in the world: the world stays, the focus goes into it, not to the body.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () => (document.activeElement as HTMLElement | null)?.blur());
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      typeInSearch(paletteInput(), "gebiet anlegen");
+      pressKey(paletteInput(), "Enter");
+      await settle();
+      expect(container.querySelector("[data-wizard]")).not.toBeNull();
+      await escape();
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+      expect(document.activeElement).not.toBe(document.body);
+      expect(weltDeck().contains(document.activeElement)).toBe(true);
+    });
+
     it("keeps the workbench's keys off and the tool on Auswählen while a wizard is open", async () => {
       env.tauri = true;
       vi.mocked(save).mockResolvedValue(undefined as never);
@@ -3607,6 +3661,31 @@ describe("App wiring", () => {
       vi.mocked(gitCommitAll).mockResolvedValueOnce(commitReportOf({ subject: "Veröffentlicht v0.1.0" }));
       await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")!.click());
       expect(gitCommitAll).toHaveBeenCalledExactlyOnceWith({ message: "Veröffentlicht v0.1.0", notes: "Neue Route 201." }, expect.any(Function));
+    });
+
+    it("after_a_first_commit_from_aenderungen_focus_goes_to_stand_sichern_not_the_body", async () => {
+      // A repository set up by hand, without a commit: Technik › Änderungen against the last commit offers „Stand sichern…“.
+      vi.mocked(unsavedChanges).mockResolvedValue([]);
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ head: null, changes: 18449 }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => technikRow("Änderungen").click());
+      await act(async () => container.querySelectorAll<HTMLButtonElement>("[data-against] button")[1]!.click());
+      const commitAll = () => container.querySelector<HTMLButtonElement>("[data-commit-all]");
+      const before = commitAll()!;
+      await act(async () => before.focus());
+      await act(async () => before.click());
+      await flush();
+      expect(commitDialog()?.textContent).toContain("18.449\u00a0Dateien für den ersten Commit");
+      // The first commit: the surface shows the list with a new „Stand sichern…“, which takes the focus.
+      vi.mocked(gitCommitAll).mockResolvedValueOnce(commitReportOf({ files: 18449 }));
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")!.click());
+      await flush();
+      expect(commitDialog()).toBeNull();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toBe(commitAll());
     });
 
     it("after_a_commit_the_status_line_reads_again", async () => {

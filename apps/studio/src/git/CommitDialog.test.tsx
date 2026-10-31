@@ -158,6 +158,17 @@ describe("CommitDialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("without_a_commit_the_row_counts_the_files_of_the_first_commit", async () => {
+    await show({ status: gitStatusOf({ changes: 18449, head: null }) });
+    expect(rows()[2]).toBe("ok: 18.449\u00a0Dateien für den ersten Commit");
+    expect(button("Sichern")?.disabled).toBe(false);
+    await show({ status: gitStatusOf({ changes: 1, head: null }) });
+    expect(rows()[2]).toBe("ok: 1\u00a0Datei für den ersten Commit");
+    // Nothing to take: the sentence of the clean tree stays.
+    await show({ status: gitStatusOf({ changes: 0, head: null }) });
+    expect(rows()[2]).toBe("warning: Keine Änderung seit dem letzten Commit");
+  });
+
   it("the_checks_on_opening_give_the_changes_the_commit_would_take", async () => {
     // A repository of 4.4 after a release: the status counts nothing, the checks refresh the block and count it and the list.
     let answer: (s: GitStatus) => void = () => {};

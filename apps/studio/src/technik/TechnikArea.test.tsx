@@ -354,7 +354,7 @@ describe("TechnikArea", () => {
     await settle();
     await click(button("Veröffentlichen…"));
     expect(handlers.onPublish).toHaveBeenCalledOnce();
-    await click(container.querySelector('button[aria-label="Im Finder zeigen"]'));
+    await click(container.querySelector('button[aria-label="Im Finder zeigen: v0.1.0"]'));
     expect(handlers.onReveal).toHaveBeenCalledWith("build/Sinnoh-Remix-v0.1.0.xdelta");
   });
 

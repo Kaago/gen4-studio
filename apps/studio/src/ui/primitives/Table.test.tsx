@@ -90,6 +90,17 @@ describe("Table", () => {
     expect(container.textContent).toContain("3 Attacken");
   });
 
+  it("a_hidden_label_names_the_column_without_showing", () => {
+    const withAction: TableProps["columns"] = [...columns, { key: "go", label: "Aktion", width: 44, hideLabel: true }];
+    act(() => root.render(<Table columns={withAction} rows={learnset} ariaLabel="Lernset" />));
+    const headers = [...container.querySelectorAll<HTMLElement>("[role=columnheader]")];
+    // The header reads its name (the accessible name is the text inside); only a visually hidden span holds it.
+    expect(headers.map((c) => c.textContent)).toEqual(["Level", "Attacke", "Aktion"]);
+    expect(headers[2]!.firstElementChild?.tagName).toBe("SPAN");
+    expect(headers[2]!.firstElementChild?.className).not.toBe("");
+    expect(headers[0]!.firstElementChild).toBeNull();
+  });
+
   it("has_one_tab_stop_on_the_rows_and_moves_it_with_the_arrow_keys", () => {
     const onSelect = vi.fn();
     act(() => root.render(<Host selected="r1" onSelect={onSelect} />));

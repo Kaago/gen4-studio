@@ -57,6 +57,13 @@ describe("gitWords", () => {
     expect(changedFilesText(3)).toBe("3 geänderte Dateien seit dem letzten Commit");
   });
 
+  it("changed_files_without_a_commit_are_those_of_the_first_commit", () => {
+    expect(changedFilesText(1, true)).toBe("1\u00a0Datei für den ersten Commit");
+    expect(changedFilesText(18449, true)).toBe("18.449\u00a0Dateien für den ersten Commit");
+    // Nothing to take: the sentence stays.
+    expect(changedFilesText(0, true)).toBe("Keine Änderung seit dem letzten Commit");
+  });
+
   it("commit_done_text_names_short_subject_and_count", () => {
     expect(commitDoneText(commitReportOf())).toBe("Stand gesichert: 9a8b7c6 „Stand 2026-10-31 14:05“ (3\u00a0Dateien).");
     expect(commitDoneText(commitReportOf({ files: 1, subject: "Veröffentlicht v0.1.0" }))).toBe("Stand gesichert: 9a8b7c6 „Veröffentlicht v0.1.0“ (1\u00a0Datei).");

@@ -252,7 +252,9 @@ Konfiguration bleibt unberührt.
 `committed: false`, `reason` = „Der Commit ist gescheitert: `<stderr>`. Es ist nichts committet;
 deine Änderungen bleiben im Projekt.“ (stderr in einer Zeile, auf 400 Zeichen gekürzt; eine
 Zeitüberschreitung im selben Rahmen). `HEAD` bleibt, wo er war; was `git add -A` in den Index
-genommen hat, bleibt dort. Das Studio schaltet nichts ab, was der Nutzer eingestellt hat.
+genommen hat, bleibt dort (so gewollt: Gits Zustand nach einem gescheiterten Hook, kein Zurücksetzen
+des Index durch das Studio; der nächste Versuch nimmt ohnehin alles auf). Das Studio schaltet nichts ab,
+was der Nutzer eingestellt hat.
 
 **Bericht** (`CommitReport`): `committed`, `reason`, `subject`, `head` (über `gix`), `files` (die
 geänderten Pfade laut Status vor dem Commit), `studio_identity`, `phase_ms`, `ms`.

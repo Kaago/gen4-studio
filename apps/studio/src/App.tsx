@@ -34,7 +34,7 @@ import { publishLocked as publishLockOf } from "./publish/publishWords";
 import { useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
-import { focusChangesSurface } from "./technik/ChangesSurface";
+import { focusChangesSurface, focusCommitAll } from "./technik/ChangesSurface";
 import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
@@ -343,7 +343,8 @@ function AppBody() {
   const publishLock = session.info === null ? null : publishLockOf(base.status, base.releasesError);
   // „Stand sichern?“ while open (from the palette, Technik › Änderungen, or the result of „Veröffentlichen“ with its subject and notes as
   // `preset`); null: closed.
-  const [commitOpen, setCommitOpen] = useState<{ preset: { message: string; notes: string } | null } | null>(null);
+  // `from`: where it was opened, which says where the focus goes when it closes.
+  const [commitOpen, setCommitOpen] = useState<{ preset: { message: string; notes: string } | null; from: "changes" | "wizard" | "palette" } | null>(null);
   // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
   const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
@@ -403,6 +404,8 @@ function AppBody() {
   const [syncSettled, setSyncSettled] = useState(0);
   // The world model as the last render had it: a wizard's name for what it made goes into the project file (set below, after the model).
   const worldRef = useRef<WorkbenchWorld | null>(null);
+  // The area a wizard was opened from.
+  const wizardFrom = useRef<AreaId>("welt");
   const wizards = useWizards({
     onCreated: async (made) => {
       // The name the wizard asked for is the clear name of the new room (or of the area's header) in the world tree.
@@ -426,9 +429,12 @@ function AppBody() {
     },
     // The wizard's bar and step are in the world's deck; the scene there stays usable, with "Auswählen".
     onOpen: () => {
+      wizardFrom.current = area;
       setArea("welt");
       shell.setTool("select");
     },
+    // Left without „Zeigen“: back to the area it was opened from (Technik › Veröffentlichen, the area the palette was used in).
+    onLeave: () => setArea(wizardFrom.current),
   });
   wizardOpen.current = wizards.request !== null;
   useEffect(() => {
@@ -729,10 +735,21 @@ function AppBody() {
   function openPublish() {
     if (session.info && !session.busy && wizards.request === null && !startOpen && publishLock === null) wizards.open({ kind: "publish" });
   }
-  /** The wizard is left; after a release the base status and the list of releases are read again. */
+  /**
+   * Where the focus goes when „Stand sichern?“ closes, asked then: from Technik › Änderungen its „Stand sichern…“ (a new button after a first
+   * commit), from the wizard (gone with its result) the title bar's „Veröffentlichen“; from the palette what had it before (Base UI).
+   */
+  const commitFocus = (from: "changes" | "wizard" | "palette") => (): HTMLElement | null => {
+    if (from === "changes") focusCommitAll();
+    return from === "wizard" ? document.querySelector<HTMLElement>('header button[aria-label="Veröffentlichen"]') : null;
+  };
+  /**
+   * The wizard is left; after a release the base status and the list of releases are read again (by Technik itself when the wizard goes
+   * back there: `useBase` reads both when it shows).
+   */
   function closePublish(published: boolean) {
     wizards.close();
-    if (!published) return;
+    if (!published || wizardFrom.current === "technik") return;
     void base.refresh();
     void base.refreshReleases();
   }
@@ -1199,7 +1216,7 @@ function AppBody() {
         openPublish();
         break;
       case "commitAll":
-        if (session.info && git.status?.repo.kind === "own") setCommitOpen({ preset: null });
+        if (session.info && git.status?.repo.kind === "own") setCommitOpen({ preset: null, from: "palette" });
         break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
@@ -1295,7 +1312,7 @@ function AppBody() {
         unsavedError={unsaved.error}
         onReloadUnsaved={unsaved.reload}
         onGitSetup={() => openGitSetup(true)}
-        onCommitAll={() => setCommitOpen({ preset: null })}
+        onCommitAll={() => setCommitOpen({ preset: null, from: "changes" })}
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
@@ -1449,7 +1466,7 @@ function AppBody() {
             onReveal: revealRelease,
             onCommit: (preset) => {
               closePublish(true);
-              setCommitOpen({ preset });
+              setCommitOpen({ preset, from: "wizard" });
             },
             onClose: closePublish,
           }}
@@ -1526,6 +1543,7 @@ function AppBody() {
             onDone={() => git.refresh()}
             // The checks may have refreshed the template block (a repository of 4.4 after a release): the status line follows.
             onRefresh={() => git.refresh()}
+            finalFocus={commitFocus(commitOpen.from)}
           />
         )}
         {restore !== null && (

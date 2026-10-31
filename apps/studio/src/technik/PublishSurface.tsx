@@ -298,7 +298,7 @@ const RELEASE_COLUMNS: readonly TableColumn[] = [
   { key: "file", label: "Datei" },
   { key: "size", label: "Größe", width: 88, align: "end" },
   { key: "notes", label: "Notizen" },
-  { key: "reveal", label: "", width: 44 },
+  { key: "reveal", label: "Aktion", width: 44, hideLabel: true },
 ];
 
 /** A release's row: the file's name (its full path as the title), the notes' first line (the rest as the title) and „Im Finder zeigen“. */
@@ -318,7 +318,8 @@ function releaseRow(list: ReleasesDto, entry: ReleaseEntry, onReveal: (path: str
       ),
       size: formatBytes(entry.size),
       notes: more === "" ? first : <span title={more}>{first}</span>,
-      reveal: <IconButton label="Im Finder zeigen" icon="open" onClick={() => void onReveal(entry.file)} />,
+      // Each row's button is named by its version, so a screen reader tells them apart.
+      reveal: <IconButton label={`Im Finder zeigen: v${entry.version}`} icon="open" onClick={() => void onReveal(entry.file)} />,
     },
   };
 }

@@ -1,9 +1,13 @@
-/** Where the open wizard stands: the step shown (from 0), how many there are and its title; `done` once its result shows. */
+/**
+ * Where the open wizard stands: the step shown (from 0), how many there are and its title; `done` once its result shows; `closed` on a
+ * step after work that cannot be taken back (no way back, „Schließen“ in place of „Abbrechen“).
+ */
 export interface WizardStatus {
   step: number;
   count: number;
   title: string;
   done: boolean;
+  closed?: boolean;
 }
 
 /** The open wizard's frame writes it, the status line reads it (null: no wizard is open). */
@@ -14,7 +18,7 @@ export interface WizardStatusStore {
 }
 
 const same = (a: WizardStatus | null, b: WizardStatus | null) =>
-  a === b || (a !== null && b !== null && a.step === b.step && a.count === b.count && a.title === b.title && a.done === b.done);
+  a === b || (a !== null && b !== null && a.step === b.step && a.count === b.count && a.title === b.title && a.done === b.done && a.closed === b.closed);
 
 /** A store whose methods work taken off the object (as `useSyncExternalStore` calls them). */
 export function createWizardStatusStore(): WizardStatusStore {

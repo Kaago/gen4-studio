@@ -151,7 +151,9 @@ describe("WizardFrame", () => {
 
   it("blocks_everything_while_busy", () => {
     show({ start: 1, busy: true });
-    expect(dialog().hasAttribute("inert")).toBe(true);
+    // The step's content and foot are inert; the step itself is not, so it can hold the focus.
+    expect(dialog().hasAttribute("inert")).toBe(false);
+    expect(field("Name").closest("[inert]")).not.toBeNull();
     expect(dialog().getAttribute("aria-busy")).toBe("true");
     expect(button("Weiter")?.disabled).toBe(true);
     expect(button("Zurück")?.disabled).toBe(true);
@@ -174,6 +176,41 @@ describe("WizardFrame", () => {
     expect(dialog().contains(document.activeElement)).toBe(true);
     pressKey(document.activeElement as HTMLElement, "Escape");
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("the_step_holds_the_focus_while_the_work_runs_and_hands_it_to_a_marked_control_after", () => {
+    // The work starts from „Weiter“ in the bar (its button is disabled then, which drops the focus in a browser).
+    show({ start: 1 });
+    act(() => button("Weiter")!.focus());
+    show({ start: 1, busy: true });
+    expect(document.activeElement).toBe(dialog());
+    // Also when the browser dropped it to the body first.
+    act(() => dialog().blur());
+    show({ start: 1, busy: false });
+    show({ start: 1, busy: true });
+    expect(document.activeElement).toBe(dialog());
+    // The work ends on the same step with a way on of its own: the control marked `data-wizard-focus`, not the first one.
+    function Refused() {
+      const steps = [
+        { id: "a", title: "Quelle", canNext: true, content: <p>a</p> },
+        {
+          id: "b",
+          title: "Patch",
+          canNext: true,
+          content: (
+            <div>
+              <input type="checkbox" aria-label="README" />
+              <button type="button" data-wizard-focus="">
+                Ersetzen
+              </button>
+            </div>
+          ),
+        },
+      ];
+      return <WizardFrame title="Veröffentlichen" icon="publish" steps={steps} step={1} onStep={onStep} busy={false} submitLabel="Fertig" onSubmit={onSubmit} onCancel={onCancel} />;
+    }
+    act(() => root.render(<Refused />));
+    expect(document.activeElement?.textContent).toBe("Ersetzen");
   });
 
   it("ignores_a_held_enter", () => {
@@ -311,6 +348,8 @@ describe("WizardFrame", () => {
       return <WizardFrame title="Veröffentlichen" icon="publish" steps={steps} step={1} onStep={onStep} busy={false} submitLabel="Fertig" onSubmit={onSubmit} onCancel={onCancel} />;
     }
     act(() => root.render(<Closed />));
+    // The status line learns that the step is closed (its hints name no way back).
+    expect(wizardStatus.get()).toEqual({ step: 1, count: 2, title: "Prüfen", done: false, closed: true });
     expect(button("Zurück")).toBeUndefined();
     expect(button("Abbrechen")).toBeUndefined();
     act(() => button("Schließen")!.click());

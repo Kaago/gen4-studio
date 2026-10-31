@@ -218,6 +218,22 @@ describe("PublishWizard", () => {
     expect(fieldError("Version")).toBeNull();
   });
 
+  it("the_run_keeps_the_focus_on_the_step_and_a_refusal_hands_it_to_ersetzen", async () => {
+    let refuse: (e: unknown) => void = () => {};
+    onPublish.mockReturnValueOnce(new Promise((_resolve, reject) => (refuse = reject)));
+    await show();
+    await next();
+    // „Weiter“ starts the run: it is disabled then, the step holds the focus (not the body).
+    await act(async () => button("Weiter")!.focus());
+    await next();
+    expect(container.querySelector("[data-publish-progress]")).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector("[data-wizard]"));
+    // Refused because the file is there: the focus goes to „Ersetzen“, not to the README checkbox above it.
+    await act(async () => refuse({ code: "exists", message: EXISTS, asset: null }));
+    await flush();
+    expect(document.activeElement).toBe(container.querySelector("[data-publish-overwrite]"));
+  });
+
   it("pruefen_shows_the_self_check_and_the_files", async () => {
     await show();
     await next();

@@ -247,7 +247,7 @@ impl ResourceUri {
 /// anew, the sync and the choice of a conflict write sources and members, and an id rename is
 /// a file step of its own (its undo writes every file back). „Git einrichten“ writes the
 /// templates and a repository past the store; publishing builds and writes a release past it,
-/// and „Stand sichern“ commits. `apply_fix` with `create_script` or
+/// „Stand sichern“ commits, and its checks may write the `.gitignore` block. `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
@@ -282,6 +282,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "git_init",
     "publish_patch",
     "git_commit_all",
+    "git_commit_prepare",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
@@ -4391,6 +4392,18 @@ mod tests {
                 );
             }
         }
+        // The checks of „Stand sichern“ (no tool of their own, only through `g4_call`) may bring
+        // the template block of `.gitignore` up to date: a write past the store.
+        let mut calls = three_edits();
+        calls.push(json!({ "tool": "g4_call", "arguments": { "command": "git_commit_prepare", "args": {} } }));
+        let (code, message, details) =
+            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+        assert_eq!(code, "error", "{message}");
+        assert_eq!(details["index"], 3);
+        assert!(
+            message.ends_with("git_commit_prepare geht nicht in g4_batch"),
+            "{message}"
+        );
         // Nothing ran.
         assert_eq!(data(&toolbox, "species", 1), species);
         // The list reads, and goes into a batch.

@@ -142,22 +142,29 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
     };
   }, []);
 
-  // The first control of the step (or of the result) takes the focus when the wizard opens, and when the focus fell out of the wizard because
-  // what had it went away (the step that took an Enter, the button that started the work) or was locked while the work ran (an inert frame
-  // and disabled buttons drop the focus; the work may end on the same step: the patch applied, a refused submit, a failed "Zeigen").
+  // The first control of the step (or of the result; a control marked `data-wizard-focus` before it) takes the focus when the wizard opens,
+  // and when the focus fell out of the wizard because what had it went away (the step that took an Enter, the button that started the work)
+  // or was locked while the work ran (the work may end on the same step: the patch applied, a refused submit, a failed "Zeigen").
   const focusFirst = () => {
     const box = frame.current;
     if (!box) return;
-    (box.querySelector<HTMLElement>(FOCUSABLE) ?? box).focus();
+    (box.querySelector<HTMLElement>("[data-wizard-focus]") ?? box.querySelector<HTMLElement>(FOCUSABLE) ?? box).focus();
   };
   useEffect(focusFirst, [slots]);
   useEffect(() => {
-    if (!busy && resting()) focusFirst();
+    const active = document.activeElement;
+    // The step itself holds the focus while the work runs: its content is inert and the bar's buttons are disabled, which drop the focus.
+    const held = resting() || active === frame.current;
+    if (busy) {
+      if (held || frame.current?.contains(active) || bar.current?.contains(active)) frame.current?.focus();
+    } else if (held) {
+      focusFirst();
+    }
   }, [step, done, busy]);
 
   useEffect(() => {
-    wizardStatus.set({ step, count: titles.length, title: current?.title ?? "", done });
-  }, [step, titles.length, current?.title, done]);
+    wizardStatus.set({ step, count: titles.length, title: current?.title ?? "", done, closed: closed || undefined });
+  }, [step, titles.length, current?.title, done, closed]);
   useEffect(() => () => wizardStatus.set(null), []);
 
   const stepBar = (
@@ -184,13 +191,13 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   let foot: ReactNode = null;
   if (!done && error) {
     foot = (
-      <div className={styles.foot}>
+      <div className={styles.foot} inert={busy}>
         <Notice kind="error">{error}</Notice>
       </div>
     );
   } else if (!done && summary) {
     foot = (
-      <div className={`${styles.foot} ${styles.summary}`}>
+      <div className={`${styles.foot} ${styles.summary}`} inert={busy}>
         <Icon name="list" />
         <span className={styles.sentence}>{summary}</span>
         {irreversible && <Badge kind="irreversible" />}
@@ -199,9 +206,9 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   }
 
   const body = (
-    <div ref={frame} className={styles.frame} role="dialog" aria-labelledby={titleId} data-wizard="" tabIndex={-1} inert={busy} aria-busy={busy || undefined}>
+    <div ref={frame} className={styles.frame} role="dialog" aria-labelledby={titleId} data-wizard="" tabIndex={-1} aria-busy={busy || undefined}>
       {done ? (
-        <div className={styles.result}>
+        <div className={styles.result} inert={busy}>
           <div className={styles.content}>
             <div>{result}</div>
           </div>
@@ -222,7 +229,9 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
           </div>
         </div>
       ) : (
-        <div className={styles.content}>{current?.content}</div>
+        <div className={styles.content} inert={busy}>
+          {current?.content}
+        </div>
       )}
       {foot}
     </div>

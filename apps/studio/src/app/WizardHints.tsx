@@ -3,13 +3,23 @@ import { Kbd } from "../ui/primitives";
 import { wizardStatus } from "../workbench/wizards/wizardStatus";
 import styles from "./WizardHints.module.css";
 
-/** The left of the status line while a wizard is open: its keys ("↵ Weiter, ⌘[ Zurück, Esc Abbrechen"; on the result only Escape). */
+/**
+ * The left of the status line while a wizard is open: its keys ("↵ Weiter, ⌘[ Zurück, Esc Abbrechen"; on a closed step no way back and
+ * "Esc Schließen"; on the result only Escape).
+ */
 export function WizardHints() {
   const status = useSyncExternalStore(wizardStatus.subscribe, wizardStatus.get);
   if (status?.done) {
     return (
       <span className={styles.hints}>
         <Kbd keys="Esc" /> Schließen
+      </span>
+    );
+  }
+  if (status?.closed) {
+    return (
+      <span className={styles.hints}>
+        <Kbd keys="↵" /> Weiter, <Kbd keys="Esc" /> Schließen
       </span>
     );
   }
