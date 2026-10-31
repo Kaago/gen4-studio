@@ -109,6 +109,7 @@ describe("TechnikArea", () => {
         git={null}
         unsaved={null}
         onGitSetup={() => {}}
+        onCommitAll={() => {}}
         revision={0}
         {...handlers}
         base={project === null ? null : base}

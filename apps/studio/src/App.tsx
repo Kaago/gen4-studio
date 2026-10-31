@@ -48,6 +48,7 @@ import { baseKey, useOriginal } from "./original/useOriginal";
 import { toolStatus } from "./app/toolStatus";
 import { AgentStatus } from "./ui/frame/AgentStatus";
 import { GitStatusItem } from "./ui/frame/GitStatusItem";
+import { CommitDialog } from "./git/CommitDialog";
 import { GitInitDialog } from "./git/GitInitDialog";
 import { RestoreDialog } from "./git/RestoreDialog";
 import { useGitStatus } from "./git/useGitStatus";
@@ -340,8 +341,9 @@ function AppBody() {
     void base.refreshReleases();
   }, [openedRoot]);
   const publishLock = session.info === null ? null : publishLockOf(base.status, base.releasesError);
-  // „Stand sichern…“ from the result of „Veröffentlichen“: its subject and notes (the dialog comes with the next step of 4.5).
-  const [, setCommitPreset] = useState<{ message: string; notes: string } | null>(null);
+  // „Stand sichern?“ while open (from the palette, Technik › Änderungen, or the result of „Veröffentlichen“ with its subject and notes as
+  // `preset`); null: closed.
+  const [commitOpen, setCommitOpen] = useState<{ preset: { message: string; notes: string } | null } | null>(null);
   // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
   const original = useOriginal({ project: session.info?.root ?? null, base: base.status });
   scriptBridge.current = scripts.bridge;
@@ -487,6 +489,8 @@ function AppBody() {
     if (session.info !== null && event.tool === "publish_patch") void base.refreshReleases();
     // An agent set up Git: the status line reads the repository.
     if (session.info !== null && event.tool === "git_init") void git.refresh();
+    // An agent saved the state: the status line counts again.
+    if (session.info !== null && event.tool === "git_commit_all") void git.refresh();
     // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
     // never have read the base status).
     if (session.info !== null && event.tool === "assign_base") {
@@ -1066,8 +1070,8 @@ function AppBody() {
           wizard: wizards.request !== null,
           gitSetup: git.status?.repo.kind === "none",
           publishLocked: publishLock,
-          // „Stand sichern…“ comes with its dialog (the next step of 4.5).
-          commitAll: false,
+          // „Stand sichern…“ only in the project's own repository (a larger one around it is the user's to commit).
+          commitAll: git.status?.repo.kind === "own",
         },
       }),
     [places, scene.headers, archives, adopted, scriptFiles, paletteData, session.info, session.busy, area, paletteDeck, inspectorFloats, cellChosen, placeShown, wizards.request, git.status, publishLock],
@@ -1195,7 +1199,7 @@ function AppBody() {
         openPublish();
         break;
       case "commitAll":
-        // Not offered yet (`commitAll: false`): the dialog „Stand sichern?“ comes with the next step of 4.5.
+        if (session.info && git.status?.repo.kind === "own") setCommitOpen({ preset: null });
         break;
       case "importParts":
         if (session.info && pins.pinned.kind === "matrixCell") {
@@ -1291,6 +1295,7 @@ function AppBody() {
         unsavedError={unsaved.error}
         onReloadUnsaved={unsaved.reload}
         onGitSetup={() => openGitSetup(true)}
+        onCommitAll={() => setCommitOpen({ preset: null })}
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
@@ -1443,8 +1448,8 @@ function AppBody() {
             onPublish: session.publish,
             onReveal: revealRelease,
             onCommit: (preset) => {
-              setCommitPreset(preset);
               closePublish(true);
+              setCommitOpen({ preset });
             },
             onClose: closePublish,
           }}
@@ -1507,6 +1512,18 @@ function AppBody() {
               // With the first commit there is something to compare against: Technik › Änderungen shows it.
               if (report.committed) setAgainst("head");
             }}
+          />
+        )}
+        {commitOpen !== null && session.info !== null && (
+          <CommitDialog
+            open
+            status={git.status}
+            unsaved={session.dirtyCount + scripts.dirtyCount > 0}
+            preset={commitOpen.preset}
+            exclusive={session.exclusive}
+            onClose={() => setCommitOpen(null)}
+            // Also after a failed commit (`git add -A` ran): the status line and Technik › Änderungen read the repository again.
+            onDone={() => git.refresh()}
           />
         )}
         {restore !== null && (

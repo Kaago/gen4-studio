@@ -1,0 +1,13 @@
+/* The body of „Stand sichern?“: the checks before, the subject and the note, the progress line, a refusal or Git's reason. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* „Dateien aufnehmen …“: what runs now. */
+.progress {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

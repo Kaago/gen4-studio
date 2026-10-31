@@ -10,8 +10,8 @@ import { check, found } from "./technik/baseTesting";
 import { BUILD_CONFLICTS } from "./technik/syncWords";
 import { addEvent, applyFix, applyHeaderPatch, buildRom, resolveTextConflicts, checksStatus, createArea, repairHeaderPatch, dirty, getAreaData, getMatrix, listHeaders, listMatrices, listWarps, headerPatchStatus, memberCounts, openProject, readScript, redo, runChecks, runRom, save, scriptsStatus, undo, history, getEvents, dataList, nameTables, itemTable, worldMetaGet, agentSettings, baseStatus, originalStatus, planReset, resetToOriginal, changedFromOriginal } from "./api";
 import { finding, report } from "./checks/checksTesting";
-import { gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
-import { gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
+import { gitCommitAll, gitInit, gitStatus, restoreTextProject, unsavedChanges } from "./api";
+import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./git/gitTesting";
 import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
@@ -235,6 +235,7 @@ vi.mock("./api", async (importOriginal) => ({
   closeProject: vi.fn(),
   gitStatus: vi.fn(),
   gitInit: vi.fn(),
+  gitCommitAll: vi.fn(),
   restoreTextProject: vi.fn(),
   diffEntity: vi.fn(),
   unsavedChanges: vi.fn(),
@@ -3566,6 +3567,103 @@ describe("App wiring", () => {
       expect(inDocument("[data-git-init-dialog]")).toBeNull();
       expect(gitItem()?.textContent).toBe("main · keine Änderung");
       expect(listToasts().map((t) => t.text)).toContain("Git eingerichtet: 18.449\u00a0Dateien im ersten Commit „Ausgangsstand“.");
+    });
+
+    const commitDialog = () => inDocument("[data-commit-dialog]");
+    const commitField = (label: string) => commitDialog()?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`) ?? null;
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+
+    it("the_wizard_hands_its_preset_to_the_commit_dialog", async () => {
+      // An own repository and a found base: the wizard's result offers „Stand sichern…“.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 2 }));
+      vi.mocked(baseStatus).mockResolvedValue(found({ patch_name: "p-CPUE" }));
+      vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build" }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      const opts: PublishOptionsDto = { version: "0.1.0", notes: "Neue Route 201.", dir: "/p/build", file: "p-v0.1.0.xdelta", readme: false };
+      vi.mocked(publishPatch).mockResolvedValue(publishReportOf(opts));
+      const wizardButton = (name: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
+      await act(async () => container.querySelector<HTMLButtonElement>('header button[aria-label="Veröffentlichen"]')!.click());
+      await act(async () => {});
+      await act(async () => wizardButton("Weiter")!.click());
+      await act(async () => wizardButton("Weiter")!.click());
+      await act(async () => {});
+      await act(async () => wizardButton("Fertig")!.click());
+      vi.mocked(baseStatus).mockClear();
+      await act(async () => container.querySelector<HTMLButtonElement>("[data-publish-commit]")!.click());
+      await flush();
+      // The wizard closes (the release is read again), the dialog opens with the release's subject and notes.
+      expect(container.querySelector("[data-wizard]")).toBeNull();
+      expect(baseStatus).toHaveBeenCalled();
+      expect(commitDialog()?.querySelector("h2")?.textContent).toBe("Stand sichern?");
+      expect(commitField("Betreff")?.value).toBe("Veröffentlicht v0.1.0");
+      expect(commitField("Notiz")?.value).toBe("Neue Route 201.");
+      vi.mocked(gitCommitAll).mockResolvedValueOnce(commitReportOf({ subject: "Veröffentlicht v0.1.0" }));
+      await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")!.click());
+      expect(gitCommitAll).toHaveBeenCalledExactlyOnceWith({ message: "Veröffentlicht v0.1.0", notes: "Neue Route 201." }, expect.any(Function));
+    });
+
+    it("after_a_commit_the_status_line_reads_again", async () => {
+      // Without an own repository the palette has no „Stand sichern…“.
+      const paletteInput = () => document.querySelector<HTMLInputElement>("[role=dialog] input[role=combobox]");
+      const paletteLabels = () => [...document.querySelectorAll("[role=dialog] [role=option]")].map((o) => o.textContent ?? "");
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      typeInSearch(paletteInput()!, "stand sichern");
+      expect(paletteLabels().some((l) => l.includes("Stand sichern…"))).toBe(false);
+      // Escape until the palette is closed (a search that holds text is cleared first).
+      while (paletteInput() !== null) {
+        pressKey(paletteInput()!, "Escape");
+        await flush();
+      }
+      expect(paletteInput()).toBeNull();
+
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf({ changes: 3 }));
+      vi.mocked(openProject).mockResolvedValue({ root: "/p", game_code: "CPUE", family: "HGSS", language: "en", header_count: 2 });
+      await click("Projekt öffnen");
+      expect(gitItem()?.textContent).toBe("main · 3 Änderungen");
+      // The palette opens the dialog without a preset: the subject of now, an empty note.
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true })));
+      typeInSearch(paletteInput()!, "stand sichern");
+      pressKey(paletteInput()!, "Enter");
+      await flush();
+      expect(commitDialog()?.querySelector("h2")?.textContent).toBe("Stand sichern?");
+      expect(commitField("Betreff")?.value).toMatch(/^Stand \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      expect(commitField("Notiz")?.value).toBe("");
+
+      // While it runs nothing else writes: ⌘S saves nothing.
+      let finish: (report: ReturnType<typeof commitReportOf>) => void = () => {};
+      vi.mocked(gitCommitAll).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+      vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")!.click());
+      expect(gitCommitAll).toHaveBeenCalledOnce();
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await flush();
+      expect(save).not.toHaveBeenCalled();
+
+      // Done: the toast, the dialog gone, the status line read again.
+      vi.mocked(gitStatus).mockResolvedValue(gitStatusOf());
+      await act(async () => finish(commitReportOf()));
+      await flush();
+      expect(commitDialog()).toBeNull();
+      expect(gitItem()?.textContent).toBe("main · keine Änderung");
+      expect(listToasts().map((t) => t.text)).toContain("Stand gesichert: 9a8b7c6 „Stand 2026-10-31 14:05“ (3\u00a0Dateien).");
+
+      // Technik › Änderungen against the last commit offers it too.
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => technikRow("Änderungen").click());
+      await act(async () => container.querySelectorAll<HTMLButtonElement>("[data-against] button")[1]!.click());
+      await act(async () => container.querySelector<HTMLButtonElement>("[data-commit-all]")!.click());
+      await flush();
+      expect(commitDialog()?.querySelector("h2")?.textContent).toBe("Stand sichern?");
+      // Nothing changed: the dialog says so and locks „Sichern“.
+      expect(commitDialog()?.textContent).toContain("Keine Änderung seit dem letzten Commit");
+      expect([...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Sichern")?.disabled).toBe(true);
+      await act(async () => [...commitDialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Abbrechen")!.click());
+      await flush();
+      expect(commitDialog()).toBeNull();
     });
   });
 });

@@ -108,6 +108,8 @@ export type TechnikAreaProps = {
   onReloadUnsaved?: () => void;
   /** „Git einrichten…“ (Änderungen against the last commit without a repository): the app's dialog. */
   onGitSetup: () => void;
+  /** „Stand sichern…“ (Änderungen against the last commit, in the project's own repository): the app's dialog. */
+  onCommitAll: () => void;
   /** Moves whenever the compared state may differ (a save, a reset, an edit): the detail of Änderungen reads its diff again. */
   revision: number;
   /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
@@ -232,6 +234,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           unsavedError={props.unsavedError}
           onReloadUnsaved={props.onReloadUnsaved}
           onGitSetup={props.onGitSetup}
+          onCommitAll={props.onCommitAll}
           goTo={props.goTo}
           revision={props.revision}
           chosen={props.changesChosen}

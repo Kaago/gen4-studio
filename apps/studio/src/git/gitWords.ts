@@ -1,4 +1,4 @@
-import type { GitStatus, InitReport, TemplatesRewritten } from "../api";
+import type { CommitReport, GitStatus, InitReport, TemplatesRewritten } from "../api";
 import { NBSP } from "../words";
 
 /** The changed paths since the last commit: „keine Änderung“, „1 Änderung“, „{n} Änderungen“. */
@@ -58,3 +58,20 @@ export function templatesNote(report: TemplatesRewritten): string {
   if (t === null || !t.files.some((f) => f.path === ".gitignore" && f.action !== "unchanged")) return "";
   return t.layout === "text_project" ? " Die .gitignore von Gen4 Studio versioniert jetzt das Textprojekt." : " Die .gitignore von Gen4 Studio versioniert jetzt den DSPRE-Ordner.";
 }
+
+/** The checklist's row of „Stand sichern“: the changed paths since the last commit, as the status counts them. */
+export function changedFilesText(n: number): string {
+  if (n === 0) return "Keine Änderung seit dem letzten Commit";
+  return n === 1 ? "1 geänderte Datei seit dem letzten Commit" : `${n.toLocaleString("de-DE")} geänderte Dateien seit dem letzten Commit`;
+}
+
+/** The message after „Stand sichern“: the new commit's short id, its subject and how many files went in; when Git knew no name, why the author is Gen4 Studio. */
+export function commitDoneText(report: CommitReport): string {
+  const files = report.files === 1 ? `1${NBSP}Datei` : `${report.files.toLocaleString("de-DE")}${NBSP}Dateien`;
+  const where = report.head === null ? "" : `${report.head.short} `;
+  const done = `Stand gesichert: ${where}„${report.subject}“ (${files}).`;
+  return report.studio_identity ? `${done} Autor ist „Gen4 Studio“, weil Git deinen Namen noch nicht kennt.` : done;
+}
+
+/** Why „Stand sichern…“ in Technik › Änderungen waits: committing needs the `git` command line (reading the status does not). */
+export const NO_GIT_FOR_COMMIT = "Git ist nicht installiert.";

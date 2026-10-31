@@ -1,4 +1,4 @@
-import type { GitStatus, InitReport } from "../api";
+import type { CommitReport, GitStatus, InitReport } from "../api";
 
 /** Test data for the Git state: an own repository on `main` with a commit and no change unless given. */
 export const gitStatusOf = (over: Partial<GitStatus> = {}): GitStatus => ({
@@ -35,5 +35,18 @@ export const initReportOf = (over: Partial<InitReport> = {}): InitReport => ({
   files: 18449,
   studio_identity: false,
   ms: 9100,
+  ...over,
+});
+
+/** What „Stand sichern“ answers: a commit of 3 files with the subject of a plain „Stand …“ unless given. */
+export const commitReportOf = (over: Partial<CommitReport> = {}): CommitReport => ({
+  committed: true,
+  reason: null,
+  subject: "Stand 2026-10-31 14:05",
+  head: { id: "9a8b7c6d".padEnd(40, "0"), short: "9a8b7c6", summary: "Stand 2026-10-31 14:05", time: 1_761_919_500 },
+  files: 3,
+  studio_identity: false,
+  phase_ms: { templates: 4, add: 120, commit: 60 },
+  ms: 190,
   ...over,
 });
