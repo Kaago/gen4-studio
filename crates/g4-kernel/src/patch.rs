@@ -16,6 +16,14 @@ use crate::error::{KernelError, io_at};
 use crate::project::Project;
 use crate::start::{BaseMark, read_base_mark};
 
+pub mod release;
+
+pub use release::{
+    BAD_VERSION, FIRST_VERSION, RELEASES_BROKEN, RELEASES_FILE, RELEASES_VERSION, Release,
+    Releases, VERSION_MAX, VERSION_TAKEN, append_release, check_version, next_version,
+    read_releases, release_file_entry, release_file_name,
+};
+
 /// The patch's name, its target ROM and the base it applies to, for the app header and the
 /// notes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,8 +76,23 @@ pub fn patch_name(project: &Project) -> String {
 }
 
 fn name_for(folder: &str, game_code: &str) -> String {
+    format!("{}-{game_code}", stem_of(folder))
+}
+
+/// The folder name without `_DSPRE_contents`, cleaned as [`patch_name`] cleans it (`Projekt`
+/// if nothing is left), without the game code.
+pub fn project_stem(project: &Project) -> String {
+    let folder = project
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    stem_of(&folder)
+}
+
+fn stem_of(folder: &str) -> String {
     let stem = folder.strip_suffix(DSPRE_SUFFIX).unwrap_or(folder);
-    format!("{}-{game_code}", clean(stem, "Projekt"))
+    clean(stem, "Projekt")
 }
 
 const DSPRE_SUFFIX: &str = "_DSPRE_contents";
@@ -134,22 +157,59 @@ pub fn app_header(meta: &PatchMeta, base_sha1: &str) -> String {
 
 /// The German notes file `<Name>.xdelta.txt`, lines ending in `\n`.
 pub fn notes(meta: &PatchMeta, base_sha1: &str, target_sha1: &str) -> String {
+    notes_with(meta, base_sha1, target_sha1, None)
+}
+
+/// What a release adds to the notes: the version and date of the list's entry and the
+/// change notes the user typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReleaseInfo<'a> {
+    pub version: &'a str,
+    /// `YYYY-MM-DDTHH:MM:SSZ`, UTC.
+    pub date: &'a str,
+    pub notes: &'a str,
+}
+
+/// [`notes`] plus `Version:` and `Datum:` after `Studio-Version:` and, at the end, the
+/// paragraph `Änderungen:` (only when the release has notes, which stand as typed with
+/// their trailing white space cut, followed by exactly one `\n`); `None` gives [`notes`].
+pub fn notes_with(
+    meta: &PatchMeta,
+    base_sha1: &str,
+    target_sha1: &str,
+    release: Option<&ReleaseInfo<'_>>,
+) -> String {
     let PatchMeta {
         name,
         game_code,
         base_label,
         studio_version,
     } = meta;
-    format!(
+    let mut text = format!(
         "Gen4 Studio: Patch für {base_label}\n\
          Spiel: {game_code}\n\
          Basis-ROM SHA-1: {base_sha1}\n\
          Ziel-ROM SHA-1: {target_sha1}\n\
-         Studio-Version: {studio_version}\n\
-         \n\
+         Studio-Version: {studio_version}\n"
+    );
+    if let Some(release) = release {
+        text.push_str(&format!(
+            "Version: {}\nDatum: {}\n",
+            release.version, release.date
+        ));
+    }
+    text.push_str(&format!(
+        "\n\
          Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit \
          Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.\n"
-    )
+    ));
+    if let Some(release) = release {
+        let changes = release.notes.trim_end();
+        if !changes.trim().is_empty() {
+            text.push_str(&format!("\nÄnderungen:\n{changes}\n"));
+        }
+    }
+    text
 }
 
 /// Writes a patch from `base` to the ROM at `built_rom` to `out` and its notes next to it.
@@ -162,7 +222,18 @@ pub fn create_patch(
     out: &Path,
     meta: &PatchMeta,
 ) -> Result<PatchReport, KernelError> {
-    create_patch_with(base, built_rom, out, meta, &|source, patch| {
+    create_patch_with_notes(base, built_rom, out, meta, None)
+}
+
+/// [`create_patch`] with the notes of [`notes_with`].
+pub fn create_patch_with_notes(
+    base: &BaseRom,
+    built_rom: &Path,
+    out: &Path,
+    meta: &PatchMeta,
+    release: Option<&ReleaseInfo<'_>>,
+) -> Result<PatchReport, KernelError> {
+    create_patch_with(base, built_rom, out, meta, release, &|source, patch| {
         g4_xdelta::decode(source, patch)
             .map_err(|_| KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
     })
@@ -177,6 +248,7 @@ pub(crate) fn create_patch_with(
     built_rom: &Path,
     out: &Path,
     meta: &PatchMeta,
+    release: Option<&ReleaseInfo<'_>>,
     verify: &Verify,
 ) -> Result<PatchReport, KernelError> {
     let target = std::fs::read(built_rom).map_err(io_at(built_rom))?;
@@ -198,7 +270,7 @@ pub(crate) fn create_patch_with(
     drop(decoded);
 
     let notes_file = notes_path(out);
-    let text = notes(meta, base.sha1(), &target_sha1);
+    let text = notes_with(meta, base.sha1(), &target_sha1, release);
     if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(io_at(parent))?;
     }
@@ -535,7 +607,8 @@ mod tests {
             bytes[0x100] ^= 1;
             Ok(bytes)
         };
-        let err = create_patch_with(&f.base, &f.built, &out, &test_meta(), &wrong).unwrap_err();
+        let err =
+            create_patch_with(&f.base, &f.built, &out, &test_meta(), None, &wrong).unwrap_err();
         assert!(
             matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
@@ -545,7 +618,8 @@ mod tests {
         let broken = |_: &[u8], _: &[u8]| -> Result<Vec<u8>, KernelError> {
             Err(KernelError::Refused(SELF_CHECK_FAILED.to_owned()))
         };
-        let err = create_patch_with(&f.base, &f.built, &out, &test_meta(), &broken).unwrap_err();
+        let err =
+            create_patch_with(&f.base, &f.built, &out, &test_meta(), None, &broken).unwrap_err();
         assert!(
             matches!(&err, KernelError::Refused(m) if m == SELF_CHECK_FAILED),
             "{err:?}"
@@ -608,5 +682,115 @@ mod tests {
             "{err:?}"
         );
         assert!(!project.root.join("build").exists());
+    }
+
+    const BASE_SHA1: &str = "d40f19ac24d67c721a4ab25e1c013154443d75b4";
+    const TARGET_SHA1: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn release_info(notes: &str) -> ReleaseInfo<'_> {
+        ReleaseInfo {
+            version: "0.1.0",
+            date: "2026-10-31T10:00:00Z",
+            notes,
+        }
+    }
+
+    #[test]
+    fn notes_with_adds_version_date_and_changes_after_the_old_lines() {
+        let meta = test_meta();
+        let plain = notes(&meta, BASE_SHA1, TARGET_SHA1);
+        let info = release_info("Neue Karte\nZweite Zeile");
+        let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&info));
+        assert_eq!(
+            with,
+            "Gen4 Studio: Patch für Platin/DE: Basis\n\
+             Spiel: CPUE\n\
+             Basis-ROM SHA-1: d40f19ac24d67c721a4ab25e1c013154443d75b4\n\
+             Ziel-ROM SHA-1: 0123456789abcdef0123456789abcdef01234567\n\
+             Studio-Version: 0.1.0\n\
+             Version: 0.1.0\n\
+             Datum: 2026-10-31T10:00:00Z\n\
+             \n\
+             Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> Mein Hack-CPUE.xdelta \
+             Mein Hack-CPUE.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit \
+             dieser SHA-1.\n\
+             \n\
+             Änderungen:\n\
+             Neue Karte\n\
+             Zweite Zeile\n"
+        );
+        // The first five lines and the paragraph of 4.1a are the same bytes.
+        let old: Vec<&str> = plain.split_inclusive('\n').collect();
+        let new: Vec<&str> = with.split_inclusive('\n').collect();
+        assert_eq!(old[..5], new[..5]);
+        assert_eq!(old[5..], new[7..9]);
+        // Notes as typed; trailing blank lines give exactly one `\n`.
+        let typed = release_info("  Eingerückt\r\n\nZeile  \n\n\n");
+        let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&typed));
+        assert!(
+            with.ends_with("Änderungen:\n  Eingerückt\r\n\nZeile\n"),
+            "{with:?}"
+        );
+    }
+
+    #[test]
+    fn notes_without_a_release_are_unchanged() {
+        let meta = test_meta();
+        assert_eq!(
+            notes_with(&meta, BASE_SHA1, TARGET_SHA1, None),
+            notes(&meta, BASE_SHA1, TARGET_SHA1)
+        );
+        let plain = notes(&meta, BASE_SHA1, TARGET_SHA1);
+        for missing in ["\nVersion:", "\nDatum:", "Änderungen"] {
+            assert!(!plain.contains(missing), "{missing}");
+        }
+    }
+
+    #[test]
+    fn notes_without_text_have_no_changes_block() {
+        let meta = test_meta();
+        let plain = notes(&meta, BASE_SHA1, TARGET_SHA1);
+        for empty in ["", " \n\t\n"] {
+            let info = release_info(empty);
+            let with = notes_with(&meta, BASE_SHA1, TARGET_SHA1, Some(&info));
+            assert!(with.contains("Version: 0.1.0\nDatum: 2026-10-31T10:00:00Z\n"));
+            assert!(!with.contains("Änderungen"), "{with}");
+            assert!(with.ends_with("dieser SHA-1.\n"), "{with}");
+            assert_eq!(with.lines().count(), plain.lines().count() + 2);
+        }
+    }
+
+    #[test]
+    fn create_patch_with_notes_writes_the_extended_notes() {
+        let f = fixture(1);
+        let out = f.dir.join("build").join("Mein Hack-v0.1.0.xdelta");
+        let meta = test_meta();
+        let info = release_info("Neue Karte");
+        let report = create_patch_with_notes(&f.base, &f.built, &out, &meta, Some(&info)).unwrap();
+
+        let text = std::fs::read_to_string(notes_path(&out)).unwrap();
+        assert_eq!(
+            text,
+            notes_with(&meta, f.base.sha1(), &report.target_sha1, Some(&info))
+        );
+        assert!(text.contains("Version: 0.1.0\n"), "{text}");
+        assert!(text.contains("Änderungen:\nNeue Karte\n"), "{text}");
+        let patch = std::fs::read(&out).unwrap();
+        assert_eq!(
+            g4_xdelta::decode(f.base.bytes(), &patch).unwrap(),
+            f.built_bytes
+        );
+        assert!(tmp_files(&f.dir.join("build")).is_empty());
+    }
+
+    #[test]
+    fn project_stem_is_the_folder_without_suffix_and_game_code() {
+        let (_tmp, project) = minimal_project("Hack:Neu_DSPRE_contents");
+        // The stem is cleaned like the patch name.
+        let (_tmp2, plain) = minimal_project("Mein Hack_DSPRE_contents");
+        assert_eq!(project_stem(&plain), "Mein Hack");
+        assert_eq!(project_stem(&project), "Hack_Neu");
+        assert_eq!(patch_name(&plain), format!("{}-CPUE", project_stem(&plain)));
+        assert_eq!(stem_of("..."), "Projekt");
     }
 }

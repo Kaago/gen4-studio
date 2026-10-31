@@ -14,10 +14,11 @@
 *.mln
 *.state
 
-# Studio: nur base.json und preview.png sind Projekt, der Rest ist lokal
+# Studio: nur base.json, preview.png und releases.json sind Projekt, der Rest ist lokal
 /.g4/*
 !/.g4/base.json
 !/.g4/preview.png
+!/.g4/releases.json
 
 # Spieldateien: aus der Basis-ROM und dem Textprojekt erzeugt (nach einem Klon: „Textprojekt vervollständigen“)
 {{dspre_part}}

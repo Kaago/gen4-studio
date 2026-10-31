@@ -71,6 +71,73 @@ Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“)
 `base_label` steht hier unbereinigt, `studio_version` ist die Version des Kernels, `target_sha1` die
 SHA-1 der gebauten ROM `build/<Name>.nds`.
 
+Mit einer Veröffentlichung (`notes_with`, `create_patch_with_notes`) kommen `Version:` und `Datum:`
+nach `Studio-Version:` und, wenn der Entwickler Notizen eingegeben hat, ein letzter Absatz
+`Änderungen:` dazu:
+
+```text
+Gen4 Studio: Patch für {base_label}
+Spiel: {game_code}
+Basis-ROM SHA-1: {base_sha1}
+Ziel-ROM SHA-1: {target_sha1}
+Studio-Version: {studio_version}
+Version: {version}
+Datum: {date}
+
+Anwenden: mit xdelta3 („xdelta3 -d -s <Basis-ROM> {name}.xdelta {name}.nds“) oder mit Rom Patcher JS, auf genau die Basis-ROM mit dieser SHA-1.
+
+Änderungen:
+{notes}
+```
+
+Ohne Veröffentlichung fehlen `Version:`, `Datum:` und `Änderungen:`; die ersten fünf Zeilen und der
+Anwenden-Absatz sind die von 4.1a. `Datum` ist `YYYY-MM-DDTHH:MM:SSZ` (UTC, `now_rfc3339`). Der
+Block `Änderungen:` steht nur bei nicht leeren Notizen (nur Leerraum zählt als leer); die Notizen
+stehen wie eingegeben, Leerraum am Ende ist abgeschnitten, die Datei endet mit genau einem `\n`.
+
+## Veröffentlichungen `.g4/releases.json`
+
+Die Liste der Patches, die das Projekt veröffentlicht hat, liegt versioniert im Projekt (die
+Erlaubnisliste der `.gitignore` nennt sie, siehe [project_git.md](project_git.md#g4)). UTF-8, zwei
+Leerzeichen Einrückung, Felder in der Reihenfolge der Struktur, am Ende ein `\n`; geschrieben über
+Temp-Datei und Umbenennen:
+
+```json
+{
+  "version": 1,
+  "releases": [
+    {
+      "version": "0.1.0",
+      "date": "2026-10-31T10:00:00Z",
+      "file": "build/Mein Hack-v0.1.0.xdelta",
+      "notes": "Neue Karte",
+      "baseSha1": "d40f19ac24d67c721a4ab25e1c013154443d75b4",
+      "size": 1234
+    }
+  ]
+}
+```
+
+- `releases` steht in der Reihenfolge des Veröffentlichens, die neueste zuletzt
+  (`append_release` hängt an).
+- `file` ist der Patch relativ zum Projektordner mit `/`, wenn er darunter liegt, sonst der absolute
+  Pfad (`release_file_entry`). `size` ist die Größe des Patches in Bytes, `baseSha1` die der
+  Basis-ROM, `date` wie in der Begleitdatei, `notes` der Text der Notizen.
+- Die Datei darf fehlen: das ist die leere Liste. Ist sie nicht lesbar (kein JSON, fehlende oder
+  unbekannte Felder, `version` unbekannt) oder hat sie eine neuere `version` als `1`, ist das
+  Ergebnis `KernelError::Refused` mit „Die Liste der Veröffentlichungen ist nicht lesbar: <Pfad>:
+  <Grund>“ bzw. „… nicht lesbar (Fassung 2 ist neuer als diese App)“ (`RELEASES_BROKEN`); die Datei
+  bleibt Byte für Byte, auch `append_release` überschreibt sie nicht.
+- `next_version`: für die leere Liste `0.1.0`; sonst die Version der letzten Veröffentlichung mit
+  `major.minor.patch`, Patchzahl plus eins, ein Anhang (`-beta`, `+build`) entfällt (`2.0.0-beta` →
+  `2.0.1`, `1.2.9` → `1.2.10`); eine Version, die nicht aus drei Zahlen besteht (`final`), bleibt
+  stehen, der Entwickler tippt die nächste.
+- `check_version`: `Err(BAD_VERSION)` für eine leere Version, eine mit mehr als 32 Zeichen oder mit
+  Leerraum, Steuerzeichen oder einem von `/ \ : * ? " < > |`; `Err(VERSION_TAKEN)` („Diese Version
+  gibt es schon.“) für eine, die die Liste schon hat (genau gleich); sonst `Ok`.
+- Dateiname des Patches: `<Projekt>-v<Version>.xdelta` (`release_file_name`), `<Projekt>` ist der
+  Ordnername ohne `_DSPRE_contents`, bereinigt wie im Patchnamen (`project_stem`, ohne Spielcode).
+
 ## Selbstprüfung und Schreiben
 
 `create_patch(base, gebaute_rom, ziel, meta)`:

@@ -604,6 +604,27 @@ mod tests {
     }
 
     #[test]
+    fn the_templates_keep_releases_json_versioned() {
+        for (fx, layout) in [
+            (TextFixture::dspre(), Layout::Dspre),
+            (TextFixture::exported(), Layout::TextProject),
+        ] {
+            let root = fx.root();
+            let project = fx.project();
+            assert_eq!(layout_of(&project), layout);
+            write_templates(&project).unwrap();
+            fx.write(".g4/releases.json", b"{}");
+            fx.write(".g4/cache/x", b"x");
+            GitFixture::init(root);
+
+            let untracked = untracked(root);
+            assert!(untracked.contains(".g4/releases.json"), "{untracked:?}");
+            assert!(!untracked.contains(".g4/cache/x"), "{untracked:?}");
+            assert!(!untracked.contains(".g4/cache/"), "{untracked:?}");
+        }
+    }
+
+    #[test]
     fn dspre_template_leaves_no_generated_archive_untracked() {
         let fx = TextFixture::dspre();
         let root = fx.root();

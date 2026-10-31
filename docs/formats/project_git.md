@@ -33,7 +33,7 @@ das tut Gen4 Studio nicht.
 | Kopf | zwei Kommentarzeilen | Das Projekt enthält Daten aus dem Spiel: nur lokal oder privat versionieren; geteilt wird der Patch gegen die Basis-ROM (Gutachten C §4) |
 | Gebaute ROMs und Patches | `*.nds`, `*.srl`, `*.xdelta`, `/build/` | Ausgaben des Builds und des Veröffentlichens; `/build/` ist das Build-Ziel der Agenten (C §2.1) |
 | Emulator | `*.sav`, `*.dsv`, `*.ml[0-9]`, `*.mln`, `*.state` | Der Emulator legt Spielstände neben die ROM; liegt sie im Projekt, landen sie dort (C §2.1) |
-| Studio | `/.g4/*`, `!/.g4/base.json`, `!/.g4/preview.png` | Erlaubnisliste, Abschnitt [`.g4/`](#g4) |
+| Studio | `/.g4/*`, `!/.g4/base.json`, `!/.g4/preview.png`, `!/.g4/releases.json` | Erlaubnisliste, Abschnitt [`.g4/`](#g4) |
 | rotom | `/.rotom/cache/`, `/.rotom/command_database/.g4-ids-*` | Cache von rotom und die ID-Dateien für rotom, die das Studio aus den Registern neu schreibt (`textproject/include.rs`); die übrige `.rotom/command_database` und die Quirks in `.rotom/status/compile-state.json` bleiben versioniert |
 | Sicherungen | `*.bak`, `*.orig`, `*~` | Sicherungen gehören nicht in den Projektordner |
 | Archive, die der Build packt | `/<NARC-Pfad>` je Zeile, sortiert | siehe unten |
@@ -52,7 +52,7 @@ Bericht als `ignored_archives` (die vanilla DSPRE-Ordner: 36 in Platin, 40 in He
 Versioniert bleiben: `unpacked/`, `expanded/`, `arm9/`, die Overlays, die übrigen `files/` (auch die
 NARCs ohne `unpacked/`-Ordner), `header.yaml`, `config.yaml`, `g4-world.json`, `g4-checks.json`,
 `rotom.toml`, `.rotom/command_database` (ohne die ID-Dateien `.g4-ids-*`),
-`.rotom/status/compile-state.json`, `.g4/base.json`, `.g4/preview.png`, die `.gitignore` und die
+`.rotom/status/compile-state.json`, `.g4/base.json`, `.g4/preview.png`, `.g4/releases.json`, die `.gitignore` und die
 `.gitattributes`.
 
 ### Textprojekt (`text.gitignore`)
@@ -75,7 +75,7 @@ Wurzel gegen die Liste. `expanded/` steht nicht darin: es bleibt versioniert.
 
 Versioniert bleiben: die Dateien aus `textproject::sources()` (`g4-project.json`, `data/`,
 `expanded/textArchives/*.json`, `expanded/scripts/`, `rotom.toml`, `.rotom/command_database/`,
-`g4-world.json`, `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`), der Rest von `expanded/`,
+`g4-world.json`, `g4-checks.json`, `.g4/base.json`, `.g4/preview.png`), `.g4/releases.json`, der Rest von `expanded/`,
 die `.gitignore` und die `.gitattributes`. Die ID-Dateien für rotom
 (`.rotom/command_database/.g4-ids-*.json`) zählt `sources()` nicht mit, und die Vorlage ignoriert
 sie.
@@ -326,10 +326,13 @@ Ein Diff dauert auf Platin DE und HeartGold US höchstens 14 ms (Debug, `tests/d
 /.g4/*
 !/.g4/base.json
 !/.g4/preview.png
+!/.g4/releases.json
 ```
 
 Die oberste Ebene von `.g4/` hält Projekt-Metadaten: die Basismarke `base.json`
-([project_base.md](project_base.md)) und das Vorschaubild `preview.png`. Alles andere ist lokal und
+([project_base.md](project_base.md)), das Vorschaubild `preview.png` und die Liste der
+Veröffentlichungen `releases.json` ([xdelta_patch.md](xdelta_patch.md#veröffentlichungen-g4releasesjson)).
+Alles andere ist lokal und
 darf fehlen: `tmp/` (atomares Schreiben), `build/` (Build-Zustand, Fingerprints), `cache/`
 (Basisschicht, Modelle), `backup/` (Schnappschüsse). Neue Caches sind damit ohne Änderung der
 Vorlage ignoriert.
