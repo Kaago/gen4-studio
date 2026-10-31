@@ -7,16 +7,18 @@ import { resetEntry } from "../../original/resetEntry";
 import { renameEntry } from "../../textproject/renameEntry";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { useEntityIds } from "../../textproject/useEntityIds";
-import { Badge, Button, Section, Tooltip } from "../../ui/primitives";
+import { Badge, Button, InspectorRow, Section, Tooltip } from "../../ui/primitives";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { HeaderIdentity } from "../headerIdentity";
 import type { NavTarget } from "../navigation";
+import { RenameDialog } from "../RoomActions";
+import type { RenameTarget } from "../RoomActions";
 import { TERMS, id4, termFor } from "../terms";
 import { useEvents } from "../useEvents";
 import type { WizardRequest } from "../WorkbenchContext";
 import { roomOf } from "../worldModel";
-import type { World } from "../worldModel";
+import type { Room, World } from "../worldModel";
 import styles from "./Editor.module.css";
 import { EncounterFileField } from "./EncounterFileField";
 import { Field } from "./Field";
@@ -27,6 +29,7 @@ import { HeaderSession } from "./headerCommit";
 import { headerSections } from "./headerSections";
 import type { HeaderSectionId } from "./headerSections";
 import { InspectorHead } from "./InspectorHead";
+import { LookField } from "./LookField";
 import { PlacePicker } from "../places/PlacePicker";
 import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
@@ -73,6 +76,8 @@ export interface HeaderEditorContext {
   matrices: readonly MatrixSummary[];
   /** A room was split off: the project is read again as after a wizard, and `made.header` is shown with the announcement. */
   onRoomSplit: (made: Created) => void | Promise<void>;
+  /** Renames a room as the world tree does (Erzählen's row „Name“); without it the row only shows the name. */
+  onRename?: (target: RenameTarget, name: string) => void;
   onError: (e: unknown) => void;
 }
 
@@ -110,11 +115,54 @@ function DoorsLine({ header, headers, revision, goTo, onError }: { header: Heade
 }
 
 /**
- * Editable form of one map header; every committed field is one undoable change. Render it with
+ * Erzählen's row „Name“: the name the head shows, and for a room „Umbenennen…“ with the world tree's dialog (an area has no rename,
+ * its name stands alone).
+ */
+function NameRow({ name, room, onRename }: { name: string; room: Room | undefined; onRename?: (target: RenameTarget, name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  // Counts the openings: the dialog is keyed on it, so its field starts with the current name each time.
+  const [opens, setOpens] = useState(0);
+  return (
+    <>
+      <InspectorRow label="Name">
+        <div className={styles.inline} data-name-row="">
+          <span>{name}</span>
+          {room && onRename && (
+            <Button
+              kind="quiet"
+              size="s"
+              onClick={() => {
+                setOpens((n) => n + 1);
+                setOpen(true);
+              }}
+            >
+              Umbenennen…
+            </Button>
+          )}
+        </div>
+      </InspectorRow>
+      {room && onRename && (
+        <RenameDialog
+          key={opens}
+          open={open}
+          title="Raum umbenennen"
+          name={room.name}
+          suggestion={room.suggested}
+          onClose={() => setOpen(false)}
+          onRename={(next) => onRename({ kind: "room", id: room.header.id }, next)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Editable form of one map header; every committed field is one undoable change. Erzählen shows the one section „Ort“: the name, the
+ * place, the look (`LookField`) and the music. Render it with
  * `key={id}`: all reads and writes of an instance belong to its one header (see `HeaderSession`).
  */
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
-  const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onError } = context;
+  const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onRename, onError } = context;
   const reset = useReset();
   // In a text project the head names the header's id (`MAP_…`) and offers to rename it.
   const text = useTextProject();
@@ -182,10 +230,15 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   // Only a room on a matrix without a header section can be split (the kernel refuses a world map); an unknown matrix offers nothing.
   const roomMatrix = room ? matrices.find((m) => m.index === room.header.matrix_id) : undefined;
   const canSplit = sharedRoom !== undefined && roomMatrix?.has_headers === false;
+  const narrating = !depthAtLeast(depth, "bauen");
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
     const family = headerFamily(header);
+    // Erzählen chooses the look by its places, with this header's map drawn in each.
+    if (narrating && spec.key === "area_data_id" && summary) {
+      return <LookField key={spec.key} value={value} headers={headers} template={summary} onCommit={(n) => commit(spec, n)} />;
+    }
     // „Begegnungen“ names an encounter file of the Pokémon area (Diamond and Pearl have no data editors: there it stays a number).
     if (spec.key === "wild_pokemon" && family !== "DP") {
       return <EncounterFileField key={spec.key} spec={spec} value={value} family={family} headers={headers} goTo={goTo} onCommit={commit} />;
@@ -274,6 +327,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           <div key={refused}>
             {headerSections(headerFamily(header), depth).map((section) => (
               <Section key={section.id} title={section.title} open={folds.isOpen(foldKey(section.id))} onToggle={() => folds.toggle(foldKey(section.id))}>
+                {section.id === "ort" && <NameRow name={identity?.name ?? headerId} room={room} onRename={onRename} />}
                 {section.specs.map((spec) => fieldRow(spec, header))}
                 {section.id === "texts" && !scriptsAdopted && (
                   <p role="note" className={styles.note}>
@@ -285,7 +339,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           </div>
         )}
         {summary && <DoorsLine header={summary} headers={headers} revision={eventRevision} goTo={goTo} onError={onError} />}
-        {summary && header !== null && (
+        {summary && header !== null && !narrating && (
           <LevelScriptSection
             // A header of another project or another level script file starts a fresh form.
             key={`${id}:${fieldValue(header, "level_script_id")}`}

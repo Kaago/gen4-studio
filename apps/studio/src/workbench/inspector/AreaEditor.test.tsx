@@ -10,6 +10,7 @@ import { visibleWords } from "../../ui/visibleText";
 import { AreaEditor } from "./AreaEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { READY, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
+import type { Depth } from "../../ui/frame/shellState";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getAreaData: vi.fn(), setAreaData: vi.fn() }));
 
@@ -38,7 +39,7 @@ describe("AreaEditor", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(counts = {}, dirty: AssetId[] = [], depth: "bauen" | "tuefteln" = "bauen") {
+  async function show(counts = {}, dirty: AssetId[] = [], depth: Depth = "bauen") {
     await act(async () => root.render(withReset(reset, <AreaEditor id={7} context={{ counts, dirty, revision: 0, onChanged, onError }} depth={depth} />)));
     await flush();
   }
@@ -131,5 +132,13 @@ describe("AreaEditor", () => {
     expect(item?.textContent).toBe("Kartentextur auf Original zurücksetzen…Kein Original");
     expect(isDisabled(headAction(container, "Gebäudetextur auf Original zurücksetzen…"))).toBe(false);
     closeMenu();
+  });
+
+  it("erzaehlen_shows_no_field_and_says_where_the_look_is_chosen", async () => {
+    await show({}, [], "erzaehlen");
+    expect(container.querySelector("header[data-inspector-kind='look'] [data-eyebrow]")?.textContent).toBe("Aussehen");
+    expect(input("Lichttyp")).toBeNull();
+    expect(container.querySelector("[role=combobox]")).toBeNull();
+    expect(container.textContent).toContain("Erzählen wählt das Aussehen am Ort; Tilesets und Licht stellst du in Bauen ein.");
   });
 });

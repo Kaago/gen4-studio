@@ -1,6 +1,9 @@
 import type { EventKind, EventPatch, EventsDto } from "../../api";
 import { KIND_LABELS, eventAt } from "../../world/events";
 import { TERMS } from "../terms";
+import type { Depth } from "../../ui/frame/shellState";
+import { depthAtLeast } from "../../ui/frame/shellState";
+import { shownFields } from "./fields";
 import type { EventData } from "../../world/events";
 import type { RecordBackend, RecordFields } from "./headerCommit";
 
@@ -15,6 +18,8 @@ export interface EventFieldSpec {
   max: number;
   /** Named choices (a facing): the field is a select, and a stored value without a name is still shown. */
   options?: { value: number; label: string }[];
+  /** The lowest depth that shows the field; absent: Bauen. */
+  from?: Depth;
 }
 
 /** The way an object faces; the game stores it as 0 to 3. */
@@ -65,17 +70,17 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
     case "warp":
       return [
         ...position,
-        { key: "dest_warp_id", label: "Ziel-Warp", ...U16 },
+        { key: "dest_warp_id", label: "Ziel-Warp", ...U16, from: "erzaehlen" },
         ...(family === "Hgss" ? [{ key: "height", label: "Höhe", min: 0, max: 0xffff_ffff } satisfies EventFieldSpec] : []),
       ];
     case "object":
       return [
         ...position,
         { key: "local_id", label: "Lokale ID", ...U16 },
-        { key: "graphics_id", label: "Grafik", ...U16 },
-        { key: "movement_type", label: "Bewegung", ...U16 },
-        { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS },
-        { key: "script", label: TERMS.script.label, ...U16 },
+        { key: "graphics_id", label: "Grafik", ...U16, from: "erzaehlen" },
+        { key: "movement_type", label: "Bewegung", ...U16, from: "erzaehlen" },
+        { key: "dir", label: "Blickrichtung", ...I16, options: FACINGS, from: "erzaehlen" },
+        { key: "script", label: TERMS.script.label, ...U16, from: "erzaehlen" },
         { key: "trainer_type", label: "Sichtlinie", ...U16, options: SIGHTLINES },
         { key: "sight", label: "Sichtweite", min: 0, max: SIGHT_MAX },
       ];
@@ -84,6 +89,56 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
     case "bg":
       return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
+}
+
+/**
+ * What a figure does, in words (pret movement types, numbered as DSPRE's `movementTypesArray`); a stored value without a word shows as
+ * „Bewegung N“. 1 has no word: DSPRE calls it „None“ like 0, and a second word for the same thing would only puzzle.
+ */
+export const MOVEMENT_WORDS: { value: number; label: string }[] = [
+  { value: 0, label: "Steht still" },
+  { value: 2, label: "Schaut sich um" },
+  { value: 3, label: "Geht umher" },
+  { value: 4, label: "Geht auf und ab" },
+  { value: 5, label: "Geht hin und her" },
+  { value: 6, label: "Schaut nach oben und links" },
+  { value: 7, label: "Schaut nach oben und rechts" },
+  { value: 8, label: "Schaut nach unten und links" },
+  { value: 9, label: "Schaut nach unten und rechts" },
+  { value: 10, label: "Schaut nach oben, unten und links" },
+  { value: 11, label: "Schaut nach oben, rechts und unten" },
+  { value: 12, label: "Schaut nach rechts, links und oben" },
+  { value: 13, label: "Schaut nach rechts, links und unten" },
+  { value: 14, label: "Blickt nach oben" },
+  { value: 15, label: "Blickt nach unten" },
+  { value: 16, label: "Blickt nach links" },
+  { value: 17, label: "Blickt nach rechts" },
+  { value: 18, label: "Dreht sich gegen den Uhrzeigersinn" },
+  { value: 19, label: "Dreht sich im Uhrzeigersinn" },
+  { value: 45, label: "Schaut nach oben und unten" },
+  { value: 46, label: "Schaut nach rechts und links" },
+  { value: 48, label: "Folgt dem Spieler" },
+  { value: 51, label: "Versteckt im Schnee" },
+  { value: 53, label: "Versteckt unter der Erde" },
+  { value: 54, label: "Versteckt im Gras" },
+];
+
+/** The choices of the field „Bewegung“ in Erzählen: the words, and a stored value without one as „Bewegung N“. */
+export function movementOptions(value: number): { value: number; label: string }[] {
+  return MOVEMENT_WORDS.some((w) => w.value === value) ? MOVEMENT_WORDS : [...MOVEMENT_WORDS, { value, label: `Bewegung ${value}` }];
+}
+
+/** What Erzählen calls the fields it shows (the movement becomes a choice of words). */
+const NARRATING: Partial<Record<EventFieldKey, Partial<EventFieldSpec>>> = {
+  graphics_id: { label: "Aussehen" },
+  movement_type: { options: MOVEMENT_WORDS },
+  dest_warp_id: { label: "Tür" },
+};
+
+/** The fields of an event `depth` shows, in its words: Erzählen only those from Erzählen, Bauen and Tüfteln `eventFieldSpecs` as it is. */
+export function eventFieldsAt(kind: EventKind, family: string | null, depth: Depth): EventFieldSpec[] {
+  const specs = shownFields(eventFieldSpecs(kind, family), depth);
+  return depthAtLeast(depth, "bauen") ? specs : specs.map((s) => ({ ...s, ...NARRATING[s.key] }));
 }
 
 const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];

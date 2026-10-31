@@ -1,0 +1,54 @@
+import { useMemo, useState } from "react";
+import type { HeaderSummary, WarpDto } from "../../api";
+import { Button, InspectorRow, Picker } from "../../ui/primitives";
+import type { PickerItem } from "../../ui/primitives";
+import { useEvents } from "../useEvents";
+import styles from "./Editor.module.css";
+
+/** A door of the destination by its number and tile. */
+const doorText = (warp: WarpDto) => `Tür ${warp.index} · x ${warp.x}, z ${warp.z}`;
+
+/**
+ * A door's field „Tür“ (the destination warp) in Erzählen: the door of the destination header's event file it leads to, by its number
+ * and tile; „Ändern…“ picks another of that file's doors („Tür wählen“). Without a known destination there is nothing to pick.
+ */
+export function WarpField({
+  destHeader,
+  value,
+  disabled,
+  onCommit,
+  onError,
+}: {
+  destHeader: HeaderSummary | undefined;
+  value: number;
+  disabled?: boolean;
+  onCommit: (warp: number) => void;
+  onError: (e: unknown) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const events = useEvents(destHeader?.event_file_id ?? null, onError);
+  const current = events?.warps.find((w) => w.index === value);
+  const items = useMemo<PickerItem[]>(() => (picking && events ? events.warps.map((w) => ({ id: w.index, label: doorText(w), area: "welt" as const })) : []), [picking, events]);
+  const missing = events !== null && current === undefined;
+  return (
+    <>
+      <InspectorRow label="Tür" hint={missing ? `Das Ziel hat keine Tür ${value}. Wähle eine seiner Türen.` : undefined}>
+        <div className={styles.inline} data-warp-field="">
+          <span>{current ? doorText(current) : `Tür ${value}`}</span>
+          <Button kind="quiet" size="s" aria-label="Tür ändern…" disabled={disabled || destHeader === undefined} onClick={() => setPicking(true)}>
+            Ändern…
+          </Button>
+        </div>
+      </InspectorRow>
+      <Picker
+        open={picking}
+        onOpenChange={setPicking}
+        title="Tür wählen"
+        items={items}
+        placeholder="Tür suchen"
+        emptyText={events === null ? "Lädt …" : "Das Ziel hat keine Türen."}
+        onPick={(item) => onCommit(Number(item.id))}
+      />
+    </>
+  );
+}

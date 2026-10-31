@@ -42,4 +42,12 @@ describe("headerSections", () => {
     const maps = headerSections("HGSS", "bauen")[0]!.specs.map((s) => s.key);
     expect(maps.slice(0, 4)).toEqual(["wild_pokemon", "area_data_id", "worldmap_x", "worldmap_y"]);
   });
+
+  it("erzaehlen_has_the_section_ort_only", () => {
+    for (const family of ["DP", "Pt", "HGSS"] as const) {
+      const sections = headerSections(family, "erzaehlen");
+      expect(sections.map((s) => [s.id, s.title])).toEqual([["ort", "Ort"]]);
+      expect(sections[0]!.specs.map((s) => s.key).sort()).toEqual(["area_data_id", "location_name", "music_day_id", "music_night_id"]);
+    }
+  });
 });

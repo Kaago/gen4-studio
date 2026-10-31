@@ -7,8 +7,8 @@ import type { NavTarget } from "../navigation";
 import { id4 } from "../terms";
 import type { FieldSpec } from "./fields";
 
-/** A warp's destination header as a field: "Ziel" in Bauen, "Zielheader" in Tüfteln (its picker, its button and its undo step). */
-export const destinationSpec = (depth: Depth): FieldSpec => ({ key: "dest_header_id", label: depthAtLeast(depth, "tuefteln") ? "Zielheader" : "Ziel", kind: "pick", pick: "header" });
+/** A warp's destination header as a field: "Ziel" in Erzählen and Bauen, "Zielheader" in Tüfteln (its picker, its button and its undo step). */
+export const destinationSpec = (depth: Depth): FieldSpec => ({ key: "dest_header_id", label: depthAtLeast(depth, "tuefteln") ? "Zielheader" : "Ziel", kind: "pick", pick: "header", from: "erzaehlen" });
 
 /** How an id field reads as a link: the chip's area colour and words, and where a click leads (null: nowhere to go). */
 export interface PickReference {

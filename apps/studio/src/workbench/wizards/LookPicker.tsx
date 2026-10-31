@@ -30,13 +30,15 @@ interface Props {
   onChange: (areaDataId: number) => void;
   /** How a look no header carries is named (see `lookText`). Default: Tüfteln, like the other components (callers pass it). */
   depth?: Depth;
+  /** The button cannot open the picker (a locked record). */
+  disabled?: boolean;
 }
 
 /**
  * „Aussehen wie …“: a button with the chosen look that opens the picker of every look the game uses, each with the places that carry
  * it and the template's map drawn in it.
  */
-export function LookPicker({ headers, template, value, onChange, depth = "tuefteln" }: Props) {
+export function LookPicker({ headers, template, value, onChange, depth = "tuefteln", disabled }: Props) {
   const [open, setOpen] = useState(false);
   const looks = useMemo(() => lookItems(headers, template), [headers, template]);
   // A failed read only leaves the pictures out.
@@ -50,7 +52,7 @@ export function LookPicker({ headers, template, value, onChange, depth = "tuefte
     <>
       <div className={styles.lookRow}>
         <LookPreview map={map} areaDataId={value} />
-        <Button kind="secondary" size="s" data-look-picker="" onClick={() => setOpen(true)}>
+        <Button kind="secondary" size="s" data-look-picker="" disabled={disabled} onClick={() => setOpen(true)}>
           {lookText(looks, value, depth)}
         </Button>
       </div>

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignPlace, dataList, entityIds, getEvents, getHeader, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
+import { assignPlace, dataList, entityIds, getEvents, getHeader, getMatrix, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
 import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -15,6 +15,7 @@ import type { HeaderEditorContext } from "./HeaderEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
+import type { Depth } from "../../ui/frame/shellState";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -29,6 +30,7 @@ vi.mock("../../api", async (importOriginal) => ({
   assignPlace: vi.fn(),
   splitRoom: vi.fn(),
   entityIds: vi.fn(),
+  getMatrix: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -110,7 +112,7 @@ describe("HeaderEditor scripts", () => {
     onRoomSplit,
     ...over,
   });
-  async function show(ctx = context(), depth: "bauen" | "tuefteln" = "bauen") {
+  async function show(ctx = context(), depth: Depth = "bauen") {
     await act(async () => root.render(withReset(reset, <HeaderEditor id={411} context={ctx} depth={depth} />)));
     await flush();
   }
@@ -130,6 +132,7 @@ describe("HeaderEditor scripts", () => {
     vi.mocked(assignPlace).mockReset().mockResolvedValue(undefined);
     for (const fn of [onOpenScript, onChanged, onPlaceChanged, onCountsChanged, onError, onLevelScriptSaved, onRoomSplit]) fn.mockReset();
     vi.mocked(splitRoom).mockReset().mockResolvedValue({ matrix: 700, maps: [601] });
+    vi.mocked(getMatrix).mockReset().mockRejectedValue({ code: "error", message: "keine Matrix im Test", asset: null });
     reset = resetSpy();
   });
   afterEach(() => {
@@ -660,5 +663,52 @@ describe("HeaderEditor scripts", () => {
     expect(hexSwitch()).toBe(true);
     await act(async () => void technical()?.click());
     expect(container.textContent).toContain("Header 0411, Eintrag der Header-Tabelle");
+  });
+  describe("in Erzählen", () => {
+    const titles = () => [...container.querySelectorAll("h3")].map((h) => h.textContent);
+    const input = (label: string) => container.querySelector<HTMLInputElement>(`input[aria-label='${label}']`);
+
+    it("erzaehlen_shows_one_section_ort_with_place_look_and_music", async () => {
+      await show(context(), "erzaehlen");
+      expect(titles()).toEqual(["Ort"]);
+      expect(container.textContent).not.toContain("Karten");
+      expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
+      // The look by its places, chosen with the header itself as the template.
+      expect(container.querySelector("button[data-look-picker]")?.textContent).toBe("Aussehen wie Zweiblattdorf");
+      // Music as a number without Dez | Hex.
+      expect(input("Musik (Tag)")?.value).toBe("6");
+      expect(input("Musik (Nacht)")?.value).toBe("7");
+      expect(button("Hex")).toBeUndefined();
+      // No script file, no level script, no matrix.
+      expect(input("Weltkarte")).toBeNull();
+      expect(container.textContent).not.toContain("Scriptdatei");
+      // The name of an area stands in its row without a button: there is no rename for areas.
+      expect(container.querySelector("[data-name-row]")?.textContent).toContain("Zweiblattdorf");
+      expect(button("Umbenennen…")).toBeUndefined();
+    });
+
+    it("erzaehlen_writes_the_chosen_look_as_one_header_edit", async () => {
+      const other: HeaderSummary = { ...summary, id: 500, internal_name: "R01", location_name: "Route 201", area_data_id: 3 };
+      await show(context({ headers: [summary, other] }), "erzaehlen");
+      await click(container.querySelector("button[data-look-picker]") ?? undefined);
+      const option = [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent?.includes("Route 201"));
+      await click(option);
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ area_data_id: 3 }), "Aussehen");
+    });
+
+    it("erzaehlen_renames_a_room_from_its_name_row", async () => {
+      const onRename = vi.fn();
+      await act(async () =>
+        root.render(withReset(reset, <HeaderEditor id={412} context={context({ headers: [summary, house], world: houseWorld(0), onRename })} depth="erzaehlen" />)),
+      );
+      await flush();
+      expect(container.querySelector("[data-name-row]")?.textContent).toContain("Haus 1");
+      await click(button("Umbenennen…"));
+      const field = document.querySelector<HTMLInputElement>("[role=dialog] input")!;
+      typeInto(field, "Keller");
+      await click([...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Umbenennen"));
+      expect(onRename).toHaveBeenCalledWith({ kind: "room", id: 412 }, "Keller");
+    });
   });
 });

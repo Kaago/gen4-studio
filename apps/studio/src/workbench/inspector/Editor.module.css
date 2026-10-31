@@ -97,3 +97,17 @@
   display: inline-flex;
   border-radius: var(--g4-radius-plakette);
 }
+
+/* A figure's overworld sprite (Erzählen's „Aussehen“): a flat tile until the picture arrives (set from the sprite cache). */
+.figure {
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--g4-radius-feld);
+  background-color: var(--g4-flaeche-deck);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  image-rendering: pixelated;
+}

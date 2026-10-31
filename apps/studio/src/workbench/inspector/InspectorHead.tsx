@@ -11,8 +11,8 @@ import styles from "./InspectorHead.module.css";
 export type InspectorKind = "figure" | "door" | "trigger" | "sign" | "building" | "map" | "area" | "room" | "place" | "look";
 
 /**
- * The word of each kind in the eyebrow and its symbol. Bauen speaks of the game; Tüfteln says "Header" for an area, a room or a place and
- * "Area-Data" for the look (`tinker`), the other words are the same in both depths.
+ * The word of each kind in the eyebrow and its symbol. Erzählen and Bauen speak of the game; Tüfteln says "Header" for an area, a room or a
+ * place and "Area-Data" for the look (`tinker`), the other words are the same in every depth.
  */
 const KINDS: Record<InspectorKind, { word: string; tinker?: string; icon: IconName }> = {
   figure: { word: "Figur", icon: "figure" },
@@ -48,7 +48,7 @@ export interface InspectorHeadProps {
   badges?: ReactNode;
   /** What can be done with the record: the menu „Aktionen“ at the right end, left out when there is nothing. */
   actions?: MenuEntry[];
-  /** Bauen, or Tüfteln: the word of an area, a room and the look. */
+  /** Erzählen and Bauen, or Tüfteln: the word of an area, a room and the look. */
   depth: Depth;
 }
 

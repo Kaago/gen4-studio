@@ -414,8 +414,9 @@ export function InspectorPanel() {
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
-  // The head names the header as the world tree does: an area, a room or another header, and its name.
-  const { identify, world } = useWorld();
+  // The head names the header as the world tree does: an area, a room or another header, and its name; Erzählen renames a room as the tree does.
+  const { identify, world, meta, setMeta } = useWorld();
+  const { onRename } = useWorldActions(meta, setMeta);
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -462,6 +463,7 @@ export function InspectorPanel() {
         world,
         matrices: d.matrices,
         onRoomSplit: d.onCreated,
+        onRename,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}
