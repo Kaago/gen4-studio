@@ -42,21 +42,9 @@ export type PickerProps = {
   groupOrder?: readonly string[];
   /** With an empty search only these groups are listed (e.g. the commands); typing searches all groups. */
   emptyQueryGroups?: readonly string[];
-  /**
-   * Listed before `items` whatever is typed (a choice that must stay reachable, „Keins (0)“); never filtered, never counted as a hit.
-   * While a search has hits among `items`, the first of those is highlighted (Enter picks it), not the pinned row.
-   */
-  pinned?: readonly PickerItem[];
 };
 
 type Group = { value: string; items: PickerItem[] };
-
-const NOTHING_FOUND = "Nichts gefunden. Ändere die Suche oder den Filter.";
-
-/** One arrow key down in the search field, as the user would press it (Base UI moves its highlight). */
-function stepDown(input: HTMLInputElement | null): void {
-  input?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-}
 
 /** Items by `group` in order of first appearance; items without a group come under an unnamed first group. */
 function groupItems(items: readonly PickerItem[]): Group[] {
@@ -141,7 +129,6 @@ function PickerBody({
   limitPerGroup,
   groupOrder,
   emptyQueryGroups,
-  pinned,
 }: Omit<PickerProps, "open" | "title">) {
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
@@ -152,30 +139,14 @@ function PickerBody({
   const { groups, total } = useMemo(() => {
     let found = filterItems(items, query);
     if (emptyQueryGroups && query.trim() === "") found = found.filter((item) => emptyQueryGroups.includes(item.group ?? ""));
-    // The hits are counted without the pinned rows.
-    const hits = found.length;
-    if (pinned && pinned.length > 0) found = [...pinned, ...found];
     let shown = groupItems(found);
     if (groupOrder) shown = orderGroups(shown, groupOrder);
     // The count is taken before the cut: "12 Treffer" even when only two per group are listed.
     if (limitPerGroup !== undefined) shown = shown.map((g) => ({ ...g, items: g.items.slice(0, limitPerGroup) }));
-    return { groups: shown, total: hits };
-  }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup, pinned]);
+    return { groups: shown, total: found.length };
+  }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup]);
   const grouped = groups.some((g) => g.value !== "");
   const rowQuery = palette ? query : null;
-  const searching = query.trim() !== "";
-  const pinnedCount = pinned?.length ?? 0;
-  const input = useRef<HTMLInputElement>(null);
-  // Base UI highlights the first row after every change of the search. With pinned rows on top that would be „Keins (0)“, and Enter
-  // would pick it instead of the first hit: one step down moves the highlight to the first hit, as the arrow key would.
-  const highlighted = (item: PickerItem | undefined, reason: string) => {
-    if (reason !== "none" || item === undefined || !searching || total === 0 || !pinned) return;
-    const at = pinned.findIndex((p) => p.id === item.id);
-    if (at === -1) return;
-    queueMicrotask(() => {
-      for (let i = at; i < pinnedCount; i++) stepDown(input.current);
-    });
-  };
   return (
     <div className={palette ? `${styles.picker} ${styles.paletteBody}` : styles.picker}>
       <Combobox.Root<PickerItem>
@@ -205,11 +176,10 @@ function PickerBody({
         onOpenChange={(next) => {
           if (!next) onOpenChange(false);
         }}
-        onItemHighlighted={pinnedCount > 0 ? (item, details) => highlighted(item, details.reason) : undefined}
       >
         <div className={styles.search}>
           <Icon name="search" />
-          <Combobox.Input ref={input} className={styles.input} aria-label="Suchen" placeholder={placeholder ?? "Suchen …"} spellCheck={false} />
+          <Combobox.Input className={styles.input} aria-label="Suchen" placeholder={placeholder ?? "Suchen …"} spellCheck={false} />
         </div>
         {filters && filters.length > 0 && filter !== undefined && onFilter && (
           <div className={styles.filters}>
@@ -226,13 +196,7 @@ function PickerBody({
               )
             : (item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}
         </Combobox.List>
-        <Combobox.Empty className={styles.empty}>{emptyText ?? NOTHING_FOUND}</Combobox.Empty>
-        {/* The pinned rows keep the list from being empty: a search without hits still says so. */}
-        {pinnedCount > 0 && searching && total === 0 && (
-          <div role="status" className={styles.empty}>
-            {emptyText ?? NOTHING_FOUND}
-          </div>
-        )}
+        <Combobox.Empty className={styles.empty}>{emptyText ?? "Nichts gefunden. Ändere die Suche oder den Filter."}</Combobox.Empty>
       </Combobox.Root>
       {palette && (
         <div className={`${styles.footer} ${styles.paletteFooter}`}>

@@ -45,6 +45,9 @@ describe("FlagPicker", () => {
     await flush();
   };
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]")!;
+  const search = () => document.querySelector<HTMLInputElement>("input[role=combobox]")!;
+  /** The number of a row: 0 for „Keins (0)“, else its hex `tech`. */
+  const rowNumber = (row: HTMLElement) => (row.textContent?.startsWith("Keins") ? 0 : Number.parseInt(/0x[0-9A-F]{4}/.exec(row.textContent ?? "")![0], 16));
   const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
   const button = (text: string) => [...dialog().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text);
   const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
@@ -54,43 +57,74 @@ describe("FlagPicker", () => {
   it("the_picker_offers_none_and_keeps_zero", async () => {
     await show();
     expect(dialog().textContent).toContain("Flag wählen");
-    expect(document.querySelector<HTMLInputElement>("input[role=combobox]")!.placeholder).toBe("Name oder Nummer");
+    expect(search().placeholder).toBe("Name oder Nummer");
     expect(dialog().querySelector("[data-flag-picker]")).not.toBeNull();
-    expect(options()[0]!.textContent).toContain("Keins (0)");
-    expect(options().map((o) => o.textContent)).toHaveLength(6);
+    // An empty search: „Keins (0)“ first.
+    expect(options()[0]!.textContent).toBe("Keins (0)");
+    expect(options()).toHaveLength(6);
     // 0 is a choice like any other: it reaches the owner as 0, not as "nothing picked".
     await click(options()[0]);
     expect(onPick).toHaveBeenCalledWith(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    // A search keeps „Keins (0)“ first; a pick of a named number gives its number. An own name is bold, a pret name is not.
+    // A search finds it by its word, and Enter picks it.
     await show();
-    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "medaille");
-    expect(options().map((o) => o.textContent?.startsWith("Keins (0)"))).toEqual([true, false]);
-    expect(options()[1]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
-    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0x0096");
-    expect(options()[0]!.textContent).toContain("Keins (0)");
-    expect(options()[1]!.textContent).toContain("FLAG_UNUSED_0x0096");
-    expect(options()[1]!.querySelector("[class*=strong]")).toBeNull();
-    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "medaille");
-    await click(options().find((o) => o.textContent?.includes("FLAG_HAT_MEDAILLE")));
-    expect(onPick).toHaveBeenLastCalledWith(0x94);
+    typeInSearch(search(), "keins");
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["Keins (0)"]);
+    pressKey(search(), "Enter");
+    expect(onPick).toHaveBeenLastCalledWith(0);
+    // A number never lists it; an own name is bold, a pret name is not.
+    await show();
+    typeInSearch(search(), "0x0094");
+    await flush();
+    expect(options().map((o) => o.textContent?.includes("Keins"))).toEqual([false]);
+    expect(options()[0]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+    typeInSearch(search(), "0x0096");
+    await flush();
+    expect(options()[0]!.textContent).toContain("FLAG_UNUSED_0x0096");
+    expect(options()[0]!.querySelector("[class*=strong]")).toBeNull();
   });
 
-  it("enter_after_a_search_picks_the_first_hit_not_keins", async () => {
+  it("enter_after_a_search_picks_the_first_hit", async () => {
     await show();
-    const search = document.querySelector<HTMLInputElement>("input[role=combobox]")!;
-    typeInSearch(search, "medaille");
+    typeInSearch(search(), "medaille");
     await flush();
-    pressKey(search, "Enter");
+    pressKey(search(), "Enter");
     // The flag found, not 0: Enter never clears the field by surprise.
     expect(onPick).toHaveBeenCalledTimes(1);
     expect(onPick).toHaveBeenCalledWith(0x94);
-    // A search without hits says so under „Keins (0)“.
+    // A search without hits says so.
     await show();
-    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "nichts davon");
+    typeInSearch(search(), "nichts davon");
     await flush();
-    expect(options().map((o) => o.textContent)).toEqual(["Keins (0)"]);
+    expect(options()).toHaveLength(0);
     expect(dialog().textContent).toContain("Nichts gefunden");
+  });
+
+  it("enter_after_a_typo_and_its_correction_picks_the_first_hit", async () => {
+    await show();
+    typeInSearch(search(), "medaillx");
+    await flush();
+    expect(options()).toHaveLength(0);
+    typeInSearch(search(), "medaille");
+    await flush();
+    pressKey(search(), "Enter");
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith(0x94);
+  });
+
+  it("enter_on_a_cleared_search_picks_nothing_but_the_highlighted_row", async () => {
+    await show();
+    typeInSearch(search(), "medaille");
+    await flush();
+    typeInSearch(search(), "");
+    await flush();
+    const highlighted = options().find((o) => o.hasAttribute("data-highlighted"));
+    pressKey(search(), "Enter");
+    await flush();
+    // Whatever Base UI keeps highlighted is what Enter picks; with nothing highlighted nothing is picked.
+    if (highlighted === undefined) expect(onPick).not.toHaveBeenCalled();
+    else expect(onPick).toHaveBeenCalledWith(rowNumber(highlighted));
   });
 
   it("filters_by_area", async () => {

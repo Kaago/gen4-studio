@@ -45,14 +45,19 @@ describe("flag words", () => {
     expect(all[3]).toMatchObject({ label: "FLAG_UNUSED_0x0096", strong: false, description: "allgemein", count: "gesetzt 0 · geprüft 0 · unklar 2" });
     expect(all[4]).toMatchObject({ label: "Flag 0x0173", tech: "0x0173", count: "unbenutzt" });
     const ids = (query: string) => pickerItems(FLAGS, query).map((i) => i.id);
-    // Own name, pret name, alias, hex and decimal number; „Keins (0)“ always leads.
-    expect(ids("medaille")).toEqual([0, 0x94]);
-    expect(ids("FLAG_UNUSED_0x0094")).toEqual([0, 0x94]);
-    expect(ids("FLAG_ALT")).toEqual([0, 0x96]);
-    expect(ids("0x0173")).toEqual([0, 0x173]);
-    expect(ids("0x173")).toEqual([0, 0x173]);
-    expect(ids("148")).toEqual([0, 0x94]);
-    expect(ids("nichts davon")).toEqual([0]);
+    // Own name, pret name, alias, hex and decimal number; „Keins (0)“ only where the query finds it, never for a number.
+    expect(ids("medaille")).toEqual([0x94]);
+    expect(ids("FLAG_UNUSED_0x0094")).toEqual([0x94]);
+    expect(ids("FLAG_ALT")).toEqual([0x96]);
+    expect(ids("0x0094")).toEqual([0x94]);
+    expect(ids("0x0173")).toEqual([0x173]);
+    expect(ids("0x173")).toEqual([0x173]);
+    expect(ids("148")).toEqual([0x94]);
+    expect(ids("nichts davon")).toEqual([]);
+    expect(ids("keins")).toEqual([0]);
+    expect(ids("kein")).toEqual([0]);
+    expect(ids("none")).toEqual([0]);
+    expect(ids("0")[0]).toBe(0);
     // A list with a number 0 of its own does not list it twice.
     expect(pickerItems(flagList("var", [flagEntry(0), flagEntry(0x4030)]), "").map((i) => i.id)).toEqual([0, 0x4030]);
   });

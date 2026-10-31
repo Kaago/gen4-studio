@@ -10,9 +10,6 @@ import styles from "./FlagPicker.module.css";
 /** The areas in the order the filter offers them (only those the list has). */
 const AREA_ORDER: readonly FlagArea[] = ["map_local", "general", "hidden_items", "trainer", "system", "daily", "temp", "object_gfx", "script_local", "outside"];
 
-/** The rows that lead whatever is typed. */
-const PINNED = [NONE_ITEM];
-
 /** At most this many rows are listed; a search or an area reaches every number (a full list has 4 097 flags). */
 const ROW_LIMIT = 1000;
 
@@ -52,10 +49,10 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
     }
   }
 
-  // „Keins (0)“ is pinned: it leads whatever is typed. The numbers follow, filtered by the picker's search.
+  // „Keins (0)“ first in every area, then the numbers; the picker's search filters both (the first hit is what Enter picks).
   const items = useMemo(() => {
-    if (list === null) return [];
-    return flagRows(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) });
+    if (list === null) return [NONE_ITEM];
+    return [NONE_ITEM, ...flagRows(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) })];
   }, [list, area]);
   const filters = useMemo(
     () => [{ value: "all", label: "Alle" }, ...AREA_ORDER.filter((a) => list?.entries.some((e) => e.area === a)).map((a) => ({ value: a, label: areaWord(a) }))],
@@ -90,7 +87,6 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
       title={kind === "flag" ? "Flag wählen" : "Variable wählen"}
       placeholder="Name oder Nummer"
       items={items}
-      pinned={PINNED}
       onPick={(item) => onPick(Number(item.id))}
       filters={filters.length > 1 ? filters : undefined}
       filter={area}

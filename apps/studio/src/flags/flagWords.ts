@@ -13,8 +13,11 @@ export function poolEmptyText(kind: FlagKind): string {
 /** What a field shows for 0: no flag, no variable. */
 export const NONE = "Keins";
 
-/** The first row of every flag or variable picker: 0, none. */
-export const NONE_ITEM: PickerItem = { id: 0, label: `${NONE} (0)`, area: "geschichten" };
+/**
+ * The first row of every flag or variable picker: 0, none. An ordinary row: a search lists it only when it matches „Keins (0)“, „kein“,
+ * „none“ or the number 0 (`filterItems` finds a keyword that contains the query, so „0x0094“ or „148“ never find it).
+ */
+export const NONE_ITEM: PickerItem = { id: 0, label: `${NONE} (0)`, area: "geschichten", keywords: ["kein", "none"] };
 
 /** The number as `0x` plus four capital hex digits: „0x0094“. */
 export function hex4(n: number): string {
@@ -69,13 +72,13 @@ export function accessWord(a: FlagAccess): string {
 }
 
 /**
- * The rows of a flag or variable picker: „Keins (0)“ first (the picker pins it, so it also leads a typed search) (0 is no flag and stays a valid value), then the numbers of `list` that match
+ * The rows of a flag or variable picker: „Keins (0)“ first (a search lists it only when the query finds it) (0 is no flag and stays a valid value), then the numbers of `list` that match
  * `query` (own name, pret name, an alias, the number in hex or decimal; empty: all). A row names the own name, else the pret name, else
  * kind and number (an own name `strong`); its second line the pret name (under an own name) or the area; the number in hex as `tech`; the
  * usage as `count`.
  */
 export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
-  return [NONE_ITEM, ...filterItems(flagRows(list), query)];
+  return filterItems([NONE_ITEM, ...flagRows(list)], query);
 }
 
 /** The rows of the numbers of `list` as `pickerItems` lists them after „Keins (0)“ (a number 0 of the list is that row, not one of these). */
