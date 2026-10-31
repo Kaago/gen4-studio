@@ -233,7 +233,8 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
               {ADOPT_HINT}
             </p>
           )}
-          {(kind === "object" || kind === "bg") && (
+          {/* The raw height is a Bauen row: Erzählen does not show numbers it cannot change. */}
+          {!narrating && (kind === "object" || kind === "bg") && (
             <InspectorRow label="y" hint="Nur lesbar: Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">
               <span className={styles.mono}>{(event as ObjectDto | BgDto).y}</span>
             </InspectorRow>

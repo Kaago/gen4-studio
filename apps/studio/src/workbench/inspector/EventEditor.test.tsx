@@ -425,7 +425,9 @@ describe("EventEditor scripts", () => {
     it("erzaehlen_shows_look_movement_facing_and_trainer_only", async () => {
       vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), objects: [{ ...npc, index: 0, script: 3355, trainer_type: 1, sight: 5 }] }));
       await show(context({ trainers }), "object", 0, "erzaehlen");
-      expect(rowLabels()).toEqual(["Aussehen", "Bewegung", "Blickrichtung", "Trainer", "y"]);
+      expect(rowLabels()).toEqual(["Aussehen", "Bewegung", "Blickrichtung", "Trainer"]);
+      // No raw height: the read-only row „y“ is a Bauen row.
+      expect(container.textContent).not.toContain("Nur lesbar");
       expect(field("x (Kachel)")).toBeNull();
       expect(field("Lokale ID")).toBeNull();
       expect(container.textContent).not.toContain("Lokale ID");
@@ -492,7 +494,18 @@ describe("EventEditor scripts", () => {
       expect(container.textContent).toContain("Ziehen in der 3D-Ansicht verschiebt das Event");
       await show(context(), "bg", 0, "erzaehlen");
       expect(container.textContent).toContain("Der Text des Schilds kommt mit 3d.5.");
-      expect(rowLabels()).toEqual(["y"]);
+      expect(rowLabels()).toEqual([]);
+      expect(container.textContent).not.toContain("Nur lesbar");
+    });
+
+    it("erzaehlen_offers_adding_events_and_the_drag_hint_in_the_words_of_bauen", async () => {
+      const words = async (depth: Depth) => {
+        await show(context(), "object", 2, depth);
+        return { kinds: select("Art des neuen Events").textContent, add: button("Hinzufügen") !== undefined, note: container.textContent?.includes("Entf löscht das gewählte Event nach Rückfrage") };
+      };
+      const bauen = await words("bauen");
+      expect(bauen).toEqual({ kinds: expect.stringContaining("Warp"), add: true, note: true });
+      expect(await words("erzaehlen")).toEqual(bauen);
     });
 
     it("bauen_and_tuefteln_show_every_field_as_before", async () => {
@@ -500,6 +513,11 @@ describe("EventEditor scripts", () => {
         await show(context({ trainers }), "object", 2, depth);
         expect(rowLabels()).toEqual(["x (Kachel)", "z (Kachel)", "Lokale ID", "Grafik", "Bewegung", "Blickrichtung", "Script", "Trainer", "Sichtlinie", "Sichtweite", "y"]);
         expect(field("Bewegung")).not.toBeNull();
+        expect(container.textContent).toContain("Nur lesbar: Die Höhe");
+        vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }] }));
+        await show(context(), "bg", 0, depth);
+        expect(rowLabels()).toContain("y");
+        vi.mocked(getEvents).mockImplementation(async () => events());
       }
     });
   });
