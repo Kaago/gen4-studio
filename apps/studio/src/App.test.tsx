@@ -1116,6 +1116,16 @@ describe("App wiring", () => {
         expect(addEvent).toHaveBeenCalledWith(0, "object", 3, 4);
       });
 
+      it("keeps_the_figure_tool_of_a_waiting_trainer_on_the_way_into_erzaehlen", async () => {
+        // Erzählen chosen in Pokémon (which shows Bauen): placing the trainer shows the world, and so Erzählen, with the binding.
+        const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
+        await act(async () => tinker.click());
+        await place(928);
+        expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
+        expect(data().tool).toBe("figure");
+        expect(statusLine()).toContain("Klick setzt Wanderer Jens");
+      });
+
       it("drops_the_binding_when_another_tool_is_chosen", async () => {
         await place(928);
         await act(async () => data().onTool("door"));
@@ -1922,6 +1932,10 @@ describe("App wiring", () => {
     await letter("g");
     expect(data().tool).toBe("select");
     expect(listToasts().filter((t) => t.text === "Werkzeuge wirken in der 3D-Ansicht")).toEqual([]);
+    // A tool chosen in Erzählen (the „+“ of „In dieser Szene“ calls `onTool`) stays: only the way in resets it.
+    await act(async () => data().onTool("building"));
+    expect(data().tool).toBe("building");
+    await act(async () => data().onTool("select"));
     // Back in Bauen the letters work again.
     await pressHinge("Bauen");
     await letter("g");
