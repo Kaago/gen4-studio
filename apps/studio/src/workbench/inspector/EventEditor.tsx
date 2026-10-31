@@ -196,6 +196,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                   depth={depth}
                   project={project}
                   revision={revision}
+                  source="events"
                   onShowInDirectory={(number) => goTo({ kind: "flag", flagKind: pick, number })}
                   field={spec.key}
                   hint={hint}

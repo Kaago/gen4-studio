@@ -69,9 +69,10 @@ export function accessWord(a: FlagAccess): string {
 }
 
 /**
- * The rows of a flag or variable picker: „Keins (0)“ first (0 is no flag and stays a valid value), then the numbers of `list` that match
+ * The rows of a flag or variable picker: „Keins (0)“ first (the picker pins it, so it also leads a typed search) (0 is no flag and stays a valid value), then the numbers of `list` that match
  * `query` (own name, pret name, an alias, the number in hex or decimal; empty: all). A row names the own name, else the pret name, else
- * kind and number; its second line the pret name (under an own name) or the area; the number in hex as `tech`; the usage as `count`.
+ * kind and number (an own name `strong`); its second line the pret name (under an own name) or the area; the number in hex as `tech`; the
+ * usage as `count`.
  */
 export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
   const rows = list.entries
@@ -83,6 +84,7 @@ export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
         description: e.own_id !== null && e.name !== null ? e.name : areaWord(e.area),
         tech: hex4(e.number),
         area: "geschichten",
+        strong: e.own_id !== null,
         count: usageText(e.usage),
         keywords: [...e.aliases, ...(e.own_id !== null && e.name !== null ? [e.name] : []), `0x${e.number.toString(16)}`, String(e.number)],
       }),

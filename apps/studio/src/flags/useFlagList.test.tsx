@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listFlags } from "../api";
 import type { FlagKind, FlagListDto, ProjectInfo } from "../api";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
-import { useFlagList } from "./useFlagList";
+import { invalidateFlagLists, useFlagList } from "./useFlagList";
+import type { FlagListDeps } from "./useFlagList";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), listFlags: vi.fn() }));
 
@@ -22,8 +23,8 @@ function deferred<T>() {
 }
 
 let seen: ReturnType<typeof useFlagList> | null = null;
-function Probe({ kind, project, revision }: { kind: FlagKind; project: ProjectInfo | null; revision: number }) {
-  seen = useFlagList(kind, { project, revision });
+function Probe({ kind, project, revision, source, fresh }: { kind: FlagKind } & FlagListDeps) {
+  seen = useFlagList(kind, { project, revision, source, fresh });
   return null;
 }
 
@@ -35,13 +36,15 @@ describe("useFlagList", () => {
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(listFlags).mockReset().mockResolvedValue(FLAGS);
+    invalidateFlagLists();
     seen = null;
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
   });
-  const show = (kind: FlagKind, p: ProjectInfo | null, revision: number) => act(async () => root.render(<Probe kind={kind} project={p} revision={revision} />));
+  const show = (kind: FlagKind, p: ProjectInfo | null, revision: number, source?: string, fresh?: boolean) =>
+    act(async () => root.render(<Probe kind={kind} project={p} revision={revision} source={source} fresh={fresh} />));
 
   it("reads_on_open_and_after_a_revision", async () => {
     // No project: nothing to read.
@@ -75,6 +78,53 @@ describe("useFlagList", () => {
     await flush();
     expect(listFlags).toHaveBeenLastCalledWith("var");
     expect(seen).toMatchObject({ list: null, error: "Index kaputt" });
+  });
+
+  it("sources_do_not_share_a_read_and_invalidate_reads_again", async () => {
+    const p = project();
+    const both = () =>
+      act(async () =>
+        root.render(
+          <>
+            <Probe kind="var" project={p} revision={3} source="events" />
+            <Probe kind="var" project={p} revision={3} source="events" />
+          </>,
+        ),
+      );
+    // Two fields of one source and revision: one read.
+    await both();
+    await flush();
+    expect(listFlags).toHaveBeenCalledTimes(1);
+    // The same number of another counter is another read.
+    await show("var", p, 3, "scripts");
+    await flush();
+    expect(listFlags).toHaveBeenCalledTimes(2);
+    // An own name changed (no revision tells): every list on screen is read again.
+    const named = flagList("var", [flagEntry(0x4030, { own_id: "VAR_NEU" })]);
+    vi.mocked(listFlags).mockResolvedValue(named);
+    await act(async () => invalidateFlagLists());
+    await flush();
+    expect(listFlags).toHaveBeenCalledTimes(3);
+    expect(seen?.list).toBe(named);
+  });
+
+  it("fresh_reads_on_every_opening_and_shows_nothing_older", async () => {
+    const p = project();
+    const later = flagList("flag", [flagEntry(0x96)], { scripts_indexed: true });
+    vi.mocked(listFlags).mockResolvedValueOnce({ ...FLAGS, scripts_indexed: false });
+    await show("flag", p, 0, "", true);
+    await flush();
+    expect(seen?.list?.scripts_indexed).toBe(false);
+    // Closed (no project) and opened again at the same revision: read anew, the old list gone meanwhile.
+    await show("flag", null, 0, "", true);
+    const next = deferred<FlagListDto>();
+    vi.mocked(listFlags).mockReturnValueOnce(next.promise);
+    await show("flag", p, 0, "", true);
+    expect(listFlags).toHaveBeenCalledTimes(2);
+    expect(seen?.list).toBeNull();
+    await act(async () => next.resolve(later));
+    await flush();
+    expect(seen?.list).toBe(later);
   });
 
   it("drops_an_older_answer", async () => {

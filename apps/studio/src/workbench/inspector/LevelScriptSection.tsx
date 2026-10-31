@@ -162,7 +162,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
   // A condition's variable: its name and the picker, in Tüfteln with the number field (`field` names the chip: `var:1`, `var:new`).
   const showVar = onShowFlag ? (n: number) => onShowFlag("var", n) : undefined;
   const varField = (label: string, field: string, value: number, onCommit: (n: number) => void) => (
-    <FlagField kind="var" label={label} value={value} onCommit={onCommit} depth={depth} project={project} revision={revision} onShowInDirectory={showVar} field={field} bare />
+    <FlagField kind="var" label={label} value={value} onCommit={onCommit} depth={depth} project={project} revision={revision} source="scripts" onShowInDirectory={showVar} field={field} bare />
   );
 
   const addEntry = () => {

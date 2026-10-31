@@ -8,6 +8,7 @@ import type { ProjectInfo } from "../api";
 import { typeInto } from "../ui/primitives/testUtils";
 import { FLAGS } from "./flagTesting";
 import { FlagField } from "./FlagField";
+import { invalidateFlagLists } from "./useFlagList";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), listFlags: vi.fn(), freeFlag: vi.fn() }));
 
@@ -25,6 +26,7 @@ describe("FlagField", () => {
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(listFlags).mockReset().mockResolvedValue(FLAGS);
+    invalidateFlagLists();
     onCommit.mockReset();
   });
   afterEach(() => {
@@ -70,6 +72,27 @@ describe("FlagField", () => {
     await show({ disabled: true });
     expect(chip().disabled).toBe(true);
     expect(button("Wählen…")!.disabled).toBe(true);
+  });
+
+  it("zero_reads_no_list_until_the_picker_opens", async () => {
+    await show({ value: 0 });
+    expect(chip().textContent).toBe("Keins");
+    expect(listFlags).not.toHaveBeenCalled();
+    await click(chip());
+    await flush();
+    expect(listFlags).toHaveBeenCalledWith("flag");
+  });
+
+  it("the_picker_is_unlocked_after_an_adoption_the_field_did_not_see", async () => {
+    // The field read its name before the scripts were adopted; the picker opens at the same revision after the adoption.
+    const p = project();
+    vi.mocked(listFlags).mockResolvedValue({ ...FLAGS, scripts_indexed: false });
+    await show({ project: p });
+    vi.mocked(listFlags).mockResolvedValue(FLAGS);
+    await click(chip());
+    await flush();
+    const take = [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Freies Flag nehmen")!;
+    expect(take.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("tinker_adds_the_number_field", async () => {

@@ -57,7 +57,7 @@ function positionRange(kind: EventKind): { min: number; max: number } {
  * (it is picked from the header list); its height only exists in HeartGold and SoulSilver
  * (`family` "Hgss"), the other games cannot store one.
  */
-export function eventFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[] {
+function baseFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[] {
   const pos = positionRange(kind);
   const position: EventFieldSpec[] = [
     { key: "x", label: "x (Kachel)", ...pos },
@@ -83,20 +83,27 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
         { key: "hidden_flag", label: "Sichtbarkeits-Flag", ...U16, pick: "flag" },
       ];
     case "coord":
-      return [
-        ...position,
-        { key: "width", label: "Breite", ...U16 },
-        { key: "length", label: "Länge", ...U16 },
-        { key: "script", label: TERMS.script.label, ...U16 },
-        { key: "var", label: "Variable", ...U16, pick: "var" },
-        { key: "value", label: "Wert", ...U16 },
-      ];
+      return [...position, { key: "width", label: "Breite", ...U16 }, { key: "length", label: "Länge", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
     case "bg":
       return [...position, { key: "event_type", label: "Typ", ...U16 }, { key: "script", label: TERMS.script.label, ...U16 }];
   }
 }
 
-const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight", "hidden_flag", "var", "value"];
+/** What a coordinate trigger watches (3d.1): its variable, picked like a flag, and the value at which it fires; after „Script“. */
+const TRIGGER_VAR_FIELDS: EventFieldSpec[] = [
+  { key: "var", label: "Variable", ...U16, pick: "var" },
+  { key: "value", label: "Wert", ...U16 },
+];
+
+/** The number fields of an event in display order (see `baseFieldSpecs`), a trigger's variable and value last. */
+export function eventFieldSpecs(kind: EventKind, family: string | null): EventFieldSpec[] {
+  const specs = baseFieldSpecs(kind, family);
+  return kind === "coord" ? [...specs, ...TRIGGER_VAR_FIELDS] : specs;
+}
+
+const PATCH_KEYS: EventFieldKey[] = ["x", "z", "script", "event_type", "graphics_id", "movement_type", "dir", "local_id", "dest_header_id", "dest_warp_id", "height", "width", "length", "trainer_type", "sight"];
+// Flags and variables (3d.1).
+PATCH_KEYS.push("hidden_flag", "var", "value");
 
 function value(e: EventData, key: string): number {
   return Number((e as unknown as Record<string, unknown>)[key]);

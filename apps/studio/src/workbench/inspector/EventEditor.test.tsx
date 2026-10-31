@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, listFlags, resolveScript, updateEvent } from "../../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
 import { FLAGS, flagEntry, flagList } from "../../flags/flagTesting";
+import { invalidateFlagLists } from "../../flags/useFlagList";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
@@ -54,6 +55,7 @@ describe("EventEditor scripts", () => {
     vi.mocked(getEvents).mockReset().mockImplementation(async () => events());
     vi.mocked(updateEvent).mockReset().mockResolvedValue(undefined);
     vi.mocked(resolveScript).mockReset();
+    invalidateFlagLists();
     for (const fn of [onOpenScript, onAddScript, onError, onChanged]) fn.mockReset();
     reset = resetSpy();
   });

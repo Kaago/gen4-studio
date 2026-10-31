@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Picker } from "./Picker";
 import type { PickerItem } from "./Picker";
+import { readCss, ruleBody } from "../cssSource";
 import { pressKey } from "./testUtils";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -128,6 +129,27 @@ describe("Picker", () => {
   it("renders_the_footer_below_the_list", () => {
     render({ footer: <span>Neu anlegen im Header-Editor</span> });
     expect(document.querySelector("[role=dialog]")!.textContent).toContain("Neu anlegen im Header-Editor");
+  });
+
+  it("pinned_items_lead_and_are_never_filtered", () => {
+    const { onPick } = render({ pinned: [{ id: 0, label: "Keins (0)" }] });
+    expect(options().map((o) => o.textContent?.startsWith("Keins (0)"))).toEqual([true, false, false, false, false]);
+    // Typed text narrows the items, never the pinned one.
+    type("zwei");
+    expect(options()).toHaveLength(2);
+    expect(options()[0]!.textContent).toBe("Keins (0)");
+    type("nichts davon");
+    expect(options().map((o) => o.textContent)).toEqual(["Keins (0)"]);
+    act(() => options()[0]!.click());
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 0 }));
+  });
+
+  it("a_strong_item_shows_its_label_emphasised", () => {
+    render({ items: [{ id: 1, label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094" }, { id: 2, label: "FLAG_UNUSED_0x0096" }] });
+    expect(options()[0]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+    expect(options()[1]!.querySelector("[class*=strong]")).toBeNull();
+    // The emphasis is the token weight, not a colour.
+    expect(ruleBody(readCss("./Picker.module.css", import.meta.url), ".strong")).toMatch(/font:\s*var\(--g4-font-text-s-betont\)/);
   });
 
   it("filters_are_a_segmented_choice_the_owner_applies", () => {

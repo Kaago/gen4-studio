@@ -146,6 +146,11 @@
   white-space: nowrap;
 }
 
+/* An emphasised label (`strong`): an own name among the game's names. */
+.strong {
+  font: var(--g4-font-text-s-betont);
+}
+
 .tech {
   flex: none;
   color: var(--g4-text-sekundaer);

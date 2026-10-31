@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listFlags, readScript, resolveScript, saveLevelScript } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
 import { flagEntry, flagList } from "../../flags/flagTesting";
+import { invalidateFlagLists } from "../../flags/useFlagList";
 import { openSelect } from "../../ui/primitives/testUtils";
 import { LevelScriptSection } from "./LevelScriptSection";
 
@@ -61,6 +62,7 @@ describe("LevelScriptSection", () => {
     vi.mocked(saveLevelScript).mockReset().mockResolvedValue(ok);
     vi.mocked(resolveScript).mockReset();
     vi.mocked(listFlags).mockReset().mockResolvedValue(VARS);
+    invalidateFlagLists();
     for (const fn of [onOpenScript, onCreate, onSaved, onError]) fn.mockReset();
     openProject = projectA;
     onCreate.mockResolvedValue(undefined);
@@ -154,10 +156,7 @@ describe("LevelScriptSection", () => {
 
   it("the_variable_is_a_flag_field", async () => {
     const onShowFlag = vi.fn();
-    // A project of its own: the variables read for projectA in the tests before are shared (one read per project and revision).
-    const project = { ...projectA };
-    openProject = project;
-    await show({ depth: "bauen", onShowFlag, project });
+    await show({ depth: "bauen", onShowFlag });
     await flush();
     expect(listFlags).toHaveBeenCalledWith("var");
     // The stored variable by its name with the number in mono; in Bauen no number field.

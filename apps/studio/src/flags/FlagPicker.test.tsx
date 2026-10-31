@@ -8,6 +8,7 @@ import type { FlagKind, FlagListDto, ProjectInfo } from "../api";
 import { typeInSearch } from "../ui/primitives/testUtils";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
 import { FlagPicker } from "./FlagPicker";
+import { invalidateFlagLists } from "./useFlagList";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), listFlags: vi.fn(), freeFlag: vi.fn() }));
 
@@ -29,6 +30,7 @@ describe("FlagPicker", () => {
     root = createRoot(container);
     vi.mocked(listFlags).mockReset().mockImplementation(async (kind) => (kind === "flag" ? FLAGS : VARS));
     vi.mocked(freeFlag).mockReset();
+    invalidateFlagLists();
     for (const fn of [onPick, onOpenChange, onShowInDirectory]) fn.mockReset();
   });
   afterEach(() => {
@@ -60,8 +62,15 @@ describe("FlagPicker", () => {
     await click(options()[0]);
     expect(onPick).toHaveBeenCalledWith(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
-    // A pick of a named number gives its number.
+    // A search keeps „Keins (0)“ first; a pick of a named number gives its number. An own name is bold, a pret name is not.
     await show();
+    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "medaille");
+    expect(options().map((o) => o.textContent?.startsWith("Keins (0)"))).toEqual([true, false]);
+    expect(options()[1]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "0x0096");
+    expect(options()[0]!.textContent).toContain("Keins (0)");
+    expect(options()[1]!.textContent).toContain("FLAG_UNUSED_0x0096");
+    expect(options()[1]!.querySelector("[class*=strong]")).toBeNull();
     typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "medaille");
     await click(options().find((o) => o.textContent?.includes("FLAG_HAT_MEDAILLE")));
     expect(onPick).toHaveBeenLastCalledWith(0x94);
@@ -122,6 +131,20 @@ describe("FlagPicker", () => {
     expect(reason(take)).toBe("Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags Scripts benutzen.");
     await click(take);
     expect(freeFlag).not.toHaveBeenCalled();
+  });
+
+  it("every_opening_reads_anew_so_an_adoption_unlocks_the_free_flag", async () => {
+    // Read before the scripts were adopted: locked.
+    vi.mocked(listFlags).mockResolvedValue({ ...FLAGS, scripts_indexed: false });
+    const p = project();
+    await show({ project: p });
+    expect(button("Freies Flag nehmen")!.getAttribute("aria-disabled")).toBe("true");
+    await show({ project: p, open: false });
+    // Adopted since: the same revision, but the next opening reads again and the button is free.
+    vi.mocked(listFlags).mockResolvedValue(FLAGS);
+    await show({ project: p });
+    expect(listFlags).toHaveBeenCalledTimes(2);
+    expect(button("Freies Flag nehmen")!.getAttribute("aria-disabled")).toBeNull();
   });
 
   it("show_in_directory_calls_back", async () => {

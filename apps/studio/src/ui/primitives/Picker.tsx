@@ -42,6 +42,8 @@ export type PickerProps = {
   groupOrder?: readonly string[];
   /** With an empty search only these groups are listed (e.g. the commands); typing searches all groups. */
   emptyQueryGroups?: readonly string[];
+  /** Listed before `items` whatever is typed (a choice that must stay reachable, „Keins (0)“); never filtered. */
+  pinned?: readonly PickerItem[];
 };
 
 type Group = { value: string; items: PickerItem[] };
@@ -97,11 +99,11 @@ function PickerRow({ item, query }: { item: PickerItem; query: string | null }) 
       )}
       {item.description ? (
         <span className={styles.text}>
-          <span className={styles.label}>{mark(item.label)}</span>
+          <span className={item.strong ? `${styles.label} ${styles.strong}` : styles.label}>{mark(item.label)}</span>
           <span className={styles.description}>{mark(item.description)}</span>
         </span>
       ) : (
-        <span className={styles.label}>{mark(item.label)}</span>
+        <span className={item.strong ? `${styles.label} ${styles.strong}` : styles.label}>{mark(item.label)}</span>
       )}
       {item.tech && <span className={styles.tech}>{item.tech}</span>}
       {item.count && <span className={styles.count}>{item.count}</span>}
@@ -129,6 +131,7 @@ function PickerBody({
   limitPerGroup,
   groupOrder,
   emptyQueryGroups,
+  pinned,
 }: Omit<PickerProps, "open" | "title">) {
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
@@ -139,12 +142,13 @@ function PickerBody({
   const { groups, total } = useMemo(() => {
     let found = filterItems(items, query);
     if (emptyQueryGroups && query.trim() === "") found = found.filter((item) => emptyQueryGroups.includes(item.group ?? ""));
+    if (pinned && pinned.length > 0) found = [...pinned, ...found];
     let shown = groupItems(found);
     if (groupOrder) shown = orderGroups(shown, groupOrder);
     // The count is taken before the cut: "12 Treffer" even when only two per group are listed.
     if (limitPerGroup !== undefined) shown = shown.map((g) => ({ ...g, items: g.items.slice(0, limitPerGroup) }));
     return { groups: shown, total: found.length };
-  }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup]);
+  }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup, pinned]);
   const grouped = groups.some((g) => g.value !== "");
   const rowQuery = palette ? query : null;
   return (

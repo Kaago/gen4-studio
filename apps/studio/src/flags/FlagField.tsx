@@ -26,15 +26,18 @@ export type FlagFieldProps = {
   hint?: string;
   /** Without the labelled inspector row: the chip, „Wählen…“ and the number field alone (a cell of a table). */
   bare?: boolean;
+  /** What `revision` counts (`events`, `scripts`): lists read under different counters are not shared. */
+  source?: string;
 };
 
 /**
  * A flag or a variable of a record: its name as a chip of the area Geschichten (own name, else pret name, else kind and number; the number
  * in mono), which opens the picker like „Wählen…“ next to it; in Tüfteln the number field with Dez | Hex below. 0 shows „Keins“.
  */
-export function FlagField({ kind, label, value, onCommit, disabled, depth, project, revision, onShowInDirectory, field, hint, bare }: FlagFieldProps) {
+export function FlagField({ kind, label, value, onCommit, disabled, depth, project, revision, onShowInDirectory, field, hint, bare, source }: FlagFieldProps) {
   const [picking, setPicking] = useState(false);
-  const { list } = useFlagList(kind, { project, revision });
+  // 0 needs no name: a figure without a flag does not build the reference index (the picker reads when it opens).
+  const { list } = useFlagList(kind, { project: value === 0 ? null : project, revision, source });
   const entry = value === 0 ? undefined : list?.entries.find((e) => e.number === value);
   const name = value === 0 ? NONE : displayName(entry ?? { name: null, own_id: null }, kind, value);
   const control = (

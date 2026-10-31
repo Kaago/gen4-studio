@@ -10,6 +10,9 @@ import styles from "./FlagPicker.module.css";
 /** The areas in the order the filter offers them (only those the list has). */
 const AREA_ORDER: readonly FlagArea[] = ["map_local", "general", "hidden_items", "trainer", "system", "daily", "temp", "object_gfx", "script_local", "outside"];
 
+/** The rows that lead whatever is typed. */
+const PINNED = [NONE_ITEM];
+
 /** At most this many rows are listed; a search or an area reaches every number (a full list has 4 097 flags). */
 const ROW_LIMIT = 1000;
 
@@ -33,7 +36,8 @@ export type FlagPickerProps = {
  * while the scripts are not adopted or the pool is empty) and leads to the list of flags and variables. Reads the list only while open.
  */
 export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDirectory, project, revision }: FlagPickerProps) {
-  const { list, error } = useFlagList(kind, { project: open ? project : null, revision });
+  // Read anew on every opening: the lock of „Freies Flag nehmen“ and the pool follow an adoption of the scripts or a save at once.
+  const { list, error } = useFlagList(kind, { project: open ? project : null, revision, fresh: true });
   const [area, setArea] = useState<FlagArea | "all">("all");
   // Why the last „Freies Flag nehmen“ was refused (a pool emptied since the list was read).
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -48,9 +52,10 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
     }
   }
 
+  // „Keins (0)“ is pinned: it leads whatever is typed. The numbers follow, filtered by the picker's search.
   const items = useMemo(() => {
-    if (list === null) return [NONE_ITEM];
-    return pickerItems(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) }, "");
+    if (list === null) return [];
+    return pickerItems(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) }, "").slice(1);
   }, [list, area]);
   const filters = useMemo(
     () => [{ value: "all", label: "Alle" }, ...AREA_ORDER.filter((a) => list?.entries.some((e) => e.area === a)).map((a) => ({ value: a, label: areaWord(a) }))],
@@ -85,6 +90,7 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
       title={kind === "flag" ? "Flag wählen" : "Variable wählen"}
       placeholder="Name oder Nummer"
       items={items}
+      pinned={PINNED}
       onPick={(item) => onPick(Number(item.id))}
       filters={filters.length > 1 ? filters : undefined}
       filter={area}

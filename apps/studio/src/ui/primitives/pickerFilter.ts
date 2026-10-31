@@ -25,6 +25,8 @@ export interface PickerItem {
   disabled?: boolean;
   /** Further words the search finds like the label but that are not shown (a second name, the number in another base). */
   keywords?: readonly string[];
+  /** The label in the emphasised weight (an own name among game names). */
+  strong?: boolean;
 }
 
 /** Whether `id` equals the digits typed, ignoring leading zeros ("0411" finds 411). */

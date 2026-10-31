@@ -40,8 +40,9 @@ describe("flag words", () => {
     expect(all[0]).toMatchObject({ id: 0, label: "Keins (0)" });
     expect(all.map((i) => i.id)).toEqual([0, 0x20, 0x94, 0x96, 0x173, 0x550]);
     // The own name in front, the pret name as the second line; without an own name the area.
-    expect(all[2]).toMatchObject({ label: "FLAG_HAT_MEDAILLE", description: "FLAG_UNUSED_0x0094", tech: "0x0094", count: "gesetzt 3 · geprüft 1", area: "geschichten" });
-    expect(all[3]).toMatchObject({ label: "FLAG_UNUSED_0x0096", description: "allgemein", count: "gesetzt 0 · geprüft 0 · unklar 2" });
+    // The own name in bold.
+    expect(all[2]).toMatchObject({ label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094", tech: "0x0094", count: "gesetzt 3 · geprüft 1", area: "geschichten" });
+    expect(all[3]).toMatchObject({ label: "FLAG_UNUSED_0x0096", strong: false, description: "allgemein", count: "gesetzt 0 · geprüft 0 · unklar 2" });
     expect(all[4]).toMatchObject({ label: "Flag 0x0173", tech: "0x0173", count: "unbenutzt" });
     const ids = (query: string) => pickerItems(FLAGS, query).map((i) => i.id);
     // Own name, pret name, alias, hex and decimal number; „Keins (0)“ always leads.
