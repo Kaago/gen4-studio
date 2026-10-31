@@ -218,7 +218,6 @@ vi.mock("./api", async (importOriginal) => ({
   baseStatus: vi.fn(),
   checkBase: vi.fn(),
   assignBase: vi.fn(),
-  createPatch: vi.fn(),
   originalStatus: vi.fn(),
   planReset: vi.fn(),
   resetToOriginal: vi.fn(),
@@ -337,6 +336,7 @@ describe("App wiring", () => {
     vi.mocked(listWarps).mockResolvedValue({ links: [], unreadable: [] });
     vi.mocked(headerPatchStatus).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders" });
     vi.mocked(baseStatus).mockResolvedValue({ state: "unassigned", suggestion: null });
+    vi.mocked(releases).mockResolvedValue(releasesOf());
     vi.mocked(originalStatus).mockResolvedValue({ state: "unavailable", reason: "Diesem Projekt ist keine Basis-ROM zugeordnet." });
     vi.mocked(changedFromOriginal).mockResolvedValue({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
     // A DSPRE folder: no sync runs. Its hint („Als Textprojekt einrichten“) was dismissed, so the tests of other toasts see only theirs.
@@ -1210,6 +1210,9 @@ describe("App wiring", () => {
       // Without a found base ROM (read when the project opened) the title bar's button waits and says why.
       expect(titleButton("Veröffentlichen")?.getAttribute("aria-disabled")).toBe("true");
       expect(titleButton("Veröffentlichen")?.getAttribute("aria-description")).toBe("Erst eine Basis-ROM zuordnen.");
+      // The list of releases was read with the status when the project opened.
+      expect(releases).toHaveBeenCalledOnce();
+      vi.mocked(releases).mockClear();
       await act(async () => titleButton("Veröffentlichen")!.click());
       expect(releases).not.toHaveBeenCalled();
 
@@ -1219,6 +1222,7 @@ describe("App wiring", () => {
       await act(async () => {});
       expect(titleButton("Veröffentlichen")?.hasAttribute("aria-disabled")).toBe(false);
       vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build" }));
+      vi.mocked(releases).mockClear();
       let finish: (report: ReturnType<typeof publishReportOf>) => void = () => {};
       vi.mocked(publishPatch).mockReturnValue(new Promise((resolve) => (finish = resolve)));
       vi.mocked(save).mockReset().mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
@@ -1252,11 +1256,14 @@ describe("App wiring", () => {
       await act(async () => wizardButton("Fertig")!.click());
       expect(container.textContent).toContain("Veröffentlicht: v0.1.0");
       vi.mocked(baseStatus).mockClear();
+      vi.mocked(releases).mockClear();
+      vi.mocked(releases).mockResolvedValue(releasesOf({ stem: "p", dir: "/p/build", next_version: "0.2.0", releases: [done.release] }));
       await act(async () => [...container.querySelectorAll<HTMLButtonElement>("[data-wizard] button")].find((b) => b.textContent === "Schließen")!.click());
       await act(async () => {});
       expect(container.querySelector("[data-wizard]")).toBeNull();
-      // After a release the base status is read again.
+      // After a release the base status and the list of releases are read again.
       expect(baseStatus).toHaveBeenCalled();
+      expect(releases).toHaveBeenCalledOnce();
 
       // Its build is the session's last build, but its ROM (named in the notes) is not the ROM „Hier spielen“ builds to.
       await act(async () => atlasEntry("Technik")!.click());
@@ -1268,6 +1275,30 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
       // The steps are the release build's, named so, with its ROM relative to the project.
       expect(container.querySelector("[data-steps-source]")?.textContent).toBe("Build von „Veröffentlichen“ nach build/p-CPUE.nds");
+      // Technik › Veröffentlichen lists the release and opens the wizard too.
+      expect(row("Veröffentlichen").textContent).toContain("Veröffentlicht v0.1.0");
+      await act(async () => row("Veröffentlichen").click());
+      await act(async () => {});
+      expect(container.querySelector('[aria-label="Bisherige Veröffentlichungen"] tbody tr')?.textContent).toContain("0.1.0");
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("[data-publish-card] button")].find((b) => b.textContent === "Veröffentlichen…")!.click());
+      await act(async () => {});
+      expect(container.querySelector("[data-publish-step]")).not.toBeNull();
+    });
+
+    it("a_broken_list_of_releases_locks_publishing_in_the_title_bar", async () => {
+      // Read when the project opened, with a found base: the list's reason locks the button and says why.
+      const broken = "Die Liste der Veröffentlichungen .g4/releases.json ist nicht lesbar (expected value); sie bleibt, wie sie ist.";
+      vi.mocked(baseStatus).mockResolvedValue(found({ patch_name: "p-CPUE" }));
+      vi.mocked(releases).mockRejectedValue({ code: "releases_broken", message: broken, asset: null, problems: [] });
+      await act(async () => atlasEntry("Technik")!.click());
+      await act(async () => {});
+      const titleButton = container.querySelector<HTMLButtonElement>('header button[aria-label="Veröffentlichen"]')!;
+      expect(titleButton.getAttribute("aria-disabled")).toBe("true");
+      expect(titleButton.getAttribute("aria-description")).toBe(broken);
+      vi.mocked(releases).mockClear();
+      await act(async () => titleButton.click());
+      expect(container.querySelector("[data-publish-step]")).toBeNull();
+      expect(releases).not.toHaveBeenCalled();
     });
 
     describe("keyboard focus through a text conflict", () => {
@@ -1338,7 +1369,7 @@ describe("App wiring", () => {
       });
     });
 
-    it("an_app_build_holds_patch_erstellen", async () => {
+    it("an_app_build_holds_veroeffentlichen", async () => {
       vi.mocked(baseStatus).mockResolvedValue({
         state: "found",
         mark: { version: 2, origin: "dspre", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", game_code: "CPUE", title: "POKEMON PL", revision: 0, size: 1, created: "", studio_version: "0.1.0", secure_area_crc: 0, secure_area_sha1: "" },
@@ -1354,12 +1385,15 @@ describe("App wiring", () => {
       const row = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
       await act(async () => row("Veröffentlichen").click());
       await act(async () => {});
-      const patchButton = () => [...container.querySelectorAll<HTMLButtonElement>("[data-patch-card] button")].find((b) => b.textContent === "Patch erstellen…");
-      expect(patchButton()?.disabled).toBe(false);
+      const publishButton = () => [...container.querySelectorAll<HTMLButtonElement>("[data-publish-card] button")].find((b) => b.textContent === "Veröffentlichen…");
+      expect(publishButton()?.disabled).toBe(false);
       await click("Bauen");
-      expect(patchButton()?.getAttribute("aria-disabled")).toBe("true");
+      expect(publishButton()?.getAttribute("aria-disabled")).toBe("true");
+      await act(async () => publishButton()!.click());
+      expect(container.querySelector("[data-publish-step]")).toBeNull();
       await act(async () => finish({ saved: 0, packed: [], rom: "/out.nds", compiled: [], encoded: [], problems: [], steps: [], ms: 0 }));
-      expect(patchButton()?.disabled).toBe(false);
+      expect(publishButton()?.disabled).toBe(false);
+      expect(publishButton()?.hasAttribute("aria-disabled")).toBe(false);
     });
 
     it("technik_and_einstellungen_show_the_emulator_the_session_picked", async () => {
@@ -3320,6 +3354,12 @@ describe("App wiring", () => {
       await emit({ kind: "changed", seq: 3, client: "Claude Code", tool: "create_patch", label: null, assets: [] });
       await flush();
       expect(baseStatus).toHaveBeenCalledTimes(2);
+      // A release by an agent: the status and the list of releases.
+      vi.mocked(releases).mockClear();
+      await emit({ kind: "changed", seq: 4, client: "Claude Code", tool: "publish_patch", label: null, assets: [] });
+      await flush();
+      expect(baseStatus).toHaveBeenCalledTimes(3);
+      expect(releases).toHaveBeenCalledOnce();
     });
 
     it("reads_nothing_for_an_agent_change_without_a_project", async () => {

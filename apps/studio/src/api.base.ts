@@ -1,12 +1,10 @@
-import type { BuildReport } from "./api";
 import { invoke } from "./platform/transport";
 import type { RomInfo, Template } from "./project/api.start";
 
 /**
- * The base ROM of the open project and the patch against it (Technik › Veröffentlichen), mirroring
- * `apps/studio/src-tauri/src/commands/base.rs` and `g4_kernel::{start, base, patch}`. `api.ts` re-exports everything.
- * Field names are the Rust ones (snake_case). A broken mark is a state (`unreadable`), never an error; `createPatch`
- * without a found base ROM rejects with code `base_missing` and builds nothing.
+ * The base ROM of the open project (Technik › Veröffentlichen), mirroring `apps/studio/src-tauri/src/commands/base.rs` and
+ * `g4_kernel::{start, base}`. `api.ts` re-exports everything. Field names are the Rust ones (snake_case). A broken mark is a state
+ * (`unreadable`), never an error. Releases against the base ROM are `api.publish.ts`.
  */
 
 /** The base mark `.g4/base.json` (version 2). `template` only for projects made from a ROM, `assigned` only for DSPRE folders. */
@@ -32,7 +30,7 @@ export type BaseSource = "explicit" | "known" | "sibling" | "dir";
 
 /**
  * The base ROM of the open project. `label` names it („Platin DE (Testprojekt)“); `reason` is a German sentence ready to show; `patch_name`
- * is `<Projekt>-<Spielcode>`, the name `createPatch` writes under `build/` (the kernel's `patch::patch_name`).
+ * is `<Projekt>-<Spielcode>`, the name the agents' `create_patch` writes under `build/` (the kernel's `patch::patch_name`).
  */
 export type BaseStatus =
   | { state: "unassigned"; suggestion: string | null }
@@ -53,19 +51,6 @@ export interface BaseCheck {
   refused: string | null;
 }
 
-/** What `createPatch` wrote, with the build of the ROM it patches to. Paths are absolute; `size` in bytes. */
-export interface PatchDto {
-  patch: string;
-  notes: string;
-  rom: string;
-  size: number;
-  base_sha1: string;
-  target_sha1: string;
-  encode_ms: number;
-  verify_ms: number;
-  build: BuildReport;
-}
-
 /** The base ROM of the open project; may hash a ROM to find it. */
 export const baseStatus = () => invoke<BaseStatus>("base_status");
 /** Checks the `.nds` at `nds` as the base ROM of the open project; writes nothing. */
@@ -74,8 +59,6 @@ export const checkBase = (nds: string) => invoke<BaseCheck>("check_base", { nds 
 export const assignBase = (nds: string) => invoke<BaseStatus>("assign_base", { nds });
 /** Remembers where the base ROM lies now („Basis-ROM suchen…“); another ROM is refused and the entry stays. */
 export const registerBaseRom = (path: string) => invoke<BaseStatus>("register_base_rom", { path });
-/** Saves, builds the ROM and writes the self-checked patch `build/<Name>.xdelta` with `build/<Name>.xdelta.txt`. */
-export const createPatch = () => invoke<PatchDto>("create_patch");
 
 const UNITS = ["KiB", "MiB", "GiB"] as const;
 

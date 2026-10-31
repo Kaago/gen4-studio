@@ -35,9 +35,23 @@
   font: var(--g4-font-text-m-betont);
 }
 
+/* „Bisherige Veröffentlichungen“ inside the card „Veröffentlichen“, set off from the button above it. */
+.subheading {
+  margin: var(--g4-raum-8) 0 0;
+  font: var(--g4-font-text-s-betont);
+}
+
 .text,
-.note {
+.note,
+.lead {
   margin: 0;
+}
+
+/* The sentence under the title: what a patch is. */
+.lead {
+  max-width: 64ch;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
 }
 
 .text {
@@ -109,14 +123,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font: var(--g4-font-code-s);
-}
-
-/* Inside the success notice: the path of the patch, then the self-check. */
-.result {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--g4-raum-4);
 }
 
 .dialogBody {

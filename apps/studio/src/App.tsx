@@ -327,16 +327,19 @@ function AppBody() {
   // The ids the heads show (a text project): read anew after another session, a rename, an undo or redo and a sync that took something over.
   const [idsRevision, bumpIds] = useReducer((n: number) => n + 1, 0);
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
-  // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. A release
-  // („Veröffentlichen“) builds on the session's build path (`session.publish`); the old patch card runs its own command until 4.5 replaces it.
+  // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
+  // builds on the session's build path (`session.publish`) in the wizard.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik" });
-  // „Veröffentlichen“ waits for a found base ROM (the title bar's button says why): the status is read once when a project opens too (by
-  // its folder, so reading the same project again hashes nothing anew), not only when Technik shows; there `useBase` reads it itself.
+  // „Veröffentlichen“ waits for a found base ROM and a readable list of releases (the title bar's button says why): both are read once
+  // when a project opens too (the status by its folder, so reading the same project again hashes nothing anew), not only when Technik
+  // shows; there `useBase` reads them itself.
   const openedRoot = session.info?.root ?? null;
   useEffect(() => {
-    if (openedRoot !== null && area !== "technik") void base.refresh();
+    if (openedRoot === null || area === "technik") return;
+    void base.refresh();
+    void base.refreshReleases();
   }, [openedRoot]);
-  const publishLock = session.info === null ? null : publishLockOf(base.status);
+  const publishLock = session.info === null ? null : publishLockOf(base.status, base.releasesError);
   // „Stand sichern…“ from the result of „Veröffentlichen“: its subject and notes (the dialog comes with the next step of 4.5).
   const [, setCommitPreset] = useState<{ message: string; notes: string } | null>(null);
   // „Auf Original zurücksetzen“: the base ROM's counts per kind, read once per project and again when the base changes.
@@ -478,8 +481,10 @@ function AppBody() {
     await reloadChanged(assets, true);
   });
   const onAgentChanged = useStableCallback((event: AgentChangedEvent) => {
-    // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again.
-    if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch")) void base.refresh();
+    // Assigning a base or writing a patch changes no asset, only what Technik › Veröffentlichen shows: read the status again, and after
+    // a release the list of releases too.
+    if (session.info !== null && (event.tool === "assign_base" || event.tool === "create_patch" || event.tool === "publish_patch")) void base.refresh();
+    if (session.info !== null && event.tool === "publish_patch") void base.refreshReleases();
     // An agent set up Git: the status line reads the repository.
     if (session.info !== null && event.tool === "git_init") void git.refresh();
     // A base assigned by an agent: what can be reset, and whether the folder can be set up as text project, is read again (Technik may
@@ -720,10 +725,12 @@ function AppBody() {
   function openPublish() {
     if (session.info && !session.busy && wizards.request === null && !startOpen && publishLock === null) wizards.open({ kind: "publish" });
   }
-  /** The wizard is left; after a release the base status is read again (and, with 4.5's list, the releases). */
+  /** The wizard is left; after a release the base status and the list of releases are read again. */
   function closePublish(published: boolean) {
     wizards.close();
-    if (published) void base.refresh();
+    if (!published) return;
+    void base.refresh();
+    void base.refreshReleases();
   }
   /** „Im Finder zeigen“ of a release file; the browser mode has no file manager to open. */
   const revealRelease = useStableCallback(async (path: string) => {
@@ -1272,6 +1279,8 @@ function AppBody() {
         }}
         startTown={startTown}
         base={info ? base : null}
+        onPublish={openPublish}
+        onReveal={revealRelease}
         changes={info ? changes : null}
         dirty={session.dirtyAssets}
         textProject={textProject}

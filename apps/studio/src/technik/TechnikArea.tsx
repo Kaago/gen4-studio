@@ -83,8 +83,12 @@ export type TechnikAreaProps = {
    * it has none. Without it the hint names no town.
    */
   startTown?: (header: number) => string | null;
-  /** The base ROM and the patch (Veröffentlichen), held by the app so a running patch survives leaving Technik; null without a project. */
+  /** The base ROM and the releases (Veröffentlichen), held by the app above the areas; null without a project. */
   base: BaseApi | null;
+  /** „Veröffentlichen…“ (Veröffentlichen): the app opens the wizard. */
+  onPublish: () => void;
+  /** „Im Finder zeigen“ of a release file (Veröffentlichen). */
+  onReveal: (path: string) => Promise<void>;
   /** What of the saved project differs from the base ROM (Änderungen), held by the app; null without a project. */
   changes: ChangesApi | null;
   /** The store's assets with unsaved edits: Änderungen marks their rows „Ungespeichert“. */
@@ -214,7 +218,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (
-        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} />
+        <PublishSurface base={props.base} building={props.busy} onOpenProject={props.onOpenProject} onPublish={props.onPublish} onReveal={props.onReveal} />
       ) : entry === "aenderungen" ? (
         <ChangesSurface
           changes={props.changes}
