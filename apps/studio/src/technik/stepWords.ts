@@ -97,10 +97,10 @@ export function stepLabel(step: BuildStep, depth: Depth, fresh = false): { name:
   return { name, result: step.status === "full" && step.reason !== null ? `${result} (${reasonText(step, step.reason, depth, fresh)})` : result };
 }
 
-/** The line under „Schritte“ when they are those of „Patch erstellen“: which build, and where its ROM went (relative to the project when inside it). */
+/** The line under „Schritte“ when they are those of a release („Veröffentlichen“): which build, and where its ROM went (relative to the project when inside it). */
 export function patchBuildNote(rom: string, project: string): string {
   const root = project.endsWith("/") ? project : `${project}/`;
-  return `Build von „Patch erstellen“ nach ${rom.startsWith(root) ? rom.slice(root.length) : rom}`;
+  return `Build von „Veröffentlichen“ nach ${rom.startsWith(root) ? rom.slice(root.length) : rom}`;
 }
 
 /** A duration in seconds with a decimal comma and two places („0,33 s“); under 10 ms „< 0,01 s“. */

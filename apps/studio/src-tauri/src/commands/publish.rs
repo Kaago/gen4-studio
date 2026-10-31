@@ -48,6 +48,16 @@ pub struct ReleasesDto {
     pub releases: Vec<Release>,
 }
 
+/// What `publish_patch` did: the kernel's report of the release (flattened: `release`,
+/// `patch`, `files`, `releases`, `phase_ms`, `ms`) and the report of the build it made (its
+/// steps and problems are the session's last build, as with `create_patch`).
+#[derive(Debug, Serialize)]
+pub struct PublishDto {
+    #[serde(flatten)]
+    pub report: PublishReport,
+    pub build: BuildDto,
+}
+
 /// The arguments of `publish_patch`, keyed as `dispatch`, the Tauri command and the MCP tool
 /// take them (all single words, so camelCase and snake_case agree).
 #[derive(Debug, Deserialize)]
@@ -213,14 +223,15 @@ pub(crate) type Build<'a> = dyn Fn(&AppState, &str) -> Result<BuildDto, CmdError
 /// (phase `Build`: the sync of a text project, the session's save and the build to
 /// `build/<patch_name>.nds`, as `create_patch` builds), then `patch::publish_built` (phases
 /// `Encode`, `Verify`, `Write`, `Record`). `turn`: the sync before the build takes the agents'
-/// turn (the user's release; an agent's call holds it already).
+/// turn (the user's release; an agent's call holds it already). Answers the release's report
+/// with the build's.
 pub(crate) fn publish_patch_checked(
     state: &AppState,
     opts: PublishOptions,
     turn: bool,
     policy: Option<&dyn Policy>,
     progress: &mut dyn FnMut(PublishProgress),
-) -> Result<PublishReport, CmdError> {
+) -> Result<PublishDto, CmdError> {
     publish_patch_with(state, opts, turn, policy, progress, &|state, rom| {
         super::build_synced(state, rom, false)
     })
@@ -235,7 +246,7 @@ pub(crate) fn publish_patch_with(
     policy: Option<&dyn Policy>,
     progress: &mut dyn FnMut(PublishProgress),
     build: &Build<'_>,
-) -> Result<PublishReport, CmdError> {
+) -> Result<PublishDto, CmdError> {
     let started = Instant::now();
     let Checked {
         project,
@@ -278,7 +289,10 @@ pub(crate) fn publish_patch_with(
     .map_err(publish_error)?;
     report.phase_ms.insert(PublishPhase::Build, build_ms);
     report.ms = elapsed_ms(started);
-    Ok(report)
+    Ok(PublishDto {
+        report,
+        build: built,
+    })
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -291,7 +305,7 @@ pub fn publish_patch_impl(
     state: &AppState,
     opts: PublishOptions,
     progress: &mut dyn FnMut(PublishProgress),
-) -> Result<PublishReport, CmdError> {
+) -> Result<PublishDto, CmdError> {
     publish_patch_checked(state, opts, true, None, progress)
 }
 
@@ -396,7 +410,7 @@ pub async fn publish_patch(
     readme: Option<bool>,
     overwrite: Option<bool>,
     progress: Channel<PublishProgress>,
-) -> Result<PublishReport, CmdError> {
+) -> Result<PublishDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
         let opts = PublishArgs {
             version,
@@ -677,7 +691,7 @@ mod tests {
         let mut phases = Vec::new();
         let mut options = opts("0.1.0");
         options.notes = "Erste Fassung".into();
-        let report = publish_patch_with(
+        let dto = publish_patch_with(
             &d.state,
             options,
             false,
@@ -686,6 +700,17 @@ mod tests {
             &fake_build(d.nds.clone()),
         )
         .unwrap();
+        let report = &dto.report;
+        // The build's own report comes along: its ROM is the one the patch was made from.
+        assert_eq!(Path::new(&dto.build.rom), report.patch.rom);
+        // Flattened: the release's fields and the build side by side.
+        let json = serde_json::to_value(&dto).unwrap();
+        for key in [
+            "release", "patch", "files", "releases", "phase_ms", "ms", "build",
+        ] {
+            assert!(json.get(key).is_some(), "{key} in {json}");
+        }
+        assert_eq!(json["build"]["rom"], json["patch"]["rom"]);
         assert_eq!(report.files.len(), 2, "{:?}", report.files);
         assert_eq!(report.files[0].kind, PublishedKind::Patch);
         assert_eq!(report.files[1].kind, PublishedKind::Notes);
@@ -866,7 +891,10 @@ mod tests {
         let mut options = opts("0.1.0");
         options.notes = "Erste Fassung".into();
         let mut phases = Vec::new();
-        let report = publish_patch_impl(&state, options, &mut |p| phases.push(p.phase)).unwrap();
+        let dto = publish_patch_impl(&state, options, &mut |p| phases.push(p.phase)).unwrap();
+        let report = &dto.report;
+        assert_eq!(Path::new(&dto.build.rom), report.patch.rom);
+        assert!(!dto.build.steps.is_empty());
         eprintln!(
             "publish 0.1.0: {:?} (report {} ms, phases {:?}, patch {} bytes)",
             started.elapsed(),

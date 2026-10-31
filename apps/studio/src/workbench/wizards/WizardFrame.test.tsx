@@ -300,4 +300,26 @@ describe("WizardFrame", () => {
     show({ start: 2, resultTitle: "Fertig", result: <p>Veröffentlicht.</p> });
     expect(pills().every(([, state]) => state === "done")).toBe(true);
   });
+
+  it("a_closed_step_has_no_way_back_and_closes_instead_of_cancelling", () => {
+    // The steps of the harness, the last one closed (what the step before did is written).
+    function Closed() {
+      const steps = [
+        { id: "a", title: "Quelle", canNext: true, content: <p>a</p> },
+        { id: "b", title: "Prüfen", canNext: true, closed: true, content: <p>b</p> },
+      ];
+      return <WizardFrame title="Veröffentlichen" icon="publish" steps={steps} step={1} onStep={onStep} busy={false} submitLabel="Fertig" onSubmit={onSubmit} onCancel={onCancel} />;
+    }
+    act(() => root.render(<Closed />));
+    expect(button("Zurück")).toBeUndefined();
+    expect(button("Abbrechen")).toBeUndefined();
+    act(() => button("Schließen")!.click());
+    expect(onCancel).toHaveBeenCalledOnce();
+    act(() => void dialog().dispatchEvent(new KeyboardEvent("keydown", { key: "[", metaKey: true, bubbles: true, cancelable: true })));
+    expect(onStep).not.toHaveBeenCalled();
+    // Without it: „Zurück“ and „Abbrechen“ as before.
+    show({ start: 1 });
+    expect(button("Zurück")).toBeDefined();
+    expect(button("Abbrechen")).toBeDefined();
+  });
 });

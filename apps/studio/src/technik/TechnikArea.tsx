@@ -58,7 +58,7 @@ export type TechnikAreaProps = {
   lastSteps: BuildStep[] | null;
   /** The last build was started with „Neu bauen (ohne Cache)“ (its steps say so instead of „erster Build“). */
   lastBuildFresh?: boolean;
-  /** The last steps are those of „Patch erstellen“, which built this ROM (the facts above keep naming the ROM of Bauen); null for a normal build. */
+  /** The last steps are those of a release („Veröffentlichen“), which built this ROM (the facts above keep naming the ROM of Bauen); null for a normal build. */
   lastPatchRom?: string | null;
   /** Builds the ROM (asks where to). */
   onBuild: () => void;

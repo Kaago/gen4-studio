@@ -495,10 +495,15 @@ describe("useProjectSession with open scripts", () => {
   it("a_release_stamps_the_build_but_does_not_become_the_rom_of_hier_spielen", async () => {
     // „Hier spielen“ builds to the last ROM; the ROM a release built must keep the SHA-1 its notes name.
     const opts = (version: string): PublishOptionsDto => ({ version, notes: "", dir: "/h/Sinnoh-Remix/build", file: `Sinnoh-Remix-v${version}.xdelta`, readme: false });
+    // The release's build reports its steps and a warning; an earlier failed build left a compile error behind.
+    const releaseBuild = (o: PublishOptionsDto) => ({ ...publishReportOf(o).build, steps: STEPS, problems: [problem("expanded/textArchives/0007.json", 1, "zu breit", "warning", "text")] });
     vi.mocked(publishPatch).mockReset().mockImplementation(async (o, onProgress) => {
       onProgress({ phase: "build" });
-      return publishReportOf(o);
+      return { ...publishReportOf(o), build: releaseBuild(o) };
     });
+    vi.mocked(buildRom).mockRejectedValueOnce({ code: "compile", message: "1 Fehler in Scripts oder Texten", asset: null, problems: [problem("expanded/scripts/0003.rotom", 2, "e1")] });
+    await build();
+    expect(problems.list().map((p) => p.message)).toEqual(["e1"]);
     const onProgress = vi.fn();
     const before = Date.now();
     await act(async () => void (await session.publish(opts("0.1.0"), onProgress)));
@@ -509,8 +514,9 @@ describe("useProjectSession with open scripts", () => {
     expect(session.lastRom).toBeNull();
     expect(session.lastBuiltAt).toBeGreaterThanOrEqual(before);
     expect(session.lastPatchRom).toBe("/h/Sinnoh-Remix/build/Sinnoh-Remix-CPUD.nds");
-    // The release answers no build steps: none are claimed for it.
-    expect(session.lastSteps).toBeNull();
+    // Its build is the last build: its steps, and its problems in place of the failed build's.
+    expect(session.lastSteps).toEqual(STEPS);
+    expect(problems.list().map((p) => [p.message, p.source])).toEqual([["zu breit", "text"]]);
     expect(session.busy).toBe(false);
 
     await build();

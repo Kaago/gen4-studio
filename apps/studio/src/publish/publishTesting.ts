@@ -42,6 +42,7 @@ export function publishReportOf(opts: PublishOptionsDto, over: Partial<PublishRe
     releases: { version: 1, releases: [release] },
     phase_ms: { build: 69978, encode: 120, verify: 148, write: 3, record: 2 },
     ms: 70300,
+    build: { saved: 0, packed: [], rom: `${ROOT}/build/Sinnoh-Remix-CPUD.nds`, compiled: [], encoded: [], problems: [], steps: [{ id: "rom", status: "full", ms: 69000, done: 0, total: 0, cached: 0, reason: null }], ms: 69978 },
     ...over,
   };
 }

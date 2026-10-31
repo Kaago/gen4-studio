@@ -239,9 +239,11 @@ describe("PublishWizard", () => {
     expect(preview.textContent).toContain(NO_ROM_CONTENT);
     expect(button("Fertig")).toBeDefined();
     expect(button("Weiter")).toBeUndefined();
-    // Back from here runs nothing again: the release is written.
-    await click(button("Zurück"));
-    expect(step()).toBe("check");
+    // The release is written: no way back to the steps that made it, and leaving says „Schließen“ (and that it published).
+    expect(button("Zurück")).toBeUndefined();
+    expect(button("Abbrechen")).toBeUndefined();
+    await click(button("Schließen"));
+    expect(onClose).toHaveBeenCalledWith(true);
     expect(onPublish).toHaveBeenCalledOnce();
   });
 

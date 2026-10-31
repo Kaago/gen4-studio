@@ -330,12 +330,12 @@ function AppBody() {
   // Technik › Veröffentlichen, above the areas: a patch that builds keeps running (and its result stays) when Technik is left. A release
   // („Veröffentlichen“) builds on the session's build path (`session.publish`); the old patch card runs its own command until 4.5 replaces it.
   const base = useBase({ project: session.info?.root ?? null, active: area === "technik" });
-  // „Veröffentlichen“ waits for a found base ROM (the title bar's button says why): the status is read when a project opens too, not only
-  // when Technik shows.
-  const openedInfo = session.info;
+  // „Veröffentlichen“ waits for a found base ROM (the title bar's button says why): the status is read once when a project opens too (by
+  // its folder, so reading the same project again hashes nothing anew), not only when Technik shows; there `useBase` reads it itself.
+  const openedRoot = session.info?.root ?? null;
   useEffect(() => {
-    if (openedInfo !== null) void base.refresh();
-  }, [openedInfo]);
+    if (openedRoot !== null && area !== "technik") void base.refresh();
+  }, [openedRoot]);
   const publishLock = session.info === null ? null : publishLockOf(base.status);
   // „Stand sichern…“ from the result of „Veröffentlichen“: its subject and notes (the dialog comes with the next step of 4.5).
   const [, setCommitPreset] = useState<{ message: string; notes: string } | null>(null);

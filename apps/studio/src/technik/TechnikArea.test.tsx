@@ -430,7 +430,7 @@ describe("TechnikArea", () => {
     await render(built);
     expect(line()).toBeNull();
     await render({ ...built, lastPatchRom: "/p/build/4-2-abn-patch-IPKD.nds" });
-    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach build/4-2-abn-patch-IPKD.nds");
+    expect(line()?.textContent).toBe("Build von „Veröffentlichen“ nach build/4-2-abn-patch-IPKD.nds");
     // Directly under the heading, before the table; the fact „Pfad“ still names the ROM of Bauen.
     const heading = [...(surface()?.querySelectorAll("h2") ?? [])].find((h) => h.textContent === "Schritte")!;
     expect(heading.nextElementSibling).toBe(line());
@@ -438,7 +438,7 @@ describe("TechnikArea", () => {
     expect(surface()?.querySelector("dd[title]")?.textContent).toBe("/roms/out.nds");
     // A ROM outside the project shows whole; without steps there is nothing to name.
     await render({ ...built, lastPatchRom: "/elsewhere/x.nds" });
-    expect(line()?.textContent).toBe("Build von „Patch erstellen“ nach /elsewhere/x.nds");
+    expect(line()?.textContent).toBe("Build von „Veröffentlichen“ nach /elsewhere/x.nds");
     await render({ lastPatchRom: "/p/build/x.nds" });
     expect(line()).toBeNull();
   });

@@ -1230,14 +1230,22 @@ describe("App wiring", () => {
       await act(async () => wizardButton("Weiter")!.click());
       const opts: PublishOptionsDto = { version: "0.1.0", notes: "", dir: "/p/build", file: "p-v0.1.0.xdelta", readme: false };
       expect(vi.mocked(publishPatch).mock.calls[0]![0]).toEqual(opts);
-      // On the session's build path: the store saved first, Bauen and Speichern wait while it runs, ⌘S saves nothing more.
+      // On the session's build path: the store saved first, Bauen and Speichern wait while it runs (blocked with aria-disabled, focusable),
+      // ⌘S saves nothing more and ⌘R starts nothing.
       expect(save).toHaveBeenCalledOnce();
       expect(titleButton("Bauen")?.getAttribute("aria-disabled")).toBe("true");
+      expect(titleButton("Speichern")?.getAttribute("aria-disabled")).toBe("true");
+      expect(titleButton("Speichern")?.disabled).toBe(false);
+      vi.mocked(runRom).mockClear();
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", metaKey: true, bubbles: true, cancelable: true })));
       expect(save).toHaveBeenCalledOnce();
       expect(buildRom).not.toHaveBeenCalled();
+      expect(runRom).not.toHaveBeenCalled();
 
-      const done = publishReportOf(opts);
+      const rom = "/p/build/p-CPUE.nds";
+      const plain = publishReportOf(opts);
+      const done = { ...plain, patch: { ...plain.patch, rom }, build: { ...plain.build, rom } };
       await act(async () => finish(done));
       await act(async () => {});
       expect(container.querySelector("[data-publish-step]")?.getAttribute("data-publish-step")).toBe("check");
@@ -1257,7 +1265,9 @@ describe("App wiring", () => {
       expect(row("Prüfen und Bauen").textContent).toContain("gebaut");
       await act(async () => row("Prüfen und Bauen").click());
       expect(container.querySelector("[data-technik]")?.textContent).toContain("gerade eben");
-      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(done.patch.rom);
+      expect(container.querySelector("[data-technik]")?.textContent).not.toContain(rom);
+      // The steps are the release build's, named so, with its ROM relative to the project.
+      expect(container.querySelector("[data-steps-source]")?.textContent).toBe("Build von „Veröffentlichen“ nach build/p-CPUE.nds");
     });
 
     describe("keyboard focus through a text conflict", () => {

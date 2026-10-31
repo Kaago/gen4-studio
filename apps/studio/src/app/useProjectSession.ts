@@ -448,15 +448,14 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
    * The one build path of the session: `busy` while it runs (the app's open, save and build guards read it), the open scripts saved first
    * (they live in the editor, not in the store; a script save refuses while a text archive is unsaved, so with scripts to save the store goes
    * first, as in `onSave`), then `run`, which saves the store and builds (`build_rom`, or a release, which builds before it writes the
-   * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache; a release answers no steps and
-   * no problems: the steps are unknown then, the problems stay), its ROM becomes the last ROM only with `ownsRom` (a release's ROM is not „Hier
-   * spielen“'s target: building there would change the ROM its notes name; it is remembered as `lastPatchRom` so the steps say whose they
-   * are), and the unsaved edits are read again. A compile failure puts its problems into the store; every failure is thrown on. Answers what
-   * `run` answered and how many store files were saved ahead of the scripts.
+   * patch). After it the build's time, steps and problems are the session's (`fresh`: it ran without the cache), its ROM becomes the last ROM
+   * only with `ownsRom` (a release's ROM is not „Hier spielen“'s target: building there would change the ROM its notes name; it is remembered
+   * as `lastPatchRom` so the steps say whose they are), and the unsaved edits are read again. A compile failure puts its problems into the
+   * store; every failure is thrown on. Answers what `run` answered and how many store files were saved ahead of the scripts.
    */
   async function guardedBuild<R>(
     run: () => Promise<R>,
-    reportOf: (result: R) => Pick<BuildReport, "rom"> & Partial<Pick<BuildReport, "steps" | "problems">>,
+    reportOf: (result: R) => BuildReport,
     ownsRom: boolean,
     fresh = false,
   ): Promise<{ result: R; storeSaved: number }> {
@@ -476,10 +475,10 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       const report = reportOf(result);
       if (ownsRom) setLastRom(report.rom);
       setLastBuiltAt(Date.now());
-      setLastSteps(report.steps ?? null);
+      setLastSteps(report.steps);
       setLastBuildFresh(fresh);
       setLastPatchRom(ownsRom ? null : report.rom);
-      if (report.problems) problems.applyBuildReport(report.problems);
+      problems.applyBuildReport(report.problems);
       return { result, storeSaved };
     } catch (e) {
       if (isCmdError(e) && e.code === "compile") problems.applyReport(e.problems ?? []);
@@ -590,7 +589,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
 
   /**
    * „Veröffentlichen“ on the session's build path: saving, Bauen and opening wait for it, the store is saved first (the backend publishes the
-   * saved state and refuses unsaved changes), and its build counts as the last build (its time), but the ROM it built (`build/<Name>.nds`,
+   * saved state and refuses unsaved changes), and its build counts as the last build (time, steps, problems), but the ROM it built (`build/<Name>.nds`,
    * named with its SHA-1 in the notes) does not become the last ROM, so „Hier spielen“ never builds over it. `onProgress` follows the phases.
    * A refusal or failure is thrown on: the wizard says why.
    */
@@ -599,7 +598,7 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
       await saveStore();
       return publishPatch(opts, onProgress);
     };
-    return (await guardedBuild(run, (report) => ({ rom: report.patch.rom }), false)).result;
+    return (await guardedBuild(run, (report) => report.build, false)).result;
   }
 
   /**

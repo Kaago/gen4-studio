@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
+import type { BuildReport } from "./api";
 
 /**
  * Veröffentlichen (4.5), mirroring `apps/studio/src-tauri/src/commands/publish.rs` and `g4_kernel::patch::{release, publish}`. `api.ts`
@@ -58,7 +59,10 @@ export interface PatchReportDto {
   verify_ms: number;
 }
 
-/** What a release did: the entry it appended, the patch, the files (patch, notes, then `README.txt` when written), the list after it and the milliseconds per phase and in all. */
+/**
+ * What a release did: the entry it appended, the patch, the files (patch, notes, then `README.txt` when written), the list after it, the
+ * milliseconds per phase and in all, and the report of the build it made (its steps and problems are the session's last build).
+ */
 export interface PublishReportDto {
   release: ReleaseEntry;
   patch: PatchReportDto;
@@ -66,6 +70,7 @@ export interface PublishReportDto {
   releases: { version: number; releases: ReleaseEntry[] };
   phase_ms: Partial<Record<PublishPhase, number>>;
   ms: number;
+  build: BuildReport;
 }
 
 /** The releases of the open project with the proposal for the next version; a broken or newer list is refused with `releases_broken`. Writes nothing. */

@@ -14,6 +14,8 @@ export interface WizardStep {
   content: ReactNode;
   /** Whether "Weiter" (on the last step: the submit button) is enabled. */
   canNext: boolean;
+  /** What the steps before did is written and cannot be taken back: no "Zurück" (nor ⌘[), and the cancel button says "Schließen". */
+  closed?: boolean;
 }
 
 export type WizardFrameProps = {
@@ -92,8 +94,9 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
   // The pills of the bar: the steps, then the result's own when it has one.
   const titles = resultTitle === undefined ? steps.map((s) => s.title) : [...steps.map((s) => s.title), resultTitle];
 
-  const latest = useRef({ step, busy, done, last, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel });
-  latest.current = { step, busy, done, last, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel };
+  const closed = current?.closed === true;
+  const latest = useRef({ step, busy, done, last, closed, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel });
+  latest.current = { step, busy, done, last, closed, canNext: current?.canNext ?? false, onStep, onSubmit, onCancel };
 
   // The deck's slots: when the wizard opens together with the deck that holds them, they exist only after this commit.
   useLayoutEffect(() => {
@@ -129,7 +132,7 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
       } else if (e.key === "[" && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
         // In a browser this would go back a page.
         e.preventDefault();
-        if (!s.busy && !s.done && s.step > 0) s.onStep(s.step - 1);
+        if (!s.busy && !s.done && !s.closed && s.step > 0) s.onStep(s.step - 1);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -165,6 +168,7 @@ export function WizardFrame({ title, icon, steps, step, onStep, busy, error = nu
         icon={icon}
         steps={titles}
         submitAt={steps.length - 1}
+        closed={closed}
         step={step}
         done={done}
         busy={busy}

@@ -194,7 +194,8 @@ export function PublishWizard({ defaults, defaultsError, gitOwn, onPublish, onRe
   const steps: WizardStep[] = [
     { id: "version", title: "Version", canNext: ready, content: versionContent },
     { id: "patch", title: "Patch", canNext: ready && !running, content: patchContent },
-    { id: "check", title: "Prüfen", canNext: report !== null, content: checkContent },
+    // Once written, the release cannot be taken back: no way back to the steps that made it, and „Schließen“ in place of „Abbrechen“.
+    { id: "check", title: "Prüfen", canNext: report !== null, closed: report !== null, content: checkContent },
   ];
 
   let result = null;

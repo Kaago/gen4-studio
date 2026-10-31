@@ -18,6 +18,8 @@ export type WizardBarProps = {
   submitLabel: string;
   /** The step whose button submits (default the last; a wizard whose result is a pill of its own submits on the step before it). */
   submitAt?: number;
+  /** The steps before are written: no "Zurück", and the cancel button says "Schließen". */
+  closed?: boolean;
   onCancel: () => void;
   onBack: () => void;
   onNext: () => void;
@@ -30,7 +32,7 @@ type StepState = "done" | "current" | "open";
  * the ones behind), "Abbrechen", "Zurück" (from the second step on) and "Weiter" or the submit button on the right. The keys stand beside
  * their buttons, so a button says only what it does.
  */
-export function WizardBar({ titleId, title, icon, steps, step, done, busy, canNext, submitLabel, submitAt = steps.length - 1, onCancel, onBack, onNext }: WizardBarProps) {
+export function WizardBar({ titleId, title, icon, steps, step, done, busy, canNext, submitLabel, submitAt = steps.length - 1, closed = false, onCancel, onBack, onNext }: WizardBarProps) {
   const last = step === submitAt;
   const stateOf = (i: number): StepState => (done || i < step ? "done" : i === step ? "current" : "open");
   return (
@@ -62,9 +64,9 @@ export function WizardBar({ titleId, title, icon, steps, step, done, busy, canNe
       {!done && (
         <div className={styles.actions}>
           <Button kind="quiet" disabled={busy} onClick={onCancel}>
-            Abbrechen
+            {closed ? "Schließen" : "Abbrechen"}
           </Button>
-          {step > 0 && (
+          {step > 0 && !closed && (
             <span className={styles.keyed}>
               <Button kind="secondary" disabled={busy} onClick={onBack} aria-keyshortcuts="Meta+BracketLeft">
                 Zurück
