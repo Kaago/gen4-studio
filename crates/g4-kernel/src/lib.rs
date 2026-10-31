@@ -15,6 +15,7 @@ pub mod patch;
 pub mod places;
 pub mod preview;
 pub mod project;
+pub mod recipes;
 pub mod run;
 pub mod scripts;
 pub mod sprites;
