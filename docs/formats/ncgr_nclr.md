@@ -110,11 +110,49 @@ Alle Archive sind in Platin DE, HeartGold DE und HeartGold US gleich gebaut (gem
 **Plätze je Art.** Member `6 · s + Platz`: Platz 0 Rückseite weiblich, 1 Rückseite männlich oder einzig, 2 Vorderseite
 weiblich, 3 Vorderseite männlich oder einzig; Palette `6 · s + 4` normal, `6 · s + 5` schillernd (je ein NCLR mit
 16 Farben). Ein leeres Member (0 Byte) heißt, dass es kein eigenes Bild gibt (66 Arten ohne Platz 0 und 2, 16 ohne
-Platz 1 und 3). Die Formen im zweiten Archiv brauchen eine Zuordnungstabelle (sie steht in `battle_sprites.yaml`
-des Kernels, Task 3 trägt sie nach).
+Platz 1 und 3). Die Formen im zweiten Archiv folgen einer eigenen Ordnung (Abschnitt „Formen“).
 
 **Bild.** Jedes Bild-NCGR hat 20 × 10 Kacheln, 4 bpp, Kachelmodus 1: 160 × 80 Pixel, zwei Bilder zu 80 × 80
 nebeneinander, links das Standbild, rechts das Animationsbild. Alle Symbole dagegen haben Modus 0.
+
+**Formen.** `otherPokemonBattleSprites` hat erst alle Bilder, dann alle Paletten (je ein NCLR mit einer Palette):
+Platin Member 0–153 NCGR, 154–247 NCLR, dann 248 NCGR, 249 NCGR, 250 NCLR, 251 NCGR, 252 NCLR; HeartGold/SoulSilver
+0–157 NCGR (vier Pichu-Bilder mehr), 158–255 NCLR, dann 256, 257 NCGR, 258 NCLR, 259 NCGR, 260 NCLR. Die Bilder
+stimmen in beiden Familien überein (außer der Wandelform von Giratina, 150 und 151, die HGSS neu zeichnet), die
+Paletten auch, nur liegt in HGSS jede Palette vier Member höher. Die Zuordnung ist am Augenschein belegt (Platin DE,
+HeartGold DE; HeartGold US ist byte-gleich mit HeartGold DE; Protokoll
+`docs/research/2026-10-30-phase-3d/task3-3d3-formen.md`) und steht je Familie in `forms` von
+`crates/g4-kernel/metadata/battle_sprites.yaml`. `f` ist der Formindex des Spiels; Form 0 ist die Grundform und kommt
+aus `pokemonBattleSprites` (ihre Bilder liegen hier auch, das Studio nutzt sie nicht). Keine Form hat eigene
+weibliche Bilder. Alle Einträge sind belegt, keiner ist `unverified`.
+
+| Art | Form `f` | Personal | Rückseite / Vorderseite | Palette normal / schillernd, Platin | HGSS | Status |
+|---|---|---|---|---|---|---|
+| Deoxys (386) | 1 Angriffs-, 2 Verteidigungs-, 3 Initiativeform | 496–498 | `2f` / `2f + 1` | 154 / 155 (alle Formen) | 158 / 159 | belegt |
+| Icognito (201) | 1–25 B–Z, 26 „!“, 27 „?“ | – | `8 + 2f` / `9 + 2f` | 156 / 157 (alle Formen) | 160 / 161 | belegt |
+| Formeo (351) | 1 Sonnen-, 2 Regen-, 3 Schneeform | – | `64 + f` / `68 + f` | `158 + f` / `162 + f` | + 4 | belegt |
+| Burmy (412) | 1 Sand-, 2 Lumpenumhang | – | `72 + 2f` / `73 + 2f` | `166 + 2f` / `167 + 2f` | + 4 | belegt |
+| Burmadame (413) | 1 Sand-, 2 Lumpenumhang | 499, 500 | `78 + 2f` / `79 + 2f` | `172 + 2f` / `173 + 2f` | + 4 | belegt |
+| Schalellos (422) | 1 Östliches Meer | – | 85 / 87 | 180 / 181 | 184 / 185 | belegt |
+| Gastrodon (423) | 1 Östliches Meer | – | 89 / 91 | 184 / 185 | 188 / 189 | belegt |
+| Kinoso (421) | 1 Sonnenform | – | 93 / 95 | 187 / 189 | 191 / 193 | belegt |
+| Arceus (493) | 1–17 Typ (Typindex, 9 ist „???“) | – | `96 + 2f` / `97 + 2f` | `190 + 2f` / `191 + 2f` | + 4 | belegt |
+| Ei | 0 | 494 | – / 132 | 226 / – | 230 / – | belegt |
+| Shaymin (492) | 1 Zenitform | 502 | 136 / 137 | 230 / 231 | 234 / 235 | belegt |
+| Rotom (479) | 1 Hitze, 2 Wasch, 3 Frost, 4 Wirbel, 5 Schneid | 503–507 | `138 + 2f` / `139 + 2f` | `232 + 2f` / `233 + 2f` | + 4 | belegt |
+| Giratina (487) | 1 Urform | 501 | 152 / 153 | 246 / 247 | 250 / 251 | belegt |
+| Pichu (172), nur HGSS | 1 Strubbelohr | – | 156 / 157 | – | 254 / 255 | belegt |
+
+Das Ei hat nur eine Vorderseite und eine Palette: seine Rückseite ist kein Bild, schillernd zeigt die normale Palette.
+Nicht in der Tabelle: das Manaphy-Ei (Platin 133 mit Palette 227, HGSS 133 mit 231; keine Form, das Spiel wählt es
+nach der Art im Ei), das Bildpaar 248/249 mit Palette 250 (HGSS 256/257, 258; Rückseite und Vorderseite eines kleinen
+grünen Pokémon, Zweck unbekannt) und 251 mit Palette 252 (HGSS 259, 260: drei flache Ellipsen, wohl Schatten).
+Diamant und Perl haben keine Tabelle (Familie ungeprüft, `battle_sprite` liefert dort nichts).
+
+Auflösung (`data::battle_sprites::battle_sprite`): eine Art ab 494 ist ein Personal-Member und wird über die
+Spalte „Personal“ zu Art und Form (503 ist Rotom, Form 1; das Ei bleibt 494, Form 0); dann gilt der Eintrag der
+Familie für Art und Form, sonst die Grundform aus `pokemonBattleSprites`. Fehlt das Bild eines Eintrags im Archiv,
+zeigt das Studio ebenfalls die Grundform; das Ei hat keine.
 
 **Trainer.** Je Klasse `k` fünf Member: Member `5 · k + 4` ist das lineare NCGR (160 × 80, die linke Hälfte ist das
 Bild), die Palette steht in Member `5 · k + 1` (NCLR mit 16 Paletten, genutzt wird die erste); die Member `5 · k` (NCGR

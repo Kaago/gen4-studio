@@ -11,6 +11,8 @@
 //! `pokemonBattleSprites` holds six members per species: back female (0), back male or only
 //! (1), front female (2), front male or only (3), the normal (4) and the shiny palette (5). An
 //! empty member means "no image of its own": the other gender's slot of the same side is shown.
+//! `otherPokemonBattleSprites` holds the other forms and the egg in an order of its own: the
+//! form table of `battle_sprites.yaml` (per family, checked by eye) names their members.
 //! `trainerGraphics` holds five members per trainer class: the image at `5·k + 4`, its 16
 //! palettes at `5·k + 1` (palette 0 is the battle palette).
 
@@ -68,6 +70,8 @@ pub struct Directions {
 
 /// One entry of the form table: the members of a form's images in `otherPokemonBattleSprites`.
 /// `personal` is the personal member of the form (496 to 507, the egg 494), if it has one.
+/// A missing image means "no image of this side" (the egg has no back); a missing female
+/// image shows the male one; without `shiny` (the egg) the normal palette is used.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FormSprite {
@@ -79,7 +83,7 @@ pub struct FormSprite {
     pub female_back: Option<u16>,
     pub female_front: Option<u16>,
     pub palette: u16,
-    pub shiny: u16,
+    pub shiny: Option<u16>,
     /// Not checked by eye: the base form is shown instead.
     #[serde(default)]
     pub unverified: bool,
@@ -119,7 +123,9 @@ struct RawDirections {
 struct Metadata {
     /// Keyed by family: `dp`, `pt`, `hgss`.
     direction: HashMap<String, RawDirections>,
-    forms: Vec<FormSprite>,
+    /// Keyed by family like `direction`; a family without a table has no forms.
+    #[serde(default)]
+    forms: HashMap<String, Vec<FormSprite>>,
 }
 
 /// The parsed `battle_sprites.yaml`, read once per process.
@@ -129,15 +135,19 @@ fn metadata() -> &'static Metadata {
     METADATA.get_or_init(|| serde_yaml::from_str(BATTLE_SPRITES_YAML).unwrap_or_default())
 }
 
-/// The decryption directions of `family`, from `battle_sprites.yaml`; `None` for a family
-/// marked `unverified` (Diamond/Pearl).
-pub fn directions(family: Family) -> Option<Directions> {
-    let key = match family {
+/// The key of `family` in `battle_sprites.yaml`.
+fn family_key(family: Family) -> &'static str {
+    match family {
         Family::Dp => "dp",
         Family::Pt => "pt",
         Family::Hgss => "hgss",
-    };
-    let raw = metadata().direction.get(key)?;
+    }
+}
+
+/// The decryption directions of `family`, from `battle_sprites.yaml`; `None` for a family
+/// marked `unverified` (Diamond/Pearl).
+pub fn directions(family: Family) -> Option<Directions> {
+    let raw = metadata().direction.get(family_key(family))?;
     (!raw.unverified).then(|| Directions {
         pokemon: raw.pokemon.into(),
         other: raw.other.into(),
@@ -145,24 +155,43 @@ pub fn directions(family: Family) -> Option<Directions> {
     })
 }
 
-/// The verified form table entry of `form` of `species`, if there is one.
-pub fn form_sprite(species: u16, form: u8) -> Option<&'static FormSprite> {
-    metadata()
+/// The form table of `family`, unverified entries included (empty for Diamond/Pearl).
+pub fn forms(family: Family) -> &'static [FormSprite] {
+    forms_in(metadata(), family)
+}
+
+fn forms_in(metadata: &Metadata, family: Family) -> &[FormSprite] {
+    metadata
         .forms
+        .get(family_key(family))
+        .map_or(&[], Vec::as_slice)
+}
+
+/// The verified form table entry of `form` of `species` in `family`, if there is one. An
+/// entry marked `unverified` is not given: the base form is shown instead.
+pub fn form_sprite(family: Family, species: u16, form: u8) -> Option<&'static FormSprite> {
+    verified(forms(family), species, form)
+}
+
+fn verified(table: &[FormSprite], species: u16, form: u8) -> Option<&FormSprite> {
+    table
         .iter()
         .find(|f| !f.unverified && f.species == species && f.form == form)
 }
 
-/// The species and form of personal member `personal` (496 → Deoxys, form 1), from the form
-/// table; `None` below 494 or for a member the table does not name.
+/// The species and form of personal member `personal` (496 → Deoxys, form 1; the egg 494 →
+/// species 494, form 0), from the form tables; `None` below 494 or for a member no table
+/// names. The same in every family (`species_forms.yaml`), so no family is asked. Unverified
+/// entries count too: what is unverified is the images, not which form a personal member is,
+/// and [`form_sprite`] then shows the base form of the species.
 pub fn form_of_personal(personal: u16) -> Option<(u16, u8)> {
     if personal < FIRST_FORM_PERSONAL {
         return None;
     }
     metadata()
         .forms
-        .iter()
-        .find(|f| f.personal == Some(personal))
+        .values()
+        .find_map(|table| table.iter().find(|f| f.personal == Some(personal)))
         .map(|f| (f.species, f.form))
 }
 
@@ -211,33 +240,100 @@ pub fn sprite_slots(project: &Project, species: u16) -> Result<Option<SpriteSlot
 }
 
 /// The requested half of a Pokémon's battle sprite as an 80 x 80 PNG (palette index 0
-/// transparent); an image of another size than 160 x 80 is given whole. An empty slot falls
-/// back to the other gender's slot of the same side. `None` when both slots are empty, the
-/// frame is neither 0 nor 1, the family is unverified, or the archive lacks the species or
-/// its palette. A member that is not an NCGR or NCLR is an error. `req.form` is not looked at
-/// yet: the form table of `battle_sprites.yaml` is empty, every form shows the base form.
+/// transparent); an image of another size than 160 x 80 is given whole.
+///
+/// A species of 494 and above is a personal member: it is resolved to its species and form by
+/// [`form_of_personal`] (503 is Rotom in form 1, the egg 494 stays itself), and the request's
+/// own `form` is ignored. A species and form with a verified entry in the form table of the
+/// family ([`form_sprite`]) is drawn from `otherPokemonBattleSprites`; every other form, and a
+/// form whose image cannot be read there (no archive, no member, no palette), shows the base
+/// form of `pokemonBattleSprites` (the egg has none). There an empty slot falls back to the
+/// other gender's slot of the same side.
+///
+/// `None` when the family is unverified, the frame is neither 0 nor 1, both slots are empty,
+/// a side has no image (the egg's back), or the archive lacks the species or its palette. A
+/// member that is not an NCGR or NCLR is an error.
 pub fn battle_sprite(
     project: &Project,
     req: SpriteRequest,
 ) -> Result<Option<Vec<u8>>, KernelError> {
-    let kind = AssetKind::PokemonBattleSprites;
     let Some(dirs) = directions(project.family) else {
         return Ok(None);
     };
-    if req.frame > 1 || !has_archive_data(project, kind) {
+    if req.frame > 1 {
         return Ok(None);
     }
-    let Some(first) = first_member(req.species) else {
+    let (species, form) = match form_of_personal(req.species) {
+        Some(resolved) => resolved,
+        None => (req.species, req.form),
+    };
+    if let Some(entry) = form_sprite(project.family, species, form) {
+        let png = form_image(project, entry, req, dirs.other)?;
+        // The egg has no base form: its images are only in the form archive.
+        if png.is_some() || species >= FIRST_FORM_PERSONAL {
+            return Ok(png);
+        }
+    }
+    base_image(project, species, req, dirs.pokemon)
+}
+
+/// The image of `req` in `pokemonBattleSprites` (members `6·species + slot`).
+fn base_image(
+    project: &Project,
+    species: u16,
+    req: SpriteRequest,
+    direction: Direction,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let kind = AssetKind::PokemonBattleSprites;
+    if !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let Some(first) = first_member(species) else {
         return Ok(None);
     };
-    let own = pokemon_member(req.species, req.side, req.female);
-    let other = pokemon_member(req.species, req.side, !req.female);
+    let own = pokemon_member(species, req.side, req.female);
+    let other = pokemon_member(species, req.side, !req.female);
     let palette = first + 4 + u16::from(req.shiny);
     let [own, other, colours] = members(project, kind, [own, other, palette])?;
     let Some(graphic) = [own, other].into_iter().flatten().find(|b| !b.is_empty()) else {
         return Ok(None);
     };
-    render(&graphic, colours.as_deref(), dirs.pokemon, req.frame)
+    render(&graphic, colours.as_deref(), direction, req.frame)
+}
+
+/// The image of `req` as form `entry` in `otherPokemonBattleSprites`; `None` when the side
+/// has no image or the archive lacks the member or the palette.
+fn form_image(
+    project: &Project,
+    entry: &FormSprite,
+    req: SpriteRequest,
+    direction: Direction,
+) -> Result<Option<Vec<u8>>, KernelError> {
+    let kind = AssetKind::OtherPokemonBattleSprites;
+    let (image, female_image) = match req.side {
+        Side::Front => (entry.front, entry.female_front),
+        Side::Back => (entry.back, entry.female_back),
+    };
+    let image = if req.female {
+        female_image.or(image)
+    } else {
+        image
+    };
+    let Some(image) = image else {
+        return Ok(None);
+    };
+    if !has_archive_data(project, kind) {
+        return Ok(None);
+    }
+    let palette = match entry.shiny {
+        Some(shiny) if req.shiny => shiny,
+        _ => entry.palette,
+    };
+    let [graphic, colours] = members(project, kind, [image, palette])?;
+    let Some(graphic) = graphic.filter(|b| !b.is_empty()) else {
+        return Ok(None);
+    };
+    render(&graphic, colours.as_deref(), direction, req.frame)
 }
 
 /// The battle image of trainer class `class` as an 80 x 80 PNG (the left half of member
@@ -382,18 +478,64 @@ mod tests {
     fn form_entries_agree_with_species_forms() {
         let bases: BTreeMap<u16, BaseOf> =
             serde_yaml::from_str(include_str!("../../metadata/species_forms.yaml")).unwrap();
-        for form in &metadata().forms {
+        let parsed: Metadata = serde_yaml::from_str(BATTLE_SPRITES_YAML).unwrap();
+        let mut families: Vec<&str> = parsed.forms.keys().map(String::as_str).collect();
+        families.sort_unstable();
+        assert_eq!(families, ["hgss", "pt"]);
+        for form in parsed.forms.values().flatten() {
             if let Some(base) = form.personal.and_then(|p| bases.get(&p)) {
                 assert_eq!(form.species, base.base, "{form:?}");
             }
         }
+        // Every personal member 496 to 507 is named, in every family alike.
+        for personal in bases.keys() {
+            for table in parsed.forms.values() {
+                assert_eq!(
+                    table
+                        .iter()
+                        .filter(|f| f.personal == Some(*personal))
+                        .count(),
+                    1,
+                    "{personal}"
+                );
+            }
+        }
+        let personal_of = |family: &str| -> Vec<(Option<u16>, u16, u8)> {
+            let mut out: Vec<_> = parsed.forms[family]
+                .iter()
+                .filter(|f| f.personal.is_some())
+                .map(|f| (f.personal, f.species, f.form))
+                .collect();
+            out.sort_unstable();
+            out
+        };
+        assert_eq!(personal_of("pt"), personal_of("hgss"));
     }
 
     #[test]
     fn form_of_personal_is_none_below_the_egg() {
         assert_eq!(form_of_personal(0), None);
         assert_eq!(form_of_personal(493), None);
-        assert_eq!(form_sprite(0, 0), None);
+        assert_eq!(form_sprite(Family::Pt, 0, 0), None);
+    }
+
+    /// An entry marked `unverified` is in the table but never given out: the base form is
+    /// shown (the real table has none, so a table of its own is read).
+    #[test]
+    fn an_unverified_form_falls_back_too() {
+        let parsed: Metadata = serde_yaml::from_str(
+            "direction: {}\n\
+             forms:\n  \
+               pt:\n    \
+                 - { species: 201, form: 1, back: 10, front: 11, palette: 156, shiny: 157, unverified: true }\n    \
+                 - { species: 201, form: 2, back: 12, front: 13, palette: 156, shiny: 157 }\n",
+        )
+        .unwrap();
+        let table = forms_in(&parsed, Family::Pt);
+        assert_eq!(table.len(), 2);
+        assert_eq!(verified(table, 201, 1), None);
+        assert_eq!(verified(table, 201, 2).map(|f| f.front), Some(Some(13)));
+        assert!(forms_in(&parsed, Family::Hgss).is_empty());
     }
 
     #[test]

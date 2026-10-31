@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use g4_formats::game::Family;
 use g4_formats::narc::Narc;
 
 /// Offset of the Platinum (CPUE) header table inside `arm9/arm9.bin`.
@@ -57,8 +58,8 @@ pub struct Synthetic {
 /// ds-rom layout for Platinum US with 3 maps, 1 matrix (2x1, maps 0 and 1) and 2 area data
 /// entries, plus the event, text (698 members, see [`PT_TEXT_BANKS`]), texture and building
 /// model archives and the ten data archives (see `write_data_archives`), all packed, plus
-/// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02"), and the Pokémon and
-/// trainer battle sprite archives (see `write_battle_sprites`).
+/// `mapname.bin` and `arm9.bin` for 2 map headers ("T01", "T02"), and the Pokémon, form and
+/// trainer battle sprite archives (see `write_battle_sprites`, `write_other_sprites`).
 pub fn synthetic_project() -> Synthetic {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -182,6 +183,12 @@ pub fn synthetic_project() -> Synthetic {
         &[compile_script(SCRIPT_SOURCE), vec![0, 0, 0, 0], Vec::new()],
     );
     write_battle_sprites(root);
+    write_other_sprites(
+        root,
+        "files/poketool/pokegra/pl_otherpoke.narc",
+        &other_sprite_magics(Family::Pt),
+        &PT_OTHER_SPRITES,
+    );
 
     Synthetic { dir }
 }
@@ -221,12 +228,17 @@ pub fn battle_sprite_pixels(n: u16) -> Vec<u8> {
 
 /// `pixels` (160 x 80, 4 bpp) as a linear NCGR, encrypted forward with [`SPRITE_SEED`].
 pub fn encrypted_sprite_ncgr(pixels: &[u8]) -> Vec<u8> {
-    use g4_formats::ncgr::Direction;
+    encrypted_sprite_ncgr_in(pixels, g4_formats::ncgr::Direction::Forward)
+}
+
+/// `pixels` (160 x 80, 4 bpp) as a linear NCGR, encrypted in `direction` with [`SPRITE_SEED`]
+/// (the first and the last word of [`battle_sprite_pixels`] are 0, as `encrypt` needs).
+pub fn encrypted_sprite_ncgr_in(pixels: &[u8], direction: g4_formats::ncgr::Direction) -> Vec<u8> {
     let mut words: Vec<u16> = pixels
         .chunks(2)
         .map(|w| u16::from_le_bytes([w[0], w[1]]))
         .collect();
-    g4_formats::test_support::encrypt(&mut words, Direction::Forward, SPRITE_SEED);
+    g4_formats::test_support::encrypt(&mut words, direction, SPRITE_SEED);
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     g4_formats::test_support::ncgr_bytes_with_mode(20, 10, 3, 1, &bytes)
 }
@@ -237,7 +249,8 @@ pub fn encrypted_sprite_ncgr(pixels: &[u8]) -> Vec<u8> {
 /// 0 and 2; slot 4 one palette with [`SPRITE_COLOUR`], slot 5 one with
 /// [`SPRITE_SHINY_COLOUR`]) and `trfgra.narc` with [`TRAINER_CLASSES`] classes of five
 /// members (`5·k + 1` 16 palettes, palette 0 with [`TRAINER_COLOUR`]; `5·k + 4` image
-/// `100 + k`; the others placeholders). `otherPokemonBattleSprites` is not written.
+/// `100 + k`; the others placeholders). `otherPokemonBattleSprites` is written by
+/// [`write_other_sprites`].
 fn write_battle_sprites(root: &Path) {
     use g4_formats::test_support::nclr_bytes;
     let palette = |colour: u16| {
@@ -257,6 +270,17 @@ fn write_battle_sprites(root: &Path) {
         }
     }
     write_narc(root, "files/poketool/pokegra/pl_pokegra.narc", &pokemon);
+    write_trainer_sprites(
+        root,
+        "files/poketool/trgra/trfgra.narc",
+        g4_formats::ncgr::Direction::Forward,
+    );
+}
+
+/// [`TRAINER_CLASSES`] trainer classes of five members at `rel`, the images encrypted in
+/// `direction` (see [`write_battle_sprites`]).
+fn write_trainer_sprites(root: &Path, rel: &str, direction: g4_formats::ncgr::Direction) {
+    use g4_formats::test_support::nclr_bytes;
     // 16 palettes: every colour white but index 0, palette 0 index 1 the trainer colour.
     let mut colours = vec![0x7FFFu16; 256];
     colours.iter_mut().step_by(16).for_each(|c| *c = 0);
@@ -266,19 +290,99 @@ fn write_battle_sprites(root: &Path) {
         for slot in 0..5u16 {
             trainers.push(match slot {
                 1 => nclr_bytes(3, &colours),
-                4 => encrypted_sprite_ncgr(&battle_sprite_pixels(100 + class)),
+                4 => encrypted_sprite_ncgr_in(&battle_sprite_pixels(100 + class), direction),
                 _ => vec![0xAA; 8],
             });
         }
     }
-    write_narc(root, "files/poketool/trgra/trfgra.narc", &trainers);
+    write_narc(root, rel, &trainers);
+}
+
+/// Colour index 1 of the synthetic form palettes: [`OTHER_COLOUR`] for a normal palette (and
+/// the egg's), [`OTHER_SHINY_COLOUR`] for a shiny one.
+pub const OTHER_COLOUR: u16 = 0x03FF;
+pub const OTHER_SHINY_COLOUR: u16 = 0x7C1F;
+/// Image member `m` of the synthetic `otherPokemonBattleSprites` shows
+/// [`battle_sprite_pixels`]`(OTHER_SPRITE_PIXELS + m)`.
+pub const OTHER_SPRITE_PIXELS: u16 = 300;
+
+/// A real member of the synthetic `otherPokemonBattleSprites`; every other member is an
+/// eight-byte stub with the measured magic.
+#[derive(Debug, Clone, Copy)]
+pub enum OtherSprite {
+    Image(u16),
+    Palette(u16),
+    ShinyPalette(u16),
+}
+
+/// Platinum: the members the form table names for personal member 496 (Deoxys, Attack Forme:
+/// back 2, front 3, palettes 154 and 155) and for the egg (front 132, palette 226).
+pub const PT_OTHER_SPRITES: [OtherSprite; 6] = [
+    OtherSprite::Image(2),
+    OtherSprite::Image(3),
+    OtherSprite::Palette(154),
+    OtherSprite::ShinyPalette(155),
+    OtherSprite::Image(132),
+    OtherSprite::Palette(226),
+];
+
+/// HeartGold/SoulSilver: the members of the spiky-eared Pichu (form 1 of species 172: back
+/// 156, front 157, palettes 254 and 255).
+pub const HGSS_OTHER_SPRITES: [OtherSprite; 4] = [
+    OtherSprite::Image(156),
+    OtherSprite::Image(157),
+    OtherSprite::Palette(254),
+    OtherSprite::ShinyPalette(255),
+];
+
+/// The magic of every member of `otherPokemonBattleSprites` as measured on Platinum DE and
+/// HeartGold DE (docs/research/2026-10-30-phase-3d/task3-3d3-formen.md): 154 (HGSS 158)
+/// images, 94 (98) palettes, then image, image, palette, image, palette (253 and 261 members).
+pub fn other_sprite_magics(family: Family) -> Vec<&'static [u8; 4]> {
+    let (images, palettes) = match family {
+        Family::Hgss => (158, 98),
+        _ => (154, 94),
+    };
+    let mut magics = vec![b"RGCN"; images];
+    magics.extend(std::iter::repeat_n(b"RLCN", palettes));
+    magics.extend([b"RGCN", b"RGCN", b"RLCN", b"RGCN", b"RLCN"]);
+    magics
+}
+
+/// `otherPokemonBattleSprites` at `rel`: one member per entry of `magics` (an eight-byte stub
+/// with that magic), and the `real` members as encrypted (forward) images and one-palette
+/// NCLRs.
+fn write_other_sprites(root: &Path, rel: &str, magics: &[&[u8; 4]], real: &[OtherSprite]) {
+    use g4_formats::test_support::nclr_bytes;
+    let palette = |colour: u16| {
+        let mut colours = [0u16; 16];
+        colours[1] = colour;
+        nclr_bytes(3, &colours)
+    };
+    let mut members: Vec<Vec<u8>> = magics
+        .iter()
+        .map(|magic| [magic.as_slice(), &[0; 4]].concat())
+        .collect();
+    for sprite in real {
+        let (member, bytes) = match *sprite {
+            OtherSprite::Image(m) => (
+                m,
+                encrypted_sprite_ncgr(&battle_sprite_pixels(OTHER_SPRITE_PIXELS + m)),
+            ),
+            OtherSprite::Palette(m) => (m, palette(OTHER_COLOUR)),
+            OtherSprite::ShinyPalette(m) => (m, palette(OTHER_SHINY_COLOUR)),
+        };
+        members[usize::from(member)] = bytes;
+    }
+    write_narc(root, rel, &members);
 }
 
 /// HeartGold US (IPKE) built on [`synthetic_project`]: `headers` zeroed HGSS map headers in
-/// `arm9.bin` (and as many `mapname.bin` records), and a text archive whose location bank
-/// (the HGSS English bank of `uxie::text_bank::game_strings`) holds `location_names`; the
-/// other text members are placeholders. Only the header table and the location bank are
-/// HGSS; the other archives keep their Platinum paths and are unused.
+/// `arm9.bin` (and as many `mapname.bin` records), a text archive whose location bank
+/// (the HGSS English bank of `uxie::text_bank::game_strings`) holds `location_names` (the
+/// other text members are placeholders), the trainer battle sprites at `a/0/5/8` (encrypted
+/// backward, as HGSS) and the form sprites at `a/1/1/4` (HGSS layout, [`HGSS_OTHER_SPRITES`]).
+/// Only these are HGSS; the other archives keep their Platinum paths and are unused.
 pub fn synthetic_hgss_project(location_names: &[&str], headers: usize) -> Synthetic {
     let fixture = synthetic_project();
     let root = fixture.dir.path();
@@ -307,6 +411,13 @@ pub fn synthetic_hgss_project(location_names: &[&str], headers: usize) -> Synthe
     let mut members = vec![vec![0xAA; 8]; usize::from(bank) + 1];
     members[usize::from(bank)] = text_archive_bytes(location_names);
     write_narc(root, "files/a/0/2/7", &members);
+    write_trainer_sprites(root, "files/a/0/5/8", g4_formats::ncgr::Direction::Backward);
+    write_other_sprites(
+        root,
+        "files/a/1/1/4",
+        &other_sprite_magics(Family::Hgss),
+        &HGSS_OTHER_SPRITES,
+    );
     fixture
 }
 

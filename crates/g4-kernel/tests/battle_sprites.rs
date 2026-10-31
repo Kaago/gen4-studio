@@ -1,8 +1,9 @@
 #![cfg(feature = "test-support")]
 //! Battle sprites of Pokémon and trainers: the decryption direction per family, the member
-//! mapping, the PNG output on the synthetic project (Platinum US, see
-//! `test_support::write_battle_sprites`) and, gated by `G4_TEST_PROJECT` (read only), the
-//! measured counts of the vanilla archives. No pixel of a game image is checked or kept.
+//! mapping, the form table, the PNG output on the synthetic projects (Platinum US and
+//! HeartGold US, see `test_support::write_battle_sprites` and `write_other_sprites`) and,
+//! gated by `G4_TEST_PROJECT` (read only), the measured counts of the vanilla archives. No
+//! pixel of a game image is checked or kept.
 mod common;
 
 use std::sync::Arc;
@@ -14,8 +15,8 @@ use g4_formats::ncgr::{Direction, Ncgr, TileMode};
 use g4_formats::nclr::Nclr;
 use g4_formats::test_support::ncgr_bytes;
 use g4_kernel::data::battle_sprites::{
-    BattleSpriteCache, Side, SpriteRequest, SpriteSlots, battle_sprite, directions, pokemon_member,
-    sprite_slots, trainer_sprite,
+    BattleSpriteCache, Side, SpriteRequest, SpriteSlots, battle_sprite, directions,
+    form_of_personal, form_sprite, forms, pokemon_member, sprite_slots, trainer_sprite,
 };
 use g4_kernel::project::{AssetKind, Project};
 
@@ -259,10 +260,40 @@ fn an_unverified_family_gives_no_sprite() {
     std::fs::write(s.dir.path().join("header.yaml"), "gamecode: ADAE\n").unwrap();
     let p = Project::open(s.dir.path()).unwrap();
     assert_eq!(p.family, Family::Dp);
+    // The archives lie at the Diamond/Pearl paths (Pokémon and forms copied from Platinum, the
+    // trainer path is the same), so only the missing direction keeps the images away.
+    let pokegra = s.dir.path().join("files/poketool/pokegra");
+    std::fs::copy(
+        pokegra.join("pl_pokegra.narc"),
+        pokegra.join("pokegra.narc"),
+    )
+    .unwrap();
+    std::fs::copy(
+        pokegra.join("pl_otherpoke.narc"),
+        pokegra.join("otherpoke.narc"),
+    )
+    .unwrap();
+    for kind in [
+        AssetKind::PokemonBattleSprites,
+        AssetKind::OtherPokemonBattleSprites,
+        AssetKind::TrainerGraphics,
+    ] {
+        let packed = p.archives.packed(kind).unwrap();
+        assert!(
+            s.dir.path().join(packed).is_file(),
+            "{kind:?} at {packed:?}"
+        );
+    }
     assert_eq!(
         battle_sprite(&p, request(1, Side::Front, false)).unwrap(),
         None
     );
+    let deoxys_attack = SpriteRequest {
+        species: 496,
+        ..request(0, Side::Front, false)
+    };
+    assert_eq!(battle_sprite(&p, deoxys_attack).unwrap(), None);
+    assert_eq!(form_sprite(Family::Dp, 386, 1), None);
     assert_eq!(trainer_sprite(&p, 1).unwrap(), None);
     assert_eq!(sprite_slots(&p, 1).unwrap(), None);
     let mut cache = BattleSpriteCache::new();
@@ -309,6 +340,250 @@ fn the_cache_reads_a_member_once() {
     assert!(Arc::ptr_eq(&first, &second));
     // "No image" is remembered too.
     assert_eq!(cache.trainer_sprite(&p, 7).unwrap(), None);
+}
+
+// --- forms (`otherPokemonBattleSprites`) ---
+
+#[test]
+fn form_of_personal_resolves_496_to_507_and_the_egg() {
+    let expected = [
+        (494, (494, 0)),
+        (496, (386, 1)),
+        (497, (386, 2)),
+        (498, (386, 3)),
+        (499, (413, 1)),
+        (500, (413, 2)),
+        (501, (487, 1)),
+        (502, (492, 1)),
+        (503, (479, 1)),
+        (504, (479, 2)),
+        (505, (479, 3)),
+        (506, (479, 4)),
+        (507, (479, 5)),
+    ];
+    for (personal, form) in expected {
+        assert_eq!(form_of_personal(personal), Some(form), "{personal}");
+    }
+    for personal in [0, 1, 386, 493, 495, 508, u16::MAX] {
+        assert_eq!(form_of_personal(personal), None, "{personal}");
+    }
+}
+
+#[test]
+fn a_personal_form_renders_from_the_other_archive() {
+    let (_s, p) = synthetic();
+    let front = SpriteRequest {
+        species: 496,
+        ..request(0, Side::Front, false)
+    };
+    let png = battle_sprite(&p, front).unwrap().unwrap();
+    let (w, h, rgba) = decode(&png);
+    assert_eq!((w, h), (80, 80));
+    // Deoxys, Attack Forme: front member 3, palette member 154.
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 3, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 255, 0]);
+    // The same image as Deoxys in form 1; no form has female images, the female request
+    // shows the same; the request's own form is ignored for a personal member.
+    for same in [
+        SpriteRequest {
+            species: 386,
+            form: 1,
+            ..front
+        },
+        SpriteRequest {
+            female: true,
+            ..front
+        },
+        SpriteRequest { form: 3, ..front },
+    ] {
+        assert_eq!(
+            battle_sprite(&p, same).unwrap().as_ref(),
+            Some(&png),
+            "{same:?}"
+        );
+    }
+    // The back (member 2) in its right half, and the shiny palette (member 155).
+    let back = SpriteRequest {
+        side: Side::Back,
+        frame: 1,
+        ..front
+    };
+    let (_, _, rgba) = decode(&battle_sprite(&p, back).unwrap().unwrap());
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 2, 1)
+    );
+    let shiny = SpriteRequest {
+        shiny: true,
+        ..front
+    };
+    let (_, _, rgba) = decode(&battle_sprite(&p, shiny).unwrap().unwrap());
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 3, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 0, 255]);
+}
+
+#[test]
+fn the_egg_has_a_front_and_one_palette_only() {
+    let (_s, p) = synthetic();
+    let egg = SpriteRequest {
+        species: 494,
+        ..request(0, Side::Front, false)
+    };
+    let png = battle_sprite(&p, egg).unwrap().unwrap();
+    let (_, _, rgba) = decode(&png);
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 132, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 255, 0]);
+    let shiny = SpriteRequest { shiny: true, ..egg };
+    assert_eq!(battle_sprite(&p, shiny).unwrap().as_ref(), Some(&png));
+    let back = SpriteRequest {
+        side: Side::Back,
+        ..egg
+    };
+    assert_eq!(battle_sprite(&p, back).unwrap(), None);
+    // Not even when `pokemonBattleSprites` had members for a species 494 (a hack's archive):
+    // the egg has no base form.
+    let dir = unpacked(&p, AssetKind::PokemonBattleSprites);
+    for slot in 0..6 {
+        std::fs::copy(
+            dir.join(format!("{:04}", 6 + slot)),
+            dir.join(format!("{:04}", 6 * 494 + slot)),
+        )
+        .unwrap();
+    }
+    assert_eq!(battle_sprite(&p, back).unwrap(), None);
+    assert_eq!(battle_sprite(&p, egg).unwrap(), Some(png));
+}
+
+#[test]
+fn an_unknown_form_falls_back_to_the_base_species() {
+    let (_s, p) = synthetic();
+    for side in [Side::Front, Side::Back] {
+        for shiny in [false, true] {
+            let base = SpriteRequest {
+                shiny,
+                ..request(1, side, false)
+            };
+            let unknown = SpriteRequest { form: 7, ..base };
+            let expected = battle_sprite(&p, base).unwrap();
+            assert!(expected.is_some());
+            assert_eq!(battle_sprite(&p, unknown).unwrap(), expected, "{unknown:?}");
+        }
+    }
+    // A form beyond the table of a species with forms (Deoxys has 1 to 3) is no form either.
+    assert_eq!(form_sprite(Family::Pt, 386, 4), None);
+}
+
+#[test]
+fn without_the_other_archive_a_form_has_no_image_and_no_error() {
+    let (s, p) = synthetic();
+    let packed = p
+        .archives
+        .packed(AssetKind::OtherPokemonBattleSprites)
+        .unwrap();
+    std::fs::remove_file(s.dir.path().join(packed)).unwrap();
+    let front = SpriteRequest {
+        species: 496,
+        ..request(0, Side::Front, false)
+    };
+    // The base form (Deoxys, 386) is not in the synthetic archive either.
+    assert_eq!(battle_sprite(&p, front).unwrap(), None);
+}
+
+/// Every member of the form table is an image or a palette of the measured layout of its
+/// family; the members of one entry are pairwise distinct, its palettes differ.
+#[test]
+fn every_form_entry_names_existing_members_on_the_fixture_layout() {
+    let (_s, pt) = synthetic();
+    let hgss = common::synthetic_hgss_project(&["A"], 1);
+    let hgss = Project::open(hgss.dir.path()).unwrap();
+    assert_eq!(hgss.family, Family::Hgss);
+    for p in [&pt, &hgss] {
+        let other = all_members(p, AssetKind::OtherPokemonBattleSprites);
+        assert_eq!(other.len(), common::other_sprite_magics(p.family).len());
+        let table = forms(p.family);
+        assert!(table.len() > 60, "{:?}: {}", p.family, table.len());
+        for entry in table {
+            let images: Vec<u16> = [
+                entry.back,
+                entry.front,
+                entry.female_back,
+                entry.female_front,
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            let palettes: Vec<u16> = [Some(entry.palette), entry.shiny]
+                .into_iter()
+                .flatten()
+                .collect();
+            assert!(entry.front.is_some(), "{entry:?}");
+            assert_ne!(Some(entry.palette), entry.shiny, "{entry:?}");
+            let mut all: Vec<u16> = images.iter().chain(&palettes).copied().collect();
+            all.sort_unstable();
+            all.dedup();
+            assert_eq!(all.len(), images.len() + palettes.len(), "{entry:?}");
+            for m in images {
+                let member = other.get(usize::from(m));
+                assert!(
+                    member.is_some_and(|b| b.starts_with(b"RGCN")),
+                    "{entry:?}: {m}"
+                );
+            }
+            for m in palettes {
+                let member = other.get(usize::from(m));
+                assert!(
+                    member.is_some_and(|b| b.starts_with(b"RLCN")),
+                    "{entry:?}: {m}"
+                );
+            }
+        }
+    }
+}
+
+/// HGSS has four more images (the Pichu) before the palettes: its own table.
+#[test]
+fn hgss_has_its_own_form_table() {
+    assert_eq!(form_sprite(Family::Pt, 172, 1), None);
+    assert_eq!(form_sprite(Family::Pt, 386, 1).unwrap().palette, 154);
+    assert_eq!(form_sprite(Family::Hgss, 386, 1).unwrap().palette, 158);
+    let s = common::synthetic_hgss_project(&["A"], 1);
+    let p = Project::open(s.dir.path()).unwrap();
+    let spiky = SpriteRequest {
+        form: 1,
+        ..request(172, Side::Front, false)
+    };
+    let (_, _, rgba) = decode(&battle_sprite(&p, spiky).unwrap().unwrap());
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 157, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 255, 0]);
+    let shiny = SpriteRequest {
+        shiny: true,
+        ..spiky
+    };
+    let (_, _, rgba) = decode(&battle_sprite(&p, shiny).unwrap().unwrap());
+    assert_eq!(colour(&rgba), [255, 0, 255]);
+}
+
+/// HeartGold encrypts the trainer images backward (`battle_sprites.yaml`).
+#[test]
+fn hgss_trainer_sprites_are_decrypted_backward() {
+    let s = common::synthetic_hgss_project(&["A"], 1);
+    let p = Project::open(s.dir.path()).unwrap();
+    let (w, h, rgba) = decode(&trainer_sprite(&p, 1).unwrap().unwrap());
+    assert_eq!((w, h), (80, 80));
+    assert_eq!(opaque(&rgba), fixture_opaque(101, 0));
+    assert_eq!(colour(&rgba), [0, 255, 0]);
 }
 
 // --- gated: the vanilla archives (read only) ---
@@ -466,7 +741,7 @@ fn vanilla_every_battle_sprite_decodes_with_the_measured_counts() {
     }
     let trainer_mean = trainer_areas as f64 / trainers.max(1) as f64;
 
-    // The forms are counted only; Task 3 maps them.
+    // The forms are counted here; `vanilla_every_form_sprite_decodes` reads them.
     let other = all_members(&p, AssetKind::OtherPokemonBattleSprites);
     let mut forms = 0usize;
     for (i, member) in other.iter().enumerate() {
@@ -507,4 +782,158 @@ fn vanilla_every_battle_sprite_decodes_with_the_measured_counts() {
     );
     assert!(corners >= CORNERS_MIN, "corners {corners}");
     assert_eq!(palettes16, PALETTES16);
+}
+
+/// Every image of `otherPokemonBattleSprites` reads as a linear 160 x 80 image with few areas,
+/// every palette as one palette of 16 colours, and every member of the form table has the
+/// right magic. Each form of the table renders, differs from its base form, and a personal
+/// member (496 to 507, the egg) renders the same as its species and form.
+#[test]
+fn vanilla_every_form_sprite_decodes() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let p = Project::open(&root).unwrap();
+    let expected = EXPECTED
+        .iter()
+        .find(|e| e.code == p.game_code)
+        .unwrap_or_else(|| panic!("no expectation for {}", p.game_code));
+    let dirs = directions(p.family).expect("a verified family");
+    let other = all_members(&p, AssetKind::OtherPokemonBattleSprites);
+    let (mut images, mut areas, mut palettes) = (0usize, 0usize, 0usize);
+    for (i, member) in other.iter().enumerate() {
+        if member.starts_with(b"RGCN") {
+            let ncgr = read_image(member, dirs.other, &format!("form member {i}"));
+            areas += components(&ncgr);
+            images += 1;
+        } else {
+            let nclr = Nclr::read(member).unwrap_or_else(|e| panic!("form member {i}: {e}"));
+            assert_eq!(nclr.palettes.len(), 1, "form palette {i}");
+            palettes += 1;
+        }
+    }
+    let mean = areas as f64 / images.max(1) as f64;
+
+    let table = forms(p.family);
+    let mut rendered = 0usize;
+    for entry in table {
+        let has = |m: Option<u16>, magic: &[u8]| {
+            m.is_none_or(|m| {
+                other
+                    .get(usize::from(m))
+                    .is_some_and(|b| b.starts_with(magic))
+            })
+        };
+        for (m, magic) in [
+            (entry.back, b"RGCN"),
+            (entry.front, b"RGCN"),
+            (entry.female_back, b"RGCN"),
+            (entry.female_front, b"RGCN"),
+            (Some(entry.palette), b"RLCN"),
+            (entry.shiny, b"RLCN"),
+        ] {
+            assert!(has(m, magic), "{entry:?}: {m:?}");
+        }
+        for (side, image) in [(Side::Front, entry.front), (Side::Back, entry.back)] {
+            for shiny in [false, true] {
+                let req = SpriteRequest {
+                    species: entry.species,
+                    form: entry.form,
+                    side,
+                    female: false,
+                    shiny,
+                    frame: 0,
+                };
+                let png = battle_sprite(&p, req).unwrap();
+                assert_eq!(png.is_some(), image.is_some(), "{req:?}");
+                if entry.species < 494 {
+                    let base = battle_sprite(&p, SpriteRequest { form: 0, ..req }).unwrap();
+                    assert_ne!(png, base, "{req:?} looks like the base form");
+                }
+                if let Some(personal) = entry.personal {
+                    let by_personal = SpriteRequest {
+                        species: personal,
+                        form: 0,
+                        ..req
+                    };
+                    assert_eq!(battle_sprite(&p, by_personal).unwrap(), png, "{req:?}");
+                }
+                rendered += usize::from(png.is_some());
+            }
+        }
+    }
+
+    println!(
+        "forms {} images={images} palettes={palettes} components={mean:.1} entries={} \
+         rendered={rendered}",
+        p.game_code,
+        table.len()
+    );
+    assert_eq!(images, expected.forms);
+    assert!(mean <= COMPONENTS_MAX, "form components {mean}");
+}
+
+/// RGB555 grey ramp: index `i` as grey level `i`, so the index can be read back from a dump.
+fn grey_ramp() -> [u16; 16] {
+    let mut ramp = [0u16; 16];
+    for (i, colour) in ramp.iter_mut().enumerate() {
+        let v = (i as u16 * 31 + 7) / 15;
+        *colour = v | (v << 5) | (v << 10);
+    }
+    ramp
+}
+
+/// Not a test: the eye inspection of Task 3 (3d.3). Writes, per NCGR member of
+/// `otherPokemonBattleSprites`, the whole decrypted image as `other-<member>-grey.png` (index
+/// as grey level) and as `other-<member>-<palette>.png` with every NCLR among the following
+/// four members, into `G4_SPRITE_DUMP_DIR` (never into the repository). Runs only with
+/// `--ignored`, `G4_TEST_PROJECT` and `G4_SPRITE_DUMP_DIR`.
+#[test]
+#[ignore = "eye inspection only: writes images of the game outside the repository"]
+fn dump_sprites_for_inspection() {
+    let Some(root) = common::vanilla_project() else {
+        return;
+    };
+    let Some(out) = std::env::var_os("G4_SPRITE_DUMP_DIR").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: G4_SPRITE_DUMP_DIR not set");
+        return;
+    };
+    std::fs::create_dir_all(&out).unwrap();
+    let p = Project::open(&root).unwrap();
+    let dirs = directions(p.family).expect("a verified family");
+    let other = all_members(&p, AssetKind::OtherPokemonBattleSprites);
+    let write = |name: String, ncgr: &Ncgr, palette: &[u16; 16]| {
+        let rgba = g4_formats::ncgr::render_rgba(ncgr, palette);
+        let bytes = g4_kernel::data::icons::png(&rgba, ncgr.width, ncgr.height).unwrap();
+        std::fs::write(out.join(name), bytes).unwrap();
+    };
+    let (mut images, mut palettes) = (0usize, 0usize);
+    for (i, member) in other.iter().enumerate() {
+        if member.starts_with(b"RLCN") {
+            let nclr = Nclr::read(member).unwrap_or_else(|e| panic!("palette member {i}: {e}"));
+            println!("other {i:04} RLCN palettes={}", nclr.palettes.len());
+            palettes += 1;
+            continue;
+        }
+        if !member.starts_with(b"RGCN") {
+            println!(
+                "other {i:04} {}",
+                if member.is_empty() { "empty" } else { "?" }
+            );
+            continue;
+        }
+        let mut ncgr = Ncgr::read(member).unwrap_or_else(|e| panic!("form member {i}: {e}"));
+        ncgr.decrypt(dirs.other);
+        println!("other {i:04} RGCN {}x{}", ncgr.width, ncgr.height);
+        write(format!("other-{i:04}-grey.png"), &ncgr, &grey_ramp());
+        for (j, next) in other.iter().enumerate().skip(i + 1).take(4) {
+            if let Ok(nclr) = Nclr::read(next)
+                && let Some(palette) = nclr.palettes.first()
+            {
+                write(format!("other-{i:04}-{j:04}.png"), &ncgr, palette);
+            }
+        }
+        images += 1;
+    }
+    println!("dump {} images={images} palettes={palettes}", p.game_code);
 }
