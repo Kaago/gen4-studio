@@ -136,6 +136,8 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Rezept-Taste | **fehlt** | Tiefe Erzählen fehlt |
 | Statusleiste | umgesetzt | Befundzahl, Build-Stand, Dichte-Taste |
 | Git in der Statusleiste | umgesetzt (4.4) | Kein Vorbild in der `.fig`. Rechts nach der Befundzahl: leise Taste S mit Symbol `git` (Phosphor `GitBranch`), „main · 3 Änderungen“, „main · noch kein Commit“, „4c1d2e3 (losgelöst) · …“, „Git: nicht lesbar“; ohne Repository kein Element; Klick öffnet Technik › Änderungen gegen den letzten Commit. Zählt Dateien wie `git status`, Technik zählt Einträge (Plan „Zahl der Änderungen“, bewusst); „Dateien“ steht nur im Tooltip. In der `.fig` seit 29.10.2026: in den Frames „App: Technik, Änderungen gegen letzten Commit“ und „… Änderung einer Nachricht“ und mit vier Zuständen im Brett „Komponenten (App): Änderungstabelle und Git“ |
+| Flag-Picker | umgesetzt (3d.1) | Kein Vorbild in der `.fig`. `FlagPicker` auf dem `Picker`: „Keins (0)“ als erste Zeile wie jede andere, eigene Namen fett über dem pret-Namen, Suche über Name, Alias, Hex und Dezimal, Bereichsfilter, Fuß „Freies Flag nehmen“ (gesperrt mit Grund, solange die Scripts nicht übernommen sind oder der Pool leer ist) und „Im Verzeichnis zeigen“. Zusätze der Bausteine: `PickerItem.keywords` und `strong`, Filter mit `wrap`. Keine neuen Tokens. Die `.fig` kennt ihn noch nicht |
+| Flag-Feld | umgesetzt (3d.1) | Kein Vorbild in der `.fig`. `FlagField` in der Inspector-Zeile: Chip der Fläche Geschichten mit Name und Nummer, „Wählen…“, in Tüfteln das Zahlfeld mit Dez und Hex; ohne Bezeichnung in der Tabelle des Level-Scripts. Die `.fig` kennt es noch nicht |
 | DS-Bildschirm | umgesetzt | Kartenbild des Orts als Hintergrund, Steuercodes als Plaketten |
 | Weltmarker | **teilweise** | 3D-Quader und Sprites statt Formen |
 | Pokémon-Karte | umgesetzt (3b.3b) | Radius 12, Menüsymbol aus dem ROM |
@@ -166,7 +168,7 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | 10 | Geschichten: Übersicht | offen (3d) | Atlas gesperrt |
 | 11 | Geschichte: Graph | offen (3d) | – |
 | 12 | Skript: Mutter, Morgen | teilweise | Reiter „Script“ der Welt-Hand, Scripts nach Nummer |
-| 13 | Flags und Variablen | offen (3d) | nur die Tabelle im Level-Script |
+| 13 | Flags und Variablen | teilweise (3d.1: Technik › Flags und Variablen) | liegt bis 3d.6 in Technik statt im Bereich Geschichten; Liste mit Filtern, Detail „Wo gesetzt“ und „Wo geprüft“, Picker und Flag-Feld im Inspector, Dialog „Als eigenes Flag benennen“; „Live“ leer bis 3d.9, Namen nur in der Oberfläche, die Event-JSON tragen bis 3d.4 Zahlen. Die Frames stehen noch nicht in der `.fig` (OpenPencil war nicht erreichbar, `openpencil/NACHTRAG-3D-1.md`) |
 | 14 | Dialog bearbeiten | teilweise | über Archiv und Nummer im Bereich Texte, kein Weg von der Figur |
 | 15 | Pokédex: Staravia | umgesetzt | ohne DS-Profil; „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
 | 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht |
