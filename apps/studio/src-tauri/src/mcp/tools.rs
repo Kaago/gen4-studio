@@ -246,7 +246,8 @@ impl ResourceUri {
 /// write past the store too: setting it up, taking it back and lifting it open the session
 /// anew, the sync and the choice of a conflict write sources and members, and an id rename is
 /// a file step of its own (its undo writes every file back). „Git einrichten“ writes the
-/// templates and a repository past the store. `apply_fix` with `create_script` or
+/// templates and a repository past the store. A recipe (`recipe_apply`) creates members and
+/// writes scripts and archives as file steps of its own. `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
     "undo",
@@ -279,6 +280,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "resolve_external_conflict",
     "rename_id",
     "git_init",
+    "recipe_apply",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
@@ -4243,6 +4245,42 @@ mod tests {
         for command in ["git_status", "diff_entity"] {
             assert!(!not_in_batch(command, &json!({})), "{command}");
         }
+    }
+
+    /// A recipe writes its scripts and members past the store's undo: `recipe_apply` never
+    /// goes into a batch, whatever the recipe; planning and listing do.
+    #[test]
+    fn recipe_apply_is_never_in_a_batch() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        let args = json!({ "recipe": "extend_area", "input": {
+            "matrix": 0, "x": 2, "y": 0, "source_map": 0,
+            "clear_buildings": false, "header_cell": null,
+        } });
+        for call in [
+            json!({ "tool": "recipe_apply", "arguments": args }),
+            json!({ "tool": "g4_call",
+                    "arguments": { "command": "recipe_apply", "args": args } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("recipe_apply geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        for recipe in ["create_area", "create_room", "extend_area", "empty_region"] {
+            let args = json!({ "recipe": recipe, "input": {} });
+            assert!(not_in_batch("recipe_apply", &args), "{recipe}");
+            assert!(!not_in_batch("recipe_plan", &args), "{recipe}");
+        }
+        assert!(!not_in_batch("recipe_list", &json!({})));
     }
 
     #[test]

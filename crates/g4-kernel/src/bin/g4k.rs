@@ -148,6 +148,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// The recipes (Gebiet anlegen, Raum anlegen, Gebiet erweitern, Welt leeren): list them,
+    /// plan one without writing, apply one as one undo step and save.
+    #[command(subcommand)]
+    Recipe(RecipeCommand),
 }
 
 #[derive(Subcommand)]
@@ -417,6 +421,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             base_rom,
             json,
         } => diff(&project, &kind, &index, against, base_rom.as_deref(), json),
+        Command::Recipe(command) => recipe(command),
     }
 }
 
@@ -2214,4 +2219,105 @@ fn print_diff(report: &g4_kernel::diff::EntityDiffReport) {
         EntityDiff::Binary { old, new } => println!("binary {} -> {}", blob(old), blob(new)),
     }
     println!("state {}", serde_name(&report.state));
+}
+
+#[derive(Subcommand)]
+enum RecipeCommand {
+    /// One line per recipe: `<id>  <title>`, then `  irreversible` when applying it always
+    /// does something undo does not take back.
+    List,
+    /// Print the draft of a recipe as JSON (cells, tiles, events, messages, notes and what
+    /// undo would not take back); writes nothing. A refused plan exits 1.
+    Plan {
+        project: PathBuf,
+        /// `create_area`, `create_room`, `extend_area` or `empty_region`.
+        recipe: String,
+        /// The recipe's input as JSON, as `recipe_plan` takes it (default `{}`).
+        #[arg(long)]
+        input: Option<String>,
+    },
+    /// Apply a recipe as one undo step, save and print its outcome as JSON (report, created
+    /// members, change, changed assets, next steps). A recipe that does something undo does
+    /// not take back (the empty region, an area or room whose header may apply the patch)
+    /// needs `--allow-irreversible`; without it nothing is written (exit 1).
+    Apply {
+        project: PathBuf,
+        recipe: String,
+        #[arg(long)]
+        input: Option<String>,
+        /// Apply a recipe that cannot be undone completely.
+        #[arg(long)]
+        allow_irreversible: bool,
+    },
+}
+
+/// The recipe call of `g4k recipe plan|apply`: the recipe by its id, the input as JSON.
+fn recipe_call(
+    recipe: &str,
+    input: Option<&str>,
+) -> Result<g4_kernel::recipes::RecipeCall, Failure> {
+    use g4_kernel::recipes::{RecipeCall, RecipeId};
+    let id: RecipeId = serde_json::from_value(serde_json::Value::from(recipe)).map_err(|_| {
+        let ids: Vec<String> = RecipeId::all().iter().map(serde_name).collect();
+        Failure::Message(format!("unknown recipe {recipe:?}: {}", ids.join(", ")))
+    })?;
+    let input = match input {
+        Some(text) => serde_json::from_str(text)
+            .map_err(|e| Failure::Message(format!("--input is not JSON: {e}")))?,
+        None => serde_json::Value::Null,
+    };
+    let call = serde_json::json!({ "recipe": id, "input": input });
+    serde_json::from_value::<RecipeCall>(call).map_err(|e| Failure::Message(e.to_string()))
+}
+
+fn print_json(value: &impl serde::Serialize) -> Result<(), Failure> {
+    let json = serde_json::to_string_pretty(value).map_err(|e| Failure::Message(e.to_string()))?;
+    println!("{json}");
+    Ok(())
+}
+
+fn recipe(command: RecipeCommand) -> Result<(), Failure> {
+    use g4_kernel::recipes;
+    match command {
+        RecipeCommand::List => {
+            for info in recipes::list() {
+                let irreversible = if info.irreversible {
+                    "  irreversible"
+                } else {
+                    ""
+                };
+                println!("{}  {}{irreversible}", serde_name(&info.id), info.title);
+            }
+            Ok(())
+        }
+        RecipeCommand::Plan {
+            project,
+            recipe,
+            input,
+        } => {
+            let call = recipe_call(&recipe, input.as_deref())?;
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            print_json(&recipes::plan(&mut store, &call)?)
+        }
+        RecipeCommand::Apply {
+            project,
+            recipe,
+            input,
+            allow_irreversible,
+        } => {
+            let call = recipe_call(&recipe, input.as_deref())?;
+            if let Some(why) = recipes::is_irreversible(&call)?
+                && !allow_irreversible
+            {
+                return Err(Failure::Message(format!(
+                    "{why} lässt sich nicht rückgängig machen; mit --allow-irreversible"
+                )));
+            }
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            let outcome = recipes::apply(&mut store, &call)?;
+            let saved = store.save()?;
+            print_problems(&saved.problems);
+            print_json(&outcome)
+        }
+    }
 }

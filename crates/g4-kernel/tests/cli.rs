@@ -1842,3 +1842,138 @@ fn cli_git_status_lists_no_entries_without_a_commit() {
     assert!(!lines[0].ends_with(" changes 0"), "{out}");
     assert_eq!(lines[1], "git not found", "{out}");
 }
+
+#[test]
+fn cli_recipe_list() {
+    let assert = g4k().args(["recipe", "list"]).assert().success();
+    let out = stdout_of(&assert);
+    let lines: Vec<_> = out.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "create_area  Gebiet anlegen",
+            "create_room  Raum anlegen",
+            "extend_area  Gebiet erweitern",
+            "empty_region  Welt leeren  irreversible",
+        ],
+        "{out}"
+    );
+}
+
+/// Every file below `root` with its bytes, by path.
+fn files_of(root: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    let mut files = std::collections::BTreeMap::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else {
+                files.insert(path.clone(), std::fs::read(&path).unwrap());
+            }
+        }
+    }
+    files
+}
+
+/// The new cell (2, 0) of matrix 0 of the synthetic project (its matrix is 2 × 1).
+const EXTEND_INPUT: &str =
+    r#"{"matrix":0,"x":2,"y":0,"source_map":1,"clear_buildings":false,"header_cell":null}"#;
+
+#[test]
+fn cli_recipe_plan_extend_prints_a_draft() {
+    let s = common::synthetic_project();
+    let before = files_of(s.dir.path());
+    let assert = g4k()
+        .args(["recipe", "plan"])
+        .arg(s.dir.path())
+        .args(["extend_area", "--input", EXTEND_INPUT])
+        .assert()
+        .success();
+    let draft: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(
+        draft["cells"],
+        serde_json::json!([{ "matrix": 0, "x": 2, "y": 0, "source_map": 1 }]),
+        "{draft}"
+    );
+    assert!(!draft["notes"].as_array().unwrap().is_empty(), "{draft}");
+    // Planning writes nothing; loading a member unpacks it (a new file below unpacked/).
+    let root = s.dir.path();
+    let changed: Vec<_> = files_of(root)
+        .into_iter()
+        .map(|(path, bytes)| (path.strip_prefix(root).unwrap().to_path_buf(), bytes))
+        .filter(|(path, bytes)| match before.get(&root.join(path)) {
+            Some(old) => old != bytes,
+            None => !path.starts_with("unpacked"),
+        })
+        .map(|(path, _)| path)
+        .collect();
+    assert!(changed.is_empty(), "plan wrote {changed:?}");
+    // A recipe it does not know, or input of another shape, is refused.
+    g4k()
+        .args(["recipe", "plan"])
+        .arg(s.dir.path())
+        .arg("volcano")
+        .assert()
+        .code(1)
+        .stderr(contains("unknown recipe"));
+    g4k()
+        .args(["recipe", "plan"])
+        .arg(s.dir.path())
+        .args(["extend_area", "--input", r#"{"matrix":0}"#])
+        .assert()
+        .code(1)
+        .stderr(contains("Die Eingabe für „Gebiet erweitern“ passt nicht"));
+}
+
+#[test]
+fn cli_recipe_apply_extend_prints_the_outcome_and_saves() {
+    let s = common::synthetic_project();
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(s.dir.path())
+        .args(["extend_area", "--input", EXTEND_INPUT])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(outcome["report"]["width"], 3, "{outcome}");
+    assert!(
+        outcome["changed"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!({ "kind": "Matrix", "index": 0 })),
+        "{outcome}"
+    );
+    // Saved: the cell is taken now.
+    g4k()
+        .args(["recipe", "plan"])
+        .arg(s.dir.path())
+        .args(["extend_area", "--input", EXTEND_INPUT])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn cli_recipe_apply_empty_region_needs_the_flag() {
+    let s = common::synthetic_project();
+    g4k()
+        .args(["recipe", "apply"])
+        .arg(s.dir.path())
+        .arg("empty_region")
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "error: Welt leeren lässt sich nicht rückgängig machen; mit --allow-irreversible",
+        ));
+    assert!(!s.dir.path().join("rotom.toml").exists());
+    // With the flag it gets past the question; the synthetic world then has no start town.
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(s.dir.path())
+        .args(["empty_region", "--allow-irreversible"])
+        .assert()
+        .code(1);
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+    assert!(!stderr.contains("rückgängig"), "{stderr}");
+}

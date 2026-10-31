@@ -50,6 +50,7 @@ use commands::{changed_from_original, original_status, plan_reset, reset_to_orig
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{project_preview_get, project_preview_set};
+use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
@@ -219,7 +220,10 @@ pub fn run() {
             git_init,
             diff_entity,
             unsaved_changes,
-            restore_text_project
+            restore_text_project,
+            recipe_list,
+            recipe_plan,
+            recipe_apply
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
