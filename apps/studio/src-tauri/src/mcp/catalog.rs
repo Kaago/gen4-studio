@@ -1368,7 +1368,78 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("diff_entity"),
     },
+    // Veröffentlichen (4.5).
+    ToolDef {
+        name: "publish_patch",
+        title: "Publish a patch",
+        description: "Saves, builds the ROM and publishes a release: an xdelta patch \
+                      <project>-v<version>.xdelta against the base ROM at dir (default build/ \
+                      in the project), its notes file with version, date and the change notes, \
+                      optionally README.txt; records the release in .g4/releases.json; the \
+                      patch is self-checked before it is written. Refuses a taken or unsafe \
+                      version (version_taken, bad_version), an existing file without overwrite \
+                      (exists), unsaved changes (unsaved), a missing base ROM (base_missing) \
+                      and a build equal to the base (no_changes). With overwrite it replaces \
+                      the files and asks the user first, a dir outside build/ asks too; \
+                      headless (studio mcp) that needs --allow-irreversible, without it the \
+                      call answers needs_confirmation.",
+        input_schema: publish_args,
+        output_schema: answers_object,
+        route: command("publish_patch"),
+    },
+    ToolDef {
+        name: "git_commit_all",
+        title: "Save the state in Git",
+        description: "Commits every change of the project (git add -A, git commit) with the git \
+                      command line: subject message (default \"Stand <date> <time> UTC\") and \
+                      notes as the body; never a remote, never a push. Refuses unsaved changes \
+                      (unsaved), a project in no repository (no_repo) or in an enclosing one \
+                      (enclosing_repo), a clean tree (nothing_to_commit) and a missing git \
+                      (no_git). A commit cannot be undone in the app; headless (studio mcp) it \
+                      needs --allow-irreversible, without it the call answers \
+                      needs_confirmation.",
+        input_schema: || {
+            object(
+                json!({
+                    "message": text("the commit's subject, its first line (default \
+                                     \"Stand <date> <time> UTC\")"),
+                    "notes": text("the commit's body (optional)"),
+                }),
+                &[],
+            )
+        },
+        output_schema: answers_object,
+        route: command("git_commit_all"),
+    },
 ];
+
+/// The arguments of `publish_patch`.
+fn publish_args() -> Value {
+    object(
+        json!({
+            "version": text("the release's version, e.g. 0.1.0; no spaces and none of \
+                             / \\ : * ? \" < > |, at most 32 characters, not yet released"),
+            "notes": text("the change notes, written into the notes file (and README.txt)"),
+            "dir": text("the folder of the release, relative to the project or absolute \
+                         (default build/); outside build/ the call asks first"),
+            "file": text("the patch's file name (default <project>-v<version>.xdelta; \
+                          .xdelta is added when missing)"),
+            "readme": {
+                "type": "boolean",
+                "default": false,
+                "description": "also write the notes as README.txt beside the patch \
+                                (default false)",
+            },
+            "overwrite": {
+                "type": "boolean",
+                "default": false,
+                "description": "replace existing files of the same name; asks the user \
+                                first (default false)",
+            },
+        }),
+        &["version"],
+    )
+}
 
 /// The kinds of `g4_kernel::diff::DiffSubject`, in its order.
 const DIFF_KINDS: [&str; 18] = [
@@ -1664,6 +1735,8 @@ mod tests {
             "resolve_external_conflict",
             "rename_id",
             "git_init",
+            "publish_patch",
+            "git_commit_all",
         ]
         .into_iter()
         .collect();
@@ -1672,6 +1745,7 @@ mod tests {
             "adopt_text_project",
             "resolve_external_conflict",
             "git_init",
+            "git_commit_all",
         ] {
             let Route::Command { command, .. } = tool(name).route else {
                 unreachable!()
@@ -1679,6 +1753,8 @@ mod tests {
             assert!(matches!(kind_of(command), Kind::Irreversible(_)), "{name}");
         }
         assert_eq!(kind_of("rename_id"), Kind::Write);
+        // Irreversible only with overwrite or a place outside build/.
+        assert_eq!(kind_of("publish_patch"), Kind::Depends);
     }
 
     #[test]
@@ -1812,6 +1888,8 @@ mod tests {
             "adopt_text_project",
             "resolve_external_conflict",
             "git_init",
+            "git_commit_all",
+            "publish_patch",
         ] {
             let description = tool(name).description;
             assert!(
@@ -2034,6 +2112,13 @@ mod tests {
             ),
             // Templates only: a test never runs the user's `git`.
             ("git_init", json!({ "templates_only": true })),
+            // No base ROM: refused before anything is built.
+            (
+                "publish_patch",
+                json!({ "version": "0.1.0", "notes": "Erste Fassung" }),
+            ),
+            // No repository: refused before git runs.
+            ("git_commit_all", json!({ "message": "Stand" })),
         ]
     }
 

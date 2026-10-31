@@ -30,6 +30,8 @@ const REMOVE_HIDDEN: &str = "Versteckte Datei nach .g4/backup verschieben";
 
 /// Why a build or export outside `build/` cannot be undone: it may overwrite any file there.
 const OUTSIDE_BUILD: &str = "Bauen außerhalb von build/";
+/// Why `publish_patch` with `overwrite` cannot be undone: it replaces the files of a release.
+const REPLACE_PATCH: &str = "Patch ersetzen";
 
 /// The kind of every command of the table (`dispatch::COMMANDS`), in its order.
 pub const COMMAND_KINDS: &[(&str, Kind)] = &[
@@ -203,6 +205,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("unsaved_changes", Kind::Read),
     // A clone is completed before it opens: an agent has no project yet.
     ("restore_text_project", APP_ONLY),
+    ("releases", Kind::Read),
+    ("publish_patch", Kind::Depends),
+    // An agent reads the list from the answers of publish_patch; it opens no file manager.
+    ("reveal_path", APP_ONLY),
+    ("git_commit_all", Kind::Irreversible("Stand sichern")),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -243,8 +250,9 @@ impl From<Kind> for Class {
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
 /// patch. The project preview commands with a `path` (another project folder) are
-/// unavailable, also when it names the bound project. A name the table does not have is
-/// unavailable.
+/// unavailable, also when it names the bound project. `publish_patch` with `overwrite`
+/// replaces files (irreversible), with a `dir` outside `build/` writes there (irreversible),
+/// else it is a write. A name the table does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -272,6 +280,16 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
                 _ => Class::Write,
             }
         }
+        "publish_patch" if args.get("overwrite") == Some(&Value::Bool(true)) => {
+            Class::Irreversible(REPLACE_PATCH.to_owned())
+        }
+        "publish_patch" => match args.get("dir") {
+            // A place that is not text is refused by the command itself.
+            Some(Value::String(dir)) if !policy.is_in_build(dir) => {
+                Class::Irreversible(OUTSIDE_BUILD.to_owned())
+            }
+            _ => Class::Write,
+        },
         "apply_fix" if args.get("fix").and_then(Value::as_str) == Some("create_script") => {
             NEW_SCRIPT.into()
         }
@@ -383,6 +401,7 @@ mod tests {
                 ("assign_base", Kind::Irreversible("Basis-ROM zuordnen")),
                 ("create_patch", Kind::Irreversible("Patch erstellen")),
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
+                ("git_commit_all", Kind::Irreversible("Stand sichern")),
                 ("git_init", Kind::Irreversible("Git einrichten")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
                 (
@@ -431,6 +450,7 @@ mod tests {
                 ),
                 ("register_base_rom", Kind::Unavailable("Nur in der App")),
                 ("restore_text_project", Kind::Unavailable("Nur in der App")),
+                ("reveal_path", Kind::Unavailable("Nur in der App")),
                 ("revert_text_project", Kind::Unavailable("Nur in der App")),
             ]
         );
@@ -446,7 +466,8 @@ mod tests {
                 "build_rom",
                 "create_area",
                 "create_room",
-                "export_map_part"
+                "export_map_part",
+                "publish_patch"
             ]
         );
         // Every lister and getter only reads; a few writers by name.
@@ -818,5 +839,50 @@ mod tests {
         assert_eq!(kind("git_init"), Kind::Irreversible("Git einrichten"));
         // A clone is completed before it opens.
         assert_eq!(kind("restore_text_project"), APP_ONLY);
+    }
+
+    #[test]
+    fn publish_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("releases"), Kind::Read);
+        assert_eq!(kind("publish_patch"), Kind::Depends);
+        assert_eq!(kind("reveal_path"), APP_ONLY);
+        assert_eq!(kind("git_commit_all"), Kind::Irreversible("Stand sichern"));
+    }
+
+    #[test]
+    fn publish_patch_classifies_by_overwrite_and_dir() {
+        let (fixture, _state) = open_synthetic();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let allowed = [elsewhere.path().to_path_buf()];
+        let policy = UserPolicy::new(fixture.dir.path(), &allowed, None).unwrap();
+        let outside = elsewhere.path().to_str().unwrap();
+        let classify = |args: Value| classify("publish_patch", &args, &policy);
+        assert_eq!(classify(json!({})), Class::Write);
+        assert_eq!(classify(json!({ "version": "0.1.0" })), Class::Write);
+        assert_eq!(
+            classify(json!({ "overwrite": true })),
+            Class::Irreversible("Patch ersetzen".to_owned())
+        );
+        assert_eq!(
+            classify(json!({ "dir": "/tmp/x" })),
+            Class::Irreversible(OUTSIDE_BUILD.to_owned())
+        );
+        assert_eq!(
+            classify(json!({ "dir": outside })),
+            Class::Irreversible(OUTSIDE_BUILD.to_owned())
+        );
+        // Replacing outranks the place.
+        assert_eq!(
+            classify(json!({ "dir": outside, "overwrite": true })),
+            Class::Irreversible("Patch ersetzen".to_owned())
+        );
+        for inside in ["build", "build/releases", "build/"] {
+            assert_eq!(classify(json!({ "dir": inside })), Class::Write, "{inside}");
+        }
+        assert_eq!(
+            classify(json!({ "dir": null, "overwrite": false })),
+            Class::Write
+        );
     }
 }

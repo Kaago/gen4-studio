@@ -22,7 +22,9 @@ use g4_kernel::diff::{
 use g4_kernel::error::KernelError;
 use g4_kernel::git::templates::{Layout, layout_of};
 use g4_kernel::git::{
-    self, GitCli, GitRepo, HeadInfo, InitOptions, InitProgress, InitReport, RepoKind, find_git,
+    self, CommitOptions, CommitProgress, CommitReport, ENCLOSING_REPO, GIT_NEEDED, GitCli, GitRepo,
+    HeadInfo, InitOptions, InitProgress, InitReport, NO_REPO_TO_COMMIT, NOTHING_TO_COMMIT,
+    RepoKind, find_git,
 };
 use g4_kernel::original::ChangedEntry;
 use g4_kernel::project::Project;
@@ -189,8 +191,9 @@ pub(crate) fn git_init_with(
     Ok(result?)
 }
 
-/// The store of the session of `project` refuses writes ([`SETTING_UP_GIT`]) from
-/// [`InitBusy::begin`] until this is dropped.
+/// The store of the session of `project` refuses writes ([`SETTING_UP_GIT`], or for „Stand
+/// sichern“ [`SAVING_STATE`]) from [`InitBusy::begin`] / [`InitBusy::begin_with`] until this is
+/// dropped.
 struct InitBusy<'a> {
     state: &'a AppState,
     project: Arc<Project>,
@@ -199,10 +202,20 @@ struct InitBusy<'a> {
 impl<'a> InitBusy<'a> {
     /// Under the session lock: the refusals of [`check_git_init`], then the store is busy.
     fn begin(state: &'a AppState) -> Result<InitBusy<'a>, CmdError> {
+        Self::begin_with(state, checked_for_init, SETTING_UP_GIT)
+    }
+
+    /// Under the session lock: the refusals of `check`, then the store refuses writes with
+    /// `why` (code `busy`).
+    fn begin_with(
+        state: &'a AppState,
+        check: fn(&crate::state::Session) -> Result<Arc<Project>, CmdError>,
+        why: &str,
+    ) -> Result<InitBusy<'a>, CmdError> {
         let mut guard = super::lock(state)?;
         let session = super::session(&mut guard)?;
-        let project = checked_for_init(session)?;
-        session.store.set_busy(Some(SETTING_UP_GIT.to_owned()));
+        let project = check(session)?;
+        session.store.set_busy(Some(why.to_owned()));
         Ok(InitBusy { state, project })
     }
 }
@@ -373,6 +386,82 @@ pub fn restore_text_project_impl(
     Ok(report)
 }
 
+/// The refusal of `git_commit_all` with unsaved changes, before anything is asked or written.
+pub const COMMIT_UNSAVED: &str = "Erst speichern: der Commit nimmt den gespeicherten Stand.";
+
+/// Why the store refuses writes while „Stand sichern“ runs (code `busy`).
+pub const SAVING_STATE: &str = "Der Stand wird gerade gesichert.";
+
+/// [`check_git_commit_all`] on `session`, under the lock: `busy`, then `unsaved`.
+fn checked_for_commit(session: &crate::state::Session) -> Result<Arc<Project>, CmdError> {
+    session.writable()?;
+    if !session.store.dirty().is_empty() {
+        return Err(CmdError::refused("unsaved", COMMIT_UNSAVED));
+    }
+    Ok(Arc::clone(&session.project))
+}
+
+/// The kernel's refusals of „Stand sichern“ with a code of their own: `no_repo`
+/// ([`NO_REPO_TO_COMMIT`]), `enclosing_repo` ([`ENCLOSING_REPO`]), `nothing_to_commit`
+/// ([`NOTHING_TO_COMMIT`]) and `no_git` ([`GIT_NEEDED`]); any other error as it is.
+fn commit_error(e: KernelError) -> CmdError {
+    let KernelError::Refused(why) = &e else {
+        return e.into();
+    };
+    let code = match why.as_str() {
+        NO_REPO_TO_COMMIT => "no_repo",
+        ENCLOSING_REPO => "enclosing_repo",
+        NOTHING_TO_COMMIT => "nothing_to_commit",
+        GIT_NEEDED => "no_git",
+        _ => return e.into(),
+    };
+    CmdError::refused(code, why.clone())
+}
+
+/// The refusals of „Stand sichern“ that come before the question (over MCP in the app it runs
+/// before „Stand sichern“ is asked, so such a refusal comes back unasked): a session that
+/// refuses writes (`busy`), unsaved changes (`unsaved`, [`COMMIT_UNSAVED`]), then
+/// `git::check_commit_all` with the `git` CLI the status found (`no_repo`, `enclosing_repo`,
+/// `no_git`, `nothing_to_commit`). In the project's own repository that check writes the
+/// templates first, so an outdated Gen4 Studio block is refreshed (a change it then counts).
+pub(crate) fn check_git_commit_all(state: &AppState) -> Result<Arc<Project>, CmdError> {
+    let project = {
+        let mut guard = super::lock(state)?;
+        checked_for_commit(super::session(&mut guard)?)?
+    };
+    let cli = state.git_cli.get(find_git);
+    git::check_commit_all(&project, cli.as_ref()).map_err(commit_error)?;
+    Ok(project)
+}
+
+/// „Stand sichern“ with the `git` CLI `git::find_git` finds: see [`git_commit_all_with`].
+pub fn git_commit_all_impl(
+    state: &AppState,
+    opts: CommitOptions,
+    progress: &mut dyn FnMut(CommitProgress),
+) -> Result<CommitReport, CmdError> {
+    git_commit_all_with(state, find_git().as_ref(), opts, progress)
+}
+
+/// „Stand sichern“ on the open project with `cli` (`None`: no `git` installed): refused with
+/// `busy` or `unsaved` as [`check_git_commit_all`] says, then `git::commit_all` (templates,
+/// `git add -A`, the commit with subject and notes, never a remote) without the session
+/// lock; the store refuses every write meanwhile ([`SAVING_STATE`], `busy`), so the commit
+/// takes the saved state. The kernel's refusals have their codes ([`commit_error`]); a failed
+/// subcommand is no error (`committed: false` with Git's reason). The checks learn
+/// afterwards that templates may have been written past the store.
+pub(crate) fn git_commit_all_with(
+    state: &AppState,
+    cli: Option<&GitCli>,
+    opts: CommitOptions,
+    progress: &mut dyn FnMut(CommitProgress),
+) -> Result<CommitReport, CmdError> {
+    let busy = InitBusy::begin_with(state, checked_for_commit, SAVING_STATE)?;
+    let result = git::commit_all(&busy.project, cli, &opts, progress);
+    drop(busy);
+    result.map_err(commit_error)
+}
+
 #[tauri::command]
 pub async fn git_status(app: tauri::AppHandle) -> Result<GitStatusDto, CmdError> {
     tauri::async_runtime::spawn_blocking(move || git_status_impl(&app.state::<AppState>()))
@@ -438,6 +527,26 @@ pub async fn restore_text_project(
 ) -> Result<RestoreReport, CmdError> {
     tauri::async_runtime::spawn_blocking(move || {
         restore_text_project_impl(&app.state::<AppState>(), root, nds, &mut |p| {
+            // A closed channel only means nobody watches the progress any more.
+            let _ = progress.send(p);
+        })
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+/// „Stand sichern“: `message` is the subject (default „Stand <Datum> <Uhrzeit> UTC“), `notes`
+/// the body; reports each phase over `progress`.
+#[tauri::command]
+pub async fn git_commit_all(
+    app: tauri::AppHandle,
+    message: Option<String>,
+    notes: Option<String>,
+    progress: Channel<CommitProgress>,
+) -> Result<CommitReport, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let opts = CommitOptions { message, notes };
+        git_commit_all_impl(&app.state::<AppState>(), opts, &mut |p| {
             // A closed channel only means nobody watches the progress any more.
             let _ = progress.send(p);
         })
@@ -986,6 +1095,109 @@ mod tests {
         // Complete now: a second run is refused.
         let err = restore_text_project_impl(&state, text(&clone), None, &mut |_| {}).unwrap_err();
         assert_eq!(err.message, g4_kernel::textproject::restore::HAS_GAME_FILES);
+    }
+
+    #[test]
+    fn commit_all_refuses_unsaved_before_asking() {
+        let (fixture, state) = open_synthetic();
+        GitFixture::init(fixture.dir.path());
+        set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
+        let err = check_git_commit_all(&state).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", COMMIT_UNSAVED)
+        );
+        let mut phases = Vec::new();
+        let err = git_commit_all_with(&state, None, CommitOptions::default(), &mut |p| {
+            phases.push(p)
+        })
+        .unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("unsaved", COMMIT_UNSAVED)
+        );
+        assert!(phases.is_empty(), "{phases:?}");
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+        // The store stays writable after the refusal.
+        crate::commands::save_impl(&state).unwrap();
+        // No project open: an error.
+        assert!(check_git_commit_all(&AppState::default()).is_err());
+    }
+
+    #[test]
+    fn commit_all_without_a_repo_is_no_repo() {
+        let (fixture, state) = open_synthetic();
+        let err = check_git_commit_all(&state).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+        );
+        let err =
+            git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_repo", g4_kernel::git::NO_REPO_TO_COMMIT)
+        );
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+        // With a repository but without git: no_git, before anything is written.
+        GitFixture::init(fixture.dir.path());
+        let err =
+            git_commit_all_with(&state, None, CommitOptions::default(), &mut |_| {}).unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("no_git", g4_kernel::git::GIT_NEEDED)
+        );
+        assert!(!fixture.dir.path().join(".gitignore").exists());
+        // The store is writable again.
+        set_matrix_cell_impl(&state, 0, 0, 0, Some(1), None, None).unwrap();
+    }
+
+    #[test]
+    fn commit_all_with_git_commits_and_reads_the_status() {
+        let home = tempfile::tempdir().unwrap();
+        let Some(cli) = GitFixture::cli(home.path()) else {
+            return;
+        };
+        let (fixture, state) = open_synthetic();
+        let root = fixture.dir.path();
+        let report =
+            git_init_with(&state, Some(&cli), InitOptions::default(), &mut |_| {}).unwrap();
+        assert!(report.committed, "{report:?}");
+        // Nothing changed since the first commit.
+        let err = git_commit_all_with(&state, Some(&cli), CommitOptions::default(), &mut |_| {})
+            .unwrap_err();
+        assert_eq!(
+            (err.code, err.message.as_str()),
+            ("nothing_to_commit", g4_kernel::git::NOTHING_TO_COMMIT)
+        );
+
+        ai_7(&state);
+        crate::commands::save_impl(&state).unwrap();
+        let mut during = Vec::new();
+        let opts = CommitOptions {
+            message: Some("Trainer schlauer".into()),
+            notes: Some("KI 7".into()),
+        };
+        let report = git_commit_all_with(&state, Some(&cli), opts, &mut |p| {
+            let save = crate::commands::save_impl(&state).map(|_| ()).unwrap_err();
+            during.push((p.phase, save.code, save.message));
+        })
+        .unwrap();
+        assert!(report.committed, "{report:?}");
+        assert_eq!(report.subject, "Trainer schlauer");
+        assert_eq!(report.head.as_ref().unwrap().summary, "Trainer schlauer");
+        assert!(report.files >= 1, "{report:?}");
+        assert!(!during.is_empty());
+        for (_, code, message) in &during {
+            assert_eq!((*code, message.as_str()), ("busy", SAVING_STATE));
+        }
+        let status = git_status_impl(&state).unwrap();
+        assert_eq!(status.changes, 0, "{:?}", status.entries);
+        assert_eq!(status.head.unwrap().summary, "Trainer schlauer");
+        let config = std::fs::read_to_string(root.join(".git/config")).unwrap();
+        assert!(!config.contains("[remote"), "{config}");
+        // Writable again.
+        crate::commands::save_impl(&state).unwrap();
     }
 
     /// The vanilla copy (`G4_TEST_PROJECT`, written only as a copy) over the command path:

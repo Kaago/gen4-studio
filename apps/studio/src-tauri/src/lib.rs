@@ -49,6 +49,7 @@ use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
+use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{project_preview_get, project_preview_set};
 use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
@@ -219,7 +220,11 @@ pub fn run() {
             git_init,
             diff_entity,
             unsaved_changes,
-            restore_text_project
+            restore_text_project,
+            releases,
+            publish_patch,
+            reveal_path,
+            git_commit_all
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
