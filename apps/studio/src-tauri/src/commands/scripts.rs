@@ -681,7 +681,7 @@ mod tests {
         let text = "script script_1 #1:\n    SetFlag 0x173\n    End\n";
         save_script_impl(&state, 0, text.into()).unwrap();
         assert_eq!(refs(&state), 1);
-        // A level script and a new script file the same way.
+        // A level script the same way.
         let doc: LevelScriptDoc = serde_json::from_value(serde_json::json!({
             "header_entries": [{ "type": "on_var_condition" }],
             "var_conditions": [{ "var": 0x40A5, "value": 1, "script_id": 1 }],

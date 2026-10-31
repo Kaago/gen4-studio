@@ -140,6 +140,16 @@ impl Session {
         }
     }
 
+    /// After a step that may have written the id files for rotom back or anew (the undo or
+    /// redo of an id rename or a naming, the rollback of a batch): the language server hears
+    /// of the id files that changed ([`Session::id_files_changed`]) and, when any did, the
+    /// checks see the files as written ([`Session::files_written`]).
+    pub fn id_files_followup(&mut self) {
+        if !self.id_files_changed().is_empty() {
+            self.files_written(&[]);
+        }
+    }
+
     /// Tells the running language server (`rotom-lsp`) which id files for rotom changed since
     /// they were last seen, so the script editor knows new and renamed ids; answers their
     /// paths (relative to the root).

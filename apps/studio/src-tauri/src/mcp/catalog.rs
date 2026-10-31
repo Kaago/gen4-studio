@@ -1412,7 +1412,9 @@ static TOOLS: &[ToolDef] = &[
         title: "A free flag or variable",
         description: "The smallest free number of the general area (unused in the index, no own \
                       name, pret name unused, not reserved); pool_empty when there is none. Take \
-                      it with name_flag or write it into hidden_flag or a trigger.",
+                      it with name_flag or write it into hidden_flag or a trigger. Refused with \
+                      scripts_not_adopted until the project's scripts are adopted, since the \
+                      index cannot see script uses before.",
         input_schema: || object(json!({ "kind": flag_kind() }), &["kind"]),
         output_schema: answers_object,
         route: command("free_flag"),

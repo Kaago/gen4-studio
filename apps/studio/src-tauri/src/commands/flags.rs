@@ -16,6 +16,7 @@ use g4_kernel::flags::{
 };
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project, SourceMode};
+use g4_kernel::scripts;
 use g4_kernel::store::Store;
 use g4_kernel::textproject::rename::{NOT_A_TEXT_PROJECT, format_text};
 use serde::Serialize;
@@ -46,8 +47,9 @@ pub struct FlagEntryDto {
 }
 
 /// `list_flags`: every number of `kind` with a name or a use, the size of the pool, the counts
-/// of what the scripts use without a number, whether the project is a text project, its family
-/// and how long the list took.
+/// of what the scripts use without a number, whether the index sees the script sources
+/// (`scripts_indexed`: the scripts are adopted; before, `free` cannot know what scripts use),
+/// whether the project is a text project, its family and how long the list took.
 #[derive(Debug, Clone, Serialize)]
 pub struct FlagListDto {
     pub kind: FlagKind,
@@ -55,6 +57,7 @@ pub struct FlagListDto {
     pub pool_free: u32,
     pub pool_total: u32,
     pub counts: ScriptCounts,
+    pub scripts_indexed: bool,
     pub text_project: bool,
     pub family: String,
     pub ms: u64,
@@ -92,14 +95,21 @@ pub struct FlagUsageDto {
     pub ms: u64,
 }
 
-/// `free_flag`: the smallest free number of `kind`, its pret name and how many are free.
+/// `free_flag`: the smallest free number of `kind`, its pret name, how many are free and
+/// whether the index sees the script sources (always, since `free_flag` refuses otherwise).
 #[derive(Debug, Clone, Serialize)]
 pub struct FreeFlagDto {
     pub kind: FlagKind,
     pub number: u16,
     pub name: Option<String>,
     pub pool_free: u32,
+    pub scripts_indexed: bool,
 }
+
+/// Why `free_flag` refuses a project whose scripts are not adopted (code
+/// `scripts_not_adopted`).
+pub const SCRIPTS_NOT_INDEXED: &str = "Erst Scripts übernehmen: ohne Script-Quellen weiß der \
+                                       Index nicht, welche Flags Scripts benutzen.";
 
 /// The target of number `n` of `kind`.
 fn target(kind: FlagKind, n: u16) -> Target {
@@ -352,6 +362,7 @@ pub fn list_flags_impl(state: &AppState, kind: FlagKind) -> Result<FlagListDto, 
         pool_free: count(free.len()),
         pool_total,
         counts,
+        scripts_indexed: scripts::is_adopted(&project),
         text_project: *project.source_mode() == SourceMode::TextProject,
         family: format!("{family:?}"),
         ms: ms(started),
@@ -409,11 +420,19 @@ pub fn flag_usage_impl(
 }
 
 /// The smallest free number of `kind`; `pool_empty` (with [`flags::pool_empty_text`]) when
-/// there is none.
+/// there is none. Without adopted scripts the index does not see what scripts use, so a number
+/// a vanilla script sets could look free: refused with `scripts_not_adopted`
+/// ([`SCRIPTS_NOT_INDEXED`]).
 pub fn free_flag_impl(state: &AppState, kind: FlagKind) -> Result<FreeFlagDto, CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let project = Arc::clone(&session.project);
+    if !scripts::is_adopted(&project) {
+        return Err(CmdError::refused(
+            "scripts_not_adopted",
+            SCRIPTS_NOT_INDEXED,
+        ));
+    }
     let usage = session.refs.usage(&session.store, kind)?;
     let (free, _) = free_numbers(&project, &usage, kind)?;
     let Some(&number) = free.first() else {
@@ -427,6 +446,7 @@ pub fn free_flag_impl(state: &AppState, kind: FlagKind) -> Result<FreeFlagDto, C
         number,
         name: names(project.family, kind).name(number).map(str::to_owned),
         pool_free: count(free.len()),
+        scripts_indexed: true,
     })
 }
 
@@ -770,7 +790,9 @@ mod tests {
     #[test]
     fn free_flag_answers_pool_empty_when_full() {
         let (_s, state) = open_synthetic();
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
         let first = free_flag_impl(&state, FlagKind::Flag).unwrap();
+        assert!(first.scripts_indexed);
         assert_eq!(
             area_of(g4_formats::game::Family::Pt, FlagKind::Flag, first.number),
             Area::General
@@ -797,6 +819,38 @@ mod tests {
         assert_eq!((err.code, err.message.as_str()), ("pool_empty", POOL_EMPTY));
         // The variables have their own pool.
         assert!(free_flag_impl(&state, FlagKind::Var).is_ok());
+    }
+
+    #[test]
+    fn free_flag_needs_adopted_scripts() {
+        let (_s, state) = open_synthetic();
+        // Without the script sources the index cannot see what scripts use.
+        for kind in [FlagKind::Flag, FlagKind::Var] {
+            let err = free_flag_impl(&state, kind).unwrap_err();
+            assert_eq!(
+                (err.code, err.message.as_str()),
+                ("scripts_not_adopted", SCRIPTS_NOT_INDEXED)
+            );
+        }
+        assert_eq!(
+            SCRIPTS_NOT_INDEXED,
+            "Erst Scripts übernehmen: ohne Script-Quellen weiß der Index nicht, welche Flags \
+             Scripts benutzen."
+        );
+        // The list still lists, free as computed, and says the scripts are not indexed.
+        let list = list_flags_impl(&state, FlagKind::Flag).unwrap();
+        assert!(!list.scripts_indexed);
+        assert!(list.pool_free > 0);
+        assert_eq!(json_of(&list)["scripts_indexed"], false);
+        adopt_scripts_impl(&state, &mut |_| {}).unwrap();
+        assert!(
+            list_flags_impl(&state, FlagKind::Flag)
+                .unwrap()
+                .scripts_indexed
+        );
+        let free = free_flag_impl(&state, FlagKind::Flag).unwrap();
+        assert!(free.scripts_indexed);
+        assert_eq!(json_of(&free)["scripts_indexed"], true);
     }
 
     /// The synthetic text project (exported, scripts adopted) open in a fresh state.
@@ -835,6 +889,7 @@ mod tests {
         assert!(fx.root().join("data/flags/0148.json").is_file());
         let list = list_flags_impl(&state, FlagKind::Flag).unwrap();
         assert!(list.text_project);
+        assert!(list.scripts_indexed);
         let named = entry(&list, 148);
         assert_eq!(named.own_id.as_deref(), Some("FLAG_HAT_MEDAILLE"));
         assert_eq!(named.description.as_deref(), Some("Hat die Medaille"));
@@ -968,26 +1023,36 @@ mod tests {
             object.source_name
         );
         assert!(object.header.is_some(), "{object:?}");
-        let free = free_flag_impl(&state, FlagKind::Flag).unwrap();
-        assert_eq!(
-            area_of(project.family, FlagKind::Flag, free.number),
-            Area::General
+        // The copy's scripts are not adopted (adopting decompiles every script, minutes on a
+        // vanilla game): the list says so and free_flag refuses; the free entries still lie in
+        // the general area.
+        assert!(!list.scripts_indexed);
+        let err = free_flag_impl(&state, FlagKind::Flag).unwrap_err();
+        assert_eq!(err.code, "scripts_not_adopted", "{}", err.message);
+        let first_free = list.entries.iter().find(|e| e.free).unwrap();
+        assert!(
+            list.entries
+                .iter()
+                .filter(|e| e.free)
+                .all(|e| e.area == Area::General)
         );
         let vars = list_flags_impl(&state, FlagKind::Var).unwrap();
         eprintln!(
             "flags {} list_ms={list_ms} usage_ms={usage_ms} cold_ms={cold_ms} entries={} \
-             vars={} pool_flags={} pool_vars={} free={:#06X} object={:#06X} header={:?}",
+             vars={} scripts_indexed={} pool_flags={} pool_vars={} first_free={:#06X} \
+             object={:#06X} header={:?}",
             project.game_code,
             list.entries.len(),
             vars.entries.len(),
+            list.scripts_indexed,
             list.pool_free,
             vars.pool_free,
-            free.number,
+            first_free.number,
             visible.number,
             object.header_name
         );
         // DSPRE layout: naming is refused.
-        let err = name_flag_impl(&state, request(free.number, "FLAG_X", None)).unwrap_err();
+        let err = name_flag_impl(&state, request(first_free.number, "FLAG_X", None)).unwrap_err();
         assert_eq!(err.code, "not_text_project");
     }
 }

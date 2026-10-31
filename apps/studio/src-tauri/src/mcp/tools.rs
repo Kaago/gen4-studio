@@ -244,8 +244,11 @@ impl ResourceUri {
 /// a map part export and the project preview write a file; resolving a text conflict writes a
 /// text archive's JSON or member past the store and reloads it. The text project's commands
 /// write past the store too: setting it up, taking it back and lifting it open the session
-/// anew, the sync and the choice of a conflict write sources and members, and an id rename is
-/// a file step of its own (its undo writes every file back). „Git einrichten“ writes the
+/// anew, the sync and the choice of a conflict write sources and members, and an id rename
+/// rewrites `data/`, the project files and the script sources (seconds on a large project;
+/// its plan reads every JSON). `name_flag` is admitted: its file step (the register and one
+/// entity file) is merged and rolled back like an edit, the rollback runs the follow-ups of
+/// its id files as an undo does. „Git einrichten“ writes the
 /// templates and a repository past the store. `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
@@ -292,8 +295,9 @@ const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init"];
 /// compiles a script file and reloads text archives like `new_script_file`, `apply_fix` with
 /// `remove_hidden`, which moves a file past the store, and
 /// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch,
-/// and `reset_to_original` of a script, texture or model, which writes its files at once (a
-/// file step the batch's squash and rollback do not cover).
+/// and `reset_to_original` of a script, texture or model, which writes its files at once
+/// (the batch's squash and rollback carry file steps, as for `name_flag`; a reset of a file
+/// target stays out of a batch like the saves and compiles).
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
@@ -1268,6 +1272,9 @@ impl<'a> Call<'a> {
             .with_session(|s| {
                 let depth = s.store.undo_depth();
                 let result = s.store.rollback_to(mark);
+                // A rolled back id rename or naming wrote the id files for rotom back, as an
+                // undo does.
+                s.id_files_followup();
                 s.after_write();
                 let left = s.store.undo_depth();
                 (
@@ -4340,5 +4347,40 @@ mod tests {
         assert_eq!(code, "needs_confirmation");
         assert!(!d.root.join(".gitignore").exists());
         assert!(!d.root.join(".git").exists());
+    }
+
+    /// A failed batch takes an own flag name back with every file, and the follow-ups of the
+    /// id files run as after an undo (the language server and the checks hear of them).
+    #[test]
+    fn a_failed_batch_takes_name_flag_back_with_its_follow_ups() {
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, ALL, Some(fx.rom().to_path_buf())).unwrap();
+        let register = fx.root().join("data/ids/flags.json");
+        let register_before = std::fs::read(&register).ok();
+        let calls = json!([
+            { "tool": "name_flag",
+              "arguments": { "kind": "flag", "number": 148, "id": "FLAG_HAT_MEDAILLE",
+                             "description": "Hat die Medaille" } },
+            { "tool": "get_header", "arguments": { "id": 60000 } },
+        ]);
+        let (code, message, details) =
+            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+        assert_eq!(code, "batch_failed", "{message}");
+        assert_eq!(details["index"], 1);
+        assert_eq!(details["rolled_back"], 1);
+        assert!(!fx.root().join("data/flags/0148.json").exists());
+        assert_eq!(std::fs::read(&register).ok(), register_before);
+        let id_file = g4_kernel::textproject::include::id_file_path(
+            &fx.project(),
+            g4_kernel::textproject::symbols::SymbolKind::Flag,
+        );
+        let id_file = std::fs::read_to_string(fx.root().join(id_file)).unwrap_or_default();
+        assert!(!id_file.contains("FLAG_HAT_MEDAILLE"), "{id_file}");
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+        // The rollback told the language server already: nothing is new since.
+        let mut guard = toolbox.state().lock_session();
+        let session = guard.as_mut().unwrap();
+        assert_eq!(session.id_files_changed(), Vec::<std::path::PathBuf>::new());
     }
 }
