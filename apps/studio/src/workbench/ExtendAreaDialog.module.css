@@ -10,3 +10,8 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-s);
 }
+
+/* A failed plan's notice takes the dialog's width. */
+.form > [role="status"] {
+  align-self: stretch;
+}

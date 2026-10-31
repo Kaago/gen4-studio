@@ -42,4 +42,14 @@ describe("headerSections", () => {
     const maps = headerSections("HGSS", "bauen")[0]!.specs.map((s) => s.key);
     expect(maps.slice(0, 4)).toEqual(["wild_pokemon", "area_data_id", "worldmap_x", "worldmap_y"]);
   });
+
+  it("erzaehlen_has_the_section_ort_only", () => {
+    for (const family of ["DP", "Pt", "HGSS"] as const) {
+      const sections = headerSections(family, "erzaehlen");
+      expect(sections.map((s) => [s.id, s.title])).toEqual([["ort", "Ort"]]);
+      // In the order of the section: the place first, then its look and music (not the struct's).
+      expect(sections[0]!.specs.map((s) => s.key)).toEqual(["location_name", "area_data_id", "music_day_id", "music_night_id"]);
+      expect(sections[0]!.specs.map((s) => s.label)).toEqual(["Ort", "Aussehen", "Musik (Tag)", "Musik (Nacht)"]);
+    }
+  });
 });

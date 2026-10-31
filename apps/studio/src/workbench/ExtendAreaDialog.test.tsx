@@ -3,38 +3,52 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { extendArea } from "../api";
-import type { MatrixDto } from "../api";
+import { extendArea, recipePlan } from "../api";
+import type { DraftDto, MatrixDto } from "../api";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { visibleWords } from "../ui/visibleText";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
+import { DRAFT_DEBOUNCE_MS } from "./wizards/useDraftPlan";
 
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), extendArea: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), extendArea: vi.fn(), recipePlan: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const matrix: MatrixDto = { index: 7, name: "m", width: 2, height: 1, maps: [10, 11], headers: [415, 416] };
+// The plan of the new cell as the kernel answers it.
+const planned: DraftDto = {
+  cells: [{ matrix: 7, x: 2, y: 0, source_map: 11 }],
+  tiles: [],
+  events: [],
+  messages: [],
+  notes: ["Erweitert Weltkarte 0007 um Zelle x 2, y 0 mit einer Kopie von Karte 0011."],
+  irreversible: ["Karte 0011 wird kopiert"],
+};
 
 describe("ExtendAreaDialog", () => {
   let container: HTMLElement;
   let root: Root;
   const onDone = vi.fn();
   const onError = vi.fn();
+  const onDraft = vi.fn<(draft: DraftDto | null) => void>();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(extendArea).mockReset();
+    vi.mocked(recipePlan).mockReset().mockResolvedValue(planned);
+    onDraft.mockReset();
     onDone.mockReset();
     onError.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   const show = (m: MatrixDto = matrix) =>
-    act(() => root.render(<ExtendAreaDialog matrix={m} x={2} y={0} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={m} x={2} y={0} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
   const dialog = () => document.querySelector<HTMLElement>("[role=dialog]")!;
   const button = (text: string) => [...dialog().querySelectorAll("button")].find((b) => b.textContent === text);
   const field = (name: string) => dialog().querySelector<HTMLInputElement>(`input[aria-label^="${name}"]`);
@@ -60,14 +74,14 @@ describe("ExtendAreaDialog", () => {
 
   it("proposes_the_given_neighbour_with_its_header", () => {
     const m: MatrixDto = { index: 7, name: "m", width: 2, height: 2, maps: [10, 11, 12, null], headers: [0, 416, 0, 0] };
-    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} prefer={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={m} x={1} y={1} prefer={{ x: 1, y: 0 }} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
     expect(dialog().textContent).toContain("Kopie von Karte 0011 (Nachbarzelle)");
     expect(field("Header-Zelle")?.value).toBe("416");
   });
 
   it("says_no_raster_matrix_or_header_in_building", async () => {
     vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
-    act(() => root.render(<ExtendAreaDialog matrix={matrix} x={2} y={0} areaName="Zweiblattdorf" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={matrix} x={2} y={0} areaName="Zweiblattdorf" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
     expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
     expect(dialog().textContent).toContain("Die neue Karte gehört zu „Zweiblattdorf“.");
     expect(dialog().textContent).toContain("Die Karte wird größer: 3 × 1.");
@@ -76,7 +90,7 @@ describe("ExtendAreaDialog", () => {
     await act(async () => button("Karte anlegen")?.click());
     expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 11, header_cell: 416 }));
     // Without a neighbour the number is asked for, in the words of Bauen; a cell inside keeps the size.
-    act(() => root.render(<ExtendAreaDialog matrix={{ ...matrix, maps: [null, null] }} x={1} y={0} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={{ ...matrix, maps: [null, null] }} x={1} y={0} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
     expect(visibleWords(dialog())).not.toMatch(/Raster|Matrix|Header/);
     expect(field("Nummer des Gebiets")).not.toBeNull();
     expect(dialog().textContent).toContain("Die Größe bleibt 2 × 1.");
@@ -88,7 +102,7 @@ describe("ExtendAreaDialog", () => {
     const landscape: MatrixDto = { ...matrix, headers: [0, 0] };
     act(() =>
       root.render(
-        <ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" areaHeader={10} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />,
+        <ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" areaHeader={10} depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />,
       ),
     );
     expect(dialog().textContent).toContain("Die neue Karte gehört zu „Großmoor“.");
@@ -96,12 +110,12 @@ describe("ExtendAreaDialog", () => {
     expect(extendArea).toHaveBeenCalledWith(expect.objectContaining({ source_map: 11, header_cell: 10 }));
     // Without the edited area's header the landscape decides nothing: Bauen asks for the number instead of naming a place.
     act(() => root.render(null));
-    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaName="Großmoor" depth="bauen" headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
     expect(dialog().textContent).not.toContain("gehört zu");
     expect(field("Nummer des Gebiets")?.value).toBe("0");
     // Tüfteln keeps the neighbour's header as the number to send.
     act(() => root.render(null));
-    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaHeader={10} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} />));
+    act(() => root.render(<ExtendAreaDialog matrix={landscape} x={2} y={0} areaHeader={10} headers={[]} counts={{ Map: 600 }} onDone={onDone} onError={onError} onDraft={onDraft} />));
     expect(field("Header-Zelle")?.value).toBe("0");
   });
 
@@ -216,5 +230,37 @@ describe("ExtendAreaDialog", () => {
     expect(extendArea).toHaveBeenCalledOnce();
     await act(async () => finish({ map: 600, width: 3, height: 1 }));
     expect(onDone).toHaveBeenCalledWith({ map: 600, width: 3, height: 1 });
+  });
+
+  it("shows_the_draft_of_the_new_cell_and_clears_it_on_cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    // The panel takes the dialog away when it is left.
+    onDone.mockImplementation(() => root.render(null));
+    show();
+    // The dialog has every value at once: the plan is asked for without any input.
+    await settle();
+    expect(recipePlan).toHaveBeenCalledWith("extend_area", { matrix: 7, x: 2, y: 0, source_map: 11, clear_buildings: false, header_cell: 416 });
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    expect(dialog().textContent).toContain("Nicht rückgängigKarte 0011 wird kopiert");
+    // A changed value plans again.
+    await act(async () => dialog().querySelector<HTMLElement>("[role=checkbox]")?.click());
+    await settle();
+    expect(recipePlan).toHaveBeenLastCalledWith("extend_area", { matrix: 7, x: 2, y: 0, source_map: 11, clear_buildings: true, header_cell: 416 });
+    await act(async () => button("Abbrechen")?.click());
+    expect(onDone).toHaveBeenCalledWith(null);
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("warns_when_the_plan_fails_and_still_creates", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(recipePlan).mockRejectedValue({ code: "error", message: "Karte 0011 fehlt", asset: null });
+    vi.mocked(extendArea).mockResolvedValue({ map: 600, width: 3, height: 1 });
+    show();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    expect(dialog().textContent).toContain("Vorschau nicht möglich: Karte 0011 fehlt");
+    expect(onDraft).not.toHaveBeenCalled();
+    await act(async () => button("Karte anlegen")?.click());
+    expect(extendArea).toHaveBeenCalledOnce();
   });
 });

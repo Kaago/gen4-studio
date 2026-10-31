@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { extendArea } from "../api";
-import type { ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
+import type { DraftDto, ExtendReport, HeaderSummary, MatrixDto, MemberCounts } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { Badge, Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
+import { Checkbox, Dialog, NumberField, Segmented } from "../ui/primitives";
 import { extendDefaults, extendSpec } from "./extend";
 import styles from "./ExtendAreaDialog.module.css";
 import { id4 } from "./terms";
+import { DraftFailed, DraftIrreversible } from "./wizards/DraftNotes";
+import { useDraftPlan } from "./wizards/useDraftPlan";
 
 interface Props {
   matrix: MatrixDto;
@@ -27,6 +30,8 @@ interface Props {
   /** The area was extended (`report`), or the dialog was left without a result (null: cancelled, or it failed, see `onError`). */
   onDone: (report: ExtendReport | null) => void;
   onError: (e: unknown) => void;
+  /** The draft of the new cell as planned (null: nothing planned): the scene and the world map draw it until the dialog goes. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 /** What happens to the size of the grid: Bauen says "Die Karte wird größer", Tüfteln names the Raster. */
@@ -40,8 +45,8 @@ function sizeNote(building: boolean, matrix: MatrixDto, width: number, height: n
  * Creates a map copy at the cell `(x, y)` of a matrix, growing the grid when the cell lies outside it. A `Dialog`: the focus
  * stays inside, Escape and the cross cancel (not while the request runs; Escape that takes back typed text does not close it).
  */
-export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError }: Props) {
-  const building = depth === "bauen";
+export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null, areaHeader = null, depth = "tuefteln", headers, counts, onDone, onError, onDraft }: Props) {
+  const building = !depthAtLeast(depth, "tuefteln");
   const defaults = extendDefaults(matrix, x, y, prefer);
   const neighbour = defaults.neighbour;
   const mapMax = Math.max(0, (counts.Map ?? 1) - 1);
@@ -59,13 +64,16 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
   const [working, setWorking] = useState(false);
 
   const sourceMap = mode === "neighbour" && neighbour ? neighbour.map : picked;
+  const spec = extendSpec(matrix, x, y, { map: sourceMap, clearBuildings }, headerCell);
+  // The dialog has every value from the start: the new cell is planned at once and again with every change.
+  const plan = useDraftPlan("extend_area", spec, onDraft);
 
   async function create() {
     if (working) return;
     setWorking(true);
     let report: ExtendReport;
     try {
-      report = await extendArea(extendSpec(matrix, x, y, { map: sourceMap, clearBuildings }, headerCell));
+      report = await extendArea(spec);
     } catch (e) {
       onError(e);
       onDone(null);
@@ -96,7 +104,8 @@ export function ExtendAreaDialog({ matrix, x, y, prefer = null, areaName = null,
       ]}
     >
       <div className={styles.form} aria-busy={working}>
-        <Badge kind="irreversible" />
+        <DraftIrreversible draft={plan.draft} />
+        <DraftFailed error={plan.error} />
         {sources.length > 1 && <Segmented ariaLabel="Quelle der Kopie" options={sources} value={mode} onChange={setMode} />}
         {mode === "pick" && (
           <NumberField label="Karte" showLabel hint={`0 bis ${mapMax}`} min={0} max={mapMax} value={picked} disabled={working} onCommit={setPicked} />

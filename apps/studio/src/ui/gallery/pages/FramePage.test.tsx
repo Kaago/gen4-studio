@@ -161,4 +161,21 @@ describe("FramePage", () => {
     expect(locked.textContent).toContain("Eventdatei gesperrt");
     expect(locked.querySelector('[data-scene-group="warp"]')?.textContent).toContain("Gesperrt");
   });
+
+  it("shows_the_recipe_button_at_rest_pressed_and_locked_and_the_recipe_bar", () => {
+    const keys = [...container.querySelectorAll<HTMLButtonElement>('[data-gallery="rezept-taste"] button[data-recipe]')];
+    expect(keys.slice(0, 4).map((b) => [b.textContent, b.getAttribute("aria-pressed"), b.disabled])).toEqual([
+      ["Gebiet anlegen", null, false],
+      ["Raum anlegen", null, false],
+      ["Raum anlegen", "true", false],
+      ["Neue Figur", null, true],
+    ]);
+    // A locked key as only its symbol, the way the bar shows it.
+    expect(keys[4]?.getAttribute("aria-label")).toBe("Tür verbinden");
+    expect(keys[4]?.textContent).toBe("");
+    // The bar upright at the left and flat at the top, one row: two named keys, three as symbols.
+    const bars = [...container.querySelectorAll<HTMLElement>('[role="toolbar"][aria-label="Rezepte"]')];
+    expect(bars.map((b) => b.getAttribute("aria-orientation"))).toEqual(["vertical", "horizontal"]);
+    for (const bar of bars) expect([...bar.querySelectorAll("button[data-recipe]")].map((b) => b.textContent)).toEqual(["Gebiet anlegen", "Raum anlegen", "", "", ""]);
+  });
 });

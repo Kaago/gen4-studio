@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { dataGet, dataRaw, errorText } from "../../api";
 import type { NameTablesDto, PartyMonDto, RawDto } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { Button, Checkbox, EmptyState, HexBlock, InspectorRow, Notice, NumberField, PokemonCard, Segmented, SelectField, Switch, Tabs, TextField } from "../../ui/primitives";
 import type { SelectOption, TabItem } from "../../ui/primitives";
 import { lockReason } from "../dataModel";
@@ -511,7 +512,7 @@ function RawTab({ e, read }: { e: Editing; read: TrainerDoc | null }) {
  */
 export function TrainerHand() {
   const { row, labelOf, names, selected, project, dirty } = useDataArea("pokemon");
-  const tinkering = useShell().state.depth === "tuefteln";
+  const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, read, error, editError, update } = useTrainer(selected);
   const [tab, setTab] = useState<TrainerTab>("team");
   const index = selected ?? 0;

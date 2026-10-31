@@ -44,7 +44,8 @@ export type HingeProps = {
 
 /** The menu lists this many of the newest undo steps. */
 const MENU_STEPS = 10;
-const DEPTHS = [
+const DEPTHS_OPTIONS = [
+  { value: "erzaehlen", label: "Erzählen", icon: "narrate" },
   { value: "bauen", label: "Bauen", icon: "build" },
   { value: "tuefteln", label: "Tüfteln", icon: "tinker" },
 ] as const;
@@ -130,7 +131,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
             </ol>
           </nav>
           <div className={styles.depth}>
-            <Segmented options={DEPTHS} value={depth} onChange={onDepth} ariaLabel="Tiefe" />
+            <Segmented options={DEPTHS_OPTIONS} value={depth} onChange={onDepth} ariaLabel="Tiefe" />
           </div>
           <div className={styles.right}>
             <button type="button" className={`${styles.light} ${styles[kind]}`} data-light={kind} data-running={running ? "" : undefined} aria-label={lightLabel} onClick={onProblems}>

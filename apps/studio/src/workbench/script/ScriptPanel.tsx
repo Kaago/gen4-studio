@@ -8,6 +8,7 @@ import { useStableCallback } from "../../app/useStable";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { RESET_LABEL, resetEntry } from "../../original/resetEntry";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, EmptyState, Menu, PanelHead, Tabs } from "../../ui/primitives";
 import type { BadgeKind, MenuEntry, TabItem } from "../../ui/primitives";
@@ -206,7 +207,7 @@ export const ScriptPanel = memo(function ScriptPanel({ context }: { context: Scr
       <PanelHead
         // Without a document the head names nothing: the dock tab above it says "Script".
         title={doc ? docTitle(doc) : undefined}
-        subtitle={doc && depth === "tuefteln" ? scriptPath(doc.file, doc.kind) : undefined}
+        subtitle={doc && depthAtLeast(depth, "tuefteln") ? scriptPath(doc.file, doc.kind) : undefined}
         actions={
           <>
             {doc && (

@@ -4,6 +4,7 @@ import type { AssetId, BuildingDto, MemberCounts } from "../../api";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { useBuildingModelKind } from "../../original/useBuildingModelKind";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, Kbd, NumberField, TextField } from "../../ui/primitives";
 import { id4 } from "../terms";
@@ -173,7 +174,7 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
       <div className={styles.body}>
         <div key={refused}>
           <InspectorRow label="Modell" hint={modelMax === undefined ? undefined : `außen 0 bis ${modelMax}`}>
-            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} showBase={depth === "tuefteln"} />
+            <NumberField label="Modellnummer" value={building.model_id} bits={32} onCommit={(n) => commit("model_id", "Modell", n)} showBase={depthAtLeast(depth, "tuefteln")} />
           </InspectorRow>
           <div className={styles.actions}>
             <Button kind="quiet" size="s" onClick={() => void Promise.resolve(onChanged(map, building.model_id)).then(() => check(building.model_id))} disabled={preview?.state === "loading"}>
@@ -187,7 +188,7 @@ export function BuildingEditor({ map, index, context, depth }: { map: number; in
             <span className={styles.mono}>{building.rotation.join(" ")}</span>
           </InspectorRow>
         </div>
-        {depth === "tuefteln" && <TechnicalSection model={{ kind: "building", map, index }} source={{ kind: "building", building }} />}
+        {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "building", map, index }} source={{ kind: "building", building }} />}
         <div className={styles.actions}>
           <Button kind="secondary" onClick={() => void onAdd(map)}>
             Neues Gebäude

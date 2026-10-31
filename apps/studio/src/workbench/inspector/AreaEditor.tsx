@@ -3,12 +3,13 @@ import { getAreaData, setAreaData } from "../../api";
 import type { AreaDataDto, AssetId, MemberCounts } from "../../api";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { id4, termFor } from "../terms";
 import { areaFieldSpecs, AREA_FIELDS, areaValue } from "./areaFields";
 import styles from "./Editor.module.css";
 import { Field } from "./Field";
-import { pickMax } from "./fields";
+import { pickMax, shownFields } from "./fields";
 import type { FieldSpec } from "./fields";
 import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
@@ -86,15 +87,19 @@ export function AreaEditor({ id, context, depth }: { id: number; context: AreaEd
           <p className={styles.note}>Lade Area-Data …</p>
         ) : (
           <div key={refused}>
-            {areaFieldSpecs(area.family).map((spec) => (
-              <Field key={spec.key} spec={spec} value={areaValue(area, spec.key)} max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined} onCommit={commit} showBase={depth === "tuefteln"} />
+            {shownFields(areaFieldSpecs(area.family), depth).map((spec) => (
+              <Field key={spec.key} spec={spec} value={areaValue(area, spec.key)} max={spec.kind === "pick" && spec.pick ? pickMax(spec.pick, counts) : undefined} onCommit={commit} showBase={depthAtLeast(depth, "tuefteln")} />
             ))}
           </div>
         )}
-        {depth === "tuefteln" && area !== null && <TechnicalSection model={{ kind: "area", id }} source={{ kind: "area", area }} />}
-        <p className={styles.note}>
-          Das Karten-Tileset bestimmt die Texturen aller Karten, deren {termFor("header", depth)} diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
-        </p>
+        {depthAtLeast(depth, "tuefteln") && area !== null && <TechnicalSection model={{ kind: "area", id }} source={{ kind: "area", area }} />}
+        {!depthAtLeast(depth, "bauen") ? (
+          <p className={styles.note}>Erzählen wählt das Aussehen am Ort; Tilesets und Licht stellst du in Bauen ein.</p>
+        ) : (
+          <p className={styles.note}>
+            Das Karten-Tileset bestimmt die Texturen aller Karten, deren {termFor("header", depth)} diese Area-Data verwendet; die 3D-Ansicht lädt die Modelle nach einer Änderung neu.
+          </p>
+        )}
       </div>
     </div>
   );

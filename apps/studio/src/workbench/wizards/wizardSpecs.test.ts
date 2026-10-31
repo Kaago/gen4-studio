@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, buildingSources, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, buildingSources, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, planSpec, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 import type { Area, World } from "../worldModel";
 
@@ -806,5 +806,24 @@ describe("an area on a world map", () => {
     expect(tuefteln.join(" ")).not.toContain("Tür");
     // An area with a map of its own still needs a door.
     expect(areaResult(report, specOf({}), "bauen").next[0]).toContain("Mit der Welt verbinden: ");
+  });
+});
+
+describe("planSpec", () => {
+  const header = { id: 6, area_data_id: null, event_file: "New" as const, new_header: { template: 2, internal_name: null }, allow_patch: false };
+  const spec = { header } as unknown as RoomSpec;
+
+  it("assumes_the_patch_for_a_new_header_while_it_is_missing", () => {
+    expect(planSpec(spec, true).header.allow_patch).toBe(true);
+    // The spec „Anlegen“ sends keeps the user's consent.
+    expect(spec.header.allow_patch).toBe(false);
+  });
+
+  it("keeps_the_spec_with_the_patch_in_the_game_without_a_new_header_or_header", () => {
+    expect(planSpec(spec, false)).toBe(spec);
+    const existing = { header: { ...header, new_header: null } } as unknown as RoomSpec;
+    expect(planSpec(existing, true)).toBe(existing);
+    const none = { header: null } as unknown as AreaSpec;
+    expect(planSpec(none, true)).toBe(none);
   });
 });

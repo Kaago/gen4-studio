@@ -106,3 +106,10 @@
 .still {
   cursor: inherit;
 }
+
+/* A cell an open wizard plans: the outline dashed in the selection colour, as the scene draws it („geplant“). */
+.draft,
+.draft:hover {
+  outline: var(--g4-strich-fokus) dashed var(--g4-auswahl-kante);
+  outline-offset: calc(-1 * var(--g4-strich-fokus));
+}

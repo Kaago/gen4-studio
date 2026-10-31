@@ -1,3 +1,4 @@
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 
 /** The words of the world explorer: every panel takes label and explanation from here (spec §3). */
@@ -116,7 +117,7 @@ export function techLabel(key: TermKey, id: number): string {
  * not known; a world map), Tüfteln of the ROM ("Header", "Matrix").
  */
 export function termFor(key: "header" | "matrix", depth: Depth, kind?: "area" | "room"): string {
-  if (depth === "tuefteln") return key === "header" ? "Header" : "Matrix";
+  if (depthAtLeast(depth, "tuefteln")) return key === "header" ? "Header" : "Matrix";
   if (key === "matrix") return TERMS.worldMap.label;
   return kind === undefined ? TERMS.place.label : TERMS[kind].label;
 }

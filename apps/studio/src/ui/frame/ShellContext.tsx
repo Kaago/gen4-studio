@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { applyDensity, applyTheme, effectiveTheme, onThemeChange, readDensity, readTheme } from "../tokens/theme";
 import type { Density, Theme } from "../tokens/theme";
-import { clampWorldSplit, readShellState, rememberRecent, writeShellState } from "./shellState";
+import { clampWorldSplit, readShellState, rememberRecent, viewDepth, writeShellState } from "./shellState";
 import type { AreaId, DataSelectKey, Depth, PokemonSub, RecentProject, ShellState, Tool, ToolbarAnchor, WorldSort } from "./shellState";
 
 export interface ShellApi {
@@ -11,6 +11,8 @@ export interface ShellApi {
   setArea: (area: AreaId) => void;
   setListOpen: (area: AreaId, open: boolean) => void;
   setDepth: (depth: Depth) => void;
+  /** The depth the active area shows: `viewDepth(state.area, state.depth)` (Erzählen only where the area has a view of its own, else Bauen). */
+  viewDepth: Depth;
   /** The part the Pokémon area shows (whether it may is the area's to decide). */
   setPokemonSub: (sub: PokemonSub) => void;
   /** The selection of a data part; null: none. */
@@ -129,6 +131,7 @@ export function ShellProvider({ children, initialArea }: { children: ReactNode; 
       setArea,
       setListOpen,
       setDepth,
+      viewDepth: viewDepth(state.area, state.depth),
       setPokemonSub,
       setSelected,
       setToolbar,

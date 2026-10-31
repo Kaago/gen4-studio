@@ -1,4 +1,5 @@
 import type { HistoryDto } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 
 /** What the kernel calls a change in the undo history (it is not translated there) and what the hinge shows. */
@@ -70,11 +71,11 @@ const DEVELOPER_STRING = /^[a-z0-9 ]+$/;
  * empty or unknown developer label reads "Änderung".
  */
 export function historyLabel(label: string, depth: Depth): string {
-  const known = (depth === "bauen" ? KNOWN_BUILDING[label] : undefined) ?? KNOWN[label];
+  const known = (!depthAtLeast(depth, "tuefteln") ? KNOWN_BUILDING[label] : undefined) ?? KNOWN[label];
   if (known !== undefined) return known;
   for (const [pattern, text, building] of PATTERNS) {
     const match = pattern.exec(label);
-    if (match !== null) return depth === "bauen" ? building(match) : text(match);
+    if (match !== null) return !depthAtLeast(depth, "tuefteln") ? building(match) : text(match);
   }
   return label !== "" && !DEVELOPER_STRING.test(label) ? label : "Änderung";
 }

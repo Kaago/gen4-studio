@@ -1,5 +1,7 @@
 import { headerFamily } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
+import type { Depth } from "../../ui/frame/shellState";
 import { TERMS } from "../terms";
 
 /** What an id field points at; pickers get their upper limit from the archive's member count. */
@@ -16,23 +18,34 @@ export interface FieldSpec {
   wide?: boolean;
   /** Choices of a `select` field (a stored value without a choice is still shown). */
   options?: { value: number; label: string }[];
+  /** The lowest depth that shows the field; absent: Bauen. */
+  from?: Depth;
+}
+
+/** The lowest depth that shows a field (`from`, else Bauen). */
+export const fieldFrom = (spec: { from?: Depth }): Depth => spec.from ?? "bauen";
+
+/** The fields `depth` shows: in Erzählen those from Erzählen, in Bauen and Tüfteln all of them. */
+export function shownFields<T extends { from?: Depth }>(specs: readonly T[], depth: Depth): T[] {
+  // In 3d.2 no field starts at Bauen or Tüfteln with a lower one between, so the rank of the field's depth decides.
+  return specs.filter((spec) => depthAtLeast(depth, fieldFrom(spec)));
 }
 
 const u8 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u8" });
 const u16 = (key: string, label: string): FieldSpec => ({ key, label, kind: "u16" });
 const pick = (key: string, label: string, kind: PickKind): FieldSpec => ({ key, label, kind: "pick", pick: kind });
-const place = (wide: boolean): FieldSpec => ({ key: "location_name", label: "Ortsname", kind: "place", ...(wide && { wide }) });
+const place = (wide: boolean): FieldSpec => ({ key: "location_name", label: "Ortsname", kind: "place", from: "erzaehlen", ...(wide && { wide }) });
 
 /** Storage width of the id fields that are pickers (all others carry their width in `kind`). */
 const PICK_U8 = new Set(["area_data_id"]);
 
-const areaData = pick("area_data_id", "Area-Data", "areaData");
+const areaData: FieldSpec = { ...pick("area_data_id", "Area-Data", "areaData"), from: "erzaehlen" };
 const matrix = pick("matrix_id", "Matrix", "matrix");
 const script = pick("script_file_id", TERMS.scriptFile.label, "script");
 const levelScript = pick("level_script_id", TERMS.levelScript.label, "script");
 const textArchive = pick("text_archive_id", "Textarchiv", "textArchive");
-const musicDay = u16("music_day_id", "Musik Tag");
-const musicNight = u16("music_night_id", "Musik Nacht");
+const musicDay: FieldSpec = { ...u16("music_day_id", "Musik Tag"), from: "erzaehlen" };
+const musicNight: FieldSpec = { ...u16("music_night_id", "Musik Nacht"), from: "erzaehlen" };
 const eventFile = pick("event_file_id", "Eventdatei", "eventFile");
 const weather = u8("weather_id", "Wetter");
 const camera = u8("camera_angle_id", "Kamera");

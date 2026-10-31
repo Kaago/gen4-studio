@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BuildStep } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Section, Table } from "../ui/primitives";
 import type { TableColumn, TableRow } from "../ui/primitives";
@@ -31,7 +32,7 @@ function rowsOf(steps: readonly BuildStep[], depth: Depth, fresh: boolean): Tabl
         name: (
           <span className={styles.name}>
             {name}
-            {depth === "tuefteln" && <span className={styles.id}>{step.id}</span>}
+            {depthAtLeast(depth, "tuefteln") && <span className={styles.id}>{step.id}</span>}
           </span>
         ),
         result,

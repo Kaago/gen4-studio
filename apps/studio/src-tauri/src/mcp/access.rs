@@ -1,5 +1,6 @@
 //! What each command does to the project, and whether an agent's access admits it.
 
+use g4_kernel::recipes::{self, RecipeCall};
 use serde_json::Value;
 
 use crate::commands::policy::UserPolicy;
@@ -214,6 +215,10 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("git_commit_all", Kind::Irreversible("Stand sichern")),
     // Writes the template block (as „Stand sichern“ would), then reads the status.
     ("git_commit_prepare", Kind::Write),
+    ("recipe_list", Kind::Read),
+    ("recipe_plan", Kind::Read),
+    // Irreversible as the recipe says (`recipes::is_irreversible`), see [`classify`].
+    ("recipe_apply", Kind::Depends),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -253,10 +258,13 @@ impl From<Kind> for Class {
 /// somewhere else the policy allows (irreversible); `apply_fix` with `create_script` creates
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
-/// patch. The project preview commands with a `path` (another project folder) are
-/// unavailable, also when it names the bound project. `publish_patch` with `overwrite`
-/// replaces files (irreversible), with a `dir` outside `build/` writes there (irreversible),
-/// else it is a write. A name the table does not have is unavailable.
+/// patch; `recipe_apply` is irreversible when its recipe says so (`recipes::is_irreversible`:
+/// the empty region, an area or room with `header.allow_patch`), arguments that are no recipe
+/// call it can read are a write (the command refuses them). The project preview commands with
+/// a `path` (another project folder) are unavailable, also when it names the bound project.
+/// `publish_patch` with `overwrite` replaces files (irreversible), with a `dir` outside
+/// `build/` writes there (irreversible), else it is a write. A name the table does not have is
+/// unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -305,6 +313,11 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
         {
             Kind::Irreversible("Header-Patch einspielen").into()
         }
+        // Arguments that are no call the recipe can read fail in the command, writing nothing.
+        "recipe_apply" => serde_json::from_value::<RecipeCall>(args.clone())
+            .ok()
+            .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
+            .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
         _ => Class::Write,
     }
 }
@@ -471,7 +484,8 @@ mod tests {
                 "create_area",
                 "create_room",
                 "export_map_part",
-                "publish_patch"
+                "publish_patch",
+                "recipe_apply"
             ]
         );
         // Every lister and getter only reads; a few writers by name.
@@ -650,6 +664,66 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `recipe_apply` asks as its recipe says: „Header-Patch einspielen“ for an area or room
+    /// with `header.allow_patch`, „Welt leeren“ always for the empty region, else a write;
+    /// input the recipe cannot read is a write (the command fails on it, writing nothing).
+    #[test]
+    fn recipe_apply_is_irreversible_only_with_allow_patch_or_empty_region() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let header = |allow_patch: bool| {
+            json!({ "id": 2, "area_data_id": null, "event_file": "New",
+                    "new_header": { "template": 1, "internal_name": null },
+                    "allow_patch": allow_patch, "place": null })
+        };
+        let area = |allow_patch: bool| {
+            json!({ "recipe": "create_area", "input": {
+                "name": "area", "width": 1, "height": 1,
+                "cells": [{ "x": 0, "y": 0, "source_map": 0, "clear_buildings": true }],
+                "with_headers": false, "header": header(allow_patch), "target": null,
+            } })
+        };
+        let room = |allow_patch: bool| {
+            json!({ "recipe": "create_room", "input": {
+                "name": "room", "source_map": 0, "clear_buildings": true,
+                "header": header(allow_patch), "entrance": null,
+            } })
+        };
+        let classify = |args: Value| classify("recipe_apply", &args, &policy);
+        let patch = Class::Irreversible("Header-Patch einspielen".to_owned());
+        assert_eq!(classify(area(true)), patch);
+        assert_eq!(classify(room(true)), patch);
+        for empty in [
+            json!({ "recipe": "empty_region" }),
+            json!({ "recipe": "empty_region", "input": null }),
+            json!({ "recipe": "empty_region", "input": {} }),
+        ] {
+            assert_eq!(
+                classify(empty.clone()),
+                Class::Irreversible("Welt leeren".to_owned()),
+                "{empty}"
+            );
+        }
+        let extend = json!({ "recipe": "extend_area", "input": {
+            "matrix": 0, "x": 2, "y": 0, "source_map": 0,
+            "clear_buildings": false, "header_cell": null,
+        } });
+        for args in [area(false), room(false), extend] {
+            assert_eq!(classify(args.clone()), Class::Write, "{args}");
+        }
+        // Arguments that are no recipe call, or input the recipe cannot read.
+        for args in [
+            json!({ "recipe": "create_area", "input": { "header": header(true) } }),
+            json!({ "recipe": "no_such_recipe" }),
+            json!({}),
+        ] {
+            assert_eq!(classify(args.clone()), Class::Write, "{args}");
+        }
+        assert_eq!(kind_of("recipe_list"), Some(Kind::Read));
+        assert_eq!(kind_of("recipe_plan"), Some(Kind::Read));
+        assert_eq!(kind_of("recipe_apply"), Some(Kind::Depends));
     }
 
     #[test]

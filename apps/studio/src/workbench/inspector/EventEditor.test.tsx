@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getEvents, resolveScript, updateEvent } from "../../api";
+import { getEvents, getObjectSprite, resolveScript, updateEvent } from "../../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -11,8 +11,10 @@ import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
+import type { Depth } from "../../ui/frame/shellState";
+import { resetSprites } from "../../world/sprites";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), getObjectSprite: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -53,6 +55,9 @@ describe("EventEditor scripts", () => {
     vi.mocked(getEvents).mockReset().mockImplementation(async () => events());
     vi.mocked(updateEvent).mockReset().mockResolvedValue(undefined);
     vi.mocked(resolveScript).mockReset();
+    vi.mocked(getObjectSprite).mockReset().mockResolvedValue(null);
+    // The sprite cache outlives a test: each one asks the backend anew.
+    resetSprites();
     for (const fn of [onOpenScript, onAddScript, onError, onChanged]) fn.mockReset();
     reset = resetSpy();
   });
@@ -60,7 +65,7 @@ describe("EventEditor scripts", () => {
     act(() => root.unmount());
     container.remove();
   });
-  async function show(ctx = context(), kind: EventKind = "object", index = 2, depth: "bauen" | "tuefteln" = "bauen") {
+  async function show(ctx = context(), kind: EventKind = "object", index = 2, depth: Depth = "bauen") {
     await act(async () => root.render(withReset(reset, <EventEditor file={8} kind={kind} index={index} context={ctx} depth={depth} />)));
     await flush();
   }
@@ -75,6 +80,8 @@ describe("EventEditor scripts", () => {
   const options = () => [...document.querySelectorAll<HTMLElement>("[role=option]")];
   const button = (text: string) => [...container.querySelectorAll("button")].find((b) => b.textContent === text);
   const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
+  // The labels of the form's rows (`InspectorRow`: the label, then the control), in order.
+  const rowLabels = () => [...container.querySelectorAll("div > span:first-child")].filter((s) => s.nextElementSibling?.tagName === "DIV" && s.textContent !== "").map((s) => s.textContent);
 
   it("opens_the_script_of_the_event_through_resolve_script_of_the_selected_header", async () => {
     vi.mocked(resolveScript).mockResolvedValue({ kind: "file", file: 0, line: 4 });
@@ -411,5 +418,107 @@ describe("EventEditor scripts", () => {
     expect(hexSwitch()).toBe(true);
     await act(async () => void technical()?.click());
     expect(container.textContent).toContain("Eventdatei 0008, Index 2");
+  });
+  describe("in Erzählen", () => {
+    const trainers: DataRowDto[] = [{ index: 356, name: "Sebastian", tech: "0356", locked: null, extra: { class: 2, class_name: "Teenager", level_max: 5, party_count: 1, places: [] } }];
+
+    it("erzaehlen_shows_look_movement_facing_and_trainer_only", async () => {
+      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), objects: [{ ...npc, index: 0, script: 3355, trainer_type: 1, sight: 5 }] }));
+      await show(context({ trainers }), "object", 0, "erzaehlen");
+      expect(rowLabels()).toEqual(["Aussehen", "Bewegung", "Blickrichtung", "Trainer"]);
+      // No raw height: the read-only row „y“ is a Bauen row.
+      expect(container.textContent).not.toContain("Nur lesbar");
+      expect(field("x (Kachel)")).toBeNull();
+      expect(field("Lokale ID")).toBeNull();
+      expect(container.textContent).not.toContain("Lokale ID");
+      // No number of the script, no script buttons, no Dez | Hex.
+      expect(button("Öffnen")).toBeUndefined();
+      expect(button("Neues Script")).toBeUndefined();
+      expect(button("Hex")).toBeUndefined();
+      expect(container.textContent).not.toContain("Erst Scripts übernehmen");
+      expect(container.querySelector("button[data-trainer]")?.textContent).toContain("Teenager Sebastian");
+      // The movement in words; a stored value without one is „Bewegung N“.
+      expect(select("Bewegung").textContent).toContain("Steht still");
+      openSelect(select("Bewegung"));
+      await click(options().find((o) => o.textContent === "Geht umher"));
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 0, { movement_type: 3 });
+      // A new editor for the figure as it is stored now.
+      await act(async () => root.render(null));
+      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), objects: [{ ...npc, index: 0, movement_type: 999 }] }));
+      await show(context({ trainers }), "object", 0, "erzaehlen");
+      expect(select("Bewegung").textContent).toContain("Bewegung 999");
+    });
+
+    it("erzaehlen_picks_the_look_of_a_figure_by_its_sprite", async () => {
+      await show(context(), "object", 2, "erzaehlen");
+      expect(container.querySelector("[data-figure-look='5']")).not.toBeNull();
+      await click(container.querySelector("button[aria-label='Aussehen ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Aussehen wählen");
+      typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "12");
+      await click(options()[0]);
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "object", 2, { graphics_id: 12 });
+      // The sprites are asked for with the figure's facing.
+      expect(getObjectSprite).toHaveBeenCalledWith(5, 1);
+    });
+
+    it("erzaehlen_shows_a_door_as_target_and_door", async () => {
+      const goTo = vi.fn();
+      const destination: EventsDto = { event_file_id: 2, locked: null, bg: [], objects: [], coords: [], warps: [{ index: 0, x: 6, z: 10, dest_header_id: 3, dest_warp_id: 0, height: 0 }, { index: 1, x: 7, z: 11, dest_header_id: 3, dest_warp_id: 0, height: 0 }] };
+      vi.mocked(getEvents).mockImplementation(async (file) => (file === 2 ? destination : { ...events(), warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 1, height: 0 }] }));
+      await show(context({ goTo, family: "Hgss" }), "warp", 0, "erzaehlen");
+      expect(rowLabels()).toEqual(["Ziel", "Tür"]);
+      await click(button("H10001 · H1"));
+      expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
+      // The door of the destination's event file, by its number and tile.
+      expect(container.querySelector("[data-warp-field]")?.textContent).toContain("Tür 1 · x 7, z 11");
+      await click(container.querySelector("button[aria-label='Tür ändern…']") ?? undefined);
+      expect(document.querySelector("[role=dialog]")?.textContent).toContain("Tür wählen");
+      expect(options().map((o) => o.textContent)).toEqual(["Tür 0 · x 6, z 10", "Tür 1 · x 7, z 11"]);
+      await click(options()[0]);
+      await flush();
+      expect(updateEvent).toHaveBeenCalledWith(8, "warp", 0, { dest_warp_id: 0 });
+    });
+
+    it("erzaehlen_tells_sign_and_trigger_what_comes_later", async () => {
+      vi.mocked(getEvents).mockImplementation(async () => ({
+        ...events(),
+        coords: [{ index: 0, script: 9000, x: 1, z: 1, width: 1, length: 1 }],
+        bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }],
+      }));
+      await show(context(), "coord", 0, "erzaehlen");
+      expect(container.textContent).toContain("Geschichte und Schritt kommen mit 3d.7.");
+      expect(rowLabels()).toEqual([]);
+      // Adding events and the hint how to move them stay.
+      expect(container.textContent).toContain("Ziehen in der 3D-Ansicht verschiebt das Event");
+      await show(context(), "bg", 0, "erzaehlen");
+      expect(container.textContent).toContain("Der Text des Schilds kommt mit 3d.5.");
+      expect(rowLabels()).toEqual([]);
+      expect(container.textContent).not.toContain("Nur lesbar");
+    });
+
+    it("erzaehlen_offers_adding_events_and_the_drag_hint_in_the_words_of_bauen", async () => {
+      const words = async (depth: Depth) => {
+        await show(context(), "object", 2, depth);
+        return { kinds: select("Art des neuen Events").textContent, add: button("Hinzufügen") !== undefined, note: container.textContent?.includes("Entf löscht das gewählte Event nach Rückfrage") };
+      };
+      const bauen = await words("bauen");
+      expect(bauen).toEqual({ kinds: expect.stringContaining("Warp"), add: true, note: true });
+      expect(await words("erzaehlen")).toEqual(bauen);
+    });
+
+    it("bauen_and_tuefteln_show_every_field_as_before", async () => {
+      for (const depth of ["bauen", "tuefteln"] as const) {
+        await show(context({ trainers }), "object", 2, depth);
+        expect(rowLabels()).toEqual(["x (Kachel)", "z (Kachel)", "Lokale ID", "Grafik", "Bewegung", "Blickrichtung", "Script", "Trainer", "Sichtlinie", "Sichtweite", "y"]);
+        expect(field("Bewegung")).not.toBeNull();
+        expect(container.textContent).toContain("Nur lesbar: Die Höhe");
+        vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }] }));
+        await show(context(), "bg", 0, depth);
+        expect(rowLabels()).toContain("y");
+        vi.mocked(getEvents).mockImplementation(async () => events());
+      }
+    });
   });
 });

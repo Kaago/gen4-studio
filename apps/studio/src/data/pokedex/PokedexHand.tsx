@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FocusEvent } from "react";
 import type { DataPatch, NameTablesDto, PersonalField, SpeciesTab } from "../../api";
 import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import { EmptyState, Notice, Tabs } from "../../ui/primitives";
 import type { TabItem } from "../../ui/primitives";
 import { useDataArea } from "../useDataArea";
@@ -45,7 +46,7 @@ export interface Editing {
  */
 export function PokedexHand() {
   const { row, labelOf, names, selected, dirty, target } = useDataArea("pokemon");
-  const tinkering = useShell().state.depth === "tuefteln";
+  const tinkering = depthAtLeast(useShell().viewDepth, "tuefteln");
   const { doc, error, editError, edit, update } = useSpecies(selected);
   const [tab, setTab] = useState<SpeciesTab>("values");
   // The field focused last, for the raw data's mark (its key in the field map: "attack", "method0").

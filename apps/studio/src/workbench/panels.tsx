@@ -295,6 +295,7 @@ export function WorldPanel() {
         onEventMoved={d.onEventMoved}
         onEventsLocked={d.onEventsLocked}
         faultyEvents={faultyEvents}
+        draft={d.draft}
       />
       {/* The layer bar and the toolbar; they read the shell themselves, so moving the toolbar does not render the scene. */}
       <SceneOverlays
@@ -313,7 +314,7 @@ export function MatrixTab() {
   const matrixRevision = useBusRevision(d.bus, "matrixData");
   const info = d.info;
   const sceneMatrix = d.matrix?.index ?? null;
-  const { goTo, onMatrixEdited, onCountsChanged, onError, headers, areaDataId, memberCounts, bus } = d;
+  const { goTo, onMatrixEdited, onCountsChanged, onError, onDraft, headers, areaDataId, memberCounts, bus } = d;
   // The pictures of the grid come from the app-wide cache; it must not show another project's or tileset's.
   useThumbnailReset(bus, info?.root ?? null, thumbnails);
   // A missing apicula shows once in the status strip (spec §4.4), not as a placeholder tooltip alone.
@@ -333,8 +334,9 @@ export function MatrixTab() {
       onEdited: onMatrixEdited,
       onCountsChanged,
       onError,
+      onDraft,
     }),
-    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError],
+    [info, headers, areaDataId, memberCounts, sceneMatrix, matrixRevision, selection, d.depth, goTo, onMatrixEdited, onCountsChanged, onError, onDraft],
   );
   return <MatrixPanel context={context} />;
 }
@@ -346,7 +348,7 @@ export function WorldMapTab() {
   const pinnedCell = useMatrixSelection();
   // Changes whenever matrix data may have moved behind the panel (edit, undo, redo, reload).
   const matrixRevision = useBusRevision(d.bus, "matrixData");
-  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged } = d;
+  const { headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, goTo, onError, onLoadStatus, depth, memberCounts, onMatrixEdited, onCountsChanged, draft, onDraft } = d;
   // Memoised with the memoised panel: it renders again only when one of these changes.
   const context = useMemo<WorldMapContext>(
     () => ({
@@ -368,8 +370,10 @@ export function WorldMapTab() {
       counts: memberCounts,
       onEdited: onMatrixEdited,
       onCountsChanged,
+      draft,
+      onDraft,
     }),
-    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged],
+    [headers, matrices, warpLinks, matricesLoaded, matricesFailed, selected, areaDataId, matrixRevision, goTo, onError, onLoadStatus, depth, world, identify, pinnedCell, memberCounts, onMatrixEdited, onCountsChanged, draft, onDraft],
   );
   return <WorldMapPanel context={context} />;
 }
@@ -414,8 +418,9 @@ export function InspectorPanel() {
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
-  // The head names the header as the world tree does: an area, a room or another header, and its name.
-  const { identify, world } = useWorld();
+  // The head names the header as the world tree does: an area, a room or another header, and its name; Erzählen renames a room as the tree does.
+  const { identify, world, meta, setMeta } = useWorld();
+  const { onRename } = useWorldActions(meta, setMeta);
   // Each editor reads its asset again when its revision changes: data moved behind its back (a drag, undo, redo, add, delete, reload).
   const headerRevision = useBusRevision(d.bus, "headerTable");
   const areaRevision = useBusRevision(d.bus, "areaData");
@@ -462,6 +467,7 @@ export function InspectorPanel() {
         world,
         matrices: d.matrices,
         onRoomSplit: d.onCreated,
+        onRename,
         onError: d.onError,
       }}
       areaEditor={{ counts: d.memberCounts, dirty: d.dirtyAssets, revision: areaRevision, onChanged: d.onAreaChanged, onError: d.onError }}

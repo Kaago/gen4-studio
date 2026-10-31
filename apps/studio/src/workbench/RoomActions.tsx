@@ -65,8 +65,9 @@ const stop = (e: SyntheticEvent) => e.stopPropagation();
 /**
  * „Raum umbenennen“: one field „Name“ that starts with the current name; empty gives the suggestion back. Its owner keys it
  * on the opening, so the field starts anew, and keeps it mounted while closed, so the dialog closes like every other.
+ * The inspector's row „Name“ in Erzählen opens it too.
  */
-function RenameDialog({
+export function RenameDialog({
   open,
   title,
   name,

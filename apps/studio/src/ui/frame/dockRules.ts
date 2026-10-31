@@ -2,6 +2,7 @@ import type { Box, DockviewApi, DockviewGroupPanel, DockviewWillShowOverlayLocat
 import { AREA_PANELS, arrangementSteps, isSchauPanel, loadArrangement } from "../../workbench/layout";
 import type { Arrangement, ArrangementStep, DeckArea, PanelId } from "../../workbench/layout";
 import { messages } from "./dockMessages";
+import { depthAtLeast } from "./shellState";
 import type { Depth } from "./shellState";
 
 /** A floating panel's group: as wide as the inspector beside the view, high enough for its head and a few fields (px). */
@@ -198,7 +199,7 @@ function syncPanels(api: DockviewApi, area: DeckArea, depth: Depth) {
     const panel = api.getPanel(spec.id);
     const position = steps.find((step) => step.id === spec.id)?.position;
     const reference = position ? api.getPanel(position.referencePanel) : undefined;
-    if (depth === "bauen") {
+    if (!depthAtLeast(depth, "tuefteln")) {
       if (!panel) continue;
       if (panel.group.activePanel === panel) reference?.api.setActive();
       api.removePanel(panel);

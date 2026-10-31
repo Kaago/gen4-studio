@@ -6,6 +6,7 @@ import type { CheckArea } from "../../checks/messages";
 import { notChecked } from "../../checks/useChecks";
 import type { ChecksApi, ChecksView } from "../../checks/useChecks";
 import { problemText } from "../../data/trainer/trainerModel";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, CheckList, EmptyState, Icon, Notice, PanelHead, Reference, Section } from "../../ui/primitives";
 import type { Area, CheckRow } from "../../ui/primitives";
@@ -79,7 +80,7 @@ function FindingLines({ f, depth }: { f: CheckProblemDto; depth: Depth }) {
       <span className={styles.sentence}>{findingText(f, depth)}</span>
       <span className={styles.where}>
         {findingLabel(f, depth)}
-        {depth === "tuefteln" && f.file !== "" ? ` · ${f.file}:${f.line}` : ""}
+        {depthAtLeast(depth, "tuefteln") && f.file !== "" ? ` · ${f.file}:${f.line}` : ""}
       </span>
     </>
   );
@@ -141,7 +142,7 @@ function CodeGroup({ code, rows, depth, goTo, checks, onFix }: { code: string; r
       <h4 id={headId} className={styles.codeHead}>
         {title}
         <span className={styles.count}>{rows.length}</span>
-        {depth === "tuefteln" && <span className={styles.tech}>{code}</span>}
+        {depthAtLeast(depth, "tuefteln") && <span className={styles.tech}>{code}</span>}
       </h4>
       <CheckList ariaLabel={title} rows={rows.map((f) => findingRow(f, depth, <FindingActions f={f} goTo={goTo} checks={checks} onFix={onFix} />))} />
     </div>
@@ -200,7 +201,7 @@ export function ProblemsTable({ rows, depth, goTo, checks = null }: { rows: read
                     </span>
                   </td>
                   <td role="cell">
-                    <Reference area={fileArea(row.file)} label={depth === "tuefteln" ? row.file : fileLabel(row.file)} onOpen={() => target && goTo(target)} disabled={target === null} />
+                    <Reference area={fileArea(row.file)} label={depthAtLeast(depth, "tuefteln") ? row.file : fileLabel(row.file)} onOpen={() => target && goTo(target)} disabled={target === null} />
                   </td>
                   <td role="cell" className={styles.position}>
                     {row.line}:{row.col}

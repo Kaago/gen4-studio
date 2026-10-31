@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { assignPlace, getTextArchive, placeSlots } from "../../api";
 import type { HeaderFamily, HeaderSummary } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -35,7 +36,7 @@ const NO_PLACE_SHORT = "Kein Ort";
  * the location bank; picking one gives it to the header (one undo step), „Neuer Ort…“ below the list opens the dialog „Neuer Ort“.
  */
 export function PlacePicker({ header, depth, onAssigned, headers, family, onError, commit }: PlacePickerProps) {
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   const { world } = useWorld();
   const [picking, setPicking] = useState(false);
   const [creating, setCreating] = useState(false);

@@ -16,7 +16,7 @@ const AREA_Y = 0.08;
 /** Texels per tile of an overworld sprite. */
 export const SPRITE_TEXELS_PER_TILE = 16;
 /** Size in tiles of the placeholder an object shows until (or unless) its sprite is there. */
-const PLACEHOLDER_SIZE = { width: 0.8, height: 0.4 };
+export const PLACEHOLDER_SIZE = { width: 0.8, height: 0.4 };
 /** Width of the outline of a selected event (a sprite wider than this is outlined at its own width). */
 const OUTLINE_WIDTH = 0.95;
 
@@ -78,6 +78,11 @@ function colorTexture(color: string): THREE.DataTexture {
   return texture;
 }
 
+/** The placeholder picture of a marker of `kind` (a 1 x 1 texture of its colour); the caller owns and disposes it. */
+export function markerPlaceholder(kind: EventKind): THREE.DataTexture {
+  return colorTexture(MARKER_COLORS[kind]);
+}
+
 /**
  * Builds the marker meshes of `events`; events outside the matrix get no marker. Object events are billboard
  * sprites showing a figure-coloured square until `applySprite` gives them their picture.
@@ -94,7 +99,7 @@ export function buildMarkers(matrix: MatrixDto, events: EventsDto): MarkerSet {
   const m4 = new THREE.Matrix4();
   let area: THREE.InstancedMesh | null = null;
   let areaData: MarkerSet["areaData"] = [];
-  const placeholder = colorTexture(MARKER_COLORS.object);
+  const placeholder = markerPlaceholder("object");
   for (const { kind, list } of classes) {
     const placed = list.flatMap((data) => {
       const at = markerPosition(data.x, data.z, matrix);

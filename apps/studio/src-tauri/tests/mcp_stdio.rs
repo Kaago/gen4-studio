@@ -741,6 +741,12 @@ async fn irreversible_needs_the_flag() {
     assert!(message.contains("--allow-irreversible"), "{message}");
     let error = tool_error(call_tool(&client, "apply_header_patch", json!({})).await);
     assert_eq!(error["code"], "needs_confirmation");
+    // A recipe asks as the recipe says: the empty region always.
+    let error =
+        tool_error(call_tool(&client, "recipe_apply", json!({ "recipe": "empty_region" })).await);
+    assert_eq!(error["code"], "needs_confirmation");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("Welt leeren"), "{message}");
     let status = result(call_tool(&client, "header_patch_status", json!({})).await);
     assert_eq!(status["applied"], false);
     assert_eq!(
@@ -995,6 +1001,21 @@ async fn structured_content_matches_output_schema() {
             json!({ "calls": [power(1, 70), { "tool": "history" }] }),
         ),
         ("save", json!({})),
+        ("recipe_list", json!({})),
+        (
+            "recipe_plan",
+            json!({ "recipe": "extend_area", "input": {
+                "matrix": 0, "x": 2, "y": 0, "source_map": 0,
+                "clear_buildings": false, "header_cell": null,
+            } }),
+        ),
+        (
+            "recipe_apply",
+            json!({ "recipe": "extend_area", "input": {
+                "matrix": 0, "x": 2, "y": 0, "source_map": 0,
+                "clear_buildings": false, "header_cell": null,
+            } }),
+        ),
     ];
     let mut types = Vec::new();
     for (tool, args) in calls {

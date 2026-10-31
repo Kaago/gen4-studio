@@ -3,7 +3,8 @@
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Weltvorlagen sind Rezepte, die eine
 Vanilla-Welt umbauen. Heute gibt es eine, die **Leere Region mit Startstadt** (`empty_region`).
 Implementierung: `crates/g4-kernel/src/templates.rs` (`region_recipe`, `plan_empty_region`,
-`apply_empty_region`, `start_script`, `wrap_message`); Rezept in
+`start_script`, `wrap_message`) und das Rezept „Welt leeren“ `crates/g4-kernel/src/recipes/empty_region.rs`
+(`plan`, `apply`, `apply_empty_region`, das `templates::apply_empty_region` wieder ausführt); Rezept in
 `crates/g4-kernel/metadata/templates.yaml`, Start-Scripts in
 `crates/g4-kernel/metadata/templates/start_pt.rotom` und `start_hgss.rotom`. Diamant/Perl lehnt der
 Kernel ab („Diamant/Perl: ohne Testprojekt nicht freigegeben“).
@@ -50,7 +51,14 @@ Gemessen an den Vanilla-Projekten: Platin DE Zweiblattdorf = Header 411, Zelle (
 411 bis 417, 536 Header geleert, 467 Rand-Zellen; HeartGold DE Neuborkia = Header 60, Zelle (21, 12),
 behalten 60 bis 66 und 384, 482 Header geleert, 491 Rand-Zellen. Keine wegfallenden Warps.
 
-## Anwenden (`apply_empty_region`)
+## Anwenden (`apply_empty_region`, Rezept `empty_region`)
+
+`recipes::empty_region::apply` (über `recipes::apply` mit `{"recipe": "empty_region"}`, den Weg
+von `recipe_apply` und `g4k recipe apply`) und `templates::apply_empty_region` (= `apply(…).report`, für `apply_empty_region`, `g4k template` und
+`create_project`) tun dasselbe. `recipes::empty_region::plan` macht dieselben Prüfungen und schreibt
+nichts; sein Entwurf nennt die Rand-Zellen von Matrix 0 (`cells`, je `source_map` = Karte der Stadt,
+`count(0)` = `border_cells`), die Nachricht des Start-Scripts in der Sprache des Spiels mit ihrem
+Textarchiv (`messages`), Sätze aus dem Plan (`notes`) und die Rand-Karte (`irreversible`).
 
 Vorbedingungen, in dieser Reihenfolge und jede vor der ersten Plattenänderung:
 
@@ -60,12 +68,17 @@ Vorbedingungen, in dieser Reihenfolge und jede vor der ersten Plattenänderung:
 4. der Store hat keine ungespeicherten Änderungen (sonst `Refused("save first")`).
 
 Danach liest der Kernel noch die Quelle der Scriptdatei der Stadt (sie muss eine rotom-Quelle sein)
-und baut daraus Start-Script und Level-Script, bevor er schreibt.
+und baut daraus Start-Script und Level-Script, bevor er schreibt. Vor dem ersten Schreiben sichert er
+die Dateien, die der Schritt zurücknehmen kann: Quelle (`.rotom`/`.json`) und Member der Scriptdatei
+der Stadt und der künftigen Level-Script-Datei (nichts da), JSON und Member der Textarchive, in die die
+Übersetzung schreiben kann (`town_archives`: das des Start-Headers und das jedes Headers mit der
+Scriptdatei der Stadt), und rotoms `.rotom/status/compile-state.json` als ganze Datei.
 
-**Sofort auf der Platte, nicht rückgängig** (nach ⌘Z unverwiesen):
+**Sofort auf der Platte** (die Rand-Karte bleibt nach ⌘Z als unverwiesenes Member, alles Übrige nimmt
+der Schritt zurück):
 
 1. Rand-Karte: Kopie der Stadtkarte ohne Gebäude (`Store::duplicate_map_with(town_map, true)`), als
-   neues letztes Member des Karten-Archivs.
+   neues letztes Member des Karten-Archivs. Nicht rückgängig (`Outcome::created`).
 2. Level-Script: neue Scriptdatei (`new_script_file(LevelScript)`) mit
    `{"header_entries": [{"type": "on_var_condition"}], "var_conditions": [{"var": done_var, "value": 0, "script_id": n}]}`,
    übersetzt. Das alte Level-Script der Stadt (Platin: `on_transition #1`) entfällt.
@@ -74,8 +87,9 @@ und baut daraus Start-Script und Level-Script, bevor er schreibt.
    Quelltext zurück). Der Text ist ein Literal und landet als neue Nachricht im Textarchiv des ersten
    gespeicherten Headers mit dieser Scriptdatei; der Store lädt die berührten Textarchive neu.
 
-**Ein Store-Schritt** `Store::transaction("Vorlage: Leere Region mit Startstadt")`, jedes Asset
-einmal; ⌘Z holt die Welt zurück:
+**Ein Undo-Schritt** „Vorlage: Leere Region mit Startstadt“: die Store-Transaktion (jedes Asset
+einmal) und danach die Dateischritte (`FileStep`, Art `Recipe`), mit `Store::squash_since` zu einem
+Schritt verschmolzen; ⌘Z holt die Welt und die Dateien zurück, ⌘⇧Z bringt beides wieder:
 
 | Asset | Änderung |
 |---|---|
@@ -83,10 +97,33 @@ einmal; ⌘Z holt die Welt zurück:
 | Matrix 0 | jede Rand-Zelle: Rand-Karte, Header der Stadt, Höhe der ersten Stadtzelle; leere Zellen bleiben leer |
 | Rand-Karte (`Tx::edit_map`) | alle 1024 Kollisionszellen `{kind 0, collision 0x80}` |
 | Eventdateien der behaltenen Header | die Stadt ohne Figuren und Auslöser (Warps und Schilder bleiben); wegfallende Warps entfernt; Warps in eine Datei, die Warps verlor, auf die neuen Nummern umgezählt |
+| Level-Script-Datei (Dateischritt `script_file_step`) | Quelle `NNNN.json` und Member entstehen; ⌘Z entfernt sie |
+| Scriptdatei der Stadt (Dateischritt) | Quelle `NNNN.rotom` und Member wie vor dem Anhängen |
+| berührte Textarchive (Dateischritt `archive_file_step`) | `expanded/textArchives/NNNN.json` und Member wie vorher; ⌘Z und ⌘⇧Z laden ein geladenes Archiv danach neu (`reload_from_disk`) |
+
+Ein Textarchiv, das die Übersetzung berührt, ohne in `town_archives` zu stehen, bekommt als `before`
+die geladene Kopie des Stores (der Stand vor der Übersetzung; sein Member behält, was die Übersetzung
+schrieb, das zurückgelegte JSON gilt und der nächste Build kodiert es); ist es nicht geladen, nimmt ⌘Z
+es nicht zurück. Auf Platin DE und HeartGold DE kommt das nicht vor (Test
+`vanilla_empty_region_undo_restores_the_world`).
+
+`compile-state.json` geht als ganze Datei zurück (Dateischritt `compile_state_step`, Asset die
+Scriptdatei der Stadt): die Übersetzung schreibt die Datei ganz neu, die Einträge in der Reihenfolge
+von rotoms `HashMap`, und markiert jede Quelle, die sie neu übersetzt, als „Compiled“ (auch eine
+übernommene „Decompiled“ mit gleichem Member). Einträge einzeln zurückgesetzt (`set_state_entry`)
+gäben die Datei in anderer Reihenfolge wieder; im DSPRE-Layout ist sie versioniert, so dass `git
+status` nach ⌘Z nur die Rand-Karte nennt. Darum lehnt ⌘Z auch ab, wenn seit dem Schritt irgendeine
+Übersetzung lief (etwa im Script-Editor), und nennt dann die Scriptdatei der Stadt.
+
+Hat jemand eine der Dateien seit dem Schritt geändert (von Hand, im Script-Editor), lehnt ⌘Z mit
+`Refused` („Scriptdatei NNNN wurde nach dem Rezept geändert; ⌘Z nimmt den Schritt nicht zurück, er
+fällt aus dem Verlauf.“) ab, schreibt nichts, und der Schritt fällt aus dem Verlauf.
 
 `RegionReport` nennt Plan, Rand-Karte, Level-Script, Start-Script (`(Datei, Nummer)`), den Schritt und
 die geänderten Assets (Header-Tabelle, Matrix 0, Rand-Karte, Eventdateien, die beiden Scriptdateien,
-die berührten Textarchive). Gespeichert wird nicht; das machen `g4k template` und `create_project`.
+die berührten Textarchive). Das Rezept antwortet `Outcome` mit diesem Bericht, `created` = die
+Rand-Karte und `next` = „Gebiet anlegen“ (`create_area`). Gespeichert wird nicht; das machen
+`g4k template` und `create_project`.
 
 ## Start-Script
 

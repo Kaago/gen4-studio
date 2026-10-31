@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoordDto, EventPatch, EventsDto, WarpDto } from "../../api";
 import type { EventData } from "../../world/events";
-import { EVENT_FIELDS, eventBackend, eventFieldSpecs, eventPatch } from "./eventFields";
+import { EVENT_FIELDS, MOVEMENT_WORDS, eventBackend, eventFieldSpecs, eventFieldsAt, eventPatch, movementOptions } from "./eventFields";
 import { EditSession } from "./headerCommit";
 
 const warp = (over: Partial<WarpDto> = {}): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0, ...over });
@@ -117,5 +117,44 @@ describe("EditSession over one event", () => {
   it("fails to load an event that is gone, naming it", async () => {
     const backend = eventBackend(3, "warp", { getEvents: async () => dto([]), update: async () => {} });
     await expect(backend.get(2)).rejects.toThrow("Warp 2 existiert in Event-Datei 3 nicht (mehr)");
+  });
+});
+
+describe("the words of Erzählen", () => {
+  it("movement_words_name_the_common_types", () => {
+    for (const { value, label } of MOVEMENT_WORDS) {
+      expect(label, `Bewegung ${value}`).toMatch(/^[^\d]+$/);
+      expect(label.trim()).toBe(label);
+    }
+    const values = MOVEMENT_WORDS.map((w) => w.value);
+    expect(new Set(values).size).toBe(values.length);
+    expect(new Set(MOVEMENT_WORDS.map((w) => w.label)).size).toBe(values.length);
+    // Standing still, looking around, wandering, the looking and facing variants and spinning (pret numbering).
+    const word = (value: number) => MOVEMENT_WORDS.find((w) => w.value === value)?.label;
+    expect(word(0)).toBe("Steht still");
+    expect(word(2)).toBe("Schaut sich um");
+    expect(word(3)).toBe("Geht umher");
+    for (let value = 2; value <= 19; value++) expect(word(value), `Bewegung ${value}`).toBeDefined();
+    // Every value at least five figures of Platinum DE or HeartGold DE use (counted over all event files, 31.10.2026).
+    for (const value of [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 44, 45, 46, 47, 53, 54]) expect(word(value), `Bewegung ${value}`).toBeDefined();
+    expect(word(20)).toBe("Läuft auf und ab");
+    expect(word(47)).toBe("Beerenpflanze");
+  });
+
+  it("shows_a_stored_movement_without_a_word_as_bewegung_n", () => {
+    expect(movementOptions(3)).toBe(MOVEMENT_WORDS);
+    expect(movementOptions(999).slice(-1)[0]).toEqual({ value: 999, label: "Bewegung 999" });
+  });
+
+  it("names_the_fields_of_erzaehlen_and_offers_the_movement_words", () => {
+    const labels = (kind: Parameters<typeof eventFieldsAt>[0], depth: Parameters<typeof eventFieldsAt>[2]) => eventFieldsAt(kind, "Pt", depth).map((s) => s.label);
+    expect(labels("object", "erzaehlen")).toEqual(["Aussehen", "Bewegung", "Blickrichtung", "Script"]);
+    expect(labels("warp", "erzaehlen")).toEqual(["Tür"]);
+    expect(eventFieldsAt("object", "Pt", "erzaehlen").find((s) => s.key === "movement_type")?.options).toBe(MOVEMENT_WORDS);
+    // Bauen and Tüfteln are the specs as they are.
+    for (const depth of ["bauen", "tuefteln"] as const) {
+      expect(eventFieldsAt("object", "Hgss", depth)).toEqual(eventFieldSpecs("object", "Hgss"));
+      expect(eventFieldsAt("warp", "Hgss", depth)).toEqual(eventFieldSpecs("warp", "Hgss"));
+    }
   });
 });

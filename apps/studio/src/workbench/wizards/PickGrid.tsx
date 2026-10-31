@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { HeaderSummary, MatrixDto } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { AreaGrid } from "../AreaGrid";
 import { TERMS, id4 } from "../terms";
@@ -34,7 +35,7 @@ export function cellCaption(matrix: MatrixDto, places: HeaderPlaces, x: number, 
   if (header !== undefined) {
     const place = places.get(header);
     if (place) parts.push(place.name);
-    if (depth === "tuefteln") parts.push(`${TERMS.header.label} ${id4(header)}`);
+    if (depthAtLeast(depth, "tuefteln")) parts.push(`${TERMS.header.label} ${id4(header)}`);
   }
   parts.push(`${TERMS.map.label} ${id4(map)}`);
   return parts.join(" · ");

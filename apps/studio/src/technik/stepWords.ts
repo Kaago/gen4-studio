@@ -1,4 +1,5 @@
 import type { BuildStep } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 
 /** The words of the folders a step packs (the areas' German words); Bauen calls matrices world maps. */
@@ -46,10 +47,10 @@ function stepName(id: string, depth: Depth): string {
   if (named !== undefined) return named;
   if (id.startsWith("pack:")) {
     const folder = id.slice("pack:".length);
-    if (folder === "matrices" && depth === "bauen") return "Weltkarten packen";
-    return `${PACK_WORDS[folder] ?? (depth === "bauen" ? "Spieldaten" : folder)} packen`;
+    if (folder === "matrices" && !depthAtLeast(depth, "tuefteln")) return "Weltkarten packen";
+    return `${PACK_WORDS[folder] ?? (!depthAtLeast(depth, "tuefteln") ? "Spieldaten" : folder)} packen`;
   }
-  return depth === "bauen" ? "Weiterer Schritt" : id;
+  return !depthAtLeast(depth, "tuefteln") ? "Weiterer Schritt" : id;
 }
 
 /** What a `blz:*` row did: from the cache, compressed now, or neither. */
@@ -84,7 +85,7 @@ function reasonText(step: BuildStep, reason: string, depth: Depth, fresh: boolea
   if (fresh && reason === "no-state") return "ohne Cache, voll";
   const own = step.id === "rom" ? ROM_REASONS[reason] : undefined;
   if (own !== undefined) return own;
-  return REASONS[reason] ?? (depth === "bauen" ? "voll gebaut" : `voll gebaut: ${reason}`);
+  return REASONS[reason] ?? (!depthAtLeast(depth, "tuefteln") ? "voll gebaut" : `voll gebaut: ${reason}`);
 }
 
 /** Name and result of a build step in the words of Bauen or Tüfteln; `fresh`: the build was started with „Neu bauen (ohne Cache)“. */

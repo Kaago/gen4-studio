@@ -198,6 +198,9 @@ pub const COMMANDS: &[&str] = &[
     "reveal_path",
     "git_commit_all",
     "git_commit_prepare",
+    "recipe_list",
+    "recipe_plan",
+    "recipe_apply",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1028,6 +1031,20 @@ pub fn dispatch(
         "git_commit_prepare" => run!(json, "git_commit_prepare", args, {}, |_a| {
             git_commit_prepare_impl(state)
         }),
+        "recipe_list" => run!(json, "recipe_list", args, {}, |_a| Ok::<_, CmdError>(
+            recipe_list_impl()
+        )),
+        // `api.ts` sends `{ recipe, input }`; absent or `null` input is `{}`.
+        "recipe_plan" => run!(
+            json, "recipe_plan", args,
+            { recipe: g4_kernel::recipes::RecipeId, input: Option<Value> },
+            |a| recipe_plan_impl(state, recipe_call(a.recipe, a.input))
+        ),
+        "recipe_apply" => run!(
+            json, "recipe_apply", args,
+            { recipe: g4_kernel::recipes::RecipeId, input: Option<Value> },
+            |a| recipe_apply_impl(state, recipe_call(a.recipe, a.input))
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1415,6 +1432,21 @@ mod tests {
             ("git_commit_all", json!({ "message": "Stand" })),
             // No repository: refused before anything is written.
             ("git_commit_prepare", json!({})),
+            ("recipe_list", json!({})),
+            (
+                "recipe_plan",
+                json!({ "recipe": "extend_area", "input": {
+                    "matrix": 0, "x": 3, "y": 0, "source_map": 0,
+                    "clear_buildings": false, "header_cell": null,
+                } }),
+            ),
+            (
+                "recipe_apply",
+                json!({ "recipe": "extend_area", "input": {
+                    "matrix": 0, "x": 3, "y": 0, "source_map": 0,
+                    "clear_buildings": false, "header_cell": null,
+                } }),
+            ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -1434,6 +1466,70 @@ mod tests {
                     e.message
                 ),
             }
+        }
+    }
+
+    /// `recipe_plan` answers the draft and changes nothing; `recipe_apply` is one undo step
+    /// whose `changed` names the matrix; `recipe_list` names the four recipes.
+    #[test]
+    fn recipe_plan_writes_nothing_and_recipe_apply_is_one_step() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let list = json_of(call(&state, &policy, "recipe_list", json!({})));
+        let ids: Vec<&str> = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            ["create_area", "create_room", "extend_area", "empty_region"]
+        );
+        let args = json!({ "recipe": "extend_area", "input": {
+            "matrix": 0, "x": 2, "y": 0, "source_map": 2,
+            "clear_buildings": false, "header_cell": null,
+        } });
+        let undo = history_impl(&state).unwrap().undo.len();
+        let draft = json_of(call(&state, &policy, "recipe_plan", args.clone()));
+        assert_eq!(
+            draft["cells"],
+            json!([{ "matrix": 0, "x": 2, "y": 0, "source_map": 2 }]),
+            "{draft}"
+        );
+        assert!(dirty_impl(&state).unwrap().is_empty());
+        assert_eq!(history_impl(&state).unwrap().undo.len(), undo);
+
+        let outcome = json_of(call(&state, &policy, "recipe_apply", args));
+        assert_eq!(history_impl(&state).unwrap().undo.len(), undo + 1);
+        let changed = outcome["changed"].as_array().unwrap();
+        assert!(
+            changed.contains(&json!({ "kind": "Matrix", "index": 0 })),
+            "{outcome}"
+        );
+        assert!(outcome["change"].is_u64(), "{outcome}");
+        assert_eq!(outcome["report"]["width"], 3, "{outcome}");
+        assert_eq!(
+            outcome["created"],
+            json!([{ "kind": "Map", "index": outcome["report"]["map"] }]),
+            "{outcome}"
+        );
+        // Without input the empty region reads `{}`: the kernel refuses, not the arguments.
+        match dispatch(
+            &state,
+            &policy,
+            "recipe_plan",
+            json!({ "recipe": "empty_region" }),
+        ) {
+            Err(DispatchError::Cmd(e)) => {
+                assert!(
+                    !e.message.starts_with("Ungültige Argumente"),
+                    "{}",
+                    e.message
+                )
+            }
+            Ok(_) => {}
+            Err(other) => panic!("{other:?}"),
         }
     }
 

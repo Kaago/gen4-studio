@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { ask } from "../platform/dialogs";
 import { createMatrix, renameMatrix, resizeMatrix, setMatrixSections } from "../api";
-import type { HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
+import type { DraftDto, HeaderSummary, MatrixDto, MemberCounts, ProjectInfo } from "../api";
 import { AreaGrid, cellKey } from "./AreaGrid";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Button, EmptyState, Notice, NumberField, PanelHead, Switch, TextField } from "../ui/primitives";
 import { ExtendAreaDialog } from "./ExtendAreaDialog";
@@ -36,6 +37,8 @@ export interface MatrixPanelContext {
   /** A member was appended to an archive: refresh the member counts. */
   onCountsChanged: () => void | Promise<void>;
   onError: (e: unknown) => void;
+  /** Sets the draft: the dialog „Karte bei … anlegen?“ plans its new cell while it is open. */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boolean {
@@ -44,7 +47,7 @@ function sectionHasValues(m: MatrixDto, section: "headers" | "altitudes"): boole
 
 /** Memoised: renders when `context` changes (the owner keeps it, see `MatrixTab`), not for every render of the panel host. */
 export const MatrixPanel = memo(function MatrixPanel({ context }: { context: MatrixPanelContext }) {
-  const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, depth, goTo, onEdited, onCountsChanged, onError } = context;
+  const { info, headers, areaDataId, counts, sceneMatrix, revision, selection, depth, goTo, onEdited, onCountsChanged, onError, onDraft } = context;
   // A freshly created matrix is shown here although no header uses it yet; the choice of header
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
@@ -179,7 +182,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
               cellSize={64}
               selected={selected}
               colorOf={colorOf}
-              tinker={depth === "tuefteln"}
+              tinker={depthAtLeast(depth, "tuefteln")}
               onCellClick={onCellClick}
               onCellDoubleClick={onCellDoubleClick}
               onExtend={onExtend}
@@ -201,6 +204,7 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
           y={extendAt.y}
           headers={headers}
           counts={counts}
+          onDraft={onDraft}
           onDone={(report) => {
             setExtendAt(null);
             if (report) void afterExtend(matrix);

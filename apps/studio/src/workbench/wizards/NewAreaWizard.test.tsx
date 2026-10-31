@@ -3,15 +3,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyHeaderPatch, createArea, dirty, getMatrix, getTextArchive, headerPatchStatus, placeSlots } from "../../api";
-import type { AreaReport, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
+import { applyHeaderPatch, createArea, dirty, getMatrix, getTextArchive, headerPatchStatus, placeSlots, recipePlan } from "../../api";
+import type { AreaReport, AreaSpec, DraftDto, HeaderPatchDto, HeaderSummary, MatrixDto, MatrixSummary, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { openSelect, pressKey } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import type { World } from "../worldModel";
 import { NewAreaWizard } from "./NewAreaWizard";
+import { DRAFT_DEBOUNCE_MS } from "./useDraftPlan";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createArea: vi.fn(), getMatrix: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(), placeSlots: vi.fn(), getTextArchive: vi.fn(), recipePlan: vi.fn() }));
 // The grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -42,6 +43,24 @@ const world: World = {
   assignedRooms: 0,
 };
 const FORBIDDEN = /Raster|Matrix|Header/;
+// The plan of the area as the kernel answers it: two cells of a matrix that is still to come.
+const planned: DraftDto = {
+  cells: [
+    { matrix: null, x: 0, y: 0, source_map: 0 },
+    { matrix: null, x: 1, y: 0, source_map: 1 },
+  ],
+  tiles: [],
+  events: [],
+  messages: [],
+  notes: ["Legt Gebiet „Neues Gebiet“ mit 2 Karten an."],
+  irreversible: ["2 Karten werden kopiert"],
+};
+// A plan in the kernel's own words, as `recipes/area.rs` writes them (Tüfteln's words).
+const kernelWords: DraftDto = {
+  ...planned,
+  notes: ["Legt Gebiet „Neues Gebiet“ mit 1 Karten an.", "Header 3 zeigt auf die neue Weltkarte."],
+  irreversible: ["Karte 0010 wird kopiert", "Eventdatei 12 wird kopiert"],
+};
 const report: AreaReport = { matrix: 131, maps: [[0, 0, 571], [1, 0, 572]], event_file: null, header: null, patched: false, snapshot: null, place: null, replaced: 0 };
 
 describe("NewAreaWizard", () => {
@@ -51,12 +70,15 @@ describe("NewAreaWizard", () => {
   const onCreated = vi.fn();
   const onError = vi.fn();
   const onHeaderPatch = vi.fn();
+  const onDraft = vi.fn<(draft: DraftDto | null) => void>();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(getMatrix).mockReset().mockImplementation(async (index) => matrixOf(index));
     vi.mocked(createArea).mockReset().mockResolvedValue(report);
+    vi.mocked(recipePlan).mockReset().mockResolvedValue(planned);
+    onDraft.mockReset();
     onClose.mockReset();
     onCreated.mockReset().mockResolvedValue(undefined);
     onError.mockReset();
@@ -72,10 +94,11 @@ describe("NewAreaWizard", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   const wizard = (prefill: { matrix?: number } | undefined, listed: MatrixSummary[] = matrices, overview: { loaded: boolean; failed: boolean } = { loaded: true, failed: false }, depth: Depth = "tuefteln") => (
-    <NewAreaWizard depth={depth} world={world} headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />
+    <NewAreaWizard depth={depth} world={world} headers={headers} matrices={listed} matricesLoaded={overview.loaded} matricesFailed={overview.failed} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />
   );
   async function show(prefill: { matrix?: number } | undefined = { matrix: 0 }, depth: Depth = "tuefteln") {
     await act(async () => root.render(wizard(prefill, matrices, { loaded: true, failed: false }, depth)));
@@ -170,7 +193,7 @@ describe("NewAreaWizard", () => {
 
     async function open(prefill: { matrix?: number; header?: number }) {
       await act(async () =>
-        root.render(<NewAreaWizard depth="tuefteln" world={world} headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+        root.render(<NewAreaWizard depth="tuefteln" world={world} headers={placed} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={prefill} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />),
       );
       await flush();
     }
@@ -536,6 +559,64 @@ describe("NewAreaWizard", () => {
       expect(container.textContent).toContain("Spielcode für neue Orte angepasst (bleibt). Danach fehlgeschlagen: Gebiet anlegen (boom).");
     });
 
+    it("plans_with_the_patch_assumed_while_it_is_missing_and_creates_with_the_users_consent", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      // As the kernel: a new header without the patch and without allow_patch is refused.
+      vi.mocked(recipePlan).mockImplementation(async (_recipe, input) =>
+        (input as AreaSpec).header?.allow_patch === true ? planned : Promise.reject({ code: "refused", message: "new headers need the dynamic headers patch, apply the patch first", asset: null }),
+      );
+      vi.mocked(headerPatchStatus).mockResolvedValue(patchState({ applied: false }));
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await settle();
+      // The draft shows from the first cell on, before any consent: the plan writes nothing.
+      expect(vi.mocked(recipePlan).mock.lastCall?.[0]).toBe("create_area");
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as AreaSpec).header?.allow_patch).toBe(true);
+      expect(onDraft).toHaveBeenLastCalledWith(planned);
+      await next();
+      await next();
+      await flush();
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).not.toContain("Vorschau nicht möglich");
+      expect(container.textContent).not.toContain("dynamic headers");
+      // „Anlegen“ still waits for the user's consent and sends it.
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header?.allow_patch).toBe(true);
+      // With the patch in the game nothing is assumed: plan and create send no consent.
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(recipePlan).mockClear();
+      vi.mocked(createArea).mockClear();
+      await toSummary({ applied: true });
+      await settle();
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as AreaSpec).header?.allow_patch).toBe(false);
+      await click(button("Anlegen"));
+      expect(vi.mocked(createArea).mock.calls[0][0].header?.allow_patch).toBe(false);
+    });
+
+    it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+      await show({ matrix: 1 }, "bauen");
+      await click(cell(0, 0));
+      await next();
+      await next();
+      await flush();
+      await next();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect(current()).toBe("4. Zusammenfassung");
+      // The draft still reaches the scene; only the sentences stay out of the wizard.
+      expect(onDraft).toHaveBeenLastCalledWith(kernelWords);
+      expect(visibleWords(document.body)).not.toMatch(FORBIDDEN);
+      expect(container.textContent).not.toContain("zeigt auf die neue Weltkarte");
+      expect(container.textContent).not.toContain("Eventdatei 12 wird kopiert");
+      expect(container.querySelector("[data-draft-notes]")).toBeNull();
+    });
+
     it("says_no_raster_matrix_or_header_in_building", async () => {
       const words = () => visibleWords(document.body);
       const quelle = () => container.querySelector<HTMLElement>('[role="combobox"][aria-label="Quelle"]');
@@ -768,7 +849,7 @@ describe("NewAreaWizard", () => {
         ],
       };
       await act(async () =>
-        root.render(<NewAreaWizard depth="tuefteln" world={hgss} headers={headers} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={{ matrix: 1 }} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />),
+        root.render(<NewAreaWizard depth="tuefteln" world={hgss} headers={headers} matrices={matrices} matricesLoaded matricesFailed={false} links={links} counts={{ Map: 600, AreaData: 20 }} prefill={{ matrix: 1 }} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />),
       );
       await flush();
       await click(cell(0, 0));
@@ -858,5 +939,49 @@ describe("NewAreaWizard", () => {
     await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createArea).not.toHaveBeenCalled();
+  });
+
+  it("shows_the_draft_while_cells_are_chosen_and_clears_it_on_cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    // The host takes the wizard away when it closes.
+    onClose.mockImplementation(() => root.render(null));
+    await show();
+    // No cell chosen: nothing to plan.
+    await settle();
+    expect(recipePlan).not.toHaveBeenCalled();
+    await click(cell(0, 0));
+    await click(cell(1, 0));
+    await settle();
+    expect(recipePlan).toHaveBeenCalledOnce();
+    const [recipe, input] = vi.mocked(recipePlan).mock.calls[0];
+    expect(recipe).toBe("create_area");
+    expect((input as { cells: unknown[] }).cells).toHaveLength(2);
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await next();
+    await next();
+    await next();
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Legt Gebiet „Neues Gebiet“ mit 2 Karten an.");
+    expect(notes?.textContent).toContain("2 Karten werden kopiert");
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(onClose).toHaveBeenCalledWith(false);
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("plans_the_same_spec_it_creates_and_clears_the_draft_after", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await show();
+    await click(cell(0, 0));
+    await click(cell(1, 0));
+    await next();
+    await next();
+    await next();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await click(button("Anlegen"));
+    // „Anlegen“ sends the spec the draft was planned from.
+    expect(vi.mocked(recipePlan).mock.lastCall?.[1]).toEqual(vi.mocked(createArea).mock.calls[0][0]);
+    expect(onDraft).toHaveBeenLastCalledWith(null);
   });
 });

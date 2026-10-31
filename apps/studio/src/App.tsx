@@ -55,7 +55,7 @@ import { useGitStatus } from "./git/useGitStatus";
 import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
-import { AREAS } from "./ui/frame/shellState";
+import { AREAS, depthAtLeast } from "./ui/frame/shellState";
 import type { AreaId, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
@@ -69,7 +69,7 @@ import type { ScriptBridge } from "./workbench/script/useScripts";
 import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
-import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
+import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -211,6 +211,9 @@ function AppBody() {
   const shell = useShell();
   const { setArea, remember, forget } = shell;
   const area = shell.state.area;
+  // The depth the active area shows (Erzählen only in an area with a view of its own, else Bauen): what the dock, inspector, wizards,
+  // status line and hands work with. The hinge alone gets the chosen depth (its segment shows „Erzählen“ pressed in every area).
+  const depth = shell.viewDepth;
   // Whether a wizard is open (its step is in the world's hand): read by the callbacks below, which are made before the wizards are.
   const wizardOpen = useRef(false);
   // The wizard "Neues Spiel aus ROM" on Start (null: closed); here, so the palette can open it.
@@ -377,7 +380,7 @@ function AppBody() {
     onOpenText: openTextLink,
     onOpenScript: openScriptLink,
     onOpenData: openDataLink,
-    depth: shell.state.depth,
+    depth,
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
@@ -611,6 +614,17 @@ function AppBody() {
     shell.setTool(next);
     if (next === "paint") setShowPermissions(true);
   });
+  // Erzählen has recipes instead of tools: a tool left over from Bauen would act unseen, so on the way into Erzählen it goes back to
+  // "Auswählen" (a trainer waiting to be placed keeps the figure tool, whose click is the placement). Only the way in: a tool chosen in
+  // Erzählen (the „+“ of „In dieser Szene“) stays. The tool letters are silent there (`toolLocked`).
+  const narrating = !depthAtLeast(depth, "bauen");
+  const { setTool } = shell;
+  const toolNow = useRef({ tool: shell.tool, waiting: shell.pendingTrainer });
+  toolNow.current = { tool: shell.tool, waiting: shell.pendingTrainer };
+  useEffect(() => {
+    const { tool, waiting } = toolNow.current;
+    if (narrating && tool !== "select" && waiting === null) setTool("select");
+  }, [narrating, setTool]);
   // The trainer rows while a trainer waits to be placed: the status line and the undo step name it by class and name.
   const pendingTrainer = shell.pendingTrainer;
   const placingRows = useDataLists(dataStore, pendingTrainer !== null ? session.info : null)?.trainers ?? null;
@@ -664,7 +678,7 @@ function AppBody() {
     onSceneBack: sceneHistory.back,
     onSceneForward: sceneHistory.forward,
     area,
-    toolLocked: (t) => eventsBlockedRef.current && isEventTool(t),
+    toolLocked: (t) => narrating || (eventsBlockedRef.current && isEventTool(t)),
     toolsShown: () => docks.welt.current?.getPanel("world")?.api.isVisible ?? false,
     onToolsHidden: () => {
       if (toolsToasted.current) return;
@@ -948,6 +962,8 @@ function AppBody() {
   const onMapImported = useStableCallback((map: number) =>
     afterMapImport(map, { bus, invalidate: (m) => thumbnails.invalidate(m), refreshDirty: () => session.refreshDirty() }),
   );
+  // What an open wizard plans (its recipe's draft): the scene and the world map draw it dashed until the wizard closes or creates.
+  const [draft, setDraft] = useState<DraftDto | null>(null);
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -965,7 +981,9 @@ function AppBody() {
     problems,
     checks,
     dataStore,
-    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth: shell.state.depth, tool: shell.tool, onTool, onTileClick },
+    draft,
+    onDraft: setDraft,
+    view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
 
@@ -1017,8 +1035,8 @@ function AppBody() {
   const eventsRevision = useBusRevision(bus, ["eventData", "eventsRefetch"]);
   const pinnedEvents = useEvents(pinnedEventFile, ignoreError, eventsRevision);
   const crumbs = useMemo(
-    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth: shell.state.depth, identify: live.world.identify }),
-    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, shell.state.depth, live.world.identify],
+    () => crumbsFor({ places, headers: scene.headers, selected: scene.selected, pinned: pins.pinned, matrixName, cellMap, events: pinnedEvents, goTo: data.goTo, depth, identify: live.world.identify }),
+    [places, scene.headers, scene.selected, pins.pinned, matrixName, cellMap, pinnedEvents, data.goTo, depth, live.world.identify],
   );
   // The breadcrumb of the texts: the archive they show, with the place whose header uses it, and the message.
   const textTrail = useMemo(() => {
@@ -1174,13 +1192,13 @@ function AppBody() {
         shell.setListOpen(area, !shell.state.listOpen[area]);
         break;
       case "arrangeWerkbank":
-        resetLayout("welt", docks.welt, "werkbank", shell.state.depth);
+        resetLayout("welt", docks.welt, "werkbank", depth);
         break;
       case "arrangeDoppeldeck":
-        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", shell.state.depth);
+        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", depth);
         break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), shell.state.depth);
+        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), depth);
         break;
       case "maximize":
         if (docks[paletteDeck].current) toggleSchauMaximized(docks[paletteDeck].current);
@@ -1252,7 +1270,7 @@ function AppBody() {
     [scene.headers, live.world.identify],
   );
   const { info } = session;
-  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), shell.state.depth, cellMap);
+  const context = statusContext(pins.pinned, pins.hover, scene.headers.find((h) => h.id === scene.selected), depth, cellMap);
   const pane =
     isDeckArea(area) ? undefined : area === "start" ? (
       <ProjectStart
@@ -1278,7 +1296,7 @@ function AppBody() {
         onToggleList={() => shell.setListOpen("technik", !shell.state.listOpen.technik)}
         problems={problems}
         checks={checks}
-        depth={shell.state.depth}
+        depth={depth}
         goTo={(target) => data.goTo(withHeaderHint(target, scene.headers))}
         busy={session.busy}
         lastBuiltAt={session.lastBuiltAt}
@@ -1339,7 +1357,7 @@ function AppBody() {
   const deckOf = (target: DeckArea, trail: Crumb[]) => (
     <Deck
       area={target}
-      depth={shell.state.depth}
+      depth={depth}
       wizard={target === "welt" ? showsWizard : undefined}
       preview={target === "welt" ? worldPreview : undefined}
       components={DECK_COMPONENTS[target]}
@@ -1471,6 +1489,7 @@ function AppBody() {
             },
             onClose: closePublish,
           }}
+          onDraft={setDraft}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />

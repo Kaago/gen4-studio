@@ -115,6 +115,7 @@ run_step "mcp" "" \
 run_step "pnpm test" "" bash -c 'cd apps/studio && pnpm test'
 run_step "tokens" "" bash scripts/check-tokens.sh
 run_step "styles" "" bash scripts/check-styles.sh
+run_step "depth" "" bash scripts/check-depth.sh
 run_step "pnpm build" "" bash -c 'cd apps/studio && pnpm build'
 # The dev bridge client is dev-only: nothing of it may reach the production bundle.
 run_step "dist has no bridge" "" bash -c 'test -d apps/studio/dist && ! grep -rq "__bridge" apps/studio/dist'

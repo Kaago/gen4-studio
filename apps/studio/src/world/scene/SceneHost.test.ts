@@ -42,6 +42,7 @@ import { dunkel, hell } from "../../ui/tokens/tokens";
 import type { BuildingLayer } from "../buildingLayer";
 import type { MarkerSet } from "../markers";
 import { frameCells } from "./camera";
+import { setDraft } from "./draft";
 import { SceneHost } from "./SceneHost";
 
 /** The observers made, with the callback each was given and the elements it watches. */
@@ -282,6 +283,23 @@ describe("SceneHost", () => {
     const { h } = host();
     h.dispose();
     expect(calls).toEqual(["observer", "content", "renderer", "canvas"]);
+  });
+
+  it("holds_the_draft_layer_in_the_scene_and_frees_it_on_dispose", () => {
+    const { h } = host();
+    expect(h.scene.children).toContain(h.draft);
+    expect(h.draftCount).toBe(0);
+    const m: MatrixDto = { index: 2, name: "m", width: 1, height: 1, maps: [1], headers: null, altitudes: null };
+    const draft = { cells: [{ matrix: 2, x: 0, y: 0, source_map: 1 }], tiles: [], events: [], messages: [], notes: [], irreversible: [] };
+    expect(setDraft(h, draft, m)).toBe(1);
+    const frame = h.draft.children[0] as THREE.LineSegments;
+    const freed = vi.fn();
+    frame.geometry.addEventListener("dispose", freed);
+    (frame.material as THREE.Material).addEventListener("dispose", freed);
+    h.dispose();
+    expect(h.draft.children).toHaveLength(0);
+    expect(h.draftCount).toBe(0);
+    expect(freed).toHaveBeenCalledTimes(2);
   });
 
   it("stops rendering on control changes once disposed", () => {

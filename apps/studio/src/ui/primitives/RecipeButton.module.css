@@ -1,0 +1,147 @@
+/* A recipe as a key: the symbol on a tile in its area's colour (as on a reference chip), the name beside it. */
+.recipe {
+  display: inline-flex;
+  min-height: var(--g4-dichte-werkzeug);
+  max-width: 100%;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-4) var(--g4-raum-12) var(--g4-raum-4) var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    background var(--g4-dauer-kurz),
+    border-color var(--g4-dauer-kurz);
+}
+
+.recipe[data-size="s"] {
+  min-height: var(--g4-dichte-steuer);
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-2) var(--g4-raum-8) var(--g4-raum-2) var(--g4-raum-2);
+}
+
+/* Only the symbol (and the lock): no name to give room to, the right edge as close as the left. */
+.recipe[data-icon-only] {
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4) var(--g4-raum-8) var(--g4-raum-4) var(--g4-raum-4);
+}
+
+.recipe[data-icon-only][data-size="s"] {
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-2) var(--g4-raum-6) var(--g4-raum-2) var(--g4-raum-2);
+}
+
+.recipe:hover:not(:disabled, [aria-pressed="true"]) {
+  border-color: var(--g4-linie-standard);
+  background: var(--g4-flaeche-deck);
+}
+
+/* Pressed: the cobalt edge of the selection; the tile keeps its area's colour. */
+.recipe[aria-pressed="true"] {
+  border-color: var(--g4-auswahl-kante);
+  background: var(--g4-auswahl-flaeche);
+  color: var(--g4-akzent-text);
+}
+
+/* The symbol's tile: square, as high as the key's content. */
+.tile {
+  display: inline-flex;
+  width: calc(var(--g4-dichte-werkzeug) - 2 * var(--g4-raum-4) - 2 * var(--g4-strich-standard));
+  height: calc(var(--g4-dichte-werkzeug) - 2 * var(--g4-raum-4) - 2 * var(--g4-strich-standard));
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--g4-radius-feld);
+  font-size: var(--g4-dichte-symbol);
+}
+
+.recipe[data-size="s"] .tile {
+  width: calc(var(--g4-dichte-steuer) - 2 * var(--g4-raum-2) - 2 * var(--g4-strich-standard));
+  height: calc(var(--g4-dichte-steuer) - 2 * var(--g4-raum-2) - 2 * var(--g4-strich-standard));
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lock {
+  display: inline-flex;
+  flex: none;
+  font-size: var(--g4-dichte-symbol);
+}
+
+/* Locked: name, tile and lock dimmed, the tile without its area's colour. */
+.recipe:disabled {
+  color: var(--g4-text-deaktiviert);
+  cursor: not-allowed;
+}
+
+.recipe:disabled .tile {
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-deaktiviert);
+}
+
+/* A disabled button takes no pointer events in every engine; its wrapper takes them for the tooltip. */
+.lockedWrap {
+  display: inline-flex;
+  max-width: 100%;
+  cursor: not-allowed;
+}
+
+.lockedWrap > .recipe {
+  flex: 1;
+  pointer-events: none;
+}
+
+.welt {
+  background: var(--g4-bereich-welt-flaeche);
+  color: var(--g4-bereich-welt);
+}
+
+.geschichten {
+  background: var(--g4-bereich-geschichten-flaeche);
+  color: var(--g4-bereich-geschichten);
+}
+
+.pokemon {
+  background: var(--g4-bereich-pokemon-flaeche);
+  color: var(--g4-bereich-pokemon);
+}
+
+.gegenstaende {
+  background: var(--g4-bereich-gegenstaende-flaeche);
+  color: var(--g4-bereich-gegenstaende);
+}
+
+.texte {
+  background: var(--g4-bereich-texte-flaeche);
+  color: var(--g4-bereich-texte);
+}
+
+.technik {
+  background: var(--g4-bereich-technik-flaeche);
+  color: var(--g4-bereich-technik);
+}
+
+/* The tooltip: the name, under it what the recipe makes or why it waits. */
+.tip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+}
+
+.tipHead {
+  font: var(--g4-font-text-s-betont);
+}
+
+.tipHint {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

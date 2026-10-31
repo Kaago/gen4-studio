@@ -3,15 +3,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, tileBehaviors } from "../../api";
-import type { EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, WarpLink } from "../../api";
+import { createRoom, getEvents, getMap, getMatrix, getTextArchive, headerPatchStatus, placeSlots, recipePlan, tileBehaviors } from "../../api";
+import type { DraftDto, EventsDto, HeaderPatchDto, HeaderSummary, MatrixSummary, RoomReport, RoomSpec, WarpLink } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { visibleWords } from "../../ui/visibleText";
 import { resetTileNames } from "../../world/scene/tileNames";
 import { buildPlaces } from "../places";
 import { NewRoomWizard } from "./NewRoomWizard";
+import { DRAFT_DEBOUNCE_MS } from "./useDraftPlan";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []), placeSlots: vi.fn(), getTextArchive: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), createRoom: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), getMatrix: vi.fn(), tileBehaviors: vi.fn(), headerPatchStatus: vi.fn(), applyHeaderPatch: vi.fn(), dirty: vi.fn(async () => []), placeSlots: vi.fn(), getTextArchive: vi.fn(), recipePlan: vi.fn() }));
 // The template picture asks the app-wide cache for a map picture; there is no renderer here.
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -37,6 +38,21 @@ const matrices = [summary(0, true), summary(2, false), summary(3, false), summar
 const places = buildPlaces(headers, matrices);
 const links: WarpLink[] = [];
 const patchState = (change: Partial<HeaderPatchDto> = {}): HeaderPatchDto => ({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", ...change });
+// The plan of the room as the kernel answers it: the new matrix (null) and, on the village, the door and its tile.
+const planned: DraftDto = {
+  cells: [{ matrix: null, x: 0, y: 0, source_map: 321 }],
+  tiles: [{ matrix: 0, x: 12, z: 7 }],
+  events: [{ kind: "warp", matrix: 0, x: 12, z: 7, look: null, target: { header: 3, warp: 0 } }],
+  messages: [],
+  notes: ["Legt Raum „Neuer Raum“ als Kopie von Karte 0321 an.", "Der Raum entsteht auf einer neuen Weltkarte."],
+  irreversible: ["Karte 0321 wird kopiert", "Eine neue Weltkarte wird angelegt"],
+};
+// The same plan in the kernel's own words, as `recipes/area.rs` and `room.rs` write them (Tüfteln's words).
+const kernelWords: DraftDto = {
+  ...planned,
+  notes: ["Legt Raum „Neuer Raum“ als Kopie von Karte 0321 an.", "Header 3 zeigt auf die neue Weltkarte.", "Header 3 bekommt eine Kopie von Eventdatei 12."],
+  irreversible: ["Karte 0321 wird kopiert", "Eventdatei 12 wird kopiert"],
+};
 const report: RoomReport = { matrix: 131, map: 571, event_file: 20, outside_warp: 3, inside_warp: 0, inside_warp_reused: false, door_tiles: [], patched: false, snapshot: null, place: null };
 
 const events = (file: number, locked: string | null = null): EventsDto => ({
@@ -57,6 +73,7 @@ describe("NewRoomWizard", () => {
   const onError = vi.fn();
   const lastTile = vi.fn();
   const onHeaderPatch = vi.fn();
+  const onDraft = vi.fn<(draft: DraftDto | null) => void>();
   let lockedFiles: Record<number, string>;
   beforeEach(() => {
     container = document.createElement("div");
@@ -78,6 +95,8 @@ describe("NewRoomWizard", () => {
       .mockImplementation(async (index) => ({ index, buildings: [], permissions: Array.from({ length: 1024 }, (_, i): [number, number] => (index === 321 && i === 6 * 32 + 5 ? [0x65, 0] : [0, 0])) }));
     vi.mocked(getEvents).mockReset().mockImplementation(async (file) => events(file, lockedFiles[file] ?? null));
     vi.mocked(createRoom).mockReset().mockResolvedValue(report);
+    vi.mocked(recipePlan).mockReset().mockResolvedValue(planned);
+    onDraft.mockReset();
     onClose.mockReset();
     onCreated.mockReset().mockResolvedValue(undefined);
     onError.mockReset();
@@ -92,12 +111,13 @@ describe("NewRoomWizard", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
   });
 
   async function show(prefill: { outsideHeader?: number; template?: number } | undefined = { outsideHeader: 0 }, overview = { loaded: true, failed: false }, depth: Depth = "tuefteln") {
     await act(async () =>
       root.render(
-        <NewRoomWizard depth={depth} headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth={depth} headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded={overview.loaded} matricesFailed={overview.failed} shownMatrix={0} places={places} prefill={prefill} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />,
       ),
     );
     await flush();
@@ -171,6 +191,17 @@ describe("NewRoomWizard", () => {
     expect(container.textContent).toContain("Eingang: Warp 3 in Header 0000");
     await click(button("Zeigen"));
     expect(onCreated).toHaveBeenCalledWith(report, spec);
+  });
+
+  it("the_result_offers_neue_figur_hier_locked", async () => {
+    await show();
+    await toEntrance();
+    await next();
+    await click(button("Anlegen"));
+    // The kernel's next step after a room, as a recipe button that waits for 3d.5.
+    const keys = [...container.querySelectorAll<HTMLButtonElement>("button[data-recipe]")];
+    expect(keys.map((b) => [b.getAttribute("data-recipe"), b.textContent, b.disabled])).toEqual([["new_figure", "Neue Figur hier", true]]);
+    expect(document.getElementById(keys[0]!.getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
   });
 
   it("keeps_the_default_door_inside_and_leaves_the_door_outside_open_without_a_hovered_tile_or_template_warp", async () => {
@@ -470,7 +501,7 @@ describe("NewRoomWizard", () => {
     const unknown = buildPlaces(headers, []);
     await act(async () =>
       root.render(
-        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} />,
+        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={[]} matricesLoaded={false} matricesFailed={false} shownMatrix={0} places={unknown} prefill={{ template: 2 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} />,
       ),
     );
     await flush();
@@ -639,6 +670,54 @@ describe("NewRoomWizard", () => {
       expect(placeButton()?.textContent).toBe("Spielerhaus");
     });
 
+    it("plans_with_the_patch_assumed_while_it_is_missing_and_creates_with_the_users_consent", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      // As the kernel: a new header without the patch and without allow_patch is refused.
+      vi.mocked(recipePlan).mockImplementation(async (_recipe, input) =>
+        (input as RoomSpec).header.allow_patch === true ? planned : Promise.reject({ code: "refused", message: "new headers need the dynamic headers patch, apply the patch first", asset: null }),
+      );
+      await toPlace({ applied: false });
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      // The draft shows from the step „Ort“ on, before any consent: the plan writes nothing.
+      expect(vi.mocked(recipePlan).mock.lastCall?.[0]).toBe("create_room");
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as RoomSpec).header.allow_patch).toBe(true);
+      expect(onDraft).toHaveBeenLastCalledWith(planned);
+      await next();
+      await next();
+      expect(current()).toBe("4. Zusammenfassung");
+      expect(container.textContent).not.toContain("Vorschau nicht möglich");
+      expect(container.textContent).not.toContain("dynamic headers");
+      // „Anlegen“ still waits for the user's consent and sends it.
+      expect(button("Anlegen")?.disabled).toBe(true);
+      await click(consent());
+      await click(button("Anlegen"));
+      expect(vi.mocked(createRoom).mock.calls[0][0].header.allow_patch).toBe(true);
+      // With the patch in the game nothing is assumed: plan and create send no consent.
+      act(() => root.unmount());
+      root = createRoot(container);
+      vi.mocked(recipePlan).mockClear();
+      vi.mocked(createRoom).mockClear();
+      await toSummary({ applied: true });
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect((vi.mocked(recipePlan).mock.lastCall?.[1] as RoomSpec).header.allow_patch).toBe(false);
+      await click(button("Anlegen"));
+      expect(vi.mocked(createRoom).mock.calls[0][0].header.allow_patch).toBe(false);
+    });
+
+    it("keeps_the_kernels_words_out_of_the_summary_in_bauen", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+      await toSummary();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+      expect(current()).toBe("4. Zusammenfassung");
+      // The draft still reaches the scene; only the sentences stay out of the wizard.
+      expect(onDraft).toHaveBeenLastCalledWith(kernelWords);
+      expect(visibleWords(document.body)).not.toMatch(/Raster|Matrix|Header/);
+      expect(container.textContent).not.toContain("zeigt auf die neue Weltkarte");
+      expect(container.textContent).not.toContain("Eventdatei 12 wird kopiert");
+      expect(container.querySelector("[data-draft-notes]")).toBeNull();
+    });
+
     it("says_no_raster_matrix_or_header_in_building", async () => {
       const FORBIDDEN = /Raster|Matrix|Header/;
       const words = () => visibleWords(document.body);
@@ -746,5 +825,76 @@ describe("NewRoomWizard", () => {
     await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(onClose).toHaveBeenCalledWith(false);
     expect(createRoom).not.toHaveBeenCalled();
+  });
+
+  it("shows_the_draft_while_the_entrance_is_complete_and_clears_it_on_cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    // The host takes the wizard away when it closes.
+    onClose.mockImplementation(() => root.render(null));
+    await show();
+    // No template yet: nothing to plan.
+    await settle();
+    expect(recipePlan).not.toHaveBeenCalled();
+    await toEntrance();
+    await settle();
+    expect(recipePlan).toHaveBeenLastCalledWith("create_room", {
+      name: "Neuer Raum",
+      source_map: 321,
+      clear_buildings: false,
+      header: { id: 3, area_data_id: 4, event_file: "New" },
+      entrance: { outside_header: 0, x: 12, z: 7, inside_x: 5, inside_z: 6, door_tiles: true },
+    });
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await next();
+    expect(current()).toBe("4. Zusammenfassung");
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Der Raum entsteht auf einer neuen Weltkarte.");
+    expect(notes?.textContent).toContain("Nicht rückgängig");
+    expect(notes?.textContent).toContain("Karte 0321 wird kopiert, Eine neue Weltkarte wird angelegt");
+    await act(async () => void container.querySelector('[role="dialog"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(onClose).toHaveBeenCalledWith(false);
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("warns_when_the_plan_fails_and_still_creates", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(recipePlan).mockRejectedValue({ code: "error", message: "Karte 0321 fehlt", asset: null });
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await next();
+    expect(container.textContent).toContain("Vorschau nicht möglich: Karte 0321 fehlt");
+    expect(onDraft).not.toHaveBeenCalledWith(expect.objectContaining({ notes: expect.anything() }));
+    await click(button("Anlegen"));
+    expect(createRoom).toHaveBeenCalledOnce();
+    // The result is shown: no draft any more.
+    expect(container.querySelector("[data-draft-notes]")).toBeNull();
+  });
+
+  it("clears_the_draft_once_the_room_is_created", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    expect(onDraft).toHaveBeenLastCalledWith(planned);
+    await next();
+    await click(button("Anlegen"));
+    expect(container.textContent).toContain("Raum „Neuer Raum“ angelegt");
+    expect(onDraft).toHaveBeenLastCalledWith(null);
+  });
+
+  it("shows_the_kernels_words_in_the_summary_in_tuefteln", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(recipePlan).mockResolvedValue(kernelWords);
+    await show();
+    await toEntrance();
+    await act(async () => void (await vi.advanceTimersByTimeAsync(DRAFT_DEBOUNCE_MS)));
+    await next();
+    const notes = container.querySelector("[data-draft-notes]");
+    expect(notes?.textContent).toContain("Header 3 zeigt auf die neue Weltkarte.");
+    expect(notes?.textContent).toContain("Nicht rückgängig: Karte 0321 wird kopiert, Eventdatei 12 wird kopiert");
+    // The list has no badge of its own: the frame's foot carries it.
+    expect(notes?.querySelector("[class*=badge]")).toBeNull();
   });
 });

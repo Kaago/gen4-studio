@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { AssetId, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
+import type { AssetId, DraftDto, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
 import type { Created } from "../app/useWizards";
 import type { EventPlacement } from "../app/useWorldActions";
@@ -146,6 +146,10 @@ export interface WorkbenchData {
   checks: ChecksApi;
   /** The data lists of the project (a stable object): the world names trainer figures from its trainer rows. */
   dataStore: DataStore;
+  /** What an open wizard plans (null: nothing): the scene and the world map draw it dashed. */
+  draft: DraftDto | null;
+  /** Sets the draft: the dialog „Karte bei … anlegen?“ plans its new cell (a stable function). */
+  onDraft: (draft: DraftDto | null) => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

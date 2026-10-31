@@ -22,12 +22,13 @@ describe("SceneOverlays", () => {
   const onTool = vi.fn();
   const onShowPermissions = vi.fn();
   const onShowEvents = vi.fn();
+  const onOpenWizard = vi.fn();
   beforeEach(() => {
     localStorage.clear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    for (const f of [onTool, onShowPermissions, onShowEvents]) f.mockReset();
+    for (const f of [onTool, onShowPermissions, onShowEvents, onOpenWizard]) f.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -36,7 +37,7 @@ describe("SceneOverlays", () => {
   });
 
   const show = (over: Partial<WorkbenchData> = {}) => {
-    const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, ...over } as unknown as WorkbenchData;
+    const data = { tool: "select", onTool, eventFileId: 3, eventLock: null, selected: 7, onOpenWizard, ...over } as unknown as WorkbenchData;
     const layers = { showPermissions: true, showEvents: false, onShowPermissions, onShowEvents };
     act(() =>
       root.render(
@@ -171,5 +172,28 @@ describe("SceneOverlays", () => {
     act(() => tool("Figur").click());
     act(() => tool("Schild").click());
     expect(onTool).not.toHaveBeenCalled();
+  });
+
+  it("erzaehlen_shows_the_recipe_bar_instead_of_the_tools_and_bauen_the_tools", () => {
+    const recipes = () => container.querySelector<HTMLElement>('[role="toolbar"][aria-label="Rezepte"]');
+    const recipe = (id: string) => container.querySelector<HTMLButtonElement>(`button[data-recipe="${id}"]`)!;
+    localStorage.setItem(KEY, JSON.stringify({ area: "welt", depth: "erzaehlen", toolbar: "bottom" }));
+    show();
+    // The recipes take the toolbar's place: the same anchor, beside the same layer bar.
+    expect(container.querySelector('[role="toolbar"][aria-label="Werkzeugleiste"]')).toBeNull();
+    expect([...overlays().children]).toEqual([layerBar(), recipes()]);
+    expect(recipes()!.getAttribute("data-anchor")).toBe("bottom");
+    act(() => recipe("create_area").click());
+    expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "area" });
+    // „Raum anlegen“ puts the door outside into the selected area or room.
+    act(() => recipe("create_room").click());
+    expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "room", prefill: { outsideHeader: 7 } });
+    expect(onOpenWizard).toHaveBeenCalledTimes(2);
+    act(() => root.unmount());
+    root = createRoot(container);
+    localStorage.setItem(KEY, JSON.stringify({ area: "welt", depth: "bauen" }));
+    show();
+    expect(recipes()).toBeNull();
+    expect(toolbar()).not.toBeNull();
   });
 });

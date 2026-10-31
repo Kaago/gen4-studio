@@ -9,6 +9,7 @@ import {
   ArrowSquareOut,
   Backpack,
   Bandaids,
+  BookOpenText,
   CaretDown,
   CaretRight,
   ChatsCircle,
@@ -90,6 +91,8 @@ export const icons = {
   open: FolderOpen,
   build: Hammer,
   tinker: Wrench,
+  /** The depth Erzählen (the segment in the hinge). */
+  narrate: BookOpenText,
   play: Play,
   undo: ArrowCounterClockwise,
   back: ArrowLeft,

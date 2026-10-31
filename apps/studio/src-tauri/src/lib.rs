@@ -53,6 +53,7 @@ use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_
 use commands::{get_battle_sprite, get_trainer_sprite};
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{project_preview_get, project_preview_set};
+use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
 use lsp::{lsp_send, lsp_start, lsp_stop};
 use state::{QuitAction, quit_action};
@@ -229,7 +230,10 @@ pub fn run() {
             publish_patch,
             reveal_path,
             git_commit_all,
-            git_commit_prepare
+            git_commit_prepare,
+            recipe_list,
+            recipe_plan,
+            recipe_apply
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

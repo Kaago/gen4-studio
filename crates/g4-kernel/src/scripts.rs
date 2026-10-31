@@ -1009,22 +1009,7 @@ pub fn new_script_file_reported(
         SourceKind::LevelScript => ScriptSource::LevelScript(LevelScriptDoc::default()),
         SourceKind::Binary => return Err(KernelError::NotEditable(AssetKind::Script)),
     };
-    let members = ensure_members(project)?;
-    let sources = project.expanded_dir(AssetKind::Script);
-    let highest = [
-        numbered_files(&members, None)?.last().copied(),
-        numbered_files(&sources, Some("rotom"))?.last().copied(),
-        numbered_files(&sources, Some("json"))?.last().copied(),
-    ]
-    .into_iter()
-    .flatten()
-    .max();
-    let file = match highest {
-        None => 0,
-        Some(n) => n
-            .checked_add(1)
-            .ok_or_else(|| KernelError::InvalidProject("no free script file number".into()))?,
-    };
+    let file = next_script_file(project)?;
     write_source(project, file, &source)?;
     let path = source_path(project, file, kind);
     let report = compile(project).inspect_err(|_| {
@@ -1039,6 +1024,27 @@ pub fn new_script_file_reported(
         return Err(KernelError::Compile(problems));
     }
     Ok((file, report.touched_archives))
+}
+
+/// The number [`new_script_file`] gives the next file: one above every member and every
+/// source (0 without any).
+pub fn next_script_file(project: &Project) -> Result<u16, KernelError> {
+    let members = ensure_members(project)?;
+    let sources = project.expanded_dir(AssetKind::Script);
+    let highest = [
+        numbered_files(&members, None)?.last().copied(),
+        numbered_files(&sources, Some("rotom"))?.last().copied(),
+        numbered_files(&sources, Some("json"))?.last().copied(),
+    ]
+    .into_iter()
+    .flatten()
+    .max();
+    match highest {
+        None => Ok(0),
+        Some(n) => n
+            .checked_add(1)
+            .ok_or_else(|| KernelError::InvalidProject("no free script file number".into())),
+    }
 }
 
 /// The rotom AST of a source, parsed fault-tolerantly (a half-written file still yields its
@@ -1745,6 +1751,236 @@ pub fn reset_script(
     let step = script_step(project, file, base_member)?;
     write_script_step(project, &step)?;
     Ok(step)
+}
+
+// ---------------------------------------------------------------------------------------
+// Recipe steps
+// ---------------------------------------------------------------------------------------
+
+/// A script file as it is on disk: its sources, its member and its compile-state entry (each
+/// `None` when absent). The entry is the one of the rotom source, else of the level script
+/// source; `None` without a source.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ScriptSnapshot {
+    pub rotom: Option<Vec<u8>>,
+    pub json: Option<Vec<u8>>,
+    pub member: Option<Vec<u8>>,
+    pub entry: Option<serde_json::Value>,
+}
+
+/// The source whose compile-state entry stands for script file `file`: the rotom source when
+/// `rotom`, else the level script source when `json`, else none.
+fn entry_source(project: &Project, file: u16, rotom: bool, json: bool) -> Option<PathBuf> {
+    match (rotom, json) {
+        (true, _) => Some(source_path(project, file, SourceKind::Script)),
+        (false, true) => Some(source_path(project, file, SourceKind::LevelScript)),
+        (false, false) => None,
+    }
+}
+
+/// Script file `file` as it is on disk now, see [`ScriptSnapshot`]. A file that does not
+/// exist yet is all `None`.
+pub fn snapshot_script(project: &Project, file: u16) -> Result<ScriptSnapshot, KernelError> {
+    let rotom = read_if_present(&source_path(project, file, SourceKind::Script))?;
+    let json = read_if_present(&source_path(project, file, SourceKind::LevelScript))?;
+    let member = current_member(project, file)?;
+    let entry = match entry_source(project, file, rotom.is_some(), json.is_some()) {
+        Some(source) => state_entry(project, &source)?,
+        None => None,
+    };
+    Ok(ScriptSnapshot {
+        rotom,
+        json,
+        member,
+        entry,
+    })
+}
+
+/// The step from `before` to what is on disk now, kind `Recipe`; a path absent on one side is
+/// `None` there. Only the files that differ are in it; the compile-state entry is the one of
+/// the source there is now (else the one there was), when it changed.
+pub fn script_file_step(
+    project: &Project,
+    file: u16,
+    before: &ScriptSnapshot,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind, RotomEntryChange};
+
+    let now = snapshot_script(project, file)?;
+    let source = entry_source(project, file, now.rotom.is_some(), now.json.is_some())
+        .or_else(|| entry_source(project, file, before.rotom.is_some(), before.json.is_some()));
+    let files = [
+        (
+            source_path(project, file, SourceKind::Script),
+            &before.rotom,
+            now.rotom,
+        ),
+        (
+            source_path(project, file, SourceKind::LevelScript),
+            &before.json,
+            now.json,
+        ),
+        (member_file(project, file), &before.member, now.member),
+    ]
+    .into_iter()
+    .filter(|(_, before, after)| *before != after)
+    .map(|(path, before, after)| FileChange {
+        path,
+        before: before.clone(),
+        after,
+    })
+    .collect();
+    let rotom_entry = match source {
+        Some(source) => {
+            let key = state_key(project, &source);
+            let after = state_entry(project, &key)?;
+            (after != before.entry).then(|| RotomEntryChange {
+                source: key,
+                before: before.entry.clone(),
+                after,
+            })
+        }
+        None => None,
+    };
+    Ok(FileStep {
+        asset: crate::project::AssetId {
+            kind: AssetKind::Script,
+            index: file,
+        },
+        files,
+        rotom_entry,
+        kind: FileStepKind::Recipe,
+    })
+}
+
+/// rotom's compile state file (`.rotom/status/compile-state.json`) as it is on disk; `None`
+/// without one.
+pub fn snapshot_compile_state(project: &Project) -> Result<Option<Vec<u8>>, KernelError> {
+    read_if_present(&state_path(project)?)
+}
+
+/// The step of rotom's compile state file from `before` to the bytes on disk now, as one file
+/// (kind `CompileState`, asset `asset`, no rotom entry). A compile writes the whole file anew,
+/// its entries in the order of rotom's `HashMap`, and marks every source it compiled again (a
+/// decompiled one becomes "Compiled"), so only the file's bytes put back make it as it was;
+/// entries set one by one ([`set_state_entry`]) would not. Undo and redo accept the file when
+/// it says the same as the step's side ([`same_compile_state`]): a later compile that
+/// compiled nothing anew leaves the step intact. Empty when the bytes are the same.
+pub fn compile_state_step(
+    project: &Project,
+    asset: crate::project::AssetId,
+    before: Option<Vec<u8>>,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind};
+
+    let path = state_path(project)?;
+    let after = read_if_present(&path)?;
+    let files = if before == after {
+        Vec::new()
+    } else {
+        vec![FileChange {
+            path,
+            before,
+            after,
+        }]
+    };
+    Ok(FileStep {
+        asset,
+        files,
+        rotom_entry: None,
+        kind: FileStepKind::CompileState,
+    })
+}
+
+/// Whether two versions of rotom's compile state file (`None`: no file) say the same for
+/// rotom: equal as JSON (the order of the entries does not count), each entry's time of its
+/// last compile aside and its status only as dirty or not. rotom v0.7.0 (src/project/compile.rs
+/// compile_project, and `project_compile` here) writes the file at the end of every compile
+/// and gives every entry, also one of a source it skipped, a new `FileState::compiled`: a new
+/// `last_compiled` (`Utc::now()`) and the status "Compiled" (a decompiled source's
+/// "Decompiled" goes). What rotom reads back (`CompileState::file_is_stale`) is the hashes,
+/// the dependencies and whether the status is "Dirty"; the quirks steer the next compile. A
+/// file that is no JSON is the same only byte for byte.
+pub fn same_compile_state(a: Option<&[u8]>, b: Option<&[u8]>) -> bool {
+    fn said(bytes: &[u8]) -> Option<serde_json::Value> {
+        let mut state: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        if let Some(entries) = state
+            .get_mut("entries")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            for entry in entries
+                .values_mut()
+                .filter_map(serde_json::Value::as_object_mut)
+            {
+                entry.remove("last_compiled");
+                if let Some(status) = entry.get_mut("status") {
+                    *status = serde_json::Value::Bool(status == "Dirty");
+                }
+            }
+        }
+        Some(state)
+    }
+    match (a, b) {
+        (Some(a), Some(b)) => a == b || matches!((said(a), said(b)), (Some(x), Some(y)) if x == y),
+        (a, b) => a == b,
+    }
+}
+
+/// A text archive as it is on disk: its JSON (`expanded/textArchives/NNNN.json`) and its
+/// member, each `None` when absent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArchiveSnapshot {
+    pub json: Option<Vec<u8>>,
+    pub member: Option<Vec<u8>>,
+}
+
+/// Text archive `archive` as it is on disk now, see [`ArchiveSnapshot`].
+pub fn snapshot_archive(project: &Project, archive: u16) -> Result<ArchiveSnapshot, KernelError> {
+    Ok(ArchiveSnapshot {
+        json: read_if_present(&crate::text::json_path(project, archive))?,
+        member: read_if_present(&project.member_path(AssetKind::TextArchive, archive))?,
+    })
+}
+
+/// The step of a text archive from `before` to the files on disk now (kind `Recipe`, asset the
+/// archive): its JSON and its member, those that differ.
+pub fn archive_file_step(
+    project: &Project,
+    archive: u16,
+    before: &ArchiveSnapshot,
+) -> Result<crate::store::FileStep, KernelError> {
+    use crate::store::{FileChange, FileStep, FileStepKind};
+
+    let now = snapshot_archive(project, archive)?;
+    let files = [
+        (
+            crate::text::json_path(project, archive),
+            &before.json,
+            now.json,
+        ),
+        (
+            project.member_path(AssetKind::TextArchive, archive),
+            &before.member,
+            now.member,
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, before, after)| *before != after)
+    .map(|(path, before, after)| FileChange {
+        path,
+        before: before.clone(),
+        after,
+    })
+    .collect();
+    Ok(FileStep {
+        asset: crate::project::AssetId {
+            kind: AssetKind::TextArchive,
+            index: archive,
+        },
+        files,
+        rotom_entry: None,
+        kind: FileStepKind::Recipe,
+    })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -3618,5 +3854,58 @@ AlreadyGiven:
         bytes.extend_from_slice(&[0x13, 0xFD, 0x02, 0x00]);
         assert_eq!(jump_table(&bytes), Some((vec![10, 10], 10)));
         assert_eq!(jump_table(&[1, 0, 0, 0]), None);
+    }
+
+    #[test]
+    fn a_compile_state_says_the_same_without_order_times_and_clean_statuses() {
+        let entry = |status: &str, time: &str, hash: u64| {
+            serde_json::json!({
+                "source_hash": hash, "output_hash": 2, "dependency_hashes": {},
+                "status": status, "last_compiled": time,
+                "quirks": { "jump_table_end_marker_count": null, "levelscript_padding": null }
+            })
+        };
+        let state = |entries: Vec<(&str, serde_json::Value)>| {
+            let mut map = serde_json::Map::new();
+            for (k, v) in entries {
+                map.insert(k.to_owned(), v);
+            }
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 4, "db_hash": 7, "compiler_version": "0.7.0", "entries": map
+            }))
+            .unwrap()
+        };
+        let t0 = "2026-10-30T10:00:00Z";
+        let t1 = "2026-10-31T11:00:00.123456Z";
+        let a = state(vec![
+            ("s/0000.rotom", entry("Decompiled", t0, 1)),
+            ("s/0001.rotom", entry("Compiled", t0, 1)),
+        ]);
+        // Another order, new times, "Decompiled" compiled again: the same.
+        let b = state(vec![
+            ("s/0001.rotom", entry("Compiled", t1, 1)),
+            ("s/0000.rotom", entry("Compiled", t1, 1)),
+        ]);
+        assert_ne!(a, b);
+        assert!(same_compile_state(Some(&a), Some(&b)));
+        // A dirty entry, another hash, an entry more or less: not the same.
+        for other in [
+            state(vec![
+                ("s/0000.rotom", entry("Dirty", t0, 1)),
+                ("s/0001.rotom", entry("Compiled", t0, 1)),
+            ]),
+            state(vec![
+                ("s/0000.rotom", entry("Compiled", t0, 9)),
+                ("s/0001.rotom", entry("Compiled", t0, 1)),
+            ]),
+            state(vec![("s/0000.rotom", entry("Compiled", t0, 1))]),
+        ] {
+            assert!(!same_compile_state(Some(&a), Some(&other)));
+        }
+        assert!(!same_compile_state(Some(&a), None));
+        assert!(same_compile_state(None, None));
+        // No JSON: byte for byte.
+        assert!(same_compile_state(Some(b"x"), Some(b"x")));
+        assert!(!same_compile_state(Some(b"x"), Some(b"y")));
     }
 }

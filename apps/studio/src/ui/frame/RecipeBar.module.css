@@ -1,0 +1,34 @@
+/* The recipes floating over the 3D view where Bauen has its toolbar: the same sheet, edge, shadow and anchors. */
+.bar {
+  display: flex;
+  width: max-content;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--g4-raum-4);
+  padding: var(--g4-raum-4);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  background: var(--g4-flaeche-blatt);
+  color: var(--g4-text-primaer);
+  box-shadow: var(--g4-schatten-schwebend);
+}
+
+/* One row like the toolbar, never two: the locked recipes show only their symbol, so five keys fit. */
+.bar[aria-orientation="horizontal"] {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+/* At the bottom the bar sits in the middle of the view (the legend keeps the bottom left). */
+.bar[data-anchor="bottom"] {
+  position: absolute;
+  bottom: var(--g4-raum-8);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* Upright, the keys are as wide as the widest. */
+.bar[aria-orientation="vertical"] > * {
+  width: 100%;
+}

@@ -4,6 +4,7 @@ import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Button, InspectorRow, NumberField, Picker, Reference, TextField, checkNumber } from "../../ui/primitives";
 import type { MenuEntry, PickerItem } from "../../ui/primitives";
@@ -165,7 +166,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
 
   const cell = `Zelle ${x}, ${y}`;
   // Bauen speaks of the world map and the area a cell belongs to; Tüfteln keeps the matrix ("Raster") and the header.
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   // Bauen names the map by its world map, area or room, never by its number (a cell outside or a matrix still loading).
   const matrixName = tinker ? `${TERMS.matrix.label} ${id4(index)}` : matrixWords(world, index, headers, identify);
   const headerWord = termFor("header", depth, "area");
@@ -270,7 +271,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           <InspectorRow label={headerWord} hint={`0 bis ${headerMax}`}>
             <div className={styles.inline}>
               <div className={styles.grow}>
-                <NumberField label={headerWord} value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depth === "tuefteln"} />
+                <NumberField label={headerWord} value={header} max={headerMax} bits={16} onCommit={commitHeader} showBase={depthAtLeast(depth, "tuefteln")} />
               </div>
               {map !== null && header < headerCount && <Reference area="welt" label={headerWord} tech={id4(header)} onOpen={() => goTo({ kind: "header", id: header })} />}
             </div>
@@ -281,10 +282,10 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
         )}
         {/* Without an altitude section the height reads 0; the first height written makes the kernel add the section. */}
         <InspectorRow label="Höhe" hint="0 bis 255">
-          <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depth === "tuefteln"} />
+          <NumberField label="Höhe" value={altitude ?? 0} max={255} bits={8} onCommit={commitAltitude} showBase={depthAtLeast(depth, "tuefteln")} />
         </InspectorRow>
-        {depth === "tuefteln" && <RawRowSection matrix={matrix} x={x} y={y} />}
-        {depth === "tuefteln" && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
+        {depthAtLeast(depth, "tuefteln") && <RawRowSection matrix={matrix} x={x} y={y} />}
+        {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "matrixCell", matrix: index, x, y }} source={{ kind: "matrixCell", map, header, altitude }} />}
         <p className={styles.note}>
           „Duplizieren“ (Menü „Aktionen“) trägt eine Kopie der Karte in diese Zelle ein und lässt sich nicht rückgängig machen: Die Kopie ist sofort als neue
           Karte am Ende des Archivs vorhanden.

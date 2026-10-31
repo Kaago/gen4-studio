@@ -1,4 +1,4 @@
-import { HAND_DEFAULT } from "../ui/frame/shellState";
+import { HAND_DEFAULT, depthAtLeast } from "../ui/frame/shellState";
 import type { AreaId, Depth } from "../ui/frame/shellState";
 
 /** The panels of the docks. `headers` (the explorer) is not among them: it is the shell's list column and only a navigation target. */
@@ -65,9 +65,9 @@ export const AREA_PANELS: Record<DeckArea, PanelSpec[]> = {
   ],
 };
 
-/** The panels of the dock of `area` in `depth`: all of them in Tüfteln, in Bauen those not only for Tüfteln (the world without the Raster). */
+/** The panels of the dock of `area` in `depth`: all of them in Tüfteln, in Bauen and Erzählen those not only for Tüfteln (the world without the Raster). */
 export function panelsFor(area: DeckArea, depth: Depth): PanelSpec[] {
-  return depth === "tuefteln" ? AREA_PANELS[area] : AREA_PANELS[area].filter((p) => p.tinkerOnly !== true);
+  return depthAtLeast(depth, "tuefteln") ? AREA_PANELS[area] : AREA_PANELS[area].filter((p) => p.tinkerOnly !== true);
 }
 
 /** The arrangement a dock starts with: the world works at the 3D view with the inspector beside it, the others with the view above the editor. */

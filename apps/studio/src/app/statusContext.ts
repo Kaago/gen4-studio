@@ -1,4 +1,5 @@
 import type { HeaderSummary, WarpDto } from "../api";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { KIND_SINGULAR } from "../workbench/context";
 import type { InspectorModel, SceneHover } from "../workbench/Inspector";
@@ -25,11 +26,11 @@ export function statusContext(pinned: InspectorModel, hover: SceneHover | null, 
   if (hover?.kind === "eventHover") return markerSummary(hover, depth);
   if (!header) return "";
   const parts = [header.location_name || header.internal_name];
-  if (depth === "tuefteln") parts.push(`Raster ${header.matrix_id}`);
+  if (depthAtLeast(depth, "tuefteln")) parts.push(`Raster ${header.matrix_id}`);
   if (pinned.kind === "matrixCell") {
     const at = `${pinned.x}, ${pinned.y}`;
     // Bauen names the cell by its map; `cellMap` is null for an empty cell and missing when the matrix is not at hand.
-    parts.push(depth === "tuefteln" ? `Zelle ${at}` : cellMap === null ? `leere Zelle (${at})` : cellMap === undefined ? `Karte (${at})` : `Karte ${id4(cellMap)} (${at})`);
+    parts.push(depthAtLeast(depth, "tuefteln") ? `Zelle ${at}` : cellMap === null ? `leere Zelle (${at})` : cellMap === undefined ? `Karte (${at})` : `Karte ${id4(cellMap)} (${at})`);
   }
   return parts.join(", ");
 }

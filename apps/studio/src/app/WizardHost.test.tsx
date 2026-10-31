@@ -35,7 +35,7 @@ describe("WizardHost", () => {
 
   function props(request: WizardRequest | null): ComponentProps<typeof WizardHost> {
     return {
-      wizards: { request, close: vi.fn(), created: vi.fn() },
+      wizards: { request, open: vi.fn(), close: vi.fn(), created: vi.fn() },
       headers: [],
       matrices: [],
       world: null,
@@ -55,6 +55,7 @@ describe("WizardHost", () => {
       onSave: async () => {},
       onRegionApplied: async () => {},
       publish,
+      onDraft: vi.fn(),
     };
   }
   const show = async (request: WizardRequest | null) => {

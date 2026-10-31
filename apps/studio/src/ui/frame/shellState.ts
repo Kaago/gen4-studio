@@ -5,10 +5,31 @@
 // before a field existed reads it as its default.
 
 export type AreaId = "start" | "welt" | "geschichten" | "pokemon" | "gegenstaende" | "texte" | "technik" | "einstellungen";
-export type Depth = "bauen" | "tuefteln";
+export type Depth = "erzaehlen" | "bauen" | "tuefteln";
 export type Tool = "select" | "paint" | "figure" | "door" | "trigger" | "sign" | "building";
 
 export const AREAS: readonly AreaId[] = ["start", "welt", "geschichten", "pokemon", "gegenstaende", "texte", "technik", "einstellungen"];
+
+/** The depths in their order: Erzählen tells, Bauen builds, Tüfteln shows the ROM. */
+export const DEPTHS: readonly Depth[] = ["erzaehlen", "bauen", "tuefteln"];
+
+/** The stored value as a depth; anything unknown reads as Bauen. */
+export function readDepth(value: unknown): Depth {
+  return DEPTHS.find((d) => d === value) ?? "bauen";
+}
+
+/** Whether `depth` is `min` or deeper (Bauen is at least Erzählen, Tüfteln is at least both). */
+export function depthAtLeast(depth: Depth, min: Depth): boolean {
+  return DEPTHS.indexOf(depth) >= DEPTHS.indexOf(min);
+}
+
+/** The areas that have a view of their own in Erzählen; every other area shows Bauen there. */
+export const NARRATING_AREAS: readonly AreaId[] = ["welt"];
+
+/** The depth `area` shows for the chosen `depth`: Erzählen only in a narrating area, else Bauen; Bauen and Tüfteln as chosen. */
+export function viewDepth(area: AreaId, depth: Depth): Depth {
+  return depth === "erzaehlen" && !NARRATING_AREAS.includes(area) ? "bauen" : depth;
+}
 
 /** Where the toolbar floats in the 3D view: upright at the left edge, flat at the top (beside the layer bar), or flat at the bottom middle. */
 export type ToolbarAnchor = "left" | "top" | "bottom";
@@ -146,7 +167,7 @@ export function readShellState(): ShellState {
     listOpen: perArea(s.listOpen, true, isBoolean),
     handHeight: perArea(s.handHeight, HAND_DEFAULT, isNumber, clampHand),
     handCollapsed: perArea(s.handCollapsed, false, isBoolean),
-    depth: s.depth === "tuefteln" ? "tuefteln" : "bauen",
+    depth: readDepth(s.depth),
     recent: Array.isArray(s.recent) ? s.recent.filter(isRecent).slice(0, MAX_RECENT) : [],
     sub: { pokemon: POKEMON_SUBS.find((p) => p === (s.sub as { pokemon?: unknown } | undefined)?.pokemon) ?? "pokedex" },
     selected: readSelection(s.selected),

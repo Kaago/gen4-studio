@@ -520,6 +520,14 @@ pub enum FileStepKind {
     /// „ID umbenennen“ (`textproject::rename`): undo and redo move its files under the sync's
     /// lock, record those the sync had in step again and write the id files for rotom anew.
     IdRename,
+    /// A recipe's files (scripts, their members, text archives the compile wrote): undo and
+    /// redo reload the step's asset when it is loaded.
+    Recipe,
+    /// rotom's compile state file a recipe's compile wrote, as [`FileStepKind::Recipe`]. Every
+    /// later compile writes it anew (new times, the entries in another order) without changing
+    /// what it says, so undo and redo compare what it says
+    /// ([`crate::scripts::same_compile_state`]) and write the step's bytes back.
+    CompileState,
 }
 
 /// One undoable step: every asset it changed, each at most once, in the order they were
@@ -2570,7 +2578,9 @@ impl Store {
     /// All parts are decoded first ([`Store::decode_parts`]), then every file is checked to
     /// hold the other side; a file that does not is [`StepError::Drop`] and nothing is
     /// written. Then the files are written (a failed write puts the files written before back
-    /// and is [`StepError::Keep`]), and last the parts are applied in reverse order.
+    /// and is [`StepError::Keep`]), then the parts are applied in reverse order, and last the
+    /// loaded asset of every [`FileStepKind::Recipe`] (and `CompileState`) step is read from
+    /// disk again ([`Store::reload_from_disk`]: a text archive the step wrote).
     fn apply_change(&mut self, change: &Changeset, side: Side) -> Result<Vec<AssetId>, StepError> {
         let values = self.decode_parts(change, side).map_err(StepError::Keep)?;
         let files = net_files(&self.project.root, &change.files);
@@ -2593,6 +2603,17 @@ impl Store {
                 asset.current = value;
             }
             self.note_change(id);
+        }
+        for step in change
+            .files
+            .iter()
+            .filter(|s| matches!(s.kind, FileStepKind::Recipe | FileStepKind::CompileState))
+        {
+            if self.assets.contains_key(&step.asset) {
+                // The files are moved, so the step is done: a reload that fails leaves the
+                // old value, whose save then finds the file changed on disk (`Stale`).
+                let _ = self.reload_from_disk(step.asset);
+            }
         }
         let mut assets: Vec<AssetId> = change.parts.iter().map(|p| p.asset).collect();
         for step in &change.files {
@@ -3243,6 +3264,38 @@ impl Side {
         }
     }
 
+    /// Why a recipe's file step whose file `label` changed since it was written (by hand, by
+    /// the script editor, by another tool) is dropped instead of moved to this side.
+    fn changed_since_recipe(self, label: String) -> String {
+        match self {
+            Side::Before => format!(
+                "{label} wurde nach dem Rezept geändert; ⌘Z nimmt den Schritt nicht zurück, er \
+                 fällt aus dem Verlauf."
+            ),
+            Side::After => format!(
+                "{label} wurde seit dem Rückgängigmachen des Rezepts geändert; ⌘⇧Z stellt den \
+                 Schritt nicht wieder her, er fällt aus dem Verlauf."
+            ),
+        }
+    }
+
+    /// Why a recipe's step whose compile state file `file` (relative to the root) says
+    /// something else since it was written (another source compiled, another command
+    /// database) is dropped instead of moved to this side.
+    fn compile_state_changed(self, file: &str) -> String {
+        match self {
+            Side::Before => format!(
+                "Der Übersetzungsstand der Scripts ({file}) hat sich seit dem Rezept geändert; \
+                 ⌘Z nimmt den Schritt nicht zurück, er fällt aus dem Verlauf."
+            ),
+            Side::After => format!(
+                "Der Übersetzungsstand der Scripts ({file}) hat sich seit dem Rückgängigmachen \
+                 des Rezepts geändert; ⌘⇧Z stellt den Schritt nicht wieder her, er fällt aus \
+                 dem Verlauf."
+            ),
+        }
+    }
+
     /// Why an id rename whose file `file` (relative to the root) changed since it was written
     /// is dropped instead of moved to this side.
     fn changed_since_rename(self, file: &str) -> String {
@@ -3267,7 +3320,8 @@ impl Side {
 }
 
 /// Moves the files and rotom entries of `change` to `side`: every file is checked to hold the
-/// other side first (one that does not is [`StepError::Drop`], nothing is written), then they
+/// other side first (one that does not is [`StepError::Drop`], nothing is written; a
+/// [`FileStepKind::CompileState`] file needs only to say the same), then they
 /// are written (a failed write puts the files written before back and is
 /// [`StepError::Keep`]). With `renamed` (the change has an id rename) the files the sync had in
 /// step are recorded again afterwards and the id files for rotom written anew.
@@ -3282,7 +3336,8 @@ fn move_files(
     let root = &project.root;
     for (asset, file) in files {
         let (expected, _) = side.file(file);
-        if read_file(&file.path).map_err(StepError::Keep)?.as_deref() != expected {
+        let found = read_file(&file.path).map_err(StepError::Keep)?;
+        if found.as_deref() != expected {
             // The step that wrote the file last names it.
             let kind = change
                 .files
@@ -3290,11 +3345,21 @@ fn move_files(
                 .rev()
                 .find(|s| s.files.iter().any(|f| root.join(&f.path) == file.path))
                 .map_or(FileStepKind::Reset, |s| s.kind);
+            let rel = || {
+                let rel = file.path.strip_prefix(root).unwrap_or(&file.path);
+                rel.to_string_lossy().replace('\\', "/")
+            };
             let why = match kind {
                 FileStepKind::Reset => side.changed_outside(crate::original::asset_label(*asset)),
-                FileStepKind::IdRename => {
-                    let rel = file.path.strip_prefix(root).unwrap_or(&file.path);
-                    side.changed_since_rename(&rel.to_string_lossy().replace('\\', "/"))
+                FileStepKind::Recipe => {
+                    side.changed_since_recipe(crate::original::asset_label(*asset))
+                }
+                FileStepKind::IdRename => side.changed_since_rename(&rel()),
+                FileStepKind::CompileState => {
+                    if crate::scripts::same_compile_state(found.as_deref(), expected) {
+                        continue;
+                    }
+                    side.compile_state_changed(&rel())
                 }
             };
             return Err(StepError::Drop(KernelError::Refused(why)));

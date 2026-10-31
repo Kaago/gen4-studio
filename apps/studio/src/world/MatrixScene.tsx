@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
-import type { MatrixDto } from "../api";
+import type { DraftDto, MatrixDto } from "../api";
 import type { Message } from "../app/message";
 import type { Tool } from "../ui/frame/shellState";
 import type { InspectorModel } from "../workbench/Inspector";
@@ -11,6 +11,7 @@ import type { EventLock, EventRef } from "./events";
 import { eventsNote } from "./scene/eventFetch";
 import type { MapBuildings, ReportEvents, TileClick } from "./scene/types";
 import { useBuildingRefresh, useEventRefresh, useMapModelRefresh, useMapRefresh } from "./scene/useRefreshQueues";
+import { useDraft } from "./scene/useDraft";
 import { useSceneLoader } from "./scene/useSceneLoader";
 import { useSceneRefs } from "./scene/useSceneRefs";
 import { useSceneSetup } from "./scene/useSceneSetup";
@@ -85,6 +86,8 @@ interface Props {
   onEventsLocked: (lock: EventLock | null) => void;
   /** The events an error finding of the checks hits; their markers show the error colour. Keeps its identity while it does not change. */
   faultyEvents: readonly EventRef[];
+  /** The planned cells, tiles and events of an open wizard (null: none); drawn dashed and half transparent, never replaced by a load. */
+  draft: DraftDto | null;
 }
 
 function MatrixScene({
@@ -117,6 +120,7 @@ function MatrixScene({
   onEventMoved,
   onEventsLocked,
   faultyEvents,
+  draft,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
@@ -161,9 +165,10 @@ function MatrixScene({
   useEventRefresh(refs, eventRefresh, reportEvents);
   usePermissionVisibility(refs, showPermissions);
   useEventVisibility(refs, showEvents);
+  const draftCount = useDraft(refs, draft, matrix, sceneBuilt);
 
   return (
-    <div className={styles.scene}>
+    <div className={styles.scene} data-draft="" data-draft-count={draftCount}>
       <div ref={host} className={styles.canvas} />
       {eventStatus && <div className={styles.status}>{eventStatus}</div>}
     </div>

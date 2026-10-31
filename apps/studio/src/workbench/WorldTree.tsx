@@ -5,6 +5,7 @@ import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
 import { useReset } from "../original/OriginalContext";
 import { resetEntry } from "../original/resetEntry";
+import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import { Icon, Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import type { IconName, MenuEntry } from "../ui/primitives";
@@ -328,7 +329,7 @@ const SEARCH_LIMIT = 100;
 
 /** "412 Byte" for a script source; the explorer's grey part says what a file is and which headers use it (Bauen: which places). */
 function fileDetails(f: ScriptFileDto, depth: Depth): string {
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   const word = tinker ? TERMS.header.plural : f.headers.length === 1 ? TERMS.place.label : TERMS.place.plural;
   const users = f.headers.length === 0 ? `ohne ${tinker ? TERMS.header.label : TERMS.place.label}` : `${word} ${f.headers.map(id4).join(", ")}`;
   return [f.kind === "binary" ? "binär" : null, `${f.size} Byte`, users].filter((part) => part !== null).join(" · ");
@@ -489,7 +490,7 @@ export function WorldTree({
   onRename,
   onOwner,
 }: WorldTreeProps) {
-  const tinker = depth === "tuefteln";
+  const tinker = depthAtLeast(depth, "tuefteln");
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
   const sorted = useMemo(() => (world === null ? null : sortWorld(world, sort, recent)), [world, sort, recent]);

@@ -10,6 +10,7 @@ import { disposeMarkers } from "../markers";
 import type { MarkerSet } from "../markers";
 import { disposeTree } from "../sceneUtil";
 import { focusHeight, topDownFrame } from "./camera";
+import { setDraft } from "./draft";
 import { snapshot } from "./snapshot";
 import type { Loaded } from "./types";
 
@@ -76,6 +77,10 @@ export class SceneHost {
   /** Holds the frame around the selected cell (see `showCellFrame`); it outlives the content of a matrix. */
   readonly cellFrame = new THREE.Group();
   private frame: THREE.Mesh | null = null;
+  /** The draft layer: what an open wizard plans, dashed and half transparent (see `setDraft`); the loaders never touch it. */
+  readonly draft = new THREE.Group();
+  /** How many cells, tiles and markers the draft layer draws. */
+  draftCount = 0;
   /** Re-resolves the tile under the pointer on the next frame (set by the setup effect). */
   refreshHover: (() => void) | null = null;
   /** A render is already queued for the next animation frame. */
@@ -100,6 +105,7 @@ export class SceneHost {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.scene.add(this.content);
     this.scene.add(this.cellFrame);
+    this.scene.add(this.draft);
 
     const resize = () => {
       const w = Math.max(el.clientWidth, 1);
@@ -230,11 +236,12 @@ export class SceneHost {
 
   /**
    * Frees everything the scene holds, in this order: the markers, the buildings (their templates),
-   * the resize observer and the controls, the content (terrain models, overlay), the renderer. The cell frame goes first.
+   * the resize observer and the controls, the content (terrain models, overlay), the renderer. The cell frame and the draft go first.
    */
   dispose() {
     this.disposed = true;
     this.setCellFrame(null);
+    setDraft(this, null, null);
     if (this.markers) disposeMarkers(this.markers);
     this.buildings?.dispose();
     this.observer.disconnect();

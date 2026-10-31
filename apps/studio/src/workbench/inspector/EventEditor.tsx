@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { getEvents, updateEvent } from "../../api";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, WarpDto } from "../../api";
 import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
@@ -11,15 +12,17 @@ import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { AddEvent } from "./AddEvent";
 import styles from "./Editor.module.css";
-import { EVENT_FIELDS, eventBackend, eventFieldSpecs } from "./eventFields";
+import { EVENT_FIELDS, eventBackend, eventFieldsAt, movementOptions } from "./eventFields";
 import { isDirty } from "./dirtyAssets";
 import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
+import { FigureLookField } from "./FigureLookField";
 import { EVENT_INSPECTOR_KIND, InspectorHead } from "./InspectorHead";
 import { destinationSpec, referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
 import { TrainerField } from "./TrainerField";
+import { WarpField } from "./WarpField";
 import { scriptTrainerLabel, trainerOfScript, trainerPatch } from "../trainerScript";
 import type { HeaderIdentity } from "../headerIdentity";
 
@@ -58,11 +61,15 @@ export interface EventEditorContext {
 }
 
 
+/** What Erzählen says instead of the fields of a trigger and a sign: their stories come with later phases. */
+const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schritt kommen mit 3d.7.", bg: "Der Text des Schilds kommt mit 3d.5." };
+
 /**
  * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
- * add and delete. Each committed field is one undoable change. Render it with `key` per (file, class, index): all
- * reads and writes of an instance belong to that one event (see `EditSession`). A locked event file is shown with
- * its reason and cannot be changed.
+ * add and delete. Erzählen shows only the fields from Erzählen, with pickers instead of numbers (a figure's look, movement,
+ * facing and trainer; a door's destination and door), and for a trigger and a sign what comes later. Each committed field
+ * is one undoable change. Render it with `key` per (file, class, index): all reads and writes of an instance belong to
+ * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
   const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError } = context;
@@ -135,8 +142,11 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
   const destinationTarget = destination?.target ?? null;
   // The head says what the scene hierarchy says: a door's destination by the world tree's name (Tüfteln: number and code), a trainer
   // figure by its trainer ("Objekt 0 · Wanderer Jens").
-  const destName = destHeader === undefined ? undefined : depth === "tuefteln" ? destHeader.internal_name : identify?.(destHeader).name;
+  const destName = destHeader === undefined ? undefined : depthAtLeast(depth, "tuefteln") ? destHeader.internal_name : identify?.(destHeader).name;
   const trainer = kind === "object" ? scriptTrainerLabel(trainers, (event as ObjectDto).script) : null;
+  const narrating = !depthAtLeast(depth, "bauen");
+  const specs = eventFieldsAt(kind, family, depth);
+  const later = narrating ? LATER[kind] : undefined;
   const headTitle = trainer !== null ? `Objekt ${index} · ${trainer}` : eventTitle(kind, event, depth, destName);
 
   return (
@@ -163,23 +173,37 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </Notice>
           </div>
         )}
+        {later !== undefined && (
+          <div className={styles.pad}>
+            <Notice kind="info">{later}</Notice>
+          </div>
+        )}
         <div key={refused}>
-          {eventFieldSpecs(kind, family).map((spec) => {
+          {specs.map((spec) => {
             const value = EVENT_FIELDS.value(event, spec.key);
             // An object's script may start a trainer battle: the field „Trainer“ follows the script.
             const trainerField =
               kind === "object" && spec.key === "script" && family !== "Dp" ? (
                 <TrainerField script={value} family={family} trainers={trainers} needTrainers={needTrainers} goTo={goTo} onPick={pickTrainer} disabled={readOnly} />
               ) : null;
+            if (narrating) {
+              // Erzählen: the script only as its trainer, the look as a sprite, the door below the destination.
+              if (spec.key === "script") return <Fragment key={spec.key}>{trainerField}</Fragment>;
+              if (spec.key === "dest_warp_id") return null;
+              if (spec.key === "graphics_id") {
+                return <FigureLookField key={spec.key} value={value} dir={EVENT_FIELDS.value(event, "dir")} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} />;
+              }
+            }
+            const options = narrating && spec.key === "movement_type" ? movementOptions(value) : spec.options;
             return (
               <Fragment key={spec.key}>
                 <InspectorRow label={spec.label}>
-                  {spec.options ? (
-                    <SelectField label={spec.label} value={value} options={spec.options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
+                  {options ? (
+                    <SelectField label={spec.label} value={value} options={options} disabled={readOnly} onChange={(next) => commit(spec.key, spec.label, next)} />
                   ) : (
                     <div className={styles.inline}>
                       <div className={styles.grow}>
-                        <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depth === "tuefteln"} />
+                        <NumberField label={spec.label} value={value} min={spec.min} max={spec.max} disabled={readOnly} onCommit={(n) => commit(spec.key, spec.label, n)} showBase={depthAtLeast(depth, "tuefteln")} />
                       </div>
                       {spec.key === "script" && (
                         <>
@@ -191,7 +215,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
                             size="s"
                             disabled={!scriptsAdopted || readOnly}
                             onClick={() => void newScript()}
-                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depth === "tuefteln" ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
+                            title={`Legt ein neues ${TERMS.script.label} in der ${TERMS.scriptFile.label} des ${depthAtLeast(depth, "tuefteln") ? "Headers" : "Ortes"} an und trägt die Nummer ein`}
                           >
                             Neues Script
                           </Button>
@@ -204,12 +228,13 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
               </Fragment>
             );
           })}
-          {!scriptsAdopted && eventFieldSpecs(kind, family).some((s) => s.key === "script") && (
+          {!scriptsAdopted && !narrating && specs.some((s) => s.key === "script") && (
             <p role="note" className={styles.note}>
               {ADOPT_HINT}
             </p>
           )}
-          {(kind === "object" || kind === "bg") && (
+          {/* The raw height is a Bauen row: Erzählen does not show numbers it cannot change. */}
+          {!narrating && (kind === "object" || kind === "bg") && (
             <InspectorRow label="y" hint="Nur lesbar: Die Höhe lässt sich hier nicht ändern; sie bleibt unverändert erhalten.">
               <span className={styles.mono}>{(event as ObjectDto | BgDto).y}</span>
             </InspectorRow>
@@ -229,6 +254,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </div>
           </InspectorRow>
         )}
+        {warp && narrating && <WarpField destHeader={destHeader} value={warp.dest_warp_id} disabled={readOnly} onCommit={(n) => commit("dest_warp_id", "Tür", n)} onError={onError} />}
         {warp && (
           <HeaderPicker
             open={picking}
@@ -238,7 +264,7 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             onPick={(id) => commit("dest_header_id", destinationField.label, id)}
           />
         )}
-        {depth === "tuefteln" && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
+        {depthAtLeast(depth, "tuefteln") && <TechnicalSection model={{ kind: "event", eventFile: file, eventKind: kind, index }} source={{ kind: "event", eventKind: kind, event, family }} />}
         <div className={styles.actions}>
           <AddEvent disabled={readOnly} onAdd={(k) => void onAdd(k)} />
         </div>

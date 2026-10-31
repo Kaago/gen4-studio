@@ -1411,7 +1411,69 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("git_commit_all"),
     },
+    // Recipes (3d.2).
+    ToolDef {
+        name: "recipe_list",
+        title: "List recipes",
+        description: "Lists the recipes (Rezepte: tasks in the words of the game, planned with \
+                      recipe_plan and applied with recipe_apply): id, title as the app shows \
+                      it and irreversible (applying it always does something undo does not \
+                      take back; for the others it depends on the input).",
+        input_schema: no_args,
+        output_schema: answers_array,
+        route: command("recipe_list"),
+    },
+    ToolDef {
+        name: "recipe_plan",
+        title: "Plan a recipe",
+        description: "Plans a recipe without writing: the cells, tiles, events and messages it \
+                      would make (a draft the app shows dashed) and what undo would not take \
+                      back. It runs the checks the application runs and refuses what the \
+                      application would refuse; a matrix of null is one the recipe creates. The answer has \
+                      cells, tiles, events, messages, notes (German sentences) and \
+                      irreversible.",
+        input_schema: recipe_args,
+        output_schema: answers_object,
+        route: command("recipe_plan"),
+    },
+    ToolDef {
+        name: "recipe_apply",
+        title: "Apply a recipe",
+        description: "Applies a recipe as one undo step and answers its outcome: report (as \
+                      create_area, create_room or extend_area answer it), created (the new \
+                      members, created first; they stay after undo), change, changed (every \
+                      asset to load again) and next (the recipes that make sense now, \
+                      available or with a reason). create_area/create_room with \
+                      header.allow_patch and empty_region cannot be undone completely (new \
+                      members stay); headless they need --allow-irreversible, without it the \
+                      call answers needs_confirmation. Not in g4_batch.",
+        input_schema: recipe_args,
+        output_schema: answers_object,
+        route: command("recipe_apply"),
+    },
 ];
+
+/// The arguments of `recipe_plan` and `recipe_apply`: the recipe and its input.
+fn recipe_args() -> Value {
+    let ids: Vec<Value> = g4_kernel::recipes::list()
+        .iter()
+        .map(|r| json!(r.id))
+        .collect();
+    object(
+        json!({
+            "recipe": {
+                "type": "string",
+                "enum": ids,
+                "description": "the recipe, as recipe_list returns in id",
+            },
+            "input": nested(
+                "the recipe's input: for create_area, create_room and extend_area the spec \
+                 their tools take; for empty_region nothing (absent or {})"
+            ),
+        }),
+        &["recipe"],
+    )
+}
 
 /// The arguments of `publish_patch`.
 fn publish_args() -> Value {
@@ -1687,6 +1749,8 @@ mod tests {
                 "external_changes",
                 "git_status",
                 "diff_entity",
+                "recipe_list",
+                "recipe_plan",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1738,6 +1802,7 @@ mod tests {
             "git_init",
             "publish_patch",
             "git_commit_all",
+            "recipe_apply",
         ]
         .into_iter()
         .collect();
@@ -1891,6 +1956,7 @@ mod tests {
             "git_init",
             "git_commit_all",
             "publish_patch",
+            "recipe_apply",
         ] {
             let description = tool(name).description;
             assert!(
@@ -1933,6 +1999,20 @@ mod tests {
         for arg in crate::mcp::symbolic::SYMBOLIC_ARGS {
             assert!(COMMANDS.contains(&arg.command), "{}", arg.command);
         }
+    }
+
+    #[test]
+    fn recipe_tools_offer_the_recipes_of_the_kernel() {
+        let ids: Vec<Value> = g4_kernel::recipes::list()
+            .iter()
+            .map(|r| serde_json::to_value(r.id).unwrap())
+            .collect();
+        for name in ["recipe_plan", "recipe_apply"] {
+            let schema = (tool(name).input_schema)();
+            assert_eq!(schema["properties"]["recipe"]["enum"], json!(ids), "{name}");
+            assert_eq!(schema["required"], json!(["recipe"]), "{name}");
+        }
+        assert_eq!((tool("recipe_list").input_schema)(), no_args());
     }
 
     #[test]
@@ -2120,6 +2200,15 @@ mod tests {
             ),
             // No repository: refused before git runs.
             ("git_commit_all", json!({ "message": "Stand" })),
+            ("recipe_list", json!({})),
+            (
+                "recipe_plan",
+                json!({ "recipe": "extend_area", "input": {
+                    "matrix": 0, "x": 2, "y": 0, "source_map": 0,
+                    "clear_buildings": false, "header_cell": null,
+                } }),
+            ),
+            ("recipe_apply", json!({ "recipe": "empty_region" })),
         ]
     }
 
