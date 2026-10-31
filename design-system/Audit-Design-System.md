@@ -19,7 +19,7 @@ Das Gerüst der Idee steht. Raster, Maße, Tokens, Schriften, Symbole und die Ko
 
 Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
 
-1. **Die Tiefe Erzählen fehlt.** Es gibt nur Bauen und Tüfteln, also keine Rezepte und keinen Einsteigermodus (bewusst, 3d).
+1. **Die Tiefe Erzählen ist nur zum Teil da.** Seit 3d.2 gibt es sie in der Welt (Rezept-Leiste, reduzierter Inspector, Entwurf der Assistenten in der Schau); andere Bereiche zeigen dort Bauen, und drei der fünf Rezepte sind gesperrt (bewusst, 3d.5 bis 3d.8).
 2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil, Kampfvorschau und Laden fehlen (bewusst, 3d).
 3. **Es gibt keinen Spielmodus.** „Hier spielen“ startet den Emulator extern; ein bernsteinfarbenes Scharnier mit Live-Flags gibt es nicht (bewusst, Phase 4).
 4. **Die zweite Sprachebene ist nur halb da.** Kennungen sind Nummern statt Symbolen. Räume heißen nach ihrem Kürzel (`T01R0102`), Event-Titel sind technisch („Objekt 2 · ID 2“), Grafik und Bewegung sind rohe Zahlen (Lücke).
@@ -50,11 +50,11 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Prinzip | Idee | App | Einordnung |
 |---|---|---|---|
 | Oben zeigen, unten anfassen | Die Schau zeigt, was der Spieler sieht | In Welt und Texte ja. In Pokémon und Gegenstände stehen in der Schau Datenkarten (Kopf, Werte, „Fundorte“, „Verwendet in“). DS-Bildschirme gibt es nur für Texte und Beschreibungen | bewusst (Spec 3b.3 „Später“: DS-Varianten 3d) |
-| Drei Tiefen | Erzählen, Bauen, Tüfteln | Nur Bauen und Tüfteln | bewusst (Spec 3c §7.7: „Erzählen ist kein Segment, bis es Rezepte gibt“) |
+| Drei Tiefen | Erzählen, Bauen, Tüfteln | Drei Segmente seit 3d.2; Erzählen nur in der Welt, sonst Bauen | bewusst (Spec 3d §1, §3.3; Geschichten 3d.6, Pokémon und Texte 3d.8) |
 | Zwei Sprachebenen | Schöpferwort vorne, technische Kennung grau | Umgesetzt in Referenzen, Brotkrume, Explorer (Tüfteln) und Glossar. Es fehlen: symbolische Kennungen (`SPECIES_STARAVIA`, die App nutzt `0397`), Klarnamen für Räume (`T01R0102`) und Events („Objekt 2 · ID 2“) und Picker für Grafik und Bewegung (rohe Zahlen) | Lücke; symbolische IDs bewusst Phase 4 |
 | RGB555 | Alle Farben DS-treu | Tokens ja. Die Ortsfarben in Explorer, Raster und Weltkarte sind HSL-Pastelle (`workbench/places.ts`, `placeColor`) | Lücke |
 | Nie nur Farbe | Status mit Symbol, Overlays mit Muster | Prüflicht, Prüfliste, Typ-Plaketten und Legende ja. Das Gelände-Overlay ist reine Farbfläche (42 %), die Marker sind Quader; nur Warps tragen die Fehlerfarbe, ohne Form | Overlay bewusst (Spec 3c §8.1, Phase 6); Marker Lücke |
-| Rezepte statt leerer Leinwand | Rezepte erzeugen normale Objekte | Rezepte fehlen. Die Assistenten erzeugen normale Objekte | bewusst (3d) |
+| Rezepte statt leerer Leinwand | Rezepte erzeugen normale Objekte | Rezept-Leiste in Erzählen mit „Gebiet anlegen“ und „Raum anlegen“; drei Rezepte gesperrt „Kommt mit 3d.5“. Die Assistenten zeigen ihren Entwurf in der Schau und im Ergebnis den nächsten Schritt als Taste | bewusst (3d.5) |
 | Wege statt Nummern | Referenzen mit „Verwendet in“ | Abschnitte „Verwendet in“ und „Fundorte“ gibt es. Das Rechtsklick-Menü der Referenz nutzt kein Editor; Scripts zählen nicht mit; viele Felder bleiben Zahlen (Ziel-Warp, Grafik, Lokale ID) | Lücke; Script-Referenzen bewusst später |
 | Reversibel sichtbar | Verlauf, „Nicht rückgängig“, Schnappschuss | Verlauf und Plaketten ja. Einen Schnappschuss vor Unumkehrbarem gibt es nicht. „Textarchiv anlegen“ schreibt ohne Plakette und ohne Rückfrage | Lücke |
 | Eine primäre Taste je Ansicht | Kobalt einmal | Eingehalten | – |
@@ -118,7 +118,8 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 |---|---|---|
 | Taste, Symboltaste, Tastenkürzel | umgesetzt | Kürzel ist Mono 12 auf `flaeche/deck`, ohne dicke Unterkante |
 | Eingabefeld, Zahlfeld, Auswahlfeld | umgesetzt | Feld 32 statt 28 hoch, Rand `linie/standard`. Das Zahlfeld hat links eine Griffleiste zum Ziehen; Dez/Hex nur in Tüfteln |
-| Schalter, Kästchen, Segmente | umgesetzt | Gewähltes Segment mit Kobalt-Text und Innenkante |
+| Schalter, Kästchen | umgesetzt | Gewähltes Segment mit Kobalt-Text und Innenkante (Segmente: nächste Zeile) |
+| Segmente | umgesetzt (3d.2) | Das Segment „Tiefe“ hat drei Optionen mit Wort und Symbol (Erzählen `narrate`, Bauen `build`, Tüfteln `tinker`); Erzählen gilt nur in der Welt, jeder andere Bereich zeigt dort Bauen, das Segment bleibt auf Erzählen. Die `.fig` kennt das noch nicht, die Frames folgen |
 | Reiter | umgesetzt | siehe Abschnitt 4, zwei Formen |
 | Referenz | umgesetzt | Pille (Radius 999) statt Radius 6; Kennung Mono dahinter; Rechtsklick „Verwendet in“ ungenutzt |
 | Zustand (Plakette) | erweitert | 12 statt 7 Arten, nur 16 px hoch |
@@ -133,7 +134,8 @@ Von den 30 Screens sind **10 umgesetzt, 10 teilweise und 10 offen**. Offen sind 
 | Titelleiste | umgesetzt (macOS) | Windows fehlt |
 | Atlas-Eintrag | erweitert | 64 hoch, Symbol 24, gesperrt, Kompakt |
 | Werkzeug-Taste | umgesetzt | 2 Spalten, Buchstabe oben rechts |
-| Rezept-Taste | **fehlt** | Tiefe Erzählen fehlt |
+| Rezept-Taste | umgesetzt (3d.2) | `RecipeButton`: Ruhe, Hover (`flaeche/deck`), Aktiv (`aria-pressed`), Gesperrt (Schloss, Grund im Tooltip und als Beschreibung, `text/deaktiviert`); Symbol auf einer Kachel in der Bereichsfarbe wie `Reference`; `data-recipe`. Die Namen `flaeche/hover` und `text/gedaempft` des Entwurfs gibt es nicht. In der Rezept-Leiste (fünf Tasten, drei gesperrt „Kommt mit 3d.5“) und im Ergebnis „Als Nächstes“. Die `.fig` kennt das noch nicht, die Frames folgen |
+| Entwurf | umgesetzt (3d.2) | Schicht der Schau: gestrichelte Zell- und Kachelrahmen in `szene/auswahl/halo` bei 50 %, halbtransparente Platzhaltermarker (Sprite erst mit 3d.5); `data-draft`, `data-draft-count`; Weltkarte und Raumplan `data-draft-cell` gestrichelt in `auswahl/kante`. Kein neues Token. Die `.fig` kennt das noch nicht, die Frames folgen |
 | Statusleiste | umgesetzt | Befundzahl, Build-Stand, Dichte-Taste |
 | Git in der Statusleiste | umgesetzt (4.4) | Kein Vorbild in der `.fig`. Rechts nach der Befundzahl: leise Taste S mit Symbol `git` (Phosphor `GitBranch`), „main · 3 Änderungen“, „main · noch kein Commit“, „4c1d2e3 (losgelöst) · …“, „Git: nicht lesbar“; ohne Repository kein Element; Klick öffnet Technik › Änderungen gegen den letzten Commit. Zählt Dateien wie `git status`, Technik zählt Einträge (Plan „Zahl der Änderungen“, bewusst); „Dateien“ steht nur im Tooltip. In der `.fig` seit 29.10.2026: in den Frames „App: Technik, Änderungen gegen letzten Commit“ und „… Änderung einer Nachricht“ und mit vier Zuständen im Brett „Komponenten (App): Änderungstabelle und Git“ |
 | DS-Bildschirm | umgesetzt | Kartenbild des Orts als Hintergrund, Steuercodes als Plaketten |

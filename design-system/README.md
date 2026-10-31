@@ -256,11 +256,11 @@ Umgesetzt:
 - Assistenten als Schrittleiste im Scharnier, der Schritt im Streifen unter dem Dock (bis 3e.4 in der Hand); Zusammenfassung mit „Nicht rückgängig“, Ergebnis mit „Zeigen“, „Hier spielen“ und „Schließen“.
 - Start („Willkommen zurück“ mit den zuletzt geöffneten Projekten), Technik (Prüfen und Bauen, seit 4.1a Veröffentlichen, Patches, Emulator, Werkzeuge), Einstellungen (Darstellung, Emulator, Tastenkürzel, seit 3h.3 Agenten); Hilfe öffnet das Glossar als Dialog.
 - Lokale Agenten (Phase 3h.3, siehe „Nachtrag 3h“): die Spalte Agenten in Einstellungen mit Schalter, Zeile des Servers, Einrichtungszeile mit Kopiertaste und Freigabe je Projekt als Segmente; in der Statusleiste die Agenten-Zeile mit Menü „Nur lesen“ und „Trennen“; der Dialog der Nachfrage; Agenten-Schritte im Verlaufsmenü mit Roboter-Symbol und Client-Namen.
-- Tiefe Tüfteln: Rohwerte und Hex im Inspector, Kennungen im Explorer, Header-ID und Höhe im Raster mit Rohdaten der Zeile, Dateipfade in Probleme und Script.
+- Die drei Tiefen: Erzählen (seit 3d.2, nur in der Welt: Rezept-Leiste, Inspector mit Auswahl statt Zahlen, Entwurf der Assistenten in der Schau, Ergebnis mit nächstem Schritt als Taste), Bauen und Tüfteln. Tiefe Tüfteln: Rohwerte und Hex im Inspector, Kennungen im Explorer, Header-ID und Höhe im Raster mit Rohdaten der Zeile, Dateipfade in Probleme und Script.
 - Die Regeln aus diesem README prüft das Gate: `check-tokens.sh` (Raster, Kontraste, eingecheckte Dateien gleich frischem Export) und `check-styles.sh` (keine Hex-Farben, keine Primitive, keine Inline-Styles außer `/* dyn */`; die Ausnahmeliste `scripts/check-styles.allow` ist leer).
 
 Abweichungen vom Design-System, bewusst oder bis auf Weiteres:
-- Die Tiefe Erzählen fehlt (nur Bauen und Tüfteln), ebenso die Live-Vorschau der Assistenten in der Schau und das Rezept-Ergebnis „nächster sinnvoller Schritt“ als Taste (das Ergebnis nennt ihn als Text).
+- Die Tiefe Erzählen gibt es seit 3d.2 nur im Bereich Welt (jeder andere Bereich zeigt dort Bauen; Geschichten 3d.6, Pokémon und Texte 3d.8). Drei der fünf Rezepte der Leiste sind gesperrt („Kommt mit 3d.5“), Musik ist ein Zahlfeld ohne Picker (keine Namenstabelle, 3d.8), der Entwurfsmarker zeigt erst mit 3d.5 ein Sprite, und die `.fig` kennt die Frames noch nicht (siehe „Nachtrag 3d.2“).
 - Windows: keine eigenen Fensterknöpfe und kein eigenes Menü; die Titelleiste liegt unter der Systemleiste.
 - Technik › Werkzeuge zeigt den Zustand von apicula und rotom-lsp, aber keinen Pfad (kein Befehl liefert ihn).
 - Die Archivliste der Texte nennt die Zahl der Nachrichten nur am geladenen Archiv.
@@ -622,3 +622,81 @@ Die Screenshots zeigen echte Werte des Testprojekts (Platin DE), die Frames Beis
   - **Blick für den Nutzer:** Die Flächen der Spannen sind in Dunkel kaum vom Grund der Karte zu unterscheiden (`status/erfolg-flaeche` auf `flaeche/blatt` 1,23 : 1, `status/fehler-flaeche` 1,35 : 1; in Hell 1,13 und 1,18 : 1, dort aber sichtbar). Es tragen die Unter- und Durchstreichung, also ist es nicht nur Farbe. Ob die Flächen kräftiger werden, entscheidet der Nutzer am Bild: `blick-klon-commit-text-dunkel.png`, `blick-aenderungen-commit-textarchiv-dunkel.png`.
   - Im Browser-Modus (Brücke) fehlen die Phasen des Einrichtens und Vervollständigens (wie 4.1b und 4.3b): der Dialog zeigt nur die erste Phase.
   - Die `.fig` kennt keinen dieser Zustände (siehe `openpencil/NACHTRAG-4-4.md`).
+
+## Nachtrag 3d.2
+
+Phase 3d.2 „Erzählen-Rahmen“ (Stand 31.10.2026): Die Tiefe bekommt ihren dritten Wert. Das Scharnier trägt die Segmente „Tiefe“ mit Erzählen, Bauen und Tüfteln. Erzählen gibt es nur im Bereich Welt; jeder andere Bereich zeigt dort Bauen, während das Segment auf Erzählen stehen bleibt. In Erzählen steht über der Schau die Rezept-Leiste statt der Werkzeugleiste, der Inspector zeigt je Art nur die Felder der Erzählensicht mit Auswahl statt Zahlen, und ein Assistent zeigt seinen Entwurf als Schicht in der Schau, bevor er etwas anlegt. Das Ergebnis eines Assistenten nennt den nächsten sinnvollen Schritt als Rezept-Taste.
+
+Quelle: `apps/studio/src/ui/frame/{shellState,Hinge,RecipeBar}.tsx` (und `.module.css`), `ui/primitives/RecipeButton.tsx` (und `.module.css`), `workbench/recipes.ts`, `workbench/SceneOverlays.tsx` (schaltet Werkzeugleiste und Rezept-Leiste um), `workbench/inspector/{fields,eventFields,headerSections}.ts`, `workbench/inspector/{EventEditor,FigureLookField,LookField,WarpField}.tsx`, `world/scene/draft.ts` (Schicht „Entwurf“), `world/MatrixScene.tsx` (`data-draft`), `workbench/AreaGrid.tsx` (`data-draft-cell`), `workbench/wizards/{WizardResult,DraftNotes,useDraftPlan}`. Plan: [docs/superpowers/plans/2026-10-30-phase-3d-2-erzaehlen-rahmen.md](../docs/superpowers/plans/2026-10-30-phase-3d-2-erzaehlen-rahmen.md) (Entscheidungen „Tiefe als Wert“, „Rezepte als Kernelmodul“, „Entwurf als Schicht“). Gate: `docs/phase-3d-2-gate.md` (entsteht mit dem Gate).
+
+Neue Tokens gibt es nicht. Der Entwurf nutzt `szene/auswahl/halo`, gestrichelt und bei 50 % Deckkraft; die Taste nutzt die vorhandenen Flächen und Kanten. Zwei Namen des Entwurfs gibt es nicht, darum stehen andere im Code: für den Hover der Taste `flaeche/deck` (nicht `flaeche/hover`) und für den Text der gesperrten Taste `text/deaktiviert` (nicht `text/gedaempft`). Neu ist ein Symbol: `narrate` (Phosphor `BookOpenText`, in der Vorlage `ph:book-open-text`) für das Segment „Erzählen“.
+
+Die Frames von 3d.2 stehen noch nicht in `Editor_DesignSystem.fig`: Die `.fig` kennt das noch nicht, die Frames folgen (OpenPencil war beim Schreiben dieses Nachtrags nicht erreichbar, Verbindungsfehler). Die Vorlage `openpencil/beispiele/erzaehlen-rahmen.body.js` (Modi `inspector`, `entwurf`, `brett`) und die Anleitung [`openpencil/NACHTRAG-3d-2.md`](openpencil/NACHTRAG-3d-2.md) liegen bereit.
+
+Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate-2026-10-31/3d-2/` (1440 × 900, nicht im Repo; sie entstehen im Lauf des Gates, die Liste mit Namen steht im Gate-Bericht). Sie zeigen echte Werte des Testprojekts (Platin DE), die Frames Beispielwerte.
+
+- **Segmente „Tiefe“** (`Segmented`, Name „Tiefe“, im Scharnier, `ui/frame/Hinge.tsx`): drei Optionen mit Wort und Symbol, nie nur Symbol.
+
+  | Option | Symbol | Wort |
+  |---|---|---|
+  | Erzählen | `narrate` (neu) | „Erzählen“ |
+  | Bauen | `build` | „Bauen“ |
+  | Tüfteln | `tinker` | „Tüfteln“ |
+
+  Gewählt ist wie bei jedem Segment die Fläche des Segments mit Innenkante und gefülltem Symbol. Die Wahl gilt für die ganze App und wird gemerkt. Der Bereich rechnet daraus, was er zeigt (`viewDepth(area, depth)`): Erzählen nur in einem Bereich der Liste `NARRATING_AREAS` (heute nur Welt), in jedem anderen Bauen. Das Segment bleibt dabei auf Erzählen stehen und wird nicht zurückgestellt; wechselt man zurück in die Welt, ist Erzählen wieder da. Ein Wert ist mindestens eine Tiefe, wenn er sie oder eine tiefere ist (`depthAtLeast`): Bauen ist mindestens Erzählen, Tüfteln ist mindestens beides.
+- **Rezept-Taste** (`RecipeButton`, neuer Baustein in `ui/primitives`, `data-recipe`): ein Rezept als Taste. Links das Symbol auf einer Kachel in der Farbe des Bereichs (`bereich/<bereich>-flaeche`, wie bei `Reference`), rechts der Name (`text/s` 600, ein Rezept ist ein Wort, nie nur ein Buchstabe). Höhe `dichte/werkzeug` (Größe M) oder `dichte/steuer` (Größe S, im Ergebnis), Fläche `flaeche/blatt`, Kante `linie/leise`, Radius `radius/taste`.
+
+  | Zustand | Aussehen |
+  |---|---|
+  | Ruhe | Kante `linie/leise`, Fläche `flaeche/blatt` |
+  | Hover | Kante `linie/standard`, Fläche `flaeche/deck` |
+  | Aktiv (`aria-pressed`) | Kante `auswahl/kante`, Fläche `auswahl/flaeche`, Text `akzent/text`, Symbol gefüllt |
+  | Gesperrt | `disabled`, Name und Kachel in `text/deaktiviert` ohne die Farbe des Bereichs, dahinter ein Schloss (`lock`, nie nur Farbe); der Grund steht im Tooltip und als Beschreibung (`aria-describedby`) |
+
+  Der Tooltip hat zwei Zeilen: den Namen und darunter, was das Rezept macht, bei einer gesperrten Taste stattdessen den Grund. Eine gesperrte Taste nimmt den Fokus nicht; ihre Hülle nimmt den Zeiger für den Tooltip. Nur eine Taste, die läuft, gehört zum Tabstopp einer Leiste (`data-roving`).
+- **Rezept-Leiste** (`RecipeBar`, `ui/frame/RecipeBar.tsx`, `role="toolbar"`, Name „Rezepte“): In Erzählen steht sie über der 3D-Schau an der Stelle der Werkzeugleiste, mit demselben Blatt, derselben Kante, demselben Schatten und derselben Lage (links senkrecht, oben oder unten waagerecht; verschieben lässt sie sich nur in Bauen, über die Werkzeugleiste). Fünf Tasten der Größe M, in dieser Reihenfolge:
+
+  | Taste | Symbol | Bereich | Zustand | Tooltip, zweite Zeile |
+  |---|---|---|---|---|
+  | Gebiet anlegen | `matrix` | Welt | läuft, öffnet den Assistenten | „Kopiert Karten zu einem neuen Gebiet mit eigenem Ort.“ |
+  | Raum anlegen | `room` | Welt | läuft, öffnet den Assistenten (mit der gewählten Tür nach draußen) | „Kopiert einen Raum und verbindet ihn mit einer Tür nach draußen.“ |
+  | Neue Figur | `figure` | Welt | gesperrt | „Kommt mit 3d.5“ |
+  | Tür verbinden | `door` | Welt | gesperrt | „Kommt mit 3d.5“ |
+  | Neuer Trainer hier | `pokemon` | Pokémon | gesperrt | „Kommt mit 3d.5“ |
+
+  Die Werkzeug-Buchstaben (V, B, F, T, A, S, G) sind in Erzählen stumm. Beim Wechsel nach Erzählen springt das Werkzeug auf „Auswählen“; ein Werkzeug, das man dort über „+“ gewählt hat, bleibt gewählt.
+- **Entwurf-Schicht** (`world/scene/draft.ts`, eigene Gruppe der Schau, die kein Lader anfasst): Solange ein Assistent in der Welt offen ist und einen Entwurf hat, zeigt die Schau, was er anlegen würde, als geplant:
+  - **Zellrahmen:** gestrichelt (Strich 1, Lücke 0,5 Kachel), in `szene/auswahl/halo` bei 50 % Deckkraft, um jede geplante Zelle der Weltkarte. Gestrichelt in der Auswahlfarbe heißt „geplant“, nie durchgezogen wie das Vorhandene.
+  - **Kachelrahmen:** 1 × 1, gleich gestrichelt, um jede geplante Kachel (zum Beispiel die Tür).
+  - **Marker:** halbtransparent (50 %), mit dem Platzhalter der Art des Markers (Figur, Tür, Auslöser, Schild). Ein Sprite gibt es erst mit 3d.5; heute ist es der Platzhalter.
+  - **Prüfzeichen:** das Panel der Schau trägt `data-draft` und `data-draft-count` (Zahl der gezeichneten Rahmen und Marker), `0` ohne Entwurf.
+  - **Weltkarte und Raumplan:** `AreaGrid` zeichnet geplante Zellen mit `data-draft-cell` (Wert „x,y“), gestrichelt in `auswahl/kante` (Linienstärke `strich/fokus`).
+  - **Aufräumen:** Der Entwurf verschwindet mit dem Assistenten; „Abbrechen“ löscht ihn ebenfalls.
+- **Erzählen-Inspector** (`from: "erzaehlen"` an den Feldern, `shownFields` filtert): Er zeigt je Art nur diese Felder, mit Auswahl und Wörtern statt Zahlen. Tabelle:
+
+  | Art | Felder in Erzählen |
+  |---|---|
+  | Figur | „Aussehen“ (Sprite des Aussehens in der Blickrichtung der Figur, „Ändern…“ öffnet den Picker „Aussehen wählen“), „Bewegung“ (Auswahlfeld mit den Wörtern aus `MOVEMENT_WORDS`, „Steht still“, „Geht umher“, „Folgt dem Spieler“ …; ein Wert ohne Wort heißt „Bewegung 33“), „Blickrichtung“, „Trainer“ (folgt dem Script der Figur) |
+  | Tür | „Ziel“ (Referenz mit Weg, „Ändern…“) und „Tür“ (`WarpField`: „Tür 2 · x 107, z 873“, „Ändern…“ öffnet „Tür wählen“ mit den Türen des Ziels) |
+  | Schild | der Satz „Der Text des Schilds kommt mit 3d.5.“, keine Felder |
+  | Auslöser | der Satz „Geschichte und Schritt kommen mit 3d.7.“, keine Felder |
+  | Gebiet, Raum | ein Abschnitt „Ort“ mit „Ort“ (Name), „Aussehen“ (`LookField`, das Kartenbild des Aussehens wie im Assistenten), „Musik (Tag)“ und „Musik (Nacht)“ |
+
+  Nicht in Erzählen: Position (x, z), Lokale ID, Sichtlinie und Sichtweite und alle Felder ohne Erzählensicht (Karten, Texte und Scripts, Wetter, Kamera). Die Musik sind Zahlfelder ohne die Umschalter „Dez | Hex“ (der Umschalter gehört Tüfteln). Bauen und Tüfteln zeigen die Felder wie bisher.
+- **Zusammenfassung der Assistenten:** Die Sätze des Kerns („Legt Header 598 an …“) stehen nur in Tüfteln; sie sind in dessen Wörtern geschrieben. Bauen und Erzählen behalten die eigenen Zeilen des Assistenten. In jeder Tiefe zeigt ein gescheiterter Entwurf die Warnung „Vorschau nicht möglich: {Grund}“ (`Notice`, Warnung); das Anlegen bleibt möglich, es antwortet mit seiner eigenen Ablehnung.
+- **Ergebnis mit nächstem Schritt** (`DoneResult`, `data-next-steps`): Unter der Erfolgsmeldung steht die Überschrift „Als Nächstes“ (`text/s` 600, sekundär) und darunter die Rezepte als Tasten der Größe S, danach die Zeilen als Text. Die Schritte nennt der Kern (`next_steps`). Eine Taste, die läuft, öffnet das Rezept (wie die Leiste); eine, die es noch nicht gibt, ist gesperrt und sagt warum:
+
+  | Nach | Tasten |
+  |---|---|
+  | Gebiet anlegen | „Tür verbinden“ (gesperrt, „Kommt mit 3d.5“), „Neue Figur hier“ (gesperrt, „Kommt mit 3d.5“) |
+  | Raum anlegen | „Neue Figur hier“ (gesperrt, „Kommt mit 3d.5“) |
+  | Gebiet erweitern | „Gelände anpassen“ (gesperrt, „Kommt mit Phase 6“) |
+  | Welt leeren | „Gebiet anlegen“ (läuft) |
+
+- **Abweichungen und offene Punkte:**
+  - **Musik ohne Picker:** „Musik (Tag)“ und „Musik (Nacht)“ sind Zahlfelder; eine Namenstabelle der Stücke gibt es nicht und kommt mit 3d.8.
+  - **Erzählen nur in der Welt:** Geschichten (3d.6), Pokémon und Texte (3d.8) bekommen ihre Erzählensicht mit ihren Phasen; bis dahin zeigen sie Bauen.
+  - **Sprite im Entwurfsmarker erst mit 3d.5:** Der Marker zeigt den Platzhalter seiner Art, halbtransparent, kein Aussehen.
+  - **Drei Tasten gesperrt:** „Neue Figur“, „Tür verbinden“ und „Neuer Trainer hier“ warten auf 3d.5.
+  - **Namen des Entwurfs:** `flaeche/hover` und `text/gedaempft` gibt es als Token nicht; der Code nimmt `flaeche/deck` und `text/deaktiviert`. Die Vorlage folgt dem Code.
+  - **Die `.fig` kennt das noch nicht, die Frames folgen** (siehe `openpencil/NACHTRAG-3d-2.md`).
