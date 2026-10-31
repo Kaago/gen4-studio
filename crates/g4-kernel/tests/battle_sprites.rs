@@ -16,7 +16,7 @@ use g4_formats::ncgr::{Direction, Ncgr, TileMode};
 use g4_formats::nclr::Nclr;
 use g4_formats::test_support::ncgr_bytes;
 use g4_kernel::data::battle_sprites::{
-    BattleSpriteCache, Side, SpriteRequest, SpriteSlots, battle_sprite, directions,
+    BattleSpriteCache, FEMALE_ONLY, Side, SpriteRequest, SpriteSlots, battle_sprite, directions,
     form_of_personal, form_sprite, forms, pokemon_member, sprite_slots, trainer_sprite,
 };
 use g4_kernel::project::{AssetKind, Project};
@@ -61,6 +61,9 @@ fn colour(rgba: &[u8]) -> [u8; 3] {
     assert_eq!(colours.len(), 1, "{colours:?}");
     colours[0]
 }
+
+/// A gender ratio that is neither female only nor genderless (half female).
+const EVEN: u8 = 127;
 
 fn request(species: u16, side: Side, female: bool) -> SpriteRequest {
     SpriteRequest {
@@ -163,14 +166,14 @@ fn an_empty_female_slot_falls_back_to_the_male_image() {
         assert_eq!(female, male, "{side:?}");
     }
     assert_eq!(
-        sprite_slots(&p, 2).unwrap(),
+        sprite_slots(&p, 2, EVEN).unwrap(),
         Some(SpriteSlots {
             female: false,
             male: true
         })
     );
     assert_eq!(
-        sprite_slots(&p, 1).unwrap(),
+        sprite_slots(&p, 1, EVEN).unwrap(),
         Some(SpriteSlots {
             female: true,
             male: true
@@ -296,7 +299,7 @@ fn an_unverified_family_gives_no_sprite() {
     assert_eq!(battle_sprite(&p, deoxys_attack).unwrap(), None);
     assert_eq!(form_sprite(Family::Dp, 386, 1), None);
     assert_eq!(trainer_sprite(&p, 1).unwrap(), None);
-    assert_eq!(sprite_slots(&p, 1).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 1, EVEN).unwrap(), None);
     let mut cache = BattleSpriteCache::new();
     assert_eq!(
         cache
@@ -317,7 +320,7 @@ fn without_the_archive_there_is_no_sprite() {
         None
     );
     assert_eq!(trainer_sprite(&p, 1).unwrap(), None);
-    assert_eq!(sprite_slots(&p, 1).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 1, EVEN).unwrap(), None);
 }
 
 #[test]
@@ -479,8 +482,66 @@ fn an_unknown_form_falls_back_to_the_base_species() {
             assert_eq!(battle_sprite(&p, unknown).unwrap(), expected, "{unknown:?}");
         }
     }
-    // A form beyond the table of a species with forms (Deoxys has 1 to 3) is no form either.
+    // A form beyond the table of a species with forms (Deoxys has 1 to 3) is no form either:
+    // it shows form 0 of the table, as the game shows a form index out of range.
     assert_eq!(form_sprite(Family::Pt, 386, 4), None);
+    let form0 = SpriteRequest {
+        species: 386,
+        ..request(0, Side::Front, false)
+    };
+    let expected = battle_sprite(&p, form0).unwrap();
+    assert!(expected.is_some());
+    assert_eq!(
+        battle_sprite(&p, SpriteRequest { form: 4, ..form0 }).unwrap(),
+        expected
+    );
+}
+
+/// Form 0 of a species with forms comes from the form table too (the game draws such a
+/// species only from `otherPokemonBattleSprites`), never from `pokemonBattleSprites`.
+#[test]
+fn form_zero_of_a_species_with_forms_comes_from_the_other_archive() {
+    let (_s, p) = synthetic();
+    let entry = form_sprite(Family::Pt, 386, 0).unwrap();
+    assert_eq!(
+        (entry.back, entry.front, entry.palette),
+        (Some(0), Some(1), 154)
+    );
+    let front = SpriteRequest {
+        species: 386,
+        ..request(0, Side::Front, false)
+    };
+    let png = battle_sprite(&p, front).unwrap().unwrap();
+    let (_, _, rgba) = decode(&png);
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS + 1, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 255, 0]);
+    let female = SpriteRequest {
+        female: true,
+        ..front
+    };
+    assert_eq!(battle_sprite(&p, female).unwrap(), Some(png));
+    let back = SpriteRequest {
+        side: Side::Back,
+        shiny: true,
+        ..front
+    };
+    let (_, _, rgba) = decode(&battle_sprite(&p, back).unwrap().unwrap());
+    assert_eq!(
+        opaque(&rgba),
+        fixture_opaque(common::OTHER_SPRITE_PIXELS, 0)
+    );
+    assert_eq!(colour(&rgba), [255, 0, 255]);
+    // An unreadable form 1 image falls back to form 0 of the table.
+    let dir = unpacked(&p, AssetKind::OtherPokemonBattleSprites);
+    std::fs::write(dir.join("0003"), []).unwrap();
+    let attack = SpriteRequest { form: 1, ..front };
+    assert_eq!(
+        battle_sprite(&p, attack).unwrap(),
+        battle_sprite(&p, front).unwrap()
+    );
 }
 
 #[test]
@@ -495,13 +556,15 @@ fn without_the_other_archive_a_form_has_no_image_and_no_error() {
         species: 496,
         ..request(0, Side::Front, false)
     };
-    // The base form (Deoxys, 386) is not in the synthetic archive either.
+    // Form 0 of the table lies in the removed archive too, and Deoxys (386) is not in the
+    // synthetic `pokemonBattleSprites`.
     assert_eq!(battle_sprite(&p, front).unwrap(), None);
 }
 
 /// A personal member 494 to 507 has the slots of its form table entry, as `battle_sprite`
 /// draws it from there: no form has female images, so a form with an image is male only.
-/// Without an image of its own (and without its base form) there are no slots.
+/// Without an image of its own it has those of form 0 of the table; without that (and without
+/// the species in `pokemonBattleSprites`) there are no slots.
 #[test]
 fn sprite_slots_of_a_personal_form_come_from_the_form_table() {
     let (s, p) = synthetic();
@@ -512,17 +575,26 @@ fn sprite_slots_of_a_personal_form_come_from_the_form_table() {
     // Deoxys, Attack Forme (real front and back), the egg (front only) and Rotom, Heat
     // (stubs of the measured layout: members, though no images).
     for personal in [496, 494, 503] {
-        assert_eq!(sprite_slots(&p, personal).unwrap(), male_only, "{personal}");
+        assert_eq!(
+            sprite_slots(&p, personal, EVEN).unwrap(),
+            male_only,
+            "{personal}"
+        );
     }
-    // The form's members empty: the base form (Deoxys, 386) is not in the synthetic archive,
-    // so no slots, like no image; the egg has no base form at all.
+    // The form's members empty: form 0 of the table (members 0 and 1) gives the slots.
     let dir = unpacked(&p, AssetKind::OtherPokemonBattleSprites);
     for member in ["0002", "0003", "0132"] {
         std::fs::write(dir.join(member), []).unwrap();
     }
-    assert_eq!(sprite_slots(&p, 496).unwrap(), None);
-    assert_eq!(sprite_slots(&p, 494).unwrap(), None);
-    assert_eq!(sprite_slots(&p, 503).unwrap(), male_only);
+    assert_eq!(sprite_slots(&p, 496, EVEN).unwrap(), male_only);
+    // Form 0 empty too: Deoxys (386) is not in the synthetic `pokemonBattleSprites`, so no
+    // slots, like no image; the egg has no base form at all.
+    for member in ["0000", "0001"] {
+        std::fs::write(dir.join(member), []).unwrap();
+    }
+    assert_eq!(sprite_slots(&p, 496, EVEN).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 494, EVEN).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 503, EVEN).unwrap(), male_only);
     // Without the form archive: none either.
     std::fs::remove_dir_all(&dir).unwrap();
     let packed = p
@@ -530,9 +602,41 @@ fn sprite_slots_of_a_personal_form_come_from_the_form_table() {
         .packed(AssetKind::OtherPokemonBattleSprites)
         .unwrap();
     std::fs::remove_file(s.dir.path().join(packed)).unwrap();
-    assert_eq!(sprite_slots(&p, 503).unwrap(), None);
+    assert_eq!(sprite_slots(&p, 503, EVEN).unwrap(), None);
     // A plain species is unchanged.
-    assert_eq!(sprite_slots(&p, 2).unwrap(), male_only);
+    assert_eq!(sprite_slots(&p, 2, EVEN).unwrap(), male_only);
+}
+
+/// A form of a female-only species (Wormadam, gender ratio 254) has one image, and it is the
+/// female one: female slots only, so the view shows "only female". Every other gender ratio
+/// keeps the form male only; slots with a female image stay as they are.
+#[test]
+fn a_female_only_form_has_female_slots() {
+    let (_s, p) = synthetic();
+    let female_only = Some(SpriteSlots {
+        female: true,
+        male: false,
+    });
+    let male_only = Some(SpriteSlots {
+        female: false,
+        male: true,
+    });
+    assert_eq!(sprite_slots(&p, 496, FEMALE_ONLY).unwrap(), female_only);
+    for ratio in [0, EVEN, 255] {
+        assert_eq!(sprite_slots(&p, 496, ratio).unwrap(), male_only, "{ratio}");
+    }
+    // Form 0 of a species with forms alike (Deoxys, 386, as a stand-in for Wormadam).
+    assert_eq!(sprite_slots(&p, 386, FEMALE_ONLY).unwrap(), female_only);
+    // Species 1 has female images of its own: unchanged. Species 2 has none: the rule holds for
+    // any member, its one image is the female one.
+    assert_eq!(
+        sprite_slots(&p, 1, FEMALE_ONLY).unwrap(),
+        Some(SpriteSlots {
+            female: true,
+            male: true
+        })
+    );
+    assert_eq!(sprite_slots(&p, 2, FEMALE_ONLY).unwrap(), female_only);
 }
 
 /// Every member of the form table is an image or a palette of the measured layout of its
@@ -602,6 +706,9 @@ fn every_form_entry_names_existing_members_on_the_fixture_layout() {
 #[test]
 fn hgss_has_its_own_form_table() {
     assert_eq!(form_sprite(Family::Pt, 172, 1), None);
+    assert_eq!(form_sprite(Family::Pt, 172, 0), None);
+    let pichu = form_sprite(Family::Hgss, 172, 0).unwrap();
+    assert_eq!((pichu.front, pichu.palette), (Some(155), 252));
     assert_eq!(form_sprite(Family::Pt, 386, 1).unwrap().palette, 154);
     assert_eq!(form_sprite(Family::Hgss, 386, 1).unwrap().palette, 158);
     let s = common::synthetic_hgss_project(&["A"], 1);
@@ -643,6 +750,9 @@ struct Expected {
     pokemon: usize,
     forms: usize,
     trainers: usize,
+    /// The species whose form 0 entry draws the same four images (front and back, normal and
+    /// shiny, left half) as the species in `pokemonBattleSprites` (3d.3 final review).
+    form0_like_pokegra: &'static [u16],
 }
 
 const EXPECTED: [Expected; 3] = [
@@ -651,20 +761,28 @@ const EXPECTED: [Expected; 3] = [
         pokemon: 1812,
         forms: 157,
         trainers: 105,
+        form0_like_pokegra: &FORM0_LIKE_POKEGRA,
     },
     Expected {
         code: "IPKD",
         pokemon: 1812,
         forms: 161,
         trainers: 129,
+        form0_like_pokegra: &FORM0_LIKE_POKEGRA,
     },
     Expected {
         code: "IPKE",
         pokemon: 1812,
         forms: 161,
         trainers: 129,
+        form0_like_pokegra: &FORM0_LIKE_POKEGRA,
     },
 ];
+/// The species whose form 0 in `otherPokemonBattleSprites` draws like `pokemonBattleSprites`
+/// (left halves, both palettes), the same in every measured game: Unown, Castform, Rotom and
+/// Giratina. The others differ (Deoxys, Burmy, Wormadam, Shellos, Gastrodon, Cherrim, Arceus,
+/// Shaymin; in HGSS Pichu too).
+const FORM0_LIKE_POKEGRA: [u16; 4] = [201, 351, 479, 487];
 /// Images whose four corners of both halves are transparent, at least.
 const CORNERS_MIN: usize = 1778;
 /// Palette members (slots 4 and 5) with exactly one palette of 16 colours: 494 x 2.
@@ -833,11 +951,39 @@ fn vanilla_every_battle_sprite_decodes_with_the_measured_counts() {
     assert_eq!(palettes16, PALETTES16);
 }
 
+/// The left half of the image of `species` in `pokemonBattleSprites` (male or only slot, else
+/// the female one) as the kernel would draw it there, as PNG.
+fn pokegra_png(
+    mons: &[Vec<u8>],
+    species: u16,
+    side: Side,
+    shiny: bool,
+    direction: Direction,
+) -> Option<Vec<u8>> {
+    let own = usize::from(pokemon_member(species, side, false));
+    let other = usize::from(pokemon_member(species, side, true));
+    let graphic = [own, other]
+        .into_iter()
+        .map(|m| &mons[m])
+        .find(|b| !b.is_empty())?;
+    let ncgr = read_image(graphic, direction, &format!("pokemon {species}"));
+    let palette = Nclr::read(&mons[6 * usize::from(species) + 4 + usize::from(shiny)]).unwrap();
+    let rgba = g4_formats::ncgr::render_rgba(&ncgr, &palette.palettes[0]);
+    let (rows, _) = rgba.as_chunks::<{ 160 * 4 }>();
+    let left: Vec<u8> = rows.iter().flat_map(|row| row[..80 * 4].to_vec()).collect();
+    Some(g4_kernel::data::icons::png(&left, 80, 80).unwrap())
+}
+
 /// Every image of `otherPokemonBattleSprites` reads as a linear 160 x 80 image with few areas,
 /// every palette as one palette of 16 colours, and every member of the form table has the
-/// right magic. Each form of the table renders, differs from its base form, and a personal
-/// member (496 to 507, the egg) renders the same as its species and form and has male slots
-/// only.
+/// right magic. Each form of the table renders; a form other than 0 differs from form 0 of its
+/// species (from the table too). Form 0 is no longer compared with itself: the count of form 0
+/// entries that look the same as the species in `pokemonBattleSprites` is measured instead
+/// (most differ: Cherrim there is the Sunshine Form, Burmy's shiny palette is its normal one;
+/// [`FORM0_LIKE_POKEGRA`]).
+/// A personal member (496 to 507, the egg) renders the same as its species and form. The
+/// slots of a personal member and of a species with forms are male only, female only for a
+/// female-only gender ratio (Wormadam).
 #[test]
 fn vanilla_every_form_sprite_decodes() {
     let Some(root) = common::vanilla_project() else {
@@ -865,8 +1011,19 @@ fn vanilla_every_form_sprite_decodes() {
     let mean = areas as f64 / images.max(1) as f64;
 
     let table = forms(p.family);
-    let mut rendered = 0usize;
+    let mons = all_members(&p, AssetKind::PokemonBattleSprites);
+    let personal = all_members(&p, AssetKind::Personal);
+    let gender_ratio = |member: u16| {
+        <g4_formats::data::personal::Personal as g4_formats::data::record::RawRecord>::read(
+            &personal[usize::from(member)],
+        )
+        .unwrap()
+        .gender_ratio()
+    };
+    let (mut rendered, mut form0, mut female_only) = (0usize, 0usize, 0usize);
+    let mut form0_like_pokegra = Vec::new();
     for entry in table {
+        let mut like_pokegra = entry.form == 0 && entry.species < 494;
         let has = |m: Option<u16>, magic: &[u8]| {
             m.is_none_or(|m| {
                 other
@@ -896,9 +1053,13 @@ fn vanilla_every_form_sprite_decodes() {
                 };
                 let png = battle_sprite(&p, req).unwrap();
                 assert_eq!(png.is_some(), image.is_some(), "{req:?}");
-                if entry.species < 494 {
+                if entry.species < 494 && entry.form != 0 {
                     let base = battle_sprite(&p, SpriteRequest { form: 0, ..req }).unwrap();
-                    assert_ne!(png, base, "{req:?} looks like the base form");
+                    assert_ne!(png, base, "{req:?} looks like form 0");
+                }
+                if entry.species < 494 && entry.form == 0 {
+                    let base = pokegra_png(&mons, entry.species, side, shiny, dirs.pokemon);
+                    like_pokegra &= png == base;
                 }
                 if let Some(personal) = entry.personal {
                     let by_personal = SpriteRequest {
@@ -911,27 +1072,40 @@ fn vanilla_every_form_sprite_decodes() {
                 rendered += usize::from(png.is_some());
             }
         }
-        // The personal member's slots: no form has female images.
-        if let Some(personal) = entry.personal.filter(|_| !entry.unverified) {
-            let slots = sprite_slots(&p, personal).unwrap();
+        form0 += usize::from(entry.form == 0 && entry.species < 494);
+        if like_pokegra {
+            form0_like_pokegra.push(entry.species);
+        }
+        // The slots of the personal member, or of the species in form 0: no form has female
+        // images, so male only, female only for a female-only species.
+        let member = entry
+            .personal
+            .or((entry.form == 0 && entry.species < 494).then_some(entry.species));
+        if let Some(member) = member.filter(|_| !entry.unverified) {
+            let ratio = gender_ratio(member);
+            let slots = sprite_slots(&p, member, ratio).unwrap();
+            let only_female = ratio == FEMALE_ONLY;
+            female_only += usize::from(only_female);
             assert_eq!(
                 slots,
                 Some(SpriteSlots {
-                    female: false,
-                    male: true
+                    female: only_female,
+                    male: !only_female
                 }),
-                "{personal}"
+                "{member}"
             );
         }
     }
 
     println!(
         "forms {} images={images} palettes={palettes} components={mean:.1} entries={} \
-         rendered={rendered}",
+         rendered={rendered} form0={form0} form0_like_pokegra={form0_like_pokegra:?} \
+         female_only={female_only}",
         p.game_code,
         table.len()
     );
     assert_eq!(images, expected.forms);
+    assert_eq!(form0_like_pokegra, expected.form0_like_pokegra);
     assert!(mean <= COMPONENTS_MAX, "form components {mean}");
 }
 

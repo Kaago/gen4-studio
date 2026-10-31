@@ -432,8 +432,9 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         .saved_bytes(personal_id)
         .and_then(|bytes| Personal::read(bytes).ok())
         .map_or_else(|| personal.clone(), |p| PersonalDto::from(&p));
-    // A sprite archive that cannot be read takes nothing from the document: no slots.
-    let sprite_slots = battle_sprites::sprite_slots(&session.project, index)
+    // A sprite archive that cannot be read takes nothing from the document: no slots. The gender
+    // ratio as edited makes the one image of a female-only form the female one.
+    let sprite_slots = battle_sprites::sprite_slots(&session.project, index, personal.gender_ratio)
         .ok()
         .flatten()
         .map(SpriteSlotsDto::from);

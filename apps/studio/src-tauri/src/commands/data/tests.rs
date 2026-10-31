@@ -1665,6 +1665,22 @@ fn species_doc_carries_sprite_slots() {
             male: true
         })
     );
+    // A female-only form (gender ratio 254, as Wormadam): its one image is the female one.
+    data_edit_impl(
+        &state,
+        DataKind::Species,
+        496,
+        personal("gender_ratio", 254),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        slots(496),
+        Some(SpriteSlotsDto {
+            female: true,
+            male: false
+        })
+    );
     // Species 3 lies beyond the synthetic archive (species 0 to 2).
     assert_eq!(slots(3), None);
     let doc = serde_json::to_value(data_get_impl(&state, DataKind::Species, 2).unwrap()).unwrap();

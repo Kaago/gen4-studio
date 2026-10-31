@@ -315,9 +315,12 @@ pub enum OtherSprite {
     ShinyPalette(u16),
 }
 
-/// Platinum: the members the form table names for personal member 496 (Deoxys, Attack Forme:
-/// back 2, front 3, palettes 154 and 155) and for the egg (front 132, palette 226).
-pub const PT_OTHER_SPRITES: [OtherSprite; 6] = [
+/// Platinum: the members the form table names for Deoxys in form 0 (back 0, front 1) and as
+/// personal member 496 (Attack Forme: back 2, front 3), both with palettes 154 and 155, and
+/// for the egg (front 132, palette 226).
+pub const PT_OTHER_SPRITES: [OtherSprite; 8] = [
+    OtherSprite::Image(0),
+    OtherSprite::Image(1),
     OtherSprite::Image(2),
     OtherSprite::Image(3),
     OtherSprite::Palette(154),

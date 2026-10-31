@@ -84,14 +84,16 @@ Arceus, Formeo, Kinoso, Shaymin, Burmadame, Schalellos und der Schwanz als Stich
 - **Je Familie eine Tabelle.** HGSS hat vier Bilder mehr vor dem Palettenblock, daher sind alle Palettennummern um 4
   verschoben; `forms` ist ein Wörterbuch je Familie (`pt`, `hgss`) wie `direction`, jede Liste ausgeschrieben. Eine
   Rechenregel („+ 4“) wäre kürzer, verliert aber den Bezug zur Messung und bräche an einem Hack mit eigener Ordnung.
-- **Nur Formen ≠ 0 und das Ei.** Form 0 kommt aus `pokemonBattleSprites` (Entscheidung „Formen“), die Bilder der
-  Grundformen in diesem Archiv stehen nicht in der Tabelle.
+- **Alle Formen, Form 0 eingeschlossen, und das Ei.** Ursprünglich standen nur die Formen ≠ 0 in der Tabelle, Form 0
+  kam aus `pokemonBattleSprites`. Seit dem Nachtrag vom 2026-10-31 (Abschnitt 7) hat jede Art mit Formen auch einen
+  Eintrag für Form 0 mit ihren Bildern in diesem Archiv; das Studio zeichnet diese Arten nur noch von hier.
 - **Das Ei** (`{ species: 494, form: 0, personal: 494 }`) hat kein `back` und kein `shiny`: `shiny` ist deshalb
   auslassbar (`Option`), schillernd zeigt dann die normale Palette; die Rückseite ist `None`, ohne Rückfall auf eine
   Grundform.
 - **Das Manaphy-Ei, 248–252** stehen nicht in der Tabelle (keine Form einer Art).
 - **`form_of_personal`** findet auch unbestätigte Einträge: unbestätigt sind die Bilder, nicht die Form eines
-  Personal-Members; `form_sprite` gibt unbestätigte Einträge nicht heraus, dann zeigt die Grundform.
+  Personal-Members; `form_sprite` gibt unbestätigte Einträge nicht heraus, dann zeigt Form 0 (seit dem Nachtrag aus
+  der Tabelle, sonst aus `pokemonBattleSprites`).
 
 ## 5. Nicht belegt, unsicher
 
@@ -104,12 +106,60 @@ Arceus, Formeo, Kinoso, Shaymin, Burmadame, Schalellos und der Schwanz als Stich
 
 ## 6. Zählungen (gated `vanilla_every_form_sprite_decodes`)
 
+Stand Task 3 (nur Formen ≠ 0 und das Ei):
+
 ```
 forms CPUD images=157 palettes=96 components=1.1 entries=65 rendered=258
 forms IPKD images=161 palettes=100 components=1.1 entries=66 rendered=262
 forms IPKE images=161 palettes=100 components=1.1 entries=66 rendered=262
 ```
 
+Stand des Nachtrags vom 2026-10-31 (mit Form 0, Abschnitt 7):
+
+```
+forms CPUD images=157 palettes=96 components=1.1 entries=77 rendered=306 form0=12 form0_like_pokegra=[201, 351, 479, 487] female_only=3
+forms IPKD images=161 palettes=100 components=1.1 entries=79 rendered=314 form0=13 form0_like_pokegra=[201, 351, 479, 487] female_only=3
+forms IPKE images=161 palettes=100 components=1.1 entries=79 rendered=314 form0=13 form0_like_pokegra=[201, 351, 479, 487] female_only=3
+```
+
 `rendered` zählt die Bilder, die `battle_sprite` für die Einträge liefert (Vorderseite und Rückseite, normal und
-schillernd; das Ei ohne Rückseite). Jede Form unterscheidet sich von ihrer Grundform, und jeder Personal-Member
-liefert dasselbe Bild wie seine Art und Form.
+schillernd; das Ei ohne Rückseite). Jede Form ≠ 0 unterscheidet sich von Form 0 ihrer Art (aus der Tabelle), und
+jeder Personal-Member liefert dasselbe Bild wie seine Art und Form. Form 0 wird nicht mit sich selbst verglichen;
+`form0_like_pokegra` nennt die Arten, deren Form 0 hier (Standbild, normal und schillernd, beide Seiten) genauso
+aussieht wie ihr Eintrag in `pokemonBattleSprites`. `female_only` zählt die Einträge mit Plätzen „nur ♀“ (Burmadame,
+Form 0 bis 2: Geschlechterverteilung 254).
+
+## 7. Nachtrag 2026-10-31: Form 0 aus diesem Archiv
+
+Anlass: die Abschlussprüfung von 3d.3 Teil A. Für Arten mit Formen ist der Eintrag in `pokemonBattleSprites` nicht
+das, was das Spiel zeigt; das Spiel zeichnet diese Arten nur aus `otherPokemonBattleSprites`, auch in Form 0.
+Gemessen an den drei Testkopien (nur gelesen; Vergleich der entschlüsselten Indizes je Hälfte und der 16 Farben je
+Palette, Platin `k` gegen HGSS `k + 4`; beide Familien gleich, wo nicht anders gesagt):
+
+| Art | Form-0-Member (Rückseite / Vorderseite, Paletten Platin) | Unterschied zu `pokemonBattleSprites` |
+|---|---|---|
+| Deoxys (386) | 0 / 1, 154 / 155 | Rückseite anders gezeichnet (Standbild 1 040 Pixel), dort ohne Animationsbild |
+| Icognito (201) | 8 / 9, 156 / 157 | keiner |
+| Formeo (351) | 64 / 68, 158 / 162 | Standbilder gleich; Rückseite dort ohne Animationsbild; schillernd 1 Farbe anders (ungenutzt) |
+| Burmy (412) | 72 / 73, 166 / 167 | neu gezeichnet; dort schillernd = normal, hier weicht schillernd in 5 Farben ab |
+| Burmadame (413) | 78 / 79, 172 / 173 | neu gezeichnet; dort schillernd = normal; Paletten weichen in 13 von 16 Farben ab |
+| Schalellos (422) | 84 / 86, 178 / 179 | neu gezeichnet; dort schillernd = normal; normal 2, schillernd 10 Farben anders |
+| Gastrodon (423) | 88 / 90, 182 / 183 | neu gezeichnet; dort schillernd = normal; schillernd 8 Farben anders |
+| Kinoso (421) | 92 / 94, 186 / 188 | dort die Sonnenform (Bild und 15 von 16 Farben), hier die Wolkenform |
+| Arceus (493) | 96 / 97, 190 / 191 | Vorderseite neu gezeichnet (Standbild 1 285 Pixel) |
+| Shaymin (492) | 134 / 135, 228 / 229 | Vorderseite neu gezeichnet (Standbild 413 Pixel) |
+| Rotom (479) | 138 / 139, 232 / 233 | Standbilder gleich; Animationsbild der Rückseite anders (329 Pixel) |
+| Giratina (487) | 150 / 151, 244 / 245 | Standbilder gleich; Platin: Animationsbild der Vorderseite anders (681 Pixel) |
+| Pichu (172), nur HGSS | 154 / 155, HGSS 252 / 253 | Vorderseite neu gezeichnet (Standbild 386 Pixel), normal 1 Farbe anders |
+
+Am Augenschein (Bilder nur im Scratchpad, nicht im Repo): Kinoso Form 0 hier ist die geschlossene violette Knospe
+(Wolkenform), `pokemonBattleSprites` zeigt die offene rosa Blüte (Sonnenform, wie Form 1 hier); Burmy schillernd zeigt
+hier einen anders gefärbten Kopf, dort dieselben Farben wie normal; Burmadame hier mit dunklem Kopf und
+Pflanzenumhang, dort mit braunrosa Kopf in fremden Farben. Deoxys, Formeo, Arceus und Giratina als Stichprobe: dieselbe
+Art und Form, nur anders gezeichnet oder mit Animationsbild.
+
+Entscheidung: Jede Art mit Formen hat einen Eintrag `form: 0` je Familie (Platin 12, HGSS 13 mit Pichu); die Member
+sind die oben genannten. `battle_sprite` und `sprite_slots` lösen eine Art mit Formen nur über die Tabelle auf; eine
+unbekannte oder unbestätigte Form zeigt Form 0 der Tabelle. Weil keine Form eigene weibliche Bilder hat, gelten die
+Plätze einer Form als „männlich oder einzig“, bei einer rein weiblichen Art (Geschlechterverteilung 254: Burmadame) als
+„nur weiblich“ (`pokemonBattleSprites` legt rein weibliche Arten in die weiblichen Plätze 0 und 2).

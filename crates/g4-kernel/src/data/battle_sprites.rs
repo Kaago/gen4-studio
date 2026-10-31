@@ -11,8 +11,9 @@
 //! `pokemonBattleSprites` holds six members per species: back female (0), back male or only
 //! (1), front female (2), front male or only (3), the normal (4) and the shiny palette (5). An
 //! empty member means "no image of its own": the other gender's slot of the same side is shown.
-//! `otherPokemonBattleSprites` holds the other forms and the egg in an order of its own: the
-//! form table of `battle_sprites.yaml` (per family, checked by eye) names their members.
+//! `otherPokemonBattleSprites` holds every form of the species with forms (form 0 included:
+//! the game draws these species only from there) and the egg in an order of its own: the form
+//! table of `battle_sprites.yaml` (per family, checked by eye) names their members.
 //! `trainerGraphics` holds five members per trainer class: the image at `5·k + 4`, its 16
 //! palettes at `5·k + 1` (palette 0 is the battle palette).
 
@@ -38,6 +39,8 @@ pub const SLOTS_PER_SPECIES: u16 = 6;
 const SLOTS_PER_CLASS: u16 = 5;
 /// The first personal member that is no plain species (the egg; 496 to 507 are forms).
 const FIRST_FORM_PERSONAL: u16 = 494;
+/// The personal gender ratio of a species that is female only.
+pub const FEMALE_ONLY: u8 = 254;
 
 /// Which side of the Pokémon an image shows: the front faces the player (the opponent's view),
 /// the back is the player's own Pokémon.
@@ -84,7 +87,7 @@ pub struct FormSprite {
     pub female_front: Option<u16>,
     pub palette: u16,
     pub shiny: Option<u16>,
-    /// Not checked by eye: the base form is shown instead.
+    /// Not checked by eye: form 0 of the species is shown instead.
     #[serde(default)]
     pub unverified: bool,
 }
@@ -168,9 +171,24 @@ fn forms_in(metadata: &Metadata, family: Family) -> &[FormSprite] {
 }
 
 /// The verified form table entry of `form` of `species` in `family`, if there is one. An
-/// entry marked `unverified` is not given: the base form is shown instead.
+/// entry marked `unverified` is not given: [`battle_sprite`] shows form 0 instead.
 pub fn form_sprite(family: Family, species: u16, form: u8) -> Option<&'static FormSprite> {
     verified(forms(family), species, form)
+}
+
+/// The form table entries to draw `form` of `species` from, in order: its own verified entry,
+/// then that of form 0 (an unknown or unverified form of a species with forms is shown as its
+/// form 0, as the game shows a form index out of range). Empty for a species without forms:
+/// it is drawn from `pokemonBattleSprites`.
+fn form_entries(
+    family: Family,
+    species: u16,
+    form: u8,
+) -> impl Iterator<Item = &'static FormSprite> {
+    let base = (form != 0)
+        .then(|| form_sprite(family, species, 0))
+        .flatten();
+    form_sprite(family, species, form).into_iter().chain(base)
 }
 
 fn verified(table: &[FormSprite], species: u16, form: u8) -> Option<&FormSprite> {
@@ -183,7 +201,7 @@ fn verified(table: &[FormSprite], species: u16, form: u8) -> Option<&FormSprite>
 /// species 494, form 0), from the form tables; `None` below 494 or for a member no table
 /// names. The same in every family (`species_forms.yaml`), so no family is asked. Unverified
 /// entries count too: what is unverified is the images, not which form a personal member is,
-/// and [`form_sprite`] then shows the base form of the species.
+/// and [`battle_sprite`] then shows form 0 of the species.
 pub fn form_of_personal(personal: u16) -> Option<(u16, u8)> {
     if personal < FIRST_FORM_PERSONAL {
         return None;
@@ -217,18 +235,41 @@ pub struct SpriteSlots {
     pub male: bool,
 }
 
-/// Whether `species` (a personal member) has images of its own per gender. A member of 494
-/// and above is resolved like [`battle_sprite`] resolves it: a verified form table entry
-/// gives the slots of its images in `otherPokemonBattleSprites` (no form has female images,
-/// so a form with an image is male only); a form without an image there shows its base form,
-/// whose slots are given. `None` when the family is unverified, the project has no archive to
-/// draw from, or the archive has no member of the species.
-pub fn sprite_slots(project: &Project, species: u16) -> Result<Option<SpriteSlots>, KernelError> {
+/// Whether `species` (a personal member) has images of its own per gender. The member is
+/// resolved like [`battle_sprite`] resolves it: a species with forms (and a member of 494 and
+/// above) gives the slots of its form table entry in `otherPokemonBattleSprites`, a form
+/// without an image there those of its form 0 there or of the species in `pokemonBattleSprites`.
+/// No form has female images, so a form with an image is male only, unless `gender_ratio`
+/// (the member's personal gender ratio) is [`FEMALE_ONLY`]: then its one image is the female
+/// one (Wormadam), as `pokemonBattleSprites` keeps a female-only species in the female slots
+/// (the rule holds for any member, it changes nothing there). `None` when the family is
+/// unverified, the project has no archive to draw from, or the archive has no member of the
+/// species.
+pub fn sprite_slots(
+    project: &Project,
+    species: u16,
+    gender_ratio: u8,
+) -> Result<Option<SpriteSlots>, KernelError> {
+    let slots = own_slots(project, species)?;
+    Ok(slots.map(|slots| match slots {
+        SpriteSlots {
+            female: false,
+            male: true,
+        } if gender_ratio == FEMALE_ONLY => SpriteSlots {
+            female: true,
+            male: false,
+        },
+        slots => slots,
+    }))
+}
+
+/// The slots of [`sprite_slots`] as the archives name them, before the gender ratio.
+fn own_slots(project: &Project, species: u16) -> Result<Option<SpriteSlots>, KernelError> {
     if directions(project.family).is_none() {
         return Ok(None);
     }
     let (species, form) = form_of_personal(species).unwrap_or((species, 0));
-    if let Some(entry) = form_sprite(project.family, species, form) {
+    for entry in form_entries(project.family, species, form) {
         let slots = form_slots(project, entry)?;
         // The egg has no base form: its images are only in the form archive.
         if slots.is_some() || species >= FIRST_FORM_PERSONAL {
@@ -286,10 +327,12 @@ fn form_slots(project: &Project, entry: &FormSprite) -> Result<Option<SpriteSlot
 /// A species of 494 and above is a personal member: it is resolved to its species and form by
 /// [`form_of_personal`] (503 is Rotom in form 1, the egg 494 stays itself), and the request's
 /// own `form` is ignored. A species and form with a verified entry in the form table of the
-/// family ([`form_sprite`]) is drawn from `otherPokemonBattleSprites`; every other form, and a
-/// form whose image cannot be read there (no archive, no member, no palette), shows the base
-/// form of `pokemonBattleSprites` (the egg has none). There an empty slot falls back to the
-/// other gender's slot of the same side.
+/// family ([`form_sprite`]) is drawn from `otherPokemonBattleSprites`, form 0 of a species
+/// with forms included (Cherrim's form 0 there is the Overcast Form, `pokemonBattleSprites`
+/// holds the Sunshine Form). A form without an entry, or whose image cannot be read there (no
+/// archive, no member, no palette), shows form 0 of the table, then the species in
+/// `pokemonBattleSprites` (the egg has neither). There an empty slot falls back to the other
+/// gender's slot of the same side.
 ///
 /// `None` when the family is unverified, the frame is neither 0 nor 1, both slots are empty,
 /// a side has no image (the egg's back), or the archive lacks the species or its palette. A
@@ -308,7 +351,7 @@ pub fn battle_sprite(
         Some(resolved) => resolved,
         None => (req.species, req.form),
     };
-    if let Some(entry) = form_sprite(project.family, species, form) {
+    for entry in form_entries(project.family, species, form) {
         let png = form_image(project, entry, req, dirs.other)?;
         // The egg has no base form: its images are only in the form archive.
         if png.is_some() || species >= FIRST_FORM_PERSONAL {
@@ -551,6 +594,22 @@ mod tests {
             out
         };
         assert_eq!(personal_of("pt"), personal_of("hgss"));
+        // Every species with forms has its form 0 in the table too: the game draws such a
+        // species only from `otherPokemonBattleSprites` (Cherrim's form 0 there is the
+        // Overcast Form). Form 0 has no personal member of its own (the egg is its own species).
+        for (family, table) in &parsed.forms {
+            for form in table.iter().filter(|f| f.form != 0) {
+                assert!(
+                    table
+                        .iter()
+                        .any(|f| f.species == form.species && f.form == 0),
+                    "{family}: {form:?} without form 0"
+                );
+            }
+            for form in table.iter().filter(|f| f.form == 0 && f.species < 494) {
+                assert_eq!(form.personal, None, "{family}: {form:?}");
+            }
+        }
     }
 
     #[test]
@@ -560,8 +619,8 @@ mod tests {
         assert_eq!(form_sprite(Family::Pt, 0, 0), None);
     }
 
-    /// An entry marked `unverified` is in the table but never given out: the base form is
-    /// shown (the real table has none, so a table of its own is read).
+    /// An entry marked `unverified` is in the table but never given out: form 0 is shown (the
+    /// real table has none, so a table of its own is read).
     #[test]
     fn an_unverified_form_falls_back_too() {
         let parsed: Metadata = serde_yaml::from_str(
