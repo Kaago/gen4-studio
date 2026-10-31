@@ -135,6 +135,10 @@ describe("the words of Erzählen", () => {
     expect(word(2)).toBe("Schaut sich um");
     expect(word(3)).toBe("Geht umher");
     for (let value = 2; value <= 19; value++) expect(word(value), `Bewegung ${value}`).toBeDefined();
+    // Every value at least five figures of Platinum DE or HeartGold DE use (counted over all event files, 31.10.2026).
+    for (const value of [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 44, 45, 46, 47, 53, 54]) expect(word(value), `Bewegung ${value}`).toBeDefined();
+    expect(word(20)).toBe("Läuft auf und ab");
+    expect(word(47)).toBe("Beerenpflanze");
   });
 
   it("shows_a_stored_movement_without_a_word_as_bewegung_n", () => {

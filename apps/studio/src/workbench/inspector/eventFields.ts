@@ -93,7 +93,9 @@ export function eventFieldSpecs(kind: EventKind, family: string | null): EventFi
 
 /**
  * What a figure does, in words (pret movement types, numbered as DSPRE's `movementTypesArray`); a stored value without a word shows as
- * „Bewegung N“. 1 has no word: DSPRE calls it „None“ like 0, and a second word for the same thing would only puzzle.
+ * „Bewegung N“. 1 has no word: DSPRE calls it „None“ like 0, and a second word for the same thing would only puzzle. Cross-checked against
+ * the figures of Platinum DE and HeartGold DE (31.10.2026): every value at least five figures use has a word. 47 (DSPRE: „Crashes game
+ * (?)“) is used by 118 Platinum figures, all with graphics id 100 and none in HeartGold: the berry plants of Sinnoh's soft soil.
  */
 export const MOVEMENT_WORDS: { value: number; label: string }[] = [
   { value: 0, label: "Steht still" },
@@ -115,8 +117,11 @@ export const MOVEMENT_WORDS: { value: number; label: string }[] = [
   { value: 17, label: "Blickt nach rechts" },
   { value: 18, label: "Dreht sich gegen den Uhrzeigersinn" },
   { value: 19, label: "Dreht sich im Uhrzeigersinn" },
+  { value: 20, label: "Läuft auf und ab" },
+  { value: 44, label: "Läuft eine Runde im Uhrzeigersinn" },
   { value: 45, label: "Schaut nach oben und unten" },
   { value: 46, label: "Schaut nach rechts und links" },
+  { value: 47, label: "Beerenpflanze" },
   { value: 48, label: "Folgt dem Spieler" },
   { value: 51, label: "Versteckt im Schnee" },
   { value: 53, label: "Versteckt unter der Erde" },
