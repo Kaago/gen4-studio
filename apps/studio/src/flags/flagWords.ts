@@ -75,7 +75,12 @@ export function accessWord(a: FlagAccess): string {
  * usage as `count`.
  */
 export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
-  const rows = list.entries
+  return [NONE_ITEM, ...filterItems(flagRows(list), query)];
+}
+
+/** The rows of the numbers of `list` as `pickerItems` lists them after „Keins (0)“ (a number 0 of the list is that row, not one of these). */
+export function flagRows(list: FlagListDto): PickerItem[] {
+  return list.entries
     .filter((e) => e.number !== 0)
     .map(
       (e): PickerItem => ({
@@ -89,5 +94,4 @@ export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
         keywords: [...e.aliases, ...(e.own_id !== null && e.name !== null ? [e.name] : []), `0x${e.number.toString(16)}`, String(e.number)],
       }),
     );
-  return [NONE_ITEM, ...filterItems(rows, query)];
 }

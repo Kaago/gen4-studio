@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freeFlag, listFlags } from "../api";
 import type { FlagKind, FlagListDto, ProjectInfo } from "../api";
-import { typeInSearch } from "../ui/primitives/testUtils";
+import { pressKey, typeInSearch } from "../ui/primitives/testUtils";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
 import { FlagPicker } from "./FlagPicker";
 import { invalidateFlagLists } from "./useFlagList";
@@ -74,6 +74,23 @@ describe("FlagPicker", () => {
     typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "medaille");
     await click(options().find((o) => o.textContent?.includes("FLAG_HAT_MEDAILLE")));
     expect(onPick).toHaveBeenLastCalledWith(0x94);
+  });
+
+  it("enter_after_a_search_picks_the_first_hit_not_keins", async () => {
+    await show();
+    const search = document.querySelector<HTMLInputElement>("input[role=combobox]")!;
+    typeInSearch(search, "medaille");
+    await flush();
+    pressKey(search, "Enter");
+    // The flag found, not 0: Enter never clears the field by surprise.
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick).toHaveBeenCalledWith(0x94);
+    // A search without hits says so under „Keins (0)“.
+    await show();
+    typeInSearch(document.querySelector<HTMLInputElement>("input[role=combobox]")!, "nichts davon");
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["Keins (0)"]);
+    expect(dialog().textContent).toContain("Nichts gefunden");
   });
 
   it("filters_by_area", async () => {

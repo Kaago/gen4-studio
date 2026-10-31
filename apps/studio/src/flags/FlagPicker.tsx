@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { errorText, freeFlag } from "../api";
 import type { FlagArea, FlagKind, ProjectInfo } from "../api";
 import { Button, Picker, Tooltip } from "../ui/primitives";
-import { NONE_ITEM, SCRIPTS_NOT_INDEXED, areaWord, pickerItems, poolEmptyText } from "./flagWords";
+import { NONE_ITEM, SCRIPTS_NOT_INDEXED, areaWord, flagRows, poolEmptyText } from "./flagWords";
 import { useFlagList } from "./useFlagList";
 import styles from "./FlagPicker.module.css";
 
@@ -55,7 +55,7 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
   // „Keins (0)“ is pinned: it leads whatever is typed. The numbers follow, filtered by the picker's search.
   const items = useMemo(() => {
     if (list === null) return [];
-    return pickerItems(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) }, "").slice(1);
+    return flagRows(area === "all" ? list : { ...list, entries: list.entries.filter((e) => e.area === area) });
   }, [list, area]);
   const filters = useMemo(
     () => [{ value: "all", label: "Alle" }, ...AREA_ORDER.filter((a) => list?.entries.some((e) => e.area === a)).map((a) => ({ value: a, label: areaWord(a) }))],

@@ -144,6 +144,46 @@ describe("Picker", () => {
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 0 }));
   });
 
+  it("enter_after_typing_picks_the_first_hit_not_the_pinned_row", async () => {
+    const { onPick } = render({ pinned: [{ id: 0, label: "Keins (0)" }] });
+    type("zwei");
+    // Base UI's step to the first row is moved on to the first hit (a microtask later, before any next key).
+    await act(async () => {});
+    expect(options()[0]!.textContent).toBe("Keins (0)");
+    expect(options()[0]!.hasAttribute("data-highlighted")).toBe(false);
+    expect(options()[1]!.hasAttribute("data-highlighted")).toBe(true);
+    pressKey(input(), "Enter");
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 411 });
+  });
+
+  it("the_pinned_row_stays_reachable_by_the_arrow_keys", async () => {
+    const { onPick } = render({ pinned: [{ id: 0, label: "Keins (0)" }] });
+    type("t01r01");
+    await act(async () => {});
+    expect(options()[1]!.hasAttribute("data-highlighted")).toBe(true);
+    pressKey(input(), "ArrowUp");
+    await act(async () => {});
+    expect(options()[0]!.hasAttribute("data-highlighted")).toBe(true);
+    pressKey(input(), "Enter");
+    expect(onPick.mock.calls[0]![0]).toMatchObject({ id: 0 });
+  });
+
+  it("a_search_without_hits_says_so_below_the_pinned_row_and_counts_no_pinned_row", async () => {
+    render({ pinned: [{ id: 0, label: "Keins (0)" }] });
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("Nichts gefunden");
+    type("nichts davon");
+    await act(async () => {});
+    expect(options().map((o) => o.textContent)).toEqual(["Keins (0)"]);
+    expect(document.querySelector("[role=dialog]")!.textContent).toContain("Nichts gefunden. Ändere die Suche oder den Filter.");
+    // The palette counts hits, not the pinned rows.
+    act(() => root.render(null));
+    render({ pinned: [{ id: 0, label: "Keins (0)" }], variant: "palette" });
+    type("zwei");
+    await act(async () => {});
+    expect(document.querySelector("[role=dialog]")!.textContent).toContain("1 Treffer");
+  });
+
   it("a_strong_item_shows_its_label_emphasised", () => {
     render({ items: [{ id: 1, label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094" }, { id: 2, label: "FLAG_UNUSED_0x0096" }] });
     expect(options()[0]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
