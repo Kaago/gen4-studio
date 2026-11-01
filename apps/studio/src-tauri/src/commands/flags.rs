@@ -220,7 +220,11 @@ impl Users {
 /// an object's visibility flag („Objekt 3 · Sichtbarkeits-Flag“), the "defeated" flag of the
 /// trainer an object starts („Trainer 0928 · Script“, to the trainer), a hidden item
 /// („Schild 2 · Verstecktes Item“), a trigger's variable („Auslöser 1 · Variable“).
-fn event_place(family: Family, r: &Ref, header: Option<u16>) -> (String, String, NavTargetDto) {
+pub(crate) fn event_place(
+    family: Family,
+    r: &Ref,
+    header: Option<u16>,
+) -> (String, String, NavTargetDto) {
     let event_file = r.source.index;
     let slot = r.slot.unwrap_or(0);
     let event = |event_kind| NavTargetDto::Event {
@@ -274,8 +278,9 @@ fn describe(family: Family, r: &Ref, users: &Users) -> Option<FlagRefDto> {
     })
 }
 
-/// The names of the headers `wanted`: the place's name, the internal name when it has none.
-fn header_names(session: &mut Session, wanted: &BTreeSet<u16>) -> HashMap<u16, String> {
+/// The names of the headers `wanted`: the place's name, the internal name when it has none
+/// (also the threads and the graph of a thread, `commands::stories`).
+pub(crate) fn header_names(session: &mut Session, wanted: &BTreeSet<u16>) -> HashMap<u16, String> {
     if wanted.is_empty() {
         return HashMap::new();
     }

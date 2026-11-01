@@ -171,8 +171,10 @@ Header unter den Orten aufsteigend (`headers`), jeden Verweis als `Place` (Quell
 Zugriff, Wert, Header) und die erste Geschichte (nach Nummer), deren `progress.var` die Variable
 ist (`story`). Die Liste ist nach Nummer sortiert; ein Lauf geht einmal über den Index und liest
 Header-Tabelle, Variablen-Register und Geschichten je einmal. Eine Geschichte, die sich nicht
-lesen lässt oder deren Fortschritt nichts nennt, beansprucht keinen Faden; ein Register, das sich
-nicht lesen lässt, ist der Fehler des Aufrufs.
+lesen lässt oder deren Fortschritt nichts nennt, beansprucht keinen Faden; das Register der
+Variablen oder der Geschichten, das sich nicht lesen lässt, ist der Fehler des Aufrufs. Lässt sich
+ein anderes Register nicht lesen (etwa `data/ids/trainers.json`), beansprucht keine Geschichte
+einen Faden, die Fäden stehen trotzdem in der Liste (die Prüfung nennt das Register).
 
 Auf den Vanilla-Spielen (`tests/threads.rs`, gated) findet der Index 60 Fäden in Platin DE
 (274 Werte, höchstens 16 Werte und 22 Orte) und 62 in HeartGold DE und US (310 Werte,
@@ -186,7 +188,7 @@ Untergrenzen 59 und 62 prüft der Test.
 | Knoten | `id` | Inhalt |
 |---|---|---|
 | `Value` | `v:<wert>` | ein Knoten je Wert, aufsteigend; `step` der Schlüssel des ersten Schritts der Geschichte mit diesem Wert; `noted_only` für einen Wert, den nur ein Schritt nennt (keine Kanten, gestrichelt) |
-| `Place` | `p:<art>:<nummer>` (`p:script:0101`, `p:event:0394`) | ein Knoten je Quelle in Index-Reihenfolge, mit `header` (der erste Header, wie oben) und `label` („Scriptdatei 0101“, „Level-Script 0005“, „Eventdatei 0394“; `place_label`); `loose`, wenn sie keine Kante hat (keiner ihrer Verweise trägt einen Wert, oder nur mit unbekanntem Zugriff) |
+| `Place` | `p:<art>:<nummer>` (`p:script:0101`, `p:event:0394`) | ein Knoten je Quelle in Index-Reihenfolge, mit `header` (der erste Header, wie oben) und `label` („Scriptdatei 0101“, „Level-Script 0005“, „Eventdatei 0394“; `place_label`); `loose`, wenn sie keine Kante hat (keiner ihrer Verweise trägt einen Wert, oder nur mit unbekanntem Zugriff); `field` und `slot` des ersten Verweises (Level-Script und Scriptdatei sind beide Assets der Art `Script`, `field` `var_conditions` sagt Level-Script; `slot` ist Zeile, Bedingung oder Event) |
 
 Kanten (`GraphEdge { from, to, value, access, field, slot }`): je Verweis mit Wert und Zugriff
 `Write`/`ReadWrite` eine Kante Ort → Wert („gesetzt in“), je `Read`/`ReadWrite` eine Kante
@@ -229,7 +231,36 @@ Liste kommt mit der Fläche der Geschichten.
 
 ## Befehle
 
-Folgt mit Task 5 (`story_list`, `story_get`, `story_create`, `story_update`, `g4k story …`).
+Die App, die Brücke und MCP (`docs/mcp.md`, Tabelle „Werkzeuge“) haben sechs Befehle, alle
+unter dem Sitzungsschloss:
+
+| Befehl | Art | Was er tut |
+|---|---|---|
+| `list_threads` | lesend | die Fäden (`threads()`) mit den Namen ihrer Header (`header_names`, in der Reihenfolge von `headers`), `text_project`, `scripts_adopted` |
+| `thread_graph {var, story?}` | lesend | der Graph (`thread_graph()`); ein Ort-Knoten trägt `header_name` und `nav` (die Script-Zeile, den Header eines Level-Scripts, das Event), ein Wert-Knoten den ganzen Schritt der Geschichte (`step`) |
+| `story_list` | lesend | die Geschichten nach Nummer (`number`, `id`, `name`, `progress`, `steps`); eine Datei, die sich nicht lesen lässt, ist eine Zeile mit `problem` (Datei, Zeile, Spalte, Satz), `progress` `null` |
+| `story_get {id}` | lesend | Geschichte, Beifile (leer ohne Datei), Nummer und `progress_number` (die Nummer des Fortschritts) |
+| `story_create {req}` | schreibend | `create_story` als ein Undo-Schritt |
+| `story_update {id, patch}` | schreibend | `update_story` als ein Undo-Schritt |
+
+Ablehnungen haben Codes: `not_text_project` (`Kein Textprojekt: …`), `unknown_id` (eine Geschichte
+oder ein Fortschritt, die nichts nennen), `refused` (leerer Name, Schlüssel doppelt, `Nichts zu
+ändern.`). Über MCP nimmt der Fortschritt auch eine Nummer oder einen anderen Namen derselben
+Nummer; die Datei hält dann den eigenen Namen bzw. den pret-Namen der Nummer. Eine Geschichte, deren
+Fortschritt ein Flag ist, hat in 3d.6 keinen Graph aus dem Index (`thread_graph` nimmt eine
+Variable); die Oberfläche entscheidet mit `progress_number`, was sie zeigt.
+
+`g4k story` arbeitet ohne Store und ohne Undo (wie `g4k text rename-id`):
+
+- `g4k story list <project>`: eine Zeile je Geschichte, `0000 STORY_TESTFADEN var=VAR_… steps=7
+  Testfaden`, bei einer Datei, die sich nicht lesen lässt, `0000 STORY_X problem=<datei>:<zeile>:<spalte>: <satz>`;
+- `g4k story get <project> <id>`: JSON `{number, story, layout}`;
+- `g4k story create <project> --name … (--var VAR_… | --flag FLAG_…) [--notes …]`: druckt
+  `created STORY_… number=0 files=data/ids/stories.json,data/stories/0000.json,data/stories/0000.layout.json ms=…`;
+- `g4k story threads <project> [--json]`: eine Zeile je Faden, `0x4030 VAR_PLAYER_STARTER 3 Werte · 2 Orte`
+  (der eigene Name vor dem pret-Namen, `story=<id>` angehängt, wenn eine Geschichte ihn beansprucht);
+  `--json` alle Fäden mit ihren Verweisen;
+- `g4k story graph <project> <VAR_…>`: der Graph als JSON.
 
 ## Löschen
 

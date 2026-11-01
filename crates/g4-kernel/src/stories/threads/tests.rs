@@ -254,6 +254,31 @@ fn a_story_claims_its_thread() {
     assert_eq!(thread(&list, 0x4072).unwrap().story, None);
 }
 
+/// A register the threads do not need (here the trainers') that does not read: no story claims
+/// a thread, the threads are still listed.
+#[test]
+fn a_broken_unrelated_register_claims_no_thread() {
+    let (fx, mut st) = fixture();
+    create_story_files(
+        &fx.project(),
+        &StoryRequest {
+            name: "Starter".to_owned(),
+            progress: Progress::Var("VAR_PLAYER_STARTER".to_owned()),
+            notes: String::new(),
+            steps: Vec::new(),
+            flags: Vec::new(),
+        },
+    )
+    .unwrap();
+    fx.write("data/ids/trainers.json", b"{ kaputt");
+    assert!(crate::textproject::ids::Resolver::for_project(&fx.project()).is_err());
+    let mut index = RefIndex::new();
+    let list = threads(&mut st, &mut index).unwrap();
+    let thread = thread(&list, 0x4030).unwrap();
+    assert_eq!(thread.story, None);
+    assert_eq!(thread.values, [1, 2, 3]);
+}
+
 #[test]
 fn the_graph_has_one_node_per_value_and_edges_set_to_checked() {
     let (_fx, mut st) = fixture();
@@ -287,12 +312,24 @@ fn the_graph_has_one_node_per_value_and_edges_set_to_checked() {
             header: Some(1),
             label: "Scriptdatei 0101".to_owned(),
             loose: false,
+            field: "SetVar",
+            slot: Some(2),
         }
     );
-    let GraphNode::Place { label, header, .. } = place_node(&graph, "p:script:0005") else {
+    // A level script and a script file are both script assets: the field of the first
+    // reference tells them apart (the app leads to the header of a level script).
+    let GraphNode::Place {
+        label,
+        header,
+        field,
+        slot,
+        ..
+    } = place_node(&graph, "p:script:0005")
+    else {
         unreachable!()
     };
     assert_eq!((label.as_str(), *header), ("Level-Script 0005", Some(3)));
+    assert_eq!((*field, *slot), (LEVEL_SCRIPT_FIELD, Some(0)));
     let GraphNode::Place { label, header, .. } = place_node(&graph, "p:event:0001") else {
         unreachable!()
     };

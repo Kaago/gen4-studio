@@ -75,8 +75,9 @@ pub struct Thread {
 
 /// Every thread (decisions „Fäden-Regel“), ascending by number; builds or refreshes the index
 /// like [`RefIndex::refs`]. One pass over the index for all candidate variables; the header
-/// mapping, the own names and the stories are read once per call. A register or story register that does not read is its
-/// error; a story that does not read claims nothing.
+/// mapping, the own names and the stories are read once per call. The variables' or the stories'
+/// register that does not read is its error; a story that does not read claims nothing, and no
+/// story claims a thread when another register does not read.
 pub fn threads(store: &mut Store, index: &mut RefIndex) -> Result<Vec<Thread>, KernelError> {
     let family = store.project().family;
     let headers = Headers::of(store);
@@ -156,7 +157,9 @@ fn own_ids(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
 }
 
 /// The story of every variable a story keeps its progress in: number → id of the first story by
-/// number. A story that does not read, or whose progress resolves nowhere, claims nothing.
+/// number. A story that does not read, or whose progress resolves nowhere, claims nothing; so
+/// does every story when the resolver cannot be made (a register the threads do not need that
+/// does not read: the overview still lists the threads, the check names the register).
 fn story_vars(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
     let stories = list_stories(project)?;
     let mut out = HashMap::new();
@@ -168,7 +171,10 @@ fn story_vars(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
         };
         let resolver = match &resolver {
             Some(resolver) => resolver,
-            None => resolver.insert(Resolver::for_project(project)?),
+            None => match Resolver::for_project(project) {
+                Ok(made) => resolver.insert(made),
+                Err(_) => return Ok(HashMap::new()),
+            },
         };
         let Ok(n) = resolver.number(SymbolKind::Var, &RefInput::Id(var.clone())) else {
             continue;
@@ -245,12 +251,16 @@ pub enum GraphNode {
     },
     /// `id` is `p:<kind>:<index>` (`p:script:0101`, `p:event:0394`). A place without an edge is
     /// `loose`: none of its references carries a value (or only with an unknown access).
+    /// `field` and `slot` are the first reference's: [`LEVEL_SCRIPT_FIELD`] tells a level script
+    /// from a script file (both are [`AssetKind::Script`]), `slot` is its line, condition or event.
     Place {
         id: String,
         source: AssetId,
         header: Option<u16>,
         label: String,
         loose: bool,
+        field: &'static str,
+        slot: Option<u16>,
     },
 }
 
@@ -307,13 +317,13 @@ pub fn thread_graph(
         .collect();
     let mut edges = Vec::new();
     // Sources in index order, with their first reference's field (a level script's conditions)
-    // and whether one of their references made an edge.
-    let mut sources: Vec<(AssetId, &'static str, bool)> = Vec::new();
+    // and slot, and whether one of their references made an edge.
+    let mut sources: Vec<(AssetId, &'static str, Option<u16>, bool)> = Vec::new();
     for r in &refs {
         let at = match sources.iter().position(|(source, ..)| *source == r.source) {
             Some(at) => at,
             None => {
-                sources.push((r.source, r.field, false));
+                sources.push((r.source, r.field, r.slot, false));
                 sources.len() - 1
             }
         };
@@ -329,22 +339,24 @@ pub fn thread_graph(
         };
         if matches!(r.access, Access::Write | Access::ReadWrite) {
             edges.push(edge(place.clone(), value_id(value)));
-            sources[at].2 = true;
+            sources[at].3 = true;
         }
         if matches!(r.access, Access::Read | Access::ReadWrite) {
             edges.push(edge(value_id(value), place));
-            sources[at].2 = true;
+            sources[at].3 = true;
         }
     }
     nodes.extend(
         sources
             .into_iter()
-            .map(|(source, field, linked)| GraphNode::Place {
+            .map(|(source, field, slot, linked)| GraphNode::Place {
                 id: place_id(source),
                 source,
                 header: headers.header(source, field),
                 label: place_label(source, field),
                 loose: !linked,
+                field,
+                slot,
             }),
     );
     let layout = story.and_then(|story| story_layout(store.project(), story));

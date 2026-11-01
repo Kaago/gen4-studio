@@ -91,6 +91,29 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
     arg("get_trainer_sprite", "/class", TRAINER_CLASS),
     arg("flag_usage", "/number", FromKindField("/kind")),
     arg("name_flag", "/number", FromKindField("/kind")),
+    arg("thread_graph", "/var", RefKindOf::Fixed(SymbolKind::Var)),
+    // The command keeps the id of the number in the story (`commands::stories`); `story_get`
+    // and `story_update` take the story's own `STORY_…` id as text.
+    arg(
+        "story_create",
+        "/req/progress/var",
+        RefKindOf::Fixed(SymbolKind::Var),
+    ),
+    arg(
+        "story_create",
+        "/req/progress/flag",
+        RefKindOf::Fixed(SymbolKind::Flag),
+    ),
+    arg(
+        "story_update",
+        "/patch/progress/var",
+        RefKindOf::Fixed(SymbolKind::Var),
+    ),
+    arg(
+        "story_update",
+        "/patch/progress/flag",
+        RefKindOf::Fixed(SymbolKind::Flag),
+    ),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -349,6 +372,54 @@ mod tests {
     }
 
     #[test]
+    fn thread_and_story_progress_take_pret_names() {
+        let synthetic = g4_kernel::test_support::synthetic_project();
+        let project = g4_kernel::project::Project::open(synthetic.dir.path()).unwrap();
+        let platinum = Resolver::for_project(&project).unwrap();
+        let resolve = |command: &str, args: Value| resolve_args(command, args, &platinum).unwrap();
+        assert_eq!(
+            resolve(
+                "thread_graph",
+                json!({ "var": "VAR_UNUSED_0x406C", "story": "STORY_X" })
+            ),
+            json!({ "var": 0x406C, "story": "STORY_X" })
+        );
+        assert_eq!(
+            resolve(
+                "story_create",
+                json!({ "req": { "name": "N", "progress": { "var": "VAR_UNUSED_0x406C" } } })
+            ),
+            json!({ "req": { "name": "N", "progress": { "var": 0x406C } } })
+        );
+        assert_eq!(
+            resolve(
+                "story_create",
+                json!({ "req": { "name": "N", "progress": { "flag": "FLAG_UNUSED_0x0094" } } })
+            ),
+            json!({ "req": { "name": "N", "progress": { "flag": 148 } } })
+        );
+        // The story's own id is text, never resolved.
+        assert_eq!(
+            resolve(
+                "story_update",
+                json!({ "id": "STORY_X", "patch": { "progress": { "var": "VAR_UNUSED_0x406C" } } })
+            ),
+            json!({ "id": "STORY_X", "patch": { "progress": { "var": 0x406C } } })
+        );
+        assert_eq!(
+            resolve(
+                "story_update",
+                json!({ "id": "STORY_X", "patch": { "progress": { "flag": "FLAG_UNUSED_0x0094" } } })
+            ),
+            json!({ "id": "STORY_X", "patch": { "progress": { "flag": 148 } } })
+        );
+        assert_eq!(
+            resolve("story_get", json!({ "id": "STORY_X" })),
+            json!({ "id": "STORY_X" })
+        );
+    }
+
+    #[test]
     fn patch_values_of_reference_fields_are_resolved() {
         let patch = |variant: &str, field: &str, value: Value| {
             json!({ "kind": "species", "index": 1,
@@ -454,6 +525,9 @@ mod tests {
             "get_trainer_sprite",
             "flag_usage",
             "name_flag",
+            "thread_graph",
+            "story_create",
+            "story_update",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),

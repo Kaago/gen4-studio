@@ -53,6 +53,7 @@ use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
+use commands::{list_threads, story_create, story_get, story_list, story_update, thread_graph};
 use commands::{project_preview_get, project_preview_set};
 use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
@@ -238,7 +239,13 @@ pub fn run() {
             list_flags,
             flag_usage,
             free_flag,
-            name_flag
+            name_flag,
+            list_threads,
+            thread_graph,
+            story_list,
+            story_get,
+            story_create,
+            story_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

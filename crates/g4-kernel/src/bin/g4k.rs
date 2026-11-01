@@ -189,6 +189,10 @@ enum Command {
     /// plan one without writing, apply one as one undo step and save.
     #[command(subcommand)]
     Recipe(RecipeCommand),
+    /// The stories of a text project (`data/stories/`) and the threads of the game: list, read
+    /// and create stories (written at once, no undo), list the threads, print the graph of one.
+    #[command(subcommand)]
+    Story(StoryCommand),
 }
 
 #[derive(Subcommand)]
@@ -486,6 +490,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             publish(&project, &opts, base_rom.as_deref(), json)
         }
         Command::Recipe(command) => recipe(command),
+        Command::Story(command) => story(command),
     }
 }
 
@@ -2465,6 +2470,178 @@ fn recipe(command: RecipeCommand) -> Result<(), Failure> {
             let saved = store.save()?;
             print_problems(&saved.problems);
             print_json(&outcome)
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum StoryCommand {
+    /// One line per story of the register, by number: `<NNNN> <id> var=<id>|flag=<id> steps=<n>
+    /// <name>`, or `<NNNN> <id> problem=<file:line:col: message>` for a file that does not read.
+    List { project: PathBuf },
+    /// Print one story by its id as JSON: `number`, `story` and `layout` (the side file, empty
+    /// without one). An unknown id exits 1.
+    Get { project: PathBuf, id: String },
+    /// Create a story in a text project (register, `data/stories/NNNN.json` and its
+    /// `.layout.json`; no undo); the id `STORY_…` comes from the name. Prints `created <id>
+    /// number=<n> files=<a>,<b>,<c> ms=<n>`, then a line `warning <text>` per warning. A refusal
+    /// (no text project, an empty name, a progress that names nothing) writes nothing (exit 1).
+    Create {
+        project: PathBuf,
+        #[arg(long)]
+        name: String,
+        /// The progress variable: `VAR_…`, an own id or a number.
+        #[arg(long, conflicts_with = "flag", required_unless_present = "flag")]
+        var: Option<String>,
+        /// The progress flag: `FLAG_…`, an own id or a number.
+        #[arg(long)]
+        flag: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    /// The threads of the game (variables with three values at two places, from the reference
+    /// index): one line each, `<0xNNNN> <own id or pret name or -> <n> Werte · <n> Orte`, the
+    /// story that claims it appended as `story=<id>`; `--json` prints every thread with its
+    /// references.
+    Threads {
+        project: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print the graph of one variable as JSON (value nodes, place nodes, edges); `var` is a
+    /// number or a name (`VAR_…`, also an own id).
+    Graph { project: PathBuf, var: String },
+}
+
+fn story(command: StoryCommand) -> Result<(), Failure> {
+    use g4_kernel::data::refs::RefIndex;
+    use g4_kernel::stories::{self, Progress, StoryRequest};
+    use g4_kernel::textproject::ids::Resolver;
+    use g4_kernel::textproject::symbols::SymbolKind;
+    match command {
+        StoryCommand::List { project } => {
+            let project = Project::open(&project)?;
+            let ids: HashMap<u32, String> =
+                g4_kernel::textproject::registry::Registry::load(&project.root, SymbolKind::Story)?
+                    .ids
+                    .into_iter()
+                    .map(|(id, n)| (n, id))
+                    .collect();
+            for (n, entry) in stories::list_stories(&project)? {
+                match entry {
+                    Ok(story) => {
+                        let progress = match &story.progress {
+                            Progress::Var(id) => format!("var={id}"),
+                            Progress::Flag(id) => format!("flag={id}"),
+                        };
+                        println!(
+                            "{n:04} {} {progress} steps={} {}",
+                            story.id,
+                            story.steps.len(),
+                            story.name
+                        );
+                    }
+                    Err(problem) => println!(
+                        "{n:04} {} problem={}:{}:{}: {}",
+                        ids.get(&u32::from(n)).map_or("-", String::as_str),
+                        problem.file.display(),
+                        problem.line,
+                        problem.col,
+                        problem.message
+                    ),
+                }
+            }
+            Ok(())
+        }
+        StoryCommand::Get { project, id } => {
+            let project = Project::open(&project)?;
+            let Some(number) = stories::number_of(&project, &id)? else {
+                return Err(
+                    KernelError::Refused(g4_kernel::textproject::ids::unknown_id_text(&id)).into(),
+                );
+            };
+            let Some(story) = stories::read_story(&project, number)? else {
+                return Err(Failure::Message(format!("{id} hat keine Datei.")));
+            };
+            let layout = stories::read_layout(&project, number)?.unwrap_or_default();
+            print_json(&serde_json::json!({
+                "number": number,
+                "story": story,
+                "layout": layout,
+            }))
+        }
+        StoryCommand::Create {
+            project,
+            name,
+            var,
+            flag,
+            notes,
+        } => {
+            let project = Project::open(&project)?;
+            let progress = match (var, flag) {
+                (Some(var), _) => Progress::Var(var),
+                (None, Some(flag)) => Progress::Flag(flag),
+                (None, None) => return Err(Failure::Message("--var or --flag".into())),
+            };
+            let req = StoryRequest {
+                name,
+                progress,
+                notes: notes.unwrap_or_default(),
+                steps: Vec::new(),
+                flags: Vec::new(),
+            };
+            let report = stories::create_story_files(&project, &req)?;
+            let files: Vec<String> = report
+                .files
+                .iter()
+                .map(|f| f.to_string_lossy().replace('\\', "/"))
+                .collect();
+            println!(
+                "created {} number={} files={} ms={}",
+                report.id,
+                report.number,
+                files.join(","),
+                report.ms
+            );
+            for warning in &report.warnings {
+                println!("warning {warning}");
+            }
+            Ok(())
+        }
+        StoryCommand::Threads { project, json } => {
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            let threads = stories::threads(&mut store, &mut RefIndex::new())?;
+            if json {
+                return print_json(&threads);
+            }
+            for t in &threads {
+                let name = t.own_id.as_deref().or(t.name.as_deref()).unwrap_or("-");
+                let story = t
+                    .story
+                    .as_deref()
+                    .map_or_else(String::new, |id| format!(" story={id}"));
+                println!(
+                    "{:#06X} {name} {} Werte · {} Orte{story}",
+                    t.var,
+                    t.values.len(),
+                    t.places
+                );
+            }
+            Ok(())
+        }
+        StoryCommand::Graph { project, var } => {
+            let project = Arc::new(Project::open(&project)?);
+            let n = Resolver::for_project(&project)?
+                .parse(SymbolKind::Var, &var)
+                .map_err(Failure::Message)?;
+            let n = u16::try_from(n).map_err(|_| Failure::Message(format!("{var}: zu groß")))?;
+            let mut store = Store::new(project);
+            print_json(&stories::thread_graph(
+                &mut store,
+                &mut RefIndex::new(),
+                n,
+                None,
+            )?)
         }
     }
 }
