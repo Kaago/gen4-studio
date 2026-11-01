@@ -215,9 +215,9 @@ pub struct DiffSources<'a> {
 }
 
 /// The diff of `subject` against `against`. Refused (with the sentences of this module) when
-/// that side cannot exist: a file against the base, a script against the saved state, the
-/// saved state without the app's store, `HEAD` without a repository or a commit, the base
-/// without a base ROM. A `file` or `member` that names no place inside the project is refused
+/// that side cannot exist: a file or a story against the base, a script against the saved
+/// state, the saved state without the app's store, `HEAD` without a repository or a commit, the
+/// base without a base ROM. A `file` or `member` that names no place inside the project is refused
 /// first ([`OUTSIDE_PROJECT`], [`DiffSubject::check`]), a project file that is no regular file
 /// inside the project when it is read ([`NOT_A_FILE`]). Reads only: nothing is written,
 /// christened or recorded.
@@ -234,7 +234,10 @@ pub fn diff_entity(
     let sides = Sides::new(project, subject);
     let (old_label, new_label, old, new) = match against {
         Against::Base => {
-            if matches!(subject, DiffSubject::File { .. }) {
+            if matches!(
+                subject,
+                DiffSubject::File { .. } | DiffSubject::Story { .. }
+            ) {
                 return Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned()));
             }
             let Some(original) = sources.original else {

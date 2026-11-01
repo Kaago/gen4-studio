@@ -62,8 +62,8 @@ function firstChangedLine(diff: Extract<EntityDiff, { shape: "lines" }>): number
 /**
  * Where „Öffnen“ leads (plan 4.4 „Öffnen“): the header, the area data, the text archive at its first changed message, the script file at
  * its first changed line, the species, move, item, trainer or encounter file, the matrix at cell 0, 0, and an event file at the event its
- * first changed path lies in. Null where the app has no place: maps, textures, models, members, project files, an event file whose first
- * change is outside the event lists (or not read yet).
+ * first changed path lies in. Null where the app has no place: maps, textures, models, members, project files, stories (until the stories'
+ * surface has a place for one), an event file whose first change is outside the event lists (or not read yet).
  */
 export function navTargetOf(subject: DiffSubject, diff: EntityDiff | null): NavTarget | null {
   switch (subject.kind) {

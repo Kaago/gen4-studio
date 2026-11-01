@@ -53,9 +53,9 @@ pub(crate) const CONFLICT_CODE: &str = "textproject.conflict";
 /// written.
 pub(crate) const UNSYNCED_CODE: &str = "textproject.unsynced";
 
-/// Every code, for the documentation test.
+/// Every code, for the documentation test (with the stories' own check code).
 #[cfg(test)]
-const ALL: [&str; 20] = [
+const ALL: [&str; 21] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -76,6 +76,7 @@ const ALL: [&str; 20] = [
     MEMBER_NEWER_CODE,
     CONFLICT_CODE,
     UNSYNCED_CODE,
+    crate::stories::DANGLING_REF_CODE,
 ];
 
 #[cfg(test)]

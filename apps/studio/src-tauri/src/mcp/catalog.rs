@@ -1606,7 +1606,7 @@ fn flag_number() -> Value {
 }
 
 /// The kinds of `g4_kernel::diff::DiffSubject`, in its order.
-const DIFF_KINDS: [&str; 18] = [
+const DIFF_KINDS: [&str; 19] = [
     "map",
     "matrix",
     "area_data",
@@ -1625,6 +1625,7 @@ const DIFF_KINDS: [&str; 18] = [
     "interior_building_model",
     "member",
     "file",
+    "story",
 ];
 
 /// The arguments of `diff_entity`: the subject, flat, and what it is compared against.
@@ -2468,6 +2469,7 @@ mod tests {
             DiffSubject::File {
                 path: "g4-world.json".into(),
             },
+            DiffSubject::Story { index: 0 },
         ];
         let schema = (tool("diff_entity").input_schema)();
         let kinds = &schema["properties"]["kind"]["enum"];

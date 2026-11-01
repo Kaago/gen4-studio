@@ -19,7 +19,7 @@ export interface HeadInfo {
   time: number;
 }
 
-/** An entity as the diff names it (`g4_kernel::diff::DiffSubject`): `index` is the header id, the script file, the item id; `member` a folder without a Studio kind; `file` any other project file. */
+/** An entity as the diff names it (`g4_kernel::diff::DiffSubject`): `index` is the header id, the script file, the item id; `member` a folder without a Studio kind; `file` any other project file; `story` a story `data/stories/NNNN.json` (its layout side file stays a `file`). */
 export type DiffSubject =
   | {
       kind:
@@ -42,7 +42,8 @@ export type DiffSubject =
       index: number;
     }
   | { kind: "member"; folder: string; index: number }
-  | { kind: "file"; path: string };
+  | { kind: "file"; path: string }
+  | { kind: "story"; index: number };
 
 /**
  * The Git state of the open project. `branch` is null with a detached `HEAD` (`detached`) and without a repository; with a repository

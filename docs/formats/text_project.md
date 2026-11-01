@@ -1045,6 +1045,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |
 | `textproject.conflict` | Fehler | Build: JSON und Member einer Einheit sind beide seit dem letzten Build geändert; nichts geschrieben |
 | `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
+| `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts; gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Prüfung“) |
 
 ## Quellenliste
 

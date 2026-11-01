@@ -124,7 +124,7 @@ enum Command {
     /// The diff of one entity, field by field (reads only). `<kind>` is the subject's kind as
     /// the kernel names it (`map`, `matrix`, `area_data`, `event_file`, `encounter`,
     /// `species`, `move`, `item`, `trainer`, `header`, `text_archive`, `script`,
-    /// `map_texture`, `building_texture`, `building_model`, `interior_building_model`;
+    /// `map_texture`, `building_texture`, `building_model`, `interior_building_model`, `story`;
     /// `member` with `<folder>/<NNNN>`, `file` with a path relative to the root); `<index>` a
     /// number or an id (species, moves, items, trainers, headers as `MAP_…`). Against the last
     /// commit (default) or the base ROM (`--base-rom`, else the sibling `.nds`, else
@@ -2245,7 +2245,7 @@ fn diff_subject(
         Failure::Message(format!(
             "unknown kind {kind:?}: map, matrix, area_data, event_file, encounter, species, \
              move, item, trainer, header, text_archive, script, map_texture, building_texture, \
-             building_model, interior_building_model, member or file"
+             building_model, interior_building_model, story, member or file"
         ))
     })
 }
@@ -2267,9 +2267,14 @@ fn diff(
         Against::Head => g4_kernel::git::GitRepo::discover(root)?,
         Against::Base | Against::Saved => None,
     };
-    // A file has no base side: the kernel refuses it before it asks for a base ROM.
+    // A file or a story has no base side: the kernel refuses it before it asks for a base ROM.
     let (base, base_label) = match against {
-        Against::Base if !matches!(subject, DiffSubject::File { .. }) => {
+        Against::Base
+            if !matches!(
+                subject,
+                DiffSubject::File { .. } | DiffSubject::Story { .. }
+            ) =>
+        {
             let mark = required_mark(root)?;
             let base = required_base(root, &mark, base_rom)?;
             (Some(base), Some(g4_kernel::base::base_label(&mark)))

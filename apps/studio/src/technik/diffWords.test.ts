@@ -77,5 +77,8 @@ describe("diffWords", () => {
     expect(navTargetOf({ kind: "member", folder: "pokeHeight", index: 5 }, null)).toBeNull();
     expect(navTargetOf({ kind: "map_texture", index: 1 }, null)).toBeNull();
     expect(navTargetOf({ kind: "building_model", index: 1 }, null)).toBeNull();
+    // A story has no place yet (the stories' surface brings it).
+    expect(navTargetOf({ kind: "story", index: 0 }, fields("notes"))).toBeNull();
+    expect(navTargetOf({ kind: "story", index: 0 }, null)).toBeNull();
   });
 });

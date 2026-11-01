@@ -198,6 +198,35 @@ oder wenn es sich nicht lesen lässt: die Prüfung nennt es, der Graph legt sich
 Das Label ist der Dateiname der Quelle; den Ortsnamen des Headers setzt die Oberfläche dazu
 (wie bei „Verwendet in“ der Flags).
 
+## Prüfung
+
+Der Check des Textprojekts (`textproject::check`, `g4k text check`) liest die
+Geschichten als dritte Datenart (`kinds::check_files` → `schema::check_file`): Fehler sind
+`textproject.schema` (kein JSON, unbekannter Schlüssel, falscher Typ, ein Schlüssel in zwei
+Schritten, ein unlesbares Beifile, ein Dateiname, der weder `NNNN.json` noch `NNNN.layout.json`
+ist) und `textproject.id-mismatch` (`id` ohne `STORY_` oder nicht die ID der Nummer im Register);
+Warnungen sind `textproject.id-dangling` (ein Registereintrag ohne Datei) und
+**`story.dangling-ref`**: eine ID in `progress`, `uses` oder `flags`, die im Projekt nichts nennt,
+mit Datei und Zeile des Eintrags
+(`data/stories/0000.json`, Zeile von `"TRAINER_NOPE"`:
+`story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NOPE.`). Eine Warnung hält
+weder Import noch Build auf; der Code steht in der Codeliste von
+[text_project.md](text_project.md) „Codes“.
+
+## Diff
+
+„Technik › Änderungen“ und `diff_entity` kennen die Geschichte als eigene Entität:
+`DiffSubject::Story { index }` (JSON `{"kind": "story", "index": 0}`), Gruppe „Geschichten“, Label
+„Geschichte 0000“. `of_path("data/stories/0000.json")` ist die Geschichte; das Beifile
+`0000.layout.json` bleibt eine Projektdatei (`file`), damit das Ziehen von Knoten den Diff der
+Bedeutung nicht verrauscht. Beide Seiten sind das JSON der Datei (auf der Platte, in `HEAD`), die
+Form ist `fields` mit JSON-Pfaden wie `name`, `notes`, `steps[1].name`,
+`steps[1].uses[0].trainer`; eine neue Geschichte ist `new`, eine entfernte `removed`. Gegen die
+Basis-ROM wird abgelehnt wie bei einer Datei (`Für einzelne Dateien gibt es keinen Vergleich mit
+der Basis-ROM.`); „Gegen gespeichert“ vergleicht die Datei mit sich selbst (Geschichten haben keinen
+ungespeicherten Stand). Kein „Auf Original zurücksetzen…“, keine Store-Assets; „Öffnen“ aus der
+Liste kommt mit der Fläche der Geschichten.
+
 ## Befehle
 
 Folgt mit Task 5 (`story_list`, `story_get`, `story_create`, `story_update`, `g4k story …`).

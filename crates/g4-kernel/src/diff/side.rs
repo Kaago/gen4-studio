@@ -16,7 +16,8 @@
 //! - textures, models and members without a kind: their bytes; in a text project the file
 //!   under `data/` (a blob `data/raw/unpacked/…` for a member), without one
 //!   [`Side::Base`];
-//! - a project file: its bytes, read as JSON or text by its extension.
+//! - a project file: its bytes, read as JSON or text by its extension;
+//! - a story: its file `data/stories/NNNN.json` as JSON (no base side, no unsaved state).
 //!
 //! A member missing in `HEAD`'s `unpacked/` folder is read from `HEAD`'s packed NARC (a
 //! project whose archive was unpacked after the commit).
@@ -85,6 +86,9 @@ enum Kind<'s> {
     Binary(AssetKind, u16),
     Member(&'s str, u16),
     File(&'s str),
+    /// A JSON file of the text project that is an entity of its own (a story), relative to
+    /// the root: no base side, written at once (no unsaved state).
+    JsonFile(PathBuf),
 }
 
 /// Reads the sides of `subject` in `project`.
@@ -147,6 +151,7 @@ impl<'a> Sides<'a> {
                 Ok(bytes_or(member, Side::Absent))
             }
             Kind::File(_) => Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned())),
+            Kind::JsonFile(_) => Err(KernelError::Refused(NO_BASE_FOR_FILES.to_owned())),
         }
     }
 
@@ -213,6 +218,7 @@ impl<'a> Sides<'a> {
                 Ok(bytes_or(member, Side::Absent))
             }
             Kind::File(path) => Ok(file_side(path, blob(Path::new(path))?)),
+            Kind::JsonFile(rel) => Ok(json_file_side(&rel, blob(&rel)?)),
         }
     }
 
@@ -276,6 +282,7 @@ impl<'a> Sides<'a> {
                 Ok(bytes_or(member, Side::Absent))
             }
             Kind::File(path) => Ok(file_side(path, file(Path::new(path))?)),
+            Kind::JsonFile(rel) => Ok(json_file_side(&rel, file(&rel)?)),
         }
     }
 
@@ -343,6 +350,7 @@ impl<'a> Sides<'a> {
             }
             Kind::Script(_) => Err(KernelError::Refused(SCRIPTS_HAVE_NO_UNSAVED.to_owned())),
             Kind::Binary(..) | Kind::Member(..) | Kind::File(_) => both_disk(),
+            Kind::JsonFile(_) => both_disk(),
         }
     }
 
@@ -411,6 +419,7 @@ impl<'a> Sides<'a> {
             }
             DiffSubject::Member { ref folder, index } => Ok(Kind::Member(folder, index)),
             DiffSubject::File { ref path } => Ok(Kind::File(path)),
+            DiffSubject::Story { index } => Ok(Kind::JsonFile(crate::stories::story_rel(index))),
         }
     }
 
@@ -760,6 +769,12 @@ fn file_side(path: &str, bytes: Option<Vec<u8>>) -> Side {
         return Side::Text(text);
     }
     Side::Bytes(bytes)
+}
+
+/// The side of JSON file `rel` (a story): [`file_side`] by its `.json` extension, so a file
+/// that does not read as JSON still diffs as text.
+fn json_file_side(rel: &Path, bytes: Option<Vec<u8>>) -> Side {
+    file_side(&rel.to_string_lossy(), bytes)
 }
 
 /// The bytes at `path`; `None` when there is no file.
