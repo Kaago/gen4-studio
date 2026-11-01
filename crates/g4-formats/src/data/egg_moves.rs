@@ -93,7 +93,8 @@ impl EggMoves {
     /// count is unchanged, else zero padding to four bytes ([`EggMoves::set_moves`] replaces
     /// the tail with that padding when it changes the word count); with a budget 0xFFFF words
     /// up to it. Err(words) when marks + moves + 1 exceed the budget. A table read without a
-    /// terminator and without a budget is written without one.
+    /// terminator and without a budget is written without one until `set_moves` changes its
+    /// word count.
     pub fn write(&self) -> Result<Vec<u8>, usize> {
         let words = self.words();
         if let Some(budget) = self.budget
@@ -144,7 +145,8 @@ impl EggMoves {
 
     /// Replaces the list; an empty list removes the entry; a new entry goes in ascending
     /// species order (before the first entry of a higher species). When the word count
-    /// changes, the tail becomes the zero padding to four bytes (see [`EggMoves::write`]).
+    /// changes, the table gets its terminator (if it was read without one) and the tail
+    /// becomes the zero padding to four bytes (see [`EggMoves::write`]).
     pub fn set_moves(&mut self, species: u16, moves: Vec<u16>) {
         let before = self.words();
         let at = self.entries.iter().position(|e| e.species == species);
@@ -165,6 +167,9 @@ impl EggMoves {
         }
         let after = self.words();
         if after != before {
+            // An edited table always ends with its terminator, also one read without (else
+            // the padding would be read back as a move).
+            self.terminated = true;
             self.tail = vec![0; (4 - (2 * after) % 4) % 4];
         }
     }
@@ -308,6 +313,34 @@ mod tests {
             tailed.write().unwrap(),
             [bytes(&[20001, 6, 0xFFFF]), vec![1, 2]].concat()
         );
+    }
+
+    #[test]
+    fn an_edited_table_without_terminator_gets_one_and_no_phantom_move() {
+        let mut open = EggMoves::read(&bytes(&[20001, 5])).unwrap();
+        assert!(!open.terminated);
+        open.set_moves(3, vec![9]);
+        assert!(open.terminated);
+        let written = open.write().unwrap();
+        assert_eq!(written, bytes(&[20001, 5, 20003, 9, 0xFFFF, 0]));
+        let again = EggMoves::read(&written).unwrap();
+        assert_eq!(again.moves_of(3), Some([9].as_slice()));
+        assert_eq!(again.entries, open.entries);
+        // An empty member edited the same way.
+        let mut empty = EggMoves::read(&[]).unwrap();
+        assert!(!empty.terminated && empty.entries.is_empty());
+        assert_eq!(empty.write().unwrap(), Vec::<u8>::new());
+        empty.set_moves(1, vec![5]);
+        let written = empty.write().unwrap();
+        assert_eq!(written, bytes(&[20001, 5, 0xFFFF, 0]));
+        assert_eq!(
+            EggMoves::read(&written).unwrap().entries,
+            vec![entry(1, &[5])]
+        );
+        // An edit that keeps the word count keeps a table without terminator as it was.
+        let mut swap = EggMoves::read(&bytes(&[20001, 5])).unwrap();
+        swap.set_moves(1, vec![6]);
+        assert_eq!(swap.write().unwrap(), bytes(&[20001, 6]));
     }
 
     #[test]

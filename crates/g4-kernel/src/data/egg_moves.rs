@@ -43,7 +43,9 @@ pub struct EggMovesPlace {
 }
 
 /// Where the table lives: HGSS member; Platinum the patch NARC when
-/// `files/zcustom/egg_moves.narc` exists, else the overlay slice when the signature holds.
+/// `files/zcustom/egg_moves.narc` or the folder `unpacked/eggMoves` exists (a checkout of a
+/// patched project has the folder only, the NARC is ignored by Git), else the overlay slice
+/// when the signature holds.
 /// `Ok(Err(reason))`: locked (no table for the game code, signature missing).
 pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String>, KernelError> {
     let member = || EggMovesPlace {
@@ -87,12 +89,16 @@ pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String
 }
 
 /// Whether DSPRE's egg move patch moved the table into its NARC (Platinum): the packed NARC
-/// of `archives.yaml` exists.
+/// of `archives.yaml` exists, or its folder `unpacked/eggMoves` does. The folder counts on its
+/// own because the DSPRE layout's `.gitignore` lists the NARC of every unpacked folder, so a
+/// clone of a patched project has the folder only; the Studio never creates that folder on
+/// Platinum without the patch, and vanilla projects have neither.
 fn patch_present(project: &Project) -> bool {
     project
         .archives
         .packed(AssetKind::EggMoves)
         .is_some_and(|packed| project.root.join(packed).is_file())
+        || project.unpacked_dir(AssetKind::EggMoves).is_dir()
 }
 
 /// The overlay the egg moves lie in (`overlay_tables.yaml`).

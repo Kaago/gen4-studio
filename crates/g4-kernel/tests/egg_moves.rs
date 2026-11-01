@@ -116,6 +116,41 @@ fn with_the_patch_narc_the_overlay_is_left_alone() {
     );
 }
 
+/// A clone of a patched project: the DSPRE layout's `.gitignore` leaves the NARC out, the
+/// folder is there. The folder alone marks the patch; the overlay is never read or written.
+#[test]
+fn the_patch_folder_without_its_narc_still_counts_as_the_patch() {
+    let s = common::synthetic_platinum_egg_moves(common::PT_EGG_MOVES_OFFSET);
+    let root = s.dir.path();
+    common::write_egg_move_patch(root);
+    Project::open(root)
+        .unwrap()
+        .ensure_unpacked(AssetKind::EggMoves)
+        .unwrap();
+    std::fs::remove_file(root.join("files/zcustom/egg_moves.narc")).unwrap();
+    let overlay_before = std::fs::read(overlay_path(root)).unwrap();
+    let p = Project::open(root).unwrap();
+    let place = egg_moves_place(&p).unwrap().unwrap();
+    assert_eq!(place.source, EggMovesSource::Patch);
+    assert_eq!(
+        place.location,
+        Location::Member(root.join("unpacked/eggMoves/0000"))
+    );
+    assert_eq!(place.budget, None);
+    assert_eq!(p.ensure_unpacked(AssetKind::EggMoves).unwrap(), 1);
+    let mut st = store_of(root);
+    assert_eq!(st.egg_moves().unwrap().entries.len(), 3);
+    st.edit_egg_moves("add", |t| t.set_moves(4, vec![9, 10]))
+        .unwrap()
+        .unwrap();
+    st.save().unwrap();
+    assert_eq!(std::fs::read(overlay_path(root)).unwrap(), overlay_before);
+    assert_eq!(
+        std::fs::read(root.join("unpacked/eggMoves/0000")).unwrap(),
+        common::egg_move_bytes(&[20001, 5, 7, 20003, 20004, 9, 10, 0xFFFF])
+    );
+}
+
 #[test]
 fn a_wrong_offset_fails_the_signature_and_locks_the_asset() {
     let s = common::synthetic_platinum_egg_moves(common::PT_EGG_MOVES_OFFSET + 2);

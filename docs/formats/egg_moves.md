@@ -32,16 +32,20 @@ wie gelesen zurück (`write(read(bytes)) == bytes`).
 | Spiel | Ort | Quelle (`EggMovesSource`) |
 |-------|-----|---------------------------|
 | HeartGold/SoulSilver | NARC `a/2/2/9`, ein Member (`unpacked/eggMoves/0000`) | `narc` |
-| Platin mit DSPRE-Patch | `files/zcustom/egg_moves.narc`, ein Member (`unpacked/eggMoves/0000`) | `patch` |
+| Platin mit DSPRE-Patch | `files/zcustom/egg_moves.narc` oder nur `unpacked/eggMoves/0000` | `patch` |
 | Platin ohne Patch | `arm9_overlays/ov005.bin`, fester Ausschnitt | `overlay` |
 | Diamant/Perl | nicht bekannt, keine Ei-Attacken im Studio | – |
 
 Im Kernel ist die Tabelle eine Ein-Asset-Art `AssetKind::EggMoves` (Index 0) wie die
 Header-Tabelle; `egg_moves_place` wählt den Ort.
 
-**Patch-Erkennung:** Gibt es `files/zcustom/egg_moves.narc`, liest und schreibt das Studio
-den NARC und fasst Overlay 5 nie an (DSPRE biegt den Code zum NARC um). Der Build packt
-`unpacked/eggMoves` nur, wenn der Ordner da ist.
+**Patch-Erkennung:** Gibt es `files/zcustom/egg_moves.narc` oder den Ordner
+`unpacked/eggMoves`, liest und schreibt das Studio den Member des NARC und fasst Overlay 5 nie
+an (DSPRE biegt den Code zum NARC um). Der Ordner allein reicht, weil die `.gitignore` des
+DSPRE-Layouts den NARC jedes entpackten Ordners ausschließt: ein Klon eines gepatchten
+Projekts hat nur den Ordner. Auf Platin ohne Patch legt das Studio den Ordner nie an,
+Vanilla-Projekte haben keinen von beiden. Der Build packt `unpacked/eggMoves` nur, wenn der
+Ordner da ist.
 
 ## Lage im Overlay (Platin)
 
