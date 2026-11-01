@@ -32,7 +32,7 @@ use super::arts::{
 use super::base_layer::{
     BaseLayer, RAW_DIR, check_raw_blob, owned_paths, place_raw, raw_differs, walk,
 };
-use super::canon::{parse_json, problem, write_if_changed};
+use super::canon::{parse_entity, problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE,
     RAW_PATH_CODE, SCHEMA_CODE,
@@ -456,10 +456,11 @@ fn read_source(root: &Path, rel: &Path) -> Result<Vec<u8>, Problem> {
         .map_err(|e| problem(rel, SCHEMA_CODE, format!("{ROOT}: nicht lesbar ({e}).")))
 }
 
-/// `T` from file `rel`'s `bytes`, or the problem with serde's position and the JSON path of
-/// the field, in German.
+/// `T` from file `rel`'s `bytes` without the tombstone envelope (the import writes the members
+/// of a deleted entity as of any other), or the problem with serde's position and the JSON
+/// path of the field, in German.
 fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
-    parse_json(rel, bytes, SCHEMA_CODE)
+    parse_entity(rel, bytes, SCHEMA_CODE).map(|(t, _deleted)| t)
 }
 
 /// The JSON numbers of `dir` checked for gaps: a missing number below the member count is a

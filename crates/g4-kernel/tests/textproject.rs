@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 1);
+    assert_eq!(manifest["schemaVersion"], 2);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -1112,7 +1112,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
+        "\"schemaVersion\": 2",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1770,8 +1770,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
-        "\"schemaVersion\":  1",
+        "\"schemaVersion\": 2",
+        "\"schemaVersion\":  2",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));
@@ -2326,11 +2326,48 @@ fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
     );
 }
 
+/// Puts the tombstone envelope on the last trainer file of the exported `copy` (`"deleted":
+/// true` as the last key, as the store writes it) and returns its path and new bytes.
+fn tombstone_last_trainer(copy: &Path) -> (PathBuf, Vec<u8>) {
+    let dir = copy.join("data/trainers");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".json") && !n.starts_with('.'))
+        .collect();
+    names.sort();
+    let path = dir.join(names.last().expect("trainer files"));
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .insert("deleted".to_owned(), serde_json::Value::Bool(true));
+    let mut bytes = serde_json::to_vec_pretty(&value).unwrap();
+    bytes.push(b'\n');
+    assert!(bytes.ends_with(b",\n  \"deleted\": true\n}\n"));
+    std::fs::write(&path, &bytes).unwrap();
+    eprintln!("tombstone on {}", path.display());
+    (path, bytes)
+}
+
 #[test]
 fn textproject_round_trip() {
+    round_trip(false);
+}
+
+/// The round trip with a tombstone on the last trainer: the import ignores the envelope, the
+/// member comes back and the ROM builds byte-equal; the file keeps the envelope.
+#[test]
+fn textproject_round_trip_with_tombstone() {
+    round_trip(true);
+}
+
+fn round_trip(tombstone: bool) {
     let Some((tmp, copy, nds, report)) = exported_copy() else {
         return;
     };
+    let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
     let base = BaseRom::open(&nds, None).unwrap();
     let code = base.game_code().to_owned();
     print_arts(&code, &copy, &report);
@@ -2413,18 +2450,34 @@ fn textproject_round_trip() {
         base.sha1(),
         "the rebuilt ROM differs from the base ROM"
     );
+    if let Some((path, bytes)) = &tombstoned {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
+    }
     eprintln!(
-        "textproject-stats {code} files={} bytes={} json={json} side={side} raw={} \
-         base_layer_ms={} export_ms={} import_ms={import_ms} build_ms={build_ms}",
+        "textproject-stats {code} tombstone={tombstone} files={} bytes={} json={json} \
+         side={side} raw={} base_layer_ms={} export_ms={} import_ms={import_ms} \
+         build_ms={build_ms}",
         report.files, report.bytes, report.raw_blobs, report.base_layer_ms, report.ms
     );
 }
 
 #[test]
 fn textproject_export_idempotent() {
+    export_idempotent(false);
+}
+
+/// The second export with a tombstone on the last trainer writes nothing: the envelope of the
+/// file on disk is carried over.
+#[test]
+fn textproject_export_idempotent_with_tombstone() {
+    export_idempotent(true);
+}
+
+fn export_idempotent(tombstone: bool) {
     let Some((_tmp, copy, nds, _report)) = exported_copy() else {
         return;
     };
+    let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
     let base = BaseRom::open(&nds, None).unwrap();
     let snapshot = || {
         sources(&Project::open(&copy).unwrap())
@@ -2461,8 +2514,11 @@ fn textproject_export_idempotent() {
             .collect();
         panic!("the second export changed sources: {changed:?}");
     }
+    if let Some((path, bytes)) = &tombstoned {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
+    }
     eprintln!(
-        "textproject-second-export {} ms={second_ms}",
+        "textproject-second-export {} tombstone={tombstone} ms={second_ms}",
         base.game_code()
     );
 }

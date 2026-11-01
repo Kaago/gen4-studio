@@ -272,6 +272,7 @@ mod tests {
 
     use super::super::SCHEMA_VERSION;
     use super::super::symbols::{fixed_tables_digest, table};
+    use super::super::tombstone::DELETED_KEY;
     use super::data::{EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity};
     use super::data::{TrainerTextOffsetsEntity, TrainerTextTableEntity};
     use super::header::{HeaderHgssEntity, HeaderPtEntity};
@@ -296,6 +297,8 @@ mod tests {
             Map,
             Trainer,
             Place,
+            Flag,
+            Var,
         ]
         .into_iter()
         .find(|k| {
@@ -430,6 +433,8 @@ mod tests {
         let mut lines = vec![
             format!("schemaVersion {SCHEMA_VERSION}"),
             format!("symbolTables {}", fixed_tables_digest()),
+            // The tombstone envelope: no field of a type, a top-level key of every entity file.
+            format!("*.{DELETED_KEY}?"),
         ];
         lines_of::<SpeciesEntity>(&mut lines);
         lines_of::<MoveEntity>(&mut lines);
@@ -519,6 +524,11 @@ mod tests {
     fn snapshot_lines_name_codec_fields_and_refs() {
         let text = snapshot();
         assert!(text.starts_with(&format!("schemaVersion {SCHEMA_VERSION}\n")));
+        assert_eq!(
+            text.lines().nth(2),
+            Some("*.deleted?"),
+            "the envelope leads"
+        );
         for line in [
             "species.id →SPECIES",
             "species.personal?.hp",
@@ -562,7 +572,9 @@ mod tests {
             "events.bg_events[].player_facing_dir",
             "events.object_events[].data[]",
             "events.warp_events[].dest_header_id →MAP",
-            "events.coord_events[].var",
+            "events.object_events[].hidden_flag →FLAG",
+            "events.coord_events[].var →VAR",
+            "events.coord_events[].value",
             "events <member>",
             "trainers.data.flags_rest?",
             "maps.source",

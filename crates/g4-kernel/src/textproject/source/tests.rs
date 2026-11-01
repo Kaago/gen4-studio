@@ -672,7 +672,7 @@ fn open_refuses_a_folder_that_is_no_text_project_of_the_current_schema() {
     let fx = TextFixture::exported();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
+        "\"schemaVersion\": 2",
         "\"schemaVersion\": 99",
     );
     assert!(refusal(&fx).contains("neueren Fassung"));

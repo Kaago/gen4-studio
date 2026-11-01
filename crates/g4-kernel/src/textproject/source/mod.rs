@@ -35,7 +35,7 @@ use crate::store::HEADER_TABLE;
 
 use super::arts::{Art, numbered};
 use super::base_layer::{BaseLayer, RAW_DIR};
-use super::canon::json_problem;
+use super::canon::parse_entity;
 use super::codes::SCHEMA_CODE;
 use super::ids::{Stamp, stamp, watched};
 use super::import::LazyBase;
@@ -358,7 +358,8 @@ impl EntitySource {
             base: &lazy,
             current: &current,
         };
-        let parts = import_art(art, u32::from(index), &rel, &bytes, &ctx)?;
+        // The tombstone is the store's to keep (Task 2), not the members'.
+        let (parts, _deleted) = import_art(art, u32::from(index), &rel, &bytes, &ctx)?;
         let named = self.base_sha1.entry(key_of(&rel)).or_default();
         collect_base_sha1(&bytes, named);
         Ok(Some(parts))
@@ -390,9 +391,8 @@ impl EntitySource {
             let Some(bytes) = read_optional(&self.root.join(&rel))? else {
                 continue;
             };
-            let item: ItemEntity = serde_json::from_slice(&bytes).map_err(|e| {
-                KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)])
-            })?;
+            let (item, _deleted): (ItemEntity, bool) = parse_entity(&rel, &bytes, SCHEMA_CODE)
+                .map_err(|problem| KernelError::Compile(vec![problem]))?;
             if item.data.is_none() {
                 continue;
             }

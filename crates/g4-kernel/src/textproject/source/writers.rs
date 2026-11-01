@@ -305,7 +305,7 @@ impl EntitySource {
             let rel = json_rel(Art::Headers, u32::try_from(n).unwrap_or(u32::MAX));
             let path = self.root.join(&rel);
             let bytes = std::fs::read(&path).map_err(io_at(&path))?;
-            let parts = import_art(
+            let (parts, _deleted) = import_art(
                 Art::Headers,
                 u32::try_from(n).unwrap_or(u32::MAX),
                 &rel,

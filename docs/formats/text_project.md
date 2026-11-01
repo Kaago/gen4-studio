@@ -17,9 +17,9 @@ Diamant/Perl in Phase 4.“).
 | Pfad | Inhalt |
 |---|---|
 | `g4-project.json` | Manifest; seine Anwesenheit macht den Ordner zum Textprojekt |
-| `data/<art>/NNNN.json` | eine Entität je Datei, `NNNN` vierstellig ab `0000`, lückenlos |
+| `data/<art>/NNNN.json` | eine Entität je Datei, `NNNN` vierstellig ab `0000`, lückenlos; eine gelöschte trägt den Umschlag `"deleted": true` (siehe Arten) |
 | `data/<art>/NNNN.<ext>` | Beifiles einer Entität (gleicher Stamm) und die Member der Binärarten |
-| `data/ids/{maps,trainers,trainer_classes,places}.json` | Register der getauften IDs |
+| `data/ids/{maps,trainers,trainer_classes,places,flags,vars}.json` | Register der getauften IDs und der eigenen Flag- und Variablennamen |
 | `data/raw/<pfad>` | Blobs: geänderte Dateien, die keine Entität und keine Quelle besitzt |
 | `data/rotom-quirks.json` | rotoms Binär-Eigenheiten je Script-Quelle |
 | `expanded/textArchives/NNNN.json` | Texte (wie in 4.2, unverändert) |
@@ -34,7 +34,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 ```json
 {
   "format": "g4-project",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -91,6 +91,24 @@ Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weit
 `{"id": …, "same_member_as": "<ID>"}`; ein Member, auf den keine ID zeigt, ist ein Blob, wo er
 abweicht.
 
+**Grabstein.** Jede Entitätsdatei unter `data/` (jede Art mit JSON, auch `headers` und gesperrte
+Member `{locked, raw}`) kann den Umschlag `"deleted": true` tragen: ein oberster Schlüssel, der zu
+keinem Typ gehört, immer als **letzter** Schlüssel des Objekts und nur bei `true` geschrieben
+(`textproject/tombstone.rs`). Inhalt und Member bleiben, wie sie sind: der Import liest die Datei
+ohne den Umschlag und schreibt ihre Member wie sonst, der Export übernimmt den Umschlag der
+vorhandenen Datei (ein Grabstein überlebt den vollen Export, der zweite Export schreibt nichts).
+Listen blenden gelöschte Entitäten aus, Prüfungen werten sie als fehlend. Ein `deleted`, das kein
+Wahrheitswert ist, ist `textproject.schema` („`deleted` ist kein Wahrheitswert.“); jeder andere
+unbekannte oberste Schlüssel bleibt ein Schemafehler.
+
+```json
+{
+  "id": "TRAINER_0012",
+  "data": { "…": "…" },
+  "deleted": true
+}
+```
+
 Beispiele aus dem synthetischen Testprojekt (gekürzt, `…` steht für weggelassene Felder):
 
 `headers` (`data/headers/0000.json`):
@@ -138,6 +156,13 @@ Beispiele aus dem synthetischen Testprojekt (gekürzt, `…` steht für weggelas
 ```json
 { "bg_events": [], "object_events": [], "warp_events": [], "coord_events": [] }
 ```
+
+In einer Ereignisdatei nennt `object_events[].hidden_flag` das Flag und `coord_events[].var` die
+Variable mit dem **eigenen** Namen aus dem Register (`data/ids/flags.json`, `vars.json`), sonst als
+Zahl; 0 bleibt 0, pret-Namen schreibt der Export nie (ein Projekt ohne eigene Namen behält seine
+Zahlen). Der Import nimmt den eigenen Namen, den pret-Namen der Familie (`FLAG_UNUSED_0x0094`) und
+die Zahl bis `0xFFFF`. `coord_events[].value` ist immer eine Zahl, ebenso die Werte der Level-Scripts.
+`warp_events[].dest_header_id` nennt den Header (`MAP_*`).
 
 `encounters` (`data/encounters/0000.json`, Platin):
 
@@ -1009,7 +1034,13 @@ Schlüssels oder einer Datei erhöht sie und fügt einen Schritt zu `migrate::MI
 wenn sich das Schema ohne neue Version ändert. `g4k text migrate` hebt ein älteres Projekt an: alles
 im Speicher, dann ein Schnappschuss der berührten Dateien nach
 `.g4/backup/textproject-v<von>-<Zeit>/`, dann schreiben. Export, Import, Check und der Build lehnen
-eine ältere Version ab („…: `g4k text migrate` ausführen.“), eine neuere immer.
+eine ältere Version ab („…: `g4k text migrate` ausführen.“), eine neuere immer. `schema.snap` hält
+den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
+
+| Schritt | Was er ändert |
+|---|---|
+| 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
+| 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
 
 ## Codes
 

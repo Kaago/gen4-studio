@@ -18,7 +18,7 @@ use crate::store::{HEADER_TABLE, trainer_pair_bytes};
 use super::super::arts::{
     ARTS, Art, binary_name, file_names, member_rel, numbered_in, read_members, slash,
 };
-use super::super::canon::json_problem;
+use super::super::canon::parse_entity;
 use super::super::codes::SCHEMA_CODE;
 use super::super::locate::located;
 use super::super::schema::data::{
@@ -431,19 +431,24 @@ pub(super) fn collect_base_sha1(bytes: &[u8], out: &mut BTreeSet<String>) {
     }
 }
 
-/// Entity `index` of type `E` from file `rel`'s `bytes` as its members; a JSON that does not
-/// read or import is a [`KernelError::Compile`] with file, line and column.
+/// The members of an entity file and whether it carries the tombstone envelope.
+pub(super) type Imported = (Vec<Option<Vec<u8>>>, bool);
+
+/// Entity `index` of type `E` from file `rel`'s `bytes` as its members, and whether the file
+/// carries the tombstone envelope (its members are written all the same); a JSON that does
+/// not read or import is a [`KernelError::Compile`] with file, line and column.
 pub(super) fn import_one<E: EntitySchema>(
     index: u32,
     rel: &Path,
     bytes: &[u8],
     ctx: &ImportCtx<'_>,
-) -> Result<Vec<Option<Vec<u8>>>, KernelError> {
-    let entity: E = serde_json::from_slice(bytes)
-        .map_err(|e| KernelError::Compile(vec![json_problem(rel, bytes, &e, SCHEMA_CODE)]))?;
-    entity
+) -> Result<Imported, KernelError> {
+    let (entity, deleted): (E, bool) = parse_entity(rel, bytes, SCHEMA_CODE)
+        .map_err(|problem| KernelError::Compile(vec![problem]))?;
+    let parts = entity
         .import(index, ctx)
-        .map_err(|message| KernelError::Compile(vec![located(rel, bytes, &message)]))
+        .map_err(|message| KernelError::Compile(vec![located(rel, bytes, &message)]))?;
+    Ok((parts, deleted))
 }
 
 /// [`import_one`] with the schema of `art` (a header in the layout of `ctx.family`).
@@ -453,7 +458,7 @@ pub(super) fn import_art(
     rel: &Path,
     bytes: &[u8],
     ctx: &ImportCtx<'_>,
-) -> Result<Vec<Option<Vec<u8>>>, KernelError> {
+) -> Result<Imported, KernelError> {
     match art {
         Art::Headers => match ctx.family {
             Family::Hgss => import_one::<HeaderHgssEntity>(index, rel, bytes, ctx),

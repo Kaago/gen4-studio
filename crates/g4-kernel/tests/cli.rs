@@ -1355,10 +1355,10 @@ fn cli_text_migrate_v0_fixture() {
     // `{"ids": {"NNNN": "ID"}}`. The migration must give back the exported bytes.
     let manifest = root.join("g4-project.json");
     let exported_manifest = std::fs::read_to_string(&manifest).unwrap();
-    assert!(exported_manifest.contains("\"schemaVersion\": 1"));
+    assert!(exported_manifest.contains("\"schemaVersion\": 2"));
     std::fs::write(
         &manifest,
-        exported_manifest.replacen("\"schemaVersion\": 1", "\"schema\": 0", 1),
+        exported_manifest.replacen("\"schemaVersion\": 2", "\"schema\": 0", 1),
     )
     .unwrap();
     let mut registers = Vec::new();
@@ -1392,7 +1392,7 @@ fn cli_text_migrate_v0_fixture() {
     let assert = text(&["migrate"], &root).assert().success();
     let out = stdout_of(&assert);
     println!("{out}");
-    let changed = format!("migrated 0 -> 1 changed={} snapshot=", registers.len() + 1);
+    let changed = format!("migrated 0 -> 2 changed={} snapshot=", registers.len() + 1);
     assert!(out.starts_with(&changed), "{changed} in {out}");
     let snapshot = out.trim_end().split("snapshot=").nth(1).unwrap();
     assert!(std::path::Path::new(snapshot).is_dir(), "{snapshot}");
@@ -1412,7 +1412,7 @@ fn cli_text_migrate_v0_fixture() {
     let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
     assert_eq!(
         (report["from"].as_u64(), report["to"].as_u64()),
-        (Some(1), Some(1))
+        (Some(2), Some(2))
     );
 
     // Current again, and the import would write nothing.

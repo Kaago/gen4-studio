@@ -13,6 +13,8 @@ use crate::text::{Problem, Severity};
 
 use super::arts::slash;
 use super::schema::ROOT;
+/// The tombstone envelope of entity files, next to the canonical form it wraps.
+pub(crate) use super::tombstone::parse_entity;
 
 /// `value` as pretty JSON (two spaces, keys in the order the type or the map holds them),
 /// `\n` line ends and a final `\n`: the one form every text project file is written in, so

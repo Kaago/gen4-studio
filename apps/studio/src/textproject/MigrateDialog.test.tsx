@@ -44,7 +44,7 @@ describe("MigrateDialog", () => {
     await show();
     expect(dialog()?.querySelector("h2")?.textContent).toBe("Textprojekt anheben?");
     expect(document.getElementById(dialog()?.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-      "Dieses Textprojekt hat Schema-Version 0; diese Fassung von Gen4 Studio schreibt Version 1. Anheben sichert die geänderten Dateien vorher in .g4/backup/.",
+      "Dieses Textprojekt hat Schema-Version 0; diese Fassung von Gen4 Studio schreibt Version 2. Anheben sichert die geänderten Dateien vorher in .g4/backup/.",
     );
     // „Abbrechen“ (and Escape alike) closes the project: it cannot be edited unlifted.
     await act(async () => button("Abbrechen")!.click());

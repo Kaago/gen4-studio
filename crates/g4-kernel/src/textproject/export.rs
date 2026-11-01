@@ -45,6 +45,7 @@ use super::schema::{EntitySchema, ExportCtx};
 use super::step;
 pub use super::step::UNSYNCED_EXPORT;
 use super::symbols::SymbolKind;
+use super::tombstone::{file_deleted, with_envelope};
 
 /// The refusal of a project without base mark.
 const NO_MARK: &str =
@@ -646,17 +647,27 @@ pub(crate) fn entity_files(
 
 /// Writes `files` into folder `rel` (each only when it changes) and deletes every other
 /// visible file there; the folder goes when it ends up empty. JSON and side files are told
-/// apart by their extension.
+/// apart by their extension. A JSON whose file on disk carries the tombstone envelope keeps
+/// it ([`file_deleted`]): the export never brings a deleted entity back.
 fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, KernelError> {
     let mut stats = ArtStats::default();
     for (name, bytes) in &files.files {
-        if name.ends_with(".json") {
+        let file = rel.join(name);
+        let json = name.ends_with(".json");
+        let enveloped;
+        let bytes = if json && file_deleted(root, &file)? {
+            enveloped = with_envelope(bytes.clone());
+            &enveloped
+        } else {
+            bytes
+        };
+        if json {
             stats.json_files += 1;
         } else {
             stats.side_files += 1;
         }
         stats.bytes += bytes.len() as u64;
-        if write_if_changed(root, &rel.join(name), bytes)? {
+        if write_if_changed(root, &file, bytes)? {
             stats.written += 1;
         }
     }
