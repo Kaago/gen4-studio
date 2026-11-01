@@ -357,7 +357,7 @@ mod tests {
         let manifest = read_manifest(fx.root()).unwrap();
         assert_eq!(
             manifest.schemas.keys().collect::<Vec<_>>(),
-            ["flags", "vars"]
+            ["flags", "stories", "vars"]
         );
         assert!(hints_of(&fx).is_empty(), "{:#?}", hints_of(&fx));
 
@@ -365,7 +365,7 @@ mod tests {
         fx.edit(
             MANIFEST_FILE,
             "\"flags\": 1,",
-            "\"flags\": 1,\n    \"stories\": 1,",
+            "\"flags\": 1,\n    \"plugins\": 1,",
         );
         let hints = hints_of(&fx);
         assert_eq!(codes_of(&hints), [RESERVED_CODE], "{hints:#?}");

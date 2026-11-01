@@ -234,13 +234,14 @@ fn export_writes_manifest_entities_registries_and_quirks() {
     assert_eq!(report.raw_blobs, 0, "a copy of its base has no blob");
     assert!(!fx.exists("data/raw"));
     // Maps, trainers, classes, places, and the empty registers of the own flag and variable
-    // names, which the manifest names as data kinds.
-    assert_eq!(report.registries_written, 6);
+    // names and of the stories, which the manifest names as data kinds.
+    assert_eq!(report.registries_written, 7);
     assert_eq!(fx.text("data/ids/flags.json"), "{}\n");
     assert_eq!(fx.text("data/ids/vars.json"), "{}\n");
+    assert_eq!(fx.text("data/ids/stories.json"), "{}\n");
     assert_eq!(
         manifest["schemas"],
-        serde_json::json!({"flags": 1, "vars": 1})
+        serde_json::json!({"flags": 1, "stories": 1, "vars": 1})
     );
     assert!(
         report.adopted.is_some_and(|n| n > 0),
@@ -288,7 +289,7 @@ fn export_removes_files_it_no_longer_writes() {
     fx.export();
     fx.write("data/maps/0000.nsbmd", b"old side file");
     fx.write("data/raw/files/x.bin", b"old blob");
-    fx.write("data/stories/0000.json", b"{}\n");
+    fx.write("data/notizen/0000.json", b"{}\n");
     // The blob placed by hand is a change the members lack: refused without `force`. The side
     // file no JSON names changes no member, so the build step does not see it.
     assert_eq!(
@@ -300,7 +301,7 @@ fn export_removes_files_it_no_longer_writes() {
     assert!(!fx.exists("data/maps/0000.nsbmd"));
     assert!(!fx.exists("data/raw/files/x.bin"));
     assert!(!fx.exists("data/raw"), "an empty blob folder goes too");
-    assert!(fx.exists("data/stories/0000.json"), "unknown arts stay");
+    assert!(fx.exists("data/notizen/0000.json"), "unknown arts stay");
     assert_eq!(art(&report, "maps").removed, 1);
     assert_eq!(report.removed, 2);
     assert_eq!(report.written, 0);
@@ -310,7 +311,7 @@ fn export_removes_files_it_no_longer_writes() {
         .find(|p| p.message.starts_with("textproject.unknown-art:"))
         .expect("unknown art hint");
     assert_eq!(hint.severity, Severity::Warning);
-    assert_eq!(hint.file, Path::new("data/stories"));
+    assert_eq!(hint.file, Path::new("data/notizen"));
 
     // A changed file nobody owns is a blob; once it equals its base again, the blob goes.
     fx.write("files/a/b.bin", &[1, 2, 3]);
@@ -638,7 +639,7 @@ fn check_lists_what_import_would_write_and_writes_nothing() {
 
     fx.edit("data/moves/0001.json", "\"power\": 10", "\"power\": 99");
     fx.write("data/raw/files/new.bin", b"new");
-    fx.write("data/stories/0000.json", b"{}\n");
+    fx.write("data/notizen/0000.json", b"{}\n");
     fx.edit("g4-project.json", "\"plugins\": []", "\"plugins\": [\"p\"]");
     fx.edit(
         "data/ids/maps.json",

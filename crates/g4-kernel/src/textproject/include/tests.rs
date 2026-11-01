@@ -437,3 +437,28 @@ fn own_name_is_a_second_name_and_both_compile_the_same() {
     compile(&fx);
     assert_eq!(member_0(&fx), pret);
 }
+
+/// rotom knows no stories: a story register makes no id file and no constant.
+#[test]
+fn stories_get_no_id_file() {
+    let fx = TextFixture::exported();
+    fx.write("data/ids/stories.json", b"{\n  \"STORY_TESTFADEN\": 0\n}\n");
+    let symbols = Symbols::load(fx.root()).unwrap();
+    assert_eq!(
+        symbols.ids(SymbolKind::Story),
+        [(0, "STORY_TESTFADEN".to_owned())]
+    );
+    let (tables, shadowed) = tables(&symbols, &|_| None);
+    assert!(tables.iter().all(|(kind, _)| *kind != SymbolKind::Story));
+    assert!(
+        tables
+            .iter()
+            .all(|(_, ids)| !ids.values().any(|id| id.starts_with("STORY_"))),
+        "{tables:?}"
+    );
+    assert!(shadowed.is_empty(), "{shadowed:?}");
+    write_include(&fx.project()).unwrap();
+    assert!(!fx.root().join(DIR).join(".g4-ids-stories.json").exists());
+    assert_eq!(id_file_paths(&fx.project()).len(), 11);
+    assert!(!register_paths().contains(&PathBuf::from("data/ids/stories.json")));
+}

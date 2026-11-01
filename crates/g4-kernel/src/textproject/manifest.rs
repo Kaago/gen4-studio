@@ -336,7 +336,7 @@ mod tests {
             .push(serde_json::json!({"name": "x", "enabled": true}));
         let kept = manifest_for(&project, Some(&old));
         assert_eq!(kept.schemas["maps"], old.schemas["maps"]);
-        assert_eq!(kept.schemas.len(), 3, "maps, flags, vars");
+        assert_eq!(kept.schemas.len(), 4, "maps, flags, stories, vars");
         assert_eq!(kept.plugins, old.plugins);
         assert_eq!(kept.studio_version, env!("CARGO_PKG_VERSION"));
         assert_eq!(kept.game, fresh.game);
@@ -352,18 +352,20 @@ mod tests {
             fresh.schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("stories".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
         let mut old = fresh.clone();
         old.schemas
-            .insert("stories".to_owned(), serde_json::json!({"version": 3}));
+            .insert("plugins".to_owned(), serde_json::json!({"version": 3}));
         old.schemas.insert("vars".to_owned(), Value::from(0));
         assert_eq!(
             manifest_for(&project, Some(&old)).schemas,
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("stories".to_owned(), serde_json::json!({"version": 3})),
+                ("plugins".to_owned(), serde_json::json!({"version": 3})),
+                ("stories".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );

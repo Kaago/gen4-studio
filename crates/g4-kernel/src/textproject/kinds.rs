@@ -49,8 +49,9 @@ pub struct DataKind {
     pub delete: DeleteRule,
 }
 
-/// Every data kind: the own names of flags and of variables.
-pub const DATA_KINDS: [DataKind; 2] = [
+/// Every data kind: the own names of flags and of variables, and the stories
+/// ([`crate::stories`]).
+pub const DATA_KINDS: [DataKind; 3] = [
     DataKind {
         folder: "flags",
         symbol: SymbolKind::Flag,
@@ -63,6 +64,13 @@ pub const DATA_KINDS: [DataKind; 2] = [
         symbol: SymbolKind::Var,
         schema_version: 1,
         ref_fields: &[],
+        delete: DeleteRule::RemoveFile,
+    },
+    DataKind {
+        folder: "stories",
+        symbol: SymbolKind::Story,
+        schema_version: 1,
+        ref_fields: &["progress.var", "progress.flag", "steps[].uses[]", "flags[]"],
         delete: DeleteRule::RemoveFile,
     },
 ];
@@ -144,13 +152,17 @@ fn newer_problem(project: &Project, kind: &DataKind, version: u64) -> Problem {
     }
 }
 
-/// The problems of the files of one data kind (see [`check_files`]). A register that does not
-/// read gives none here: the import plan reports it.
+/// The problems of the files of one data kind (see [`check_files`]); a story by its own schema
+/// ([`crate::stories::schema::check_folder`]). A register that does not read gives none here:
+/// the import plan reports it.
 fn check_kind(
     project: &Project,
     kind: &DataKind,
     problems: &mut Vec<Problem>,
 ) -> Result<(), KernelError> {
+    if kind.symbol == SymbolKind::Story {
+        return crate::stories::schema::check_folder(project, problems);
+    }
     let Some(flag) = FlagKind::from_symbol(kind.symbol) else {
         return Ok(());
     };
@@ -270,19 +282,26 @@ mod tests {
     use crate::textproject::manifest::read_manifest;
 
     #[test]
-    fn two_data_kinds_are_known_folders() {
+    fn three_data_kinds_are_known_folders() {
         assert!(is_known_folder("flags"));
         assert!(is_known_folder("vars"));
-        assert!(!is_known_folder("stories"));
+        assert!(is_known_folder("stories"));
+        assert!(!is_known_folder("notizen"));
         assert_eq!(data_kind("vars").unwrap().symbol, SymbolKind::Var);
         assert_eq!(data_kind("flags").unwrap().symbol, SymbolKind::Flag);
-        assert!(data_kind("stories").is_none());
+        assert_eq!(data_kind("stories").unwrap().symbol, SymbolKind::Story);
+        assert!(data_kind("notizen").is_none());
         assert_eq!(data_kind_of(SymbolKind::Flag).unwrap().folder, "flags");
         assert_eq!(data_kind_of(SymbolKind::Var).unwrap().folder, "vars");
+        assert_eq!(data_kind_of(SymbolKind::Story).unwrap().folder, "stories");
         assert!(data_kind_of(SymbolKind::Trainer).is_none());
+        assert_eq!(
+            data_kind("stories").unwrap().ref_fields,
+            ["progress.var", "progress.flag", "steps[].uses[]", "flags[]"]
+        );
         for kind in &DATA_KINDS {
             assert_eq!(kind.schema_version, 1);
-            assert!(kind.ref_fields.is_empty());
+            assert_eq!(kind.ref_fields.is_empty(), kind.symbol != SymbolKind::Story);
             assert_eq!(kind.delete, DeleteRule::RemoveFile);
             // Every data kind has its register.
             assert_eq!(
@@ -302,18 +321,20 @@ mod tests {
             schemas(&BTreeMap::new()),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
+                ("stories".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
         let keep = BTreeMap::from([
-            ("stories".to_owned(), serde_json::json!({"version": 2})),
+            ("plugins".to_owned(), serde_json::json!({"version": 2})),
             ("vars".to_owned(), Value::from(0)),
         ]);
         assert_eq!(
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(1)),
-                ("stories".to_owned(), serde_json::json!({"version": 2})),
+                ("plugins".to_owned(), serde_json::json!({"version": 2})),
+                ("stories".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
@@ -331,6 +352,7 @@ mod tests {
             schemas(&keep),
             BTreeMap::from([
                 ("flags".to_owned(), Value::from(2)),
+                ("stories".to_owned(), Value::from(1)),
                 ("vars".to_owned(), Value::from(1)),
             ])
         );
@@ -448,6 +470,87 @@ mod tests {
             problems[0].message,
             "textproject.schema: `schemas.flags` ist Version 2, diese Fassung kennt 1; \
              data/flags/ bleibt, wie es ist."
+        );
+    }
+
+    #[test]
+    fn check_files_judges_stories_by_their_schema() {
+        let fx = TextFixture::exported();
+        let p = fx.project();
+        let manifest = read_manifest(fx.root()).unwrap();
+        fx.write(
+            "data/ids/stories.json",
+            b"{\n  \"STORY_A\": 0,\n  \"STORY_GONE\": 2\n}\n",
+        );
+        fx.write(
+            "data/stories/0000.json",
+            b"{\n  \"id\": \"STORY_A\",\n  \"name\": \"A\",\n  \"progress\": {\n    \"var\": \"VAR_NOPE\"\n  }\n}\n",
+        );
+        fx.write("data/stories/0000.layout.json", b"{\n  \"nodes\": {}\n}\n");
+        fx.write(
+            "data/stories/0001.json",
+            b"{\n  \"id\": \"STORY_B\",\n  \"name\": \"B\",\n  \"progress\": {\n    \"flag\": \"FLAG_0001\"\n  }\n}\n",
+        );
+        fx.write("data/stories/0001.layout.json", b"{\"nodes\": 1}\n");
+        fx.write("data/stories/README.md", b"Geschichten\n");
+        let problems = check_files(&p, &manifest).unwrap();
+        assert_eq!(
+            found(&problems),
+            [
+                (
+                    "textproject.id-dangling".to_owned(),
+                    Severity::Warning,
+                    "data/ids/stories.json".to_owned(),
+                    3
+                ),
+                (
+                    "story.dangling-ref".to_owned(),
+                    Severity::Warning,
+                    "data/stories/0000.json".to_owned(),
+                    5
+                ),
+                (
+                    "textproject.id-mismatch".to_owned(),
+                    Severity::Error,
+                    "data/stories/0001.json".to_owned(),
+                    2
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/stories/0001.layout.json".to_owned(),
+                    1
+                ),
+                (
+                    "textproject.schema".to_owned(),
+                    Severity::Error,
+                    "data/stories/README.md".to_owned(),
+                    1
+                ),
+            ],
+            "{problems:#?}"
+        );
+        let text = |file: &str| {
+            problems
+                .iter()
+                .find(|p| p.file == Path::new(file))
+                .unwrap()
+                .message
+                .clone()
+        };
+        assert_eq!(
+            text("data/ids/stories.json"),
+            "textproject.id-dangling: `STORY_GONE` (Nummer 2) hat keine Datei \
+             data/stories/0002.json; jede Geschichte hat eine."
+        );
+        assert_eq!(
+            text("data/stories/0000.json"),
+            "story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE."
+        );
+        assert_eq!(
+            text("data/stories/0001.json"),
+            "textproject.id-mismatch: id: `STORY_B` ist nicht die ID der Geschichte 1 (das \
+             Register nennt keine)."
         );
     }
 }
