@@ -2633,6 +2633,169 @@ impl Store {
         self.forget_history_of(|asset| asset.kind == kind);
     }
 
+    /// „Nummer freigeben“ (3d.4 [`crate::delete::free_number`]): removes `files` (relative to
+    /// the root; a file already gone is fine), the files of the entities `targets` at the end
+    /// of their archives, and forgets those entities: their loaded assets go (the header table
+    /// stays, [`Store::remove_trailing_headers`] shortened it), their parts and file steps leave
+    /// the undo and redo stacks (their tombstone steps stay: the barrier the caller records
+    /// next keeps undo from reaching them), the store's own tombstone flags of them go, and
+    /// their assets are reported changed. The sync forgets the files ([`Known::Drop`]) and the
+    /// build step's members kept as newer. Returns the files removed. Not undoable.
+    pub(crate) fn remove_member_files(
+        &mut self,
+        targets: &[DeleteTarget],
+        files: &[PathBuf],
+    ) -> Result<Vec<PathBuf>, KernelError> {
+        self.writable()?;
+        let root = self.project.root.clone();
+        let mut removed = Vec::new();
+        for rel in files {
+            let path = root.join(rel);
+            match std::fs::remove_file(&path) {
+                Ok(()) => removed.push(rel.clone()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(KernelError::Partial(format!(
+                        "„Nummer freigeben“ removed {} of {} files, then {}: {e}",
+                        removed.len(),
+                        files.len(),
+                        path.display()
+                    )));
+                }
+            }
+        }
+        let mut ids: Vec<AssetId> = Vec::new();
+        for target in targets {
+            self.tombstones.remove(target);
+            for id in target.assets() {
+                if id == HEADER_TABLE {
+                    continue;
+                }
+                ids.push(id);
+                if id.kind == AssetKind::Trainer {
+                    for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
+                        ids.push(AssetId {
+                            kind,
+                            index: id.index,
+                        });
+                    }
+                }
+            }
+        }
+        for &id in &ids {
+            self.assets.remove(&id);
+            self.locks.remove(&id);
+            self.drop_text_index(id);
+        }
+        for stack in [&mut self.undo, &mut self.redo] {
+            stack.retain_mut(|change| {
+                change.parts.retain(|p| !ids.contains(&p.asset));
+                change.files.retain(|f| !ids.contains(&f.asset));
+                !change.parts.is_empty()
+                    || !change.tombs.is_empty()
+                    || !change.files.is_empty()
+                    || change.barrier.is_some()
+            });
+        }
+        for target in targets {
+            for id in target.assets() {
+                self.note_change(id);
+            }
+        }
+        // Caches the next scan or build puts right: neither fails the files removed already.
+        let dropped: Vec<(PathBuf, Known)> =
+            files.iter().map(|rel| (rel.clone(), Known::Drop)).collect();
+        let _ = record_known(&self.project, &dropped);
+        let _ = crate::textproject::step::forget_kept(&root, files);
+        Ok(removed)
+    }
+
+    /// „Nummer freigeben“ of the headers from `first` on (new ones, at the end of the table,
+    /// Dynamic Headers patch applied): `mapname.bin` loses their records first, then their
+    /// files `unpacked/dynamicHeaders/NNNN` and, in a text project, `data/headers/NNNN.json`
+    /// go. The loaded table, its base and the table's parts on the undo and redo stacks lose
+    /// them too (the mirror of [`Store::create_header`]), so the table stays neither dirty nor
+    /// stale; the store's own tombstone flags of them go. Returns the files removed (relative
+    /// to the root). Not undoable.
+    pub(crate) fn remove_trailing_headers(
+        &mut self,
+        first: u16,
+    ) -> Result<Vec<PathBuf>, KernelError> {
+        self.writable()?;
+        if !self.dynamic_headers_applied()? {
+            return Err(KernelError::InvalidProject(
+                "new headers need the Dynamic Headers patch; without it there is none to free"
+                    .to_owned(),
+            ));
+        }
+        let count = self.project.header_count()?;
+        let keep = usize::from(first);
+        if keep >= count {
+            return Ok(Vec::new());
+        }
+        let names_path = self.project.mapname_path();
+        let mut names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        names.truncate(keep * MAPNAME_RECORD);
+        let root = self.project.root.clone();
+        let dir = dynamic_headers::unpacked_dir(&self.project);
+        let text_project = *self.project.source_mode() == SourceMode::TextProject;
+        let journal = Journal::start();
+        let wrote = write_atomic(&root, &names_path, &names);
+        let mut removed = Vec::new();
+        let mut failed = None;
+        if wrote.is_ok() {
+            for id in keep..count {
+                let mut paths = vec![dir.join(format!("{id:04}"))];
+                if text_project {
+                    paths.push(root.join(Art::Headers.dir()).join(format!("{id:04}.json")));
+                }
+                for path in paths {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {
+                            removed.push(path.strip_prefix(&root).unwrap_or(&path).to_path_buf())
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => {
+                            failed.get_or_insert_with(|| io_at(&path)(e));
+                        }
+                    }
+                }
+            }
+        }
+        let notes = journal.finish();
+        wrote?;
+        if let Some(Asset {
+            saved_bytes,
+            current: Loaded::HeaderTable(headers),
+            ..
+        }) = self.assets.get_mut(&HEADER_TABLE)
+        {
+            headers.truncate(keep);
+            if let Some(saved) = saved_bytes {
+                saved.truncate(keep * MAP_HEADER_SIZE);
+            }
+        }
+        let parts = self.undo.iter_mut().chain(self.redo.iter_mut());
+        for part in parts.flat_map(|c| c.parts.iter_mut()) {
+            if part.asset == HEADER_TABLE {
+                part.before.truncate(keep * MAP_HEADER_SIZE);
+                part.after.truncate(keep * MAP_HEADER_SIZE);
+            }
+        }
+        self.tombstones
+            .retain(|t, _| !matches!(t, DeleteTarget::Header { id } if *id >= first));
+        self.note_change(HEADER_TABLE);
+        let mut known = sync::noted(&self.project, &notes);
+        known.extend(removed.iter().map(|rel| (rel.clone(), Known::Drop)));
+        let _ = record_known(&self.project, &known);
+        match failed {
+            Some(e) => Err(KernelError::Partial(format!(
+                "mapname.bin is shortened to {keep} headers, but a header file stayed: {e}"
+            ))),
+            None => Ok(removed),
+        }
+    }
+
     /// Records a step labelled `label` whose files the caller has already written (every
     /// file's `after` is on disk). Undo checks every file against `after`, then writes
     /// `before` (`None` removes the file) and sets the rotom entry's `before` in the compile

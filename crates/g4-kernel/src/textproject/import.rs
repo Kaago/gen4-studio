@@ -34,8 +34,8 @@ use super::base_layer::{
 };
 use super::canon::{parse_entity, problem, write_if_changed};
 use super::codes::{
-    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE,
-    RAW_PATH_CODE, SCHEMA_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_REMOVED_CODE, MEMBER_WITHOUT_JSON_CODE,
+    QUIRK_KEY_CODE, RAW_PATH_CODE, SCHEMA_CODE,
 };
 use super::export::ArtStats;
 use super::locate::{key_position, located, relocate};
@@ -102,6 +102,11 @@ pub(crate) struct ImportPlan {
     pub arts: Vec<ArtStats>,
     /// The members without JSON the checks found, each with its error in `problems`.
     pub orphans: Vec<Orphan>,
+    /// Members without JSON at the end of an art, unchanged since the sync's record and absent
+    /// in the base (relative to the root): removed by [`apply_import`] (warning
+    /// `textproject.member-removed` in `problems`). „Nummer freigeben“ deleted their JSON,
+    /// maybe on another Git branch.
+    pub removals: Vec<PathBuf>,
 }
 
 /// Members on disk without their JSON (or without their part in it, or a binary member with
@@ -138,8 +143,8 @@ impl ImportPlan {
         self.problems.iter().any(|p| p.severity == Severity::Error)
     }
 
-    /// Every path the import would write, sorted: blobs, members, header files, the compile
-    /// state.
+    /// Every path the import would write or remove, sorted: blobs, members, header files, the
+    /// compile state, the members it removes.
     pub(crate) fn paths(&self) -> Vec<PathBuf> {
         // `/` between the components on every platform: `differs` is shown and compared as is.
         let mut paths: Vec<PathBuf> = self
@@ -148,6 +153,7 @@ impl ImportPlan {
             .chain(&self.writes)
             .map(|w| slash(&w.path))
             .chain(self.header_paths.iter().map(|p| slash(p)))
+            .chain(self.removals.iter().map(|p| slash(p)))
             .chain(self.quirks_path.iter().map(|p| slash(p)))
             .collect();
         paths.sort();
@@ -236,6 +242,10 @@ impl BasePart for LazyBase<'_> {
             Err(NoLayer::Unavailable(_)) => Ok(false),
             Err(NoLayer::Failed(why)) => Err(KernelError::Refused(why.clone())),
         }
+    }
+
+    fn has_member(&self, kind: AssetKind, index: usize) -> Option<bool> {
+        self.layer().ok()?.has_member(kind, index)
     }
 }
 
@@ -463,13 +473,24 @@ fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
     parse_entity(rel, bytes, SCHEMA_CODE).map(|(t, _deleted)| t)
 }
 
+/// What the import says of the members without JSON it does not remove.
+const REMOVES_ONLY: &str = "der Import löscht nur Member am Ende ohne JSON, die seit der \
+                            Aufzeichnung unverändert sind (textproject.member-removed).";
+
 /// The JSON numbers of `dir` checked for gaps: a missing number below the member count is a
-/// member without JSON (its members on disk from `members_of`), one above it a gap.
+/// member without JSON (its members on disk from `members_of`), one above it a gap. The
+/// members without JSON at the end (every member from the last JSON on) are removed instead
+/// ([`ImportPlan::removals`], warning `textproject.member-removed`) when each of their member
+/// files is `recorded` (unchanged since the sync's record; a member without a record counts as
+/// changed) and none of their numbers is `in_base`; in the middle, or changed, they stay the
+/// error `textproject.member-without-json`.
 fn check_numbering(
     dir: &Path,
     numbers: &[usize],
     members: usize,
     members_of: &dyn Fn(usize) -> Vec<PathBuf>,
+    recorded: &dyn Fn(&Path) -> bool,
+    in_base: &dyn Fn(usize) -> bool,
     plan: &mut ImportPlan,
 ) {
     let mut next = 0;
@@ -480,10 +501,7 @@ fn check_numbering(
                 let found = problem(
                     &file,
                     MEMBER_WITHOUT_JSON_CODE,
-                    format!(
-                        "{ROOT}: die Datei fehlt, das Member {gap:04} ist da; der Import löscht \
-                         keine Member, Löschen kommt mit Phase 3d."
-                    ),
+                    format!("{ROOT}: die Datei fehlt, das Member {gap:04} ist da; {REMOVES_ONLY}"),
                 );
                 plan.push_orphan(found, file, members_of(gap));
             } else {
@@ -498,15 +516,35 @@ fn check_numbering(
     }
     if next < members {
         let file = dir.join(format!("{next:04}.json"));
-        let found = problem(
-            &file,
-            MEMBER_WITHOUT_JSON_CODE,
-            format!(
-                "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor {next:04}; der \
-                 Import löscht keine Member, Löschen kommt mit Phase 3d."
-            ),
-        );
-        plan.push_orphan(found, file, (next..members).flat_map(members_of).collect());
+        let trailing: Vec<PathBuf> = (next..members).flat_map(members_of).collect();
+        let removable = !trailing.is_empty()
+            && trailing.iter().all(|m| recorded(m))
+            && (next..members).all(|n| !in_base(n));
+        if removable {
+            plan.problems.push(Problem {
+                severity: Severity::Warning,
+                ..problem(
+                    &file,
+                    MEMBER_REMOVED_CODE,
+                    format!(
+                        "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor \
+                         {next:04}; die Member ab {next:04} sind seit der Aufzeichnung \
+                         unverändert und nicht in der Basis: der Import entfernt sie."
+                    ),
+                )
+            });
+            plan.removals.extend(trailing);
+        } else {
+            let found = problem(
+                &file,
+                MEMBER_WITHOUT_JSON_CODE,
+                format!(
+                    "{ROOT}: das Archiv hat {members} Member, die Dateien enden vor {next:04}; \
+                     {REMOVES_ONLY}"
+                ),
+            );
+            plan.push_orphan(found, file, trailing);
+        }
     }
 }
 
@@ -558,7 +596,20 @@ fn plan_entities<E: EntitySchema>(
             .map(|(&kind, _)| member_rel(project, kind, n))
             .collect()
     };
-    check_numbering(&rel_dir, &numbers, members, &members_of, plan);
+    // Unchanged since the sync's record (none: changed), and the base's members.
+    let recorded = |member: &Path| -> bool {
+        super::sync::in_step(project, &[member.to_path_buf()]).is_ok_and(|s| !s.is_empty())
+    };
+    let in_base = |n: usize| kinds.iter().any(|&k| base.has_member(k, n) != Some(false));
+    check_numbering(
+        &rel_dir,
+        &numbers,
+        members,
+        &members_of,
+        &recorded,
+        &in_base,
+        plan,
+    );
     if art.is_pair() {
         // The members only one archive has are no entity (the JSON of a trainer needs both):
         // those no JSON covers are reported like any member without one.
@@ -1241,8 +1292,9 @@ pub(crate) struct Applied {
 }
 
 /// Writes what `plan` found: the blobs, the members of each art (its archive unpacked
-/// first), the header table last, then the quirks into the compile state (adopted projects
-/// only).
+/// first), then removes the members of [`ImportPlan::removals`], the header table last, then
+/// the quirks into the compile state (adopted projects only). `paths` names the removed
+/// members too.
 pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Applied, KernelError> {
     let mut out = Applied::default();
     for w in &plan.raw {
@@ -1266,6 +1318,14 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         if write_if_changed(&project.root, &w.path, &w.bytes)? {
             out.paths.push(w.path.clone());
             out.members += 1;
+        }
+    }
+    for rel in &plan.removals {
+        let path = project.root.join(rel);
+        match std::fs::remove_file(&path) {
+            Ok(()) => out.paths.push(rel.clone()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(crate::error::io_at(&path)(e)),
         }
     }
     if let Some(headers) = &plan.headers {

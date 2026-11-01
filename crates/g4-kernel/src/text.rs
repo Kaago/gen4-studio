@@ -436,6 +436,29 @@ pub fn record_text_sync(project: &Project, archives: &[u16]) -> Result<(), Kerne
     })
 }
 
+/// „Nummer freigeben“ of text archive `n` (3d.4 [`crate::delete::free_number`]): removes its
+/// JSON `expanded/textArchives/NNNN.json` and its member, and its record of the text sync;
+/// returns the files removed (absolute). Not undoable.
+pub(crate) fn remove_text_archive_files(
+    project: &Project,
+    n: u16,
+) -> Result<Vec<PathBuf>, KernelError> {
+    let mut removed = Vec::new();
+    for path in [
+        json_path(project, n),
+        project.member_path(AssetKind::TextArchive, n),
+    ] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_at(&path)(e)),
+        }
+    }
+    // Neither file is there: the record goes.
+    record_text_sync(project, &[n])?;
+    Ok(removed)
+}
+
 /// Which version of a text archive [`resolve_conflict`] keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

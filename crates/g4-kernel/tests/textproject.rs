@@ -457,7 +457,9 @@ fn import_refuses_members_without_json() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert_eq!(problems[0].file, Path::new("data/moves/0003.json"));
     assert!(
-        problems[0].message.contains("Phase 3d"),
+        problems[0]
+            .message
+            .contains("seit der Aufzeichnung unverändert sind (textproject.member-removed)"),
         "{}",
         problems[0].message
     );
@@ -2550,4 +2552,93 @@ fn textproject_from_base() {
          build_ms={build_ms} equal",
         base.game_code()
     );
+}
+
+/// A text project with `count` trainers from 0003 on that the base does not have (written after
+/// the base layer was copied, before the export): the export writes their JSON and records
+/// them for the sync.
+fn exported_with_new_trainers(count: usize) -> Fx {
+    let fx = Fx::new();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    let party = fx.read("unpacked/trainerParty/0002");
+    for n in 3..3 + count {
+        fx.write(&format!("unpacked/trainerProperties/{n:04}"), &props);
+        fx.write(&format!("unpacked/trainerParty/{n:04}"), &party);
+    }
+    fx.export();
+    assert!(fx.exists(&format!("data/trainers/{:04}.json", 2 + count)));
+    fx
+}
+
+fn errors(problems: &[Problem]) -> Vec<&Problem> {
+    problems
+        .iter()
+        .filter(|p| p.severity == Severity::Error)
+        .collect()
+}
+
+#[test]
+fn import_removes_a_trailing_member_without_json_that_the_record_knows() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let members = [
+        PathBuf::from("unpacked/trainerParty/0003"),
+        PathBuf::from("unpacked/trainerProperties/0003"),
+    ];
+
+    // The check plans the removal: both members, with the warning.
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(report.differs, members);
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    let removed: Vec<&Problem> = report
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-removed:"))
+        .collect();
+    assert_eq!(removed.len(), 1, "{:?}", report.problems);
+    assert_eq!(removed[0].severity, Severity::Warning);
+    assert_eq!(removed[0].file, Path::new("data/trainers/0003.json"));
+
+    let imported = import(&fx.p(), None).unwrap();
+    assert!(
+        codes(&imported.problems).contains(&"textproject.member-removed".to_owned()),
+        "{:?}",
+        imported.problems
+    );
+    for member in &members {
+        assert!(!fx.root().join(member).exists(), "{}", member.display());
+    }
+    // In step now: nothing left to remove or to warn about.
+    let report = check(&fx.p()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+    assert!(
+        !codes(&report.problems).contains(&"textproject.member-removed".to_owned()),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn import_keeps_the_error_for_a_gap_in_the_middle() {
+    let fx = exported_with_new_trainers(2);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let before = fx.mtimes();
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert_eq!(problems[0].file, Path::new("data/trainers/0003.json"));
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert!(fx.exists("unpacked/trainerProperties/0003"));
+}
+
+#[test]
+fn import_keeps_a_trailing_member_that_changed_since_the_record() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let mut props = fx.read("unpacked/trainerProperties/0003");
+    props[1] ^= 0x01;
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert!(fx.exists("unpacked/trainerProperties/0003"));
+    assert!(fx.exists("unpacked/trainerParty/0003"));
 }

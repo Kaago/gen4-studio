@@ -21,6 +21,7 @@ use sha1::{Digest, Sha1};
 use super::canon::{hex, unhex};
 use super::manifest::SCHEMA_CODE;
 use crate::error::KernelError;
+use crate::project::AssetKind;
 
 /// A `base_sha1` part whose base layer part has other bytes.
 pub(crate) use super::codes::BASE_MISMATCH_CODE;
@@ -75,6 +76,12 @@ pub(crate) trait BasePart {
     /// A fixed base (the base layer itself, a test map) always is there.
     fn available(&self) -> Result<bool, KernelError> {
         Ok(true)
+    }
+
+    /// Whether the base has member `index` of the archive of `kind`; `None` when that cannot
+    /// be told (no base at hand, or a base that only knows parts).
+    fn has_member(&self, _kind: AssetKind, _index: usize) -> Option<bool> {
+        None
     }
 }
 

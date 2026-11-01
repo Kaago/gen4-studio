@@ -68,8 +68,8 @@ use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
 use super::base_layer::{BaseLayer, RAW_DIR, arm9_rel, same_outside_header_table, walk};
 use super::canon::{problem, write_if_changed};
 use super::codes::{
-    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
-    UNSYNCED_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, MEMBER_REMOVED_CODE,
+    SCHEMA_CODE, UNSYNCED_CODE,
 };
 use super::import::{
     ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import, quirks_to_seed,
@@ -739,6 +739,9 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
         },
         quirks: plan.quirks,
         quirks_path: plan.quirks_path,
+        // The members at the end the JSON lost („Nummer freigeben“, maybe on another Git
+        // branch): JSON-side work, always done.
+        removals: plan.removals,
         ..ImportPlan::default()
     };
     let folded: Vec<PathBuf> = AssetKind::ALL
@@ -1082,6 +1085,14 @@ pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
     if judged.plan.quirks_path.is_some() {
         sides.json.insert(QUIRKS_FILE.to_owned());
     }
+    // A JSON deleted with „Nummer freigeben“: the export would write it again.
+    sides.json.extend(
+        judged
+            .plan_problems
+            .iter()
+            .filter(|p| has_code(p, MEMBER_REMOVED_CODE))
+            .map(|p| shown(&p.file)),
+    );
     let mut kept = judged.kept.clone();
     for &i in &judged.newer {
         let unit = &judged.units[i];
@@ -1193,9 +1204,11 @@ pub(crate) fn import_refusal(p: &Project) -> Result<Option<String>, KernelError>
 /// `textproject.member-without-json`: a full run cannot tell where they came from
 /// (`textproject.unsynced`); an incremental run keeps one whose member changed or was kept
 /// before (appended by Studio or DSPRE: `textproject.member-newer`, a warning, its members go
-/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 3d), and so do
-/// the surplus members of a pair art, whose sentence names the way out already (neither export
-/// nor import makes the missing counterpart).
+/// to `kept`). Any other stays the import's error (a JSON deleted while its member changed or
+/// in the middle), and so do the surplus members of a pair art, whose sentence names the way
+/// out already (neither export nor import makes the missing counterpart). The plan's
+/// [`ImportPlan::removals`] are no orphans and stay as they are (no `unsynced`: the import's
+/// rule proved them unchanged since the record and absent in the base).
 fn judge_orphans(
     plan: &mut ImportPlan,
     full: bool,

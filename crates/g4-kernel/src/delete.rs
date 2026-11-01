@@ -6,15 +6,23 @@
 //!
 //! `types.rs` holds the targets, their rule and their words; `plan.rs` what deleting would do
 //! ([`plan_delete`]: refusal, the references that lock it, „Nummer freigeben“) and the guard
-//! against new references to a tombstone ([`guard_reference`]).
+//! against new references to a tombstone ([`guard_reference`]); `tombstone.rs` sets the
+//! tombstone and takes it back ([`delete`], [`restore`]), `files.rs` removes an own flag or
+//! variable name and the last own place, and `free.rs` frees the number of a new entity at the
+//! end ([`free_number`]).
 
+mod files;
+mod free;
 mod plan;
+mod tombstone;
 mod types;
 
+pub use free::{IRREVERSIBLE, free_number};
 pub use plan::{
     CANNOT_FREE_ORIGINAL, DeletePlan, FreeInfo, IDENTIFIER_FIELD, PLACE_ONLY_LAST,
     guard_reference, later_entries_live, plan_delete,
 };
+pub use tombstone::{DeleteResult, delete, restore};
 pub use types::{
     DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
     ORIGINAL_KIND, Rule,

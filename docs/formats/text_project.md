@@ -421,8 +421,16 @@ erste Datei schreibt; ein Fehler und nichts wird geschrieben, alle Probleme komm
 Spalte (UTF-16) und dem JSON-Pfad des Feldes (`textproject.schema: data.powr: …`). Dann: Blobs,
 Member je Art (Archiv vorher entpackt), Header zuletzt, Quirks in den Compile-Zustand, danach
 `build::prepare` (Scripts kompilieren, Texte kodieren). Ein Member jenseits der letzten JSON seiner
-Art ist `textproject.member-without-json` (Löschen kommt mit Phase 3d); neue Entitäten werden angehängt,
-nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
+Art ist `textproject.member-without-json`: der Import löscht nur Member am Ende ohne JSON, die seit
+der Aufzeichnung unverändert sind (`textproject.member-removed`). Die **Kürz-Regel** (3d.4): Fehlen
+alle Member ab der letzten JSON einer Art in `data/` (am Ende, keine Lücke), gleicht der
+Fingerabdruck jeder ihrer Dateien dem Abgleich (`sync.files` in `.g4/build/state.json`, seit der
+Aufzeichnung unverändert; ein Member ohne Eintrag gilt als geändert) und hat die Basis(schicht)
+keines von ihnen, plant der Import sie als Entfernung (`removals`, im Check unter `differs`) und
+entfernt sie (Warnung `textproject.member-removed`); so baut ein zweiter Git-Branch, auf dem
+„Nummer freigeben“ die JSON löschte, nach `git switch` (auch der Build-Schritt `textproject`
+entfernt sie). In der Mitte, seit der Aufzeichnung geändert oder in der Basis bleibt es
+`member-without-json`. Neue Entitäten werden angehängt, nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
 Member, das nur eins der beiden hat (DSPRE ließ ein Archiv länger), dazu: Ab der ersten Nummer, die
 weder eine JSON deckt noch beide Archive haben, meldet der Import `member-without-json`; der Export
 schreibt keine JSON dafür und warnt mit demselben Code. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht und ohne Basis-ROM
@@ -1076,7 +1084,8 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.base-mismatch` | Fehler | die Basisschicht hat für den Teil andere Bytes |
 | `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
-| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nicht, Löschen kommt mit Phase 3d. Der Export warnt bei dem überzähligen Member mit demselben Code |
+| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nur Member am Ende ohne JSON, die seit der Aufzeichnung unverändert sind (`textproject.member-removed`). Der Export warnt bei dem überzähligen Member mit demselben Code |
+| `textproject.member-removed` | Warnung | Import und Build-Schritt: Member am Ende einer Art ohne JSON, seit der Aufzeichnung des Abgleichs unverändert und nicht in der Basis (die JSON ging mit „Nummer freigeben“, auch auf einem anderen Git-Branch); sie werden entfernt (Kürz-Regel, siehe „Export, Import, Check“) |
 | `textproject.header-table` | Fehler | die Header-Tabelle ist nicht lesbar oder nicht zu finden |
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |

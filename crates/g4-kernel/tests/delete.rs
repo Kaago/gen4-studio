@@ -616,3 +616,521 @@ fn free_info_serializes_its_count_and_files() {
         serde_json::json!({"count": 1, "files": ["data/trainers/0003.json"]})
     );
 }
+
+// --- delete, restore and „Nummer freigeben“ (task 5) ---
+
+use g4_kernel::delete::{
+    DeleteResult, IRREVERSIBLE, PLACE_ONLY_LAST, delete, free_number, restore,
+};
+use g4_kernel::places::{create_place, location_names};
+use g4_kernel::textproject::check;
+use std::collections::BTreeMap;
+
+const FLAG_REGISTER: &str = "data/ids/flags.json";
+const FLAG_FILE: &str = "data/flags/0148.json";
+const FLAG_IDS: &str = ".rotom/command_database/.g4-ids-flags.json";
+const PLACE_REGISTER: &str = "data/ids/places.json";
+const EVENT_JSON_0: &str = "data/events/0000.json";
+
+fn refused<T: std::fmt::Debug>(result: Result<T, KernelError>) -> String {
+    match result {
+        Err(KernelError::Refused(why)) => why,
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+fn trainer_asset(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Trainer,
+        index,
+    }
+}
+
+/// The base of the fixture with `first` trainers: the trainers from `first` on are new.
+fn new_trainers_from(fx: &TextFixture, first: usize) -> Base {
+    Base::of(
+        fx.root(),
+        &[
+            (AssetKind::TrainerProperties, first),
+            (AssetKind::TrainerParty, first),
+        ],
+    )
+}
+
+fn last_label(st: &Store) -> String {
+    st.history().0.last().cloned().unwrap_or_default()
+}
+
+/// Whether `rel` (relative to the root) exists.
+fn exists(fx: &TextFixture, rel: impl AsRef<Path>) -> bool {
+    fx.root().join(rel).exists()
+}
+
+#[test]
+fn delete_sets_the_tombstone_as_one_step_and_restore_takes_it_back() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    let target = DeleteTarget::Trainer { index: 1 };
+    let json = "data/trainers/0001.json";
+    let before = fx.read(json);
+    let depth = st.undo_depth();
+
+    let result: DeleteResult = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert!(result.change.is_some());
+    assert_eq!(result.changed, [trainer_asset(1)]);
+    assert_eq!(result.freed, None);
+    assert!(st.is_deleted(target));
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert_eq!(last_label(&st), "Gelöscht: Trainer 0001");
+
+    // ⌘Z takes it back; saved, the file is the one before.
+    st.undo().unwrap();
+    assert!(!st.is_deleted(target));
+    st.save().unwrap();
+    assert_eq!(fx.read(json), before);
+
+    // Deleted and saved: the envelope; „Wiederherstellen“ takes it back as its own step.
+    st.redo().unwrap();
+    st.save().unwrap();
+    assert!(
+        fx.text(json).contains("\"deleted\": true"),
+        "{}",
+        fx.text(json)
+    );
+    assert_eq!(
+        refused(delete(&mut st, &mut RefIndex::new(), &base, target)),
+        "Trainer 0001 ist schon gelöscht."
+    );
+    let result = restore(&mut st, target).unwrap();
+    assert!(result.change.is_some());
+    assert_eq!(result.changed, [trainer_asset(1)]);
+    assert_eq!(last_label(&st), "Wiederhergestellt: Trainer 0001");
+    assert!(!st.is_deleted(target));
+    st.save().unwrap();
+    assert_eq!(fx.read(json), before);
+
+    assert_eq!(
+        refused(restore(&mut st, target)),
+        "Trainer 0001 ist nicht gelöscht."
+    );
+}
+
+#[test]
+fn delete_refuses_a_referenced_trainer_with_the_list() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    place_trainer(&mut st, 1);
+    let depth = st.undo_depth();
+    let target = DeleteTarget::Trainer { index: 1 };
+    match delete(&mut st, &mut RefIndex::new(), &base, target) {
+        Err(KernelError::Referenced { label, references }) => {
+            assert_eq!(label, "Trainer 0001");
+            assert_eq!(references.len(), 1, "{references:?}");
+        }
+        other => panic!("expected Referenced, got {other:?}"),
+    }
+    assert_eq!(st.undo_depth(), depth);
+    assert!(!st.is_deleted(target));
+
+    // Outside a text project there is no tombstone.
+    let dspre = TextFixture::dspre();
+    let mut st = Store::new(Arc::new(dspre.project()));
+    let base = ProjectOriginal::new(dspre.root());
+    assert_eq!(
+        refused(delete(
+            &mut st,
+            &mut RefIndex::new(),
+            &base,
+            DeleteTarget::Trainer { index: 2 }
+        )),
+        NOT_A_TEXT_PROJECT
+    );
+}
+
+#[test]
+fn delete_of_a_flag_name_removes_file_and_register_entry_as_a_file_step() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    name_flag_files(
+        &fx.project(),
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: 148,
+            id: Some("FLAG_HAT_MEDAILLE".into()),
+            description: None,
+        },
+    )
+    .unwrap();
+    // An event file names the flag by its own name (the export writes it so).
+    st.edit_event(0, "Figur", |e| {
+        let mut figure = object(0);
+        figure.hidden_flag = 148;
+        e.object_events.push(figure);
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    assert!(
+        fx.text(EVENT_JSON_0)
+            .contains("\"hidden_flag\": \"FLAG_HAT_MEDAILLE\""),
+        "{}",
+        fx.text(EVENT_JSON_0)
+    );
+    let register = fx.read(FLAG_REGISTER);
+    let entity = fx.read(FLAG_FILE);
+    let event = fx.read(EVENT_JSON_0);
+    assert!(fx.text(FLAG_IDS).contains("FLAG_HAT_MEDAILLE"));
+    let depth = st.undo_depth();
+
+    let target = DeleteTarget::Flag { number: 148 };
+    let result = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert!(result.change.is_some());
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert_eq!(last_label(&st), "Gelöscht: Flag 0x0094");
+    assert!(!exists(&fx, FLAG_FILE));
+    assert_eq!(fx.text(FLAG_REGISTER), "{}\n");
+    // The event names the number again, which stays valid.
+    let text = fx.text(EVENT_JSON_0);
+    assert!(text.contains("\"hidden_flag\": 148"), "{text}");
+    assert!(!text.contains("FLAG_HAT_MEDAILLE"), "{text}");
+    // The id file for rotom is written anew without it.
+    assert!(
+        !exists(&fx, FLAG_IDS) || !fx.text(FLAG_IDS).contains("FLAG_HAT_MEDAILLE"),
+        "{}",
+        fx.text(FLAG_IDS)
+    );
+    // The import reads every file: no unknown id.
+    let report = check(&fx.project()).unwrap();
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity != g4_kernel::text::Severity::Error),
+        "{:?}",
+        report.problems
+    );
+
+    // ⌘Z brings the file, the register entry and the event's name back.
+    st.undo().unwrap();
+    assert_eq!(fx.read(FLAG_FILE), entity);
+    assert_eq!(fx.read(FLAG_REGISTER), register);
+    assert_eq!(fx.read(EVENT_JSON_0), event);
+    assert!(fx.text(FLAG_IDS).contains("FLAG_HAT_MEDAILLE"));
+}
+
+#[test]
+fn delete_of_the_last_own_place_is_one_step() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    let index = create_place(&mut st, "Neuort", &[]).unwrap().index;
+    let count = location_names(&mut st).unwrap().len();
+    assert_eq!(count, usize::from(index) + 1);
+    // Its register entry (the export christens places).
+    let mut places: BTreeMap<String, u32> =
+        serde_json::from_slice(&fx.read(PLACE_REGISTER)).unwrap();
+    places.insert("PLACE_NEUORT".into(), u32::from(index));
+    let mut bytes = serde_json::to_vec_pretty(&places).unwrap();
+    bytes.push(b'\n');
+    fx.write(PLACE_REGISTER, &bytes);
+    let depth = st.undo_depth();
+
+    // Not the last one, or an original: refused.
+    assert_eq!(
+        refused(delete(
+            &mut st,
+            &mut RefIndex::new(),
+            &base,
+            DeleteTarget::Place { index: 0 }
+        )),
+        PLACE_ONLY_LAST
+    );
+
+    let target = DeleteTarget::Place {
+        index: u16::from(index),
+    };
+    let result = delete(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert!(result.change.is_some());
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert_eq!(last_label(&st), "Ort entfernt: Neuort");
+    assert_eq!(location_names(&mut st).unwrap().len(), count - 1);
+    assert!(!fx.text(PLACE_REGISTER).contains("PLACE_NEUORT"));
+
+    // ⌘Z: the name and the register entry come back together.
+    st.undo().unwrap();
+    assert_eq!(location_names(&mut st).unwrap().len(), count);
+    assert_eq!(fx.read(PLACE_REGISTER), bytes);
+}
+
+#[test]
+fn free_number_truncates_a_new_trainer_at_the_end() {
+    let (fx, mut st) = fixture();
+    let base = new_trainers_from(&fx, 2);
+    let mut refs = RefIndex::new();
+    let target = DeleteTarget::Trainer { index: 2 };
+    let count = st.member_count(AssetKind::Trainer).unwrap();
+    let files = [
+        PathBuf::from("data/trainers/0002.json"),
+        rel(
+            &fx,
+            fx.project().member_path(AssetKind::TrainerProperties, 2),
+        ),
+        rel(&fx, fx.project().member_path(AssetKind::TrainerParty, 2)),
+    ];
+    for file in &files {
+        assert!(exists(&fx, file), "{}", file.display());
+    }
+    delete(&mut st, &mut refs, &base, target).unwrap();
+
+    let result = free_number(&mut st, &mut refs, &base, target).unwrap();
+    let freed = result.freed.expect("freed");
+    assert_eq!(freed.count, 1);
+    for file in &files {
+        assert!(freed.files.contains(file), "{file:?} in {:?}", freed.files);
+        assert!(!exists(&fx, file), "{}", file.display());
+    }
+    assert_eq!(result.changed, [trainer_asset(2)]);
+    assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), count - 1);
+    assert!(!st.is_deleted(target));
+
+    // The barrier stops undo; the tombstone step before it stays in the history.
+    let labels = st.history().0;
+    assert_eq!(
+        labels[labels.len() - 2..],
+        [
+            "Gelöscht: Trainer 0002".to_owned(),
+            "Nummer freigegeben: Trainer 0002".to_owned()
+        ]
+    );
+    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert_eq!(
+        IRREVERSIBLE,
+        "Nummer freigeben lässt sich nicht rückgängig machen"
+    );
+    assert!(st.dirty().is_empty(), "{:?}", st.dirty());
+    st.save().unwrap();
+
+    // The import finds JSON and members in step.
+    let report = check(&fx.project()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+    assert!(
+        report
+            .problems
+            .iter()
+            .all(|p| p.severity != g4_kernel::text::Severity::Error),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn free_number_takes_the_trailing_tombstones_with_it() {
+    let (fx, mut st) = fixture();
+    let base = new_trainers_from(&fx, 1);
+    let mut refs = RefIndex::new();
+    for index in [2, 1] {
+        delete(&mut st, &mut refs, &base, DeleteTarget::Trainer { index }).unwrap();
+    }
+    let result = free_number(
+        &mut st,
+        &mut refs,
+        &base,
+        DeleteTarget::Trainer { index: 1 },
+    )
+    .unwrap();
+    assert_eq!(result.freed.map(|f| f.count), Some(2));
+    assert_eq!(result.changed, [trainer_asset(1), trainer_asset(2)]);
+    assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 1);
+    for json in ["data/trainers/0001.json", "data/trainers/0002.json"] {
+        assert!(!exists(&fx, json), "{json}");
+    }
+    assert!(exists(&fx, "data/trainers/0000.json"));
+    assert_eq!(last_label(&st), "Nummer freigegeben: Trainer 0001");
+}
+
+#[test]
+fn free_number_refuses_a_tombstone_before_a_living_entry() {
+    let (fx, mut st) = fixture();
+    let base = new_trainers_from(&fx, 1);
+    let mut refs = RefIndex::new();
+    let target = DeleteTarget::Trainer { index: 1 };
+    delete(&mut st, &mut refs, &base, target).unwrap();
+    let depth = st.undo_depth();
+    assert_eq!(
+        refused(free_number(&mut st, &mut refs, &base, target)),
+        "Nummer 1 bleibt belegt, weil 1 spätere Einträge leben."
+    );
+    assert_eq!(st.undo_depth(), depth);
+    assert!(exists(&fx, "data/trainers/0001.json"));
+    assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 3);
+    assert!(st.is_deleted(target));
+}
+
+#[test]
+fn free_number_refuses_an_original() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    let depth = st.undo_depth();
+    assert_eq!(
+        refused(free_number(
+            &mut st,
+            &mut RefIndex::new(),
+            &base,
+            DeleteTarget::Trainer { index: 2 }
+        )),
+        CANNOT_FREE_ORIGINAL
+    );
+    assert_eq!(st.undo_depth(), depth);
+    assert!(exists(&fx, "data/trainers/0002.json"));
+    assert!(!st.is_deleted(DeleteTarget::Trainer { index: 2 }));
+}
+
+#[test]
+fn free_number_of_a_new_script_removes_source_member_and_compile_entry() {
+    use g4_kernel::scripts::snapshot_script;
+    let (fx, mut st) = fixture();
+    let base = Base::of(fx.root(), &[(AssetKind::Script, 2)]);
+    let target = DeleteTarget::Script { file: 2 };
+    // The new script file gets a source of its own, compiled: all three parts are there.
+    fx.write("expanded/scripts/0002.rotom", b"script Neu #1:\n    End\n");
+    let compiled = g4_kernel::scripts::compile(&fx.project()).unwrap();
+    assert!(compiled.problems.is_empty(), "{:?}", compiled.problems);
+    let before = snapshot_script(&fx.project(), 2).unwrap();
+    assert!(before.member.is_some());
+    assert!(
+        before.rotom.is_some() || before.json.is_some(),
+        "{before:?}"
+    );
+    assert!(before.entry.is_some(), "{before:?}");
+
+    let result = free_number(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert_eq!(result.freed.map(|f| f.count), Some(1));
+    let after = snapshot_script(&fx.project(), 2).unwrap();
+    assert_eq!(after, Default::default());
+    assert_eq!(st.member_count(AssetKind::Script).unwrap(), 2);
+    assert_eq!(last_label(&st), "Nummer freigegeben: Scriptdatei 0002");
+    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    // No tombstone step before it: script files have none.
+    assert!(
+        !st.history().0.iter().any(|l| l.starts_with("Gelöscht")),
+        "{:?}",
+        st.history().0
+    );
+}
+
+#[test]
+fn free_number_of_a_new_text_archive_removes_json_and_member() {
+    use g4_kernel::build::state::BuildState;
+    let (fx, mut st) = fixture();
+    let count = st.member_count(AssetKind::TextArchive).unwrap();
+    let last = u16::try_from(count - 1).unwrap();
+    let base = Base::of(fx.root(), &[(AssetKind::TextArchive, count - 1)]);
+    let target = DeleteTarget::TextArchive { index: last };
+    let json = PathBuf::from(format!("expanded/textArchives/{last:04}.json"));
+    let member = rel(&fx, fx.project().member_path(AssetKind::TextArchive, last));
+    assert!(exists(&fx, &member));
+    // The text sync knows it.
+    g4_kernel::text::record_text_sync(&fx.project(), &[last]).unwrap();
+    assert!(BuildState::load(fx.root()).texts.contains_key(&last));
+
+    let result = free_number(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    let freed = result.freed.unwrap();
+    assert!(freed.files.contains(&member), "{:?}", freed.files);
+    assert!(!exists(&fx, &json));
+    assert!(!exists(&fx, &member));
+    assert_eq!(st.member_count(AssetKind::TextArchive).unwrap(), count - 1);
+    assert!(!BuildState::load(fx.root()).texts.contains_key(&last));
+    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+}
+
+/// The base of the fixture with its first `headers` headers only (the ones after are new).
+struct HeaderBase {
+    inner: ProjectOriginal,
+    headers: usize,
+}
+
+impl Original for HeaderBase {
+    fn sha1(&self) -> &str {
+        self.inner.sha1()
+    }
+    fn member(&self, kind: AssetKind, index: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        self.inner.member(kind, index)
+    }
+    fn count(&self, kind: AssetKind) -> Result<Option<usize>, KernelError> {
+        self.inner.count(kind)
+    }
+    fn header_table(&self) -> Result<Vec<MapHeader>, KernelError> {
+        let mut table = self.inner.header_table()?;
+        table.truncate(self.headers);
+        Ok(table)
+    }
+    fn narc_at(&self, packed: &Path) -> Result<Option<Narc>, KernelError> {
+        self.inner.narc_at(packed)
+    }
+}
+
+#[test]
+fn free_number_of_a_new_header_shortens_the_table() {
+    let (fx, mut st) = fixture();
+    st.apply_dynamic_headers().unwrap();
+    let id = st.create_header(0, "NEU").unwrap();
+    assert_eq!(id, 2);
+    let base = HeaderBase {
+        inner: ProjectOriginal::new(fx.root()),
+        headers: 2,
+    };
+    let mut refs = RefIndex::new();
+    let target = DeleteTarget::Header { id };
+    let files = [
+        PathBuf::from("data/headers/0002.json"),
+        PathBuf::from("unpacked/dynamicHeaders/0002"),
+    ];
+    for file in &files {
+        assert!(exists(&fx, file), "{}", file.display());
+    }
+    let mapname = fx.project().mapname_path();
+    assert_eq!(std::fs::read(&mapname).unwrap().len(), 48);
+
+    delete(&mut st, &mut refs, &base, target).unwrap();
+    let result = free_number(&mut st, &mut refs, &base, target).unwrap();
+    assert_eq!(result.freed.map(|f| f.count), Some(1));
+    assert_eq!(result.changed, [HEADER_TABLE]);
+    for file in &files {
+        assert!(!exists(&fx, file), "{}", file.display());
+    }
+    assert_eq!(std::fs::read(&mapname).unwrap().len(), 32);
+    assert_eq!(st.header_table().unwrap().len(), 2);
+    assert_eq!(fx.project().header_count().unwrap(), 2);
+    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+    assert!(st.dirty().is_empty(), "{:?}", st.dirty());
+    st.save().unwrap();
+    let report = check(&fx.project()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+}
+
+#[test]
+fn free_number_works_in_the_dspre_layout() {
+    let fx = TextFixture::dspre();
+    let mut st = Store::new(Arc::new(fx.project()));
+    let base = new_trainers_from(&fx, 2);
+    let target = DeleteTarget::Trainer { index: 2 };
+    let members = [
+        rel(
+            &fx,
+            fx.project().member_path(AssetKind::TrainerProperties, 2),
+        ),
+        rel(&fx, fx.project().member_path(AssetKind::TrainerParty, 2)),
+    ];
+    // The members are unpacked first.
+    st.trainer(2).unwrap();
+    for member in &members {
+        assert!(exists(&fx, member), "{}", member.display());
+    }
+    let result = free_number(&mut st, &mut RefIndex::new(), &base, target).unwrap();
+    assert_eq!(result.freed.map(|f| f.count), Some(1));
+    for member in &members {
+        assert!(!exists(&fx, member), "{}", member.display());
+    }
+    assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 2);
+    assert_eq!(st.history().0, ["Nummer freigegeben: Trainer 0002"]);
+    assert_eq!(refused(st.undo()), IRREVERSIBLE);
+}
