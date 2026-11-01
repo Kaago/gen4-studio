@@ -424,6 +424,81 @@ pub fn synthetic_hgss_project(location_names: &[&str], headers: usize) -> Synthe
     fixture
 }
 
+/// The egg move words of the fixtures: three species, species 1 (moves 5 and 7), species 3
+/// (no moves) and species 4 (move 9), then the end.
+pub const EGG_MOVE_WORDS: [u16; 7] = [20001, 5, 7, 20003, 20004, 9, 0xFFFF];
+/// Where Platinum DE keeps the egg moves in overlay 5, and the bytes they fill
+/// (`overlay_tables.yaml`).
+pub const PT_EGG_MOVES_OFFSET: usize = 0x2923E;
+pub const PT_EGG_MOVES_BUDGET: usize = 3820;
+
+/// Little-endian bytes of `words`.
+pub fn egg_move_bytes(words: &[u16]) -> Vec<u8> {
+    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+}
+
+/// A full table of exactly [`PT_EGG_MOVES_BUDGET`] bytes: [`EGG_MOVE_WORDS`] without its end,
+/// species 5 to 194 with nine moves each, species 195 with two, then the end (1 910 words).
+pub fn full_egg_move_table() -> Vec<u8> {
+    let mut words = EGG_MOVE_WORDS[..6].to_vec();
+    for species in 5..195u16 {
+        words.push(20000 + species);
+        words.extend((0..9).map(|m| 10 + m));
+    }
+    words.extend([20195, 30, 31, 0xFFFF]);
+    assert_eq!(words.len() * 2, PT_EGG_MOVES_BUDGET);
+    egg_move_bytes(&words)
+}
+
+/// [`synthetic_hgss_project`] (HeartGold US) with the egg move NARC `a/2/2/9`: one member,
+/// [`EGG_MOVE_WORDS`].
+pub fn synthetic_hgss_egg_moves() -> Synthetic {
+    let fixture = synthetic_hgss_project(&["Nowhere"], 1);
+    write_narc(
+        fixture.dir.path(),
+        "files/a/2/2/9",
+        &[egg_move_bytes(&EGG_MOVE_WORDS)],
+    );
+    fixture
+}
+
+/// [`synthetic_project`] as Platinum DE (game code `CPUD`, so `overlay_tables.yaml` places the
+/// egg moves) with `arm9_overlays/overlays.yaml` and `ov005.bin`: zeros, and
+/// [`full_egg_move_table`] at `table_at` (the measured offset [`PT_EGG_MOVES_OFFSET`], or
+/// another to fail the signature).
+pub fn synthetic_platinum_egg_moves(table_at: usize) -> Synthetic {
+    let fixture = synthetic_project();
+    let root = fixture.dir.path();
+    std::fs::write(
+        root.join("header.yaml"),
+        "title: \"POKEMON PL\"\ngamecode: CPUD\nmakercode: \"01\"\n",
+    )
+    .unwrap();
+    let mut overlay = vec![0u8; PT_EGG_MOVES_OFFSET + PT_EGG_MOVES_BUDGET + 0x40];
+    overlay[table_at..table_at + PT_EGG_MOVES_BUDGET].copy_from_slice(&full_egg_move_table());
+    write_file(root, "arm9_overlays/ov005.bin", &overlay);
+    write_file(
+        root,
+        "arm9_overlays/overlays.yaml",
+        format!(
+            "table_signed: false\noverlays:\n  - id: 5\n    base_address: 35458848\n    code_size: {}\n    bss_size: 0\n    file_id: 5\n    compressed: false\n    signed: false\n    file_name: ov005.bin\n",
+            overlay.len()
+        )
+        .as_bytes(),
+    );
+    fixture
+}
+
+/// Writes DSPRE's egg move patch NARC `files/zcustom/egg_moves.narc` (one member,
+/// [`EGG_MOVE_WORDS`]) into the project at `root`.
+pub fn write_egg_move_patch(root: &Path) {
+    write_narc(
+        root,
+        "files/zcustom/egg_moves.narc",
+        &[egg_move_bytes(&EGG_MOVE_WORDS)],
+    );
+}
+
 /// Number of text archives of the fixture: members 0 to 697.
 pub const PT_TEXT_ARCHIVES: usize = 698;
 

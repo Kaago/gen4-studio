@@ -79,6 +79,7 @@ macro_rules! accessors {
 }
 
 pub mod arm9_tables;
+pub mod egg_moves;
 pub mod encounter;
 pub mod evolution;
 pub mod item;

@@ -33,6 +33,7 @@ describe("asset labels", () => {
       PokemonBattleSprites: "Kampfbild",
       OtherPokemonBattleSprites: "Formen-Kampfbild",
       TrainerGraphics: "Trainerbild",
+      EggMoves: "Ei-Attacken",
     };
     for (const [kind, label] of Object.entries(expected)) expect(kindLabel(kind as AssetKind)).toBe(label);
   });

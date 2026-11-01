@@ -435,7 +435,9 @@ export type AssetKind =
   /** Read only: the battle sprites of the Pokémon, the forms and the egg, and the trainer classes. */
   | "PokemonBattleSprites"
   | "OtherPokemonBattleSprites"
-  | "TrainerGraphics";
+  | "TrainerGraphics"
+  /** The egg move table, one asset (index 0): a NARC member, or in Platinum the fixed slice of overlay 5. */
+  | "EggMoves";
 
 /** Member count per asset kind; kinds the game has no archive for are missing (the header table counts 1). */
 export type MemberCounts = Partial<Record<AssetKind, number>>;

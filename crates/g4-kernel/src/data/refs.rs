@@ -612,7 +612,9 @@ fn value_refs(id: AssetId, value: &Loaded, family: Family) -> Vec<Ref> {
         | Loaded::Move(_)
         | Loaded::Item(_)
         | Loaded::TrainerTextTable(_)
-        | Loaded::TrainerTextOffsets(_) => {}
+        | Loaded::TrainerTextOffsets(_)
+        // Egg moves are no source of `Target::Move` before phase 3d is done.
+        | Loaded::EggMoves(_) => {}
     }
     out.refs
 }

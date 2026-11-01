@@ -69,6 +69,10 @@ pt:
   pokemon_battle_sprites:  { packed: "files/poketool/pokegra/pl_pokegra.narc", unpacked: "pokemonBattleSprites" }
   other_pokemon_battle_sprites: { packed: "files/poketool/pokegra/pl_otherpoke.narc", unpacked: "otherPokemonBattleSprites" }
   trainer_graphics:        { packed: "files/poketool/trgra/trfgra.narc", unpacked: "trainerGraphics" }
+  # Egg moves (`data::egg_moves`): only with DSPRE's egg move patch present; vanilla Platinum
+  # keeps the table in overlay 5 (`overlay_tables.yaml`), and the build packs the folder only
+  # when it exists.
+  egg_moves:               { packed: "files/zcustom/egg_moves.narc", unpacked: "eggMoves" }
   pack_only:
     - { packed: "files/data/mmodel/mmodel.narc", unpacked: "OWSprites" }
     - { packed: "files/battle/graphic/pl_batt_bg.narc", unpacked: "battleBg" }
@@ -84,7 +88,6 @@ pt:
     - { packed: "files/fielddata/pokemon_trade/fld_trade.narc", by_game: { CPUD: "files/resource/ger/pokemon_trade/fld_trade.narc", CPUF: "files/resource/fra/pokemon_trade/fld_trade.narc", CPUI: "files/resource/ita/pokemon_trade/fld_trade.narc", CPUS: "files/resource/spa/pokemon_trade/fld_trade.narc" }, unpacked: "tradeData" }
   # Not packed (no vanilla NARC; vanilla Platinum projects have neither folder):
   # battleObj: DSPRE names files/battle/graphic/pl_batt_obj.narc, which Platinum does not have.
-  # eggMoves: DSPRE's own files/zcustom/egg_moves.narc, written by its egg move patch.
 hgss:
   maps:                    { packed: "files/a/0/6/5", unpacked: "maps" }
   matrices:                { packed: "files/a/0/4/1", unpacked: "matrices" }
@@ -116,6 +119,9 @@ hgss:
   pokemon_battle_sprites:  { packed: "files/a/0/0/4", unpacked: "pokemonBattleSprites" }
   other_pokemon_battle_sprites: { packed: "files/a/1/1/4", unpacked: "otherPokemonBattleSprites" }
   trainer_graphics:        { packed: "files/a/0/5/8", unpacked: "trainerGraphics" }
+  # Egg moves (`data::egg_moves`): one member, the whole table; the vanilla NARC repacks
+  # byte-identical.
+  egg_moves:               { packed: "files/a/2/2/9", unpacked: "eggMoves" }
   pack_only:
     - { packed: "files/a/0/8/1", unpacked: "OWSprites" }
     - { packed: "files/a/0/0/7", unpacked: "battleBg" }
@@ -123,8 +129,6 @@ hgss:
     - { packed: "files/a/2/0/3", unpacked: "battleTowerPokemon" }
     - { packed: "files/a/2/0/2", unpacked: "battleTowerTrainers" }
     - { packed: "files/a/0/4/3", unpacked: "buildingConfigFiles" }
-    # eggMoves: the vanilla NARC a/2/2/9, repacks byte-identical (Platinum's comes from DSPRE's own patch).
-    - { packed: "files/a/2/2/9", unpacked: "eggMoves" }
     - { packed: "files/a/2/5/2", unpacked: "headbutt" }
     - { packed: "files/a/0/0/5", unpacked: "pokeHeight" }
     - { packed: "files/a/1/8/0", unpacked: "pokemonSpriteOffsets" }

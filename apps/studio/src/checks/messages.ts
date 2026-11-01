@@ -393,6 +393,7 @@ const ASSET_KINDS: Readonly<Record<string, AssetKind>> = {
   "battle sprites": "PokemonBattleSprites",
   "form battle sprites": "OtherPokemonBattleSprites",
   "trainer graphics": "TrainerGraphics",
+  "egg moves": "EggMoves",
 };
 
 /** „Eventdatei 0411“, or „Das Archiv Pokémon-Daten“ for a whole archive (no index). */
