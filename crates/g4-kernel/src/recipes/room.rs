@@ -11,7 +11,8 @@ use super::area::{
     provide_event_file, provide_header, provide_patch,
 };
 use super::doors::{
-    fires, header_event_file, local, outside_map, set_door, warp, warp_at, warp_count,
+    WarpWrite, fires, header_event_file, local, outside_map, set_door, warp, warp_at, warp_count,
+    write_warps,
 };
 use super::types::{
     Created, Draft, DraftCell, DraftEvent, DraftEventKind, DraftTarget, DraftTile, Outcome,
@@ -215,7 +216,7 @@ fn check(store: &mut Store, spec: &RoomSpec) -> Result<Checked, KernelError> {
 }
 
 /// Adds the warp outside (to the room's warp) and the room's warp back (or points the reused
-/// one outside): edits of the recipe's one transaction, one per event file.
+/// one outside): edits of the recipe's one transaction, one per event file ([`write_warps`]).
 fn connect(
     tx: &mut Tx<'_>,
     entrance: &Entrance,
@@ -224,31 +225,27 @@ fn connect(
     room_file: u16,
 ) -> Result<(), KernelError> {
     let outside = warp(entrance.x, entrance.z, room_header, plan.room_index);
-    let back = (entrance.outside_header, plan.outside_index);
-    let inside = warp(entrance.inside_x, entrance.inside_z, back.0, back.1);
-    if plan.shared {
-        return tx.edit_event(plan.outside_file, |f| {
-            f.warp_events.push(outside);
-            f.warp_events.push(inside);
-            Ok(())
-        });
-    }
-    tx.edit_event(plan.outside_file, |f| {
-        f.warp_events.push(outside);
-        Ok(())
-    })?;
-    tx.edit_event(room_file, |f| {
-        match plan.reused {
-            Some(i) => {
-                if let Some(w) = f.warp_events.get_mut(usize::from(i)) {
-                    w.dest_header_id = back.0;
-                    w.dest_warp_id = back.1;
-                }
-            }
-            None => f.warp_events.push(inside),
-        }
-        Ok(())
-    })
+    let (header, index) = (entrance.outside_header, plan.outside_index);
+    let inside = match plan.reused {
+        Some(reused) => WarpWrite::Point {
+            index: reused,
+            header,
+            warp: index,
+        },
+        None => WarpWrite::Add(warp(entrance.inside_x, entrance.inside_z, header, index)),
+    };
+    let room_file = if plan.shared {
+        plan.outside_file
+    } else {
+        room_file
+    };
+    write_warps(
+        tx,
+        &[
+            (plan.outside_file, WarpWrite::Add(outside)),
+            (room_file, inside),
+        ],
+    )
 }
 
 /// What [`apply`] would do, found with the same checks and without writing: the one cell of the

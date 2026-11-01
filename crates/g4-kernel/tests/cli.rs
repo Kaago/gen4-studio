@@ -2011,6 +2011,7 @@ fn cli_recipe_list() {
             "extend_area  Gebiet erweitern",
             "empty_region  Welt leeren  irreversible",
             "new_figure  Neue Figur",
+            "connect_doors  Tür verbinden",
         ],
         "{out}"
     );

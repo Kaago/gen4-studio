@@ -1,12 +1,15 @@
 //! The recipes of phase 3d.5 (Erzählen): „Neue Figur“ (an object event, a script slot in the
-//! header's script file and a numbered message in the header's text archive, one undo step);
-//! „Tür verbinden“ and „Neuer Trainer hier“ follow.
+//! header's script file and a numbered message in the header's text archive, one undo step) and
+//! „Tür verbinden“ (a warp pair between two places over one or two event files, door tiles, one
+//! undo step); „Neuer Trainer hier“ follows.
 //!
-//! Synthetic tests run on `test_support::TextFixture::exported()` (the synthetic Platinum
+//! Synthetic figure tests run on `test_support::TextFixture::exported()` (the synthetic Platinum
 //! project as a text project with the scripts adopted; header 0 has script file 0, event file
-//! 0 and text archive 433, matrix 0 of 2 x 1 maps). The gated test (`G4_TEST_PROJECT`, Platinum
-//! DE or HeartGold DE) applies a figure beside the door of the player's house in the start town
-//! on a copy, undoes it and compares the files:
+//! 0 and text archive 433, matrix 0 of 2 x 1 maps); door tests on `test_support::synthetic_project()`
+//! (headers 0 „Twinleaf Town“ and 1 „T02“ on matrix 0, both with event file 0). The gated tests
+//! (`G4_TEST_PROJECT`, Platinum DE or HeartGold DE) apply a figure beside the door of the player's
+//! house in the start town and connect the stairs of the player's room with a tile in front of
+//! the house, on a copy, undo them and compare the files:
 //!
 //! ```sh
 //! G4_TEST_PROJECT=".../_testkopien/3d-5-fig-pt_DSPRE_contents" \
@@ -25,8 +28,10 @@ use g4_formats::game::Family;
 use g4_kernel::data::trainer_create::ADOPT_FIRST;
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::recipes::connect_doors::{self, ConnectDoorsInput, DoorEnd, Tile};
 use g4_kernel::recipes::new_figure::{self, NewFigureInput, figure_script};
-use g4_kernel::recipes::{self, DraftEventKind, RecipeId, next_steps};
+use g4_kernel::recipes::room::DoorTile;
+use g4_kernel::recipes::{self, DraftEventKind, DraftTarget, DraftTile, RecipeId, next_steps};
 use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::store::Store;
 
@@ -141,7 +146,7 @@ fn state(store: &Store) -> State {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn list_names_five_recipes_with_new_figure_last() {
+fn list_names_six_recipes_with_connect_doors_last() {
     let list = recipes::list();
     let shown: Vec<(RecipeId, &str, bool)> = list
         .iter()
@@ -155,11 +160,16 @@ fn list_names_five_recipes_with_new_figure_last() {
             (RecipeId::ExtendArea, "Gebiet erweitern", false),
             (RecipeId::EmptyRegion, "Welt leeren", true),
             (RecipeId::NewFigure, "Neue Figur", false),
+            (RecipeId::ConnectDoors, "Tür verbinden", false),
         ]
     );
     assert_eq!(
         serde_json::to_value(RecipeId::NewFigure).unwrap(),
         serde_json::json!("new_figure")
+    );
+    assert_eq!(
+        serde_json::to_value(RecipeId::ConnectDoors).unwrap(),
+        serde_json::json!("connect_doors")
     );
 }
 
@@ -701,5 +711,567 @@ fn vanilla_new_figure_message_equals_the_input() {
     eprintln!(
         "figure {game} slot={} message={} apply_ms={apply_ms} undo_ms={undo_ms}",
         report.slot, report.message
+    );
+}
+
+// ---------------------------------------------------------------------------------------
+// „Tür verbinden“
+// ---------------------------------------------------------------------------------------
+
+fn map_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Map,
+        index,
+    }
+}
+
+fn warp_end(header: u16, warp: u16) -> DoorEnd {
+    DoorEnd {
+        header,
+        warp: Some(warp),
+        tile: None,
+    }
+}
+
+fn tile_end(header: u16, x: u16, z: u16) -> DoorEnd {
+    DoorEnd {
+        header,
+        warp: None,
+        tile: Some(Tile { x, z }),
+    }
+}
+
+fn doors(a: DoorEnd, b: DoorEnd) -> ConnectDoorsInput {
+    ConnectDoorsInput {
+        a,
+        b,
+        back: true,
+        door_tiles: true,
+    }
+}
+
+/// The warps of event file `file` as (x, z, dest header, dest warp).
+fn warps(store: &mut Store, file: u16) -> Vec<(u16, u16, u16, u16)> {
+    store
+        .event(file)
+        .unwrap()
+        .warp_events
+        .iter()
+        .map(|w| (w.x, w.z, w.dest_header_id, w.dest_warp_id))
+        .collect()
+}
+
+/// The synthetic project (headers 0 „Twinleaf Town“ and 1 „T02“ on matrix 0) with a stairs warp
+/// 0 at (10, 10) leading to header 0, warp 7, in event file `file`; with `own_file` header 1
+/// gets event file 1 (and the warp goes there), else both headers keep event file 0.
+fn door_fixture(own_file: bool) -> (common::Synthetic, Store) {
+    let s = common::synthetic_project();
+    let mut store = Store::new(Arc::new(Project::open(s.dir.path()).unwrap()));
+    let file = if own_file {
+        store
+            .edit_header(1, "event file", |h| {
+                let g4_kernel::store::MapHeader::Pt(h) = h else {
+                    unreachable!("the fixture is Platinum")
+                };
+                h.event_file_id = 1;
+                Ok(())
+            })
+            .unwrap();
+        1
+    } else {
+        0
+    };
+    store
+        .edit_event(file, "stairs", |e| {
+            e.warp_events.push(g4_kernel::store::WarpEvent {
+                x: 10,
+                z: 10,
+                dest_header_id: 0,
+                dest_warp_id: 7,
+                height: 0,
+            });
+            Ok(())
+        })
+        .unwrap();
+    // Loaded, so the byte comparisons see them from the start.
+    for index in [0, 1] {
+        store.event(index).unwrap();
+    }
+    store.map(0).unwrap();
+    (s, store)
+}
+
+/// The store's bytes of event files 0 and 1 and map 0.
+fn door_bytes(store: &Store) -> Vec<Option<Vec<u8>>> {
+    [event_id(0), event_id(1), map_id(0)]
+        .into_iter()
+        .map(|id| store.current_bytes(id).unwrap())
+        .collect()
+}
+
+/// The bytes of asset `id` in its member file on disk.
+fn member_on_disk(store: &Store, id: AssetId) -> Vec<u8> {
+    match store.project().asset_location(id.kind, id.index).unwrap() {
+        g4_kernel::project::Location::Member(path) => std::fs::read(path).unwrap(),
+        other => panic!("{id:?} is no member: {other:?}"),
+    }
+}
+
+#[test]
+fn plan_of_two_doors_names_both_ends_and_the_door_tiles() {
+    let (_s, mut store) = door_fixture(true);
+    let (depth, dirty, bytes) = (store.undo_depth(), store.dirty(), door_bytes(&store));
+
+    // A: the stairs of header 1 (warp 0), B: a new door at (5, 6) of header 0.
+    let input = doors(warp_end(1, 0), tile_end(0, 5, 6));
+    let draft = connect_doors::plan(&mut store, &input).unwrap();
+    type Short = (DraftEventKind, Option<u16>, u16, u16, Option<DraftTarget>);
+    let events: Vec<Short> = draft
+        .events
+        .iter()
+        .map(|e| (e.kind, e.matrix, e.x, e.z, e.target.clone()))
+        .collect();
+    let to = |header, warp| {
+        Some(DraftTarget {
+            header,
+            warp: Some(warp),
+        })
+    };
+    assert_eq!(
+        events,
+        [
+            (DraftEventKind::Warp, Some(0), 10, 10, to(0, 0)),
+            (DraftEventKind::Warp, Some(0), 5, 6, to(1, 0)),
+        ]
+    );
+    assert_eq!(
+        draft.tiles,
+        [DraftTile {
+            matrix: Some(0),
+            x: 5,
+            z: 6
+        }]
+    );
+    assert!(draft.cells.is_empty() && draft.messages.is_empty());
+    assert!(draft.irreversible.is_empty(), "{:?}", draft.irreversible);
+    assert_eq!(
+        draft.notes[0],
+        "Tür A: T02 Tür 0 → Tür B: Twinleaf Town Tür 0, und zurück."
+    );
+    let notes = draft.notes.join(" ");
+    assert!(notes.contains("x 5, z 6"), "{notes}");
+    assert!(notes.contains("wird zur Tür"), "{notes}");
+
+    // Without door tiles the plan has none.
+    let plain = ConnectDoorsInput {
+        door_tiles: false,
+        ..input.clone()
+    };
+    assert!(
+        connect_doors::plan(&mut store, &plain)
+            .unwrap()
+            .tiles
+            .is_empty()
+    );
+
+    // Nothing written.
+    assert_eq!(store.undo_depth(), depth);
+    assert_eq!(store.dirty(), dirty);
+    assert_eq!(door_bytes(&store), bytes);
+}
+
+#[test]
+fn apply_connects_two_event_files_in_one_step() {
+    let (_s, mut store) = door_fixture(true);
+    let depth = store.undo_depth();
+    let before = door_bytes(&store);
+
+    let input = doors(warp_end(1, 0), tile_end(0, 5, 6));
+    let outcome = connect_doors::apply(&mut store, &input).unwrap();
+    let report = &outcome.report;
+    let short = |end: &connect_doors::DoorReport| {
+        (
+            end.header,
+            end.event_file,
+            end.warp,
+            end.created,
+            end.door_tile,
+        )
+    };
+    assert_eq!(short(&report.a), (1, 1, 0, false, None));
+    assert_eq!(
+        short(&report.b),
+        (0, 0, 0, true, Some(DoorTile { map: 0, x: 5, y: 6 }))
+    );
+    assert!(report.back);
+    assert!(outcome.created.is_empty());
+    assert!(outcome.change.is_some());
+    for id in [event_id(0), event_id(1), map_id(0)] {
+        assert!(
+            outcome.changed.contains(&id),
+            "{id:?} in {:?}",
+            outcome.changed
+        );
+    }
+    // Both warps lead to each other; the tile is a door.
+    assert_eq!(warps(&mut store, 1), [(10, 10, 0, 0)]);
+    assert_eq!(warps(&mut store, 0), [(5, 6, 1, 0)]);
+    let cell = store.map(0).unwrap().cell(5, 6).unwrap();
+    assert_eq!(
+        (cell.kind, cell.collision),
+        (g4_kernel::tiles::DOOR, g4_kernel::tiles::DOOR_COLLISION)
+    );
+    // One step with the label, the next step locked until 3d.9.
+    assert_eq!(store.undo_depth(), depth + 1);
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Tür „T02“ ↔ „Twinleaf Town“ verbunden")
+    );
+    let next: Vec<(&str, bool, Option<&str>)> = outcome
+        .next
+        .iter()
+        .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
+        .collect();
+    assert_eq!(next, [("play_here", false, Some("Kommt mit 3d.9"))]);
+
+    // Undo puts both event files and the map back byte for byte; redo brings the step back.
+    let after = door_bytes(&store);
+    store.undo().unwrap();
+    assert_eq!(door_bytes(&store), before);
+    store.redo().unwrap();
+    assert_eq!(door_bytes(&store), after);
+    store.undo().unwrap();
+
+    // Through the dispatcher as well.
+    let call: recipes::RecipeCall = serde_json::from_value(serde_json::json!({
+        "recipe": "connect_doors",
+        "input": { "a": { "header": 1, "warp": 0 }, "b": { "header": 0, "tile": { "x": 5, "z": 6 } } },
+    }))
+    .unwrap();
+    assert_eq!(recipes::is_irreversible(&call).unwrap(), None);
+    assert_eq!(recipes::plan(&mut store, &call).unwrap().events.len(), 2);
+    let dto = recipes::apply(&mut store, &call).unwrap();
+    assert_eq!(dto.report["b"]["warp"], 0);
+    assert_eq!(dto.report["b"]["door_tile"]["map"], 0);
+    // Unknown keys of an end are refused.
+    let wrong: recipes::RecipeCall = serde_json::from_value(serde_json::json!({
+        "recipe": "connect_doors",
+        "input": { "a": { "header": 1, "warp": 0, "tür": 1 }, "b": { "header": 0, "warp": 0 } },
+    }))
+    .unwrap();
+    assert!(refused(recipes::plan(&mut store, &wrong)).contains("Tür verbinden"));
+}
+
+#[test]
+fn a_shared_event_file_is_one_edit() {
+    // Both headers have event file 0 with the stairs as warp 0: two new doors go into that one
+    // file, A first.
+    let (_s, mut store) = door_fixture(false);
+    let depth = store.undo_depth();
+    let before = door_bytes(&store);
+    let input = ConnectDoorsInput {
+        door_tiles: false,
+        ..doors(tile_end(0, 5, 6), tile_end(1, 20, 6))
+    };
+    let draft = connect_doors::plan(&mut store, &input).unwrap();
+    let targets: Vec<Option<DraftTarget>> = draft.events.iter().map(|e| e.target.clone()).collect();
+    assert_eq!(
+        targets,
+        [
+            Some(DraftTarget {
+                header: 1,
+                warp: Some(2)
+            }),
+            Some(DraftTarget {
+                header: 0,
+                warp: Some(1)
+            }),
+        ]
+    );
+    let outcome = connect_doors::apply(&mut store, &input).unwrap();
+    assert_eq!((outcome.report.a.warp, outcome.report.b.warp), (1, 2));
+    assert_eq!(outcome.report.a.event_file, outcome.report.b.event_file);
+    assert_eq!(
+        warps(&mut store, 0),
+        [(10, 10, 0, 7), (5, 6, 1, 2), (20, 6, 0, 1)]
+    );
+    // One part for the one file.
+    assert_eq!(outcome.changed, [event_id(0)]);
+    assert_eq!(store.undo_depth(), depth + 1);
+    store.undo().unwrap();
+    assert_eq!(door_bytes(&store), before);
+}
+
+#[test]
+fn the_same_door_twice_and_a_taken_tile_are_refused() {
+    let (_s, mut store) = door_fixture(false);
+    let (depth, dirty, bytes) = (store.undo_depth(), store.dirty(), door_bytes(&store));
+    let both = |store: &mut Store, input: &ConnectDoorsInput| {
+        let why = refused(connect_doors::plan(store, input));
+        assert_eq!(refused(connect_doors::apply(store, input)), why);
+        why
+    };
+    const SAME: &str = "Tür A und Tür B sind dieselbe Tür";
+
+    // The same warp, also through two headers that share the event file.
+    assert_eq!(
+        both(&mut store, &doors(warp_end(0, 0), warp_end(0, 0))),
+        SAME
+    );
+    assert_eq!(
+        both(&mut store, &doors(warp_end(0, 0), warp_end(1, 0))),
+        SAME
+    );
+    // The same new tile of one event file.
+    assert_eq!(
+        both(&mut store, &doors(tile_end(0, 5, 6), tile_end(1, 5, 6))),
+        SAME
+    );
+    // A tile a warp stands on.
+    assert_eq!(
+        both(&mut store, &doors(tile_end(0, 5, 6), tile_end(1, 10, 10))),
+        "auf 10, 10 liegt schon Tür 0; wähle sie als Tür"
+    );
+    // An end needs exactly one of door and tile.
+    let neither = DoorEnd {
+        header: 0,
+        warp: None,
+        tile: None,
+    };
+    assert_eq!(
+        both(&mut store, &doors(neither.clone(), warp_end(0, 0))),
+        "Tür A braucht eine Tür oder eine Kachel"
+    );
+    let two = DoorEnd {
+        tile: Some(Tile { x: 5, z: 6 }),
+        ..warp_end(1, 0)
+    };
+    assert_eq!(
+        both(&mut store, &doors(tile_end(0, 5, 6), two)),
+        "Tür B braucht eine Tür oder eine Kachel"
+    );
+    // A door the event file does not have, a header the game does not have, a tile outside
+    // the header's matrix.
+    let why = both(&mut store, &doors(warp_end(0, 3), tile_end(0, 5, 6)));
+    assert!(why.contains("Tür 3"), "{why}");
+    let why = both(&mut store, &doors(warp_end(9, 0), tile_end(0, 5, 6)));
+    assert!(why.contains("header 9"), "{why}");
+    let why = both(&mut store, &doors(warp_end(0, 0), tile_end(0, 64, 6)));
+    assert!(why.contains("outside matrix"), "{why}");
+
+    // Nothing written.
+    assert_eq!(store.undo_depth(), depth);
+    assert_eq!(store.dirty(), dirty);
+    assert_eq!(door_bytes(&store), bytes);
+}
+
+#[test]
+fn without_back_only_a_points_to_b() {
+    let (_s, mut store) = door_fixture(true);
+    // B: a door of header 0 that leads elsewhere (to header 1, warp 3).
+    store
+        .edit_event(0, "door", |e| {
+            e.warp_events.push(g4_kernel::store::WarpEvent {
+                x: 5,
+                z: 6,
+                dest_header_id: 1,
+                dest_warp_id: 3,
+                height: 0,
+            });
+            Ok(())
+        })
+        .unwrap();
+    let file_b = store.current_bytes(event_id(0)).unwrap();
+    let input = ConnectDoorsInput {
+        back: false,
+        ..doors(warp_end(1, 0), warp_end(0, 0))
+    };
+    let draft = connect_doors::plan(&mut store, &input).unwrap();
+    assert_eq!(draft.events.len(), 1);
+    assert_eq!((draft.events[0].x, draft.events[0].z), (10, 10));
+    assert_eq!(
+        draft.notes[0],
+        "Tür A: T02 Tür 0 → Tür B: Twinleaf Town Tür 0."
+    );
+
+    let outcome = connect_doors::apply(&mut store, &input).unwrap();
+    assert!(!outcome.report.back);
+    assert_eq!(warps(&mut store, 1), [(10, 10, 0, 0)]);
+    // B's warp still leads where it led.
+    assert_eq!(warps(&mut store, 0), [(5, 6, 1, 3)]);
+    assert_eq!(store.current_bytes(event_id(0)).unwrap(), file_b);
+    assert_eq!(outcome.changed, [event_id(1)]);
+    // Again: A already leads to B, nothing changes and no step is recorded.
+    let depth = store.undo_depth();
+    let again = connect_doors::apply(&mut store, &input).unwrap();
+    assert_eq!((again.change, again.changed.len()), (None, 0));
+    assert_eq!(store.undo_depth(), depth);
+
+    // A new door B without a way back would lead nowhere: refused.
+    let input = ConnectDoorsInput {
+        back: false,
+        ..doors(warp_end(1, 0), tile_end(0, 20, 6))
+    };
+    let why = refused(connect_doors::plan(&mut store, &input));
+    assert!(why.contains("Rückweg"), "{why}");
+}
+
+#[test]
+fn a_save_between_apply_and_undo_keeps_undo_byte_equal() {
+    let (_s, mut store) = door_fixture(true);
+    store.save().unwrap();
+    let before = door_bytes(&store);
+    let ids = [event_id(0), event_id(1), map_id(0)];
+    let disk_before: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+
+    connect_doors::apply(&mut store, &doors(warp_end(1, 0), tile_end(0, 5, 6))).unwrap();
+    let after = door_bytes(&store);
+    store.save().unwrap();
+    let disk_after: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+    for (i, (a, b)) in disk_after.iter().zip(&disk_before).enumerate() {
+        assert_ne!(a, b, "{:?} saved", ids[i]);
+    }
+
+    // Every part is the store's: undo after the save needs no file and is byte-equal.
+    store.undo().unwrap();
+    assert_eq!(door_bytes(&store), before);
+    store.save().unwrap();
+    let disk: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+    assert_eq!(disk, disk_before);
+    store.redo().unwrap();
+    assert_eq!(door_bytes(&store), after);
+    store.save().unwrap();
+    let disk: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+    assert_eq!(disk, disk_after);
+}
+
+// ---------------------------------------------------------------------------------------
+// Gated: the stairs of the player's room and a tile in front of the house
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn vanilla_doors_round_trip_in_the_town() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    // The player's room with its stairs (warp 0), the start town and the ground floor of the
+    // house (pt-raum-assistent.yaml: 415, event file 394; hg-leere-region.yaml: 64, 63, 60).
+    let (room, room_file, town, house) = match project.family {
+        Family::Pt => (415, 394, 411, 414),
+        Family::Hgss => (64, 61, 60, 63),
+        Family::Dp => {
+            eprintln!("skipped: no Diamond/Pearl expectations");
+            return;
+        }
+    };
+    let mut store = Store::new(project.clone());
+    let game = project.game_code.clone();
+    let headers = store.header_table().unwrap().to_vec();
+    assert_eq!(headers[usize::from(room)].event_file_id(), room_file);
+    let town_file = headers[usize::from(town)].event_file_id();
+    let town_matrix = headers[usize::from(town)].matrix_id();
+    let events = store.event(town_file).unwrap().clone();
+    let door = events
+        .warp_events
+        .iter()
+        .find(|w| w.dest_header_id == house)
+        .expect("the town has a door into the house")
+        .clone();
+    // In front of the house, beside the door: the first tile no warp or object stands on that
+    // the plan takes.
+    let taken = |x: u16, z: u16| {
+        events.object_events.iter().any(|o| (o.x, o.z) == (x, z))
+            || events.warp_events.iter().any(|w| (w.x, w.z) == (x, z))
+    };
+    let input = |x, z| doors(warp_end(room, 0), tile_end(town, x, z));
+    let (x, z) = [(2i32, 1i32), (-2, 1), (3, 1), (-3, 1), (2, 2), (-2, 2)]
+        .into_iter()
+        .map(|(dx, dz)| {
+            (
+                u16::try_from(i32::from(door.x) + dx).unwrap(),
+                u16::try_from(i32::from(door.z) + dz).unwrap(),
+            )
+        })
+        .find(|&(x, z)| !taken(x, z) && connect_doors::plan(&mut store, &input(x, z)).is_ok())
+        .expect("a free tile in front of the house");
+    // The map under the tile.
+    let m = store.matrix(town_matrix).unwrap().clone();
+    let cell = usize::from(z / 32) * usize::from(m.width) + usize::from(x / 32);
+    let map = m.maps[cell];
+    let ids = [event_id(room_file), event_id(town_file), map_id(map)];
+    let bytes = |store: &mut Store| -> Vec<Option<Vec<u8>>> {
+        ids.iter()
+            .map(|&id| {
+                if id.kind == AssetKind::Event {
+                    store.event(id.index).unwrap();
+                } else {
+                    store.map(id.index).unwrap();
+                }
+                store.current_bytes(id).unwrap()
+            })
+            .collect()
+    };
+    let before = bytes(&mut store);
+    let disk_before: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+    let town_warps = u16::try_from(events.warp_events.len()).unwrap();
+
+    let started = Instant::now();
+    let outcome = connect_doors::apply(&mut store, &input(x, z)).unwrap();
+    let ms = started.elapsed().as_millis();
+    let report = outcome.report;
+    assert_eq!(
+        (
+            report.a.header,
+            report.a.event_file,
+            report.a.warp,
+            report.a.created
+        ),
+        (room, room_file, 0, false)
+    );
+    assert_eq!(
+        (
+            report.b.header,
+            report.b.event_file,
+            report.b.warp,
+            report.b.created
+        ),
+        (town, town_file, town_warps, true)
+    );
+    // As `get` reads them: the stairs lead to the town's new door, the door to the stairs.
+    let stairs = store.event(room_file).unwrap().warp_events[0].clone();
+    assert_eq!(
+        (stairs.dest_header_id, stairs.dest_warp_id),
+        (town, report.b.warp)
+    );
+    let new = store.event(town_file).unwrap().warp_events[usize::from(report.b.warp)].clone();
+    assert_eq!(
+        (new.x, new.z, new.dest_header_id, new.dest_warp_id),
+        (x, z, room, 0)
+    );
+    // The door tile lies on the map the comparison reads.
+    if let Some(tile) = report.b.door_tile {
+        assert_eq!(
+            (tile.map, u16::from(tile.x), u16::from(tile.y)),
+            (map, x % 32, z % 32)
+        );
+    }
+    let after = bytes(&mut store);
+
+    // Undo byte-equal, also with a save between apply and undo.
+    store.undo().unwrap();
+    assert_eq!(bytes(&mut store), before);
+    store.redo().unwrap();
+    assert_eq!(bytes(&mut store), after);
+    store.save().unwrap();
+    store.undo().unwrap();
+    assert_eq!(bytes(&mut store), before);
+    store.save().unwrap();
+    let disk: Vec<Vec<u8>> = ids.iter().map(|&id| member_on_disk(&store, id)).collect();
+    assert_eq!(disk, disk_before);
+    eprintln!(
+        "doors {game} a={room_file}:0 b={town_file}:{} tile=({x}, {z}) map={map} door_tile={} ms={ms} (unter Last)",
+        report.b.warp,
+        report.b.door_tile.is_some()
     );
 }

@@ -1529,7 +1529,8 @@ mod tests {
                 "create_room",
                 "extend_area",
                 "empty_region",
-                "new_figure"
+                "new_figure",
+                "connect_doors"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

@@ -20,6 +20,7 @@ pub enum RecipeId {
     ExtendArea,
     EmptyRegion,
     NewFigure,
+    ConnectDoors,
 }
 
 impl RecipeId {
@@ -31,6 +32,7 @@ impl RecipeId {
             RecipeId::ExtendArea => "Gebiet erweitern",
             RecipeId::EmptyRegion => "Welt leeren",
             RecipeId::NewFigure => "Neue Figur",
+            RecipeId::ConnectDoors => "Tür verbinden",
         }
     }
 
@@ -42,6 +44,7 @@ impl RecipeId {
             RecipeId::ExtendArea,
             RecipeId::EmptyRegion,
             RecipeId::NewFigure,
+            RecipeId::ConnectDoors,
         ]
     }
 }
@@ -190,7 +193,7 @@ impl<R: Serialize> Outcome<R> {
 /// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
 /// step is no recipe the app runs (`edit_dialog` opens the dialog editor), else locked with
 /// `reason` „Kommt mit 3d.7“ (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit
-/// Phase 6“; `connect_doors` and `new_trainer_here` „Kommt mit 3d.5“ until the list has them).
+/// Phase 6“; `new_trainer_here` „Kommt mit 3d.5“ until the list has it).
 pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
     ids.iter()
         .map(|&(id, label)| {
@@ -199,7 +202,7 @@ pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
                     .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
-                "connect_doors" | "new_trainer_here" => Some("Kommt mit 3d.5"),
+                "new_trainer_here" => Some("Kommt mit 3d.5"),
                 "play_here" => Some("Kommt mit 3d.9"),
                 "adjust_terrain" => Some("Kommt mit Phase 6"),
                 _ => Some("Kommt mit 3d.7"),

@@ -373,11 +373,12 @@ fn apply_of_an_area_is_one_undo_step() {
             outcome.changed
         );
     }
-    assert!(locked_step(
-        &outcome.next,
-        "connect_doors",
-        "Kommt mit 3d.5"
-    ));
+    assert!(
+        outcome
+            .next
+            .iter()
+            .any(|s| s.id == "connect_doors" && s.available)
+    );
     assert!(
         outcome
             .next

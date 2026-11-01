@@ -1,7 +1,7 @@
 //! The door helpers „Raum anlegen“ and „Tür verbinden“ share: warps of an event file, the
-//! event file and the matrix of a header, whether the game takes a warp on a tile, door tiles
-//! and the tile of a map under a tile of a matrix. „Neue Figur“ uses [`outside_map`] for the
-//! matrix of its draft.
+//! event file and the matrix of a header, whether the game takes a warp on a tile, door tiles,
+//! the tile of a map under a tile of a matrix and the warp edits of a door pair
+//! ([`write_warps`]). „Neue Figur“ uses [`outside_map`] for the matrix of its draft.
 
 use g4_formats::game::Family;
 use g4_formats::map::{Cell, MAP_SIZE};
@@ -133,4 +133,46 @@ pub(crate) fn warp(x: u16, z: u16, dest_header_id: u16, dest_warp_id: u16) -> Wa
         dest_warp_id,
         height: 0,
     }
+}
+
+/// A warp edit of a door pair: a new warp appended to its event file, or an existing warp
+/// (`index`) pointed at warp `warp` of header `header`.
+#[derive(Debug, Clone)]
+pub(crate) enum WarpWrite {
+    Add(WarpEvent),
+    Point { index: u16, header: u16, warp: u16 },
+}
+
+/// Makes `writes` (event file, edit) edits of the recipe's one transaction: one `edit_event`
+/// per event file, the files in the order they first appear, the edits of a file in their
+/// order (two new warps of one file get consecutive indices). Pointing a warp the file does not
+/// have changes nothing; the callers checked the index.
+pub(crate) fn write_warps(tx: &mut Tx<'_>, writes: &[(u16, WarpWrite)]) -> Result<(), KernelError> {
+    let mut files: Vec<u16> = Vec::new();
+    for &(file, _) in writes {
+        if !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    for file in files {
+        tx.edit_event(file, |f| {
+            for (_, write) in writes.iter().filter(|(of, _)| *of == file) {
+                match write {
+                    WarpWrite::Add(w) => f.warp_events.push(w.clone()),
+                    &WarpWrite::Point {
+                        index,
+                        header,
+                        warp,
+                    } => {
+                        if let Some(w) = f.warp_events.get_mut(usize::from(index)) {
+                            w.dest_header_id = header;
+                            w.dest_warp_id = warp;
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
