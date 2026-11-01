@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HeaderPatchDto, PreviewDto } from "../api";
-import { applyHeaderPatch, baseStatus, diffEntity, dirty, headerPatchStatus, projectPreviewGet, projectPreviewSet, releases, repairHeaderPatch } from "../api";
+import { applyHeaderPatch, baseStatus, diffEntity, dirty, flagUsage, headerPatchStatus, listFlags, projectPreviewGet, projectPreviewSet, releases, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
 import { fakeChecks, finding } from "../checks/checksTesting";
@@ -23,6 +23,8 @@ import { gitStatusOf, noRepo } from "../git/gitTesting";
 import type { GitStatus } from "../api";
 import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
 import { useBase } from "./useBase";
+import { FLAGS, flagUsageOf } from "../flags/flagTesting";
+import { invalidateFlagLists } from "../flags/useFlagList";
 import { TechnikArea } from "./TechnikArea";
 import type { TechnikAreaProps, TechnikEntry } from "./TechnikArea";
 
@@ -37,6 +39,8 @@ vi.mock("../api", async (importOriginal) => ({
   baseStatus: vi.fn(),
   releases: vi.fn(),
   diffEntity: vi.fn(),
+  listFlags: vi.fn(),
+  flagUsage: vi.fn(),
 }));
 vi.mock("../platform/dialogs", async (importOriginal) => ({ ...(await importOriginal<typeof import("../platform/dialogs")>()), openPath: vi.fn() }));
 
@@ -133,7 +137,7 @@ describe("TechnikArea", () => {
     await render({ lastBuiltAt: Date.now() - 4 * 60_000, lastRom: "/out.nds" });
     await settle();
     expect(container.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Technik");
-    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Textprojekt", "Prüfen und Bauen", "Veröffentlichen", "Änderungen", "Patches", "Emulator", "Werkzeuge"]);
+    expect(rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent)).toEqual(["Projekt", "Textprojekt", "Prüfen und Bauen", "Veröffentlichen", "Änderungen", "Patches", "Emulator", "Werkzeuge", "Flags und Variablen"]);
     for (const r of rows()) expect(r.querySelector("svg")).not.toBeNull();
     expect(subtitle("Prüfen und Bauen")).toBe("gebaut vor 4 Minuten");
     expect(subtitle("Veröffentlichen")).toBe("Keine Basis-ROM zugeordnet");
@@ -168,7 +172,7 @@ describe("TechnikArea", () => {
     const changes = changesWith({ report: report({ entries: [entry()] }) });
     await act(async () => root.render(withReset(reset, <Host changes={changes} />)));
     const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
-    expect(labels).toHaveLength(8);
+    expect(labels).toHaveLength(9);
     expect(labels.indexOf("Änderungen")).toBe(labels.indexOf("Veröffentlichen") + 1);
     expect(row("Änderungen")?.querySelector("svg")).not.toBeNull();
     await click(row("Änderungen"));
@@ -197,11 +201,11 @@ describe("TechnikArea", () => {
     expect(selected()).toBe("true");
   });
 
-  it("lists_eight_entries_with_textprojekt_after_projekt", async () => {
+  it("lists_nine_entries_with_textprojekt_after_projekt", async () => {
     const onSetUp = vi.fn();
     await render({ textProject: textWith({ status: { state: "dspre", adoptable: true, reason: null }, onSetUp }) });
     const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
-    expect(labels).toHaveLength(8);
+    expect(labels).toHaveLength(9);
     expect(labels.indexOf("Textprojekt")).toBe(labels.indexOf("Projekt") + 1);
     expect(row("Textprojekt")?.querySelector("svg")).not.toBeNull();
     await click(row("Textprojekt"));
@@ -210,6 +214,38 @@ describe("TechnikArea", () => {
     expect(surface()?.querySelector("h1")?.textContent).toBe("Textprojekt");
     await click(button("Als Textprojekt einrichten…"));
     expect(onSetUp).toHaveBeenCalledOnce();
+  });
+
+  it("flags_is_the_ninth_entry_with_its_subtitle", async () => {
+    invalidateFlagLists();
+    let answer!: (list: typeof FLAGS) => void;
+    vi.mocked(listFlags).mockReset().mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    vi.mocked(flagUsage).mockReset().mockImplementation(async (kind, number) => flagUsageOf(kind, number));
+    const info = { root: "/p", game_code: "CPUE", family: "Pt", language: "en", header_count: 1 };
+    const flags = { project: info, revision: 0, selected: null, onSelect: vi.fn(), readOnly: false, onError: vi.fn() };
+    // Without a project the entry says so and nothing is read.
+    await render();
+    expect(subtitle("Flags und Variablen")).toBe("Kein Projekt");
+    expect(listFlags).not.toHaveBeenCalled();
+    // With one: the ninth entry, with its symbol; its subtitle counts the flags and the free ones once they are read.
+    await render({ flags });
+    const labels = rows().map((r) => document.getElementById(r.getAttribute("aria-labelledby")!)?.textContent);
+    expect(labels).toHaveLength(9);
+    expect(labels[8]).toBe("Flags und Variablen");
+    expect(row("Flags und Variablen")?.querySelector("svg")).not.toBeNull();
+    expect(subtitle("Flags und Variablen")).toBe("Wird gelesen …");
+    await act(async () => answer(FLAGS));
+    expect(subtitle("Flags und Variablen")).toBe("5 Flags · 3 frei");
+    // The list and the surface share one read.
+    await click(row("Flags und Variablen"));
+    await settle();
+    expect(listFlags).toHaveBeenCalledOnce();
+    expect(surface()?.getAttribute("data-technik")).toBe("flags");
+    expect(surface()?.querySelector("h1")?.textContent).toBe("Flags und Variablen");
+    expect(surface()?.querySelectorAll("[data-flag-row]")).toHaveLength(5);
+    // A row chosen goes to the app, which holds the selection.
+    await click(surface()?.querySelector("[data-flag-row='148']"));
+    expect(flags.onSelect).toHaveBeenCalledWith({ kind: "flag", number: 0x94 });
   });
 
   it("textprojekt_subtitle_counts_conflicts_then_broken_files", async () => {

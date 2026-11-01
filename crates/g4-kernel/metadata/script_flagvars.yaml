@@ -1,0 +1,124 @@
+# Script command parameters that name a flag, a variable or the "defeated" flag of a trainer:
+# the flag and variable entries of the reference index (`src/data/refs/flagvars.rs`).
+# Sources: Gutachten B §1.1 and §3.2 (docs/research/2026-10-30-phase-3d/
+# gutachten-b-flags-variablen-live.md); rotom v0.7.0 (checkout fb11503)
+# `src/decompiler/ir_to_source.rs:28-58` (`param_semantics`: the parameter names rotom renders
+# as a flag or a variable) and `src/compiler/ir/lowerer.rs:1300-1356, 1792-1807` (conditions: a
+# bare flag constant becomes `CheckFlag`, an operand from 0x4000 on is a variable).
+#
+# A parameter of a command is
+# - the trainer number of a trainer flag when `trainer_flags` names it (flag `0x550 + n`),
+# - a flag when `flags` names it (whatever its type), else when its type is `flag` or its name
+#   is in `name_rule.flag`,
+# - a variable when `vars` names it, else when its type is `var` or `flex` or its name is in
+#   `name_rule.var`.
+# The name rule compares case-insensitively, as rotom does, and only applies to parameters of a
+# 16-bit type (`u16`, `var`, `flex`, `flag`): a `u8` cannot hold a variable, and the `u8`
+# parameters named `flag` and `shiny_flag` (HeartGold `SafariZoneAction`, `WildBattle`) are a
+# mode and a switch, not flags.
+#
+# The access of a parameter is the one its entry names (`read`, `write`, `read_write`,
+# `unknown`); without an entry, a flag is `flag_default` and a variable `var_default`:
+# `database` reads the parameter's `access` in the bundled command database and translates it
+# with `access_words` (no `access`: `unknown`); `borrow` takes the access of the Platinum
+# command of the same name, parameter at the same position, when that one is a variable
+# (otherwise `unknown`).
+#
+# Which value counts is decided in the code (`flagvars.rs`): a flag argument from 0x4000 on is a
+# flag only when the parameter takes a plain number (type neither `var` nor `flex`) and the
+# argument is a name that resolves as a flag (pret flag name of the family, own flag name, or a
+# file alias of one: HeartGold `FLAG_TEMP_x4000`..`x403F`, Platinum
+# `FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE`); otherwise it is a flag from a variable, only counted.
+#
+# Commands and parameters are spelled as the bundled database of the family names them
+# (canonical name; a source may write a legacy name or an alias). Commands whose parameters
+# exist only per variant of a mode (Platinum `MysteryGiftGive`, `CallTVBroadcast`,
+# `CallTVInterview`) are not positioned and contribute nothing. The test
+# `script_flagvars_name_existing_commands_and_params` checks every entry against the database.
+name_rule:
+  flag: [flag, flagid, flag_id, shiny_flag]
+  var: [var, variable, var_0, var_1, var_2, var_3, var_4, var_5, var_6, varid, var_id, destvarid,
+        dest_var_id, variable_1, variable_2, retvar, var_dest, var_result, var_or_addend,
+        var_or_trno, countdown_variable, var_flag]
+access_words:
+  read: read
+  must_write: write
+  may_write: write
+  read_must_write: read_write
+  read_may_write: read_write
+  none: unknown
+pt:
+  flag_default: read
+  var_default: database
+  flags:
+    SetFlag: { flagID: write }
+    ClearFlag: { flagID: write }
+    CheckFlag: { flagID: read }
+    # The flag is the value of the variable (or the number below 0x4000), whatever its name.
+    SetFlagFromVar: { varID: write }
+    CheckFlagFromVar: { flagID: read }
+  # Macros: the database gives their parameters no `access`; the access is the one of the
+  # commands they expand to (`SetVarFromValue`/`SetVarFromVar`: `destVarID` `must_write`,
+  # `CompareVarToValue`/`CompareVarToVar`: `read`, `CallTVBroadcast`: `must_write`, ...).
+  # `HasCoins` is missing: its expansions carry no `access` either.
+  vars:
+    SetVar: { destVarID: write, valueOrVarID: read }
+    CompareVar: { varID: read, valueOrVarID: read }
+    SubtractCoins: { valueOrVarID: read }
+    GoToIfLt: { varID: read, valueOrVarID: read }
+    GoToIfEq: { varID: read, valueOrVarID: read }
+    GoToIfGt: { varID: read, valueOrVarID: read }
+    GoToIfLe: { varID: read, valueOrVarID: read }
+    GoToIfGe: { varID: read, valueOrVarID: read }
+    GoToIfNe: { varID: read, valueOrVarID: read }
+    CallIfLt: { varID: read, valueOrVarID: read }
+    CallIfEq: { varID: read, valueOrVarID: read }
+    CallIfGt: { varID: read, valueOrVarID: read }
+    CallIfLe: { varID: read, valueOrVarID: read }
+    CallIfGe: { varID: read, valueOrVarID: read }
+    CallIfNe: { varID: read, valueOrVarID: read }
+    GoToIfInRange: { varID: read }
+    # `CanFitItem` writes the result, `GoToIfEq` reads it.
+    GoToIfCannotFitItem: { destVarID: read_write }
+    LoadLocalDexRating: { destVar: write }
+    LoadNationalDexRating: { destVar: write }
+    GetNationalDexEnabled: { destVar: write }
+    CheckBroadcastStatus: { destVar: write }
+    GetNextTVSegmentID: { destVar: write }
+    LoadTVCommercial: { bankDestVar: write, messageDestVar: write }
+    LoadTVFramingMessage: { bankDestVar: write, messageDestVar: write }
+    LoadTVSegment: { bankDestVar: write, messageDestVar: write }
+    LoadTVGreeting: { bankDestVar: write, messageDestVar: write }
+    LoadTVSegmentIntro: { bankDestVar: write, messageDestVar: write }
+    LoadTVFarewell: { bankDestVar: write, messageDestVar: write }
+    LoadTVFarewellExtended: { bankDestVar: write, messageDestVar: write }
+    LoadTVInterviewMessage: { bankDestVar: write, messageDestVar: write }
+    CheckAvailableMysteryGift: { destVarID: write }
+    GetMysteryGiftType: { destVarID: write }
+    CheckCanReceiveMysteryGift: { destVarID: write }
+  trainer_flags:
+    SetTrainerFlag: { trainer_id: write }
+    ClearTrainerFlag: { trainer_id: write }
+    CheckTrainerFlag: { trainer_id: read }
+hgss:
+  flag_default: read
+  var_default: borrow
+  flags:
+    SetFlag: { flag: write }
+    ClearFlag: { flag: write }
+    CheckFlag: { flag: read }
+    # The flag is the value of the variable (or the number below 0x4000), whatever its name.
+    SetFlagVar: { flag: write }
+    ClearFlagVar: { flag: write }
+    CheckFlagVar: { var_flag: read }
+  # The exceptions to borrowing (Gutachten B §3.2).
+  vars:
+    SetVar: { variable: write }
+    CopyVar: { variable_1: write, variable_2: read }
+    SetOrCopyVar: { dst: write, flexible_value: read }
+    AddVar: { variable: read_write, var_or_addend: read }
+    SubVar: { variable: read_write, var_or_addend: read }
+  trainer_flags:
+    SetTrainerFlag: { var_or_trno: write }
+    ClearTrainerFlag: { var_or_trno: write }
+    CheckTrainerFlag: { var_or_trno: read }

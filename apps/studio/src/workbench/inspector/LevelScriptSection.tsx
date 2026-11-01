@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { readScript, saveLevelScript } from "../../api";
-import type { HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
+import type { FlagKind, HeaderSummary, LevelScriptDoc, ProjectInfo, SaveScriptDto } from "../../api";
+import { FlagField } from "../../flags/FlagField";
+import type { Depth } from "../../ui/frame/shellState";
 import { Button, Notice, NumberField, Section, SelectField } from "../../ui/primitives";
 import { TERMS, id4 } from "../terms";
 import styles from "./Editor.module.css";
@@ -29,6 +31,10 @@ interface Props {
   /** Whether `project` is still the open one (a save that waits for its turn is dropped when it is not). */
   isCurrentProject: (project: ProjectInfo | null) => boolean;
   onError: (e: unknown) => void;
+  /** Bauen shows a condition's variable by its name with a picker; Tüfteln adds the number field. */
+  depth: Depth;
+  /** Opens the list of flags and variables on a number („Im Verzeichnis zeigen“ of the variable pickers). */
+  onShowFlag?: (kind: FlagKind, number: number) => void;
 }
 
 /** One queue for the whole app (see `LevelScriptSaves`). */
@@ -44,7 +50,7 @@ const TRIGGER_OPTIONS = HEADER_ENTRY_TYPES.map((t) => ({ value: t, label: TRIGGE
  * store through `onSaved`. The reading and saving belong to this component, not to the section body, so folding the
  * section away neither drops the document nor a save that is under way.
  */
-export function LevelScriptSection({ header, levelScriptId, project, adopted, revision, onOpenScript, onCreate, onSaved, isCurrentProject, onError }: Props) {
+export function LevelScriptSection({ header, levelScriptId, project, adopted, revision, onOpenScript, onCreate, onSaved, isCurrentProject, onError, depth, onShowFlag }: Props) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const callbacks = useRef({ onSaved, isCurrentProject, onError });
   callbacks.current = { onSaved, isCurrentProject, onError };
@@ -153,6 +159,11 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
     <NumberField label={label} value={value} max={max} bits={max > CONDITION_MAX ? 32 : 16} onCommit={onCommit} />
   );
   const triggerField = (label: string, value: HeaderEntryType, onChange: (t: HeaderEntryType) => void) => <SelectField label={label} value={value} options={TRIGGER_OPTIONS} onChange={onChange} />;
+  // A condition's variable: its name and the picker, in Tüfteln with the number field (`field` names the chip: `var:1`, `var:new`).
+  const showVar = onShowFlag ? (n: number) => onShowFlag("var", n) : undefined;
+  const varField = (label: string, field: string, value: number, onCommit: (n: number) => void) => (
+    <FlagField kind="var" label={label} value={value} onCommit={onCommit} depth={depth} project={project} revision={revision} source="scripts" onShowInDirectory={showVar} field={field} bare />
+  );
 
   const addEntry = () => {
     const n = type === "on_var_condition" ? 0 : script;
@@ -263,7 +274,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
             )}
             {conditions.map((c, i) => (
               <tr key={i}>
-                <td>{numberField(`Variable ${i + 1}`, c.var, CONDITION_MAX, (n) => patchCondition(i, { var: n }))}</td>
+                <td>{varField(`Variable ${i + 1}`, `var:${i + 1}`, c.var, (n) => patchCondition(i, { var: n }))}</td>
                 <td>{numberField(`Wert ${i + 1}`, c.value, CONDITION_MAX, (n) => patchCondition(i, { value: n }))}</td>
                 <td>{numberField(`${TERMS.script.label} der Bedingung ${i + 1}`, c.script_id, CONDITION_MAX, (n) => patchCondition(i, { script_id: n }))}</td>
                 <td>
@@ -282,7 +293,7 @@ export function LevelScriptSection({ header, levelScriptId, project, adopted, re
         </table>
       </div>
       <div className={table.add}>
-        {numberField("Neue Variable", cond.var, CONDITION_MAX, (n) => setCond({ ...cond, var: n }))}
+        {varField("Neue Variable", "var:new", cond.var, (n) => setCond((c) => ({ ...c, var: n })))}
         {numberField("Neuer Wert", cond.value, CONDITION_MAX, (n) => setCond({ ...cond, value: n }))}
         {numberField(`${TERMS.script.label} der neuen Bedingung`, cond.script, CONDITION_MAX, (n) => setCond({ ...cond, script: n }))}
         <Button kind="secondary" size="s" onClick={addCondition}>

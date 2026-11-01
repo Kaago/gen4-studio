@@ -378,3 +378,62 @@ fn a_name_in_two_constant_files_resolves_as_in_rotom() {
     let context = rotom::ProjectContext::load_tolerant(fx.root(), &config).unwrap();
     assert_eq!(kernel, context.project_constants().get("MY_TWICE"));
 }
+
+#[test]
+fn own_name_is_a_second_name_and_both_compile_the_same() {
+    use crate::flags::{FlagKind, NameRequest, name_flag_files};
+
+    let fx = TextFixture::exported();
+    let script = |flag: &str, var: &str| {
+        format!(
+            "script Main #1:\n    SetFlag {flag}\n    if {flag} then\n        ClearFlag {flag}\n    \
+             endif\n    SetVar {var}, 1\n    End\nscript Second #2:\n    End\n"
+        )
+    };
+    // Script A with the pret names.
+    fx.write(
+        SOURCE,
+        script("FLAG_UNUSED_0x0094", "VAR_UNUSED_0x406C").as_bytes(),
+    );
+    compile(&fx);
+    let pret = member_0(&fx);
+
+    for (kind, number, id) in [
+        (FlagKind::Flag, 0x94, "FLAG_HAT_MEDAILLE"),
+        (FlagKind::Var, 0x406C, "VAR_MEIN_ZAEHLER"),
+    ] {
+        let request = NameRequest {
+            kind,
+            number,
+            id: Some(id.to_owned()),
+            description: None,
+        };
+        name_flag_files(&fx.project(), &request).unwrap();
+    }
+    // The id files hold the own names, never the pret names.
+    let flags = fx.text(".rotom/command_database/.g4-ids-flags.json");
+    assert_eq!(flags, "{\n  \"148\": \"FLAG_HAT_MEDAILLE\"\n}\n");
+    assert!(!flags.contains("FLAG_UNUSED_0x0094"));
+    assert_eq!(
+        fx.text(".rotom/command_database/.g4-ids-vars.json"),
+        "{\n  \"16492\": \"VAR_MEIN_ZAEHLER\"\n}\n"
+    );
+    assert_eq!(
+        id_file_path(&fx.project(), SymbolKind::Flag),
+        PathBuf::from(".rotom/command_database/.g4-ids-flags.json")
+    );
+    assert_eq!(id_file_paths(&fx.project()).len(), 11);
+    assert!(register_paths().contains(&PathBuf::from("data/ids/vars.json")));
+
+    // Script A still compiles to the same member.
+    compile(&fx);
+    assert_eq!(member_0(&fx), pret);
+
+    // Script B with the own names compiles to the same bytes.
+    fx.write(
+        SOURCE,
+        script("FLAG_HAT_MEDAILLE", "VAR_MEIN_ZAEHLER").as_bytes(),
+    );
+    compile(&fx);
+    assert_eq!(member_0(&fx), pret);
+}

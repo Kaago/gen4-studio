@@ -189,9 +189,8 @@ fn after_step(session: &mut crate::state::Session, restored: &[AssetId]) {
     if restored
         .iter()
         .any(|a| matches!(a.kind, AssetKind::Trainer | AssetKind::HeaderTable))
-        && !session.id_files_changed().is_empty()
     {
-        session.files_written(&[]);
+        session.id_files_followup();
     }
     session.after_write();
 }

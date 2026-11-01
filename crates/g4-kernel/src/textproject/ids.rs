@@ -5,18 +5,21 @@
 //!
 //! What resolves, by kind: a number always (its range is the caller's); the fallback
 //! `PREFIX_NNNN` always; the fixed tables of species, moves, items, abilities and types
-//! everywhere; the registers of maps, trainers, trainer classes and places only in a text
-//! project of the current schema; and a map also as `MAP_<internal name>` from `mapname.bin`
-//! (also after a rename and without a text project), in [`Resolver::parse`] also as the bare
-//! internal name.
+//! everywhere; the registers of maps, trainers, trainer classes, places, flags and variables
+//! only in a text project of the current schema; the pret names of the flags and variables of
+//! the project's family in every project (after the own names of the register); and a map also
+//! as `MAP_<internal name>` from `mapname.bin` (also after a rename and without a text project),
+//! in [`Resolver::parse`] also as the bare internal name.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 
 use crate::error::KernelError;
+use crate::flags::{FlagKind, names};
 use crate::project::Project;
 
 use super::MANIFEST_FILE;
@@ -50,12 +53,14 @@ pub fn unknown_id_text(id: &str) -> String {
 }
 
 /// The kinds with a register; outside a text project they resolve by number and fallback
-/// only (maps also by internal name).
-const REGISTER_KINDS: [SymbolKind; 4] = [
+/// only (maps also by internal name, flags and variables by their pret names).
+const REGISTER_KINDS: [SymbolKind; 6] = [
     SymbolKind::Map,
     SymbolKind::Trainer,
     SymbolKind::TrainerClass,
     SymbolKind::Place,
+    SymbolKind::Flag,
+    SymbolKind::Var,
 ];
 
 /// Size and modification time of a file, `None` when it is missing.
@@ -67,8 +72,12 @@ pub(crate) type Stamp = Option<(u64, SystemTime)>;
 pub struct Resolver {
     /// The project root, `None` for [`Resolver::fixed`].
     root: Option<PathBuf>,
-    /// The registers, only in a text project of the current schema.
+    /// The registers, only in a text project of the current schema (with the project's family,
+    /// [`Symbols::with_family`]).
     symbols: Option<Symbols>,
+    /// The project's family, for the pret names of flags and variables outside a text project;
+    /// `None` for [`Resolver::fixed`].
+    family: Option<Family>,
     /// Internal name (as `mapname.bin` has it and normalized) → the first header with it.
     internal: HashMap<String, u32>,
     /// The files read, relative to the root, with their stamp from before reading.
@@ -77,7 +86,8 @@ pub struct Resolver {
 
 impl Resolver {
     /// The resolver of `project`: its registers when it is a text project of the current
-    /// schema, and the internal names of its headers. A broken manifest or register, or a
+    /// schema, the pret names of its family's flags and variables, and the internal names of its
+    /// headers. A broken manifest or register, or a
     /// `mapname.bin` that is there but cannot be read, is the error of reading it; without
     /// `mapname.bin` there are no internal names (everything else still resolves).
     pub fn for_project(project: &Project) -> Result<Resolver, KernelError> {
@@ -91,7 +101,7 @@ impl Resolver {
             })
             .collect();
         let symbols = match schema_state(&root)? {
-            SchemaState::Current => Some(Symbols::load(&root)?),
+            SchemaState::Current => Some(Symbols::load(&root)?.with_family(project.family)),
             SchemaState::Missing | SchemaState::Older(_) | SchemaState::Newer(_) => None,
         };
         let names = if project.mapname_path().exists() {
@@ -114,19 +124,28 @@ impl Resolver {
         Ok(Resolver {
             root: Some(root),
             symbols,
+            family: Some(project.family),
             internal,
             stamps,
         })
     }
 
-    /// Without a project: the fixed tables and the fallbacks only (recipes, tests).
+    /// Without a project: the fixed tables and the fallbacks only (recipes, tests); no pret
+    /// names of flags and variables (no family).
     pub fn fixed() -> Resolver {
         Resolver {
             root: None,
             symbols: None,
+            family: None,
             internal: HashMap::new(),
             stamps: Vec::new(),
         }
+    }
+
+    /// The pret name table of `kind` outside a text project: flags and variables of the
+    /// project's family; `None` for other kinds and for [`Resolver::fixed`].
+    fn pret(&self, kind: SymbolKind) -> Option<&'static crate::flags::NameTable> {
+        Some(names(self.family?, FlagKind::from_symbol(kind)?))
     }
 
     /// The number of `input`: a number as it is, an id (or a number as text) as
@@ -153,7 +172,7 @@ impl Resolver {
         let known = match (table(kind), &self.symbols) {
             (Some(table), _) => table.number(text),
             (None, Some(symbols)) => symbols.number(kind, text),
-            (None, None) => None,
+            (None, None) => self.pret(kind).and_then(|t| t.number(text)).map(u32::from),
         };
         if let Some(n) = known.or_else(|| parse_fallback(kind, text)) {
             return Ok(n);
@@ -176,12 +195,16 @@ impl Resolver {
     }
 
     /// The id of number `n` of `kind` from its table, or from its register in a text
-    /// project; `None` without an entry.
+    /// project; a flag or variable without an own name has its pret name (outside a text
+    /// project too); `None` without an entry.
     pub fn id(&self, kind: SymbolKind, n: u32) -> Option<String> {
         match (table(kind), &self.symbols) {
             (Some(table), _) => table.id(n).map(str::to_owned),
             (None, Some(symbols)) => symbols.id(kind, n),
-            (None, None) => None,
+            (None, None) => self
+                .pret(kind)?
+                .name(u16::try_from(n).ok()?)
+                .map(str::to_owned),
         }
     }
 
@@ -540,5 +563,49 @@ mod tests {
             exported.ids(SymbolKind::Map).get(&0).map(String::as_str),
             exported.id(SymbolKind::Map, 0).as_deref()
         );
+    }
+
+    #[test]
+    fn flags_resolve_own_names_then_pret_names() {
+        let fx = TextFixture::exported();
+        fx.write("data/ids/flags.json", b"{\"FLAG_HAT_MEDAILLE\": 148}\n");
+        let exported = Resolver::for_project(&fx.project()).unwrap();
+        assert_eq!(
+            exported.parse(SymbolKind::Flag, "FLAG_HAT_MEDAILLE"),
+            Ok(148)
+        );
+        assert_eq!(
+            exported.parse(SymbolKind::Flag, "FLAG_UNUSED_0x0094"),
+            Ok(148)
+        );
+        assert_eq!(
+            exported.id(SymbolKind::Flag, 148).as_deref(),
+            Some("FLAG_HAT_MEDAILLE")
+        );
+        assert_eq!(
+            exported.id(SymbolKind::Flag, 149).as_deref(),
+            Some("FLAG_UNUSED_0x0095")
+        );
+        assert_eq!(exported.parse(SymbolKind::Var, "VAR_RESULT"), Ok(0x800C));
+        // The register of the own names is watched like the others.
+        fx.write("data/ids/flags.json", b"{\"FLAG_ORDEN\": 148}\n");
+        assert!(!exported.is_current(&fx.project()));
+
+        // The DSPRE layout has the pret names, no own names.
+        let dspre = Resolver::for_project(&TextFixture::dspre().project()).unwrap();
+        assert_eq!(dspre.parse(SymbolKind::Flag, "FLAG_UNUSED_0x0094"), Ok(148));
+        assert_eq!(
+            dspre.id(SymbolKind::Flag, 148).as_deref(),
+            Some("FLAG_UNUSED_0x0094")
+        );
+        assert_eq!(
+            dspre.parse(SymbolKind::Flag, "FLAG_HAT_MEDAILLE"),
+            Err("Unbekannte ID: FLAG_HAT_MEDAILLE (kein Textprojekt).".to_owned())
+        );
+        // Without a project neither.
+        let fixed = Resolver::fixed();
+        assert!(fixed.parse(SymbolKind::Flag, "FLAG_UNUSED_0x0094").is_err());
+        assert_eq!(fixed.parse(SymbolKind::Flag, "FLAG_0148"), Ok(148));
+        assert_eq!(fixed.id(SymbolKind::Flag, 148), None);
     }
 }

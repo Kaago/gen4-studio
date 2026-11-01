@@ -28,3 +28,7 @@ pub mod text;
 pub mod textproject;
 pub mod tiles;
 pub mod world_meta;
+
+// Appended last on purpose (parallel phases append here); rustfmt must not sort it up.
+#[rustfmt::skip]
+pub mod flags;

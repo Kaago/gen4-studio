@@ -5,15 +5,15 @@ import { EVENT_FIELDS, MOVEMENT_WORDS, eventBackend, eventFieldSpecs, eventField
 import { EditSession } from "./headerCommit";
 
 const warp = (over: Partial<WarpDto> = {}): WarpDto => ({ index: 0, x: 8, z: 4, dest_header_id: 414, dest_warp_id: 1, height: 0, ...over });
-const coord = (over: Partial<CoordDto> = {}): CoordDto => ({ index: 0, script: 9000, x: 3, z: 5, width: 2, length: 1, ...over });
+const coord = (over: Partial<CoordDto> = {}): CoordDto => ({ index: 0, script: 9000, x: 3, z: 5, width: 2, length: 1, var: 0x4030, value: 1, ...over });
 
 describe("eventFieldSpecs", () => {
   const keys = (kind: Parameters<typeof eventFieldSpecs>[0], family: string | null = "Pt") => eventFieldSpecs(kind, family).map((s) => s.key);
 
   it("offers the fields each kind has, the destination header aside", () => {
     expect(keys("warp")).toEqual(["x", "z", "dest_warp_id"]);
-    expect(keys("object")).toEqual(["x", "z", "local_id", "graphics_id", "movement_type", "dir", "script", "trainer_type", "sight"]);
-    expect(keys("coord")).toEqual(["x", "z", "width", "length", "script"]);
+    expect(keys("object")).toEqual(["x", "z", "local_id", "graphics_id", "movement_type", "dir", "script", "trainer_type", "sight", "hidden_flag"]);
+    expect(keys("coord")).toEqual(["x", "z", "width", "length", "script", "var", "value"]);
     expect(keys("bg")).toEqual(["x", "z", "event_type", "script"]);
   });
 
@@ -40,6 +40,24 @@ describe("eventFieldSpecs", () => {
         expect(keys(kind, family)).not.toContain("sight");
       }
     }
+  });
+
+  it("object_has_hidden_flag_and_coord_has_var_and_value", () => {
+    const spec = (kind: "object" | "coord", key: string) => eventFieldSpecs(kind, "Pt").find((s) => s.key === key);
+    // After „Sichtweite“: the flag that hides the figure while it is set, picked like a flag.
+    expect(spec("object", "hidden_flag")).toEqual({ key: "hidden_flag", label: "Sichtbarkeits-Flag", min: 0, max: 65535, pick: "flag" });
+    // After „Script“: the variable the trigger watches (picked) and the value it fires at (a number).
+    expect(spec("coord", "var")).toEqual({ key: "var", label: "Variable", min: 0, max: 65535, pick: "var" });
+    expect(spec("coord", "value")).toEqual({ key: "value", label: "Wert", min: 0, max: 65535 });
+    // Every family has them; no other kind has them, and no other field is picked.
+    for (const family of ["Dp", "Pt", "Hgss", null]) {
+      expect(keys("object", family)).toContain("hidden_flag");
+      expect(keys("coord", family)).toEqual(expect.arrayContaining(["var", "value"]));
+    }
+    for (const kind of ["warp", "bg"] as const) expect(keys(kind)).not.toEqual(expect.arrayContaining(["hidden_flag"]));
+    expect(keys("object")).not.toContain("var");
+    const picked = (["warp", "object", "coord", "bg"] as const).flatMap((kind) => eventFieldSpecs(kind, "Hgss").filter((s) => s.pick !== undefined).map((s) => s.key));
+    expect(picked).toEqual(["hidden_flag", "var"]);
   });
 
   it("labels the facing and limits it to the i16 the object stores", () => {
@@ -80,9 +98,21 @@ describe("event fields", () => {
     // The index is no field; a field the kind lacks never shows up.
     expect(eventPatch(warp(), warp({ index: 4 }))).toEqual({});
     expect(eventPatch(coord(), coord({ width: 5 }))).toEqual({ width: 5 });
-    const object: EventData = { index: 0, local_id: 1, graphics_id: 2, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, x: 3, z: 4, y: 0 };
+    const object: EventData = { index: 0, local_id: 1, graphics_id: 2, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0, x: 3, z: 4, y: 0 };
     expect(eventPatch(object, { ...object, dir: 3 })).toEqual({ dir: 3 });
     expect(eventPatch(object, { ...object, trainer_type: 1, sight: 4 })).toEqual({ trainer_type: 1, sight: 4 });
+  });
+});
+
+describe("the flag fields in a patch", () => {
+  it("eventPatch_carries_the_new_fields", () => {
+    const object: EventData = { index: 0, local_id: 1, graphics_id: 2, movement_type: 0, script: 0, dir: 1, trainer_type: 0, sight: 0, hidden_flag: 0x94, x: 3, z: 4, y: 0 };
+    expect(eventPatch(object, { ...object, hidden_flag: 0x173 })).toEqual({ hidden_flag: 0x173 });
+    // 0 is a value like any other (no flag): it is sent.
+    expect(eventPatch(object, { ...object, hidden_flag: 0 })).toEqual({ hidden_flag: 0 });
+    expect(eventPatch(coord(), coord({ var: 0x4031, value: 2 }))).toEqual({ var: 0x4031, value: 2 });
+    expect(eventPatch(coord(), coord({ var: 0, value: 0 }))).toEqual({ var: 0, value: 0 });
+    expect(EVENT_FIELDS.value(coord(), "var")).toBe(0x4030);
   });
 });
 

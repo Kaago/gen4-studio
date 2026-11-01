@@ -74,6 +74,7 @@ import {
   Wrench,
   X,
   XCircle,
+  Flag,
 } from "@phosphor-icons/react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 
@@ -160,6 +161,8 @@ export const icons = {
   shared: ShareNetwork,
   /** Git (4.4): the status line's branch and changes, „Git einrichten…“. */
   git: GitBranch,
+  /** Flags and variables (3d.1): the Technik entry, the palette. */
+  flag: Flag,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

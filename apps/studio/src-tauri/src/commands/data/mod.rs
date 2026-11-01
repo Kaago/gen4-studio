@@ -16,7 +16,7 @@ mod edit;
 mod encounter;
 mod fields;
 pub(crate) mod labels;
-mod refs;
+pub(crate) mod refs;
 mod trainer;
 
 pub use create::*;

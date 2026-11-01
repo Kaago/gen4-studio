@@ -42,6 +42,11 @@ export type PickerProps = {
   groupOrder?: readonly string[];
   /** With an empty search only these groups are listed (e.g. the commands); typing searches all groups. */
   emptyQueryGroups?: readonly string[];
+  /**
+   * A line of secondary text under the list, shown only while `limitPerGroup` cuts hits: gets the number of rows listed and the
+   * number of hits before the cut.
+   */
+  cutNote?: (shown: number, total: number) => string;
 };
 
 type Group = { value: string; items: PickerItem[] };
@@ -97,14 +102,18 @@ function PickerRow({ item, query }: { item: PickerItem; query: string | null }) 
       )}
       {item.description ? (
         <span className={styles.text}>
-          <span className={styles.label}>{mark(item.label)}</span>
+          <span className={item.strong ? `${styles.label} ${styles.strong}` : styles.label}>{mark(item.label)}</span>
           <span className={styles.description}>{mark(item.description)}</span>
         </span>
       ) : (
-        <span className={styles.label}>{mark(item.label)}</span>
+        <span className={item.strong ? `${styles.label} ${styles.strong}` : styles.label}>{mark(item.label)}</span>
       )}
       {item.tech && <span className={styles.tech}>{item.tech}</span>}
-      {item.count && <span className={styles.count}>{item.count}</span>}
+      {item.count && (
+        <span className={styles.count} title={item.countTitle}>
+          {item.count}
+        </span>
+      )}
       {item.shortcut && (
         <span className={styles.shortcut}>
           <Kbd keys={item.shortcut} />
@@ -129,6 +138,7 @@ function PickerBody({
   limitPerGroup,
   groupOrder,
   emptyQueryGroups,
+  cutNote,
 }: Omit<PickerProps, "open" | "title">) {
   const palette = variant === "palette";
   const [query, setQuery] = useState("");
@@ -145,6 +155,7 @@ function PickerBody({
     if (limitPerGroup !== undefined) shown = shown.map((g) => ({ ...g, items: g.items.slice(0, limitPerGroup) }));
     return { groups: shown, total: found.length };
   }, [items, query, emptyQueryGroups, groupOrder, limitPerGroup]);
+  const listed = groups.reduce((n, g) => n + g.items.length, 0);
   const grouped = groups.some((g) => g.value !== "");
   const rowQuery = palette ? query : null;
   return (
@@ -183,7 +194,7 @@ function PickerBody({
         </div>
         {filters && filters.length > 0 && filter !== undefined && onFilter && (
           <div className={styles.filters}>
-            <Segmented size="s" ariaLabel="Filter" options={filters} value={filter} onChange={onFilter} />
+            <Segmented size="s" wrap ariaLabel="Filter" options={filters} value={filter} onChange={onFilter} />
           </div>
         )}
         <Combobox.List className={styles.list} aria-label="Treffer">
@@ -197,6 +208,7 @@ function PickerBody({
             : (item: PickerItem) => <PickerRow key={item.id} item={item} query={rowQuery} />}
         </Combobox.List>
         <Combobox.Empty className={styles.empty}>{emptyText ?? "Nichts gefunden. Ändere die Suche oder den Filter."}</Combobox.Empty>
+        {cutNote && listed < total && <div className={styles.cutNote}>{cutNote(listed, total)}</div>}
       </Combobox.Root>
       {palette && (
         <div className={`${styles.footer} ${styles.paletteFooter}`}>

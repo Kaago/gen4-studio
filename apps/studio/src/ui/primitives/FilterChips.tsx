@@ -22,16 +22,25 @@ export type FilterChipsProps = {
   ariaLabel: string;
   /** How many chips stand in the row; the rest open from "n weitere". */
   visible?: number;
+  /**
+   * Exactly one chip is chosen (`value` holds one): another chip replaces it, the chosen one pressed again changes nothing, and there is no
+   * "Filter lösen" (an "Alle" chip is the way back).
+   */
+  single?: boolean;
 };
 
 /**
- * A row of toggle chips for a multiple choice filter. Chips past `visible` sit in a popover behind "n weitere"; a chosen
+ * A row of toggle chips for a multiple choice filter (with `single`, a single choice). Chips past `visible` sit in a popover behind "n weitere"; a chosen
  * one of them stays in the row, so every active filter is in sight. "Filter lösen" clears the choice.
  */
-export function FilterChips({ options, value, onChange, ariaLabel, visible = 6 }: FilterChipsProps) {
+export function FilterChips({ options, value, onChange, ariaLabel, visible = 6, single = false }: FilterChipsProps) {
   const shown = options.filter((o, i) => i < visible || value.has(o.value));
   const rest = options.filter((o, i) => i >= visible && !value.has(o.value));
   const toggle = (option: string) => {
+    if (single) {
+      if (!value.has(option)) onChange(new Set([option]));
+      return;
+    }
     const next = new Set(value);
     if (next.has(option)) next.delete(option);
     else next.add(option);
@@ -58,7 +67,7 @@ export function FilterChips({ options, value, onChange, ariaLabel, visible = 6 }
           </div>
         </Popover>
       )}
-      {value.size > 0 && (
+      {!single && value.size > 0 && (
         <Button kind="quiet" size="s" onClick={() => onChange(new Set())}>
           Filter lösen
         </Button>

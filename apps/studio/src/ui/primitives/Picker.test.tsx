@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Picker } from "./Picker";
 import type { PickerItem } from "./Picker";
+import { readCss, ruleBody } from "../cssSource";
 import { pressKey } from "./testUtils";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,6 +65,34 @@ describe("Picker", () => {
     expect(options()[1]!.querySelector("[data-preview='411']")).not.toBeNull();
     expect(options()[0]!.textContent).toContain("3 Räume");
     expect(options()[0]!.textContent).toContain("T01R0201");
+  });
+
+  it("the_count_title_is_the_title_of_the_count", () => {
+    render({ items: [{ id: 1, label: "Eins", count: "3 · 1", countTitle: "gesetzt 3 · geprüft 1" }, { id: 2, label: "Zwei", count: "7" }] });
+    const counts = [...document.querySelectorAll<HTMLElement>("[role=option] span")].filter((s) => s.textContent === "3 · 1" || s.textContent === "7");
+    expect(counts[0]!.title).toBe("gesetzt 3 · geprüft 1");
+    expect(counts[1]!.hasAttribute("title")).toBe(false);
+  });
+
+  it("the_count_keeps_its_content_width_and_the_label_gives_way", () => {
+    const css = readCss("./Picker.module.css", import.meta.url);
+    // The count is never squeezed below its text (a 0 px count showed no usage); the label carries the ellipsis and a floor.
+    expect(ruleBody(css, ".count")).toMatch(/flex:\s*none/);
+    expect(ruleBody(css, ".count")).not.toMatch(/overflow|text-overflow/);
+    expect(ruleBody(css, ".tech")).toMatch(/flex:\s*none/);
+    expect(ruleBody(css, ".label")).toMatch(/min-width:\s*10rem/);
+    expect(ruleBody(css, ".label")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
+  it("the_cut_note_shows_only_while_the_limit_cuts_hits_and_gets_the_numbers", () => {
+    const cutNote = vi.fn((shown: number, total: number) => `${shown} von ${total}`);
+    render({ limitPerGroup: 2, cutNote });
+    // 3 in „Städte“ cut to 2, 1 in „Routen“: 3 of 4 rows listed.
+    expect(document.querySelector("[role=dialog]")!.textContent).toContain("3 von 4");
+    type("t01r01");
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("von");
+    act(() => root.render(<Picker open onOpenChange={vi.fn()} title="Header wählen" items={items} onPick={vi.fn()} cutNote={cutNote} />));
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("von");
   });
 
   it("typing_narrows_the_list_immediately_and_highlights_the_first_match", () => {
@@ -128,6 +157,14 @@ describe("Picker", () => {
   it("renders_the_footer_below_the_list", () => {
     render({ footer: <span>Neu anlegen im Header-Editor</span> });
     expect(document.querySelector("[role=dialog]")!.textContent).toContain("Neu anlegen im Header-Editor");
+  });
+
+  it("a_strong_item_shows_its_label_emphasised", () => {
+    render({ items: [{ id: 1, label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094" }, { id: 2, label: "FLAG_UNUSED_0x0096" }] });
+    expect(options()[0]!.querySelector("[class*=strong]")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+    expect(options()[1]!.querySelector("[class*=strong]")).toBeNull();
+    // The emphasis is the token weight, not a colour.
+    expect(ruleBody(readCss("./Picker.module.css", import.meta.url), ".strong")).toMatch(/font:\s*var\(--g4-font-text-s-betont\)/);
   });
 
   it("filters_are_a_segmented_choice_the_owner_applies", () => {

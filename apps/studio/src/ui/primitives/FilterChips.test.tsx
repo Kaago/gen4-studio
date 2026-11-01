@@ -85,4 +85,21 @@ describe("FilterChips", () => {
     act(() => button("Filter lösen")!.click());
     expect([...onChange.mock.lastCall![0]]).toEqual([]);
   });
+
+  it("single_keeps_exactly_one_chip_pressed_and_offers_no_clearing", () => {
+    const onChange = vi.fn();
+    const kinds: FilterChipOption[] = [
+      { value: "flag", label: "Flags" },
+      { value: "var", label: "Variablen" },
+    ];
+    act(() => root.render(<FilterChips single ariaLabel="Art" options={kinds} value={new Set(["flag"])} onChange={onChange} />));
+    expect(chip("Flags").getAttribute("aria-pressed")).toBe("true");
+    expect(button("Filter lösen")).toBeUndefined();
+    // Another chip replaces the chosen one; the chosen one again changes nothing.
+    act(() => chip("Variablen").click());
+    expect([...onChange.mock.lastCall![0]]).toEqual(["var"]);
+    onChange.mockReset();
+    act(() => chip("Flags").click());
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

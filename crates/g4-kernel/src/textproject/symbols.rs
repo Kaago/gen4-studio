@@ -26,10 +26,13 @@ pub enum SymbolKind {
     Trainer,
     TrainerClass,
     Place,
+    Flag,
+    Var,
 }
 
 impl SymbolKind {
-    /// `SPECIES`, `MOVE`, `ITEM`, `ABILITY`, `TYPE`, `MAP`, `TRAINER`, `TRAINER_CLASS`, `PLACE`.
+    /// `SPECIES`, `MOVE`, `ITEM`, `ABILITY`, `TYPE`, `MAP`, `TRAINER`, `TRAINER_CLASS`, `PLACE`,
+    /// `FLAG`, `VAR`.
     pub fn prefix(self) -> &'static str {
         match self {
             SymbolKind::Species => "SPECIES",
@@ -41,6 +44,8 @@ impl SymbolKind {
             SymbolKind::Trainer => "TRAINER",
             SymbolKind::TrainerClass => "TRAINER_CLASS",
             SymbolKind::Place => "PLACE",
+            SymbolKind::Flag => "FLAG",
+            SymbolKind::Var => "VAR",
         }
     }
 }
@@ -80,7 +85,8 @@ impl SymbolTable {
 }
 
 /// The fixed table of `kind`: `Some` for species (forms included), moves, items, abilities and
-/// types; the other kinds are christened per project and live in its registers.
+/// types; the other kinds are christened per project and live in its registers, the flags and
+/// variables have the pret names of `flags::names` per family instead of a fixed table.
 pub fn table(kind: SymbolKind) -> Option<&'static SymbolTable> {
     static SPECIES: OnceLock<SymbolTable> = OnceLock::new();
     static MOVES: OnceLock<SymbolTable> = OnceLock::new();
@@ -93,7 +99,12 @@ pub fn table(kind: SymbolKind) -> Option<&'static SymbolTable> {
         SymbolKind::Item => &ITEMS,
         SymbolKind::Ability => &ABILITIES,
         SymbolKind::Type => &TYPES,
-        SymbolKind::Map | SymbolKind::Trainer | SymbolKind::TrainerClass | SymbolKind::Place => {
+        SymbolKind::Map
+        | SymbolKind::Trainer
+        | SymbolKind::TrainerClass
+        | SymbolKind::Place
+        | SymbolKind::Flag
+        | SymbolKind::Var => {
             return None;
         }
     };
@@ -109,7 +120,12 @@ fn files(kind: SymbolKind) -> &'static [(&'static str, &'static str)] {
         SymbolKind::Item => &[("items.yaml", ITEMS_YAML)],
         SymbolKind::Ability => &[("abilities.yaml", ABILITIES_YAML)],
         SymbolKind::Type => &[("types.yaml", TYPES_YAML)],
-        SymbolKind::Map | SymbolKind::Trainer | SymbolKind::TrainerClass | SymbolKind::Place => &[],
+        SymbolKind::Map
+        | SymbolKind::Trainer
+        | SymbolKind::TrainerClass
+        | SymbolKind::Place
+        | SymbolKind::Flag
+        | SymbolKind::Var => &[],
     }
 }
 
@@ -370,9 +386,23 @@ mod tests {
             SymbolKind::Trainer,
             SymbolKind::TrainerClass,
             SymbolKind::Place,
+            SymbolKind::Flag,
+            SymbolKind::Var,
         ] {
             assert!(table(kind).is_none(), "{kind:?} is christened per project");
         }
+    }
+
+    #[test]
+    fn flag_and_var_have_prefixes_and_no_fixed_table() {
+        assert_eq!(SymbolKind::Flag.prefix(), "FLAG");
+        assert_eq!(SymbolKind::Var.prefix(), "VAR");
+        assert!(table(SymbolKind::Flag).is_none());
+        assert!(table(SymbolKind::Var).is_none());
+        assert_eq!(fallback_id(SymbolKind::Flag, 148), "FLAG_0148");
+        assert_eq!(fallback_id(SymbolKind::Var, 16492), "VAR_16492");
+        assert_eq!(parse_fallback(SymbolKind::Var, "VAR_16492"), Some(16492));
+        assert_eq!(parse_fallback(SymbolKind::Flag, "VAR_16492"), None);
     }
 
     #[test]
@@ -431,6 +461,8 @@ mod tests {
             "TRAINER_CLASS_0007"
         );
         assert_eq!(fallback_id(SymbolKind::Map, 12345), "MAP_12345");
+        assert_eq!(fallback_id(SymbolKind::Flag, 148), "FLAG_0148");
+        assert_eq!(parse_fallback(SymbolKind::Var, "VAR_16492"), Some(16492));
         assert_eq!(parse_fallback(SymbolKind::Item, "ITEM_0113"), Some(113));
         assert_eq!(parse_fallback(SymbolKind::Item, "ITEM_12345"), Some(12345));
         assert_eq!(parse_fallback(SymbolKind::Item, "MOVE_0001"), None);

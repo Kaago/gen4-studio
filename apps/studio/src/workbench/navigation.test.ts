@@ -145,6 +145,17 @@ describe("nextSelection", () => {
     });
   });
 
+  it("a_flag_names_the_flag_and_leaves_the_selection_the_pin_and_the_panels_alone", () => {
+    // The list of flags and variables is no deck area: App opens it (Technik › Flags und Variablen) with the number chosen.
+    expect(nextSelection(state, { kind: "flag", flagKind: "var", number: 0x4030 })).toEqual({
+      area: "welt",
+      selectedHeader: 3,
+      pinned: null,
+      panel: null,
+      flag: { kind: "var", number: 0x4030 },
+    });
+  });
+
   it("every other target is in the world", () => {
     const targets = [
       { kind: "header", id: 4 },

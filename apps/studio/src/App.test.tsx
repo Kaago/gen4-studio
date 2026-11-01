@@ -15,6 +15,9 @@ import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./git/gitTest
 import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
+import { flagUsage, listFlags } from "./api";
+import { FLAGS, flagUsageOf } from "./flags/flagTesting";
+import { invalidateFlagLists, useFlagList } from "./flags/useFlagList";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
 import { invoke } from "./platform/transport";
@@ -242,6 +245,8 @@ vi.mock("./api", async (importOriginal) => ({
   releases: vi.fn(),
   publishPatch: vi.fn(),
   gitCommitPrepare: vi.fn(),
+  listFlags: vi.fn(),
+  flagUsage: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -356,6 +361,10 @@ describe("App wiring", () => {
     vi.mocked(runChecks).mockResolvedValue(report());
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
     vi.mocked(agentSettings).mockResolvedValue({ settings: { version: 1, enabled: false, expert: false, grants: [] }, setup_line: 'claude mcp add gen4-studio -- "/x" mcp', open_project: null });
+    // Technik's entry „Flags und Variablen“ reads the flags for its subtitle.
+    invalidateFlagLists();
+    vi.mocked(listFlags).mockResolvedValue(FLAGS);
+    vi.mocked(flagUsage).mockImplementation(async (kind, number) => flagUsageOf(kind, number));
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -1182,7 +1191,7 @@ describe("App wiring", () => {
       await act(async () => atlasEntry("Technik")!.click());
       expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
       const list = container.querySelector('[role=listbox][aria-label="Technik"]');
-      expect(list?.querySelectorAll("[role=option]")).toHaveLength(8);
+      expect(list?.querySelectorAll("[role=option]")).toHaveLength(9);
       expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("bauen");
       expect(container.querySelector("[data-technik]")?.textContent).toContain("Noch nicht gebaut");
       const patches = [...list!.querySelectorAll<HTMLElement>("[role=option]")].find((r) => r.textContent?.startsWith("Patches"))!;
@@ -1191,6 +1200,25 @@ describe("App wiring", () => {
       expect(container.querySelector("[data-patch]")?.textContent).toBe("Verfügbar");
       // The world stays mounted behind the surface.
       expect(shown.mounts).toBe(1);
+    });
+
+    it("show_in_directory_opens_technik_flags_on_the_number", async () => {
+      vi.mocked(flagUsage).mockImplementation(async (kind, number) => flagUsageOf(kind, number, { own_id: number === 0x94 ? "FLAG_HAT_MEDAILLE" : null }));
+      // „Im Verzeichnis zeigen“ of a picker in the inspector follows the link of its number.
+      await act(async () => void data().goTo({ kind: "flag", flagKind: "flag", number: 0x94 }));
+      await act(async () => {});
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("flags");
+      const technikRow = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Flags und Variablen"))!;
+      expect(technikRow.getAttribute("aria-selected")).toBe("true");
+      expect(container.querySelector("[data-technik=flags] [data-flag-row='148']")?.getAttribute("aria-selected")).toBe("true");
+      expect(flagUsage).toHaveBeenLastCalledWith("flag", 0x94);
+      expect(container.querySelector("[data-technik=flags] [data-flag-detail] h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+      // Another link from the world: the surface follows it.
+      await act(async () => atlasEntry("Welt")!.click());
+      await act(async () => void data().goTo({ kind: "flag", flagKind: "flag", number: 0x173 }));
+      await act(async () => {});
+      expect(container.querySelector("[data-technik=flags] [data-flag-row='371']")?.getAttribute("aria-selected")).toBe("true");
     });
 
     it("technik_projekt_shows_the_open_projects_preview_and_names_the_start_town_as_the_world_does", async () => {
@@ -2384,6 +2412,14 @@ describe("App wiring", () => {
       expect(paletteInput()).not.toBeNull();
     });
 
+    it("flags_und_variablen_opens_technik_flags", async () => {
+      await pressCmdK();
+      await run("Flags und Variablen");
+      expect(atlasEntry("Technik")?.getAttribute("aria-current")).toBe("page");
+      expect(container.querySelector("[data-technik]")?.getAttribute("data-technik")).toBe("flags");
+      expect(container.querySelectorAll("[data-technik=flags] [data-flag-row]")).toHaveLength(5);
+    });
+
     it("runs_save_after_the_palette_closed", async () => {
       vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
       await pressCmdK();
@@ -3229,6 +3265,46 @@ describe("App wiring", () => {
       expect(tauriEvents.has("agent-event")).toBe(true);
     }
 
+    it("own_flag_names_outside_technik_follow_undo_and_an_agents_naming", async () => {
+      // A chip of the inspector or a level script: the flag list of the events (or scripts), whose revision no naming moves.
+      function Chip() {
+        const { list } = useFlagList("flag", { project: CHIP_PROJECT, revision: 0, source: "events" });
+        const entry = list?.entries.find((e) => e.number === 0x94);
+        return <span data-chip="">{entry === undefined ? "" : (entry.own_id ?? entry.name)}</span>;
+      }
+      const CHIP_PROJECT = { root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 2 };
+      const pret = { ...FLAGS, entries: FLAGS.entries.map((e) => (e.number === 0x94 ? { ...e, own_id: null, description: null } : e)) };
+      await inTheApp();
+      const host = document.createElement("div");
+      document.body.append(host);
+      const chipRoot = createRoot(host);
+      const chip = () => host.querySelector("[data-chip]")?.textContent;
+      try {
+        await act(async () => chipRoot.render(<Chip />));
+        await flush();
+        expect(chip()).toBe("FLAG_HAT_MEDAILLE");
+        // ⌘Z takes the naming back: the chip shows the pret name again.
+        vi.mocked(listFlags).mockResolvedValue(pret);
+        vi.mocked(undo).mockResolvedValueOnce([]);
+        await pressUndo();
+        await flush();
+        expect(chip()).toBe("FLAG_UNUSED_0x0094");
+        // An agent names it (name_flag): the chip follows.
+        vi.mocked(listFlags).mockResolvedValue(FLAGS);
+        await emit({ kind: "changed", seq: 1, client: "Claude Code", tool: "name_flag", label: null, assets: [] });
+        await flush();
+        expect(chip()).toBe("FLAG_HAT_MEDAILLE");
+        // An agent's undo takes it back again.
+        vi.mocked(listFlags).mockResolvedValue(pret);
+        await emit({ kind: "changed", seq: 2, client: "Claude Code", tool: "undo", label: null, assets: [] });
+        await flush();
+        expect(chip()).toBe("FLAG_UNUSED_0x0094");
+      } finally {
+        act(() => chipRoot.unmount());
+        host.remove();
+      }
+    });
+
     it("counts_and_reloads_what_an_agent_changed_like_after_undo", async () => {
       await inTheApp();
       await select(listed[0]);
@@ -3401,7 +3477,7 @@ describe("App wiring", () => {
       expect(changedFromOriginal).toHaveBeenCalledTimes(6);
       // So does every other agent tool that writes files of the saved project.
       let calls = 6;
-      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer"];
+      const writers = ["save_script", "save_level_script", "build_rom", "create_patch", "apply_header_patch", "repair_header_patch", "resolve_text_conflicts", "adopt_scripts", "add_script", "new_script_file", "create_trainer", "name_flag"];
       for (const [i, tool] of writers.entries()) {
         await emit({ kind: "changed", seq: 10 + i, client: "Claude Code", tool, label: null, assets: [] });
         await flush();

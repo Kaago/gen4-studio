@@ -238,6 +238,7 @@ fn save_source(
     refuse_dirty_text(&session.store)?;
     let written = scripts::write_source(&session.project, file, &source);
     session.files_written(&[]);
+    session.scripts_written();
     // The file is written past the history: a file step of it (a reset to the original)
     // could no longer be undone, and would block every older step.
     session.store.forget_asset_history(AssetId {
@@ -263,6 +264,7 @@ pub fn new_script_file_impl(state: &AppState, kind: String) -> Result<u16, CmdEr
     refuse_dirty_text(&session.store)?;
     let created = scripts::new_script_file_reported(&session.project, kind);
     session.files_written(&[]);
+    session.scripts_written();
     let (file, touched) = created?;
     reload_text_archives(&mut session.store, &touched)?;
     Ok(file)
@@ -276,6 +278,7 @@ pub fn add_script_impl(state: &AppState, file: u16) -> Result<u16, CmdError> {
     refuse_dirty_text(&session.store)?;
     let added = scripts::add_script_reported(&session.project, file);
     session.files_written(&[]);
+    session.scripts_written();
     // Written past the history, as a save (`save_source`).
     session.store.forget_asset_history(AssetId {
         kind: AssetKind::Script,
@@ -659,6 +662,34 @@ mod tests {
         assert!(add_script_impl(&state, level).is_err());
         assert!(new_script_file_impl(&state, "binary".into()).is_err());
         assert_eq!(list_script_files_impl(&state).unwrap().len(), 5);
+    }
+
+    /// The index stats the script sources at most every 250 ms; a save stats them at once, so
+    /// a query right after it sees the new source (R10).
+    #[test]
+    fn a_saved_source_shows_up_in_refs_at_once() {
+        use g4_kernel::flags::FlagKind;
+        let (_f, state) = adopted();
+        let refs = |state: &AppState| {
+            super::super::flag_usage_impl(state, FlagKind::Flag, 0x173)
+                .unwrap()
+                .refs
+                .len()
+        };
+        // Builds the index and stats the sources now.
+        assert_eq!(refs(&state), 0);
+        let text = "script script_1 #1:\n    SetFlag 0x173\n    End\n";
+        save_script_impl(&state, 0, text.into()).unwrap();
+        assert_eq!(refs(&state), 1);
+        // A level script the same way.
+        let doc: LevelScriptDoc = serde_json::from_value(serde_json::json!({
+            "header_entries": [{ "type": "on_var_condition" }],
+            "var_conditions": [{ "var": 0x40A5, "value": 1, "script_id": 1 }],
+        }))
+        .unwrap();
+        save_level_script_impl(&state, 1, doc).unwrap();
+        let var = super::super::flag_usage_impl(&state, FlagKind::Var, 0x40A5).unwrap();
+        assert_eq!(var.refs.len(), 1);
     }
 
     #[test]

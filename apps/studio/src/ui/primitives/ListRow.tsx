@@ -19,6 +19,10 @@ export type ListRowProps = {
   leading?: ReactNode;
   /** A second line below the label (a state, "gebaut vor 4 Minuten"); it describes the row, the label names it. */
   subtitle?: string;
+  /** The label emphasised (an own name over a technical one). */
+  strong?: boolean;
+  /** The second line technical, in mono like `tech` (a name of the game and a number). */
+  techSubtitle?: boolean;
   selected: boolean;
   onSelect: () => void;
   trailing?: ReactNode;
@@ -88,11 +92,12 @@ export function RowElement({
 }
 
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, leading, subtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet, contextMenu }: ListRowProps) {
+export function ListRow({ label, tech, icon, leading, subtitle, strong, techSubtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet, contextMenu }: ListRowProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const subtitleId = `${id}-subtitle`;
   const named = subtitle !== undefined && ariaLabel === undefined;
+  const labelClass = strong ? `${styles.label} ${styles.strong}` : styles.label;
   return (
     <RowElement
       {...dataAttrs}
@@ -116,15 +121,15 @@ export function ListRow({ label, tech, icon, leading, subtitle, selected, onSele
       {icon && <Icon name={icon} />}
       {subtitle !== undefined ? (
         <span className={styles.text}>
-          <span id={labelId} className={styles.label}>
+          <span id={labelId} className={labelClass}>
             {label}
           </span>
-          <span id={subtitleId} className={styles.subtitle}>
+          <span id={subtitleId} className={techSubtitle ? `${styles.subtitle} ${styles.techSubtitle}` : styles.subtitle}>
             {subtitle}
           </span>
         </span>
       ) : (
-        <span className={styles.label}>{label}</span>
+        <span className={labelClass}>{label}</span>
       )}
       {tech && <span className={styles.tech}>{tech}</span>}
       {trailing && <span className={styles.trailing}>{trailing}</span>}

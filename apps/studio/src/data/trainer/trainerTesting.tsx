@@ -82,7 +82,7 @@ export const EVENTS_8: EventsDto = {
   bg: [],
   warps: [],
   coords: [],
-  objects: [0, 1, 2, 3].map((index) => ({ index, local_id: index, graphics_id: 5, movement_type: 0, script: index === 3 ? 3011 : 0, dir: 1, trainer_type: index === 3 ? 1 : 0, sight: 3, x: 12, z: 7, y: 0 })),
+  objects: [0, 1, 2, 3].map((index) => ({ index, local_id: index, graphics_id: 5, movement_type: 0, script: index === 3 ? 3011 : 0, dir: 1, trainer_type: index === 3 ? 1 : 0, sight: 3, hidden_flag: 0, x: 12, z: 7, y: 0 })),
 };
 
 export const RAW_TRAINER: RawDto = {

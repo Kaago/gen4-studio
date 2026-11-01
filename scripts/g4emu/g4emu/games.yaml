@@ -9,6 +9,13 @@
 # in the room upstairs (measured on 2026-10-25, deterministic; target/agent/probe-intro/INTRO.md);
 # player "AAAAA" (Platin, rival "AAAAA" too) or "AAAAAAA" (HeartGold), boy. intro_ends: where it ends.
 # Platin shows a stale location during the intro (415, 4, 6), so only the first walk proves control.
+# save_block: where the save's flags and variables lie in RAM (Gutachten B section 4.2, measured):
+# the u32 at `pointer` (the same u32 as location.pointer) points at the save's general block; from
+# there `header` bytes on, variable v is the u16 at vars + 2 * (v - 0x4000) (vars_count of them)
+# and flag n is bit n % 8 of byte flags + n / 8 (flags_bytes bytes). The block moves by up to 0xB4
+# bytes between two starts (heap): always read through the pointer. The second exact copy of the
+# save (0x0236D6xx Platin, 0x023775xx HeartGold) is the map's read buffer, not live. The kernel's
+# crates/g4-kernel/metadata/save_layout.yaml carries the same values (a kernel test compares them).
 CPUD:
   name: Platin DE
   location: { pointer: 0x02101EE0, offset: 0x1294 }
@@ -33,6 +40,7 @@ CPUD:
     press a:4 wait 10 press start:4 wait 10 press a:4 wait 200
     mash a 900 mash a 600 mash a 600 mash a 400 wait 30
   intro_ends: { header: 415, x: 4, y: 6 }
+  save_block: { pointer: 0x02101EE0, header: 0x14, vars: 0xDAC, vars_count: 288, flags: 0xFEC, flags_bytes: 364 }
 IPKD:
   name: HeartGold DE
   location: { pointer: 0x02111860, offset: 0x1244 }
@@ -48,6 +56,7 @@ IPKD:
   intro: >-
     mash a 600 wait 330 tap 128 152 wait 100 mash a 1000 mash a 1200 mash a 600 mash a 900 wait 120
   intro_ends: { header: 64, x: 6, y: 6 }
+  save_block: { pointer: 0x02111860, header: 0x10, vars: 0xDE4, vars_count: 368, flags: 0x10C4, flags_bytes: 364 }
 IPKE:
   name: HeartGold US
   location: { pointer: 0x02111880, offset: 0x1244 }
@@ -56,3 +65,4 @@ IPKE:
   continue_frames: 1000  # same timing as IPKD (overworld visible at ~955)
   battle: { signature: "06x8@0x18", species_at: 0, level_at: 0x34 }  # as IPKD, not measured
   home_header: 63
+  save_block: { pointer: 0x02111880, header: 0x10, vars: 0xDE4, vars_count: 368, flags: 0x10C4, flags_bytes: 364 }

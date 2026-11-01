@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from g4emu.emu import BUTTONS, Emu
-from g4emu.games import Game, Location, read_location
+from g4emu.games import (
+    Game,
+    Location,
+    block_start,
+    read_flag,
+    read_location,
+    read_var,
+    write_flag,
+    write_var,
+)
 from g4emu.paths import same_file
 
 DEFAULT_HOLD = 6
@@ -36,7 +46,15 @@ ARITY: dict[str, tuple[int, int]] = {
     "new-game": (0, 0),
     "walk-until-blocked": (2, 2),
     "expect-at": (2, 2),
+    "flag": (1, 1),
+    "set-flag": (2, 2),
+    "var": (1, 1),
+    "set-var": (2, 2),
+    "expect-flag": (2, 2),
+    "expect-var": (2, 2),
 }
+FLAG_STEPS = frozenset({"flag", "set-flag", "expect-flag"})
+VAR_STEPS = frozenset({"var", "set-var", "expect-var"})
 
 # Battle steps (see battle.py for the detection).
 BATTLE_POLL = 10  # `expect-battle` and `walk-until-battle` look for the signature every 10 frames
@@ -80,6 +98,8 @@ def parse_steps(tokens: list[str]) -> list[Step]:
         step = Step(name, args)
         if name == "walk-until-blocked":
             _walk_until_blocked_args(step)
+        if name in FLAG_STEPS or name in VAR_STEPS:
+            _flag_args(step)
         steps.append(step)
     return steps
 
@@ -95,6 +115,30 @@ def _walk_until_blocked_args(step: Step) -> tuple[str, int]:
     if tiles < 1:
         raise ValueError("walk-until-blocked: N muss mindestens 1 sein")
     return direction, tiles
+
+
+_NUMBER = re.compile(r"0[xX][0-9A-Fa-f]+|[0-9]+")
+
+
+def _number(text: str, what: str) -> int:
+    """A flag or variable number or value: decimal or 0x… (hexadecimal)."""
+    if not _NUMBER.fullmatch(text):
+        raise ValueError(f"{what}: '{text}' ist keine Nummer (dezimal oder 0x…)")
+    return int(text, 0) if text[:2].lower() == "0x" else int(text, 10)
+
+
+def _flag_args(step: Step) -> tuple[int, int | None]:
+    """Number and value of a flag or variable step (value None for `flag`/`var`); a flag value is
+    0 or 1, a variable value 0..65535 (decimal or 0x…)."""
+    number = _number(step.args[0], step.name)
+    if len(step.args) < 2:
+        return number, None
+    value = _number(step.args[1], step.name)
+    if step.name in FLAG_STEPS and value not in (0, 1):
+        raise ValueError(f"{step.name}: Wert '{step.args[1]}' muss 0 oder 1 sein")
+    if value > 0xFFFF:
+        raise ValueError(f"{step.name}: Wert '{step.args[1]}' liegt außerhalb von 0 bis 65535")
+    return number, value
 
 
 def touch_point(x: int, y: int) -> tuple[int, int]:
@@ -513,6 +557,46 @@ def _expect_at(
     return _loc_json(loc)
 
 
+def _require_save(emu: Emu, game: Game | None) -> tuple[Game, memoryview]:
+    """The game with a save block and the RAM once the block's pointer is valid."""
+    game = _require_game(game)
+    if game.save_block is None:
+        raise StepFailed("save_block fehlt in games.yaml")
+    ram = emu.ram()
+    if block_start(ram, game) is None:
+        raise StepFailed("kein gültiger Spielstand im RAM")
+    return game, ram
+
+
+def _flag(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """`flag N`, `set-flag N 0|1`, `expect-flag N 0|1` on the live save block (not the read
+    buffer); a number outside the block is bad input (ValueError), a wrong value a missed goal."""
+    n, want = _flag_args(step)
+    game, ram = _require_save(emu, game)
+    if step.name == "set-flag":
+        write_flag(ram, game, n, bool(want))
+    value = int(read_flag(ram, game, n))
+    if step.name == "expect-flag" and value != want:
+        raise StepFailed(f"Flag 0x{n:04X} ist {value} statt {want}")
+    return {"flag": n, "value": value}
+
+
+def _var(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """`var N`, `set-var N W`, `expect-var N W` (W 0..65535) on the live save block."""
+    v, want = _flag_args(step)
+    game, ram = _require_save(emu, game)
+    if step.name == "set-var":
+        write_var(ram, game, v, want)
+    value = read_var(ram, game, v)
+    if step.name == "expect-var" and value != want:
+        raise StepFailed(f"Variable 0x{v:04X} ist {value} statt {want}")
+    return {"var": v, "value": value}
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
     "expect-battle": _expect_battle,
@@ -535,6 +619,12 @@ HANDLERS: dict[str, Handler] = {
     "new-game": _new_game,
     "walk-until-blocked": _walk_until_blocked,
     "expect-at": _expect_at,
+    "flag": _flag,
+    "set-flag": _flag,
+    "expect-flag": _flag,
+    "var": _var,
+    "set-var": _var,
+    "expect-var": _var,
 }
 
 

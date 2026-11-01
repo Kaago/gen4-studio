@@ -219,6 +219,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("recipe_plan", Kind::Read),
     // Irreversible as the recipe says (`recipes::is_irreversible`), see [`classify`].
     ("recipe_apply", Kind::Depends),
+    ("list_flags", Kind::Read),
+    ("flag_usage", Kind::Read),
+    ("free_flag", Kind::Read),
+    // One undo step, like rename_id.
+    ("name_flag", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -963,5 +968,15 @@ mod tests {
             classify(json!({ "dir": null, "overwrite": false })),
             Class::Write
         );
+    }
+
+    #[test]
+    fn flag_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["list_flags", "flag_usage", "free_flag"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step, like rename_id.
+        assert_eq!(kind("name_flag"), Kind::Write);
     }
 }

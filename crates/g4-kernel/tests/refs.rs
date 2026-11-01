@@ -11,9 +11,12 @@ use std::time::{Duration, Instant};
 use g4_formats::data::encounter::{Encounters, Slot};
 use g4_formats::data::evolution::EvoEntry;
 use g4_formats::data::learnset::LearnEntry;
-use g4_kernel::data::refs::{Ref, RefIndex, Target};
+use g4_kernel::data::refs::{
+    Access, REFRESH_SCRIPTS_EVERY, Ref, RefIndex, ScriptCounts, Target, Usage,
+};
+use g4_kernel::flags::FlagKind;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::store::{AssetId, MapHeader, ObjectEvent, Store};
+use g4_kernel::store::{AssetId, BgEvent, CoordEvent, EventFile, MapHeader, ObjectEvent, Store};
 use g4_kernel::test_support::TextFixture;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestRunner};
@@ -190,6 +193,7 @@ fn r(source: AssetId, field: &'static str, slot: Option<u16>, target: Target) ->
         field,
         slot,
         target,
+        access: Access::Read,
     }
 }
 
@@ -935,13 +939,18 @@ fn a_variable_argument_is_no_reference() {
          \x20   End\nscript Second #2:\n    End\n",
     );
     let mut index = RefIndex::new();
+    // The variables themselves are targets of their own (`data::refs::flagvars`).
     let all = index
-        .refs_where(&st, |_| true)
+        .refs_where(&st, |t| !matches!(t, Target::Flag(_) | Target::Var(_)))
         .unwrap()
         .into_iter()
         .filter(|r| r.source.kind == AssetKind::Script)
         .collect::<Vec<_>>();
     assert!(all.is_empty(), "{all:?}");
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Var(0x4000)),
+        [r(SCRIPT_0, "CheckItem", Some(4), Target::Var(0x4000))]
+    );
 }
 
 #[test]
@@ -952,11 +961,12 @@ fn a_script_saved_outside_the_store_is_reread_on_refresh() {
     assert_eq!(index.refresh(&st).unwrap(), []);
 
     // Saved by the script editor, DSPRE or a branch switch: the store knows nothing of it.
+    // `refresh` stats the sources at most every 250 ms; `refresh_scripts_now` does it now.
     fx.write(
         SOURCE_0,
         b"script Main #1:\n    End\nscript Other #2:\n    StartTrainerBattle 5, 0\n    End\n",
     );
-    assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
     assert!(script_refs(&mut index, &st, Target::Trainer(3)).is_empty());
     assert_eq!(
         script_refs(&mut index, &st, Target::Trainer(5)),
@@ -970,7 +980,7 @@ fn a_script_saved_outside_the_store_is_reread_on_refresh() {
 
     // A removed source takes its references with it.
     std::fs::remove_file(fx.root().join(SOURCE_0)).unwrap();
-    assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
     assert!(script_refs(&mut index, &st, Target::Trainer(5)).is_empty());
 }
 
@@ -986,6 +996,362 @@ fn without_adopted_scripts_there_is_no_script_source() {
         .filter(|r| r.source.kind == AssetKind::Script)
         .count();
     assert_eq!(from_scripts, 0);
+}
+
+#[test]
+fn script_counts_follow_a_rewritten_source() {
+    let (fx, st) = script_store("script Main #1:\n    SetFlag VAR_RESULT\n    End\n");
+    let mut index = RefIndex::new();
+    let rebuilt = |st: &Store| {
+        let mut full = RefIndex::new();
+        full.rebuild_full(st).unwrap();
+        full.script_counts(st).unwrap()
+    };
+    assert_eq!(
+        index.script_counts(&st).unwrap(),
+        ScriptCounts {
+            script_local: 0,
+            dynamic: 1
+        }
+    );
+    // The file's counts are replaced, not added.
+    fx.write(
+        SOURCE_0,
+        b"script Main #1:\n    SetVar VAR_RESULT, 1\n    SetVar VAR_RESULT, 2\n    End\n",
+    );
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
+    let counts = index.script_counts(&st).unwrap();
+    assert_eq!(
+        counts,
+        ScriptCounts {
+            script_local: 2,
+            dynamic: 0
+        }
+    );
+    assert_eq!(counts, rebuilt(&st));
+    // A removed source takes its counts with it.
+    std::fs::remove_file(fx.root().join(SOURCE_0)).unwrap();
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
+    assert_eq!(index.script_counts(&st).unwrap(), ScriptCounts::default());
+    assert_eq!(rebuilt(&st), ScriptCounts::default());
+}
+
+#[test]
+fn a_saved_source_shows_after_the_gate() {
+    let (fx, st) = script_store("script Main #1:\n    SetFlag 0x173\n    End\n");
+    let mut index = RefIndex::new();
+    assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 1);
+    fx.write(SOURCE_0, b"script Main #1:\n    SetFlag 0x174\n    End\n");
+    // Saved right after the build: `refresh_scripts_now` reads it whatever the time gate says.
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [SCRIPT_0]);
+    assert_eq!(index.count(&st, Target::Flag(0x173)).unwrap(), 0);
+    assert_eq!(
+        index.refs(&st, Target::Flag(0x174)).unwrap(),
+        [Ref {
+            source: SCRIPT_0,
+            field: "SetFlag",
+            slot: Some(2),
+            target: Target::Flag(0x174),
+            access: Access::Write,
+        }]
+    );
+    // Once the gate has passed, a plain refresh sees the next save too.
+    fx.write(SOURCE_0, b"script Main #1:\n    SetFlag 0x175\n    End\n");
+    std::thread::sleep(REFRESH_SCRIPTS_EVERY + Duration::from_millis(20));
+    assert_eq!(index.refresh(&st).unwrap(), [SCRIPT_0]);
+    assert_eq!(index.count(&st, Target::Flag(0x175)).unwrap(), 1);
+}
+
+// --- flags and variables from events and level scripts ---
+
+const EVENTS_0: AssetId = AssetId {
+    kind: AssetKind::Event,
+    index: 0,
+};
+
+fn ref_of(source: AssetId, field: &'static str, slot: u16, target: Target, access: Access) -> Ref {
+    Ref {
+        source,
+        field,
+        slot: Some(slot),
+        target,
+        access,
+    }
+}
+
+/// An event file with objects `(hidden_flag, script)`, background events `(script,
+/// event_type)` and triggers on variable `var`.
+fn events_with(objects: &[(u16, u16)], bgs: &[(u16, u16)], triggers: &[u16]) -> EventFile {
+    EventFile {
+        bg_events: bgs
+            .iter()
+            .map(|&(script, event_type)| BgEvent {
+                script,
+                event_type,
+                x: 0,
+                z: 0,
+                y: 0,
+                player_facing_dir: 0,
+            })
+            .collect(),
+        object_events: objects
+            .iter()
+            .map(|&(hidden_flag, script)| ObjectEvent {
+                hidden_flag,
+                ..object(script)
+            })
+            .collect(),
+        warp_events: Vec::new(),
+        coord_events: triggers
+            .iter()
+            .map(|&var| CoordEvent {
+                script: 1,
+                x: 0,
+                z: 0,
+                width: 1,
+                length: 1,
+                y: 0,
+                value: 1,
+                var,
+            })
+            .collect(),
+    }
+}
+
+/// The synthetic Platinum project with `events` as event file 0, and its store.
+fn event_store(events: &EventFile) -> (common::Synthetic, Store) {
+    let s = common::synthetic_project();
+    let project = Project::open(s.dir.path()).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    events.to_binary(&mut bytes).unwrap();
+    write(
+        &project.member_path(AssetKind::Event, 0),
+        &bytes.into_inner(),
+    );
+    let st = store_of(&s);
+    (s, st)
+}
+
+fn is_flag_or_var(target: Target) -> bool {
+    matches!(target, Target::Flag(_) | Target::Var(_))
+}
+
+#[test]
+fn hidden_flag_reads_the_flag() {
+    let (_s, st) = event_store(&events_with(&[(0, 0), (0x173, 0)], &[], &[]));
+    let mut index = RefIndex::new();
+    assert_eq!(
+        index.refs(&st, Target::Flag(0x173)).unwrap(),
+        [ref_of(
+            EVENTS_0,
+            "hidden_flag",
+            1,
+            Target::Flag(0x173),
+            Access::Read
+        )]
+    );
+}
+
+#[test]
+fn a_hidden_item_reads_and_writes_the_base_plus_n() {
+    // Platinum's hidden items start at flag 0x2DA (284 of them). 8300 lies past the range;
+    // a background event of another type is no hidden item.
+    let (_s, st) = event_store(&events_with(
+        &[],
+        &[(8003, 2), (8300, 2), (8283, 2), (8004, 0)],
+        &[],
+    ));
+    let mut index = RefIndex::new();
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [
+            ref_of(
+                EVENTS_0,
+                "hidden_item",
+                0,
+                Target::Flag(0x2DD),
+                Access::ReadWrite
+            ),
+            ref_of(
+                EVENTS_0,
+                "hidden_item",
+                2,
+                Target::Flag(0x3F5),
+                Access::ReadWrite
+            ),
+        ]
+    );
+    // HeartGold (base 0x320): `data::refs` unit test `hgss_hidden_items_start_at_0x320`.
+}
+
+#[test]
+fn a_trigger_reads_its_variable() {
+    let (_s, st) = event_store(&events_with(&[], &[], &[0, 0x40A5]));
+    let mut index = RefIndex::new();
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [ref_of(
+            EVENTS_0,
+            "var",
+            1,
+            Target::Var(0x40A5),
+            Access::Read
+        )]
+    );
+}
+
+#[test]
+fn a_trainer_object_reads_and_writes_its_trainer_flag() {
+    // 3000 is trainer 1, 5001 trainer 2 as a partner, 4999 trainer 2000: past the flags.
+    let (_s, st) = event_store(&events_with(&[(0, 3000), (0, 5001), (0, 4999)], &[], &[]));
+    let mut index = RefIndex::new();
+    assert_eq!(
+        index.refs(&st, Target::Trainer(1)).unwrap(),
+        [r(EVENTS_0, "script", Some(0), Target::Trainer(1))]
+    );
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [
+            ref_of(
+                EVENTS_0,
+                "script",
+                0,
+                Target::Flag(0x551),
+                Access::ReadWrite
+            ),
+            ref_of(
+                EVENTS_0,
+                "script",
+                1,
+                Target::Flag(0x552),
+                Access::ReadWrite
+            ),
+        ]
+    );
+    assert_eq!(index.count(&st, Target::Trainer(2000)).unwrap(), 1);
+}
+
+#[test]
+fn zero_flags_and_variables_are_no_reference() {
+    let (_s, st) = event_store(&events_with(&[(0, 0), (0, 1)], &[(0, 2)], &[0, 0]));
+    let mut index = RefIndex::new();
+    assert_eq!(index.refs_where(&st, is_flag_or_var).unwrap(), []);
+    assert_eq!(index.count(&st, Target::Flag(0)).unwrap(), 0);
+    assert_eq!(index.count(&st, Target::Var(0)).unwrap(), 0);
+}
+
+const LEVEL_5: &str = "expanded/scripts/0005.json";
+
+fn level_script(conditions: &[(u16, u16, u16)]) -> Vec<u8> {
+    let conditions: Vec<String> = conditions
+        .iter()
+        .map(|(var, value, script)| {
+            format!("{{\"var\": {var}, \"value\": {value}, \"script_id\": {script}}}")
+        })
+        .collect();
+    format!(
+        "{{\"header_entries\": [{{\"type\": \"on_var_condition\"}}], \"var_conditions\": [{}]}}",
+        conditions.join(", ")
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_level_script_condition_reads_its_variable() {
+    let fx = TextFixture::exported();
+    fx.write(LEVEL_5, &level_script(&[(0x4015, 1, 1), (0x4016, 0, 2)]));
+    let st = Store::new(Arc::new(fx.project()));
+    let mut index = RefIndex::new();
+    let level = id(AssetKind::Script, 5);
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [
+            ref_of(
+                level,
+                "var_conditions",
+                0,
+                Target::Var(0x4015),
+                Access::Read
+            ),
+            ref_of(
+                level,
+                "var_conditions",
+                1,
+                Target::Var(0x4016),
+                Access::Read
+            ),
+        ]
+    );
+    // Changed: read anew. `var` 0 ends the table, what follows is no condition.
+    fx.write(
+        LEVEL_5,
+        &level_script(&[(0x4017, 1, 1), (0, 0, 0), (0x4018, 1, 2)]),
+    );
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [level]);
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [ref_of(
+            level,
+            "var_conditions",
+            0,
+            Target::Var(0x4017),
+            Access::Read
+        )]
+    );
+    // A level script that does not read contributes nothing.
+    fx.write(LEVEL_5, b"{ not json");
+    assert_eq!(index.refresh_scripts_now(&st).unwrap(), [level]);
+    assert_eq!(index.refs_where(&st, is_flag_or_var).unwrap(), []);
+}
+
+#[test]
+fn usage_counts_read_write_and_sources_in_one_pass() {
+    let (_fx, mut st) = script_store(
+        "script Main #1:\n    SetFlag 0x173\n    CheckFlag 0x173\n    SetVar 0x4040, 1\n    End\n",
+    );
+    st.edit_event(0, "Objekt", |e| {
+        e.object_events.push(ObjectEvent {
+            hidden_flag: 0x173,
+            ..object(3000)
+        });
+        Ok(())
+    })
+    .unwrap();
+    let mut index = RefIndex::new();
+    let flags = index.usage(&st, FlagKind::Flag).unwrap();
+    assert_eq!(
+        flags[&0x173],
+        Usage {
+            read: 2,
+            write: 1,
+            unknown: 0,
+            sources: 2
+        }
+    );
+    // The trainer flag of trainer 1: the engine reads and sets it.
+    assert_eq!(
+        flags[&0x551],
+        Usage {
+            read: 1,
+            write: 1,
+            unknown: 0,
+            sources: 1
+        }
+    );
+    assert_eq!(flags.len(), 2, "{flags:?}");
+    let vars = index.usage(&st, FlagKind::Var).unwrap();
+    assert_eq!(
+        vars.into_iter().collect::<Vec<_>>(),
+        [(
+            0x4040,
+            Usage {
+                read: 0,
+                write: 1,
+                unknown: 0,
+                sources: 1
+            }
+        )]
+    );
 }
 
 // --- gated: the vanilla projects ---

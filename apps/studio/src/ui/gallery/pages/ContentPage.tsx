@@ -20,6 +20,9 @@ import {
   useRovingList,
 } from "../../primitives";
 import type { Area, BadgeKind, MenuEntry } from "../../primitives";
+import type { FlagEntryDto, FlagListDto, FlagUsageDto } from "../../../api";
+import { FlagDetail } from "../../../flags/FlagDetail";
+import { FlagList } from "../../../flags/FlagList";
 import styles from "../Gallery.module.css";
 
 const places = [
@@ -62,6 +65,93 @@ const treeMenu: MenuEntry[] = [
   "separator",
   { label: "Eventdatei auf Original zurücksetzen…", icon: "undo", onSelect: () => {}, disabled: true, detail: "Basis-ROM fehlt" },
 ];
+
+/** One number of Technik › Flags und Variablen: an own name over the pret name, set by a script and checked by an object. */
+const flagEntry: FlagEntryDto = {
+  number: 0x94,
+  name: "FLAG_UNUSED_0x0094",
+  aliases: [],
+  own_id: "FLAG_HAT_MEDAILLE",
+  description: "Die Medaille ist abgeholt.",
+  area: "general",
+  in_save: true,
+  usage: { read: 1, write: 1, unknown: 0, sources: 2 },
+  free: false,
+  reserved: null,
+  places: 0,
+};
+const flagListExample: FlagListDto = {
+  kind: "flag",
+  entries: [flagEntry],
+  pool_free: 135,
+  pool_total: 152,
+  counts: { script_local: 1234, dynamic: 17 },
+  scripts_indexed: true,
+  text_project: true,
+  family: "Pt",
+  ms: 4,
+};
+const flagUsageExample: FlagUsageDto = {
+  kind: "flag",
+  number: 0x94,
+  name: flagEntry.name,
+  own_id: flagEntry.own_id,
+  description: flagEntry.description,
+  area: "general",
+  in_save: true,
+  usage: flagEntry.usage,
+  reserved: null,
+  refs: [
+    {
+      source: { kind: "Script", index: 412 },
+      field: "SetFlag",
+      slot: 1,
+      access: "write",
+      label: "Script 1 · SetFlag",
+      source_name: "Scriptdatei 0412",
+      nav: { kind: "script", file: 412, line: 4 },
+      header: 412,
+      header_name: "Zweiblattdorf",
+    },
+    {
+      source: { kind: "Event", index: 412 },
+      field: "hidden_flag",
+      slot: 3,
+      access: "read",
+      label: "Objekt 3 · Sichtbarkeits-Flag",
+      source_name: "Eventdatei 0412",
+      nav: { kind: "event", eventFile: 412, eventKind: "object", index: 3, header: 412 },
+      header: 412,
+      header_name: "Zweiblattdorf",
+    },
+  ],
+  ms: 2,
+};
+
+/** Technik › Flags und Variablen: a row of the list and the detail of the chosen number with its two ways. */
+function FlagsExample() {
+  const [selected, setSelected] = useState<number | null>(0x94);
+  return (
+    <div className={styles.columns}>
+      <FlagList list={flagListExample} entries={flagListExample.entries} selected={selected} onSelect={setSelected} />
+      <FlagDetail
+        kind="flag"
+        number={selected}
+        entry={flagEntry}
+        usage={flagUsageExample}
+        busy={false}
+        error={null}
+        textProject
+        readOnly={false}
+        depth="bauen"
+        goTo={() => {}}
+        onRename={() => {}}
+        onName={() => {}}
+        onDescribe={() => {}}
+      />
+    </div>
+  );
+}
 
 const badgeKinds: BadgeKind[] = ["unsaved", "irreversible", "locked", "changedOnDisk", "ptHgssOnly", "error", "live", "info"];
 
@@ -262,6 +352,12 @@ export function ContentPage() {
           ]}
           more="und 3 weitere Felder"
         />
+      </section>
+
+      <section className={styles.block} data-gallery-state="flags">
+        <h2 className={styles.blockTitle}>Flags und Variablen</h2>
+        <p className={styles.note}>Eine Zeile der Liste (eigener Name fett über dem pret-Namen, rechts die leere Spalte „Live“) und das Detail mit „Wo gesetzt“ und „Wo geprüft“.</p>
+        <FlagsExample />
       </section>
 
       <section className={styles.block}>

@@ -50,6 +50,7 @@ use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
+use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{project_preview_get, project_preview_set};
@@ -233,7 +234,11 @@ pub fn run() {
             git_commit_prepare,
             recipe_list,
             recipe_plan,
-            recipe_apply
+            recipe_apply,
+            list_flags,
+            flag_usage,
+            free_flag,
+            name_flag
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,4 +1,4 @@
-import type { EventKind, HeaderSummary, SpeciesTab } from "../api";
+import type { EventKind, FlagKind, HeaderSummary, SpeciesTab } from "../api";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
 import type { InspectorModel } from "./Inspector";
@@ -32,7 +32,9 @@ export type NavTarget =
   /** A trainer in the trainers of the Pokémon area. */
   | { kind: "trainer"; index: number }
   /** An encounter file in the Begegnungen of the Pokémon area. */
-  | { kind: "encounter"; index: number };
+  | { kind: "encounter"; index: number }
+  /** A flag or a variable in the list of flags and variables (Technik › Flags und Variablen). */
+  | { kind: "flag"; flagKind: FlagKind; number: number };
 
 /**
  * An event target that names no header (a finding of the checks, whose subject is the event file) with the first header that reads its
@@ -83,6 +85,8 @@ export interface NavResult {
   data?: DataNav;
   /** Set for a group of the scene: what the list „Welt“ opens and focuses. */
   sceneGroup?: SceneGroup;
+  /** Set for a flag or a variable: what the list of flags and variables selects (no deck area holds it: `area` and `panel` mean nothing). */
+  flag?: { kind: FlagKind; number: number };
 }
 
 /**
@@ -113,13 +117,16 @@ export function nextSelection(state: NavState, target: NavTarget): NavResult {
       return { area: "pokemon", ...keep, panel: "pokemonView", data: { sub: "moves", index: target.index } };
     case "item":
       return { area: "gegenstaende", ...keep, panel: "itemView", data: { sub: "items", index: target.id } };
+    case "flag":
+      // Technik is no deck area: App opens the list of flags and variables itself; selection, pin and panels stay.
+      return { area: "welt", ...keep, panel: null, flag: { kind: target.flagKind, number: target.number } };
     default:
       return { area: "welt", ...inWorld(state, target) };
   }
 }
 
 /** Where a target of the world leads (see `nextSelection`). */
-function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "encounter" | "move" | "item" }>): Omit<NavResult, "area"> {
+function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "encounter" | "move" | "item" | "flag" }>): Omit<NavResult, "area"> {
   const known = (id: number | null | undefined): id is number => typeof id === "number" && (state.headers === undefined || state.headers.some((h) => h.id === id));
   const toHeader = (id: number): Omit<NavResult, "area"> => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
   // A header that the target needs selected first, unless it already is (null: keep the selection).

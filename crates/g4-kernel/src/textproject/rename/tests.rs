@@ -437,7 +437,7 @@ fn a_trainer_class_rename_is_not_taken_for_a_trainer() {
 fn a_fixed_table_id_is_refused() {
     let fx = fixture();
     let fixed = "steht in einer festen Tabelle; umbenennen lassen sich nur IDs mit Register \
-                 (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_).";
+                 (MAP_, TRAINER_, TRAINER_CLASS_, PLACE_, FLAG_, VAR_).";
     for id in ["SPECIES_PIKACHU", "ITEM_POTION", "MOVE_0001"] {
         let plan = plan_rename(&fx.project(), id, "SPECIES_PIKA").unwrap();
         assert_eq!(plan.refusal, Some(format!("{id} {fixed}")), "{id}");
@@ -641,4 +641,150 @@ fn a_json_edited_while_a_rename_records_stays_visible() {
         .find(|u| u.key == "data/trainers/0000.json")
         .map(|u| u.side);
     assert_eq!(side, Some(sync::UnitSide::Files), "{:?}", scan.units);
+}
+
+/// The exported fixture with flag 148 named `FLAG_HAT_MEDAILLE` (described) and script file 0
+/// setting it by that name, compiled.
+fn flag_fixture() -> TextFixture {
+    use crate::flags::{FlagKind, NameRequest, name_flag_files};
+
+    let fx = TextFixture::exported();
+    name_flag_files(
+        &fx.project(),
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: 148,
+            id: Some("FLAG_HAT_MEDAILLE".to_owned()),
+            description: Some("Orden erhalten".to_owned()),
+        },
+    )
+    .unwrap();
+    fx.write(
+        SOURCE,
+        b"script Main #1:\n    SetFlag FLAG_HAT_MEDAILLE\n    End\nscript Second #2:\n    End\n",
+    );
+    compile(&fx);
+    fx
+}
+
+#[test]
+fn renaming_an_own_flag_name_follows_script_and_entity() {
+    let fx = flag_fixture();
+    let member = fx.read("unpacked/scripts/0000");
+    let plan = plan_rename(&fx.project(), "FLAG_HAT_MEDAILLE", "FLAG_ORDEN").unwrap();
+    assert_eq!(plan.refusal, None);
+    assert_eq!(plan.kind, Some(SymbolKind::Flag));
+    assert_eq!(plan.number, Some(148));
+    assert_eq!(
+        counts(&plan),
+        files(&[
+            ("data/ids/flags.json", 1),
+            ("data/flags/0148.json", 1),
+            (SOURCE, 1),
+        ])
+    );
+
+    let mut st = store(&fx);
+    let result = rename_id(&mut st, "FLAG_HAT_MEDAILLE", "FLAG_ORDEN").unwrap();
+    assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+    assert_eq!(
+        st.history().0,
+        ["ID umbenannt: FLAG_HAT_MEDAILLE → FLAG_ORDEN"]
+    );
+    assert_eq!(
+        fx.text("data/ids/flags.json"),
+        "{\n  \"FLAG_ORDEN\": 148\n}\n"
+    );
+    assert_eq!(
+        fx.text("data/flags/0148.json"),
+        "{\n  \"id\": \"FLAG_ORDEN\",\n  \"description\": \"Orden erhalten\"\n}\n"
+    );
+    assert!(fx.text(SOURCE).contains("SetFlag FLAG_ORDEN"));
+    assert_eq!(
+        fx.text(".rotom/command_database/.g4-ids-flags.json"),
+        "{\n  \"148\": \"FLAG_ORDEN\"\n}\n"
+    );
+    compile(&fx);
+    assert_eq!(fx.read("unpacked/scripts/0000"), member);
+
+    // One undo puts the old name back everywhere.
+    st.undo().unwrap();
+    assert!(
+        fx.text("data/flags/0148.json")
+            .contains("FLAG_HAT_MEDAILLE")
+    );
+    assert!(fx.text(SOURCE).contains("SetFlag FLAG_HAT_MEDAILLE"));
+    assert!(
+        fx.text(".rotom/command_database/.g4-ids-flags.json")
+            .contains("FLAG_HAT_MEDAILLE")
+    );
+}
+
+#[test]
+fn renaming_to_a_pret_name_of_another_number_is_refused() {
+    let fx = flag_fixture();
+    let plan = plan_rename(&fx.project(), "FLAG_HAT_MEDAILLE", "FLAG_UNUSED_0x0095").unwrap();
+    assert_eq!(
+        plan.refusal.as_deref(),
+        Some("FLAG_UNUSED_0x0095 ist der pret-Name der Nummer 149.")
+    );
+    // The pret name of its own number is fine (when it has the form of an id); a variable's
+    // prefix is not.
+    crate::flags::name_flag_files(
+        &fx.project(),
+        &crate::flags::NameRequest {
+            kind: crate::flags::FlagKind::Flag,
+            number: 0x997,
+            id: Some("FLAG_MEIN_TISCH".to_owned()),
+            description: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        plan_rename(
+            &fx.project(),
+            "FLAG_MEIN_TISCH",
+            "FLAG_VILLA_FURNITURE_TABLE"
+        )
+        .unwrap()
+        .refusal,
+        None
+    );
+    assert_eq!(
+        plan_rename(
+            &fx.project(),
+            "FLAG_HAT_MEDAILLE",
+            "FLAG_VILLA_FURNITURE_TABLE"
+        )
+        .unwrap()
+        .refusal
+        .as_deref(),
+        Some("FLAG_VILLA_FURNITURE_TABLE ist der pret-Name der Nummer 2455.")
+    );
+    assert_eq!(
+        plan_rename(&fx.project(), "FLAG_HAT_MEDAILLE", "VAR_ORDEN")
+            .unwrap()
+            .refusal
+            .as_deref(),
+        Some(
+            "Die neue ID muss mit FLAG_ beginnen und darf danach nur A–Z, 0–9 und _ enthalten \
+             (höchstens 64 Zeichen)."
+        )
+    );
+}
+
+#[test]
+fn a_pret_name_cannot_be_renamed() {
+    let fx = flag_fixture();
+    for (old, new) in [
+        ("FLAG_UNUSED_0x0094", "FLAG_X"),
+        ("VAR_RESULT", "VAR_X"),
+        ("FLAG_0148", "FLAG_X"),
+    ] {
+        assert_eq!(
+            plan_rename(&fx.project(), old, new).unwrap().refusal,
+            Some(unknown_id_text(old)),
+            "{old}"
+        );
+    }
 }

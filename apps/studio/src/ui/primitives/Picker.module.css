@@ -139,11 +139,17 @@
   color: var(--g4-bereich-technik);
 }
 
+/* The name takes the width the tech and the count leave and keeps a readable minimum; it is the one that is cut. */
 .label {
-  min-width: 0;
+  min-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* An emphasised label (`strong`): an own name among the game's names. */
+.strong {
+  font: var(--g4-font-text-s-betont);
 }
 
 .tech {
@@ -161,6 +167,7 @@
 .count {
   flex: none;
   margin-left: auto;
+  white-space: nowrap;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
 }
@@ -185,7 +192,7 @@
 
 .text {
   display: flex;
-  min-width: 0;
+  min-width: 10rem;
   flex-direction: column;
 }
 
@@ -227,4 +234,11 @@
   display: flex;
   justify-content: space-between;
   gap: var(--g4-raum-12);
+}
+
+/* The line under the list that says the list is cut (`cutNote`). */
+.cutNote {
+  padding: 0 var(--g4-dichte-zeile-innen);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
 }

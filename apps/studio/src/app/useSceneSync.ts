@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import type { DockviewApi } from "dockview-react";
 import { errorText, getAreaData, getMatrix, listHeaders } from "../api";
-import type { HeaderSummary, MatrixDto } from "../api";
+import type { FlagKind, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "./message";
 import { fetchCurrent } from "../reload";
 import { tilesetKey } from "../workbench/inspector/areaFields";
@@ -76,6 +76,8 @@ interface SceneSyncParams {
   onOpenData: (target: DataNav) => void;
   /** The depth of the shell: a link to a matrix cell opens the Raster only in Tüfteln. Omitted: Tüfteln. */
   depth?: Depth;
+  /** Opens Technik › Flags und Variablen on a number (a link to a flag or a variable). */
+  onOpenFlag?: (flag: { kind: FlagKind; number: number }) => void;
 }
 
 /**
@@ -83,7 +85,7 @@ interface SceneSyncParams {
  * pure decisions of `sceneSync`: selecting, reading the header list again, refetching the matrix
  * and comparing tilesets. Tells the editors and the scene through `bus` when their data moved.
  */
-export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, onOpenText, onOpenScript, onOpenData, depth }: SceneSyncParams) {
+export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, docks, setArea, onOpenText, onOpenScript, onOpenData, depth, onOpenFlag }: SceneSyncParams) {
   const [headers, setHeaders] = useState<HeaderSummary[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
@@ -336,6 +338,9 @@ export function useSceneSync({ bus, setMessage, fail, refreshDirty, setPinned, d
         // The doors (or another group) of the shown scene: the list „Welt“ opens the group and focuses it.
         bus.emit({ topic: "sceneGroup", group: next.sceneGroup });
         focusPanel(next.area, next.panel);
+      } else if (next.flag) {
+        // A flag or a variable: Technik is no deck area, the app opens its list on the number.
+        onOpenFlag?.(next.flag);
       } else if (target.kind === "header") {
         setMessage({ kind: "error", text: `Header ${String(target.id).padStart(4, "0")} gibt es nicht.` });
       }

@@ -90,6 +90,14 @@ impl Session {
         let _ = self.refs.refresh(&self.store);
     }
 
+    /// Brings the reference index up to date after a command wrote script sources past the
+    /// store (a save, a new script file, a new script): the sources are statted now, whatever
+    /// the index's time gate says, so a query right after it sees them. Cheap when the index
+    /// was never built; a failed refresh is tried again on the next use.
+    pub fn scripts_written(&mut self) {
+        let _ = self.refs.refresh_scripts_now(&self.store);
+    }
+
     /// Forgets the reference index after the files on disk may have changed behind the store
     /// (a member reloaded from disk): the next use builds it again from the disk, which also
     /// sees members the store never loaded.
@@ -133,6 +141,16 @@ impl Session {
             && let Err(e) = after_member_write(&self.project, &members)
         {
             eprintln!("data/ nach dem Schreiben von Membern nicht nachgezogen: {e}");
+        }
+    }
+
+    /// After a step that may have written the id files for rotom back or anew (the undo or
+    /// redo of an id rename or a naming, the rollback of a batch): the language server hears
+    /// of the id files that changed ([`Session::id_files_changed`]) and, when any did, the
+    /// checks see the files as written ([`Session::files_written`]).
+    pub fn id_files_followup(&mut self) {
+        if !self.id_files_changed().is_empty() {
+            self.files_written(&[]);
         }
     }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { EventKind } from "../../api";
 import { DEPTHS } from "../../ui/frame/shellState";
 import { areaFieldSpecs } from "./areaFields";
-import { eventFieldSpecs } from "./eventFields";
+import { eventFieldSpecs, eventFieldsAt } from "./eventFields";
 import { fieldFrom, shownFields } from "./fields";
 import { headerSections } from "./headerSections";
 import { destinationSpec } from "./referenceFor";
@@ -28,11 +28,11 @@ describe("the fields each depth shows", () => {
     expect(lines).toMatchInlineSnapshot(`
       [
         "object Pt erzaehlen: graphics_id movement_type dir script",
-        "object Pt bauen: x z local_id graphics_id movement_type dir script trainer_type sight",
-        "object Pt tuefteln: x z local_id graphics_id movement_type dir script trainer_type sight",
+        "object Pt bauen: x z local_id graphics_id movement_type dir script trainer_type sight hidden_flag",
+        "object Pt tuefteln: x z local_id graphics_id movement_type dir script trainer_type sight hidden_flag",
         "object Hgss erzaehlen: graphics_id movement_type dir script",
-        "object Hgss bauen: x z local_id graphics_id movement_type dir script trainer_type sight",
-        "object Hgss tuefteln: x z local_id graphics_id movement_type dir script trainer_type sight",
+        "object Hgss bauen: x z local_id graphics_id movement_type dir script trainer_type sight hidden_flag",
+        "object Hgss tuefteln: x z local_id graphics_id movement_type dir script trainer_type sight hidden_flag",
         "warp Pt erzaehlen: dest_warp_id",
         "warp Pt bauen: x z dest_warp_id",
         "warp Pt tuefteln: x z dest_warp_id",
@@ -40,11 +40,11 @@ describe("the fields each depth shows", () => {
         "warp Hgss bauen: x z dest_warp_id height",
         "warp Hgss tuefteln: x z dest_warp_id height",
         "coord Pt erzaehlen: ",
-        "coord Pt bauen: x z width length script",
-        "coord Pt tuefteln: x z width length script",
+        "coord Pt bauen: x z width length script var value",
+        "coord Pt tuefteln: x z width length script var value",
         "coord Hgss erzaehlen: ",
-        "coord Hgss bauen: x z width length script",
-        "coord Hgss tuefteln: x z width length script",
+        "coord Hgss bauen: x z width length script var value",
+        "coord Hgss tuefteln: x z width length script var value",
         "bg Pt erzaehlen: ",
         "bg Pt bauen: x z event_type script",
         "bg Pt tuefteln: x z event_type script",
@@ -53,6 +53,15 @@ describe("the fields each depth shows", () => {
         "bg Hgss tuefteln: x z event_type script",
       ]
     `);
+  });
+
+  it("keeps_the_flag_and_variable_pickers_from_bauen_on", () => {
+    // 3d.1's fields carry no `from`: Erzählen shows none of them, Bauen and Tüfteln pick them by name.
+    expect(eventFieldsAt("object", "Pt", "erzaehlen").some((s) => s.pick !== undefined)).toBe(false);
+    for (const depth of ["bauen", "tuefteln"] as const) {
+      expect(eventFieldsAt("object", "Pt", depth).find((s) => s.key === "hidden_flag")?.pick).toBe("flag");
+      expect(eventFieldsAt("coord", "Hgss", depth).find((s) => s.key === "var")?.pick).toBe("var");
+    }
   });
 
   it("header_fields_per_depth_and_family", () => {

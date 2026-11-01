@@ -47,6 +47,11 @@
   white-space: nowrap;
 }
 
+/* An own name over a technical one. */
+.strong {
+  font: var(--g4-font-text-s-betont);
+}
+
 /* Label and subtitle stacked; the row grows to two lines. */
 .text {
   display: flex;
@@ -62,6 +67,12 @@
   white-space: nowrap;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
+}
+
+/* A technical second line (a name of the game, a number): mono like `tech`. */
+.techSubtitle {
+  font: var(--g4-font-code-s);
+  font-size: var(--g4-schrift-groesse-xs);
 }
 
 .selected .subtitle {

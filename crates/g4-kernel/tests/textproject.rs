@@ -233,7 +233,15 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     assert_eq!(report.raw_blobs, 0, "a copy of its base has no blob");
     assert!(!fx.exists("data/raw"));
-    assert_eq!(report.registries_written, 4);
+    // Maps, trainers, classes, places, and the empty registers of the own flag and variable
+    // names, which the manifest names as data kinds.
+    assert_eq!(report.registries_written, 6);
+    assert_eq!(fx.text("data/ids/flags.json"), "{}\n");
+    assert_eq!(fx.text("data/ids/vars.json"), "{}\n");
+    assert_eq!(
+        manifest["schemas"],
+        serde_json::json!({"flags": 1, "vars": 1})
+    );
     assert!(
         report.adopted.is_some_and(|n| n > 0),
         "{:?}",

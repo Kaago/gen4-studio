@@ -1,0 +1,22 @@
+/* The foot of the flag and variable picker: a status line (reading, a refusal) above the two quiet buttons. */
+.footer {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.status {
+  color: var(--g4-text-sekundaer);
+}
+
+.refusal {
+  color: var(--g4-status-fehler);
+}

@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto } from "../api";
+import { FLAGS_SOURCE, FlagsSurface, flagsSubtitle } from "../flags/FlagsSurface";
+import type { FlagsSurfaceProps } from "../flags/FlagsSurface";
+import { useFlagList } from "../flags/useFlagList";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
@@ -32,7 +35,7 @@ import type { BaseApi } from "./useBase";
 import type { ChangesApi } from "./useChanges";
 
 /** The entries of the list, each with its surface. */
-export type TechnikEntry = "projekt" | "textprojekt" | "bauen" | "veroeffentlichen" | "aenderungen" | "patches" | "emulator" | "werkzeuge";
+export type TechnikEntry = "projekt" | "textprojekt" | "bauen" | "veroeffentlichen" | "aenderungen" | "patches" | "emulator" | "werkzeuge" | "flags";
 
 export type TechnikAreaProps = {
   /** The open project's folder; null without one. */
@@ -115,6 +118,8 @@ export type TechnikAreaProps = {
   /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
   changesChosen?: DiffSubject | null;
   onChangesChosen?: (subject: DiffSubject | null) => void;
+  /** Flags und Variablen (3d.1): the open project, the chosen number (held by the app) and what the surface reports; without it no project. */
+  flags?: Pick<FlagsSurfaceProps, "project" | "revision" | "selected" | "onSelect" | "readOnly" | "onError" | "onNamed">;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -126,6 +131,7 @@ const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = 
   { id: "patches", label: "Patches", icon: "patch" },
   { id: "emulator", label: "Emulator", icon: "game" },
   { id: "werkzeuge", label: "Werkzeuge", icon: "tools" },
+  { id: "flags", label: "Flags und Variablen", icon: "flag" },
 ];
 
 const PREVIEW_SUBTITLE = { eigen: "Eigenes Vorschaubild", standard: "Kartenbild der Startstadt" } as const;
@@ -172,7 +178,7 @@ function patchSubtitle(patch: HeaderPatch | null): string {
 }
 
 /**
- * The area Technik (spec 5.9, phase 4.0 §3.5): a list of eight entries with their state, and the surface of the chosen one. Projekt,
+ * The area Technik (spec 5.9, phase 4.0 §3.5): a list of nine entries with their state, and the surface of the chosen one. Projekt,
  * Textprojekt, Prüfen und Bauen, Veröffentlichen, Änderungen and Patches need a project; Emulator and Werkzeuge do not (only „Welt leeren“ in
  * Werkzeuge does). The patch state and the preview picture are read once per project, when the area shows; the base ROM (`base`) and the
  * compare against it (`changes`) come from the app, the status of the base for resetting from `useReset`.
@@ -194,6 +200,9 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
   const now = useNow();
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
+  // The flags of the open project for the entry's subtitle, the same read as the surface's.
+  const flagProject = props.flags?.project ?? null;
+  const flagList = useFlagList("flag", { project: flagProject, revision: props.flags?.revision ?? 0, source: FLAGS_SOURCE });
   const subtitles: Record<TechnikEntry, string> = {
     projekt: previewSubtitle(preview),
     textprojekt: textProjectSubtitle(props.textProject),
@@ -203,6 +212,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
     patches: patchSubtitle(patch),
     emulator: emulatorPath ?? "Kein Emulator gewählt",
     werkzeuge: toolsText(status),
+    flags: flagProject === null ? "Kein Projekt" : flagList.error !== null ? "Nicht lesbar" : flagsSubtitle(flagList.list),
   };
   return (
     <div className={styles.area}>
@@ -247,12 +257,28 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           <p className={styles.text}>Das Studio startet gebaute ROMs in diesem Emulator. Die Wahl gilt für alle Projekte.</p>
           <EmulatorRow path={emulatorPath} onPick={props.onPickEmulator} />
         </Surface>
+      ) : entry === "flags" ? (
+        <FlagsSurface
+          project={flagProject}
+          revision={props.flags?.revision ?? 0}
+          selected={props.flags?.selected ?? null}
+          onSelect={props.flags?.onSelect ?? noSelect}
+          goTo={props.goTo}
+          depth={props.depth}
+          readOnly={props.flags?.readOnly ?? false}
+          onError={props.flags?.onError ?? noSelect}
+          onNamed={props.flags?.onNamed}
+          onOpenProject={props.onOpenProject}
+        />
       ) : (
         <ToolsSurface lsp={status.lsp} apicula={status.apicula} subtitle={subtitles.werkzeuge} hasProject={props.project !== null} onClearWorld={props.onClearWorld} />
       )}
     </div>
   );
 }
+
+/** Without the app's selection the flags surface chooses nothing (`flags` not given: no project either). */
+const noSelect = () => {};
 
 /** A surface: its title (the entry's name) and what it holds. `data-technik` names the entry. */
 function Surface({ entry, title, subtitle, children }: { entry: TechnikEntry; title: string; subtitle?: string; children: ReactNode }) {

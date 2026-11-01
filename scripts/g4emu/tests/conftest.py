@@ -143,6 +143,14 @@ def put_location(ram: bytearray, game: Game, loc: Location) -> None:
     )
 
 
+def put_save_block(ram: bytearray, game: Game, block: int = LOCATION_BLOCK) -> int:
+    """Point `game.save_block.pointer` at `block` (an ARM9 address); returns the RAM index where
+    the layout counts from (block + header). The location pointer is the same u32 in all three
+    games, so the default block is the one `put_location` uses."""
+    struct.pack_into("<I", ram, game.save_block.pointer - RAM_BASE, block)
+    return block - RAM_BASE + game.save_block.header
+
+
 @pytest.fixture
 def fake_emu() -> FakeEmu:
     return FakeEmu()

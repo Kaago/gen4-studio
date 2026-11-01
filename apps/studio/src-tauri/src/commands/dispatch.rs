@@ -201,6 +201,10 @@ pub const COMMANDS: &[&str] = &[
     "recipe_list",
     "recipe_plan",
     "recipe_apply",
+    "list_flags",
+    "flag_usage",
+    "free_flag",
+    "name_flag",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1045,6 +1049,35 @@ pub fn dispatch(
             { recipe: g4_kernel::recipes::RecipeId, input: Option<Value> },
             |a| recipe_apply_impl(state, recipe_call(a.recipe, a.input))
         ),
+        "list_flags" => run!(json, "list_flags", args, { kind: g4_kernel::flags::FlagKind }, |a| {
+            list_flags_impl(state, a.kind)
+        }),
+        "flag_usage" => run!(
+            json, "flag_usage", args,
+            { kind: g4_kernel::flags::FlagKind, number: u16 },
+            |a| flag_usage_impl(state, a.kind, a.number)
+        ),
+        "free_flag" => run!(json, "free_flag", args, { kind: g4_kernel::flags::FlagKind }, |a| {
+            free_flag_impl(state, a.kind)
+        }),
+        "name_flag" => run!(
+            json, "name_flag", args,
+            {
+                kind: g4_kernel::flags::FlagKind,
+                number: u16,
+                id: Option<String>,
+                description: Option<String>,
+            },
+            |a| name_flag_impl(
+                state,
+                g4_kernel::flags::NameRequest {
+                    kind: a.kind,
+                    number: a.number,
+                    id: a.id,
+                    description: a.description,
+                }
+            )
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1446,6 +1479,13 @@ mod tests {
                     "matrix": 0, "x": 3, "y": 0, "source_map": 0,
                     "clear_buildings": false, "header_cell": null,
                 } }),
+            ),
+            ("list_flags", json!({"kind": "flag"})),
+            ("flag_usage", json!({"kind": "flag", "number": 148})),
+            ("free_flag", json!({"kind": "var"})),
+            (
+                "name_flag",
+                json!({"kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null}),
             ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),

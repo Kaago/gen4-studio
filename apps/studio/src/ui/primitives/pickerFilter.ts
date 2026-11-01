@@ -19,10 +19,16 @@ export interface PickerItem {
   preview?: ReactNode;
   /** Shown at the end of the row ("12 Events"). */
   count?: string;
+  /** The `title` (tooltip) of the count: its long form when `count` is the short one. */
+  countTitle?: string;
   /** Items with the same group sit under one visible group label. */
   group?: string;
   /** Listed (and found) but not pickable: greyed, skipped by the arrow keys; the `description` can say why. */
   disabled?: boolean;
+  /** Further words the search finds like the label but that are not shown (a second name, the number in another base). */
+  keywords?: readonly string[];
+  /** The label in the emphasised weight (an own name among game names). */
+  strong?: boolean;
 }
 
 /** Whether `id` equals the digits typed, ignoring leading zeros ("0411" finds 411). */
@@ -32,9 +38,9 @@ function idMatches(id: string | number, digits: string): boolean {
 }
 
 /**
- * Case-insensitive substring in `label`, `tech` or `description`; a purely numeric query also finds the `id`. Matches that
- * start the label or tech (or are the id) come before matches further inside (including every description match); within
- * each kind the input order is kept.
+ * Case-insensitive substring in `label`, `tech`, `keywords` or `description`; a purely numeric query also finds the `id`. Matches
+ * that start the label, tech or a keyword (or are the id) come before matches further inside (including every description match);
+ * within each kind the input order is kept.
  */
 export function filterItems<T extends PickerItem>(items: readonly T[], query: string): T[] {
   const q = query.trim().toLowerCase();
@@ -43,7 +49,7 @@ export function filterItems<T extends PickerItem>(items: readonly T[], query: st
   const starts: T[] = [];
   const inside: T[] = [];
   for (const item of items) {
-    const fields = [item.label.toLowerCase(), item.tech?.toLowerCase() ?? ""];
+    const fields = [item.label.toLowerCase(), item.tech?.toLowerCase() ?? "", ...(item.keywords ?? []).map((k) => k.toLowerCase())];
     if (fields.some((f) => f.startsWith(q)) || (numeric && idMatches(item.id, q))) starts.push(item);
     else if (fields.some((f) => f.includes(q)) || item.description?.toLowerCase().includes(q)) inside.push(item);
   }

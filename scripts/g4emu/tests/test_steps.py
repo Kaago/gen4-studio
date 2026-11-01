@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import RAM_BASE, RAM_SIZE, battle_mon, put_location
+from conftest import RAM_BASE, RAM_SIZE, battle_mon, put_location, put_save_block
 from g4emu import battle
 from g4emu.games import Location
 from g4emu.steps import Step, StepFailed, parse_steps, run_step
@@ -509,3 +509,104 @@ def test_expect_at_checks_the_position(fake_emu, cpud, tmp_path):
 def test_expect_at_without_location_fails(fake_emu, cpud, tmp_path):
     with pytest.raises(StepFailed, match="kein gültiger Ort"):
         run_step(fake_emu, cpud, Step("expect-at", ["1", "2"]), tmp_path)
+
+
+# --- flags and variables in the save block ---------------------------------------------------
+
+
+def test_parse_flag_steps_take_hex_and_decimal():
+    tokens = (
+        "flag 0x173 set-flag 371 1 var 0x40A5 set-var 16549 65535 "
+        "expect-flag 0X173 0 expect-var 0x40a5 2 where"
+    ).split()
+    assert parse_steps(tokens) == [
+        Step("flag", ["0x173"]),
+        Step("set-flag", ["371", "1"]),
+        Step("var", ["0x40A5"]),
+        Step("set-var", ["16549", "65535"]),
+        Step("expect-flag", ["0X173", "0"]),
+        Step("expect-var", ["0x40a5", "2"]),
+        Step("where", []),
+    ]
+    for bad in (
+        ["flag", "abc"],
+        ["flag", "-1"],
+        ["flag", "0x"],
+        ["set-flag", "0x173", "2"],
+        ["expect-flag", "0x173", "yes"],
+        ["set-var", "0x40A5", "65536"],
+        ["expect-var", "0x40A5", "-1"],
+    ):
+        with pytest.raises(ValueError, match=bad[0]):
+            parse_steps(bad)
+    with pytest.raises(ValueError):
+        parse_steps(["set-flag", "0x173"])  # the value is required
+
+
+def _with_block(fake_emu, game) -> int:
+    """A valid save block in the fake RAM; returns its RAM index (pointer target + header)."""
+    return put_save_block(fake_emu.ram(), game)
+
+
+def test_flag_and_var_steps_read_the_block(fake_emu, cpud, tmp_path):
+    start = _with_block(fake_emu, cpud)
+    fake_emu.ram()[start + 0xFEC + 0x173 // 8] = 1 << 3
+    fake_emu.ram()[start + 0xDAC + 2 * 0xA5 : start + 0xDAC + 2 * 0xA5 + 2] = b"\x34\x12"
+    out = run_step(fake_emu, cpud, Step("flag", ["0x173"]), tmp_path)
+    assert out == {"step": "flag", "ok": True, "flag": 0x173, "value": 1, "frame": 0}
+    assert run_step(fake_emu, cpud, Step("flag", ["370"]), tmp_path)["value"] == 0
+    out = run_step(fake_emu, cpud, Step("var", ["16549"]), tmp_path)
+    assert out == {"step": "var", "ok": True, "var": 0x40A5, "value": 0x1234, "frame": 0}
+    # outside the block: bad input (exit 1), not a missed goal
+    with pytest.raises(ValueError, match="Flag"):
+        run_step(fake_emu, cpud, Step("flag", ["0xB60"]), tmp_path)
+    with pytest.raises(ValueError, match="Variable"):
+        run_step(fake_emu, cpud, Step("var", ["0x8000"]), tmp_path)
+
+
+def test_set_flag_and_set_var_write(fake_emu, ipkd, tmp_path):
+    start = _with_block(fake_emu, ipkd)
+    out = run_step(fake_emu, ipkd, Step("set-flag", ["0x2A9", "1"]), tmp_path)
+    assert out == {"step": "set-flag", "ok": True, "flag": 0x2A9, "value": 1, "frame": 0}
+    assert fake_emu.ram()[start + 0x10C4 + 0x2A9 // 8] == 1 << (0x2A9 % 8)
+    run_step(fake_emu, ipkd, Step("set-flag", ["0x2A9", "0"]), tmp_path)
+    assert fake_emu.ram()[start + 0x10C4 + 0x2A9 // 8] == 0
+    out = run_step(fake_emu, ipkd, Step("set-var", ["0x4031", "513"]), tmp_path)
+    assert out == {"step": "set-var", "ok": True, "var": 0x4031, "value": 513, "frame": 0}
+    assert bytes(fake_emu.ram()[start + 0xDE4 + 0x62 : start + 0xDE4 + 0x64]) == b"\x01\x02"
+    assert run_step(fake_emu, ipkd, Step("var", ["0x4031"]), tmp_path)["value"] == 513
+
+
+def test_expect_flag_and_var_fail_with_the_values(fake_emu, cpud, tmp_path):
+    _with_block(fake_emu, cpud)
+    out = run_step(fake_emu, cpud, Step("expect-flag", ["0x173", "0"]), tmp_path)
+    assert out == {"step": "expect-flag", "ok": True, "flag": 0x173, "value": 0, "frame": 0}
+    with pytest.raises(StepFailed, match="^Flag 0x0173 ist 0 statt 1$"):
+        run_step(fake_emu, cpud, Step("expect-flag", ["0x173", "1"]), tmp_path)
+    run_step(fake_emu, cpud, Step("set-var", ["0x40A5", "1"]), tmp_path)
+    out = run_step(fake_emu, cpud, Step("expect-var", ["0x40A5", "1"]), tmp_path)
+    assert out == {"step": "expect-var", "ok": True, "var": 0x40A5, "value": 1, "frame": 0}
+    with pytest.raises(StepFailed, match="^Variable 0x40A5 ist 1 statt 0$"):
+        run_step(fake_emu, cpud, Step("expect-var", ["0x40A5", "0"]), tmp_path)
+
+
+FLAG_STEPS = [
+    Step("flag", ["0x173"]),
+    Step("set-flag", ["0x173", "1"]),
+    Step("var", ["0x40A5"]),
+    Step("set-var", ["0x40A5", "1"]),
+    Step("expect-flag", ["0x173", "1"]),
+    Step("expect-var", ["0x40A5", "1"]),
+]
+
+
+@pytest.mark.parametrize("step", FLAG_STEPS, ids=lambda s: s.name)
+def test_flag_steps_without_a_valid_pointer_fail(fake_emu, cpud, tmp_path, step):
+    import dataclasses
+
+    with pytest.raises(StepFailed, match="kein gültiger Spielstand im RAM"):
+        run_step(fake_emu, cpud, step, tmp_path)  # pointer 0: before the save is loaded
+    with pytest.raises(StepFailed, match="Spiel nicht in games.yaml"):
+        run_step(fake_emu, None, step, tmp_path)
+    with pytest.raises(StepFailed, match="save_block fehlt in games.yaml"):
+        run_step(fake_emu, dataclasses.replace(cpud, save_block=None), step, tmp_path)
