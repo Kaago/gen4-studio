@@ -57,6 +57,7 @@ pub mod symbols;
 pub mod sync;
 pub(crate) mod tombstone;
 
+pub use arts::Art;
 pub use check::{CheckReport, check, sources};
 pub use export::{
     ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED,

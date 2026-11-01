@@ -28,8 +28,8 @@ use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
 use super::schema::{EntitySchema, ROOT};
 
 /// One art: a folder under `data/`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Art {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Art {
     Headers,
     Matrices,
     Maps,

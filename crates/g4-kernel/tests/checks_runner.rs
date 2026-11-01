@@ -935,3 +935,166 @@ fn a_changed_unpacked_only_folder_warns_after_a_build() {
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].args, ["fooFolder", "2"]);
 }
+
+// --- tombstones (3d.4) ---
+
+use g4_kernel::checks::Overlay;
+use g4_kernel::delete::DeleteTarget;
+use g4_kernel::store::ObjectEvent;
+
+/// The synthetic project as a text project, with a store on it.
+fn text_project() -> (common::TextFixture, Arc<Project>, Store) {
+    let fx = common::TextFixture::exported();
+    let project = Arc::new(fx.project());
+    let store = Store::new(Arc::clone(&project));
+    (fx, project, store)
+}
+
+fn delete(st: &mut Store, target: DeleteTarget, deleted: bool) {
+    st.transaction("Grabstein", |tx| tx.set_deleted(target, deleted))
+        .unwrap();
+}
+
+/// The cheap findings of `code` on `snap`.
+fn findings_of(snap: &Snapshot, code: &str) -> Vec<Finding> {
+    Runner::run(
+        snap,
+        Project::limits(),
+        &IgnoreSet::default(),
+        &[Group::Cheap],
+        |_, _, _| {},
+    )
+    .findings
+    .into_iter()
+    .filter(|f| f.code == code)
+    .collect()
+}
+
+fn messages(found: &[Finding]) -> Vec<String> {
+    found.iter().map(|f| f.message.clone()).collect()
+}
+
+#[test]
+fn a_tombstoned_encounter_file_is_dangling_for_its_header() {
+    let (_fx, project, mut st) = text_project();
+    let code = "header.wild-dangling";
+    // Both headers use encounter file 0, which exists.
+    assert!(findings_of(&snapshot(&project, &st, SnapshotCache::default()), code).is_empty());
+
+    // Deleted in the store, unsaved: the overlay says so.
+    let encounter = DeleteTarget::Encounter { index: 0 };
+    delete(&mut st, encounter, true);
+    let overlay = st.snapshot_overlay();
+    assert_eq!(overlay.tombstones, [encounter]);
+    let found = findings_of(&snapshot(&project, &st, SnapshotCache::default()), code);
+    assert_eq!(
+        messages(&found),
+        [
+            "Header 0 points at encounter file 0, which is deleted (Grabstein).",
+            "Header 1 points at encounter file 0, which is deleted (Grabstein).",
+        ]
+    );
+    assert_eq!(found[0].subject, Subject::Header(0));
+    assert_eq!(found[0].field.as_deref(), Some("wild_pokemon"));
+
+    // Saved: a snapshot without the store reads the envelope from the disk.
+    st.save().unwrap();
+    let disk = Snapshot::build(
+        Arc::clone(&project),
+        Overlay::default(),
+        SnapshotCache::default(),
+    );
+    assert!(disk.deleted(encounter));
+    assert!(!disk.deleted(DeleteTarget::Encounter { index: 1 }));
+    assert_eq!(messages(&findings_of(&disk, code)).len(), 2);
+
+    // Restored in the store, unsaved: the store's flag wins over the disk's envelope.
+    delete(&mut st, encounter, false);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    assert!(!snap.deleted(encounter));
+    assert!(findings_of(&snap, code).is_empty());
+}
+
+#[test]
+fn a_tombstoned_header_is_not_checked_as_a_source() {
+    let (_fx, project, mut st) = text_project();
+    // Header 1 points at matrix 99 and its encounter file is deleted.
+    st.edit_header(1, "matrix", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.matrix_id = 99;
+        }
+        Ok(())
+    })
+    .unwrap();
+    delete(&mut st, DeleteTarget::Encounter { index: 0 }, true);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let of_header_1 = |code: &str, snap: &Snapshot| {
+        findings_of(snap, code)
+            .into_iter()
+            .filter(|f| f.subject == Subject::Header(1))
+            .count()
+    };
+    assert_eq!(of_header_1("header.ref-range", &snap), 1);
+    assert_eq!(of_header_1("header.wild-dangling", &snap), 1);
+
+    delete(&mut st, DeleteTarget::Header { id: 1 }, true);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    assert!(snap.header_deleted(1));
+    assert_eq!(of_header_1("header.ref-range", &snap), 0);
+    assert_eq!(of_header_1("header.wild-dangling", &snap), 0);
+    // Header 0 is still checked.
+    assert_eq!(
+        messages(&findings_of(&snap, "header.wild-dangling")),
+        ["Header 0 points at encounter file 0, which is deleted (Grabstein)."]
+    );
+
+    // A deleted matrix is missing for the header that names it, with the same code.
+    delete(&mut st, DeleteTarget::Matrix { index: 0 }, true);
+    let snap = snapshot(&project, &st, SnapshotCache::default());
+    let found = findings_of(&snap, "header.ref-range");
+    assert!(
+        messages(&found)
+            .contains(&"Header 0 points at matrix 0, which is deleted (Grabstein).".to_owned()),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_tombstoned_trainer_is_missing_for_its_figure() {
+    let (_fx, project, mut st) = text_project();
+    // Event file 0 (used by both headers): an object battling as trainer 1 (script 3000).
+    st.edit_event(0, "Figur", |e| {
+        e.object_events.push(ObjectEvent {
+            local_id: 0,
+            graphics_id: 1,
+            movement_type: 0,
+            trainer_type: 1,
+            hidden_flag: 0,
+            script: 3000,
+            dir: 0,
+            data: [0; 3],
+            movement_range_x: 0,
+            movement_range_z: 0,
+            x: 1,
+            z: 1,
+            y: 0,
+        });
+        Ok(())
+    })
+    .unwrap();
+    let code = "event.trainer-missing";
+    assert!(findings_of(&snapshot(&project, &st, SnapshotCache::default()), code).is_empty());
+
+    delete(&mut st, DeleteTarget::Trainer { index: 1 }, true);
+    let found = findings_of(&snapshot(&project, &st, SnapshotCache::default()), code);
+    assert_eq!(
+        messages(&found),
+        ["Object 0 battles as trainer 1 (script 3000), which is deleted (Grabstein)."]
+    );
+    assert_eq!(found[0].subject, Subject::EventFile(0));
+    assert_eq!(found[0].field.as_deref(), Some("script"));
+
+    // A deleted event file is no source: its figure is not checked.
+    delete(&mut st, DeleteTarget::EventFile { index: 0 }, true);
+    assert!(findings_of(&snapshot(&project, &st, SnapshotCache::default()), code).is_empty());
+}

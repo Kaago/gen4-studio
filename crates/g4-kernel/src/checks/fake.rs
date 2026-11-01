@@ -19,6 +19,7 @@ use uxie::map_header::{MapHeader, MapHeaderHGSS, MapHeaderPt};
 
 use super::scripts::{ScriptFacts, ScriptInput, facts_of};
 use super::{Finding, Limits, Source, SourceCheck, TextEntry, Unreadable};
+use crate::delete::DeleteTarget;
 use crate::project::{AssetId, AssetKind};
 use crate::text::{TextArchiveDoc, TextMessage};
 
@@ -49,6 +50,8 @@ pub(crate) struct Fake {
     pub places: Option<Vec<String>>,
     /// What a check noted it left undone.
     pub skips: RefCell<Vec<String>>,
+    /// The deleted entities.
+    pub tombstones: Vec<DeleteTarget>,
 }
 
 /// A script file of a [`Fake`]: its rotom source or level script JSON (adopted), its member,
@@ -84,6 +87,7 @@ impl Fake {
             place_bank: 433,
             places: None,
             skips: RefCell::new(Vec::new()),
+            tombstones: Vec::new(),
         }
     }
 
@@ -233,6 +237,12 @@ impl Source for Fake {
     }
     fn note_skip(&self, why: String) {
         self.skips.borrow_mut().push(why);
+    }
+    fn deleted(&self, kind: AssetKind, index: u16) -> bool {
+        DeleteTarget::of_asset(kind, index).is_some_and(|t| self.tombstones.contains(&t))
+    }
+    fn header_deleted(&self, id: u16) -> bool {
+        self.tombstones.contains(&DeleteTarget::Header { id })
     }
 }
 

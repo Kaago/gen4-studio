@@ -64,13 +64,6 @@ pub(crate) fn parse_entity<T: DeserializeOwned>(
 
 /// `to_canonical(value)` with `"deleted": true` as the last key when `deleted`; byte-equal to
 /// `to_canonical` otherwise.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the store's tombstones (3d.4 Task 2) are the caller"
-    )
-)]
 pub(crate) fn to_canonical_entity<T: Serialize>(value: &T, deleted: bool) -> Vec<u8> {
     let bytes = to_canonical(value);
     if deleted { with_envelope(bytes) } else { bytes }
@@ -120,13 +113,6 @@ pub(crate) fn bytes_deleted(bytes: &[u8]) -> bool {
 }
 
 /// The numbers under `data/<folder>/` whose file carries the envelope.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the store's tombstones (3d.4 Task 2) are the caller"
-    )
-)]
 pub fn read_deleted(root: &Path, folder: &str) -> Result<BTreeSet<u16>, KernelError> {
     let dir = Path::new(DATA_DIR).join(folder);
     let mut out = BTreeSet::new();
