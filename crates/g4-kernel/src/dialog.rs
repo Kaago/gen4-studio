@@ -29,8 +29,8 @@ use crate::checks::scripts::{MessageUse, database, message_uses_of};
 use crate::data::refs::{PARTNER_SCRIPTS, TRAINER_SCRIPTS};
 use crate::data::trainer_create::ADOPT_FIRST;
 use crate::error::KernelError;
-use crate::scripts::{self, ScriptTarget, SourceKind};
 use crate::project::{AssetId, AssetKind, Project};
+use crate::scripts::{self, ScriptTarget, SourceKind};
 use crate::store::{ChangeId, MapHeader, Store};
 use crate::text::default_message_id;
 
@@ -140,6 +140,11 @@ pub const NOT_SHARED: &str = "Die Nachricht gehört nur dieser Figur.";
 /// file reaches too.
 pub const SHARED_LABEL: &str =
     "Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.";
+/// Refusal of [`split_message`]: the copy's index does not fit the message parameter of a
+/// command to rewrite (rotom's database: Platinum's `Message` and HeartGold's `NPCMsg` take a
+/// u8); the command, its highest number and the copy's index follow.
+pub const NUMBER_TOO_HIGH: &str =
+    "Die Kopie bekäme eine Nummer, die der Nachrichtenbefehl nicht fasst";
 /// Refusal of [`split_message`]: another figure runs the same script, so a rewrite would
 /// change its dialog too.
 pub const SHARED_SCRIPT: &str =
@@ -246,6 +251,16 @@ pub fn split_message(
         .ok()
         .filter(|&n| n < u16::MAX)
         .ok_or_else(|| KernelError::Refused(format!("Textarchiv {archive} ist voll.")))?;
+    // The copy's number must fit every command that will name it.
+    for u in &uses {
+        let highest = highest_message(family, &u.command);
+        if u32::from(new_index) > highest {
+            return Err(KernelError::Refused(format!(
+                "{NUMBER_TOO_HIGH}: {} nimmt Nummern bis {highest}, die Kopie bekäme {new_index}.",
+                u.command
+            )));
+        }
+    }
     let text = rewrite(&parsed.text, &uses, message, new_index)?;
     let mut lines: Vec<u32> = uses.iter().map(|u| u.line).collect();
     lines.sort_unstable();
@@ -281,6 +296,8 @@ pub fn split_message(
     let touched = match scripts::write_and_compile(&project, script_file, &text) {
         Ok(touched) => touched,
         Err(e) => {
+            // The source is back; the compile state the failed compile wrote goes back too.
+            scripts::restore_compile_state(&project, before_state.as_deref())?;
             store.rollback_to(mark)?;
             return Err(e);
         }
@@ -324,6 +341,38 @@ pub fn split_message(
         change,
         lines,
     })
+}
+
+/// The highest message number command `written` (a message command of `family`) takes: its
+/// message parameter in rotom's database is a u8 (Platinum `Message`, HeartGold `NPCMsg`):
+/// 255; else below the first variable, 0x3FFF (a number from 0x4000 on names a variable).
+fn highest_message(family: Family, written: &str) -> u32 {
+    const BELOW_VARIABLES: u32 = 0x3FFF;
+    let Some(db) = database(family) else {
+        return BELOW_VARIABLES;
+    };
+    // rotom v0.7.0: src/database.rs DatabaseV2::get_command (canonical, legacy, alias)
+    let Ok(command) = db.get_command(written) else {
+        return BELOW_VARIABLES;
+    };
+    let arg = Limits::get()
+        .script
+        .message_params
+        .of(family)
+        .iter()
+        .find(|p| {
+            p.command == written
+                || db
+                    .get_command(&p.command)
+                    .is_ok_and(|c| std::ptr::eq(c, command))
+        })
+        .map(|p| p.arg);
+    // rotom v0.7.0: src/database.rs ParamDef::param_type; src/compiler/analysis.rs
+    // validate_number_for_type (u8: 0 to 255)
+    match arg.and_then(|arg| command.params.get(arg)) {
+        Some(p) if p.param_type == rotom::database::ParamType::U8 => u32::from(u8::MAX),
+        _ => BELOW_VARIABLES,
+    }
 }
 
 /// The refusal for a message the dialog does not show.
@@ -501,7 +550,9 @@ fn local_dialog(
     }
     let headers = store.header_table()?;
     let Some(h) = headers.get(usize::from(header)) else {
-        return Err(KernelError::Refused(format!("Header {header} gibt es nicht")));
+        return Err(KernelError::Refused(format!(
+            "Header {header} gibt es nicht"
+        )));
     };
     let (file, archive) = (h.script_file_id(), h.text_archive_id());
     let line = match scripts::resolve_script(&project, headers, header, script)? {
@@ -516,7 +567,9 @@ fn local_dialog(
     let shown = match shown {
         Ok(shown) => shown,
         Err(reason) => {
-            return Ok(Dialog::without_messages(DialogSource::Unreadable { reason }));
+            return Ok(Dialog::without_messages(DialogSource::Unreadable {
+                reason,
+            }));
         }
     };
     let mut messages = shown.messages(archive);
@@ -638,7 +691,13 @@ impl<'a> Sources<'a> {
         self.parsed(file)
             .ok()
             .and_then(|parsed| shown_in(parsed, family, slot))
-            .map(|shown| shown.uses.iter().map(|u| message_index(&u.message)).collect())
+            .map(|shown| {
+                shown
+                    .uses
+                    .iter()
+                    .map(|u| message_index(&u.message))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }
@@ -1190,8 +1249,11 @@ mod tests {
         );
         let dialog = of(&mut st, 0);
         assert_eq!(indices(&dialog), [1, 2, 3, 4, 5, 6]);
-        let branches: Vec<Option<&str>> =
-            dialog.messages.iter().map(|m| m.branch.as_deref()).collect();
+        let branches: Vec<Option<&str>> = dialog
+            .messages
+            .iter()
+            .map(|m| m.branch.as_deref())
+            .collect();
         assert_eq!(
             branches,
             [
@@ -1489,6 +1551,7 @@ mod tests {
         let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
         let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
         let before = scripts::snapshot_script(st.project(), 0).unwrap();
+        let state = scripts::snapshot_compile_state(st.project()).unwrap();
         let err = split_message(&mut st, 0, 0, 3, ARCHIVE, 5).unwrap_err();
         assert!(matches!(err, KernelError::Compile(_)), "{err:?}");
         assert_eq!(st.undo_depth(), depth);
@@ -1496,5 +1559,37 @@ mod tests {
         assert_eq!(archive_bytes(&st), archive);
         let after = scripts::snapshot_script(st.project(), 0).unwrap();
         assert_eq!((after.rotom, after.member), (before.rotom, before.member));
+        // The failed compile rewrote rotom's compile state (the source dirty): put back too.
+        assert_eq!(
+            scripts::snapshot_compile_state(st.project()).unwrap(),
+            state
+        );
+    }
+
+    #[test]
+    fn a_copy_past_the_commands_message_type_is_refused() {
+        let fx = TextFixture::exported();
+        // Platinum's `Message` takes its number as a u8 (rotom's database): 0 to 255.
+        let texts: Vec<String> = (0..256).map(|i| format!("Text {i}")).collect();
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let source = "script drei #3:\n    Message 5\n    End\n\
+                      script sieben #7:\n    Message 5\n    End\n";
+        let mut st = store_with(&fx, source, &texts, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
+        let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5));
+        assert!(reason.starts_with(NUMBER_TOO_HIGH), "{reason}");
+        assert!(reason.contains("255") && reason.contains("256"), "{reason}");
+        assert_eq!(st.undo_depth(), depth);
+        assert_eq!(archive_bytes(&st), archive);
+        assert_eq!(source_of(&st), source);
+
+        // One message fewer: the copy takes 255, the last number that fits.
+        st.edit_text_archive(ARCHIVE, "kürzer", |doc| {
+            doc.messages.pop();
+        })
+        .unwrap();
+        let report = split_message(&mut st, 0, 0, 3, ARCHIVE, 5).unwrap();
+        assert_eq!(report.new_index, 255);
+        assert_eq!(indices(&of(&mut st, 3)), [255]);
     }
 }

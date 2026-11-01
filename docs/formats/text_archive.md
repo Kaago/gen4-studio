@@ -205,11 +205,14 @@ Abgelehnt (`KernelError::Refused`, nichts geschrieben):
 | keine andere Figur zeigt die Nachricht | `NOT_SHARED` „Die Nachricht gehört nur dieser Figur.“ |
 | eine Stelle steht in einer Funktion außerhalb des eigenen Slots, die der Lauf eines anderen Slots der Datei erreicht (Sprung oder weiterlaufender Code) | `SHARED_LABEL` „Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.“ |
 | ein anderes Objekt oder Schild (Eventdateien der Header mit dieser Scriptdatei) führt einen Slot desselben Rumpfs aus | `SHARED_SCRIPT` „Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.“ |
-| die Nachricht steht nicht im Dialog, das Archiv ist gesperrt oder voll (65 535 Nachrichten) | mit Archiv und Nummer |
+| die Nummer der Kopie passt nicht in den Nachrichtenparameter eines umzuschreibenden Befehls (rotoms Datenbank: Platin `Message`/`MessageInstant`, HeartGold `NPCMsg`/`NonNPCMsg` nehmen ein u8, also bis 255; sonst bis 0x3FFF, ab 0x4000 wäre es eine Variable) | `NUMBER_TOO_HIGH` „Die Kopie bekäme eine Nummer, die der Nachrichtenbefehl nicht fasst“ mit Befehl, Höchstnummer und Nummer der Kopie |
+| die Nachricht steht nicht im Dialog, das Archiv ist gesperrt | mit Archiv und Nummer |
 | rotom hängt beim Übersetzen ein Text-Literal der Datei an dasselbe Archiv | der ganze Schritt wird zurückgenommen |
 
-Ein Übersetzungsfehler in der Datei (auch in einem anderen Script) schreibt die alte Quelle zurück
-und nimmt die Kopie zurück (`Store::rollback_to`): kein halber Schritt, nichts zum Wiederholen.
+Ein Übersetzungsfehler in der Datei (auch in einem anderen Script) schreibt die alte Quelle und
+rotoms `compile-state.json` zurück (der gescheiterte Lauf schreibt sie: die Quelle als `Dirty`, jeder
+andere Eintrag neu gestempelt; den Member des Scripts schreibt er nicht) und nimmt die Kopie zurück
+(`Store::rollback_to`): kein halber Schritt, nichts zum Wiederholen.
 
 Das Studio schreibt die Texte des Dialog-Editors über `edit_text_archive` mit dem optionalen
 Argument `label` („Dialog geändert“); ohne heißt der Schritt wie bisher `edit text`, `add message`,

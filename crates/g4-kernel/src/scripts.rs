@@ -1899,6 +1899,23 @@ pub fn snapshot_compile_state(project: &Project) -> Result<Option<Vec<u8>>, Kern
     read_if_present(&state_path(project)?)
 }
 
+/// Puts rotom's compile state file back to `before` (from [`snapshot_compile_state`]; `None`
+/// removes it). A failed compile writes it too (the failed source dirty, every other entry
+/// stamped anew), so a write that is taken back takes it back as well.
+pub(crate) fn restore_compile_state(
+    project: &Project,
+    before: Option<&[u8]>,
+) -> Result<(), KernelError> {
+    let path = state_path(project)?;
+    match before {
+        Some(bytes) => std::fs::write(&path, bytes).map_err(io_at(&path)),
+        None => match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_at(&path)(e)),
+            _ => Ok(()),
+        },
+    }
+}
+
 /// The step of rotom's compile state file from `before` to the bytes on disk now, as one file
 /// (kind `CompileState`, asset `asset`, no rotom entry). A compile writes the whole file anew,
 /// its entries in the order of rotom's `HashMap`, and marks every source it compiled again (a

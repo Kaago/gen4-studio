@@ -32,5 +32,7 @@ pub mod world_meta;
 // Appended last on purpose (parallel phases append here); rustfmt must not sort it up.
 #[rustfmt::skip]
 pub mod flags;
-#[rustfmt::skip]
+
+// Appended last as well; the blank line above keeps rustfmt from sorting it up (it reorders
+// `mod` declarations only within a group) without skipping the file.
 pub mod dialog;
