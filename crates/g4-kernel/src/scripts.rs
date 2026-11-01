@@ -1345,10 +1345,31 @@ pub(crate) fn append_source(
     text: String,
     addition: &str,
 ) -> Result<Vec<u16>, KernelError> {
-    let appended = format!("{text}\n{addition}");
-    write_source(project, file, &ScriptSource::Rotom(appended))?;
+    write_and_compile_over(project, file, &format!("{text}\n{addition}"), text)
+}
+
+/// Writes `text` as the whole rotom source of `file` and compiles; returns the text archives
+/// the compile changed. A compile error in the file puts the text that was there back.
+pub(crate) fn write_and_compile(
+    project: &Project,
+    file: u16,
+    text: &str,
+) -> Result<Vec<u16>, KernelError> {
+    let old = rotom_source(project, file)?;
+    write_and_compile_over(project, file, text, old)
+}
+
+/// Writes `text` as the source of `file` and compiles; a compile error in the file writes
+/// `old` back.
+fn write_and_compile_over(
+    project: &Project,
+    file: u16,
+    text: &str,
+    old: String,
+) -> Result<Vec<u16>, KernelError> {
+    write_source(project, file, &ScriptSource::Rotom(text.to_owned()))?;
     let restore = |project: &Project| {
-        let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));
+        let _ = write_source(project, file, &ScriptSource::Rotom(old.clone()));
     };
     let report = compile(project).inspect_err(|_| restore(project))?;
     let errors = problems_in(project, &report, file, SourceKind::Script);

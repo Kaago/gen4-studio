@@ -183,6 +183,38 @@ scheitert er mit `KernelError::TextConflict`, bevor rotom etwas schreibt. Außer
 (Übersetzen nach dem Speichern der Header-Tabelle) wird ein Archiv mit `Conflict` nach rotoms
 Anhängen nicht kodiert; der nächste Build fragt.
 
+## Abspalten
+
+Zeigen zwei Figuren dieselbe Nachricht (`shared_with > 0` im Dialog, siehe
+[script_file.md](script_file.md) „Dialog einer Figur“), gibt
+`dialog::split_message(store, header, file, index, archive, message)` (`crates/g4-kernel/src/dialog.rs`)
+dem Objekt `index` der Eventdatei `file` eine eigene Kopie: Die Nachricht wird ans Ende des Archivs
+kopiert (Text und Fremdsprachen gleich, ID `msg_<n>`, neuer Index = bisherige Zahl der Nachrichten),
+und jede Stelle **dieses Dialogs**, die `(archive, message)` nennt (der eigene Slot und die Labels,
+die nur er erreicht), bekommt in der Quelle die neue Nummer; die Zahl wird an Zeile und Spalte des
+Dialogs ersetzt, von hinten nach vorn. Die Quelle wird ganz geschrieben und übersetzt
+(`scripts::write_and_compile`). Kopie, Quelle, Member, berührte Archive und rotoms
+`compile-state.json` (als ganze Datei) sind **ein** Undo-Schritt „Dialog von Figur {local_id}
+abgespalten“. Die Kopie liegt im Store (gespeichert mit dem nächsten Speichern), die Quelle steht
+sofort auf der Platte.
+
+Abgelehnt (`KernelError::Refused`, nichts geschrieben):
+
+| Fall | Satz |
+|---|---|
+| keine andere Figur zeigt die Nachricht | `NOT_SHARED` „Die Nachricht gehört nur dieser Figur.“ |
+| eine Stelle steht in einer Funktion außerhalb des eigenen Slots, die der Lauf eines anderen Slots der Datei erreicht (Sprung oder weiterlaufender Code) | `SHARED_LABEL` „Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.“ |
+| ein anderes Objekt oder Schild (Eventdateien der Header mit dieser Scriptdatei) führt einen Slot desselben Rumpfs aus | `SHARED_SCRIPT` „Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.“ |
+| die Nachricht steht nicht im Dialog, das Archiv ist gesperrt oder voll (65 535 Nachrichten) | mit Archiv und Nummer |
+| rotom hängt beim Übersetzen ein Text-Literal der Datei an dasselbe Archiv | der ganze Schritt wird zurückgenommen |
+
+Ein Übersetzungsfehler in der Datei (auch in einem anderen Script) schreibt die alte Quelle zurück
+und nimmt die Kopie zurück (`Store::rollback_to`): kein halber Schritt, nichts zum Wiederholen.
+
+Das Studio schreibt die Texte des Dialog-Editors über `edit_text_archive` mit dem optionalen
+Argument `label` („Dialog geändert“); ohne heißt der Schritt wie bisher `edit text`, `add message`,
+`remove message`.
+
 ## Prüfungen
 
 `validate` ist ein Trockenlauf des Kodierers (`chatot::validate_message`). Die Probleme sind

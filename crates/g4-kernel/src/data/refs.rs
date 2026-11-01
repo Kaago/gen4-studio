@@ -31,6 +31,9 @@
 //! - level scripts (`expanded/scripts/NNNN.json`, the same source id as a `.rotom` file of that
 //!   number): each `var_conditions[i]` with a variable `0x4000..0x8000` → that variable (read,
 //!   field `var_conditions`, slot `i`); a `var` of 0 ends the table.
+//! - script sources, messages: every numbered argument of a message command → that message of the
+//!   file's text archive (the first header naming the file; read, field the command, slot the
+//!   line; [`messages`])
 //!
 //! Every reference but those of flags and variables reads its target ([`Access::Read`]).
 //!
@@ -78,6 +81,7 @@ use crate::textproject::ids::{Stamp, stamp, watched};
 use crate::textproject::include::ScriptLookup;
 
 mod flagvars;
+mod messages;
 
 /// What a reference points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -98,6 +102,11 @@ pub enum Target {
     /// A variable: a number `0x4000..0x8000` (from `0x8000` on they are local to a script and
     /// never a target).
     Var(u16),
+    /// Message `index` of text archive `archive`.
+    Message {
+        archive: u16,
+        index: u16,
+    },
 }
 
 /// What a reference does with its target: flags and variables are read, written or both
@@ -391,7 +400,8 @@ impl RefIndex {
             return Ok(Vec::new());
         };
         let statted = if scripts {
-            Some(built.scripts.refresh(store.project())?)
+            let archives = messages::archives_now(store, Some(&built.scripts.archives));
+            Some(built.scripts.refresh(store.project(), archives)?)
         } else {
             None
         };
@@ -460,7 +470,8 @@ impl RefIndex {
             .filter(|(_, refs)| !refs.is_empty())
             .map(|(id, refs)| (key(id), refs))
             .collect();
-        let (scripts, read) = ScriptSources::default().refresh(store.project())?;
+        let archives = messages::archives_now(store, None);
+        let (scripts, read) = ScriptSources::default().refresh(store.project(), archives)?;
         let mut counts = BTreeMap::new();
         for (file, (refs, file_counts)) in read
             .into_iter()
@@ -1088,15 +1099,22 @@ thread_local! {
 struct ScriptSources {
     lookup: Option<(Stamps, Option<Arc<ScriptLookup>>)>,
     stamps: BTreeMap<u16, (SourceKind, Stamp)>,
+    /// The text archive of each script file as last read ([`messages::archives_now`]).
+    archives: messages::Archives,
 }
 
 impl ScriptSources {
     /// The sources now and the references of each one to read again (`None`: removed): every
     /// source whose kind or stamp changed, every `.rotom` source when the lookup's files changed
-    /// (or on the first call; a level script names no identifiers). Without adopted scripts
-    /// there are none. Reads everything before it returns, so a failure leaves the index as it
-    /// was.
-    fn refresh(&self, project: &Project) -> Result<(ScriptSources, ScriptReads), KernelError> {
+    /// (or on the first call; a level script names no identifiers), and every `.rotom` source
+    /// whose text archive in `archives` is not the one it was read with. Without adopted
+    /// scripts there are none. Reads everything before it returns, so a failure leaves the
+    /// index as it was.
+    fn refresh(
+        &self,
+        project: &Project,
+        archives: messages::Archives,
+    ) -> Result<(ScriptSources, ScriptReads), KernelError> {
         #[cfg(test)]
         SCRIPT_STATS.with(|n| n.set(n.get() + 1));
         let dir = project.expanded_dir(AssetKind::Script);
@@ -1122,7 +1140,10 @@ impl ScriptSources {
         let reread: Vec<(u16, SourceKind)> = stamps
             .iter()
             .filter(|&(file, now)| {
-                (all && now.0 == SourceKind::Script) || self.stamps.get(file) != Some(now)
+                (all && now.0 == SourceKind::Script)
+                    || self.stamps.get(file) != Some(now)
+                    || (now.0 == SourceKind::Script
+                        && self.archives.get(file) != archives.get(file))
             })
             .map(|(&file, &(kind, _))| (file, kind))
             .collect();
@@ -1135,6 +1156,7 @@ impl ScriptSources {
                 &reread,
                 project.family,
                 lookup.as_deref(),
+                &archives,
             )?);
         }
         out.sort_by_key(|(file, _)| *file);
@@ -1142,6 +1164,7 @@ impl ScriptSources {
             ScriptSources {
                 lookup: Some((lookup_now, lookup)),
                 stamps,
+                archives,
             },
             out,
         ))
@@ -1183,6 +1206,7 @@ fn read_scripts(
     files: &[(u16, SourceKind)],
     family: Family,
     lookup: Option<&ScriptLookup>,
+    archives: &messages::Archives,
 ) -> Result<ScriptReads, KernelError> {
     let readers = std::thread::available_parallelism()
         .map_or(1, std::num::NonZero::get)
@@ -1208,7 +1232,9 @@ fn read_scripts(
                                         return Ok((file, Some(Default::default())));
                                     };
                                     let text = String::from_utf8_lossy(&bytes);
-                                    Ok((file, Some(script_refs(file, &text, family, lookup)?)))
+                                    let archive = archives.get(&file).copied();
+                                    let read = script_refs(file, &text, family, lookup, archive)?;
+                                    Ok((file, Some(read)))
                                 }
                                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                                     Ok((file, None))
@@ -1266,6 +1292,7 @@ fn script_refs(
     text: &str,
     family: Family,
     lookup: &ScriptLookup,
+    archive: Option<u16>,
 ) -> Result<(Vec<Ref>, ScriptCounts), KernelError> {
     let Some(ast) = scripts::parse_source(text)? else {
         return Ok((Vec::new(), ScriptCounts::default()));
@@ -1325,6 +1352,9 @@ fn script_refs(
         family,
     );
     out.refs.extend(flags);
+    let uses = messages::message_uses(family, text, &ast);
+    out.refs
+        .extend(messages::script_message_refs(file, &uses, archive));
     Ok((out.refs, counts))
 }
 
@@ -1470,7 +1500,9 @@ mod tests {
         );
         let p = fx.project();
         let made = || LOOKUPS_MADE.with(std::cell::Cell::get);
-        let (first, read) = ScriptSources::default().refresh(&p).unwrap();
+        let (first, read) = ScriptSources::default()
+            .refresh(&p, Default::default())
+            .unwrap();
         // Every source: the `.rotom` one and the level scripts (`.json`) of the fixture.
         assert!(read.iter().any(|&(file, _)| file == 0));
         assert_eq!(read.len(), first.stamps.len());
@@ -1480,7 +1512,7 @@ mod tests {
             source,
             b"script Main #1:\n    StartTrainerBattle 4, 0\n    End\n\n",
         );
-        let (second, read) = first.refresh(&p).unwrap();
+        let (second, read) = first.refresh(&p, Default::default()).unwrap();
         assert_eq!(read.len(), 1);
         assert_eq!(made(), after_first, "kept");
         // A changed register makes a new one.
@@ -1489,7 +1521,7 @@ mod tests {
             "TRAINER_YOUNGSTER_KAI",
             "TRAINER_YOUNGSTER_KAY",
         );
-        let (_, read) = second.refresh(&p).unwrap();
+        let (_, read) = second.refresh(&p, Default::default()).unwrap();
         // Every `.rotom` source again; a level script names no identifiers.
         assert_eq!(read.len(), 1, "all sources again");
         assert_eq!(made(), after_first + 1);

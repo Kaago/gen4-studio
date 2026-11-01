@@ -29,9 +29,10 @@ use crate::checks::scripts::{MessageUse, database, message_uses_of};
 use crate::data::refs::{PARTNER_SCRIPTS, TRAINER_SCRIPTS};
 use crate::data::trainer_create::ADOPT_FIRST;
 use crate::error::KernelError;
-use crate::project::Project;
 use crate::scripts::{self, ScriptTarget, SourceKind};
-use crate::store::Store;
+use crate::project::{AssetId, AssetKind, Project};
+use crate::store::{ChangeId, MapHeader, Store};
+use crate::text::default_message_id;
 
 /// Script numbers from here on are common scripts (`scripts::resolve_script`).
 const FIRST_COMMON: u16 = 2000;
@@ -122,6 +123,321 @@ pub fn dialog_of(
     Ok(Dialog::without_messages(source))
 }
 
+/// What [`split_message`] did: message `old_index` of `archive` copied to `new_index`, the
+/// source lines rewritten (1-based, ascending) and the step recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SplitReport {
+    pub archive: u16,
+    pub old_index: u16,
+    pub new_index: u16,
+    pub change: Option<ChangeId>,
+    pub lines: Vec<u32>,
+}
+
+/// Refusal of [`split_message`]: no other figure shows the message.
+pub const NOT_SHARED: &str = "Die Nachricht gehört nur dieser Figur.";
+/// Refusal of [`split_message`]: a use of the message sits in a label another script of the
+/// file reaches too.
+pub const SHARED_LABEL: &str =
+    "Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.";
+/// Refusal of [`split_message`]: another figure runs the same script, so a rewrite would
+/// change its dialog too.
+pub const SHARED_SCRIPT: &str =
+    "Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.";
+
+/// Gives figure (`file`, `index`) its own copy of message (`archive`, `message`): the copy
+/// appended to the archive and every use of the message in this figure's dialog (its slot and
+/// the labels only it reaches) rewritten to the new index, as one undo step „Dialog von Figur
+/// {local_id} abgespalten“. Refused when the message is not shared (`NOT_SHARED`), when a use
+/// sits in a label another script of the file also reaches (`SHARED_LABEL`), when the archive
+/// is full or locked.
+///
+/// `index` is an object of event file `file`, its dialog looked up on `header` as
+/// [`dialog_of`] does. Also refused: a message the dialog does not show, a slot another figure
+/// (an object or a sign of an event file whose header names the script file) runs as well
+/// ([`SHARED_SCRIPT`]: the rewrite would change its dialog too). The copy keeps the text and
+/// the other languages and takes the id `msg_<n>`; the store's archive takes it (saved with
+/// the next save), the source is written and compiled at once. A compile error in the file
+/// puts the source back and leaves no step; a compile that writes into `archive` itself (a
+/// text literal of the file) is undone as a whole and refused.
+pub fn split_message(
+    store: &mut Store,
+    header: u16,
+    file: u16,
+    index: u16,
+    archive: u16,
+    message: u16,
+) -> Result<SplitReport, KernelError> {
+    let dialog = dialog_of(store, header, file, DialogKind::Object, index)?;
+    let shown: Vec<&DialogMessage> = dialog
+        .messages
+        .iter()
+        .filter(|m| (m.archive, m.index) == (archive, message))
+        .collect();
+    let (script_file, slot) = match (&dialog.source, shown.first()) {
+        (DialogSource::Local { file, slot, .. }, Some(first)) => {
+            if first.shared_with == 0 {
+                return Err(KernelError::Refused(NOT_SHARED.into()));
+            }
+            (*file, u32::from(*slot))
+        }
+        (DialogSource::Unreadable { reason }, _) => {
+            return Err(KernelError::Refused(reason.clone()));
+        }
+        _ => {
+            return Err(KernelError::Refused(not_in_dialog(archive, message, index)));
+        }
+    };
+    let local_id = store.event(file)?.object_events[usize::from(index)].local_id;
+
+    // The uses to rewrite, each with the function it stands in.
+    let project = store.project_arc();
+    let family = project.family;
+    let parsed = parse(&project, script_file).map_err(KernelError::Refused)?;
+    let graph = Graph::of(&parsed);
+    let own = graph
+        .walk(&parsed, family, slot)
+        .ok_or_else(|| KernelError::Refused(no_slot(script_file, slot)))?;
+    let start = graph.slots[&slot];
+    let uses: Vec<&MessageUse> = own
+        .uses
+        .iter()
+        .filter(|u| message_index(&u.message) == message)
+        .map(|u| &u.message)
+        .collect();
+    // A slot of the same body another figure runs: the rewrite would be its rewrite too.
+    let own_slots: BTreeSet<u16> = graph
+        .slots
+        .iter()
+        .filter(|&(_, &at)| at == start)
+        .filter_map(|(&id, _)| u16::try_from(id).ok())
+        .collect();
+    if runs_elsewhere(store, script_file, &own_slots, (file, index))? {
+        return Err(KernelError::Refused(SHARED_SCRIPT.into()));
+    }
+    // A label (or the code another script runs on into) that another slot reaches.
+    let reached: BTreeSet<usize> = graph
+        .slots
+        .keys()
+        .filter(|id| !own_slots.contains(&u16::try_from(**id).unwrap_or(u16::MAX)))
+        .filter_map(|&id| graph.walk(&parsed, family, id))
+        .flat_map(|shown| shown.visited)
+        .collect();
+    let shared_label = |u: &Use| u.function != start && reached.contains(&u.function);
+    if own
+        .uses
+        .iter()
+        .any(|u| message_index(&u.message) == message && shared_label(u))
+    {
+        return Err(KernelError::Refused(SHARED_LABEL.into()));
+    }
+
+    let id = AssetId {
+        kind: AssetKind::TextArchive,
+        index: archive,
+    };
+    let len = store.text_archive(archive)?.messages.len();
+    if let Some(reason) = store.locked(id) {
+        return Err(KernelError::Refused(format!(
+            "Textarchiv {archive} ist gesperrt: {reason}"
+        )));
+    }
+    let new_index = u16::try_from(len)
+        .ok()
+        .filter(|&n| n < u16::MAX)
+        .ok_or_else(|| KernelError::Refused(format!("Textarchiv {archive} ist voll.")))?;
+    let text = rewrite(&parsed.text, &uses, message, new_index)?;
+    let mut lines: Vec<u32> = uses.iter().map(|u| u.line).collect();
+    lines.sort_unstable();
+    lines.dedup();
+
+    let label = format!("Dialog von Figur {local_id} abgespalten");
+    let mark = store.undo_depth();
+    let script = AssetId {
+        kind: AssetKind::Script,
+        index: script_file,
+    };
+    let before = scripts::snapshot_script(&project, script_file)?;
+    let before_state = scripts::snapshot_compile_state(&project)?;
+    // The archives a compile of the file may write (its headers'), as they are on disk.
+    let saved = store
+        .header_table()?
+        .iter()
+        .filter(|h| h.script_file_id() == script_file)
+        .map(MapHeader::text_archive_id)
+        .chain([archive])
+        .collect::<BTreeSet<u16>>()
+        .into_iter()
+        .map(|a| Ok((a, scripts::snapshot_archive(&project, a)?)))
+        .collect::<Result<BTreeMap<u16, scripts::ArchiveSnapshot>, KernelError>>()?;
+
+    let ((), transaction) = store.transaction(&label, |tx| {
+        tx.edit_text_archive(archive, |doc| {
+            let mut copy = doc.messages[usize::from(message)].clone();
+            copy.id = default_message_id(len);
+            doc.messages.push(copy);
+        })
+    })?;
+    let touched = match scripts::write_and_compile(&project, script_file, &text) {
+        Ok(touched) => touched,
+        Err(e) => {
+            store.rollback_to(mark)?;
+            return Err(e);
+        }
+    };
+
+    // The file steps, merged with the transaction into one step. The compile state goes back
+    // as a whole file (last step): the compile wrote all of it anew.
+    let mut steps = vec![scripts::script_file_step(&project, script_file, &before)?];
+    steps[0].rotom_entry = None;
+    for (&a, snapshot) in &saved {
+        if touched.contains(&a) {
+            steps.push(scripts::archive_file_step(&project, a, snapshot)?);
+        }
+    }
+    steps.push(scripts::compile_state_step(&project, script, before_state)?);
+    let mut change = transaction;
+    for step in steps {
+        if !step.files.is_empty() || step.rotom_entry.is_some() {
+            change = Some(store.record_file_step(&label, step));
+        }
+    }
+    if touched.contains(&archive) {
+        // rotom appended a text literal of the file where the copy goes.
+        store.rollback_to(mark)?;
+        return Err(KernelError::Refused(literal_appended(archive)));
+    }
+    for &a in &touched {
+        let touched_id = AssetId {
+            kind: AssetKind::TextArchive,
+            index: a,
+        };
+        if store.is_loaded(touched_id) {
+            store.reload_from_disk(touched_id)?;
+        }
+    }
+    store.squash_since(mark, &label);
+    Ok(SplitReport {
+        archive,
+        old_index: message,
+        new_index,
+        change,
+        lines,
+    })
+}
+
+/// The refusal for a message the dialog does not show.
+fn not_in_dialog(archive: u16, message: u16, index: u16) -> String {
+    format!("Objekt {index} zeigt Nachricht {message} aus Textarchiv {archive} nicht.")
+}
+
+/// The refusal for a compile that appended a text literal of the file to the archive of the
+/// copy.
+fn literal_appended(archive: u16) -> String {
+    format!(
+        "Beim Übersetzen hängte rotom ein Text-Literal des Scripts an Textarchiv {archive} an; \
+         in Bauen das Literal durch eine Nummer ersetzen."
+    )
+}
+
+/// Whether an object or a sign other than `own` (event file, object index) runs one of
+/// `slots` of script file `script_file`: over the event files of every header that names the
+/// file. An event file that cannot be read runs nothing.
+fn runs_elsewhere(
+    store: &mut Store,
+    script_file: u16,
+    slots: &BTreeSet<u16>,
+    own: (u16, u16),
+) -> Result<bool, KernelError> {
+    let files: BTreeSet<u16> = store
+        .header_table()?
+        .iter()
+        .filter(|h| h.script_file_id() == script_file)
+        .map(MapHeader::event_file_id)
+        .collect();
+    for event_file in files {
+        let Ok(events) = store.event(event_file) else {
+            continue;
+        };
+        let objects = (0u16..)
+            .zip(&events.object_events)
+            .any(|(i, o)| slots.contains(&o.script) && (event_file, i) != own);
+        if objects || events.bg_events.iter().any(|b| slots.contains(&b.script)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// `text` with the number of every use of `uses` (message `message`) replaced by `new`, from
+/// the back to the front so the positions before stay. A position that does not hold the
+/// number is an error (the source changed since it was read).
+fn rewrite(
+    text: &str,
+    uses: &[&MessageUse],
+    message: u16,
+    new: u16,
+) -> Result<String, KernelError> {
+    let mut at: Vec<std::ops::Range<usize>> = uses
+        .iter()
+        .map(|u| {
+            number_at(text, u.line, u.col)
+                .filter(|range| parse_number(&text[range.clone()]) == Some(u32::from(message)))
+                .ok_or_else(|| {
+                    KernelError::InvalidProject(format!(
+                        "Zeile {}, Spalte {}: dort steht nicht die Nachricht {message}",
+                        u.line, u.col
+                    ))
+                })
+        })
+        .collect::<Result<_, _>>()?;
+    at.sort_by_key(|range| std::cmp::Reverse(range.start));
+    at.dedup();
+    let mut out = text.to_owned();
+    for range in at {
+        out.replace_range(range, &new.to_string());
+    }
+    Ok(out)
+}
+
+/// The byte range of the number token at 1-based `line` and `col` (UTF-16 units, as
+/// [`scripts::position_of`] counts them).
+fn number_at(text: &str, line: u32, col: u32) -> Option<std::ops::Range<usize>> {
+    let line_start: usize = text
+        .split_inclusive('\n')
+        .take(usize::try_from(line).ok()?.checked_sub(1)?)
+        .map(str::len)
+        .sum();
+    let mut units = 1;
+    let mut start = None;
+    for (i, c) in text.get(line_start..)?.char_indices() {
+        if units == col {
+            start = Some(line_start + i);
+            break;
+        }
+        if c == '\n' {
+            return None;
+        }
+        units += u32::try_from(c.len_utf16()).ok()?;
+    }
+    let start = start?;
+    let len = text[start..]
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+        .unwrap_or(text.len() - start);
+    (len > 0 && scripts::position_of(text, start) == (line, col)).then_some(start..start + len)
+}
+
+/// A number as rotom writes one: decimal or `0x` hexadecimal.
+fn parse_number(token: &str) -> Option<u32> {
+    match token
+        .strip_prefix("0x")
+        .or_else(|| token.strip_prefix("0X"))
+    {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => token.parse().ok(),
+    }
+}
+
 /// The (archive, index) pairs script `#slot` of `file` shows, jumps followed, without the
 /// counter and the text: what `shared_with` and the reference index read. A file without a
 /// readable rotom source or without the slot is an error.
@@ -129,7 +445,8 @@ pub fn dialog_of(
     not(test),
     expect(
         dead_code,
-        reason = "read by split_message and the message reference index, later tasks of 3d.5"
+        reason = "no caller outside the tests yet: split_message walks with the function of \
+                  each use (`Graph::walk`), the reference index counts every use of the file"
     )
 )]
 pub(crate) fn messages_of_slot(
@@ -321,7 +638,7 @@ impl<'a> Sources<'a> {
         self.parsed(file)
             .ok()
             .and_then(|parsed| shown_in(parsed, family, slot))
-            .map(|shown| shown.uses.iter().map(|(u, _)| message_index(u)).collect())
+            .map(|shown| shown.uses.iter().map(|u| message_index(&u.message)).collect())
             .unwrap_or_default()
     }
 }
@@ -357,11 +674,21 @@ fn message_index(u: &MessageUse) -> u16 {
     u16::try_from(u.message).unwrap_or(u16::MAX)
 }
 
-/// What a script shows: its message uses with their branch, in walk order, and the labels
-/// followed.
+/// What a script shows: its message uses with their branch, in walk order, the labels
+/// followed and every function walked.
 struct Shown {
-    uses: Vec<(MessageUse, Option<String>)>,
+    uses: Vec<Use>,
     followed: Vec<String>,
+    /// The functions (indices into [`Graph::functions`]) the walk went through.
+    visited: BTreeSet<usize>,
+}
+
+/// One message use on the walk: in function `function` (an index into [`Graph::functions`]),
+/// inside the `if` of `branch`.
+struct Use {
+    message: MessageUse,
+    branch: Option<String>,
+    function: usize,
 }
 
 impl Shown {
@@ -369,14 +696,14 @@ impl Shown {
     fn messages(&self, archive: u16) -> Vec<DialogMessage> {
         self.uses
             .iter()
-            .map(|(u, branch)| DialogMessage {
+            .map(|u| DialogMessage {
                 archive,
-                index: message_index(u),
+                index: message_index(&u.message),
                 text: None,
-                command: u.command.clone(),
-                line: u.line,
-                col: u.col,
-                branch: branch.clone(),
+                command: u.message.command.clone(),
+                line: u.message.line,
+                col: u.message.col,
+                branch: u.branch.clone(),
                 shared_with: 0,
             })
             .collect()
@@ -396,63 +723,91 @@ struct Function<'a> {
     next: Option<usize>,
 }
 
+/// The scripts and labels of a parsed file, in file order, with their names and the slots
+/// they start.
+struct Graph<'a> {
+    functions: Vec<Function<'a>>,
+    /// The scripts and labels of the file by name.
+    labels: BTreeMap<&'a str, usize>,
+    /// The function each declared slot (`#n`) starts at.
+    slots: BTreeMap<u32, usize>,
+}
+
+impl<'a> Graph<'a> {
+    fn of(parsed: &'a Parsed) -> Graph<'a> {
+        let mut functions: Vec<Function> = Vec::new();
+        let mut labels: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut slots = BTreeMap::new();
+        // The function the previous item was, while nothing else stands between.
+        let mut previous: Option<usize> = None;
+        for item in &parsed.file.items {
+            // A script (`script name #n:`) or a label (`name:`, a function without an id).
+            let StatementKind::Function { headers, body } = &item.node else {
+                previous = None;
+                continue;
+            };
+            let Some(first) = headers.first() else {
+                previous = None;
+                continue;
+            };
+            let at = functions.len();
+            functions.push(Function {
+                name: first.name.as_str(),
+                body,
+                next: None,
+            });
+            if let Some(previous) = previous {
+                functions[previous].next = Some(at);
+            }
+            previous = Some(at);
+            for h in headers {
+                labels.entry(h.name.as_str()).or_insert(at);
+                if let Some(id) = h.id {
+                    slots.entry(id).or_insert(at);
+                }
+            }
+        }
+        Graph {
+            functions,
+            labels,
+            slots,
+        }
+    }
+
+    /// Walks script `#slot` of the file `parsed`; `None` when the file does not declare the
+    /// slot.
+    fn walk(&self, parsed: &'a Parsed, family: Family, slot: u32) -> Option<Shown> {
+        let start = *self.slots.get(&slot)?;
+        let limits = Limits::get();
+        let mut walk = Walk {
+            family,
+            params: limits.script.message_params.of(family),
+            jumps: limits.jump_commands(family),
+            db: database(family),
+            text: &parsed.text,
+            graph: self,
+            at: start,
+            visited: BTreeSet::from([start]),
+            pending: VecDeque::new(),
+            slot,
+            shown: Shown {
+                uses: Vec::new(),
+                followed: Vec::new(),
+                visited: BTreeSet::new(),
+            },
+        };
+        walk.run(start);
+        while let Some(label) = walk.pending.pop_front() {
+            walk.run(label);
+        }
+        walk.shown.visited = walk.visited;
+        Some(walk.shown)
+    }
+}
+
 /// Walks script `#slot` of `parsed`; `None` when the file does not declare the slot.
 fn shown_in(parsed: &Parsed, family: Family, slot: u32) -> Option<Shown> {
-    let mut functions: Vec<Function> = Vec::new();
-    let mut labels: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut start = None;
-    // The function the previous item was, while nothing else stands between.
-    let mut previous: Option<usize> = None;
-    for item in &parsed.file.items {
-        // A script (`script name #n:`) or a label (`name:`, a function without an id).
-        let StatementKind::Function { headers, body } = &item.node else {
-            previous = None;
-            continue;
-        };
-        let Some(first) = headers.first() else {
-            previous = None;
-            continue;
-        };
-        let at = functions.len();
-        functions.push(Function {
-            name: first.name.as_str(),
-            body,
-            next: None,
-        });
-        if let Some(previous) = previous {
-            functions[previous].next = Some(at);
-        }
-        previous = Some(at);
-        for h in headers {
-            labels.entry(h.name.as_str()).or_insert(at);
-        }
-        if headers.iter().any(|h| h.id == Some(slot)) {
-            start = Some(at);
-        }
-    }
-    let start = start?;
-    let limits = Limits::get();
-    let mut walk = Walk {
-        family,
-        params: limits.script.message_params.of(family),
-        jumps: limits.jump_commands(family),
-        db: database(family),
-        text: &parsed.text,
-        functions,
-        labels,
-        visited: BTreeSet::from([start]),
-        pending: VecDeque::new(),
-        slot,
-        shown: Shown {
-            uses: Vec::new(),
-            followed: Vec::new(),
-        },
-    };
-    walk.run(start);
-    while let Some(label) = walk.pending.pop_front() {
-        walk.run(label);
-    }
-    Some(walk.shown)
+    Graph::of(parsed).walk(parsed, family, slot)
 }
 
 /// Whether `statements` never run past their end: they end with `End`, `Return` or the jump
@@ -470,15 +825,15 @@ fn ends(statements: &[Statement]) -> bool {
 }
 
 /// One walk through a script and the labels it jumps or runs on to.
-struct Walk<'a> {
+struct Walk<'g, 'a> {
     family: Family,
     params: &'a [MessageParam],
     jumps: &'a [String],
     db: Option<&'static rotom::DatabaseV2>,
     text: &'a str,
-    functions: Vec<Function<'a>>,
-    /// The scripts and labels of the file by name.
-    labels: BTreeMap<&'a str, usize>,
+    graph: &'g Graph<'a>,
+    /// The function walked now.
+    at: usize,
     visited: BTreeSet<usize>,
     /// Labels jumped to and not walked yet: each is walked after the body that jumps, so the
     /// path without the jump (vanilla's `GoToIf … label` before the default text) comes first.
@@ -487,12 +842,13 @@ struct Walk<'a> {
     shown: Shown,
 }
 
-impl<'a> Walk<'a> {
+impl<'a> Walk<'_, 'a> {
     /// Walks function `at` and the functions its code runs on into (each once): the path on
     /// comes before the jump targets.
     fn run(&mut self, mut at: usize) {
         loop {
-            let function = self.functions[at];
+            let function = self.graph.functions[at];
+            self.at = at;
             self.block(function.body, None);
             let Some(next) = function.next else {
                 return;
@@ -500,7 +856,9 @@ impl<'a> Walk<'a> {
             if ends(function.body) || !self.visited.insert(next) {
                 return;
             }
-            self.shown.followed.push(self.functions[next].name.to_owned());
+            self.shown
+                .followed
+                .push(self.graph.functions[next].name.to_owned());
             at = next;
         }
     }
@@ -539,9 +897,12 @@ impl<'a> Walk<'a> {
                         Some(self.slot),
                         self.text,
                     );
-                    self.shown
-                        .uses
-                        .extend(uses.into_iter().map(|u| (u, branch.map(String::from))));
+                    let function = self.at;
+                    self.shown.uses.extend(uses.into_iter().map(|message| Use {
+                        message,
+                        branch: branch.map(String::from),
+                        function,
+                    }));
                     if self.is_jump(command) {
                         for arg in args {
                             self.follow(arg);
@@ -558,7 +919,7 @@ impl<'a> Walk<'a> {
         let (ExpressionKind::Identifier(name) | ExpressionKind::Label(name)) = &target.node else {
             return;
         };
-        let Some(&at) = self.labels.get(name.as_str()) else {
+        let Some(&at) = self.graph.labels.get(name.as_str()) else {
             return;
         };
         if !self.visited.insert(at) {
@@ -946,5 +1307,194 @@ mod tests {
             shown,
             [(9, 2, "NPCMsg"), (9, 3, "NonNPCMsg"), (9, 4, "NPCMsg")]
         );
+    }
+
+    // -- split_message ------------------------------------------------------------------
+
+    fn archive_bytes(st: &Store) -> Vec<u8> {
+        st.current_bytes(crate::project::AssetId {
+            kind: crate::project::AssetKind::TextArchive,
+            index: ARCHIVE,
+        })
+        .unwrap()
+        .unwrap()
+    }
+
+    fn source_of(st: &Store) -> String {
+        scripts::rotom_source(st.project(), 0).unwrap()
+    }
+
+    fn refused(result: Result<SplitReport, KernelError>) -> String {
+        match result {
+            Err(KernelError::Refused(reason)) => reason,
+            other => panic!("not refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn split_copies_the_message_and_rewrites_this_figures_uses_as_one_step() {
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Message 5\n    WaitButton\n    Message 5\n    End\n\
+             script sieben #7:\n    Message 5\n    End\n",
+            &TEN,
+            &[0, 0, 0, 3, 0, 0, 0, 7],
+        );
+        let depth = st.undo_depth();
+        let (source, archive) = (source_of(&st), archive_bytes(&st));
+        let member = scripts::snapshot_script(st.project(), 0).unwrap();
+
+        let report = split_message(&mut st, 0, 0, 3, ARCHIVE, 5).unwrap();
+        assert_eq!(
+            (report.archive, report.old_index, report.new_index),
+            (ARCHIVE, 5, 10)
+        );
+        assert_eq!(report.lines, [2, 4]);
+        assert!(report.change.is_some());
+        let doc = st.text_archive(ARCHIVE).unwrap();
+        assert_eq!(doc.messages.len(), 11);
+        assert_eq!(doc.messages[10].text, "fünf");
+        // Figure 3 shows the copy (both uses, the number grew a digit), figure 7 the original.
+        let (three, seven) = (of(&mut st, 3), of(&mut st, 7));
+        assert_eq!(indices(&three), [10, 10]);
+        assert_eq!(indices(&seven), [5]);
+        assert!(three.messages.iter().all(|m| m.shared_with == 0));
+        assert_eq!(seven.messages[0].shared_with, 0);
+        assert_eq!(
+            source_of(&st),
+            "script drei #3:\n    Message 10\n    WaitButton\n    Message 10\n    End\n\
+             script sieben #7:\n    Message 5\n    End\n"
+        );
+        // One step with the figure's local id.
+        assert_eq!(st.undo_depth(), depth + 1);
+        assert_eq!(
+            st.history().0.last().map(String::as_str),
+            Some("Dialog von Figur 3 abgespalten")
+        );
+        let (source_after, archive_after) = (source_of(&st), archive_bytes(&st));
+        let member_after = scripts::snapshot_script(st.project(), 0).unwrap();
+        assert_ne!(member_after.member, member.member);
+
+        st.undo().unwrap();
+        assert_eq!(source_of(&st), source);
+        assert_eq!(archive_bytes(&st), archive);
+        assert_eq!(
+            scripts::snapshot_script(st.project(), 0).unwrap().member,
+            member.member
+        );
+        assert_eq!(st.undo_depth(), depth);
+
+        st.redo().unwrap();
+        assert_eq!(source_of(&st), source_after);
+        assert_eq!(archive_bytes(&st), archive_after);
+        assert_eq!(
+            scripts::snapshot_script(st.project(), 0).unwrap().member,
+            member_after.member
+        );
+    }
+
+    #[test]
+    fn split_refuses_a_message_in_a_shared_label() {
+        let fx = TextFixture::exported();
+        // `hilfe` is reached from both scripts: its number stays.
+        let shared = "script drei #3:\n    Message 1\n    Call hilfe\n    End\n\
+                      script sieben #7:\n    Call hilfe\n    End\n\
+                      hilfe:\n    Message 7\n    Return\n";
+        let mut st = store_with(&fx, shared, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 7)),
+            SHARED_LABEL
+        );
+        assert_eq!(st.undo_depth(), depth);
+        assert_eq!(archive_bytes(&st), archive);
+        assert_eq!(source_of(&st), shared);
+
+        // Only figure 3 reaches `hilfe`; figure 7 shows message 7 in its own body: `hilfe`
+        // gets the copy, figure 7 keeps the original.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Call hilfe\n    End\n\
+             script sieben #7:\n    Message 7\n    End\n\
+             hilfe:\n    Message 7\n    Return\n",
+            &TEN,
+            &[0, 0, 0, 3, 0, 0, 0, 7],
+        );
+        let report = split_message(&mut st, 0, 0, 3, ARCHIVE, 7).unwrap();
+        assert_eq!((report.new_index, report.lines.as_slice()), (10, &[8][..]));
+        assert_eq!(indices(&of(&mut st, 3)), [10]);
+        assert_eq!(indices(&of(&mut st, 7)), [7]);
+
+        // A label the code of another script runs on into is shared as well.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Call hilfe\n    End\n\
+             script sieben #7:\n    Message 7\n\
+             hilfe:\n    Message 7\n    Return\n",
+            &TEN,
+            &[0, 0, 0, 3, 0, 0, 0, 7],
+        );
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 7)),
+            SHARED_LABEL
+        );
+    }
+
+    #[test]
+    fn split_refuses_an_unshared_message() {
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Message 1\n    Message 5\n    End\n\
+             script sieben #7:\n    Message 5\n    End\n",
+            &TEN,
+            &[0, 0, 0, 3, 0, 0, 0, 7],
+        );
+        let depth = st.undo_depth();
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 1)),
+            NOT_SHARED
+        );
+        // A message the figure does not show, another archive and a script two figures run
+        // are refused as well; nothing is recorded.
+        let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 4));
+        assert!(reason.contains("Nachricht 4"), "{reason}");
+        let reason = refused(split_message(&mut st, 0, 0, 3, ARCHIVE + 1, 5));
+        assert!(reason.contains("Nachricht 5"), "{reason}");
+        assert_eq!(st.undo_depth(), depth);
+
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Message 5\n    End\n",
+            &TEN,
+            &[0, 0, 0, 3, 3],
+        );
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
+            SHARED_SCRIPT
+        );
+    }
+
+    #[test]
+    fn a_compile_error_leaves_no_half_step() {
+        let fx = TextFixture::exported();
+        // Script #9 does not compile; the source parses, so the dialogs read.
+        let source = "script drei #3:\n    Message 5\n    End\n\
+                      script sieben #7:\n    Message 5\n    End\n\
+                      script kaputt #9:\n    GibtEsNicht 1\n    End\n";
+        let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
+        let before = scripts::snapshot_script(st.project(), 0).unwrap();
+        let err = split_message(&mut st, 0, 0, 3, ARCHIVE, 5).unwrap_err();
+        assert!(matches!(err, KernelError::Compile(_)), "{err:?}");
+        assert_eq!(st.undo_depth(), depth);
+        assert_eq!(st.history().1.len(), 0, "nothing to redo");
+        assert_eq!(archive_bytes(&st), archive);
+        let after = scripts::snapshot_script(st.project(), 0).unwrap();
+        assert_eq!((after.rotom, after.member), (before.rotom, before.member));
     }
 }

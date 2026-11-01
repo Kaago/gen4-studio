@@ -466,8 +466,8 @@ pub fn dispatch(
         }),
         "edit_text_archive" => run!(
             json, "edit_text_archive", args,
-            { index: u16, edit: TextEdit },
-            |a| edit_text_archive_impl(state, a.index, a.edit)
+            { index: u16, edit: TextEdit, label: Option<String> },
+            |a| edit_text_archive_impl(state, a.index, a.edit, a.label)
         ),
         "create_text_archive" => run!(json, "create_text_archive", args, {}, |_a| {
             create_text_archive_impl(state)
@@ -1244,7 +1244,7 @@ mod tests {
             ("get_text_archive", json!({ "index": 433 })),
             (
                 "edit_text_archive",
-                json!({ "index": 433, "edit": { "Set": { "index": 0, "text": "x" } } }),
+                json!({ "index": 433, "edit": { "Set": { "index": 0, "text": "x" } }, "label": null }),
             ),
             ("create_text_archive", Value::Null),
             ("search_text", json!({ "query": "a", "limit": 5 })),

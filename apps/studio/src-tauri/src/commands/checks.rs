@@ -1572,6 +1572,7 @@ mod tests {
                 index: 1,
                 text: LONG.into(),
             },
+            None,
         )
         .unwrap();
         let report = run_checks_impl(&state, CheckScope::All).unwrap();
@@ -1686,6 +1687,7 @@ mod tests {
                 index: 1,
                 text: format!("{LONG}!"),
             },
+            None,
         )
         .unwrap();
         let dirty = dirty_impl(&state).unwrap();
