@@ -75,6 +75,8 @@ export interface FlagRefDto {
   nav: NavTargetDto;
   header: number | null;
   header_name: string | null;
+  /** For a variable: the constant the reference sets or compares („= 3“ behind the label); null for flags and where the other operand is a variable. */
+  value: number | null;
 }
 
 /** `flagUsage`: one number with its names, area, whether the save holds it, usage and every reference. */

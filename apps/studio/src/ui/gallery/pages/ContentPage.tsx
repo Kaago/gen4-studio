@@ -112,6 +112,7 @@ const flagUsageExample: FlagUsageDto = {
       nav: { kind: "script", file: 412, line: 4 },
       header: 412,
       header_name: "Zweiblattdorf",
+      value: null,
     },
     {
       source: { kind: "Event", index: 412 },
@@ -123,6 +124,7 @@ const flagUsageExample: FlagUsageDto = {
       nav: { kind: "event", eventFile: 412, eventKind: "object", index: 3, header: 412 },
       header: 412,
       header_name: "Zweiblattdorf",
+      value: null,
     },
   ],
   ms: 2,

@@ -30,11 +30,25 @@
 # file alias of one: HeartGold `FLAG_TEMP_x4000`..`x403F`, Platinum
 # `FLAG_GALACTIC_HQ_CONTROL_ROOM_STATE`); otherwise it is a flag from a variable, only counted.
 #
+# `values` names, per command, the parameter that carries the value the command sets its one
+# other variable parameter to or compares it with (`SetVar VAR_X, 3`: `VAR_X` has the value 3);
+# the reference index keeps it as `Ref.value` when it resolves to a number below 0x4000 (from
+# there on it is a variable: `SetVar VAR_X, VAR_Y` has none). Source: the measurement of the
+# story threads, Gutachten A §2.2 (docs/research/2026-10-30-phase-3d/
+# gutachten-a-geschichten-erzaehlen.md, `gutachten-a-story.py` `var_threads`:
+# `SetVarFromValue`, `CompareVarToValue`, `SetVar`),
+# plus the macros that compare a variable with a value or a variable (`CompareVar`, `GoToIf*`,
+# `CallIf*`). HeartGold has no `SetVarFromValue`: its `SetVar` takes the value (DSPRE's
+# `SetVar` in both families), `SetOrCopyVar` a value or a variable like Platinum's `SetVar`.
+# Adding (`AddVar`, `SubVar`) is no value the variable has.
+#
 # Commands and parameters are spelled as the bundled database of the family names them
 # (canonical name; a source may write a legacy name or an alias). Commands whose parameters
 # exist only per variant of a mode (Platinum `MysteryGiftGive`, `CallTVBroadcast`,
 # `CallTVInterview`) are not positioned and contribute nothing. The test
-# `script_flagvars_name_existing_commands_and_params` checks every entry against the database.
+# `script_flagvars_name_existing_commands_and_params` checks every entry against the database,
+# `values_name_existing_commands` every `values` entry (the command has the parameter at one
+# place and exactly one variable parameter besides it).
 name_rule:
   flag: [flag, flagid, flag_id, shiny_flag]
   var: [var, variable, var_0, var_1, var_2, var_3, var_4, var_5, var_6, varid, var_id, destvarid,
@@ -100,6 +114,23 @@ pt:
     SetTrainerFlag: { trainer_id: write }
     ClearTrainerFlag: { trainer_id: write }
     CheckTrainerFlag: { trainer_id: read }
+  values:
+    SetVar: valueOrVarID
+    SetVarFromValue: value
+    CompareVarToValue: value
+    CompareVar: valueOrVarID
+    GoToIfLt: valueOrVarID
+    GoToIfEq: valueOrVarID
+    GoToIfGt: valueOrVarID
+    GoToIfLe: valueOrVarID
+    GoToIfGe: valueOrVarID
+    GoToIfNe: valueOrVarID
+    CallIfLt: valueOrVarID
+    CallIfEq: valueOrVarID
+    CallIfGt: valueOrVarID
+    CallIfLe: valueOrVarID
+    CallIfGe: valueOrVarID
+    CallIfNe: valueOrVarID
 hgss:
   flag_default: read
   var_default: borrow
@@ -122,3 +153,7 @@ hgss:
     SetTrainerFlag: { var_or_trno: write }
     ClearTrainerFlag: { var_or_trno: write }
     CheckTrainerFlag: { var_or_trno: read }
+  values:
+    SetVar: val
+    CompareVarToValue: val
+    SetOrCopyVar: flexible_value

@@ -68,7 +68,8 @@ pub struct FlagListDto {
 /// One reference to a flag or a variable: `label` says what of the source refers („Objekt 3 ·
 /// Sichtbarkeits-Flag“, „Zeile 12 · SetFlag“), `source_name` the source („Eventdatei 0394“,
 /// „Scriptdatei 0101“, „Level-Script 0005“), `nav` where a click leads, `header` the first
-/// header that uses the source (with its name).
+/// header that uses the source (with its name), `value` the constant a variable reference sets
+/// or compares (`Ref::value`).
 #[derive(Debug, Clone, Serialize)]
 pub struct FlagRefDto {
     pub source: AssetId,
@@ -80,6 +81,7 @@ pub struct FlagRefDto {
     pub nav: NavTargetDto,
     pub header: Option<u16>,
     pub header_name: Option<String>,
+    pub value: Option<u16>,
 }
 
 /// `flag_usage`: one number with its names, area, whether the save holds it, usage and every
@@ -268,6 +270,7 @@ fn describe(family: Family, r: &Ref, users: &Users) -> Option<FlagRefDto> {
         nav,
         header,
         header_name: None,
+        value: r.value,
     })
 }
 

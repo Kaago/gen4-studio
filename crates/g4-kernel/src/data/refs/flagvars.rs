@@ -25,6 +25,12 @@
 //!   condition (`CheckItem(ITEM_POTION, 1) == 1`) is a command like any other; its implicit
 //!   result variable is no reference.
 //!
+//! The value of a variable reference ([`Ref::value`]): the constant a command sets the variable
+//! to or compares it with (the parameter the family's `values` names for the command, as
+//! `SetVar`'s `valueOrVarID`), or the other operand of a comparison in a condition; only a
+//! number below `0x4000` (a variable from there on, as `SetVar VAR_X, VAR_Y`), none where it
+//! does not resolve, for the head of `match`, a bare operand and every flag.
+//!
 //! `field` of a reference is rotom's command name (`if`, `while`, `match` for conditions),
 //! `slot` the line of the argument or operand.
 
@@ -36,7 +42,7 @@ use rotom::compiler::ast::{Expression, ExpressionKind, ScriptFile};
 use rotom::compiler::token::TokenType;
 use serde::Deserialize;
 
-use super::{Access, FIRST_VARIABLE, Ref, ScriptCounts, ScriptNames, Target, script_id};
+use super::{Access, FIRST_VARIABLE, Ref, ScriptCounts, ScriptNames, Target, constant, script_id};
 use crate::flags::trainer_flag;
 use crate::scripts::{self, AstItem};
 
@@ -60,6 +66,9 @@ pub(crate) struct FlagVarParam {
     pub role: ParamRole,
     pub access: Access,
     pub direct: bool,
+    /// The argument that carries the value of this variable parameter (`values` of the family),
+    /// when there is one.
+    pub value_arg: Option<usize>,
 }
 
 /// The commands of one family whose parameters name a flag, a variable or a trainer flag, from
@@ -126,6 +135,10 @@ struct RawFamily {
     vars: Entries,
     #[serde(default)]
     trainer_flags: Entries,
+    /// Command → the parameter that carries the value its variable parameter is set to or
+    /// compared with.
+    #[serde(default)]
+    values: BTreeMap<String, String>,
 }
 
 /// rotom's parameter names of a flag and of a variable (lower case).
@@ -214,6 +227,10 @@ fn make_table(family: Family) -> Option<FlagVarTable> {
         if command.kind == "movement" {
             continue;
         }
+        let value_at = rules
+            .values
+            .get(&name)
+            .and_then(|value| command.params.iter().position(|p| p.name == *value));
         let params: Vec<FlagVarParam> = command
             .params
             .iter()
@@ -226,6 +243,7 @@ fn make_table(family: Family) -> Option<FlagVarTable> {
                     role,
                     access,
                     direct: !matches!(param.ty.as_str(), "var" | "flex"),
+                    value_arg: value_at.filter(|&at| role == ParamRole::Var && at != arg),
                 })
             })
             .collect();
@@ -352,9 +370,16 @@ struct FlagVarRefs<'s, 'n> {
 }
 
 impl FlagVarRefs<'_, '_> {
-    /// Notes what `seen` (at byte `at`) stands for: a reference of `field` with `access`, or a
-    /// count.
-    fn note(&mut self, field: &'static str, at: usize, seen: Seen, access: Access) {
+    /// Notes what `seen` (at byte `at`) stands for: a reference of `field` with `access` (and
+    /// `value`, for a variable), or a count.
+    fn note(
+        &mut self,
+        field: &'static str,
+        at: usize,
+        seen: Seen,
+        access: Access,
+        value: Option<u16>,
+    ) {
         match seen {
             Seen::Target(target) => {
                 let (line, _) = scripts::position_of(self.text, at);
@@ -365,6 +390,7 @@ impl FlagVarRefs<'_, '_> {
                     slot: Some(u16::try_from(line).unwrap_or(u16::MAX)),
                     target,
                     access,
+                    value: value.filter(|_| matches!(target, Target::Var(_))),
                 });
             }
             Seen::ScriptLocal => self.counts.script_local += 1,
@@ -384,6 +410,12 @@ impl FlagVarRefs<'_, '_> {
             .names_a_flag(expression, expression.span.start, 0, self.family)
     }
 
+    /// The constant `expression` stands for as the value of a variable: a number below
+    /// `0x4000` it resolves to; `None` for a variable, a call or what does not resolve.
+    fn constant(&self, expression: &Expression) -> Option<u16> {
+        constant(self.value(expression)?)
+    }
+
     fn command(&mut self, command: &'static str, params: &[FlagVarParam], args: &[Expression]) {
         for param in params {
             let Some(arg) = args.get(param.arg) else {
@@ -398,12 +430,16 @@ impl FlagVarRefs<'_, '_> {
                 ParamRole::Var => var_value(value),
                 ParamRole::TrainerFlag => trainer_value(self.family, value),
             };
-            self.note(command, arg.span.start, seen, param.access);
+            let constant = param
+                .value_arg
+                .and_then(|at| args.get(at))
+                .and_then(|arg| self.constant(arg));
+            self.note(command, arg.span.start, seen, param.access, constant);
         }
     }
 
     /// The condition of `if` or `while`: `!`, `&&` and `||` combine conditions, a comparison
-    /// reads its operands, a bare `FLAG_…` is a flag.
+    /// reads its operands (each with the other as its value), a bare `FLAG_…` is a flag.
     fn condition(&mut self, keyword: &'static str, expression: &Expression) {
         match &expression.node {
             ExpressionKind::Prefix {
@@ -418,30 +454,47 @@ impl FlagVarRefs<'_, '_> {
                 self.condition(keyword, left);
                 self.condition(keyword, right);
             }
-            ExpressionKind::Infix { left, right, .. } => {
-                self.operand(keyword, left);
-                self.operand(keyword, right);
+            ExpressionKind::Infix {
+                left,
+                operator,
+                right,
+            } => {
+                // Only a comparison gives each operand the other as its value.
+                let compares = matches!(
+                    operator,
+                    TokenType::Equal
+                        | TokenType::NotEqual
+                        | TokenType::LesserThan
+                        | TokenType::LesserEqual
+                        | TokenType::GreaterThan
+                        | TokenType::GreaterEqual
+                );
+                let value_of =
+                    |other: &Expression| compares.then(|| self.constant(other)).flatten();
+                let (left_value, right_value) = (value_of(right), value_of(left));
+                self.operand(keyword, left, left_value);
+                self.operand(keyword, right, right_value);
             }
             // rotom v0.7.0: src/compiler/ir/lowerer.rs flag_id_of (a bare flag constant).
             ExpressionKind::Identifier(name) if name.starts_with("FLAG_") => {
                 if let Some(value) = self.value(expression) {
                     let seen = direct_flag_value(value, self.names_a_flag(expression));
-                    self.note(keyword, expression.span.start, seen, Access::Read);
+                    self.note(keyword, expression.span.start, seen, Access::Read, None);
                 }
             }
-            _ => self.operand(keyword, expression),
+            _ => self.operand(keyword, expression, None),
         }
     }
 
     /// An operand of a comparison (or the head of `match`): from `0x4000` on a variable it
-    /// reads. A call is a command; its result variable is no reference.
-    fn operand(&mut self, keyword: &'static str, expression: &Expression) {
+    /// reads, compared with `value`. A call is a command; its result variable is no reference.
+    fn operand(&mut self, keyword: &'static str, expression: &Expression, value: Option<u16>) {
         if matches!(expression.node, ExpressionKind::Call { .. }) {
             return;
         }
-        if let Some(value) = self.value(expression) {
-            let seen = var_value(value);
-            self.note(keyword, expression.span.start, seen, Access::Read);
+        if let Some(n) = self.value(expression) {
+            let seen = var_value(n);
+            self.note(keyword, expression.span.start, seen, Access::Read, value);
         }
     }
 }
@@ -472,7 +525,7 @@ pub(crate) fn script_flagvar_refs(
         AstItem::Condition {
             keyword: "match",
             expression,
-        } => out.operand("match", expression),
+        } => out.operand("match", expression, None),
         AstItem::Condition {
             keyword,
             expression,

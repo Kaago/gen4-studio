@@ -194,6 +194,7 @@ fn r(source: AssetId, field: &'static str, slot: Option<u16>, target: Target) ->
         slot,
         target,
         access: Access::Read,
+        value: None,
     }
 }
 
@@ -1053,6 +1054,7 @@ fn a_saved_source_shows_after_the_gate() {
             slot: Some(2),
             target: Target::Flag(0x174),
             access: Access::Write,
+            value: None,
         }]
     );
     // Once the gate has passed, a plain refresh sees the next save too.
@@ -1076,6 +1078,15 @@ fn ref_of(source: AssetId, field: &'static str, slot: u16, target: Target, acces
         slot: Some(slot),
         target,
         access,
+        value: None,
+    }
+}
+
+/// `r` carrying `value` (a variable reference with the constant it sets or compares).
+fn valued(r: Ref, value: u16) -> Ref {
+    Ref {
+        value: Some(value),
+        ..r
     }
 }
 
@@ -1190,13 +1201,30 @@ fn a_trigger_reads_its_variable() {
     let mut index = RefIndex::new();
     assert_eq!(
         index.refs_where(&st, is_flag_or_var).unwrap(),
-        [ref_of(
-            EVENTS_0,
-            "var",
-            1,
-            Target::Var(0x40A5),
-            Access::Read
+        [valued(
+            ref_of(EVENTS_0, "var", 1, Target::Var(0x40A5), Access::Read),
+            1
         )]
+    );
+}
+
+#[test]
+fn a_trigger_carries_its_value() {
+    let mut events = events_with(&[], &[], &[0x40A5, 0x40A6]);
+    events.coord_events[0].value = 2;
+    // From 0x4000 on the value is no constant the index keeps.
+    events.coord_events[1].value = 0x4001;
+    let (_s, st) = event_store(&events);
+    let mut index = RefIndex::new();
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [
+            valued(
+                ref_of(EVENTS_0, "var", 0, Target::Var(0x40A5), Access::Read),
+                2
+            ),
+            ref_of(EVENTS_0, "var", 1, Target::Var(0x40A6), Access::Read),
+        ]
     );
 }
 
@@ -1266,19 +1294,25 @@ fn a_level_script_condition_reads_its_variable() {
     assert_eq!(
         index.refs_where(&st, is_flag_or_var).unwrap(),
         [
-            ref_of(
-                level,
-                "var_conditions",
-                0,
-                Target::Var(0x4015),
-                Access::Read
+            valued(
+                ref_of(
+                    level,
+                    "var_conditions",
+                    0,
+                    Target::Var(0x4015),
+                    Access::Read
+                ),
+                1
             ),
-            ref_of(
-                level,
-                "var_conditions",
-                1,
-                Target::Var(0x4016),
-                Access::Read
+            valued(
+                ref_of(
+                    level,
+                    "var_conditions",
+                    1,
+                    Target::Var(0x4016),
+                    Access::Read
+                ),
+                0
             ),
         ]
     );
@@ -1290,18 +1324,66 @@ fn a_level_script_condition_reads_its_variable() {
     assert_eq!(index.refresh_scripts_now(&st).unwrap(), [level]);
     assert_eq!(
         index.refs_where(&st, is_flag_or_var).unwrap(),
-        [ref_of(
-            level,
-            "var_conditions",
-            0,
-            Target::Var(0x4017),
-            Access::Read
+        [valued(
+            ref_of(
+                level,
+                "var_conditions",
+                0,
+                Target::Var(0x4017),
+                Access::Read
+            ),
+            1
         )]
     );
     // A level script that does not read contributes nothing.
     fx.write(LEVEL_5, b"{ not json");
     assert_eq!(index.refresh_scripts_now(&st).unwrap(), [level]);
     assert_eq!(index.refs_where(&st, is_flag_or_var).unwrap(), []);
+}
+
+#[test]
+fn a_level_script_condition_carries_its_value() {
+    let fx = TextFixture::exported();
+    // The engine compares the variable with the value; from 0x4000 on the value is a variable.
+    fx.write(
+        LEVEL_5,
+        &level_script(&[(0x4015, 3, 1), (0x4016, 0x4017, 2), (0x4018, 0, 3)]),
+    );
+    let st = Store::new(Arc::new(fx.project()));
+    let mut index = RefIndex::new();
+    let level = id(AssetKind::Script, 5);
+    assert_eq!(
+        index.refs_where(&st, is_flag_or_var).unwrap(),
+        [
+            valued(
+                ref_of(
+                    level,
+                    "var_conditions",
+                    0,
+                    Target::Var(0x4015),
+                    Access::Read
+                ),
+                3
+            ),
+            ref_of(
+                level,
+                "var_conditions",
+                1,
+                Target::Var(0x4016),
+                Access::Read
+            ),
+            valued(
+                ref_of(
+                    level,
+                    "var_conditions",
+                    2,
+                    Target::Var(0x4018),
+                    Access::Read
+                ),
+                0
+            ),
+        ]
+    );
 }
 
 #[test]
