@@ -20,6 +20,7 @@ use super::super::arts::{
 };
 use super::super::canon::json_problem;
 use super::super::codes::SCHEMA_CODE;
+use super::super::egg_moves::{member_rel as egg_member_rel, place as egg_place, place_bytes};
 use super::super::locate::located;
 use super::super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
@@ -47,13 +48,15 @@ pub(super) const REGISTERS: [SymbolKind; 4] = [
 /// The assets of one unit a write was given, with their bytes.
 pub(super) type Given<'a> = Vec<(AssetId, &'a [u8])>;
 
-/// Where an asset lives in the text project.
+/// Where an asset lives in the text project. The egg moves (one table) are the field
+/// `egg_moves` of every species file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Place {
     Entity { art: Art, index: u16 },
     Item { member: u16 },
     Headers,
     Binary { kind: AssetKind, index: u16 },
+    EggMoves,
 }
 
 /// The place of `id`; `None` for kinds the text project does not model (text archives,
@@ -64,6 +67,13 @@ pub(super) fn place_of(project: &Project, id: AssetId) -> Option<Place> {
     }
     let art = match id.kind {
         AssetKind::HeaderTable => return (id.index == 0).then_some(Place::Headers),
+        // Only where the table has a place (not locked) and the species have their files.
+        AssetKind::EggMoves => {
+            return (id.index == 0
+                && Art::Species.kinds().iter().all(|&k| project.has_archive(k))
+                && egg_place(project).is_some())
+            .then_some(Place::EggMoves);
+        }
         AssetKind::Item => {
             return (project.has_archive(AssetKind::Item) && item_members(project).is_some())
                 .then_some(Place::Item { member: id.index });
@@ -93,6 +103,7 @@ impl Place {
             Place::Item { member } => format!("{}/@{member:04}", key_of(&Art::Items.dir())),
             Place::Headers => format!("{}/", key_of(&Art::Headers.dir())),
             Place::Binary { kind, index } => key_of(&binary_rel(kind, index)),
+            Place::EggMoves => super::EGG_MOVES_UNIT_KEY.to_owned(),
         }
     }
 }
@@ -152,6 +163,10 @@ pub(super) fn disk_bytes(project: &Project, id: AssetId) -> Result<Option<Vec<u8
             },
         ),
         AssetKind::HeaderTable => Ok(Some(project.read_header_table_bytes()?)),
+        AssetKind::EggMoves => match egg_place(project) {
+            Some(place) => place_bytes(project, &place),
+            None => Ok(None),
+        },
         kind => disk_member(project, kind, id.index),
     }
 }
@@ -289,6 +304,10 @@ pub(super) fn place_members(project: &Project, place: Place) -> Result<Vec<PathB
             .collect(),
         Place::Item { member } => vec![member_rel(project, AssetKind::Item, usize::from(member))],
         Place::Binary { kind, index } => vec![member_rel(project, kind, usize::from(index))],
+        Place::EggMoves => egg_place(project)
+            .and_then(|place| egg_member_rel(project, &place))
+            .into_iter()
+            .collect(),
         Place::Headers => {
             let mut out = Vec::new();
             if dynamic_headers::is_applied(project)? {

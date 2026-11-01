@@ -52,10 +52,13 @@ pub(crate) const CONFLICT_CODE: &str = "textproject.conflict";
 /// Build step, full run: a member differs from its JSON and from the base layer; nothing is
 /// written.
 pub(crate) const UNSYNCED_CODE: &str = "textproject.unsynced";
+/// Import, warning: species files carry `egg_moves`, but the egg move table has no place to be
+/// written (Platinum with an unchecked overlay or a missing signature); nothing is written.
+pub(crate) const EGG_MOVES_LOCKED_CODE: &str = "textproject.egg-moves-locked";
 
 /// Every code, for the documentation test.
 #[cfg(test)]
-const ALL: [&str; 20] = [
+const ALL: [&str; 21] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -76,6 +79,7 @@ const ALL: [&str; 20] = [
     MEMBER_NEWER_CODE,
     CONFLICT_CODE,
     UNSYNCED_CODE,
+    EGG_MOVES_LOCKED_CODE,
 ];
 
 #[cfg(test)]

@@ -596,6 +596,7 @@ fn items_project(dir: &Path) -> Project {
         symbols: &mut symbols,
         base: &base,
         side: Vec::new(),
+        egg_moves: None,
     };
     let items =
         crate::textproject::schema::data::export_items(&member_of, &members, &mut ctx).unwrap();
@@ -812,4 +813,233 @@ fn the_diff_source_takes_fallback_ids_and_never_writes() {
         EntitySource::open(&p),
         Err(KernelError::Refused(_))
     ));
+}
+
+const EGG: AssetId = AssetId {
+    kind: AssetKind::EggMoves,
+    index: 0,
+};
+
+/// Every species file of the synthetic project.
+fn species_files() -> Vec<PathBuf> {
+    (0..crate::test_support::PT_SPECIES_MEMBERS)
+        .map(|n| PathBuf::from(format!("data/species/{n:04}.json")))
+        .collect()
+}
+
+/// The member of the egg moves: DSPRE's patch NARC member or the overlay.
+fn egg_member(patch: bool) -> &'static str {
+    if patch {
+        "unpacked/eggMoves/0000"
+    } else {
+        "arm9_overlays/ov005.bin"
+    }
+}
+
+/// Species `n`'s file with `egg_moves` set to `value`, pretty but not canonical.
+fn set_egg_moves(fx: &TextFixture, n: u32, value: Value) {
+    let rel = format!("data/species/{n:04}.json");
+    let mut v = json(fx, &rel);
+    v.as_object_mut()
+        .unwrap()
+        .insert("egg_moves".to_owned(), value);
+    fx.write(&rel, &serde_json::to_vec_pretty(&v).unwrap());
+}
+
+/// The table's bytes in the store's form with `edit` applied (the budget kept).
+fn edited_table(
+    p: &crate::project::Project,
+    edit: impl FnOnce(&mut g4_formats::data::egg_moves::EggMoves),
+) -> Vec<u8> {
+    let bytes = disk_bytes(p, EGG).unwrap().unwrap();
+    let mut table = g4_formats::data::egg_moves::EggMoves::read(&bytes).unwrap();
+    if p.family == g4_formats::game::Family::Pt
+        && bytes.len() == crate::test_support::PT_EGG_MOVES_BUDGET
+    {
+        table.set_budget(Some(bytes.len()));
+    }
+    edit(&mut table);
+    table.write().unwrap()
+}
+
+fn egg_table(bytes: &[u8]) -> g4_formats::data::egg_moves::EggMoves {
+    g4_formats::data::egg_moves::EggMoves::read(bytes).unwrap()
+}
+
+#[test]
+fn egg_moves_unit_reads_from_the_species_files_and_writes_only_the_field() {
+    for patch in [false, true] {
+        let fx = TextFixture::platinum_de_exported(patch);
+        let p = fx.project();
+        let unit = unit_of(&p, EGG).unwrap().unwrap();
+        assert_eq!(unit.key, EGG_MOVES_UNIT_KEY);
+        assert_eq!(unit.sources, species_files());
+        assert_eq!(unit.members, paths(&[egg_member(patch)]));
+        assert_eq!(unit.assets, [EGG]);
+        assert_eq!(
+            json(&fx, "data/species/0001.json")["egg_moves"],
+            serde_json::json!(["MOVE_MEGA_PUNCH", "MOVE_FIRE_PUNCH"])
+        );
+        assert_eq!(
+            json(&fx, "data/species/0003.json")["egg_moves"],
+            serde_json::json!([])
+        );
+        assert_eq!(json(&fx, "data/species/0002.json").get("egg_moves"), None);
+
+        let mut source = EntitySource::open(&p).unwrap();
+        let on_disk = disk_bytes(&p, EGG).unwrap().unwrap();
+        assert_eq!(source.read(&p, EGG).unwrap(), Some(on_disk.clone()));
+        assert!(source.matches_members(&p, &[EGG]).unwrap());
+
+        // A swap by hand reads back; the member stays.
+        let saved = fx.read("data/species/0001.json");
+        set_egg_moves(&fx, 1, serde_json::json!([7, "MOVE_MEGA_PUNCH"]));
+        let read = source.read(&p, EGG).unwrap().unwrap();
+        assert_eq!(read.len(), on_disk.len(), "patch {patch}");
+        assert_eq!(egg_table(&read).moves_of(1), Some([7, 5].as_slice()));
+        assert!(!source.matches_members(&p, &[EGG]).unwrap());
+        fx.write("data/species/0001.json", &saved);
+
+        // A write changes the field of the species it touches and nothing else.
+        let before = tree(&fx);
+        let bytes = edited_table(&p, |t| {
+            t.set_moves(1, vec![7, 5]);
+            t.set_moves(4, vec![16]);
+        });
+        let out = source
+            .write(&p, &[(EGG, bytes.clone())], &|_| None)
+            .unwrap();
+        assert_eq!(
+            out.sources,
+            paths(&["data/species/0001.json", "data/species/0004.json"]),
+            "patch {patch}"
+        );
+        assert_eq!(changed(&before, &tree(&fx)), out.sources);
+        assert_eq!(
+            json(&fx, "data/species/0001.json")["egg_moves"],
+            serde_json::json!(["MOVE_FIRE_PUNCH", "MOVE_MEGA_PUNCH"])
+        );
+        assert_eq!(
+            json(&fx, "data/species/0004.json")["egg_moves"],
+            serde_json::json!(["MOVE_GUST"])
+        );
+        assert_eq!(disk_bytes(&p, EGG).unwrap().unwrap(), on_disk, "no member");
+        assert_eq!(source.read(&p, EGG).unwrap(), Some(bytes.clone()));
+
+        // Canonical: once the member holds the table, the full export writes nothing.
+        let member = fx.root().join(egg_member(patch));
+        if patch {
+            std::fs::write(&member, &bytes).unwrap();
+        } else {
+            let mut ov = std::fs::read(&member).unwrap();
+            let at = crate::test_support::PT_EGG_MOVES_OFFSET;
+            ov[at..at + bytes.len()].copy_from_slice(&bytes);
+            std::fs::write(&member, ov).unwrap();
+        }
+        let written = tree(&fx);
+        full_export(&fx);
+        assert_eq!(changed(&written, &tree(&fx)), Vec::<PathBuf>::new());
+
+        // A save of a species part keeps the field, also one written with numbers.
+        set_egg_moves(&fx, 1, serde_json::json!([7, 5]));
+        let personal = id(AssetKind::Personal, 1);
+        let mut bytes = disk_bytes(&p, personal).unwrap().unwrap();
+        bytes[0] = bytes[0].wrapping_add(1);
+        source.write(&p, &[(personal, bytes)], &|_| None).unwrap();
+        assert_eq!(
+            json(&fx, "data/species/0001.json")["egg_moves"],
+            serde_json::json!([7, 5])
+        );
+    }
+}
+
+#[test]
+fn editing_egg_moves_in_a_text_project_leaves_no_pending_external_change() {
+    use crate::textproject::sync::{UnitSide, scan};
+    for patch in [false, true] {
+        let fx = TextFixture::platinum_de_exported(patch);
+        let p = std::sync::Arc::new(fx.project());
+        let before = tree(&fx);
+        let mut store = crate::store::Store::new(std::sync::Arc::clone(&p));
+        assert_eq!(
+            store.egg_moves().unwrap().moves_of(1),
+            Some([5, 7].as_slice())
+        );
+        store
+            .edit_egg_moves("Ei-Attacken getauscht", |t| t.set_moves(1, vec![7, 5]))
+            .unwrap()
+            .expect("changed");
+        store.save().unwrap();
+        assert_eq!(
+            changed(&before, &tree(&fx)),
+            paths(&["data/species/0001.json"]),
+            "patch {patch}"
+        );
+        let member = disk_bytes(&p, EGG).unwrap().unwrap();
+        assert_eq!(egg_table(&member).moves_of(1), Some([7, 5].as_slice()));
+        let found = scan(&p, &mut |_| {}).unwrap();
+        assert!(
+            found.units.iter().all(|u| u.side == UnitSide::InSync),
+            "patch {patch}: {:?}",
+            found.units
+        );
+        // Without a record every unit is judged: the species and the egg moves are in step.
+        crate::build::state::BuildState::update(fx.root(), |s| s.sync = None).unwrap();
+        let full = scan(&p, &mut |_| {}).unwrap();
+        assert!(full.full);
+        let open: Vec<_> = full
+            .units
+            .iter()
+            .filter(|u| u.side != UnitSide::InSync)
+            .map(|u| (&u.key, u.side))
+            .collect();
+        assert!(open.is_empty(), "patch {patch}: {open:?}");
+        assert!(full.units.iter().any(|u| u.key == EGG_MOVES_UNIT_KEY));
+    }
+}
+
+#[test]
+fn a_hand_edit_of_egg_moves_is_found_by_the_scan_and_taken_into_the_member() {
+    use crate::textproject::sync::{UnitSide, apply_one_sided, scan};
+    for patch in [false, true] {
+        let fx = TextFixture::platinum_de_exported(patch);
+        let p = fx.project();
+        set_egg_moves(
+            &fx,
+            1,
+            serde_json::json!(["MOVE_FIRE_PUNCH", "MOVE_MEGA_PUNCH"]),
+        );
+        let found = scan(&p, &mut |_| {}).unwrap();
+        let sides: BTreeMap<&str, UnitSide> = found
+            .units
+            .iter()
+            .map(|u| (u.key.as_str(), u.side))
+            .collect();
+        assert_eq!(
+            sides.get(EGG_MOVES_UNIT_KEY),
+            Some(&UnitSide::Files),
+            "{sides:?}"
+        );
+        assert_eq!(
+            sides.get("data/species/0001.json"),
+            Some(&UnitSide::InSync),
+            "{sides:?}"
+        );
+        let label = &found
+            .units
+            .iter()
+            .find(|u| u.key == EGG_MOVES_UNIT_KEY)
+            .unwrap()
+            .label;
+        assert_eq!(label, "Ei-Attacken");
+        apply_one_sided(&p, &found, &|_| false).unwrap();
+        let member = disk_bytes(&p, EGG).unwrap().unwrap();
+        assert_eq!(egg_table(&member).moves_of(1), Some([7, 5].as_slice()));
+        let again = scan(&p, &mut |_| {}).unwrap();
+        assert!(
+            again.units.iter().all(|u| u.side == UnitSide::InSync),
+            "patch {patch}: {:?}",
+            again.units
+        );
+    }
 }

@@ -17,8 +17,9 @@ use crate::text::{Severity, TextKeep, record_text_sync, resolve_conflict};
 
 use super::super::base_layer::{BaseLayer, RAW_DIR, place_raw};
 use super::super::canon::write_if_changed;
+use super::super::egg_moves::{member_rel as egg_member_rel, place as egg_place};
 use super::super::import::{ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import};
-use super::super::source::EntitySource;
+use super::super::source::{EGG_MOVES_UNIT_KEY, EntitySource};
 use super::super::step::forget_kept;
 use super::watch::{Of, Watch, of_unit};
 use super::{ApplyReport, RECORD_STEP, ScanReport, SyncProgress, SyncUnit, UnitSide, key};
@@ -335,16 +336,26 @@ fn import_units<'a>(
             (u.key.clone(), KernelError::Compile(problems))
         })
         .collect();
+    // The egg moves share their sources with every species: their write only with their own
+    // unit.
+    let eggs = ok.iter().any(|u| u.key == EGG_MOVES_UNIT_KEY);
+    let egg_member = egg_place(project).and_then(|place| egg_member_rel(project, &place));
     let mine = |w: &PlannedWrite| {
         ok.iter()
             .any(|u| w.unit.iter().any(|s| u.sources.contains(s)))
+    };
+    let mine_write = |w: &PlannedWrite| {
+        if egg_member.as_deref() == Some(w.path.as_path()) {
+            return eggs;
+        }
+        mine(w)
     };
     let headers = ok.iter().any(|u| u.assets.contains(&HEADER_TABLE));
     let quirks = ok
         .iter()
         .any(|u| matches!(of_unit(&u.key, &u.assets), Of::Quirks));
     let chosen = ImportPlan {
-        writes: plan.writes.into_iter().filter(|w| mine(w)).collect(),
+        writes: plan.writes.into_iter().filter(|w| mine_write(w)).collect(),
         raw: plan.raw.into_iter().filter(|w| mine(w)).collect(),
         headers: plan.headers.filter(|_| headers),
         header_paths: if headers {

@@ -86,3 +86,11 @@ DSPRE-Patch.
 
 Der gated Test `vanilla_egg_moves_read_with_the_measured_counts` prüft diese Zahlen und
 `write()` byte-gleich zum Member bzw. Ausschnitt.
+
+## Im Textprojekt
+
+Im Textprojekt ist die Tabelle das Feld `egg_moves` jeder Spezies-Datei (`data/species/NNNN.json`,
+die Attacken des Eintrags als IDs, leer für eine Marke ohne Attacken, fehlend ohne Eintrag) und
+eine Einheit `egg_moves` über alle Spezies-Dateien; in Platin ohne Patch blendet die Basisschicht
+den Ausschnitt in `ov005.bin` aus. Einzelheiten, Code `textproject.egg-moves-locked` und
+Schema-Version: [text_project.md](text_project.md) „Ei-Attacken“.

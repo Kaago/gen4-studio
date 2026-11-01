@@ -14,7 +14,10 @@
 //! is compared with the header table zeroed on both sides, YAML files by their value
 //! (`config.yaml` by the keys the build's ds-rom reads). The header table in `arm9.bin` is the
 //! header files': a blob of `arm9.bin` is compared with the file and placed into it with the
-//! table on disk spliced in ([`with_disk_table`]).
+//! table on disk spliced in ([`with_disk_table`]). The egg move table in overlay 5 (Platinum
+//! without DSPRE's patch, see [`crate::data::egg_moves`]) is the species files' in the same
+//! way: the overlay is compared with that slice zeroed and a blob of it lands with the slice
+//! on disk; with the patch (or on HeartGold/SoulSilver) its NARC member is owned.
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -34,6 +37,7 @@ use crate::project::{AssetKind, Location, Project};
 use crate::scripts;
 
 use super::canon::write_if_changed;
+use super::egg_moves::{overlay_slice, place as egg_place};
 use super::item_owners;
 use super::part::{BasePart, PartKey};
 use super::schema::EntitySchema;
@@ -405,7 +409,8 @@ fn relative(project: &Project, path: &Path) -> PathBuf {
 /// blobs: every member of the [`ENTITY_KINDS`]; the item members an item id of the ARM9 item
 /// table names (the others are blobs where they differ); the text members with a JSON source
 /// in `expanded/textArchives`; once the scripts are adopted, the script members with a
-/// source (`.rotom` or level script `.json`) in `expanded/scripts`; `mapname.bin`; and the
+/// source (`.rotom` or level script `.json`) in `expanded/scripts`; `mapname.bin`; the egg
+/// move member where the table is one (`unpacked/eggMoves/0000`); and the
 /// files of `unpacked/dynamicHeaders` once the Dynamic Headers patch is applied. The item
 /// members follow the table even when some are missing (the import is about to write them).
 /// Public for the gated round trip, which deletes exactly these files, and as the list a later
@@ -458,6 +463,12 @@ pub fn owned_paths(project: &Project) -> Result<BTreeSet<PathBuf>, KernelError> 
         }
     }
     owned.insert(relative(project, &project.mapname_path()));
+    // The egg moves' member where it is one (the overlay slice is masked instead).
+    if let Some(place) = egg_place(project)
+        && let Location::Member(path) = &place.location
+    {
+        owned.insert(relative(project, path));
+    }
     if project.dynamic_headers_applied()? {
         let dir = project.unpacked_dir(AssetKind::DynamicHeaders);
         let mut files = Vec::new();
@@ -584,6 +595,22 @@ fn header_slice(project: &Project) -> Slice {
     }
 }
 
+/// The egg move table's [`Slice`] when `rel` is the overlay that holds it (Platinum without
+/// DSPRE's patch); `None` for any other file.
+fn egg_slice(project: &Project, rel: &Path) -> Slice {
+    overlay_slice(project, rel)
+}
+
+/// The slice of file `rel` a unit of the species or headers owns: the header table of
+/// `arm9/arm9.bin`, the egg moves of their overlay; `None` for any other file.
+pub(crate) fn kept_slice(project: &Project, rel: &Path) -> Slice {
+    if rel == arm9_rel() {
+        header_slice(project)
+    } else {
+        egg_slice(project, rel)
+    }
+}
+
 /// `bytes` with `slice` (offset, length) zeroed as far as it reaches.
 fn masked(mut bytes: Vec<u8>, slice: Slice) -> Vec<u8> {
     if let Some((offset, len)) = slice {
@@ -627,6 +654,8 @@ pub(crate) struct BlobRange {
     /// as the base layer has it (under the archive's own name).
     scripts_dir: PathBuf,
     layer_scripts_dir: PathBuf,
+    /// The overlay holding the egg moves (relative) with their slice, looked up once.
+    egg: Option<(PathBuf, (usize, usize))>,
 }
 
 impl BlobRange {
@@ -636,11 +665,19 @@ impl BlobRange {
         let scripts_dir = relative(project, &scripts::member_dir(project));
         let mut not_built = build::unpacked_unpacked(project)?;
         not_built.retain(|name| unpacked.join(name) != scripts_dir);
+        let egg = egg_place(project).and_then(|place| match place.location {
+            Location::Slice { path, offset, len } => Some((
+                relative(project, &path),
+                (usize::try_from(offset).ok()?, len),
+            )),
+            _ => None,
+        });
         Ok(BlobRange {
             not_built,
             outputs: build_outputs(project),
             scripts_dir,
             layer_scripts_dir: unpacked.join(project.archives.unpacked_name(AssetKind::Script)),
+            egg,
         })
     }
 
@@ -681,15 +718,27 @@ impl BlobRange {
             _ => rel.to_path_buf(),
         };
         let arm9 = rel == arm9_rel();
+        let egg = self
+            .egg
+            .as_ref()
+            .and_then(|(path, slice)| (path == rel).then_some(*slice));
         let masks = if arm9 {
             (header_slice(project), header_slice(layer.project()?))
         } else {
-            (None, None)
+            // The base has the same game code: the same slice.
+            (egg, egg)
         };
         if !project.root.join(rel).is_file() {
             return Ok(false);
         }
-        Ok(!differs(project, layer, rel, &theirs, arm9, masks)?)
+        Ok(!differs(
+            project,
+            layer,
+            rel,
+            &theirs,
+            arm9 || egg.is_some(),
+            masks,
+        )?)
     }
 
     /// Every file of the range below `root`, relative to it, in name order.
@@ -734,6 +783,9 @@ pub(crate) fn same_blob(project: &Project, rel: &Path, ours: &[u8], theirs: &[u8
         let mask = header_slice(project);
         return masked(ours.to_vec(), mask) == masked(theirs.to_vec(), mask);
     }
+    if let Some(mask) = egg_slice(project, rel) {
+        return masked(ours.to_vec(), Some(mask)) == masked(theirs.to_vec(), Some(mask));
+    }
     if is_yaml(rel) {
         return match (yaml_value(rel, ours), yaml_value(rel, theirs)) {
             (Some(x), Some(y)) => x == y,
@@ -746,8 +798,13 @@ pub(crate) fn same_blob(project: &Project, rel: &Path, ours: &[u8], theirs: &[u8
 /// `base` (bytes of `arm9/arm9.bin`, a blob or the base layer's) with the header table of
 /// `ours` (the project's `arm9.bin`) put in where both have it: the table is the header files',
 /// a blob of `arm9.bin` never brings its own.
-pub(crate) fn keep_header_table(project: &Project, mut base: Vec<u8>, ours: &[u8]) -> Vec<u8> {
-    if let Some((offset, len)) = header_slice(project)
+pub(crate) fn keep_header_table(project: &Project, base: Vec<u8>, ours: &[u8]) -> Vec<u8> {
+    keep_slice(header_slice(project), base, ours)
+}
+
+/// `base` with `slice` of `ours` put in where both have it.
+pub(crate) fn keep_slice(slice: Slice, mut base: Vec<u8>, ours: &[u8]) -> Vec<u8> {
+    if let Some((offset, len)) = slice
         && let (Some(to), Some(from)) = (
             base.get_mut(offset..offset + len),
             ours.get(offset..offset + len),
@@ -760,8 +817,9 @@ pub(crate) fn keep_header_table(project: &Project, mut base: Vec<u8>, ours: &[u8
 
 /// Blob `bytes` of file `rel` as they land in the file: for `arm9/arm9.bin` with the header
 /// table of the `arm9.bin` on disk spliced in ([`keep_header_table`]), so a blob never brings
-/// its own (stale) table; anything else, and `arm9.bin` without a table or without the file,
-/// as they are.
+/// its own (stale) table, and for the overlay holding the egg moves with their slice on disk
+/// ([`kept_slice`]); anything else, and `arm9.bin` without a table or without the file, as
+/// they are.
 ///
 /// Without the file the blob's own table lands with it, stale or not, and that is safe: the
 /// table is the header unit's member, and a missing member is written by the header unit in
@@ -776,20 +834,25 @@ pub(crate) fn with_disk_table<'a>(
         return Ok(Cow::Borrowed(bytes));
     }
     let disk = read_optional(&project.root.join(rel))?;
-    Ok(splice_disk_table(project, bytes, disk.as_deref()))
+    Ok(splice_disk_table(project, rel, bytes, disk.as_deref()))
 }
 
-/// Whether a blob of `rel` gets the header table of the file on disk: `arm9/arm9.bin` of a
-/// project whose table can be located.
+/// Whether a blob of `rel` gets the slice of the file on disk ([`kept_slice`]): `arm9/arm9.bin`
+/// of a project whose table can be located, the overlay holding the egg moves.
 fn takes_disk_table(project: &Project, rel: &Path) -> bool {
-    rel == arm9_rel() && header_slice(project).is_some()
+    kept_slice(project, rel).is_some()
 }
 
-/// [`with_disk_table`] of the `arm9.bin` blob `bytes` when the file on disk is `disk` (`None`:
+/// [`with_disk_table`] of the blob `bytes` of `rel` when the file on disk is `disk` (`None`:
 /// missing), for a caller that has read it already.
-fn splice_disk_table<'a>(project: &Project, bytes: &'a [u8], disk: Option<&[u8]>) -> Cow<'a, [u8]> {
+fn splice_disk_table<'a>(
+    project: &Project,
+    rel: &Path,
+    bytes: &'a [u8],
+    disk: Option<&[u8]>,
+) -> Cow<'a, [u8]> {
     match disk {
-        Some(ours) => Cow::Owned(keep_header_table(project, bytes.to_vec(), ours)),
+        Some(ours) => Cow::Owned(keep_slice(kept_slice(project, rel), bytes.to_vec(), ours)),
         None => Cow::Borrowed(bytes),
     }
 }
@@ -841,7 +904,7 @@ fn differs(
     layer: &BaseLayer,
     rel: &Path,
     theirs_rel: &Path,
-    is_arm9: bool,
+    is_masked: bool,
     (ours_mask, theirs_mask): (Slice, Slice),
 ) -> Result<bool, KernelError> {
     let ours = project.root.join(rel);
@@ -853,7 +916,7 @@ fn differs(
         Err(e) => return Err(io_at(&theirs)(e)),
     };
     let read = |path: &Path| crate::fsutil::read_noted(path).map_err(io_at(path));
-    if is_arm9 {
+    if is_masked {
         return Ok(masked(read(&ours)?, ours_mask) != masked(read(&theirs)?, theirs_mask));
     }
     if is_yaml(rel) {
@@ -956,7 +1019,7 @@ pub(crate) fn raw_differs(
     // the blob's header table comes from.
     let disk = read_optional(&project.root.join(rel))?;
     let bytes = &*if takes_disk_table(project, rel) {
-        splice_disk_table(project, bytes, disk.as_deref())
+        splice_disk_table(project, rel, bytes, disk.as_deref())
     } else {
         Cow::Borrowed(bytes)
     };
@@ -1218,6 +1281,67 @@ mod tests {
         bytes[PT_HEADER_TABLE_CPUE - 1] ^= 0xFF;
         std::fs::write(&arm9, &bytes).unwrap();
         assert_eq!(f.diff().changed, paths(&["arm9/arm9.bin"]));
+    }
+
+    #[test]
+    fn a_changed_egg_move_slice_in_overlay_5_is_no_blob() {
+        use crate::test_support::{
+            PT_EGG_MOVES_BUDGET, PT_EGG_MOVES_OFFSET, add_platinum_egg_moves, write_egg_move_patch,
+        };
+        let at = PT_EGG_MOVES_OFFSET;
+        let rel = Path::new("arm9_overlays/ov005.bin");
+        let f = Fixture::with(|p| add_platinum_egg_moves(&p.root, at));
+        assert_eq!(f.diff(), RawDiff::default());
+        let ov = f.root().join(rel);
+        let base = std::fs::read(&ov).unwrap();
+        // Species 1's moves swapped (5, 7 → 7, 5): the signature holds, the slice is the
+        // egg moves' (their JSON), no blob.
+        let mut bytes = base.clone();
+        bytes[at + 2..at + 6].copy_from_slice(&[7, 0, 5, 0]);
+        std::fs::write(&ov, &bytes).unwrap();
+        assert_eq!(f.diff(), RawDiff::default(), "only the egg moves changed");
+        let p = f.project();
+        assert!(same_blob(&p, rel, &bytes, &base));
+        // A blob of the overlay lands with the slice on disk.
+        let mut blob = base.clone();
+        blob[0] ^= 0xFF;
+        let placed = with_disk_table(&p, rel, &blob).unwrap();
+        assert_eq!(placed[0], blob[0]);
+        assert_eq!(
+            placed[at..at + PT_EGG_MOVES_BUDGET],
+            bytes[at..at + PT_EGG_MOVES_BUDGET]
+        );
+
+        // A byte outside the slice is a blob.
+        bytes[at - 1] ^= 0xFF;
+        std::fs::write(&ov, &bytes).unwrap();
+        assert_eq!(f.diff().changed, paths(&["arm9_overlays/ov005.bin"]));
+        assert!(!same_blob(&p, rel, &bytes, &base));
+
+        // With DSPRE's patch the table is in its NARC: the overlay is compared whole.
+        let f = Fixture::with(|p| {
+            add_platinum_egg_moves(&p.root, at);
+            write_egg_move_patch(&p.root);
+        });
+        let ov = f.root().join(rel);
+        let mut bytes = std::fs::read(&ov).unwrap();
+        bytes[at + 2..at + 6].copy_from_slice(&[7, 0, 5, 0]);
+        std::fs::write(&ov, &bytes).unwrap();
+        assert_eq!(f.diff().changed, paths(&["arm9_overlays/ov005.bin"]));
+    }
+
+    #[test]
+    fn the_egg_move_member_belongs_to_the_text_project() {
+        use crate::test_support::{add_platinum_egg_moves, write_egg_move_patch};
+        let f = Fixture::with(|p| {
+            add_platinum_egg_moves(&p.root, crate::test_support::PT_EGG_MOVES_OFFSET);
+            write_egg_move_patch(&p.root);
+            p.ensure_unpacked(AssetKind::EggMoves).unwrap();
+        });
+        let owned = owned_paths(&f.project()).unwrap();
+        assert!(owned.contains(Path::new("unpacked/eggMoves/0000")));
+        f.write("unpacked/eggMoves/0000", &[0x21, 0x4E, 0xFF, 0xFF]);
+        assert_eq!(f.diff(), RawDiff::default(), "the species files hold it");
     }
 
     #[test]

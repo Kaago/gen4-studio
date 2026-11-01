@@ -60,6 +60,7 @@ species.evolution?.method6
 species.evolution?.param6
 species.evolution?.target6 →SPECIES
 species.evolution?.pad_2a
+species.egg_moves?[] →MOVE
 species.personal? <member>
 species.learnset? <member>
 species.evolution? <member>

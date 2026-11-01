@@ -468,7 +468,14 @@ pub fn synthetic_hgss_egg_moves() -> Synthetic {
 /// another to fail the signature).
 pub fn synthetic_platinum_egg_moves(table_at: usize) -> Synthetic {
     let fixture = synthetic_project();
-    let root = fixture.dir.path();
+    add_platinum_egg_moves(fixture.dir.path(), table_at);
+    fixture
+}
+
+/// Turns the synthetic Platinum project at `root` into Platinum DE (`CPUD`) with overlay 5
+/// holding [`full_egg_move_table`] at `table_at`, as [`synthetic_platinum_egg_moves`] does
+/// (also for a [`TextFixture::with`] project).
+pub fn add_platinum_egg_moves(root: &Path, table_at: usize) {
     std::fs::write(
         root.join("header.yaml"),
         "title: \"POKEMON PL\"\ngamecode: CPUD\nmakercode: \"01\"\n",
@@ -486,7 +493,6 @@ pub fn synthetic_platinum_egg_moves(table_at: usize) -> Synthetic {
         )
         .as_bytes(),
     );
-    fixture
 }
 
 /// Writes DSPRE's egg move patch NARC `files/zcustom/egg_moves.narc` (one member,
@@ -1003,6 +1009,47 @@ impl TextFixture {
         let text = self.text(rel);
         assert!(text.contains(from), "{rel} has no `{from}`:\n{text}");
         self.write(rel, text.replacen(from, to, 1).as_bytes());
+    }
+}
+
+/// The header table offset of Platinum DE in `arm9.bin` (`header_tables.yaml`).
+pub const PT_HEADER_TABLE_CPUD: usize = 0xE6074;
+
+impl TextFixture {
+    /// [`TextFixture::dspre`] as Platinum DE (`CPUD`), so the egg moves have a place: overlay 5
+    /// with [`full_egg_move_table`] ([`add_platinum_egg_moves`]), or with `patch` DSPRE's
+    /// patch NARC ([`write_egg_move_patch`], unpacked into `unpacked/eggMoves/0000`). The
+    /// header table moves to the CPUD offset.
+    pub fn platinum_de(patch: bool) -> TextFixture {
+        TextFixture::with(|p| {
+            add_platinum_egg_moves(&p.root, PT_EGG_MOVES_OFFSET);
+            let path = p.root.join("arm9/arm9.bin");
+            let arm9 = std::fs::read(&path).unwrap();
+            let len = UXIE_PT_HEADER_COUNT * HEADER_SIZE;
+            let mut moved = arm9.clone();
+            moved.resize(PT_HEADER_TABLE_CPUD + len + 64, 0);
+            moved[PT_HEADER_TABLE_CPUD..PT_HEADER_TABLE_CPUD + len]
+                .copy_from_slice(&arm9[PT_HEADER_TABLE_CPUE..PT_HEADER_TABLE_CPUE + len]);
+            std::fs::write(&path, moved).unwrap();
+            if patch {
+                write_egg_move_patch(&p.root);
+            }
+        })
+    }
+
+    /// [`TextFixture::platinum_de`], then exported like [`TextFixture::exported`].
+    pub fn platinum_de_exported(patch: bool) -> TextFixture {
+        let fx = TextFixture::platinum_de(patch);
+        crate::textproject::export(
+            &fx.project(),
+            &fx.base(),
+            &crate::textproject::ExportOptions {
+                adopt_scripts: true,
+                force: false,
+            },
+        )
+        .unwrap();
+        fx
     }
 }
 

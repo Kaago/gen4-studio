@@ -16,10 +16,11 @@ use serde::de::DeserializeOwned;
 
 use crate::base::{BaseRom, missing_text, other_rom};
 use crate::build;
+use crate::data::egg_moves::egg_moves_place;
 use crate::dynamic_headers;
 use crate::error::KernelError;
 use crate::fsutil::Journal;
-use crate::project::{AssetKind, Project};
+use crate::project::{AssetKind, Location, Project};
 use crate::scripts;
 use crate::start::{BaseMark, read_base_mark};
 use crate::text::{Problem, Severity};
@@ -34,8 +35,12 @@ use super::base_layer::{
 };
 use super::canon::{parse_json, problem, write_if_changed};
 use super::codes::{
-    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE,
-    RAW_PATH_CODE, SCHEMA_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, EGG_MOVES_LOCKED_CODE, MEMBER_WITHOUT_JSON_CODE,
+    QUIRK_KEY_CODE, RAW_PATH_CODE, SCHEMA_CODE,
+};
+use super::egg_moves::{
+    FIELD as EGG_FIELD, assemble, disk_table, egg_field, empty_table, member_rel as egg_member_rel,
+    overlay_slice, place_bytes, resolve_field, species_numbers, species_rel, table_bytes,
 };
 use super::export::ArtStats;
 use super::locate::{key_position, located, relocate};
@@ -341,6 +346,9 @@ fn wanted(only: Option<&BTreeSet<PathBuf>>, paths: &[PathBuf]) -> bool {
 ///   it the member is the base layer's);
 /// - a blob: `data/raw/<path>`;
 /// - the header table: every `data/headers/NNNN.json` ([`ImportPlan::header_unit`]);
+/// - the egg move table: every `data/species/NNNN.json` (their field `egg_moves`, see
+///   [`plan_egg_moves`]), planned when any species file is in scope, from the fields of the
+///   files in scope;
 /// - the quirks: [`QUIRKS_FILE`].
 ///
 /// Every [`PlannedWrite`] carries its unit. With `only` (source paths relative to the root)
@@ -446,8 +454,168 @@ pub(crate) fn plan_import(
         stats.ms = ms_since(start);
         plan.arts.push(stats);
     }
+    if project.has_archive(AssetKind::Personal) {
+        plan_egg_moves(project, &symbols, only, &mut plan)?;
+    }
     plan_raw(project, only, &mut plan)?;
     Ok(plan)
+}
+
+/// The egg move table from the field `egg_moves` of the species files in the plan's scope
+/// ([`import_egg_moves`]), its write planned with every species file as its unit; a table
+/// without a place is a warning `textproject.egg-moves-locked` when a file in scope carries
+/// the field. A file that does not read or parse is the species' error already, an unknown
+/// move id an error of its own: then nothing is planned.
+fn plan_egg_moves(
+    project: &Project,
+    symbols: &Symbols,
+    only: Option<&BTreeSet<PathBuf>>,
+    plan: &mut ImportPlan,
+) -> Result<(), KernelError> {
+    let numbers = species_numbers(project)?;
+    let unit: Vec<PathBuf> = numbers.iter().map(|&n| species_rel(n)).collect();
+    if unit.is_empty() || !wanted(only, &unit) {
+        return Ok(());
+    }
+    let dir = Art::Species.dir();
+    let mut fields: Vec<(u16, Option<Vec<u16>>)> = Vec::new();
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut any = false;
+    let mut failed = false;
+    for &n in &numbers {
+        if !entity_wanted(only, &dir, n) {
+            continue;
+        }
+        let rel = species_rel(n);
+        let Ok(bytes) = read_source(&project.root, &rel) else {
+            failed = true;
+            continue;
+        };
+        let Ok(field) = egg_field(&bytes) else {
+            failed = true;
+            continue;
+        };
+        any |= field.is_some();
+        let moves = match field.as_deref().map(|refs| resolve_field(refs, symbols)) {
+            None => None,
+            Some(Ok(moves)) => Some(moves),
+            Some(Err(message)) => {
+                plan.problems.push(located(&rel, &bytes, &message));
+                failed = true;
+                continue;
+            }
+        };
+        let Ok(species) = u16::try_from(n) else {
+            continue;
+        };
+        fields.push((species, moves));
+        files.push(rel);
+    }
+    // Without the field in any species file the text project does not hold the table (it
+    // was exported before the field existed): it stays as it is.
+    if !any {
+        any = numbers.iter().any(|&n| {
+            std::fs::read(project.root.join(species_rel(n)))
+                .ok()
+                .and_then(|bytes| egg_field(&bytes).ok().flatten())
+                .is_some()
+        });
+    }
+    if failed || !any {
+        return Ok(());
+    }
+    match import_egg_moves(project, &fields, unit)? {
+        Err(reason) => {
+            if fields.iter().any(|(_, moves)| moves.is_some()) {
+                let file = files.first().cloned().unwrap_or_else(|| dir.clone());
+                plan.problems.push(Problem {
+                    severity: Severity::Warning,
+                    ..problem(
+                        &file,
+                        EGG_MOVES_LOCKED_CODE,
+                        format!(
+                            "{ROOT}: {reason}; die Ei-Attacken der Dateien werden nicht \
+                             geschrieben."
+                        ),
+                    )
+                });
+            }
+        }
+        Ok(Err((species, sentence))) => {
+            let at = fields.iter().position(|(s, _)| *s == species).unwrap_or(0);
+            let file = files.get(at).cloned().unwrap_or_else(|| dir.clone());
+            let bytes = std::fs::read(project.root.join(&file)).unwrap_or_default();
+            plan.problems.push(located(
+                &file,
+                &bytes,
+                &format!("{SCHEMA_CODE}: {EGG_FIELD}: {sentence}"),
+            ));
+        }
+        Ok(Ok(Some(write))) => plan.writes.push(write),
+        Ok(Ok(None)) => {}
+    }
+    Ok(())
+}
+
+/// The egg move table at its place with `fields` (species, moves; ascending) applied, see
+/// [`textproject::egg_moves`](super::egg_moves). `Err(reason)` when the table has no place
+/// (locked); `Ok(Err((species, sentence)))` when the table would not fit its place (the first
+/// species whose field changes it, the budget's or the signature's sentence);
+/// `Ok(Ok(Some(write)))` when its member would change (the NARC member, or the overlay with
+/// the slice replaced), with `unit` (every species file); `Ok(Ok(None))` when it is equal.
+#[allow(clippy::type_complexity)]
+fn import_egg_moves(
+    project: &Project,
+    fields: &[(u16, Option<Vec<u16>>)],
+    unit: Vec<PathBuf>,
+) -> Result<Result<Result<Option<PlannedWrite>, (u16, String)>, String>, KernelError> {
+    let place = match egg_moves_place(project)? {
+        Ok(place) => place,
+        Err(reason) => return Ok(Err(reason)),
+    };
+    let current = disk_table(project, &place)?;
+    let start = current.clone().unwrap_or_else(|| empty_table(&place));
+    let table = assemble(start, fields);
+    let bytes = match table_bytes(&table) {
+        Ok(bytes) => bytes,
+        Err(sentence) => {
+            let species = fields
+                .iter()
+                .find(|(s, moves)| {
+                    current.as_ref().and_then(|t| t.moves_of(*s)) != moves.as_deref()
+                })
+                .map_or(0, |(s, _)| *s);
+            return Ok(Ok(Err((species, sentence))));
+        }
+    };
+    if place_bytes(project, &place)?.as_deref() == Some(bytes.as_slice()) {
+        return Ok(Ok(Ok(None)));
+    }
+    let Some(path) = egg_member_rel(project, &place) else {
+        return Ok(Ok(Ok(None)));
+    };
+    let bytes = match &place.location {
+        Location::Slice {
+            path: file,
+            offset,
+            len,
+        } => {
+            let mut whole = std::fs::read(file).map_err(crate::error::io_at(file))?;
+            let at = usize::try_from(*offset).unwrap_or(usize::MAX);
+            match whole.get_mut(at..at.saturating_add(*len)) {
+                Some(slice) if slice.len() == bytes.len() => slice.copy_from_slice(&bytes),
+                _ => {
+                    return Err(KernelError::InvalidProject(format!(
+                        "{} is too short for the egg moves",
+                        file.display()
+                    )));
+                }
+            }
+            whole
+        }
+        _ => bytes,
+    };
+    Ok(Ok(Ok(Some(PlannedWrite { path, bytes, unit }))))
 }
 
 /// The file `rel` (relative to the root), or the problem that it cannot be read.
@@ -1262,7 +1430,25 @@ pub(crate) fn apply_import(project: &Project, plan: &ImportPlan) -> Result<Appli
         }
     }
     for w in &plan.writes {
-        if write_if_changed(&project.root, &w.path, &w.bytes)? {
+        // The egg moves' slice of an overlay goes into the file as it is now (a blob placed
+        // above brings everything else of it).
+        let spliced = match overlay_slice(project, &w.path) {
+            Some((offset, len)) => {
+                let path = project.root.join(&w.path);
+                let mut now = std::fs::read(&path).map_err(crate::error::io_at(&path))?;
+                match (
+                    now.get_mut(offset..offset + len),
+                    w.bytes.get(offset..offset + len),
+                ) {
+                    (Some(to), Some(from)) => to.copy_from_slice(from),
+                    _ => now.clone_from(&w.bytes),
+                }
+                Some(now)
+            }
+            None => None,
+        };
+        let bytes = spliced.as_deref().unwrap_or(&w.bytes);
+        if write_if_changed(&project.root, &w.path, bytes)? {
             out.paths.push(w.path.clone());
             out.members += 1;
         }
@@ -1746,6 +1932,7 @@ mod tests {
             symbols: &mut symbols,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         for (id, item) in super::super::schema::data::export_items(&member_of, &members, &mut ctx)
             .unwrap()
@@ -1935,5 +2122,209 @@ mod tests {
             part: "item",
         };
         assert_eq!(layer.base_bytes(key).unwrap(), Some(member9));
+    }
+
+    /// Species `n`'s file with `egg_moves` set to `value` (`None`: the key removed).
+    fn set_egg_moves(root: &Path, n: u32, value: Option<serde_json::Value>) {
+        let path = root.join(format!("data/species/{n:04}.json"));
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let map = v.as_object_mut().unwrap();
+        match value {
+            Some(value) => map.insert("egg_moves".to_owned(), value),
+            None => map.remove("egg_moves"),
+        };
+        std::fs::write(&path, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    }
+
+    fn egg_words(bytes: &[u8]) -> Vec<u16> {
+        bytes
+            .chunks(2)
+            .map(|w| u16::from_le_bytes([w[0], w[1]]))
+            .collect()
+    }
+
+    fn egg_write(planned: &ImportPlan) -> Option<&PlannedWrite> {
+        planned.writes.iter().find(|w| {
+            w.path == Path::new("unpacked/eggMoves/0000")
+                || w.path == Path::new("arm9_overlays/ov005.bin")
+        })
+    }
+
+    #[test]
+    fn import_assembles_the_table_from_the_species_files_in_species_order() {
+        use crate::test_support::{EGG_MOVE_WORDS, TextFixture, egg_move_bytes};
+        let fx = TextFixture::platinum_de_exported(true);
+        let root = fx.root();
+        let member = Path::new("unpacked/eggMoves/0000");
+        assert_eq!(
+            std::fs::read(root.join(member)).unwrap(),
+            egg_move_bytes(&EGG_MOVE_WORDS)
+        );
+        // Species 1 swapped (numbers do as well as ids), species 2 new, species 4 without its
+        // entry, species 6 a mark without moves.
+        set_egg_moves(root, 1, Some(serde_json::json!([7, "MOVE_MEGA_PUNCH"])));
+        set_egg_moves(root, 2, Some(serde_json::json!(["MOVE_BIND"])));
+        set_egg_moves(root, 4, None);
+        set_egg_moves(root, 6, Some(serde_json::json!([])));
+        let p = fx.project();
+        let (planned, _) = plan(&p, None);
+        assert!(!planned.has_errors(), "{:?}", planned.problems);
+        let write = egg_write(&planned).expect("the table is planned");
+        assert_eq!(write.path, member);
+        assert_eq!(
+            egg_words(&write.bytes),
+            [20001, 7, 5, 20002, 20, 20003, 20006, 0xFFFF]
+        );
+        assert_eq!(write.unit.len(), 508, "every species file is the unit");
+        assert!(write.unit.iter().all(|u| u.starts_with("data/species")));
+        // Planned with the unit of one species file, too.
+        let (only, _) = plan(&p, Some(&["data/species/0002.json"]));
+        assert_eq!(
+            egg_words(&egg_write(&only).unwrap().bytes),
+            [20001, 5, 7, 20002, 20, 20003, 20004, 9, 0xFFFF, 0]
+        );
+        import(&p, Some(&fx.base())).unwrap();
+        assert_eq!(
+            egg_words(&std::fs::read(root.join(member)).unwrap()),
+            [20001, 7, 5, 20002, 20, 20003, 20006, 0xFFFF]
+        );
+
+        // An unknown id names its file, line and path.
+        set_egg_moves(root, 3, Some(serde_json::json!(["MOVE_FOO"])));
+        let (planned, _) = plan(&p, None);
+        let found = planned
+            .problems
+            .iter()
+            .find(|p| p.file == Path::new("data/species/0003.json"))
+            .expect("the unknown id");
+        assert!(
+            found
+                .message
+                .starts_with("textproject.unknown-id: egg_moves[0]:"),
+            "{found:?}"
+        );
+        assert!(egg_write(&planned).is_none());
+    }
+
+    #[test]
+    fn import_writes_into_the_overlay_slice_within_the_budget() {
+        use crate::test_support::{PT_EGG_MOVES_BUDGET, PT_EGG_MOVES_OFFSET, TextFixture};
+        let fx = TextFixture::platinum_de_exported(false);
+        let root = fx.root();
+        let ov = Path::new("arm9_overlays/ov005.bin");
+        let before = std::fs::read(root.join(ov)).unwrap();
+        set_egg_moves(root, 1, Some(serde_json::json!([7, 5])));
+        let p = fx.project();
+        let (planned, _) = plan(&p, None);
+        assert!(!planned.has_errors(), "{:?}", planned.problems);
+        assert_eq!(egg_write(&planned).unwrap().path, ov);
+        import(&p, Some(&fx.base())).unwrap();
+        let after = std::fs::read(root.join(ov)).unwrap();
+        let slice = PT_EGG_MOVES_OFFSET..PT_EGG_MOVES_OFFSET + PT_EGG_MOVES_BUDGET;
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after[..slice.start], before[..slice.start]);
+        assert_eq!(after[slice.end..], before[slice.end..]);
+        assert_eq!(egg_words(&after[slice.clone()])[..3], [20001, 7, 5]);
+        assert_eq!(*egg_words(&after[slice]).last().unwrap(), 0xFFFF);
+
+        // One move more than the budget holds is the budget's sentence, nothing planned.
+        set_egg_moves(root, 1, Some(serde_json::json!([7, 5, 8])));
+        let (planned, _) = plan(&p, None);
+        assert!(egg_write(&planned).is_none());
+        let found = planned
+            .problems
+            .iter()
+            .find(|p| p.severity == Severity::Error)
+            .expect("over the budget");
+        assert_eq!(found.file, Path::new("data/species/0001.json"));
+        assert!(
+            found
+                .message
+                .contains("Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn import_writes_nothing_when_the_table_is_equal() {
+        use crate::test_support::TextFixture;
+        for patch in [true, false] {
+            let fx = TextFixture::platinum_de_exported(patch);
+            let p = fx.project();
+            let member = if patch {
+                "unpacked/eggMoves/0000"
+            } else {
+                "arm9_overlays/ov005.bin"
+            };
+            let json: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(p.root.join("data/species/0001.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(json.get("egg_moves").is_some(), "exported");
+            let (planned, _) = plan(&p, None);
+            assert!(egg_write(&planned).is_none(), "patch {patch}");
+            let mtime = || {
+                std::fs::metadata(p.root.join(member))
+                    .unwrap()
+                    .modified()
+                    .unwrap()
+            };
+            let was = mtime();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            import(&p, Some(&fx.base())).unwrap();
+            assert_eq!(mtime(), was, "patch {patch}");
+
+            // A text project without the field anywhere (exported before it existed) leaves
+            // the table alone.
+            for n in 0..508 {
+                set_egg_moves(&p.root, n, None);
+            }
+            let (planned, _) = plan(&p, None);
+            assert!(egg_write(&planned).is_none(), "patch {patch}");
+        }
+    }
+
+    #[test]
+    fn import_warns_and_skips_on_a_locked_source() {
+        use crate::test_support::TextFixture;
+        // CPUE: the overlay table is not checked for this game code.
+        let fx = TextFixture::exported();
+        let p = fx.project();
+        let json = std::fs::read_to_string(p.root.join("data/species/0001.json")).unwrap();
+        assert!(!json.contains("egg_moves"), "no table, no field");
+        let (planned, _) = plan(&p, None);
+        assert!(
+            !planned
+                .problems
+                .iter()
+                .any(|p| p.message.starts_with(EGG_MOVES_LOCKED_CODE))
+        );
+        let ov = p.root.join("arm9_overlays/ov005.bin");
+        assert!(!ov.exists());
+        set_egg_moves(&p.root, 1, Some(serde_json::json!(["MOVE_POUND"])));
+        let (planned, _) = plan(&p, None);
+        assert!(!planned.has_errors(), "{:?}", planned.problems);
+        assert!(egg_write(&planned).is_none());
+        let warning = planned
+            .problems
+            .iter()
+            .find(|p| p.message.starts_with(EGG_MOVES_LOCKED_CODE))
+            .expect("the warning");
+        assert_eq!(warning.severity, Severity::Warning);
+        assert!(
+            warning
+                .message
+                .contains("Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft"),
+            "{warning:?}"
+        );
+        let report = import(&p, Some(&fx.base())).unwrap();
+        assert!(
+            report
+                .problems
+                .iter()
+                .any(|p| p.message.starts_with(EGG_MOVES_LOCKED_CODE))
+        );
+        assert!(!ov.exists());
     }
 }

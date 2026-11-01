@@ -14,15 +14,16 @@ use crate::error::KernelError;
 use crate::original::asset_label;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
-use crate::store::HEADER_TABLE;
+use crate::store::{EGG_MOVES, HEADER_TABLE};
 
 use super::super::arts::{ARTS, Art, binary_name, slash};
 use super::super::base_layer::{BlobRange, RAW_DIR, walk};
+use super::super::egg_moves::overlay_slice;
 use super::super::quirks::QUIRKS_FILE;
 use super::super::registry::{IDS_DIR, Symbols};
 use super::super::source::{
-    EntityUnit, QUIRKS_KEY, asset_of_unpacked, item_member_of, raw_key, script_key,
-    text_archive_key, unit_of,
+    EGG_MOVES_UNIT_KEY, EntityUnit, QUIRKS_KEY, asset_of_unpacked, item_member_of, raw_key,
+    script_key, text_archive_key, unit_of,
 };
 use super::super::symbols::SymbolKind;
 use super::super::{DATA_DIR, MANIFEST_FILE};
@@ -146,6 +147,16 @@ impl<'a> Watch<'a> {
         Ok(files)
     }
 
+    /// Whether `rel` is a species file `data/species/NNNN.json`.
+    fn is_species_json(&self, rel: &Path) -> bool {
+        rel.parent() == Some(Art::Species.dir().as_path())
+            && rel
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(numbered)
+                .is_some_and(|(_, rest)| rest == "json")
+    }
+
     fn is_text_json(&self, rel: &Path) -> bool {
         rel.parent() == Some(self.text_json_dir.as_path())
             && rel.extension().is_some_and(|e| e == "json")
@@ -164,7 +175,8 @@ impl<'a> Watch<'a> {
     }
 
     /// The units file `rel` (relative to the root) belongs to: one, but `arm9.bin` is the
-    /// header table's and a blob.
+    /// header table's and a blob, a species file its species' and the egg moves', and the
+    /// overlay holding the egg moves theirs and a blob.
     pub(super) fn of(&self, rel: &Path) -> Vec<Of> {
         if rel == Path::new(MANIFEST_FILE) || rel.starts_with(IDS_DIR) {
             return vec![Of::Global(rel.to_path_buf())];
@@ -176,10 +188,14 @@ impl<'a> Watch<'a> {
             return vec![Of::Quirks];
         }
         if rel.starts_with(DATA_DIR) {
-            return vec![
+            let mut out = vec![
                 self.of_data(rel)
                     .unwrap_or_else(|| Of::Other(rel.to_path_buf())),
             ];
+            if self.is_species_json(rel) && self.has_unit(EGG_MOVES) {
+                out.push(Of::Asset(EGG_MOVES));
+            }
+            return out;
         }
         let name = rel
             .file_name()
@@ -265,6 +281,9 @@ impl<'a> Watch<'a> {
                 Some(_) => vec![blob()],
             };
         }
+        if overlay_slice(self.project, rel).is_some() && self.has_unit(EGG_MOVES) {
+            return vec![Of::Asset(EGG_MOVES), blob()];
+        }
         let parent = rel.parent().unwrap_or(Path::new(""));
         let number = numbered(name).filter(|(_, rest)| rest.is_empty());
         if parent == self.text_members
@@ -309,6 +328,9 @@ impl<'a> Watch<'a> {
                 index: member,
             };
             return self.has_unit(id).then_some(Of::Asset(id));
+        }
+        if key == EGG_MOVES_UNIT_KEY {
+            return self.has_unit(EGG_MOVES).then_some(Of::Asset(EGG_MOVES));
         }
         if key == format!("{}/", slash(&Art::Headers.dir()).display()) {
             return self
@@ -444,6 +466,7 @@ pub(super) fn label(
     let shown = |p: &Path| slash(p).to_string_lossy().into_owned();
     match &unit.of {
         Of::Asset(id) if *id == HEADER_TABLE => "Header-Tabelle".to_owned(),
+        Of::Asset(id) if *id == EGG_MOVES => "Ei-Attacken".to_owned(),
         Of::Asset(id) => match id.kind {
             AssetKind::Personal | AssetKind::Learnset | AssetKind::Evolution => {
                 with_id("Pokémon", SymbolKind::Species, u32::from(id.index))

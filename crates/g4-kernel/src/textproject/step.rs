@@ -59,17 +59,22 @@ use crate::build::{Tool, lock};
 use crate::dynamic_headers;
 use crate::error::KernelError;
 use crate::fsutil::{Journal, Notes};
-use crate::project::{AssetKind, Project};
+use crate::project::{AssetKind, Location, Project};
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity};
 
 use super::arts::read_members;
 use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
-use super::base_layer::{BaseLayer, RAW_DIR, arm9_rel, same_outside_header_table, walk};
+use super::base_layer::{
+    BaseLayer, RAW_DIR, arm9_rel, keep_slice, same_outside_header_table, walk,
+};
 use super::canon::{problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
     UNSYNCED_CODE,
+};
+use super::egg_moves::{
+    member_rel as egg_member_rel, overlay_slice, place as egg_place, species_numbers, species_rel,
 };
 use super::import::{
     ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import, quirks_to_seed,
@@ -81,7 +86,7 @@ use super::sync::{self, Known};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 
 /// The step's revision; raise it when what the step writes changes.
-pub(crate) const TEXTPROJECT_REV: u32 = 1;
+pub(crate) const TEXTPROJECT_REV: u32 = 2;
 
 /// The members the step kept as newer than their JSON, below the build's cache (deleted with
 /// it, which makes the next run full anyway).
@@ -140,6 +145,15 @@ impl Step for TextProjectStep {
         }
         inputs.push(relative(p, &p.arm9_path()));
         inputs.push(relative(p, &p.mapname_path()));
+        // The egg moves' member: their NARC folder, or the overlay holding the slice.
+        if let Some(place) = egg_place(p) {
+            match &place.location {
+                Location::Member(_) => {
+                    inputs.push(relative(p, &p.unpacked_dir(AssetKind::EggMoves)))
+                }
+                _ => inputs.extend(egg_member_rel(p, &place)),
+            }
+        }
         if dynamic_headers::is_applied(p)? {
             inputs.push(relative(p, &dynamic_headers::unpacked_dir(p)));
         }
@@ -262,6 +276,13 @@ fn member_sources(p: &Project, member: &Path, items: &OnceCell<Option<ItemTable>
         || member.starts_with(relative(p, &dynamic_headers::unpacked_dir(p)))
     {
         out.push(Art::Headers.dir());
+    }
+    // The egg moves' member belongs to every species file.
+    if let Some(place) = egg_place(p)
+        && egg_member_rel(p, &place).as_deref() == Some(member)
+        && let Ok(numbers) = species_numbers(p)
+    {
+        out.extend(numbers.into_iter().map(species_rel));
     }
     out
 }
@@ -420,7 +441,9 @@ impl Base<'_> {
     /// Whether member `rel` may be written in a full run: it is missing, or equal to the base
     /// layer's. `arm9.bin` is two members: of the header unit (`table`) by the header table
     /// alone, of its blob by everything outside the table (the table is the header files').
-    /// A member whose folder below `unpacked/` is not there is read from its packed NARC.
+    /// The overlay holding the egg moves likewise: of their unit (any unit of the plan's
+    /// writes) by the slice alone, of its blob by everything outside it. A member whose
+    /// folder below `unpacked/` is not there is read from its packed NARC.
     fn may_write(&self, rel: &Path, table: bool) -> Result<bool, KernelError> {
         let Some(ours) = self.current(rel)? else {
             return Ok(true);
@@ -428,6 +451,18 @@ impl Base<'_> {
         let Some(layer) = &self.layer else {
             return Ok(false);
         };
+        if let Some((offset, len)) = overlay_slice(self.project, rel) {
+            let Some(theirs) = layer.file(rel)? else {
+                return Ok(false);
+            };
+            let slice = offset..offset + len;
+            return Ok(if table {
+                theirs.get(slice.clone()).is_some() && theirs.get(slice.clone()) == ours.get(slice)
+            } else {
+                // Outside the slice: ours with the base's slice put in is the base's file.
+                keep_slice(Some((offset, len)), ours, &theirs) == theirs
+            });
+        }
         if rel == arm9_rel() {
             if !table {
                 return same_outside_header_table(self.project, layer);
@@ -594,7 +629,9 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
         if full {
             let mut refused = None;
             for member in &unit.members {
-                if !base.may_write(member, matches!(unit.what, What::Headers))? {
+                // The header table's unit and the egg moves' (a unit of the plan's writes)
+                // own their slice of `arm9.bin` and of the overlay.
+                if !base.may_write(member, !matches!(unit.what, What::Raw(_)))? {
                     refused = Some(member);
                     break;
                 }

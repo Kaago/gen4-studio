@@ -41,6 +41,7 @@ pub(crate) fn export_in<E: EntitySchema>(
         symbols: sym,
         base,
         side: Vec::new(),
+        egg_moves: None,
     };
     let e = E::export(index, members, &mut ctx).unwrap();
     let again: E = serde_json::from_slice(&to_canonical(&e)).unwrap();
