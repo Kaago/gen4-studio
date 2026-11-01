@@ -14,7 +14,7 @@ const AREA_ORDER: readonly FlagArea[] = ["map_local", "general", "hidden_items",
 const ROW_LIMIT = 1000;
 
 /** What the picker says under the list while `ROW_LIMIT` cuts it. */
-const CUT_NOTE = "Die ersten 1.000 Treffer; Suche und Bereich erreichen die übrigen.";
+const CUT_NOTE = `Die ersten ${ROW_LIMIT.toLocaleString("de-DE")} Treffer; Suche und Bereich erreichen die übrigen.`;
 
 export type FlagPickerProps = {
   open: boolean;

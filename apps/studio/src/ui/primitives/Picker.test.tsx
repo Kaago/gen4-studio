@@ -74,6 +74,16 @@ describe("Picker", () => {
     expect(counts[1]!.hasAttribute("title")).toBe(false);
   });
 
+  it("the_count_keeps_its_content_width_and_the_label_gives_way", () => {
+    const css = readCss("./Picker.module.css", import.meta.url);
+    // The count is never squeezed below its text (a 0 px count showed no usage); the label carries the ellipsis and a floor.
+    expect(ruleBody(css, ".count")).toMatch(/flex:\s*none/);
+    expect(ruleBody(css, ".count")).not.toMatch(/overflow|text-overflow/);
+    expect(ruleBody(css, ".tech")).toMatch(/flex:\s*none/);
+    expect(ruleBody(css, ".label")).toMatch(/min-width:\s*10rem/);
+    expect(ruleBody(css, ".label")).toMatch(/text-overflow:\s*ellipsis/);
+  });
+
   it("the_cut_note_shows_only_while_the_limit_cuts_hits_and_gets_the_numbers", () => {
     const cutNote = vi.fn((shown: number, total: number) => `${shown} von ${total}`);
     render({ limitPerGroup: 2, cutNote });
