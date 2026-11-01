@@ -275,6 +275,10 @@ der Ausgabe (mit dem geschrumpften Fall).
   nur `len` (Zahl der Einträge); eine Begegnungsdatei hat `grass_rate`, `grassN` (Art in Gras-Slot N, 0 bis 11; HGSS: die
   Tag-Spalte), `grassN_level` und in HGSS `grassN_morning`, `grassN_night`.
 - KIND `map` (seit 3b.4b) liest eine Kartendatei des ROMs mit `g4_formats::map` und hat zwei Felder: `model_sha1` (SHA-1 des Modells, so wie es in der Karte steht) und `per_sha1` (SHA-1 der Kollision, dieselben 2048 Byte wie ein exportiertes `.per`), beide als 40 Hex-Ziffern. So prüft ein Szenario, dass ein Import im gebauten ROM ankam: `--expect map:666:model_sha1=<SHA-1 der exportierten .nsbmd>`.
+- KIND `egg_moves` (seit 3d.3) liest den einen Member der Ei-Attacken-Tabelle (HeartGold `a/2/2/9`, Platin nur mit dem
+  Patch-NARC von DSPRE; die Tabelle in Overlay 5 liest es nicht, dann „CPUD has no egg_moves archive“); MEMBER ist hier
+  die Artnummer, die Felder sind `count` (Zahl der Ei-Attacken, 0 ohne Eintrag) und `move0` bis `move15`:
+  `--expect egg_moves:1:count=14 --expect egg_moves:1:move0=113` (Bisasam in HeartGold DE).
 - MEMBER ist der Member im Archiv, bei `item` also der Datenmember, nicht die Item-ID (in Platin ist Trank beides 17).
 - Exit 0, wenn alles stimmt (stdout „species 397 attack: 85“ je Erwartung und „N expectation(s) met“); Exit 1 bei einer
   Abweichung oder einem unlesbaren Member (stderr „species 397 attack: expected 75, found 85“); Exit 2 bei einem falsch

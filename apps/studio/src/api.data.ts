@@ -267,6 +267,26 @@ export interface SpriteSlotsDto {
   male: boolean;
 }
 
+/** How much of a fixed budget a table fills, in words (Platinum's egg moves in overlay 5: marks, moves and the end all count). */
+export interface BudgetDto {
+  used: number;
+  total: number;
+}
+
+/** Where the egg move table is read from: the game's NARC (HeartGold/SoulSilver), DSPRE's patch NARC or overlay 5 (Platinum). */
+export type EggMovesSource = "narc" | "patch" | "overlay";
+
+/**
+ * The egg moves of one species (empty without an entry). `budget` only for the table in overlay 5; `locked` is why the table cannot be
+ * read or edited (then `moves` is empty and must not be shown as the species' moves).
+ */
+export interface EggMovesDto {
+  moves: number[];
+  source: EggMovesSource;
+  budget: BudgetDto | null;
+  locked: string | null;
+}
+
 /**
  * The document of one member, by `kind`. A locked member (wrong length, e.g. a 36-byte item DSPRE wrote) has `locked`
  * and `raw_locked`; its decoded fields are then empty (species: zeros) and must not be shown as values.
@@ -287,6 +307,8 @@ export type DataDocDto =
       locked_asset: AssetId | null;
       /** Which genders have battle images of their own (`getBattleSprite` falls back to the other one silently); null without readable sprites. */
       sprite_slots: SpriteSlotsDto | null;
+      /** The species' egg moves; null where the game has no egg move table (Diamond/Pearl). */
+      egg_moves: EggMovesDto | null;
     }
   | {
       kind: "move";
@@ -375,7 +397,12 @@ export type DataPatch =
   /** The whole party (at most 6), written in the trainer's format. */
   | { TrainerParty: { party: PartyMonDto[] } }
   /** Battle texts as `setTrainerTexts` writes them, one step with the patch label. */
-  | { TrainerTexts: { texts: TrainerTextInDto[] } };
+  | { TrainerTexts: { texts: TrainerTextInDto[] } }
+  /**
+   * The species' whole egg move list (at most 16 moves of the game, not 0; empty removes the entry). Platinum without DSPRE's patch: within
+   * the budget, else refused with "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen" (adding needs a move removed elsewhere).
+   */
+  | { EggMoves: { moves: number[] } };
 
 /** The trainer properties `Trainer` patches take. */
 export type TrainerField = keyof (typeof fieldLabels)["trainer"];
@@ -500,6 +527,7 @@ export const fieldLabels = {
     flee_rate: "Fluchtrate",
     color: "Farbe",
     flip: "Gespiegelt",
+    egg_moves: "Ei-Attacken",
   },
   move: {
     effect: "Effekt",

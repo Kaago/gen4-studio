@@ -1309,7 +1309,8 @@ fn data_list_species_is_fast() {
 }
 
 /// Gated (`G4_TEST_PROJECT`): the commands on a copy of a vanilla project, with the verified
-/// arm9 tables, real names and icons.
+/// arm9 tables, real names and icons; swaps the egg moves of species 1 and undoes it (prints
+/// `egg_moves <game_code> source=… species1=<n> budget=… label=…`).
 #[test]
 fn vanilla_data_commands_on_copy() {
     let Some((_tmp, root)) = g4_kernel::test_support::vanilla_copy() else {
@@ -1404,6 +1405,30 @@ fn vanilla_data_commands_on_copy() {
             ..
         }
     ));
+
+    // Egg moves of species 1 swapped (same count, so also within Platinum's full budget),
+    // then undone (⌘Z).
+    let project = crate::commands::open_project_arc(&state).unwrap();
+    let doc = egg_moves_of(&state, 1).unwrap();
+    assert!(doc.locked.is_none(), "{:?}", doc.locked);
+    assert!(doc.moves.len() >= 2, "{:?}", doc.moves);
+    let mut swapped = doc.moves.clone();
+    swapped.reverse();
+    let changed = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&swapped), None).unwrap();
+    assert_eq!(changed, [id(AssetKind::EggMoves, 0)]);
+    let label = last_label(&state);
+    assert!(label.ends_with(": Ei-Attacken getauscht"), "{label}");
+    assert_eq!(egg_moves_of(&state, 1).unwrap().moves, swapped);
+    undo_impl(&state).unwrap();
+    let undone = egg_moves_of(&state, 1).unwrap();
+    assert_eq!(undone, doc);
+    eprintln!(
+        "egg_moves {} source={:?} species1={} budget={:?} label={label:?}",
+        project.game_code,
+        doc.source,
+        doc.moves.len(),
+        doc.budget
+    );
 }
 
 /// The fixture as Platinum DE (CPUD, verified arm9 offsets) with an item table whose ids
@@ -1771,4 +1796,254 @@ fn battle_sprites_over_the_command_path_on_the_vanilla_copy() {
             assert!(ms <= 50, "{what} took {ms} ms");
         }
     }
+}
+
+fn egg_patch(moves: &[u16]) -> DataPatch {
+    DataPatch::EggMoves {
+        moves: moves.to_vec(),
+    }
+}
+
+fn egg_moves_of(state: &AppState, index: u16) -> Option<EggMovesDto> {
+    match data_get_impl(state, DataKind::Species, index).unwrap() {
+        DataDocDto::Species { egg_moves, .. } => egg_moves,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The HeartGold US egg move fixture, its egg move member `words` (the fixture's own words
+/// when `None`), with the Platinum data archives of the synthetic project copied to the
+/// HeartGold paths (personal data, learnsets, evolutions, moves), so species documents load.
+fn open_hgss_egg_moves(words: Option<&[u16]>) -> (g4_kernel::test_support::Synthetic, AppState) {
+    let fixture = g4_kernel::test_support::synthetic_hgss_egg_moves();
+    let root = fixture.dir.path();
+    for (from, to) in [
+        ("files/poketool/personal/pl_personal.narc", "files/a/0/0/2"),
+        ("files/poketool/personal/wotbl.narc", "files/a/0/3/3"),
+        ("files/poketool/personal/evo.narc", "files/a/0/3/4"),
+        ("files/poketool/waza/pl_waza_tbl.narc", "files/a/0/1/1"),
+    ] {
+        std::fs::create_dir_all(root.join(to).parent().unwrap()).unwrap();
+        std::fs::copy(root.join(from), root.join(to)).unwrap();
+    }
+    if let Some(words) = words {
+        let narc = g4_formats::narc::Narc {
+            members: vec![g4_kernel::test_support::egg_move_bytes(words)],
+        };
+        std::fs::write(root.join("files/a/2/2/9"), narc.write()).unwrap();
+    }
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, root.to_str().unwrap()).unwrap();
+    (fixture, state)
+}
+
+fn open_platinum_egg_moves(table_at: usize) -> (g4_kernel::test_support::Synthetic, AppState) {
+    let fixture = g4_kernel::test_support::synthetic_platinum_egg_moves(table_at);
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+    (fixture, state)
+}
+
+#[test]
+fn species_doc_carries_egg_moves_with_source_and_budget() {
+    use g4_kernel::data::egg_moves::EggMovesSource;
+    let (_fixture, state) = open_hgss_egg_moves(None);
+    assert_eq!(
+        egg_moves_of(&state, 1),
+        Some(EggMovesDto {
+            moves: vec![5, 7],
+            source: EggMovesSource::Narc,
+            budget: None,
+            locked: None,
+        })
+    );
+    // An entry without moves and a species without an entry: both an empty list.
+    assert_eq!(egg_moves_of(&state, 3).unwrap().moves, Vec::<u16>::new());
+    assert_eq!(egg_moves_of(&state, 2).unwrap().moves, Vec::<u16>::new());
+
+    let (_fixture, state) = open_platinum_egg_moves(g4_kernel::test_support::PT_EGG_MOVES_OFFSET);
+    let doc = egg_moves_of(&state, 4).unwrap();
+    assert_eq!(
+        doc,
+        EggMovesDto {
+            moves: vec![9],
+            source: EggMovesSource::Overlay,
+            budget: Some(BudgetDto {
+                used: 1910,
+                total: 1910,
+            }),
+            locked: None,
+        }
+    );
+    // The DTO as the frontend reads it.
+    assert_eq!(
+        serde_json::to_value(&doc).unwrap(),
+        json!({ "moves": [9], "source": "overlay", "budget": { "used": 1910, "total": 1910 }, "locked": null })
+    );
+
+    // With DSPRE's patch NARC the table is a member without budget.
+    let fixture = g4_kernel::test_support::synthetic_platinum_egg_moves(
+        g4_kernel::test_support::PT_EGG_MOVES_OFFSET,
+    );
+    g4_kernel::test_support::write_egg_move_patch(fixture.dir.path());
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+    let doc = egg_moves_of(&state, 1).unwrap();
+    assert_eq!(
+        (doc.source, doc.budget, doc.moves),
+        (EggMovesSource::Patch, None, vec![5, 7])
+    );
+}
+
+#[test]
+fn egg_moves_edit_records_a_speaking_label_and_undoes() {
+    // Species 1 with seven moves (the fixture's moves are 0 to 3), species 4 with one.
+    let words = [20001, 1, 2, 3, 1, 2, 3, 1, 20004, 3, 0xFFFF];
+    let (_fixture, state) = open_hgss_egg_moves(Some(&words));
+    let seven = egg_moves_of(&state, 1).unwrap().moves;
+    assert_eq!(seven.len(), 7);
+    let mut eight = seven.clone();
+    eight.push(2);
+    let changed = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&eight), None).unwrap();
+    assert_eq!(changed, [id(AssetKind::EggMoves, 0)]);
+    assert_eq!(last_label(&state), "Art 0001: Ei-Attacken 7 → 8");
+    assert_eq!(egg_moves_of(&state, 1).unwrap().moves, eight);
+
+    // The same number of moves in another order: a swap.
+    let mut swapped = eight.clone();
+    swapped.reverse();
+    data_edit_impl(&state, DataKind::Species, 1, egg_patch(&swapped), None).unwrap();
+    assert_eq!(last_label(&state), "Art 0001: Ei-Attacken getauscht");
+    // Nothing changed: no step.
+    let before = history_impl(&state).unwrap().undo.len();
+    assert!(
+        data_edit_impl(&state, DataKind::Species, 1, egg_patch(&swapped), None)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(history_impl(&state).unwrap().undo.len(), before);
+    // A species without an entry gets one; the caller's label wins.
+    data_edit_impl(
+        &state,
+        DataKind::Species,
+        2,
+        egg_patch(&[3]),
+        Some("Eigene Beschriftung".to_owned()),
+    )
+    .unwrap();
+    assert_eq!(last_label(&state), "Eigene Beschriftung");
+    assert_eq!(egg_moves_of(&state, 2).unwrap().moves, [3]);
+
+    undo_impl(&state).unwrap();
+    assert!(egg_moves_of(&state, 2).unwrap().moves.is_empty());
+    undo_impl(&state).unwrap();
+    assert_eq!(egg_moves_of(&state, 1).unwrap().moves, eight);
+    undo_impl(&state).unwrap();
+    assert_eq!(egg_moves_of(&state, 1).unwrap().moves, seven);
+}
+
+#[test]
+fn egg_moves_edit_refuses_moves_the_table_cannot_hold() {
+    let (_fixture, state) = open_hgss_egg_moves(None);
+    let refused = |moves: &[u16]| {
+        let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(moves), None).unwrap_err();
+        assert_eq!(err.code, "error");
+        err.message
+    };
+    // The fixture has the moves 0 to 3; move 0 is no move, 20003 would be read as a species.
+    assert!(refused(&[1, 4]).contains("move 4"), "{}", refused(&[1, 4]));
+    assert!(refused(&[0]).contains("move 0"), "{}", refused(&[0]));
+    assert!(refused(&[20003]).contains("move 20003"));
+    assert!(refused(&[1; 17]).contains("16"), "{}", refused(&[1; 17]));
+    // Species 0 has no egg moves; a species beyond the personal members neither.
+    for index in [0, 508] {
+        assert!(data_edit_impl(&state, DataKind::Species, index, egg_patch(&[1]), None).is_err());
+    }
+    assert!(history_impl(&state).unwrap().undo.is_empty());
+    // Not a patch of the other kinds.
+    assert!(data_edit_impl(&state, DataKind::Move, 1, egg_patch(&[1]), None).is_err());
+}
+
+#[test]
+fn platinum_add_without_remove_is_refused_swap_and_trade_pass() {
+    let (fixture, state) = open_platinum_egg_moves(g4_kernel::test_support::PT_EGG_MOVES_OFFSET);
+    // The table fills the budget: a swap keeps the word count.
+    data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[2, 1]), None).unwrap();
+    assert_eq!(last_label(&state), "Bulbasaur: Ei-Attacken getauscht");
+    // One species gives one move up, another takes one: two steps, both pass.
+    data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[2]), None).unwrap();
+    assert_eq!(last_label(&state), "Bulbasaur: Ei-Attacken 2 → 1");
+    data_edit_impl(&state, DataKind::Species, 4, egg_patch(&[3, 1]), None).unwrap();
+    assert_eq!(last_label(&state), "Art 0004: Ei-Attacken 1 → 2");
+    assert_eq!(
+        egg_moves_of(&state, 4).unwrap().budget,
+        Some(BudgetDto {
+            used: 1910,
+            total: 1910
+        })
+    );
+    // One more without giving one up: refused with the kernel's sentence, nothing recorded.
+    let history = history_impl(&state).unwrap().undo;
+    let err =
+        data_edit_impl(&state, DataKind::Species, 4, egg_patch(&[3, 1, 2]), None).unwrap_err();
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        (
+            "error",
+            "Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen"
+        )
+    );
+    // Removing species 1 would lose the signature the next open looks for: refused too.
+    let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[]), None).unwrap_err();
+    assert_eq!(err.message, g4_kernel::data::egg_moves::signature_lost());
+    assert_eq!(history_impl(&state).unwrap().undo, history);
+    assert_eq!(egg_moves_of(&state, 4).unwrap().moves, [3, 1]);
+
+    // Saved into the overlay slice: the table reads back as edited.
+    crate::commands::save_impl(&state).unwrap();
+    let state = AppState::default();
+    crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+    assert_eq!(egg_moves_of(&state, 1).unwrap().moves, [2]);
+    assert_eq!(egg_moves_of(&state, 4).unwrap().moves, [3, 1]);
+}
+
+#[test]
+fn egg_moves_edit_on_a_locked_table_is_refused_with_the_reason() {
+    use g4_kernel::data::egg_moves::{EggMovesSource, signature_missing};
+    // A table moved by two bytes: the signature fails, the asset is locked.
+    let at = g4_kernel::test_support::PT_EGG_MOVES_OFFSET + 2;
+    let (fixture, state) = open_platinum_egg_moves(at);
+    let overlay = fixture.dir.path().join("arm9_overlays/ov005.bin");
+    let before = std::fs::read(&overlay).unwrap();
+    let reason = signature_missing(g4_kernel::test_support::PT_EGG_MOVES_OFFSET as u64);
+    assert_eq!(
+        egg_moves_of(&state, 1),
+        Some(EggMovesDto {
+            moves: vec![],
+            source: EggMovesSource::Overlay,
+            budget: None,
+            locked: Some(reason.clone()),
+        })
+    );
+    let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[1, 2]), None).unwrap_err();
+    assert_eq!(err.code, "read_only");
+    assert!(err.message.contains(&reason), "{}", err.message);
+    assert!(history_impl(&state).unwrap().undo.is_empty());
+    crate::commands::save_impl(&state).unwrap();
+    assert_eq!(std::fs::read(&overlay).unwrap(), before);
+
+    // An unverified game code (the CPUE fixture) is locked with its sentence.
+    let (_fixture, state) = open_synthetic();
+    let doc = egg_moves_of(&state, 1).unwrap();
+    assert_eq!(
+        doc.locked.as_deref(),
+        Some("Ei-Attacken: Lage in Overlay 5 für CPUE nicht geprüft")
+    );
+    let err = data_edit_impl(&state, DataKind::Species, 1, egg_patch(&[1]), None).unwrap_err();
+    assert_eq!(err.code, "read_only");
+    assert!(
+        err.message.contains("für CPUE nicht geprüft"),
+        "{}",
+        err.message
+    );
 }

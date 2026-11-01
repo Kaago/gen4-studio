@@ -63,6 +63,8 @@ describe("data commands", () => {
       patch: { CopyMoves: { from: 396 } },
       label: "Staravia: TM/VM und Lernset wie Staralili",
     });
+    await dataEdit("species", 1, { EggMoves: { moves: [73, 75] } });
+    expect(invoke).toHaveBeenLastCalledWith("data_edit", { kind: "species", index: 1, patch: { EggMoves: { moves: [73, 75] } }, label: null });
     await dataEdit("encounter", 12, { Encounter: { method: "grass", slot: 2, field: "species", value: 396 } });
     expect(invoke).toHaveBeenLastCalledWith("data_edit", {
       kind: "encounter",
@@ -140,6 +142,7 @@ describe("fieldLabels", () => {
     expect(fieldLabels.species.speed).toBe("Initiative");
     expect(fieldLabels.species.hp).toBe("KP");
     expect(fieldLabels.species.catch_rate).toBe("Fangrate");
+    expect(fieldLabels.species.egg_moves).toBe("Ei-Attacken");
     expect(fieldLabels.move.power).toBe("Stärke");
     expect(fieldLabels.move.accuracy).toBe("Genauigkeit");
     expect(fieldLabels.move.pp).toBe("AP");

@@ -1,15 +1,16 @@
 //! `data_edit`: one patch as one undo step, with a speaking label ("Staravia: Angriff 75 →
 //! 85") unless the caller brings its own.
 
+use g4_formats::data::egg_moves::SPECIES_BASE;
 use g4_formats::data::evolution::{EVO_ENTRIES, EvoEntry};
 use g4_formats::data::learnset::{LearnEntry, MAX_ENTRIES};
 use g4_formats::data::personal::Personal;
 use g4_formats::data::record::RawRecord;
 use g4_formats::data::{item::Item, moves::Move};
 use g4_kernel::project::{AssetId, AssetKind};
-use g4_kernel::store::{ChangeId, Store};
+use g4_kernel::store::{ChangeId, EGG_MOVES, Store};
 
-use super::dto::{DataKind, DataPatch, LearnEntryDto};
+use super::dto::{DataKind, DataPatch, EGG_MOVES_MAX, LearnEntryDto};
 use super::encounter::{EncounterEdit, apply_extra};
 use super::fields::{fits, get, numeric_span, set};
 use super::{display, item_member, labels, shared_with};
@@ -62,8 +63,42 @@ fn one(id: AssetId, change: Option<ChangeId>) -> Vec<AssetId> {
     change.map(|_| vec![id]).unwrap_or_default()
 }
 
+/// Refuses an egg move list the table cannot hold for species `index`: species 0 or one
+/// beyond the personal members, more than [`EGG_MOVES_MAX`] moves, move 0 or one the game
+/// does not have (a move of [`SPECIES_BASE`] or more would also be written as a species mark).
+fn check_egg_moves(store: &Store, index: u16, moves: &[u16]) -> Result<(), CmdError> {
+    let project = store.project();
+    let species = project.member_count(AssetKind::Personal)?;
+    if index == 0 || usize::from(index) >= species {
+        return Err(format!(
+            "species {index} has no egg moves (species 1 to {})",
+            species.saturating_sub(1)
+        )
+        .into());
+    }
+    if moves.len() > EGG_MOVES_MAX {
+        return Err(format!(
+            "{} egg moves, a species takes at most {EGG_MOVES_MAX}",
+            moves.len()
+        )
+        .into());
+    }
+    let count = project.member_count(AssetKind::Move)?;
+    if let Some(bad) = moves
+        .iter()
+        .find(|&&m| m == 0 || usize::from(m) >= count || m >= SPECIES_BASE)
+    {
+        return Err(format!(
+            "move {bad} is no egg move (moves 1 to {})",
+            count.saturating_sub(1)
+        )
+        .into());
+    }
+    Ok(())
+}
+
 /// Applies `patch` to member `index` of `kind` (a species kind takes the personal, TM,
-/// learnset, evolution and copy patches; `move`, `item` and `encounter` their own) and
+/// learnset, evolution, egg move and copy patches; `move`, `item` and `encounter` their own) and
 /// returns the assets it changed (empty: nothing changed, nothing recorded).
 pub fn apply(
     session: &mut Session,
@@ -208,6 +243,21 @@ pub fn apply(
                 tx.edit_learnset(index, |l| l.entries = entries)
             })?;
             Ok(changed(store, &ids, &before))
+        }
+        DataPatch::EggMoves { moves } if species_kind => {
+            check_egg_moves(store, index, &moves)?;
+            let old = store.egg_moves()?.moves_of(index).unwrap_or_default().len();
+            let name = display::species(names, store, index);
+            let what = labels::EGG_MOVES;
+            let label = label_or(if old == moves.len() {
+                format!("{name}: {what} getauscht")
+            } else {
+                format!("{name}: {what} {old} → {}", moves.len())
+            });
+            // Over Platinum's budget (or losing the signature) the store refuses with its
+            // sentence and records nothing.
+            let change = store.edit_egg_moves(&label, |t| t.set_moves(index, moves))?;
+            Ok(one(EGG_MOVES, change))
         }
         DataPatch::Move { field, value } if kind == DataKind::Move => {
             let (span, field_name) = checked::<Move>(labels::MOVE, &field, value)?;

@@ -1948,6 +1948,25 @@ mod tests {
             json_of(call(&state, &policy, "history", json!({})))["undo"],
             json!(["Ivysaur: Angriff 4 → 85"])
         );
+        // The egg move patch deserializes; the CPUE fixture's table is locked (unverified
+        // place), so it is refused as read-only with the reason.
+        let egg = dispatch(
+            &state,
+            &policy,
+            "data_edit",
+            json!({ "kind": "species", "index": 1, "patch": { "EggMoves": { "moves": [1, 2] } } }),
+        );
+        match egg {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!(e.code, "read_only");
+                assert!(
+                    e.message.contains("für CPUE nicht geprüft"),
+                    "{}",
+                    e.message
+                );
+            }
+            other => panic!("{other:?}"),
+        }
         let refs = json_of(call(
             &state,
             &policy,

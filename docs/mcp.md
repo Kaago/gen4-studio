@@ -217,7 +217,7 @@ Die Tabelle zeigt alle Werkzeuge des Katalogs `g4.v1` (die Version steht in den 
 | `delete_event` | schreibend | löscht ein Event |
 | `edit_text` | schreibend | bearbeitet die Nachrichten eines Textarchivs (setzen, anhängen, letzte entfernen) |
 | `save_script` | schreibend | ersetzt den rotom-Quelltext einer Scriptdatei und übersetzt die Scripts |
-| `data_edit` | schreibend | ändert ein Feld oder einen Teil eines Dateneintrags |
+| `data_edit` | schreibend | ändert ein Feld oder einen Teil eines Dateneintrags; Teil `EggMoves` (`{moves}`, die ganze Ei-Attacken-Liste einer Art, höchstens 16): in Platin ohne DSPRE-Patch nur im Budget der Tabelle in Overlay 5 („Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“, Hinzufügen nur gegen Entfernen), eine gesperrte Tabelle ist `read_only` mit dem Grund |
 | `set_trainer_texts` | schreibend | setzt die Kampftexte eines Trainers |
 | `create_trainer` | unumkehrbar | legt einen neuen Trainer einer Klasse mit Namen und Kampf-Script an |
 | `apply_header_patch` | unumkehrbar | spielt den Patch „Dynamische Header“ in den Spielcode ein, den neue Header brauchen |
@@ -263,7 +263,7 @@ Pfade in Aufrufen (etwa `out` bei `build_rom`) gelten relativ zum Projektordner.
 Wo ein Werkzeug eine Nummer einer Spezies, Attacke, eines Items, Trainers, einer Trainerklasse oder eines Headers nimmt, nimmt es auch die symbolische ID (`SPECIES_PIKACHU` statt `25`, `MAP_T01` statt `0`); die Beschreibung sagt es mit „Numbers or symbolic ids (SPECIES_PIKACHU, MAP_T01, TRAINER_…) are accepted.“. Der Server ersetzt die ID vor dem Befehl durch die Nummer, für kuratierte Werkzeuge wie für `g4_call` und die Aufrufe in `g4_batch`; die Antworten bleiben Nummern. Feste Tabellen (Spezies, Attacken, Items, Fähigkeiten, Typen) gelten überall, die Register (Maps, Trainer, Trainerklassen, Orte) nur im Textprojekt; `MAP_<interner Name>` (aus `mapname.bin`), die Ersatzform `PRÄFIX_NNNN` und eine Zahl als Text gehen immer. Eine ID, die nichts kennt, ist der Fehler `unknown_id` („Unbekannte ID: SPECIES_NOPE.“), und nichts läuft. Die Argumente (Schlüssel der Befehlsschicht):
 
 - `data_get`, `data_edit`, `data_raw`: `index` je nach `kind` (`species`, `learnset`, `evolution` Spezies, `move`, `item`, `trainer`; eine Begegnungsdatei nur als Nummer);
-- `data_edit`: `patch.<Teil>.value`, wenn das Feld ein Verweis ist (Typen, Items und Fähigkeiten der Pokémon-Daten, `move_type`, `natural_gift_type`, `species` eines Begegnungsplatzes, `class` und `item0` bis `item3` eines Trainers), dazu `patch.Evolution.target` und `patch.CopyMoves.from`;
+- `data_edit`: `patch.<Teil>.value`, wenn das Feld ein Verweis ist (Typen, Items und Fähigkeiten der Pokémon-Daten, `move_type`, `natural_gift_type`, `species` eines Begegnungsplatzes, `class` und `item0` bis `item3` eines Trainers), dazu `patch.Evolution.target` und `patch.CopyMoves.from`; `patch.EggMoves.moves` nimmt nur Nummern;
 - `refs`: `target.index` bzw. `target.id` je nach `target.kind`;
 - `get_mon_icon` `species`, `get_item_icon` `item`, `create_trainer` `class`, `set_trainer_texts` `trainer`, `get_battle_sprite` `species`, `get_trainer_sprite` `class`;
 - Header: `get_header` und `set_header` `id`, `split_encounter_file`, `split_room` und `resolve_script` `header`, `update_event` `patch.dest_header_id`;

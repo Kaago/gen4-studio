@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use ds_rom::rom::{FileSystem, raw};
+use g4_formats::data::egg_moves::EggMoves;
 use g4_formats::data::encounter::{Encounters, Method};
 use g4_formats::data::learnset::Learnset;
 use g4_formats::data::moves::Move;
@@ -90,6 +91,9 @@ enum Command {
         /// data member, not the item id); a learnset has the field `len` (number of entries); an
         /// encounter file `grass_rate`, `grassN` (species of grass slot N, 0 to 11; HeartGold:
         /// the day column), `grassN_level` and in HeartGold `grassN_morning`, `grassN_night`.
+        /// KIND `egg_moves` reads the one member of the egg move archive (HeartGold `a/2/2/9`,
+        /// Platinum only with DSPRE's patch NARC; the overlay table is not read): MEMBER is the
+        /// species, the fields `count` (0 without an entry) and `move0` to `move15`.
         #[arg(long = "expect", required = true, value_parser = parse_expectation)]
         expect: Vec<Expectation>,
     },
@@ -727,7 +731,12 @@ enum DataKind {
     Encounter,
     /// A map file: SHA-1 of its model or permissions (hex).
     Map,
+    /// The egg moves of a species (MEMBER), read from member 0 of the egg move archive.
+    EggMoves,
 }
+
+/// The moves `check-data` can name per species: `move0` to `move15`.
+const EGG_MOVE_FIELDS: usize = 16;
 
 /// Fields of a map file: SHA-1 of a part, lowercase hex.
 const MAP_FIELDS: &[&str] = &["model_sha1", "per_sha1"];
@@ -787,6 +796,7 @@ impl DataKind {
             DataKind::Learnset => "learnset",
             DataKind::Encounter => "encounter",
             DataKind::Map => "map",
+            DataKind::EggMoves => "egg_moves",
         }
     }
 
@@ -798,6 +808,7 @@ impl DataKind {
             DataKind::Learnset => AssetKind::Learnset,
             DataKind::Encounter => AssetKind::Encounter,
             DataKind::Map => AssetKind::Map,
+            DataKind::EggMoves => AssetKind::EggMoves,
         }
     }
 
@@ -819,12 +830,30 @@ impl DataKind {
                 }))
                 .collect(),
             DataKind::Map => names(MAP_FIELDS),
+            DataKind::EggMoves => std::iter::once("count".to_string())
+                .chain((0..EGG_MOVE_FIELDS).map(|i| format!("move{i}")))
+                .collect(),
         }
     }
 
-    /// The value of `field` in the member `bytes` of a ROM of `family`, as text (a number or
-    /// a hex digest).
-    fn read(self, bytes: &[u8], field: &str, family: Family) -> Result<String, String> {
+    /// The member of the archive an expectation of `member` reads: the member itself, for egg
+    /// moves the one table (`member` is the species).
+    fn archive_member(self, member: u16) -> u16 {
+        match self {
+            DataKind::EggMoves => 0,
+            _ => member,
+        }
+    }
+
+    /// The value of `field` of `member` in the archive member `bytes` of a ROM of `family`,
+    /// as text (a number or a hex digest).
+    fn read(
+        self,
+        bytes: &[u8],
+        member: u16,
+        field: &str,
+        family: Family,
+    ) -> Result<String, String> {
         let number = match self {
             DataKind::Species => species_field(bytes, field),
             DataKind::Item => item_field(bytes, field),
@@ -838,6 +867,7 @@ impl DataKind {
                 }
             }
             DataKind::Map => return map_field(bytes, field, family),
+            DataKind::EggMoves => egg_move_field(bytes, member, field),
         };
         number.map(|v| v.to_string())
     }
@@ -885,9 +915,10 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
         "learnset" => DataKind::Learnset,
         "encounter" => DataKind::Encounter,
         "map" => DataKind::Map,
+        "egg_moves" => DataKind::EggMoves,
         _ => {
             return Err(format!(
-                "{text}: unknown kind {kind} (species, move, item, learnset, encounter, map)"
+                "{text}: unknown kind {kind} (species, move, item, learnset, encounter, map, egg_moves)"
             ));
         }
     };
@@ -910,6 +941,24 @@ fn parse_expectation(text: &str) -> Result<Expectation, String> {
             _ => format!("{text}: value {value} is not a number"),
         })?,
     })
+}
+
+/// `count` (number of egg moves, 0 without an entry) or `moveN` of `species` in the egg move
+/// table `bytes`.
+fn egg_move_field(bytes: &[u8], species: u16, field: &str) -> Result<i64, String> {
+    let table = EggMoves::read(bytes).map_err(|e| e.to_string())?;
+    let moves = table.moves_of(species).unwrap_or_default();
+    if field == "count" {
+        return Ok(moves.len() as i64);
+    }
+    let n: usize = field
+        .strip_prefix("move")
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| format!("egg_moves has no field {field}"))?;
+    moves
+        .get(n)
+        .map(|&m| i64::from(m))
+        .ok_or_else(|| format!("species {species} has {} egg moves", moves.len()))
 }
 
 /// SHA-1 (lowercase hex) of the model or the permissions of a map file.
@@ -1083,8 +1132,14 @@ fn check_data(rom: &Path, expectations: &[Expectation]) -> Result<(), Failure> {
         files.traverse_files([path.as_str()], |file, _| {
             contents = Some(file.contents().to_vec())
         });
-        let contents = contents
-            .ok_or_else(|| Failure::Message(format!("{}: no file {path}", rom.display())))?;
+        // The egg move NARC of Platinum exists only with DSPRE's patch: without it the game
+        // has no egg move archive (its table lies in overlay 5, which is not read here).
+        let contents = contents.ok_or_else(|| match kind {
+            DataKind::EggMoves => {
+                Failure::Message(format!("{game_code} has no {} archive", kind.name()))
+            }
+            _ => Failure::Message(format!("{}: no file {path}", rom.display())),
+        })?;
         let narc = Narc::read(&contents).map_err(|e| Failure::Message(format!("{path}: {e}")))?;
         narcs.insert(*kind, narc);
     }
@@ -1092,8 +1147,8 @@ fn check_data(rom: &Path, expectations: &[Expectation]) -> Result<(), Failure> {
     let mut failed = 0;
     for e in expectations {
         let members = &narcs[&e.kind].members;
-        let found = match members.get(usize::from(e.member)) {
-            Some(bytes) => e.kind.read(bytes, &e.field, family),
+        let found = match members.get(usize::from(e.kind.archive_member(e.member))) {
+            Some(bytes) => e.kind.read(bytes, e.member, &e.field, family),
             None => Err(format!("the archive has {} members", members.len())),
         };
         match found {
@@ -1914,7 +1969,7 @@ mod tests {
             for field in kind.fields() {
                 let field = field.as_str();
                 assert_eq!(
-                    kind.read(&bytes, field, Family::Pt),
+                    kind.read(&bytes, 7, field, Family::Pt),
                     Ok("0".to_owned()),
                     "{} {field}",
                     kind.name()
@@ -1926,6 +1981,40 @@ mod tests {
     }
 
     #[test]
+    fn egg_move_fields_read_the_species_of_member_and_parse() {
+        // Species 7 with sixteen moves 100..=115, species 9 with none, then the end.
+        let mut words = vec![20007u16];
+        words.extend(100..116);
+        words.extend([20009, 0xFFFF]);
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let kind = DataKind::EggMoves;
+        assert_eq!(kind.archive_member(7), 0);
+        for (i, field) in kind.fields().iter().enumerate() {
+            let expected = if i == 0 { 16 } else { 99 + i };
+            assert_eq!(
+                kind.read(&bytes, 7, field, Family::Hgss),
+                Ok(expected.to_string()),
+                "{field}"
+            );
+            let e = parse_expectation(&format!("egg_moves:7:{field}=1")).unwrap();
+            assert_eq!((e.kind, e.member), (kind, 7));
+        }
+        assert_eq!(
+            kind.read(&bytes, 9, "count", Family::Hgss),
+            Ok("0".to_owned())
+        );
+        assert_eq!(
+            kind.read(&bytes, 8, "count", Family::Hgss),
+            Ok("0".to_owned())
+        );
+        assert_eq!(
+            kind.read(&bytes, 9, "move0", Family::Hgss),
+            Err("species 9 has 0 egg moves".to_owned())
+        );
+        assert!(parse_expectation("egg_moves:7:move16=1").is_err());
+    }
+
+    #[test]
     fn encounter_fields_read_the_grass_slots_of_both_families() {
         // Platinum: rate u32 at 0, slot i = level u32 at 4 + 8i, species u32 at 8 + 8i.
         let mut pt = vec![0u8; 424];
@@ -1934,7 +2023,7 @@ mod tests {
         pt[0x08 + 8 * 3..0x0A + 8 * 3].copy_from_slice(&150u16.to_le_bytes());
         let read = |bytes: &[u8], family, field: &str| {
             DataKind::Encounter
-                .read(bytes, field, family)
+                .read(bytes, 0, field, family)
                 .map(|v| v.parse::<i64>().expect("encounter values are numbers"))
         };
         assert_eq!(read(&pt, Family::Pt, "grass_rate"), Ok(100));

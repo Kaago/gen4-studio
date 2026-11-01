@@ -27,6 +27,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/dynamic_headers.md"),
     ),
     (
+        "egg_moves",
+        include_str!("../../../../../docs/formats/egg_moves.md"),
+    ),
+    (
         "encounter",
         include_str!("../../../../../docs/formats/encounter.md"),
     ),

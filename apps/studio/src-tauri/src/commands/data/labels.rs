@@ -36,6 +36,16 @@ pub const SPECIES: &[(&str, &str)] = &[
     ("flip", "Gespiegelt"),
 ];
 
+/// Species fields that are no personal data, each changed by its own patch:
+/// `egg_moves` by `DataPatch::EggMoves`. `fieldLabels.species` carries them too (the patches
+/// name their label constant directly, so the table is only the test's).
+#[cfg(test)]
+pub const SPECIES_PARTS: &[(&str, &str)] = &[("egg_moves", EGG_MOVES)];
+
+/// The egg moves of a species (`DataPatch::EggMoves`, undo label „Bisasam: Ei-Attacken 7 →
+/// 8“).
+pub const EGG_MOVES: &str = "Ei-Attacken";
+
 /// Moves (`DataPatch::Move`).
 pub const MOVE: &[(&str, &str)] = &[
     ("effect", "Effekt"),
@@ -232,7 +242,7 @@ mod tests {
 
     #[test]
     fn field_labels_in_api_data_ts_mirror_the_command_tables() {
-        let rust: BTreeMap<String, BTreeMap<String, String>> = ALL
+        let mut rust: BTreeMap<String, BTreeMap<String, String>> = ALL
             .iter()
             .map(|(kind, table)| {
                 let fields = table
@@ -242,6 +252,14 @@ mod tests {
                 ((*kind).to_owned(), fields)
             })
             .collect();
+        // The species parts that are no personal data share `fieldLabels.species`.
+        let species = rust.get_mut("species").unwrap();
+        for (k, v) in SPECIES_PARTS {
+            assert!(
+                species.insert((*k).to_owned(), (*v).to_owned()).is_none(),
+                "{k}"
+            );
+        }
         assert_eq!(ts_field_labels(), rust);
     }
 
