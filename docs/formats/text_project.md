@@ -378,9 +378,14 @@ gesperrt). Im Textprojekt stehen sie als Feld `egg_moves` in der Datei jeder Art
   in aufsteigender Artnummer über `EggMoves::set_moves` (Ende und Auffüllung bleiben dessen
   Regel): ohne Feld fällt der Eintrag weg, eine leere Liste ist eine Marke ohne Attacken, der
   Eintrag einer Art ohne Datei bleibt. Geschrieben wird nur, wenn die Bytes abweichen (im Overlay
-  nur der Ausschnitt). Attacken wie in `data_edit`: von 1 bis unter die Zahl der Attacken des
-  Projekts, sonst `textproject.schema` an `egg_moves[i]` („… ist keine Ei-Attacke (Attacken 1
-  bis 467)“).
+  nur der Ausschnitt). Attacken nehmen IDs oder Nummern wie in `data_edit`: von 1 bis unter die
+  Zahl der Attacken des Projekts; eine unbekannte ID ist `textproject.unknown-id`, eine andere Zahl
+  `textproject.schema` an `egg_moves[i]` („… ist keine Ei-Attacke (Attacken 1 bis 467)“). Passt die
+  Tabelle nicht ins Budget von Overlay 5 oder verlöre sie die Signatur, ist das ein Fehler
+  `textproject.schema` an `egg_moves` der ersten Datei, die sie ändert, mit dem Satz des Stores
+  („Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“). Hat die Tabelle keinen Ort (Platin mit
+  ungeprüfter Fassung oder fehlender Signatur), schreibt der Import nichts und warnt mit
+  `textproject.egg-moves-locked` und dem Grund, sobald eine Datei das Feld trägt.
 - **Patch und Klon:** liegt die Tabelle in DSPRE's Patch-NARC, sind NARC und
   `unpacked/eggMoves/` Spieldateien, die `.gitignore` des Textprojekts auslässt (`files/`,
   `unpacked/`); nach einem Klon und „Textprojekt vervollständigen“ (Basis-ROM ohne Patch) fehlen
@@ -392,13 +397,7 @@ gesperrt). Im Textprojekt stehen sie als Feld `egg_moves` in der Datei jeder Art
   Platin mit Patch) kein Member einer Entität, eine Änderung von DSPRE stand als Blob
   `data/raw/unpacked/eggMoves/0000`. Ohne die Marke `eggMoves` gilt dieser Blob weiter als der
   Member (kein `textproject.raw-path`); der nächste Export übernimmt die Tabelle in die
-  Spezies-Dateien und löscht den Blob. Attacken nehmen
-  IDs oder Nummern unter 20000 (`textproject.unknown-id`, `textproject.schema` an
-  `egg_moves[i]`); passt die Tabelle nicht ins Budget von Overlay 5 oder verlöre sie die Signatur,
-  ist das ein Fehler `textproject.schema` an `egg_moves` der ersten Datei, die sie ändert, mit dem
-  Satz des Stores („Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“). Hat die Tabelle keinen
-  Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur), schreibt der Import nichts und warnt
-  mit `textproject.egg-moves-locked` und dem Grund, sobald eine Datei das Feld trägt.
+  Spezies-Dateien und löscht den Blob.
 - **Einheit `egg_moves`:** im Abgleich und für den Store ist `EggMoves 0` die Einheit mit dem
   Schlüssel `egg_moves`, Quellen alle `data/species/NNNN.json`, Member die NARC-Datei bzw.
   `arm9_overlays/ov005.bin`. Laden liest die Tabelle aus den Spezies-Dateien wie der Import;

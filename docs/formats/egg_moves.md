@@ -24,8 +24,10 @@ Attacken und das Ende.
 
 `set_moves(art, liste)` ersetzt die Liste; eine leere Liste entfernt den Eintrag; ein neuer
 Eintrag steht vor dem ersten Eintrag einer höheren Art (aufsteigend). Ändert sich die
-Wortzahl, wird `tail` zur Null-Auffüllung auf vier Bytes; sonst schreibt `write()` den Rest
-wie gelesen zurück (`write(read(bytes)) == bytes`).
+Wortzahl, bekommt die Tabelle ihr Ende (auch wenn sie ohne eines gelesen wurde) und `tail`
+wird zur Null-Auffüllung auf vier Bytes, mit Budget (Overlay) leer, dann füllt `write()` mit
+`0xFFFF`-Wörtern auf; sonst schreibt `write()` den Rest wie gelesen zurück
+(`write(read(bytes)) == bytes`).
 
 ## Orte je Spiel
 

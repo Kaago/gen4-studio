@@ -1,6 +1,6 @@
 # Audit: Design-System „Doppeldeck“ gegen die App
 
-Stand: 25.10.2026, nach Phase 3 (3c, 3b.3a, 3b.3b, 3b.4a, 3b.4b; `main` bei `eecd4f5`).
+Stand: 01.11.2026. Grundlage ist der Stand nach Phase 3 vom 25.10.2026 (3c, 3b.3a, 3b.3b, 3b.4a, 3b.4b; `main` bei `eecd4f5`); die Zeilen der späteren Phasen bis 3d.3 Teil B (Ei-Attacken, Branch `phase-3d-3-sprites-ds-eier`) sind nachgetragen.
 
 Verglichen werden zwei Stände:
 - **Initiale Idee:** `Editor_DesignSystem.fig` vom 23.10.2026 (Grundlagen, Komponenten, Muster, 30 Screens) und das README dieses Ordners.
@@ -143,6 +143,7 @@ Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind v
 | Flag-Feld | umgesetzt (3d.1) | Kein Vorbild in der `.fig`. `FlagField` in der Inspector-Zeile: Chip der Fläche Geschichten mit Name und Nummer, „Wählen…“, in Tüfteln das Zahlfeld mit Dez und Hex; ohne Bezeichnung in der Tabelle des Level-Scripts. Die `.fig` kennt es noch nicht |
 | DS-Bildschirm | umgesetzt | Kartenbild des Orts als Hintergrund, Steuercodes als Plaketten |
 | DS-Bildschirm: Pokédex-Profil | umgesetzt (3d.3 Teil A) | `DSPokedexProfile` in der Pokédex-Schau („Spielerblick“) mit Vorderseite, Rückseite, Weiblich, Schillernd; Kategorie, Größe, Gewicht und Text stehen als „folgt“ (keine Zukan-Daten gelesen); neue Tokens `szene/ds/status`; Frame in der `.fig` folgt |
+| Ei-Attacken-Reiter | umgesetzt (3d.3 Teil B) | Kein Vorbild in der `.fig`. Reiter „Ei-Attacken“ der Pokédex-Hand nach „Lernset“ (`EggMovesTab`): `Table` mit Attacken-Picker, `TypeBadge` und Entfernen-Taste, „Zeile hinzufügen“ (`aria-disabled` mit Satz bei vollem Platin-Budget oder 16 Attacken), Fußzeile mit der Zahl und in Platin dem Budget („Tabelle 1 910 von 1 910 Einträgen“); gesperrte Tabelle als Warnung mit dem Grund, Spiel ohne Tabelle als Info; keine neue Komponente, keine neuen Tokens. Der Frame in der `.fig` folgt |
 | DS-Bildschirm: Kampfvorschau | umgesetzt (3d.3 Teil A) | `DSBattlePreview` im Trainer (Gegner: Trainer oder erstes Pokémon), eigene Seite leer, feste Lage ohne `pokemonSpriteOffsets`, stilisierter Boden; neue Tokens `szene/ds/kp` und `szene/ds/kampf`; Frame in der `.fig` folgt |
 | Weltmarker | **teilweise** | 3D-Quader und Sprites statt Formen |
 | Pokémon-Karte | umgesetzt (3b.3b) | Radius 12, Menüsymbol aus dem ROM |
@@ -176,7 +177,7 @@ Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind v
 | 13 | Flags und Variablen | teilweise (3d.1: Technik › Flags und Variablen) | liegt bis 3d.6 in Technik statt im Bereich Geschichten; Liste mit Filtern, Detail „Wo gesetzt“ und „Wo geprüft“, Picker und Flag-Feld im Inspector, Dialog „Als eigenes Flag benennen“; „Live“ leer bis 3d.9, Namen nur in der Oberfläche, die Event-JSON tragen bis 3d.4 Zahlen. Die Frames stehen noch nicht in der `.fig` (OpenPencil war nicht erreichbar, `openpencil/NACHTRAG-3D-1.md`) |
 | 14 | Dialog bearbeiten | teilweise | über Archiv und Nummer im Bereich Texte, kein Weg von der Figur |
 | 15 | Pokédex: Staravia | umgesetzt | DS-Profil seit 3d.3 Teil A (Text, Kategorie, Größe, Gewicht „folgt“); „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
-| 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht |
+| 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht; seit 3d.3 Teil B steht der Reiter „Ei-Attacken“ daneben (kein Vorbild in der `.fig`) |
 | 17 | Trainer: Wanderer Kai | teilweise | Kampfvorschau und Klassenbild seit 3d.3 Teil A (nur der Gegner); ohne Sichtlinie |
 | 18 | Begegnungen: Route 201 | teilweise | Bauen statt Erzählen: Methodenreiter und Tabelle statt Draufsicht und Regler |
 | 19 | Attacken: Flügelschlag | umgesetzt | ohne DS-Zusammenfassung und Effektivität |
