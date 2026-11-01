@@ -10,6 +10,7 @@
 //! that undo does not take back.
 
 pub mod area;
+pub(crate) mod doors;
 pub mod empty_region;
 pub mod extend;
 pub mod room;
