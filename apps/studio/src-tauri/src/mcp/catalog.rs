@@ -1443,13 +1443,16 @@ static TOOLS: &[ToolDef] = &[
         name: "recipe_apply",
         title: "Apply a recipe",
         description: "Applies a recipe as one undo step and answers its outcome: report (as \
-                      create_area, create_room or extend_area answer it), created (the new \
-                      members, created first; they stay after undo), change, changed (every \
-                      asset to load again) and next (the recipes that make sense now, \
-                      available or with a reason). create_area/create_room with \
-                      header.allow_patch and empty_region cannot be undone completely (new \
-                      members stay); headless they need --allow-irreversible, without it the \
-                      call answers needs_confirmation. Not in g4_batch.",
+                      create_area, create_room or extend_area answer it; new_figure the new \
+                      object, its script slot and message, connect_doors both doors, \
+                      new_trainer_here the trainer, its object and battle script, see \
+                      g4://docs/mcp), created (the new members, created first; they stay after \
+                      undo), change, changed (every asset to load again) and next (the recipes \
+                      that make sense now, available or with a reason). create_area/create_room \
+                      with header.allow_patch, empty_region and new_trainer_here cannot be \
+                      undone completely (new members stay); headless they need \
+                      --allow-irreversible, without it the call answers needs_confirmation. \
+                      Not in g4_batch.",
         input_schema: recipe_args,
         output_schema: answers_object,
         route: command("recipe_apply"),
@@ -1617,7 +1620,12 @@ fn recipe_args() -> Value {
             },
             "input": nested(
                 "the recipe's input: for create_area, create_room and extend_area the spec \
-                 their tools take; for empty_region nothing (absent or {})"
+                 their tools take; for empty_region nothing (absent or {}); for new_figure \
+                 {header, x, z, movement_type, dir, text, graphics_id?, hidden_flag?}; for \
+                 connect_doors {a, b, back?, door_tiles?}, each end {header, warp} or {header, \
+                 tile: {x, z}}; for new_trainer_here {header, x, z, dir, sight?, class, name, \
+                 party: [{species, level}], texts: {before, lose, after}, graphics_id?} \
+                 (details in g4://docs/mcp)"
             ),
         }),
         &["recipe"],
@@ -2142,6 +2150,15 @@ mod tests {
                 "{name}: {description}"
             );
         }
+        // Every recipe that may not be undone completely is named.
+        let recipe = tool("recipe_apply").description;
+        for id in g4_kernel::recipes::list()
+            .iter()
+            .filter(|r| r.irreversible)
+            .map(|r| serde_json::to_value(r.id).unwrap())
+        {
+            assert!(recipe.contains(id.as_str().unwrap()), "{id}: {recipe}");
+        }
         // Both fixes that cannot be undone are named.
         let fix = tool("apply_fix").description;
         assert!(
@@ -2187,6 +2204,13 @@ mod tests {
         for name in ["recipe_plan", "recipe_apply"] {
             let schema = (tool(name).input_schema)();
             assert_eq!(schema["properties"]["recipe"]["enum"], json!(ids), "{name}");
+            // The input says what each recipe takes.
+            let input = schema["properties"]["input"]["description"]
+                .as_str()
+                .unwrap();
+            for id in &ids {
+                assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
+            }
             assert_eq!(schema["required"], json!(["recipe"]), "{name}");
         }
         assert_eq!((tool("recipe_list").input_schema)(), no_args());
