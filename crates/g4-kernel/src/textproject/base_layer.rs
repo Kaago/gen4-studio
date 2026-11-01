@@ -883,6 +883,28 @@ pub(crate) fn header_table_as_recorded(
     }))
 }
 
+/// Whether file `rel` held the slice `slice` of `ours` (bytes of the whole file) when the sync
+/// recorded it with content hash `recorded`: a candidate for the bytes outside the slice (the
+/// file now, its blob `data/raw/<rel>`, the base layer's) with that slice of `ours` put in
+/// hashes to `recorded`, as [`header_table_as_recorded`] proves the header table. `false` when
+/// no candidate gives it.
+pub(crate) fn slice_as_recorded(
+    project: &Project,
+    layer: Option<&BaseLayer>,
+    rel: &Path,
+    slice: (usize, usize),
+    ours: &[u8],
+    recorded: u64,
+) -> Result<bool, KernelError> {
+    let now = read_optional(&project.root.join(rel))?;
+    let blob = read_optional(&project.root.join(RAW_DIR).join(rel))?;
+    let base = layer.map(|layer| layer.file(rel)).transpose()?.flatten();
+    Ok([now, blob, base].into_iter().flatten().any(|outside| {
+        outside.len() == ours.len()
+            && xxhash_rust::xxh3::xxh3_64(&keep_slice(Some(slice), outside, ours)) == recorded
+    }))
+}
+
 /// Whether the project's `arm9/arm9.bin` equals the base layer's outside the header table
 /// (each side's table zeroed); a missing file on either side is not the same.
 pub(crate) fn same_outside_header_table(

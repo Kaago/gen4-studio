@@ -35,8 +35,8 @@ use super::base_layer::{
 };
 use super::canon::{parse_json, problem, write_if_changed};
 use super::codes::{
-    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, EGG_MOVES_LOCKED_CODE, MEMBER_WITHOUT_JSON_CODE,
-    QUIRK_KEY_CODE, RAW_PATH_CODE, SCHEMA_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, EGG_MOVES_LOCKED_CODE, EGG_MOVES_UNEXPORTED_CODE,
+    MEMBER_WITHOUT_JSON_CODE, QUIRK_KEY_CODE, RAW_PATH_CODE, SCHEMA_CODE,
 };
 use super::egg_moves::{
     FIELD as EGG_FIELD, assemble, disk_table, egg_field, empty_table, member_rel as egg_member_rel,
@@ -455,20 +455,23 @@ pub(crate) fn plan_import(
         plan.arts.push(stats);
     }
     if project.has_archive(AssetKind::Personal) {
-        plan_egg_moves(project, &symbols, only, &mut plan)?;
+        plan_egg_moves(project, &symbols, manifest.egg_moves, only, &mut plan)?;
     }
     plan_raw(project, only, &mut plan)?;
     Ok(plan)
 }
 
 /// The egg move table from the field `egg_moves` of the species files in the plan's scope
-/// ([`import_egg_moves`]), its write planned with every species file as its unit; a table
-/// without a place is a warning `textproject.egg-moves-locked` when a file in scope carries
-/// the field. A file that does not read or parse is the species' error already, an unknown
+/// ([`import_egg_moves`]), its write planned with every species file as its unit, only when
+/// the manifest says the text project holds the table (`exported`). A table without a place
+/// is a warning `textproject.egg-moves-locked`, a manifest without the mark the warning
+/// `textproject.egg-moves-unexported`, each when a file in scope carries the field; nothing is
+/// written then. A file that does not read or parse is the species' error already, an unknown
 /// move id an error of its own: then nothing is planned.
 fn plan_egg_moves(
     project: &Project,
     symbols: &Symbols,
+    exported: bool,
     only: Option<&BTreeSet<PathBuf>>,
     plan: &mut ImportPlan,
 ) -> Result<(), KernelError> {
@@ -480,7 +483,7 @@ fn plan_egg_moves(
     let dir = Art::Species.dir();
     let mut fields: Vec<(u16, Option<Vec<u16>>)> = Vec::new();
     let mut files: Vec<PathBuf> = Vec::new();
-    let mut any = false;
+    let mut fielded: Option<PathBuf> = None;
     let mut failed = false;
     for &n in &numbers {
         if !entity_wanted(only, &dir, n) {
@@ -495,7 +498,9 @@ fn plan_egg_moves(
             failed = true;
             continue;
         };
-        any |= field.is_some();
+        if field.is_some() && fielded.is_none() {
+            fielded = Some(rel.clone());
+        }
         let moves = match field.as_deref().map(|refs| resolve_field(refs, symbols)) {
             None => None,
             Some(Ok(moves)) => Some(moves),
@@ -511,36 +516,42 @@ fn plan_egg_moves(
         fields.push((species, moves));
         files.push(rel);
     }
-    // Without the field in any species file the text project does not hold the table (it
-    // was exported before the field existed): it stays as it is.
-    if !any {
-        any = numbers.iter().any(|&n| {
-            std::fs::read(project.root.join(species_rel(n)))
-                .ok()
-                .and_then(|bytes| egg_field(&bytes).ok().flatten())
-                .is_some()
-        });
+    if failed {
+        return Ok(());
     }
-    if failed || !any {
+    let warn = |plan: &mut ImportPlan, code: &str, sentence: String| {
+        if let Some(file) = &fielded {
+            plan.problems.push(Problem {
+                severity: Severity::Warning,
+                ..problem(file, code, format!("{ROOT}: {sentence}"))
+            });
+        }
+    };
+    if let Err(reason) = egg_moves_place(project)? {
+        warn(
+            plan,
+            EGG_MOVES_LOCKED_CODE,
+            format!("{reason}; die Ei-Attacken der Dateien werden nicht geschrieben."),
+        );
+        return Ok(());
+    }
+    // Without the manifest's mark the species files do not hold the table (exported before
+    // the field existed): a field in one of them is no reason to drop every other entry.
+    if !exported {
+        warn(
+            plan,
+            EGG_MOVES_UNEXPORTED_CODE,
+            "das Textprojekt hält die Ei-Attacken noch nicht (vor dem Feld `egg_moves` \
+             exportiert, `eggMoves` fehlt in g4-project.json); erst einmal `g4k text export` \
+             ausführen (schreibt die Tabelle in jede Spezies-Datei) oder die Ei-Attacken im \
+             Studio speichern, bis dahin schreibt der Import sie nicht."
+                .to_owned(),
+        );
         return Ok(());
     }
     match import_egg_moves(project, &fields, unit)? {
-        Err(reason) => {
-            if fields.iter().any(|(_, moves)| moves.is_some()) {
-                let file = files.first().cloned().unwrap_or_else(|| dir.clone());
-                plan.problems.push(Problem {
-                    severity: Severity::Warning,
-                    ..problem(
-                        &file,
-                        EGG_MOVES_LOCKED_CODE,
-                        format!(
-                            "{ROOT}: {reason}; die Ei-Attacken der Dateien werden nicht \
-                             geschrieben."
-                        ),
-                    )
-                });
-            }
-        }
+        // Checked above.
+        Err(_) => {}
         Ok(Err((species, sentence))) => {
             let at = fields.iter().position(|(s, _)| *s == species).unwrap_or(0);
             let file = files.get(at).cloned().unwrap_or_else(|| dir.clone());
@@ -2185,6 +2196,7 @@ mod tests {
             [20001, 5, 7, 20002, 20, 20003, 20004, 9, 0xFFFF, 0]
         );
         import(&p, Some(&fx.base())).unwrap();
+        // With the manifest's mark a file without the field has no entry: species 4's went.
         assert_eq!(
             egg_words(&std::fs::read(root.join(member)).unwrap()),
             [20001, 7, 5, 20002, 20, 20003, 20006, 0xFFFF]
@@ -2275,14 +2287,58 @@ mod tests {
             import(&p, Some(&fx.base())).unwrap();
             assert_eq!(mtime(), was, "patch {patch}");
 
-            // A text project without the field anywhere (exported before it existed) leaves
-            // the table alone.
+            // A text project exported before the field (no mark in the manifest, no field
+            // anywhere) leaves the table alone.
+            unmark_egg_moves(&p.root);
             for n in 0..508 {
                 set_egg_moves(&p.root, n, None);
             }
             let (planned, _) = plan(&p, None);
             assert!(egg_write(&planned).is_none(), "patch {patch}");
+            assert!(planned.problems.is_empty(), "{:?}", planned.problems);
         }
+    }
+
+    /// Removes the mark `eggMoves` from the manifest, as an export before 3d.3 wrote it.
+    fn unmark_egg_moves(root: &Path) {
+        let path = root.join(MANIFEST_FILE);
+        let mut v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            v["eggMoves"],
+            serde_json::json!(true),
+            "the export marks it"
+        );
+        v.as_object_mut().unwrap().remove("eggMoves");
+        std::fs::write(&path, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_field_in_a_text_project_without_the_mark_is_a_warning_and_writes_nothing() {
+        use crate::test_support::TextFixture;
+        let fx = TextFixture::platinum_de_exported(true);
+        let p = fx.project();
+        let member = p.root.join("unpacked/eggMoves/0000");
+        let before = std::fs::read(&member).unwrap();
+        // Exported before the field: no mark, no field; then one file gets it by hand.
+        unmark_egg_moves(&p.root);
+        for n in 0..508 {
+            set_egg_moves(&p.root, n, None);
+        }
+        set_egg_moves(&p.root, 2, Some(serde_json::json!(["MOVE_BIND"])));
+        let (planned, _) = plan(&p, None);
+        assert!(egg_write(&planned).is_none());
+        assert!(!planned.has_errors(), "{:?}", planned.problems);
+        let warning = planned
+            .problems
+            .iter()
+            .find(|p| p.message.starts_with(EGG_MOVES_UNEXPORTED_CODE))
+            .expect("the warning");
+        assert_eq!(warning.severity, Severity::Warning);
+        assert_eq!(warning.file, Path::new("data/species/0002.json"));
+        assert!(warning.message.contains("g4k text export"), "{warning:?}");
+        import(&p, Some(&fx.base())).unwrap();
+        assert_eq!(std::fs::read(&member).unwrap(), before, "every entry stays");
     }
 
     #[test]

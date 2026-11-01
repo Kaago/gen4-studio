@@ -1043,3 +1043,56 @@ fn a_hand_edit_of_egg_moves_is_found_by_the_scan_and_taken_into_the_member() {
         );
     }
 }
+
+#[test]
+fn a_store_write_of_egg_moves_marks_a_text_project_exported_before_the_field() {
+    use crate::textproject::sync::{UnitSide, scan};
+    let fx = TextFixture::platinum_de_exported(true);
+    // As exported before 3d.3: no mark, no field.
+    let mut manifest = json(&fx, "g4-project.json");
+    manifest.as_object_mut().unwrap().remove("eggMoves");
+    fx.write(
+        "g4-project.json",
+        &serde_json::to_vec_pretty(&manifest).unwrap(),
+    );
+    for n in 0..crate::test_support::PT_SPECIES_MEMBERS {
+        let rel = format!("data/species/{n:04}.json");
+        let mut v = json(&fx, &rel);
+        v.as_object_mut().unwrap().remove("egg_moves");
+        fx.write(&rel, &serde_json::to_vec_pretty(&v).unwrap());
+    }
+    crate::textproject::sync::record_all(&fx.project()).unwrap();
+    let p = std::sync::Arc::new(fx.project());
+    let before = tree(&fx);
+    let mut store = crate::store::Store::new(std::sync::Arc::clone(&p));
+    // Without the mark the table is the member's.
+    assert_eq!(
+        store.egg_moves().unwrap().moves_of(1),
+        Some([5, 7].as_slice())
+    );
+    store
+        .edit_egg_moves("Ei-Attacken getauscht", |t| t.set_moves(1, vec![7, 5]))
+        .unwrap()
+        .expect("changed");
+    store.save().unwrap();
+    // Every species with an entry gets its field, the manifest its mark.
+    assert_eq!(
+        changed(&before, &tree(&fx)),
+        paths(&[
+            "data/species/0001.json",
+            "data/species/0003.json",
+            "data/species/0004.json"
+        ])
+    );
+    assert_eq!(json(&fx, "g4-project.json")["eggMoves"], true);
+    assert_eq!(
+        json(&fx, "data/species/0001.json")["egg_moves"],
+        serde_json::json!(["MOVE_FIRE_PUNCH", "MOVE_MEGA_PUNCH"])
+    );
+    let found = scan(&p, &mut |_| {}).unwrap();
+    assert!(
+        found.units.iter().all(|u| u.side == UnitSide::InSync),
+        "{:?}",
+        found.units
+    );
+}

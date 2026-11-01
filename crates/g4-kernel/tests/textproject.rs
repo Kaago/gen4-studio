@@ -2136,6 +2136,144 @@ fn a_header_table_taken_over_beside_an_open_arm9_blob_conflict_never_overwrites_
     assert_eq!(fx.read(ARM9), original, "DSPRE's arm9.bin stays");
 }
 
+/// Species `n`'s file with `key` of the object `part` (or of the root without one) set to
+/// `value`.
+fn set_species(fx: &Fx, n: u32, part: Option<&str>, key: &str, value: serde_json::Value) {
+    let rel = format!("data/species/{n:04}.json");
+    let mut v = fx.json(&rel);
+    let object = match part {
+        Some(part) => &mut v[part],
+        None => &mut v,
+    };
+    object
+        .as_object_mut()
+        .unwrap()
+        .insert(key.to_owned(), value);
+    fx.write(&rel, &serde_json::to_vec_pretty(&v).unwrap());
+}
+
+/// Egg moves of species 1 swapped by hand beside species 5 changed on both sides: taking
+/// over the egg moves writes their member and leaves species 5's member as DSPRE left it.
+#[test]
+fn taking_over_the_egg_moves_leaves_a_species_in_conflict_alone() {
+    let fx = Fx(TextFixture::platinum_de_exported(true));
+    let p = fx.p();
+    let personal = "unpacked/personalPokeData/0005";
+    let mut dspre = fx.read(personal);
+    dspre[0] = dspre[0].wrapping_add(7);
+    fx.write(personal, &dspre);
+    set_species(&fx, 5, Some("personal"), "hp", serde_json::json!(99));
+    set_species(
+        &fx,
+        1,
+        None,
+        "egg_moves",
+        serde_json::json!(["MOVE_FIRE_PUNCH", "MOVE_MEGA_PUNCH"]),
+    );
+    let found = scan(&p, &mut |_| {}).unwrap();
+    let side = |key: &str| found.units.iter().find(|u| u.key == key).map(|u| u.side);
+    assert_eq!(
+        side("egg_moves"),
+        Some(UnitSide::Files),
+        "{:?}",
+        found.units
+    );
+    assert_eq!(
+        side("data/species/0005.json"),
+        Some(UnitSide::Conflict),
+        "{:?}",
+        found.units
+    );
+    apply_one_sided(&p, &found, &|_| false).unwrap();
+    assert_eq!(fx.read(personal), dspre, "species 5 stays as DSPRE left it");
+    let eggs = fx.read("unpacked/eggMoves/0000");
+    assert_eq!(
+        &eggs[..6],
+        &[0x21, 0x4E, 7, 0, 5, 0],
+        "the egg moves are taken over"
+    );
+}
+
+/// A species JSON edited while the egg moves' member changed (DSPRE, or overlay 5 outside
+/// the table): the species is written, no conflict; the egg moves are newer on their member
+/// side (NARC) or not changed at all (overlay outside the slice).
+#[test]
+fn a_species_edit_beside_a_changed_egg_member_is_no_conflict() {
+    for patch in [true, false] {
+        let fx = Fx(TextFixture::platinum_de_exported(patch));
+        let rows = run_source_and_pack_steps(&fx.p()).unwrap();
+        assert_eq!(step_row(&rows, "textproject").status, StepStatus::Full);
+        std::thread::sleep(Duration::from_millis(20));
+        let personal = "unpacked/personalPokeData/0005";
+        let before = fx.read(personal);
+        set_species(&fx, 5, Some("personal"), "hp", serde_json::json!(99));
+        if patch {
+            // DSPRE swaps species 1's egg moves in its NARC member.
+            let mut eggs = fx.read("unpacked/eggMoves/0000");
+            eggs[2..6].copy_from_slice(&[7, 0, 5, 0]);
+            fx.write("unpacked/eggMoves/0000", &eggs);
+        } else {
+            // Overlay 5 changes before the egg move slice.
+            let mut ov = fx.read("arm9_overlays/ov005.bin");
+            ov[0] ^= 0xFF;
+            fx.write("arm9_overlays/ov005.bin", &ov);
+        }
+        let prepared = build::prepare(&fx.p()).unwrap();
+        let codes: Vec<String> = prepared
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with("textproject."))
+            .map(|p| p.message.split(':').next().unwrap().to_owned())
+            .collect();
+        assert!(
+            !codes.iter().any(|c| c == "textproject.conflict"),
+            "patch {patch}: {:?}",
+            prepared.problems
+        );
+        assert_ne!(
+            fx.read(personal),
+            before,
+            "patch {patch}: species 5 is written"
+        );
+        if patch {
+            assert_eq!(
+                codes,
+                ["textproject.member-newer"],
+                "{:?}",
+                prepared.problems
+            );
+        } else {
+            assert!(codes.is_empty(), "{:?}", prepared.problems);
+        }
+    }
+}
+
+/// On Platinum, the egg moves edited in a species file while overlay 5 changed outside their
+/// slice: the slice is written, the rest of the overlay stays.
+#[test]
+fn an_egg_move_edit_beside_an_overlay_change_outside_the_slice_is_written() {
+    let fx = Fx(TextFixture::platinum_de_exported(false));
+    run_source_and_pack_steps(&fx.p()).unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    let mut ov = fx.read("arm9_overlays/ov005.bin");
+    ov[0] ^= 0xFF;
+    fx.write("arm9_overlays/ov005.bin", &ov);
+    set_species(&fx, 1, None, "egg_moves", serde_json::json!([7, 5]));
+    let prepared = build::prepare(&fx.p()).unwrap();
+    assert!(
+        !prepared
+            .problems
+            .iter()
+            .any(|p| p.message.starts_with("textproject.conflict")),
+        "{:?}",
+        prepared.problems
+    );
+    let now = fx.read("arm9_overlays/ov005.bin");
+    assert_eq!(now[0], ov[0], "outside the slice stays");
+    let at = common::PT_EGG_MOVES_OFFSET;
+    assert_eq!(&now[at..at + 6], &[0x21, 0x4E, 7, 0, 5, 0]);
+}
+
 // Gated (`G4_TEST_PROJECT`): the text project on the vanilla DSPRE folders, against the base
 // ROM next to the original (only read). Deviations are findings in export, import or the
 // build step, never exceptions here.

@@ -59,6 +59,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
 | `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
 | `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
+| `eggMoves` | `true`, wenn die Spezies-Dateien die Ei-Attacken-Tabelle halten (siehe „Ei-Attacken“): gesetzt vom Export, der die Tabelle lesen konnte, und vom ersten Speichern der Ei-Attacken im Studio; fehlt sonst (auslassbar, keine neue Schema-Version) |
 
 Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](project_base.md)).
 
@@ -365,12 +366,18 @@ gesperrt). Im Textprojekt stehen sie als Feld `egg_moves` in der Datei jeder Art
 - **Export:** liest die Tabelle einmal und schreibt jeder Art mit Eintrag die Attacken als IDs (eine
   Marke ohne Attacken als `[]`); ohne Eintrag fehlt das Feld, ebenso überall, wenn die Tabelle
   nicht lesbar ist (gesperrt, kein Member).
-- **Import:** der Import der Art lässt das Feld liegen. Danach entsteht die Tabelle aus der Tabelle
-  auf der Platte (fehlt der Member: einer leeren) und dem Feld jeder Spezies-Datei, in aufsteigender
-  Artnummer über `EggMoves::set_moves` (Ende und Auffüllung bleiben dessen Regel): ohne Feld fällt
-  der Eintrag weg, eine leere Liste ist eine Marke ohne Attacken, der Eintrag einer Art ohne Datei
-  bleibt. Geschrieben wird nur, wenn die Bytes abweichen (im Overlay nur der Ausschnitt). Hat keine
-  Spezies-Datei das Feld (vor dem Feld exportiert), bleibt die Tabelle, wie sie ist. Attacken nehmen
+- **Marke im Manifest:** `eggMoves: true` in `g4-project.json` sagt, dass die Spezies-Dateien die
+  Tabelle halten; der Export setzt sie, wenn er die Tabelle lesen konnte, das erste Speichern der
+  Ei-Attacken im Studio ebenso (es schreibt dann das Feld jeder Art mit Eintrag). Ohne die Marke
+  (vor dem Feld exportiert) bleibt die Tabelle, wie sie ist, auch wenn einzelne Dateien das Feld
+  tragen: der Import warnt dann mit `textproject.egg-moves-unexported` und schreibt nichts, Laden
+  liest den Member. Erst einmal exportieren oder die Ei-Attacken im Studio speichern.
+- **Import:** der Import der Art lässt das Feld liegen. Mit der Marke entsteht danach die Tabelle
+  aus der Tabelle auf der Platte (fehlt der Member: einer leeren) und dem Feld jeder Spezies-Datei,
+  in aufsteigender Artnummer über `EggMoves::set_moves` (Ende und Auffüllung bleiben dessen
+  Regel): ohne Feld fällt der Eintrag weg, eine leere Liste ist eine Marke ohne Attacken, der
+  Eintrag einer Art ohne Datei bleibt. Geschrieben wird nur, wenn die Bytes abweichen (im Overlay
+  nur der Ausschnitt). Attacken nehmen
   IDs oder Nummern unter 20000 (`textproject.unknown-id`, `textproject.schema` an
   `egg_moves[i]`); passt die Tabelle nicht ins Budget von Overlay 5 oder verlöre sie die Signatur,
   ist das ein Fehler `textproject.schema` an `egg_moves` der ersten Datei, die sie ändert, mit dem
@@ -384,7 +391,14 @@ gesperrt). Im Textprojekt stehen sie als Feld `egg_moves` in der Datei jeder Art
   Datei bleibt byte-gleich, auch eine mit Nummern statt IDs), dann den Member, und zeichnet die
   berührten Spezies-Dateien mit auf. Speichern einer Art (Personal, Lernset, Entwicklung) behält das
   Feld ihrer Datei, wie es steht. Eine Spezies-Datei gehört im Abgleich ihrer Art und den
-  Ei-Attacken; `ov005.bin` den Ei-Attacken und seinem Blob.
+  Ei-Attacken; `ov005.bin` den Ei-Attacken und seinem Blob. Übernimmt der Abgleich die
+  Ei-Attacken, schreibt er nur ihren Member, keine Art, deren Einheit offen bleibt.
+- **Build-Schritt:** der Member der Ei-Attacken (`unpacked/eggMoves`, in Platin ohne Patch
+  `ov005.bin`) ist Eingabe des Schritts und gilt nur für die Einheit `egg_moves` als geändert,
+  nie für eine Art. Welche Seite der Einheit sich geändert hat, entscheidet die Aufzeichnung des
+  Abgleichs: die JSON-Seite nur, wenn die Tabelle aus den Spezies-Dateien nicht die ist, die der
+  Member bei der Aufzeichnung hielt, die Member-Seite nur, wenn der Member sie nicht mehr hält (eine
+  Änderung von `ov005.bin` außerhalb des Ausschnitts gehört seinem Blob).
 - **Basisschicht Platin:** `ov005.bin` wird mit ausgeblendetem Ausschnitt verglichen (wie `arm9.bin`
   mit der Header-Tabelle), sonst würde jede Ei-Attacken-Änderung einen Blob
   `data/raw/arm9_overlays/ov005.bin` erzeugen, der die JSON verdoppelt.
@@ -1093,6 +1107,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |
 | `textproject.conflict` | Fehler | Build: JSON und Member einer Einheit sind beide seit dem letzten Build geändert; nichts geschrieben |
 | `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
+| `textproject.egg-moves-unexported` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber `g4-project.json` hat die Marke `eggMoves` nicht (vor dem Feld exportiert); nichts wird geschrieben, bis ein Export oder das Speichern der Ei-Attacken im Studio sie setzt |
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
 
 ## Quellenliste

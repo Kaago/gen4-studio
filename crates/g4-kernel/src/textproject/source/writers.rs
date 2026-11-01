@@ -10,6 +10,7 @@ use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
 
+use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, file_names, numbered};
 use super::super::base_layer::{BaseLayer, part_of_members};
 use super::super::canon::{json_problem, to_canonical, write_if_changed};
@@ -21,6 +22,7 @@ use super::super::egg_moves::{
 use super::super::export::{baptize_named, entity_files, remove_if_empty};
 use super::super::import::LazyBase;
 use super::super::locate::located;
+use super::super::manifest::read_manifest;
 use super::super::part::{BasePart, PartKey, sha1_hex};
 use super::super::registry::{IDS_DIR, registry_file};
 use super::super::schema::data::{SpeciesEntity, export_items};
@@ -484,16 +486,19 @@ impl EntitySource {
 impl EntitySource {
     /// The egg move table from the field `egg_moves` of every species file, applied to the
     /// table on disk (see [`textproject::egg_moves`](super::super::egg_moves)); the table on
-    /// disk when no file has the field. A file whose field does not read (an unknown move id)
-    /// or a table that does not fit its place is `KernelError::Compile` naming the file.
+    /// disk while the manifest does not mark the species files as holding it. A file whose
+    /// field does not read (an unknown move id) or a table that does not fit its place is
+    /// `KernelError::Compile` naming the file.
     pub(super) fn egg_moves_json(&self, project: &Project) -> Result<Option<Vec<u8>>, KernelError> {
         let Some(place) = egg_place(project) else {
             return Ok(None);
         };
+        if !egg_moves_exported(&self.root) {
+            return place_bytes(project, &place);
+        }
         let dir = Art::Species.dir();
         let mut fields: Vec<(u16, Option<Vec<u16>>)> = Vec::new();
         let mut files: Vec<PathBuf> = Vec::new();
-        let mut any = false;
         for n in numbered_cached(project, &dir, "json")? {
             let rel = dir.join(format!("{n:04}.json"));
             let Some(bytes) = read_optional(&self.root.join(&rel))? else {
@@ -502,7 +507,6 @@ impl EntitySource {
             let field = egg_field(&bytes).map_err(|e| {
                 KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)])
             })?;
-            any |= field.is_some();
             let moves = field
                 .map(|refs| resolve_field(&refs, &self.symbols))
                 .transpose()
@@ -511,9 +515,6 @@ impl EntitySource {
                 fields.push((species, moves));
                 files.push(rel);
             }
-        }
-        if !any {
-            return place_bytes(project, &place);
         }
         let current = disk_table(project, &place)?;
         let start = current.clone().unwrap_or_else(|| empty_table(&place));
@@ -537,7 +538,8 @@ impl EntitySource {
 
     /// Writes the field `egg_moves` of every species file whose entry in the table (`given`,
     /// the store's bytes) differs from it, in the canonical form; a file whose field names the
-    /// same moves (by id or number) stays as it is, byte for byte.
+    /// same moves (by id or number) stays as it is, byte for byte. Then every species file
+    /// holds the table: the manifest gets its mark `eggMoves` where it lacks it.
     pub(super) fn write_egg_moves(
         &mut self,
         project: &Project,
@@ -582,6 +584,19 @@ impl EntitySource {
                 out.sources.push(rel);
             }
         }
+        if self.dry.is_none() && !egg_moves_exported(&self.root) {
+            let mut manifest = read_manifest(&self.root)?;
+            manifest.egg_moves = true;
+            let rel = PathBuf::from(MANIFEST_FILE);
+            if write_if_changed(&self.root, &rel, &to_canonical(&manifest))? {
+                out.sources.push(rel);
+            }
+        }
         Ok(())
     }
+}
+
+/// Whether the manifest at `root` marks the species files as holding the egg move table.
+fn egg_moves_exported(root: &Path) -> bool {
+    read_manifest(root).is_ok_and(|m| m.egg_moves)
 }

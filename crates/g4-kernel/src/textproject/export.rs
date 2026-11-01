@@ -381,7 +381,10 @@ fn export_with(
     write_blobs(project, layer, report)?;
     step(ExportStep::Blobs, 1, 1);
 
-    let manifest = manifest_for(project, keep);
+    let mut manifest = manifest_for(project, keep);
+    // The species files hold the egg moves from now on where the table was read.
+    manifest.egg_moves =
+        project.has_archive(AssetKind::Personal) && readable_table(project)?.is_some();
     if write_if_changed(root, Path::new(MANIFEST_FILE), &to_canonical(&manifest))? {
         report.written += 1;
     }

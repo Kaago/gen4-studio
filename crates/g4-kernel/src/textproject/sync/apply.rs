@@ -337,11 +337,13 @@ fn import_units<'a>(
         })
         .collect();
     // The egg moves share their sources with every species: their write only with their own
-    // unit.
+    // unit, and every other write never through theirs (a species unit in conflict or held
+    // stays as it is when the egg moves are taken over).
     let eggs = ok.iter().any(|u| u.key == EGG_MOVES_UNIT_KEY);
     let egg_member = egg_place(project).and_then(|place| egg_member_rel(project, &place));
     let mine = |w: &PlannedWrite| {
         ok.iter()
+            .filter(|u| u.key != EGG_MOVES_UNIT_KEY)
             .any(|u| w.unit.iter().any(|s| u.sources.contains(s)))
     };
     let mine_write = |w: &PlannedWrite| {

@@ -350,7 +350,10 @@ impl EntitySchema for SpeciesEntity {
                 tail: Some("0000".into()),
             })),
             evolution: Some(Member::Value(sample_record::<Evolution>("evolution"))),
-            egg_moves: Some(vec![SymRef::Id(fallback_id(SymbolKind::Move, 1))]),
+            egg_moves: Some(vec![
+                SymRef::Id(fallback_id(SymbolKind::Move, 1)),
+                SymRef::Id(fallback_id(SymbolKind::Move, 2)),
+            ]),
         }
     }
 

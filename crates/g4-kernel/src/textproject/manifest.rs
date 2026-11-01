@@ -33,6 +33,11 @@ pub struct Manifest {
     pub schemas: BTreeMap<String, serde_json::Value>,
     #[serde(default)]
     pub plugins: Vec<serde_json::Value>,
+    /// Whether the species files hold the egg move table (`egg_moves`): set by an export that
+    /// read the table and by the first store write of the egg moves. Without it the import
+    /// leaves the table alone (the files were exported before the field existed).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub egg_moves: bool,
 }
 
 /// The game of the project: its four-letter code, `pt` or `hgss`, and the locale key of its
@@ -96,7 +101,7 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
 
 /// The manifest for `project` in this Studio version: `schemas` names every data kind with its
 /// version ([`kinds::schemas`](super::kinds::schemas)) and keeps the foreign keys of `keep` (the
-/// manifest on disk), `plugins` come unchanged from `keep`; empty without one.
+/// manifest on disk), `plugins` and `egg_moves` come unchanged from `keep`; empty without one.
 pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
     Manifest {
         format: FORMAT.to_owned(),
@@ -109,6 +114,7 @@ pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
         studio_version: env!("CARGO_PKG_VERSION").to_owned(),
         schemas: super::kinds::schemas(&keep.map(|m| m.schemas.clone()).unwrap_or_default()),
         plugins: keep.map(|m| m.plugins.clone()).unwrap_or_default(),
+        egg_moves: keep.is_some_and(|m| m.egg_moves),
     }
 }
 
