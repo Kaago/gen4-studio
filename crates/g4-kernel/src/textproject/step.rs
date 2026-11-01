@@ -59,17 +59,22 @@ use crate::build::{Tool, lock};
 use crate::dynamic_headers;
 use crate::error::KernelError;
 use crate::fsutil::{Journal, Notes};
-use crate::project::{AssetKind, Project};
+use crate::project::{AssetKind, Location, Project};
 use crate::start::read_base_mark;
 use crate::text::{Problem, Severity};
 
 use super::arts::read_members;
 use super::arts::{ARTS, Art, binary_name, file_names, numbered, slash};
-use super::base_layer::{BaseLayer, RAW_DIR, arm9_rel, same_outside_header_table, walk};
+use super::base_layer::{
+    BaseLayer, RAW_DIR, arm9_rel, keep_slice, same_outside_header_table, slice_as_recorded, walk,
+};
 use super::canon::{problem, write_if_changed};
 use super::codes::{
     BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
     UNSYNCED_CODE,
+};
+use super::egg_moves::{
+    member_rel as egg_member_rel, overlay_slice, place as egg_place, species_numbers, species_rel,
 };
 use super::import::{
     ImportPlan, LazyBase, PlannedWrite, apply_import, plan_import, quirks_to_seed,
@@ -81,7 +86,7 @@ use super::sync::{self, Known};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 
 /// The step's revision; raise it when what the step writes changes.
-pub(crate) const TEXTPROJECT_REV: u32 = 1;
+pub(crate) const TEXTPROJECT_REV: u32 = 2;
 
 /// The members the step kept as newer than their JSON, below the build's cache (deleted with
 /// it, which makes the next run full anyway).
@@ -140,6 +145,15 @@ impl Step for TextProjectStep {
         }
         inputs.push(relative(p, &p.arm9_path()));
         inputs.push(relative(p, &p.mapname_path()));
+        // The egg moves' member: their NARC folder, or the overlay holding the slice.
+        if let Some(place) = egg_place(p) {
+            match &place.location {
+                Location::Member(_) => {
+                    inputs.push(relative(p, &p.unpacked_dir(AssetKind::EggMoves)))
+                }
+                _ => inputs.extend(egg_member_rel(p, &place)),
+            }
+        }
         if dynamic_headers::is_applied(p)? {
             inputs.push(relative(p, &dynamic_headers::unpacked_dir(p)));
         }
@@ -262,6 +276,13 @@ fn member_sources(p: &Project, member: &Path, items: &OnceCell<Option<ItemTable>
         || member.starts_with(relative(p, &dynamic_headers::unpacked_dir(p)))
     {
         out.push(Art::Headers.dir());
+    }
+    // The egg moves' member belongs to every species file.
+    if let Some(place) = egg_place(p)
+        && egg_member_rel(p, &place).as_deref() == Some(member)
+        && let Ok(numbers) = species_numbers(p)
+    {
+        out.extend(numbers.into_iter().map(species_rel));
     }
     out
 }
@@ -420,7 +441,9 @@ impl Base<'_> {
     /// Whether member `rel` may be written in a full run: it is missing, or equal to the base
     /// layer's. `arm9.bin` is two members: of the header unit (`table`) by the header table
     /// alone, of its blob by everything outside the table (the table is the header files').
-    /// A member whose folder below `unpacked/` is not there is read from its packed NARC.
+    /// The overlay holding the egg moves likewise: of their unit (any unit of the plan's
+    /// writes) by the slice alone, of its blob by everything outside it. A member whose
+    /// folder below `unpacked/` is not there is read from its packed NARC.
     fn may_write(&self, rel: &Path, table: bool) -> Result<bool, KernelError> {
         let Some(ours) = self.current(rel)? else {
             return Ok(true);
@@ -428,6 +451,18 @@ impl Base<'_> {
         let Some(layer) = &self.layer else {
             return Ok(false);
         };
+        if let Some((offset, len)) = overlay_slice(self.project, rel) {
+            let Some(theirs) = layer.file(rel)? else {
+                return Ok(false);
+            };
+            let slice = offset..offset + len;
+            return Ok(if table {
+                theirs.get(slice.clone()).is_some() && theirs.get(slice.clone()) == ours.get(slice)
+            } else {
+                // Outside the slice: ours with the base's slice put in is the base's file.
+                keep_slice(Some((offset, len)), ours, &theirs) == theirs
+            });
+        }
         if rel == arm9_rel() {
             if !table {
                 return same_outside_header_table(self.project, layer);
@@ -589,12 +624,15 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
         table: OnceCell::new(),
     };
 
+    let egg = EggJudge::new(p);
     for (i, unit) in judged.units.iter().enumerate() {
         let json = shown(&unit.json());
         if full {
             let mut refused = None;
             for member in &unit.members {
-                if !base.may_write(member, matches!(unit.what, What::Headers))? {
+                // The header table's unit and the egg moves' (a unit of the plan's writes)
+                // own their slice of `arm9.bin` and of the overlay.
+                if !base.may_write(member, !matches!(unit.what, What::Raw(_)))? {
                     refused = Some(member);
                     break;
                 }
@@ -623,11 +661,28 @@ fn judge(p: &Project, dirty: &Dirty, always: bool) -> Result<Judged, KernelError
             .iter()
             .find(|m| touched.contains(*m))
             .or_else(|| {
+                // The egg moves' member belongs to every species file, but it is the egg
+                // unit's alone; and the egg unit's only member is its own.
+                if egg.is_unit(unit) {
+                    return None;
+                }
                 member_keys
                     .iter()
+                    .filter(|(m, _)| !egg.is_member(m))
                     .find(|(_, keys)| !keys.is_disjoint(&unit.keys))
                     .map(|(m, _)| *m)
             });
+        // The egg unit shares its sources with every species: which side changed is told by
+        // the table against the sync's record of its member.
+        let (json_changed, changed_member) = match &unit.what {
+            What::Writes(indices) if egg.is_unit(unit) => {
+                let planned = indices
+                    .first()
+                    .map(|&w| judged.plan.writes[w].bytes.as_slice());
+                egg.sides(&records, planned, json_changed, changed_member)?
+            }
+            _ => (json_changed, changed_member),
+        };
         // Changed on both sides since the step's last run, but the sync's record shows one
         // side unchanged since JSON and members were last in step (a save or a takeover, then
         // an edit on the other side): one-sided, see [`Records`].
@@ -1280,5 +1335,94 @@ mod tests {
             .expect("a register");
         std::fs::remove_file(&register).unwrap();
         assert!(!Records::load(&p, false).globals_unchanged().unwrap());
+    }
+}
+
+/// What the step needs to judge the egg moves' unit, whose sources are every species file
+/// and whose member may be the overlay holding them: the member (relative), the slice of the
+/// overlay, the base layer (opened on first use).
+struct EggJudge<'a> {
+    project: &'a Project,
+    member: Option<PathBuf>,
+    slice: Option<(usize, usize)>,
+    layer: OnceCell<Option<BaseLayer>>,
+}
+
+impl<'a> EggJudge<'a> {
+    fn new(project: &'a Project) -> EggJudge<'a> {
+        let member = egg_place(project).and_then(|place| egg_member_rel(project, &place));
+        let slice = member
+            .as_deref()
+            .and_then(|member| overlay_slice(project, member));
+        EggJudge {
+            project,
+            member,
+            slice,
+            layer: OnceCell::new(),
+        }
+    }
+
+    fn is_member(&self, rel: &Path) -> bool {
+        self.member.as_deref() == Some(rel)
+    }
+
+    /// Whether `unit` is the egg moves' (a unit of the plan's writes with their member).
+    fn is_unit(&self, unit: &Unit) -> bool {
+        matches!(unit.what, What::Writes(_)) && unit.members.iter().any(|m| self.is_member(m))
+    }
+
+    /// Whether the member held `bytes` (the whole member; of the overlay only the slice
+    /// counts) when the sync recorded it; `false` without a record.
+    fn as_recorded(&self, records: &Records, bytes: &[u8]) -> Result<bool, KernelError> {
+        let Some(member) = &self.member else {
+            return Ok(false);
+        };
+        let recorded = records
+            .state
+            .sync
+            .as_ref()
+            .and_then(|sync| sync.files.get(&shown(member)))
+            .and_then(|fp| fp.xxh3);
+        let Some(recorded) = recorded else {
+            return Ok(false);
+        };
+        match self.slice {
+            Some(slice) => {
+                let root = &self.project.root;
+                let layer = self.layer.get_or_init(|| {
+                    read_base_mark(root).and_then(|mark| BaseLayer::open(root, &mark.sha1))
+                });
+                slice_as_recorded(self.project, layer.as_ref(), member, slice, bytes, recorded)
+            }
+            None => Ok(xxhash_rust::xxh3::xxh3_64(bytes) == recorded),
+        }
+    }
+
+    /// The sides of the egg unit: its JSON side changed only when the table the species
+    /// files give (`planned`, the member it would write) is not what the member held at the
+    /// record, its member side only when the member is not (a change of the overlay outside
+    /// the slice is its blob's). Without a record the step's own sides stand.
+    fn sides<'m>(
+        &self,
+        records: &Records,
+        planned: Option<&[u8]>,
+        json_changed: bool,
+        changed_member: Option<&'m PathBuf>,
+    ) -> Result<(bool, Option<&'m PathBuf>), KernelError> {
+        let json = match planned {
+            Some(bytes) if json_changed => !self.as_recorded(records, bytes)?,
+            _ => json_changed,
+        };
+        let member = match (changed_member, &self.member) {
+            (Some(changed), Some(member)) => {
+                let now = std::fs::read(self.project.root.join(member)).ok();
+                match now {
+                    Some(now) if self.as_recorded(records, &now)? => None,
+                    _ => Some(changed),
+                }
+            }
+            (changed, _) => changed,
+        };
+        Ok((json, member))
     }
 }

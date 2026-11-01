@@ -373,6 +373,68 @@ fn check_data_rejects_an_unknown_field_before_reading() {
         .stderr(contains("species has no field power"));
 }
 
+/// A HeartGold US ROM with the egg move NARC `a/2/2/9` of the HGSS fixture (one member:
+/// species 1 with moves 5 and 7, species 3 without moves, species 4 with move 9).
+fn egg_move_rom() -> (tempfile::TempDir, std::path::PathBuf) {
+    use g4_kernel::test_support::{EGG_MOVE_WORDS, egg_move_bytes};
+    let rom = rom_with_files(
+        "IPKE",
+        &[("a/2/2/9", narc(&[&egg_move_bytes(&EGG_MOVE_WORDS)]))],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("out.nds");
+    std::fs::write(&path, rom).unwrap();
+    (dir, path)
+}
+
+#[test]
+fn check_data_reads_egg_moves_of_a_species() {
+    let (_dir, rom) = egg_move_rom();
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "egg_moves:1:count=2"])
+        .args(["--expect", "egg_moves:1:move0=5"])
+        .args(["--expect", "egg_moves:1:move1=7"])
+        .args(["--expect", "egg_moves:3:count=0"])
+        .args(["--expect", "egg_moves:2:count=0"])
+        .args(["--expect", "egg_moves:4:move0=9"])
+        .assert()
+        .success()
+        .stdout(contains("egg_moves 1 count: 2"))
+        .stdout(contains("egg_moves 1 move1: 7"))
+        .stdout(contains("6 expectation(s) met"));
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "egg_moves:1:count=3"])
+        .args(["--expect", "egg_moves:1:move2=1"])
+        .assert()
+        .code(1)
+        .stderr(contains("egg_moves 1 count: expected 3, found 2"))
+        .stderr(contains("egg_moves 1: species 1 has 2 egg moves"))
+        .stderr(contains("2 of 2 expectation(s) failed"));
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "egg_moves:1:move16=1"])
+        .assert()
+        .code(2)
+        .stderr(contains("egg_moves has no field move16"));
+}
+
+#[test]
+fn check_data_egg_moves_of_platinum_without_the_patch_has_no_archive() {
+    let (_dir, rom) = data_rom();
+    g4k()
+        .args(["check-data"])
+        .arg(&rom)
+        .args(["--expect", "egg_moves:1:count=2"])
+        .assert()
+        .code(1)
+        .stderr(contains("CPUE has no egg_moves archive"));
+}
+
 fn sha1_hex(bytes: &[u8]) -> String {
     use sha1::{Digest, Sha1};
     Sha1::digest(bytes)

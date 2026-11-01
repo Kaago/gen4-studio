@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::KernelError;
 
 use super::super::canon::{hex, unhex};
+use super::super::egg_moves::field_of;
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{Member, PartKey};
 use super::super::record::{
@@ -29,7 +30,11 @@ use super::{
 };
 
 /// One species: its `personalPokeData`, `learnsets` and `evolutions` members. A part is
-/// missing only when its archive has no member of that index.
+/// missing only when its archive has no member of that index. `egg_moves` is the species'
+/// entry of the egg move table (one table for all species, see
+/// [`textproject::egg_moves`](super::super::egg_moves)): the moves of its entry, empty for a
+/// mark without moves, left out without an entry or when the table is not readable. The
+/// species import leaves it alone; the table is imported from every species file at once.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SpeciesEntity {
@@ -40,6 +45,8 @@ pub struct SpeciesEntity {
     pub learnset: Option<Member<LearnsetJson>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evolution: Option<Member<RecordJson>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egg_moves: Option<Vec<SymRef>>,
 }
 
 /// A learnset: the level-up moves, whether `0xFFFF` ends them, and the bytes after it.
@@ -288,11 +295,15 @@ impl EntitySchema for SpeciesEntity {
             Some(b) => Some(record_member::<Evolution>(key("evolution"), true, b, ctx)?),
             None => None,
         };
+        let egg_moves = ctx
+            .egg_moves
+            .and_then(|table| field_of(table, index, ctx.symbols));
         Ok(SpeciesEntity {
             id: entity_id(ctx.symbols, SymbolKind::Species, index),
             personal,
             learnset,
             evolution,
+            egg_moves,
         })
     }
 
@@ -339,6 +350,10 @@ impl EntitySchema for SpeciesEntity {
                 tail: Some("0000".into()),
             })),
             evolution: Some(Member::Value(sample_record::<Evolution>("evolution"))),
+            egg_moves: Some(vec![
+                SymRef::Id(fallback_id(SymbolKind::Move, 1)),
+                SymRef::Id(fallback_id(SymbolKind::Move, 2)),
+            ]),
         }
     }
 
@@ -349,6 +364,7 @@ impl EntitySchema for SpeciesEntity {
             personal: None,
             learnset: None,
             evolution: None,
+            egg_moves: None,
         };
         let parts = SpeciesEntity {
             id,
@@ -359,6 +375,7 @@ impl EntitySchema for SpeciesEntity {
                 tail: None,
             })),
             evolution: Some(Member::Value(minimal_record::<Evolution>("evolution"))),
+            egg_moves: Some(Vec::new()),
         };
         vec![(Self::ART.to_owned(), none), (Self::ART.to_owned(), parts)]
     }
@@ -369,6 +386,7 @@ impl EntitySchema for SpeciesEntity {
             personal: Some(locked_sample()),
             learnset: Some(locked_sample()),
             evolution: Some(locked_sample()),
+            egg_moves: None,
         };
         vec![(Self::ART.to_owned(), e)]
     }
@@ -868,6 +886,7 @@ mod tests {
     use super::super::super::part::tests::MemBase;
     use super::super::testkit::{code_and_path, export, import, symbols};
     use super::*;
+    use g4_formats::data::egg_moves::EggMoves;
 
     fn learnset_bytes_of(moves: &[(u16, u8)], terminated: bool, tail: &[u8]) -> Vec<u8> {
         let entries: Vec<LearnEntry> = moves
@@ -921,6 +940,88 @@ mod tests {
             import(Family::Pt, &e, 1).unwrap(),
             vec![Some(personal), None, None]
         );
+    }
+
+    fn egg_table(words: &[u16]) -> EggMoves {
+        EggMoves::read(
+            &words
+                .iter()
+                .flat_map(|w| w.to_le_bytes())
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap()
+    }
+
+    /// Species `index` exported from `members` with the egg move table `table`, read back
+    /// through canonical JSON.
+    fn export_with_eggs(
+        index: u32,
+        members: &[Option<Vec<u8>>],
+        table: Option<&EggMoves>,
+    ) -> SpeciesEntity {
+        let mut sym = symbols();
+        let base = MemBase::default();
+        let mut ctx = ExportCtx {
+            family: Family::Pt,
+            symbols: &mut sym,
+            base: &base,
+            side: Vec::new(),
+            egg_moves: table,
+        };
+        let e = SpeciesEntity::export(index, members, &mut ctx).unwrap();
+        serde_json::from_slice(&to_canonical(&e)).unwrap()
+    }
+
+    #[test]
+    fn species_export_carries_egg_moves_from_the_table() {
+        // Species 1: moves 1 and 2; species 3: a mark without moves; species 2: no entry.
+        let table = egg_table(&[20001, 1, 2, 20003, 0xFFFF]);
+        let personal = Some(vec![0u8; 44]);
+        let e = export_with_eggs(1, std::slice::from_ref(&personal), Some(&table));
+        assert_eq!(
+            e.egg_moves,
+            Some(vec![
+                SymRef::Id("MOVE_POUND".into()),
+                SymRef::Id("MOVE_KARATE_CHOP".into())
+            ])
+        );
+        let v: serde_json::Value = serde_json::from_slice(&to_canonical(&e)).unwrap();
+        assert_eq!(v["egg_moves"], json!(["MOVE_POUND", "MOVE_KARATE_CHOP"]));
+        let keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
+        assert_eq!(keys, ["id", "personal", "egg_moves"]);
+        // Without a table, and for a species without an entry: no field.
+        assert_eq!(
+            export_with_eggs(1, std::slice::from_ref(&personal), None).egg_moves,
+            None
+        );
+        let e = export_with_eggs(2, std::slice::from_ref(&personal), Some(&table));
+        assert_eq!(e.egg_moves, None);
+        assert!(
+            !String::from_utf8(to_canonical(&e))
+                .unwrap()
+                .contains("egg_moves")
+        );
+        // A mark without moves is an empty list.
+        assert_eq!(
+            export_with_eggs(3, std::slice::from_ref(&personal), Some(&table)).egg_moves,
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn species_import_ignores_egg_moves() {
+        let mut personal = vec![0u8; 44];
+        personal[0] = 45;
+        let members = vec![Some(personal), None, None];
+        let table = egg_table(&[20001, 1, 2, 0xFFFF]);
+        let mut e = export_with_eggs(1, &members, Some(&table));
+        assert!(e.egg_moves.is_some());
+        assert_eq!(import(Family::Pt, &e, 1).unwrap(), members);
+        // Whatever the field holds, even an unknown id: the members stay the same.
+        e.egg_moves = Some(vec![SymRef::Id("MOVE_FOO".into()), SymRef::Num(70000)]);
+        assert_eq!(import(Family::Pt, &e, 1).unwrap(), members);
+        e.egg_moves = None;
+        assert_eq!(import(Family::Pt, &e, 1).unwrap(), members);
     }
 
     #[test]
@@ -982,6 +1083,7 @@ mod tests {
             symbols: &mut sym,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         let e = EncounterEntity::export(4, &[Some(long.clone())], &mut ctx).unwrap();
         assert!(matches!(
@@ -1061,6 +1163,7 @@ mod tests {
             symbols: &mut sym,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         let items = export_items(&member_of, &members, &mut ctx).unwrap();
         assert_eq!(items.len(), 6);

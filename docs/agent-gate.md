@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau; Teil A, Teil B folgt) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -662,6 +662,7 @@ Im Browser-Modus geprüft, Test-Umgebung auf eigenen Ports (`G4_VITE_PORT=1480 G
 - **4.4:** das eigene Git-Werkzeug des Nutzers zeigt ein eingerichtetes Repo mit dem Commit „Ausgangsstand“ und ohne Remote; „Git einrichten“ in der gepackten App, die aus dem Finder gestartet wurde (findet Git trotz kurzem `PATH`); die Fortschrittsphasen von „Git einrichten“, der Phase „Git einrichten“ im Assistenten und „Textprojekt vervollständigen“ (die Brücke hat keinen `Channel`); Windows (`find_git` mit `%ProgramFiles%`, `core.autocrlf`); der Blick auf die 59 Bilder `blick-*.png` (Technik › Änderungen mit drei Vergleichen und den Formen, die Dialoge, die Statusleiste in Hell, Dunkel, Kompakt; der Kontrast von `<ins>`/`<del>` in Dunkel). Liste mit Ort: [phase-4-4-gate.md](phase-4-4-gate.md), Abschnitte „Hand“ und „Blick“.
 - **3d.1:** ein eigener Flag-Name in DSPRE (Textprojekt zurückgenommen, DSPRE zeigt weiter die pret-Namen bzw. Nummern), `expect-flag` auf HeartGold US (`IPKE` nur in `games.yaml` übernommen, nicht gemessen); der Blick auf Fläche, Picker und Dialog in Hell, Dunkel und Kompakt. Liste mit Ort: [phase-3d-1-gate.md](phase-3d-1-gate.md), Abschnitte „Hand“ und „Blick“.
 - **3d.3 (Teil A):** die Kampfbilder gegen das Spiel im Emulator (Pokédex und Kampf; vor allem Kinoso Wolken- und Sonnenform, Burmy und Burmadame schillernd, HeartGold-Pichu, die HeartGold-Trainerbilder), der Blick auf Profil, Trainer-Kopf und Kampfvorschau in Hell, Dunkel und Kompakt (U2, U3) und die Frames in der `.fig`. Liste mit Ort: [phase-3d-3-gate.md](phase-3d-3-gate.md), „(4) Hand und Blick“.
+- **3d.3 (Teil B):** eine Ei-Attacke in Platin im Spiel wirksam (Zucht nach einem Tausch innerhalb des Budgets), ein echtes, mit DSPRE gepatchtes Platin-Projekt (Patch-NARC, Klon und Wiederherstellung; getestet ist nur der synthetische NARC von `3d-3-patch`), der Blick auf die Bilder `blick-pokedex-eiattacken-*.png` in Hell, Dunkel und Kompakt und der Frame in der `.fig`. Liste mit Ort: [phase-3d-3-gate.md](phase-3d-3-gate.md), Abschnitt „Teil B“, „(4) Hand und Blick“.
 - **4.5:** Rom Patcher JS im Browser mit der eigenen Basis-ROM und einem Patch aus (2), die SHA-1 des Ergebnisses gegen die Begleitdatei; „Im Finder zeigen“ in der gepackten App (macOS markiert die Datei, Linux öffnet nur den Ordner, Windows ungeprüft); das eigene Git-Werkzeug zeigt den Commit „Veröffentlicht v0.1.0“ mit Body und ohne Remote; der Blick auf Titelleiste, Assistent, Fläche und Dialog „Stand sichern?“ in Hell, Dunkel, Kompakt. Liste mit Ort: [phase-4-5-gate.md](phase-4-5-gate.md), Abschnitte „Hand“ und „Blick“.
 
 ## Phase 3g im Browser-Modus ([phase-3g-gate.md](phase-3g-gate.md), Teil A und B)
@@ -1239,11 +1240,11 @@ scripts/agent/call.sh agent_status            # question: {kind: confirm, what: 
 # im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“
 ```
 
-## Phase 3d.3 ([phase-3d-3-gate.md](phase-3d-3-gate.md), Teil A)
+## Phase 3d.3 ([phase-3d-3-gate.md](phase-3d-3-gate.md), Teil A und B)
 
-Teil A von 3d.3 bringt die Kampfsprites (nur lesen, PNG über `get_battle_sprite` und `get_trainer_sprite`), das DS-Profil in der Pokédex-Schau und die Kampfvorschau im Trainer. Die Ei-Attacken (Teil B) warten auf 3d.1 auf main; ihr Abschnitt kommt mit Teil B. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+Teil A von 3d.3 bringt die Kampfsprites (nur lesen, PNG über `get_battle_sprite` und `get_trainer_sprite`), das DS-Profil in der Pokédex-Schau und die Kampfvorschau im Trainer. Teil B bringt die Ei-Attacken (Reiter „Ei-Attacken“ in der Pokédex-Hand, `egg_moves` in `data_get species`, Teil `EggMoves` von `data_edit`, `g4k check-data` mit KIND `egg_moves`); seine Befehle stehen unten unter „Teil B“. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
 
-**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-3-<zweck>_DSPRE_contents` und `.nds` `3d-3-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke, dazu `basept` und `basehgde` (Namen `<stem>_DSPRE_contents`) für die gated Build-Tests von Task 3. Alle Kopien nach dem Gate (nach Teil B) löschen (`Manual` und `_saves` bleiben).
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-3-<zweck>_DSPRE_contents` und `.nds` `3d-3-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke, dazu `basept` und `basehgde` (Namen `<stem>_DSPRE_contents`) für die gated Build-Tests von Task 3. Alle Kopien nach dem Gate (nach Teil B) löschen (`Manual` und `_saves` bleiben). Die Ordner der Kopien heißen in Wirklichkeit ohne `_DSPRE_contents` (`3d-3-pt`, `3d-3-hgde`, …), nur `3d-3-basept` und `3d-3-basehgde` tragen den Zusatz. Die Kopien von Teil B stehen unten.
 
 **Ports:** `G4_VITE_PORT=1720 G4_BRIDGE_PORT=1721`. Der Port 1720 steht auf Chromes Liste unsicherer Ports (H.323): Chrome headless braucht `--explicitly-allowed-ports=1720,1721`, sonst scheitert die Seite mit `ERR_UNSAFE_PORT`. Seite `http://127.0.0.1:1720/?project=<Roms>/_testkopien/3d-3-web_DSPRE_contents`; die Galerie unter `?gallery` (Seite „Bildschirm“). Fensterhöhe 1500 statt 900, damit die Schau das ganze Profil über der Hand zeigt.
 
@@ -1286,6 +1287,51 @@ scripts/agent/mcp.sh call data_get '{"kind":"species","index":397}'             
 `g4_call` antwortet für Bildbefehle die Länge, kein Base64 (Ruling R7; wie `get_mon_icon`); die Zeit gilt für die erste Anfrage je Bild, danach liegt das Bild im Cache der Sitzung (um 2 ms).
 
 **Browser (3)**, Test-Umgebung auf 1720/1721, Chrome mit `--headless=new` und `--explicitly-allowed-ports=1720,1721` über CDP, 1440 × 1500. Ablauf: Pokédex Staravia (397): „Spielerblick“, Vorderseite, Rückseite, „Schillernd“, „Weiblich“ (frei); 413 und 500 („Nur ♀“), 421, 412, 503, 494 und in HeartGold 172 („Kein eigenes Bild für ♀“); ⌘1 aus Trainer. Trainer 1: Klassenbild im Kopf von Schau und Hand, Kampfvorschau „Trainer“ und „Erstes Pokémon“. Danach Hell und Dunkel über `prefers-color-scheme` und Kompakt über die Taste der Statusleiste, jeweils ein Bild; die Galerie mit `?gallery`.
+
+### Teil B: Ei-Attacken
+
+**Kopien** (wie oben, `cp -cR` und `cp -c`; in diesem Lauf hießen die Ordner `3d-3-<zweck>` mit `3d-3-<zweck>.nds` daneben, nur die beiden Basis-Kopien trugen den Zusatz `_DSPRE_contents`): `kpt` (Platin DE) und `khgde` (HeartGold DE) für das Szenario kopflos, `patch` (Platin DE mit einem synthetischen `files/zcustom/egg_moves.narc`: eine Kopie von `files/a/2/2/9` aus HeartGold DE, die den HGSS-Member-Aufbau trägt; das Studio liest sie als DSPRE-Patch), `webb` (Platin DE) und `hgwebb` (HeartGold DE) für den Browser; die gated Tests laufen auf `pt`, `hgde`, `hgus` und für das Textprojekt auf `basept` und `basehgde` (Namen `<stem>_DSPRE_contents`). Den Patch-NARC legt man so an: in der Kopie `3d-3-patch` (Platin DE) `mkdir -p files/zcustom` und `files/a/2/2/9` der Kopie `3d-3-khgde` dorthin als `egg_moves.narc` kopieren (`cp -c`); er liegt nur in der Kopie, nie im Repo und nie in einem Original. Ports wie oben (1720/1721).
+
+**Wo was ist:** Pokémon › Pokédex › Art (zum Beispiel Bisasam 0001) › Hand „Bearbeiten“ › Reiter „Ei-Attacken“ `[data-tab="eggMoves"]`: Tabelle „Ei-Attacken von BISASAM“ mit Zeilen `[data-egg]` (`data-move` = Attackennummer; Feld „Attacke in Zeile N“, „Typ“, Taste „<Attacke> entfernen“), „Zeile hinzufügen“ `[data-add-egg]` (gesperrt als `aria-disabled` mit dem Satz daneben und `aria-describedby`: „Tabelle voll: erst eine Ei-Attacke bei einer anderen Art entfernen“ oder „Höchstens 16 Ei-Attacken je Art“), die Fußzeile „14 Ei-Attacken“ (HeartGold) bzw. `[data-egg-budget]` „12 Ei-Attacken · Tabelle 1 910 von 1 910 Einträgen“ (Platin ohne Patch); gesperrte Tabelle: Warnung mit dem Grund („Ei-Attacken: Overlay 5 trägt an 0x2923E keine Tabelle (Signatur fehlt)“), Diamant und Perl: „Dieses Spiel hat keine Ei-Attacken-Tabelle, die das Studio kennt.“ Bilder: `target/agent/gate-2026-11-01/3d-3/` (`blick-pokedex-eiattacken-*.png`).
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent | wie in Teil A; die gated Tests der Ei-Attacken laufen im Schritt der gated Tests je Projekt (Debug) mit |
+| (1) gated Tests einzeln | Agent | je Projekt im Release-Profil, Befehle unten; die Zeilen `egg_moves …` in die Zahlentabelle |
+| (2) Szenario kopflos | Agent | `call.sh` und `g4k` im Release-Profil, Ablauf unten |
+| (3) Browser | Agent | Test-Umgebung auf 1720/1721, Ablauf unten |
+| Zucht in Platin, echtes DSPRE-Patch-Projekt, Blick, `.fig` | Hand, Agent + Blick | siehe Gate-Datei, Abschnitt „Teil B“, „(4) Hand und Blick“ |
+
+**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`; `<b>` = `basept`, `basehgde`):
+
+```sh
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+G4_TEST_PROJECT="$K/3d-3-<k>" \
+  cargo test --release -p g4-kernel --all-features --test egg_moves -- --nocapture
+#   14 bestanden; Zeilen: egg_moves <Spielcode> source=… species=… moves=… words=… ms=…  und  egg_moves <Spielcode> ascending=… first=… last=…
+G4_ROMS_DIR=<Roms> G4_TEST_PROJECT="$K/3d-3-<b>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject_source -- --nocapture --test-threads 1 \
+  text_project_egg_move_edit_builds_and_check_data_finds_it
+G4_ROMS_DIR=<Roms> G4_TEST_PROJECT="$K/3d-3-<b>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features --test textproject -- --nocapture --test-threads 1 \
+  textproject_round_trip textproject_export_idempotent
+#   egg-moves-text <Spielcode> count=<n> move0=<Attacke>; Round-Trip und Export laufen über das ganze Projekt, je Projekt mehrere Minuten
+```
+
+**Szenario kopflos (2)** auf `3d-3-khgde`, `3d-3-kpt` und `3d-3-patch` (je ein frischer Lauf der Brücke mit der Kopie geöffnet, Agenten an):
+
+```sh
+scripts/agent/call.sh data_get '{"kind":"species","index":1}'     # egg_moves {moves, source narc|overlay|patch, budget {used,total}|null, locked}
+scripts/agent/call.sh data_edit '{"kind":"species","index":1,"patch":{"EggMoves":{"moves":[1,130,219, …]}}}'   # die ganze Liste; Tausch von move0 113 gegen 1
+scripts/agent/call.sh undo                                         # stellt move0 wieder her
+scripts/agent/call.sh save                                         # HeartGold: Member; Platin: Ausschnitt in ov005.bin; Patch: ov005.bin bleibt byte-gleich
+scripts/agent/call.sh build_rom '{"out":"<Kopie>-built.nds"}'
+target/release/g4k check-data <Kopie>-built.nds --expect egg_moves:1:count=14 --expect egg_moves:1:move0=1   # nur HeartGold (auf `3d-3-patch` lief kein `check-data`); Platin: „CPUD has no egg_moves archive“
+```
+
+Auf `3d-3-kpt` zusätzlich: `data_edit` mit einer um eine Attacke längeren Liste (Art 1 mit 13 statt 12) ohne Entfernen ergibt den Fehler „Ei-Attacken-Tabelle voll: 1 910 von 1 910 Einträgen“, `history` bleibt unverändert; ein Handel (Art 1 mit einer Attacke weniger, Art 7 mit einer mehr, zwei `data_edit`) geht. Auf `3d-3-patch`: `source` ist `patch`, `budget` `null`, und die SHA-Summe von `arm9_overlays/ov005.bin` ändert sich durch `save` nicht (`shasum -a 1` davor und danach). Bilder liefert das Szenario nicht, es gibt hier kein Bild-Argument (Ruling R7 betrifft nur `get_battle_sprite` und `get_trainer_sprite`).
+
+**Browser (3)**, Test-Umgebung auf 1720/1721, Chrome mit `--headless=new` und `--explicitly-allowed-ports=1720,1721` über CDP, 1440 × 1500, Seite `http://127.0.0.1:1720/?project=<Roms>/_testkopien/3d-3-webb` (HeartGold: `3d-3-hgwebb`). Ablauf auf Platin: Pokédex › BISASAM › Reiter „Ei-Attacken“: 12 Zeilen, Fußzeile mit dem Budget, „Zeile hinzufügen“ gesperrt; letzte Zeile entfernen (11 Zeilen, „1 909 von 1 910“, Taste frei), ⌘Z (12, gesperrt); Zeile 1 über den Picker gegen „Pfund“ tauschen (Budget unverändert), ⌘Z. Auf HeartGold: 14 Zeilen, „Zeile hinzufügen“ frei, „Pfund“ hinzufügen (15), ⌘Z (14). Danach Hell und Dunkel über `prefers-color-scheme` und Kompakt über die Taste der Statusleiste, jeweils ein Bild; die Fußzeile liegt bei 1440 × 1500 unter dem Rand, ihre Werte kommen aus dem DOM.
 
 ## Phase 4.5 ([phase-4-5-gate.md](phase-4-5-gate.md))
 

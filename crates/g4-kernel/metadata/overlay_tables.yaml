@@ -1,0 +1,14 @@
+# Tables inside the decompressed overlays (arm9_overlays/ovNNN.bin), keyed by game code: file offset in
+# the overlay and the budget in bytes the table may fill (the game reads up to the first 0xFFFF). The kernel
+# reads a table only for a code without `unverified: true` and only when its signature holds.
+# egg_moves: u16 words `20000 + species`, the moves, 0xFFFF; measured on Platinum DE
+# (docs/research/2026-10-30-phase-3d/gutachten-b-eier.py): 0x2923E..0x2A12A, 198 species, 1 711 moves, exactly full.
+# uxie 0.9.7 names 0x29222 for an unnamed other language (binary.rs:331); not assigned to a code here.
+egg_moves:
+  overlay: 5
+  CPUD: { offset: 0x2923E, budget: 3820 }
+  CPUE: { unverified: true }
+  CPUS: { unverified: true }
+  CPUI: { unverified: true }
+  CPUF: { unverified: true }
+  CPUJ: { unverified: true }

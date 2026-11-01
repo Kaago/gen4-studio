@@ -7,6 +7,7 @@ import { EmptyState, Notice, Tabs } from "../../ui/primitives";
 import type { TabItem } from "../../ui/primitives";
 import { useDataArea } from "../useDataArea";
 import { AbilitiesTab } from "./AbilitiesTab";
+import { EggMovesTab } from "./EggMovesTab";
 import { EvolutionTab } from "./EvolutionTab";
 import { LearnsetTab } from "./LearnsetTab";
 import { MachinesTab } from "./MachinesTab";
@@ -40,9 +41,10 @@ export interface Editing {
 }
 
 /**
- * The editor (Hand) of a species: the tabs Werte, Fähigkeiten und Typen, Lernset, Entwicklung, TM/VM and, while tinkering, Rohdaten. A
- * tab's dot says its part has unsaved changes; a link with a tab opens that tab. Every field commits on its own as one undo step; a
- * refusal of the backend shows above the tabs, a part with the wrong length is named there and its fields are locked.
+ * The editor (Hand) of a species: the tabs Werte, Fähigkeiten und Typen, Lernset, Ei-Attacken, Entwicklung, TM/VM and, while tinkering,
+ * Rohdaten. A tab's dot says its part has unsaved changes (the egg move table's of any species); a link with a tab opens that tab. Every
+ * field commits on its own as one undo step; a refusal of the backend shows above the tabs, a part with the wrong length is named there
+ * and its fields are locked.
  */
 export function PokedexHand() {
   const { row, labelOf, names, selected, dirty, target } = useDataArea("pokemon");
@@ -88,8 +90,9 @@ export function PokedexHand() {
       TABS.filter((t) => t.id !== "raw" || tinkering).map((t) => ({
         id: t.id,
         label: t.label,
-        count: t.id === "learnset" ? doc?.learnset.length : t.id === "machines" ? doc?.tm.filter(Boolean).length : undefined,
-        unsaved: dirty.some((a) => a.index === selected && TAB_ASSETS[t.id].includes(a.kind)),
+        count: tabCount(t.id, doc),
+        // The egg move table is one asset for every species.
+        unsaved: dirty.some((a) => (a.kind === "EggMoves" || a.index === selected) && TAB_ASSETS[t.id].includes(a.kind)),
       })),
     [tinkering, doc, dirty, selected],
   );
@@ -120,6 +123,7 @@ export function PokedexHand() {
           {shown === "values" && <ValuesTab e={editing} tinkering={tinkering} />}
           {shown === "abilities" && <AbilitiesTab e={editing} />}
           {shown === "learnset" && <LearnsetTab e={editing} />}
+          {shown === "eggMoves" && <EggMovesTab e={editing} />}
           {shown === "evolution" && <EvolutionTab e={editing} />}
           {shown === "machines" && <MachinesTab e={editing} />}
           {shown === "raw" && <RawTab e={editing} highlight={lastField} />}
@@ -127,4 +131,13 @@ export function PokedexHand() {
       </Tabs>
     </div>
   );
+}
+
+/** The number a tab shows beside its name: the moves of the learnset and of a readable egg move table, the machines on. */
+function tabCount(tab: SpeciesTab, doc: SpeciesDoc | null): number | undefined {
+  if (doc === null) return undefined;
+  if (tab === "learnset") return doc.learnset.length;
+  if (tab === "eggMoves") return doc.egg_moves !== null && doc.egg_moves.locked === null ? doc.egg_moves.moves.length : undefined;
+  if (tab === "machines") return doc.tm.filter(Boolean).length;
+  return undefined;
 }

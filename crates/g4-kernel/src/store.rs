@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use g4_formats::area_data::AreaData;
+use g4_formats::data::egg_moves::EggMoves;
 use g4_formats::data::encounter::Encounters;
 use g4_formats::data::evolution::Evolution;
 use g4_formats::data::item::Item;
@@ -104,6 +105,9 @@ pub(crate) enum Loaded {
     /// A trainer: its properties and party members decoded together; its bytes are the
     /// pair (see [`Location::MemberPair`]).
     Trainer(TrainerDoc),
+    /// The egg move table; read from the slice of overlay 5 it carries the slice's length as
+    /// its budget.
+    EggMoves(EggMoves),
     /// A data member of a length its codec rejects, kept as read. Such an asset is always
     /// locked (see [`decode`]).
     Raw(Vec<u8>),
@@ -137,6 +141,7 @@ impl Loaded {
                 | AssetKind::Item
                 | AssetKind::TrainerTextTable
                 | AssetKind::TrainerTextOffsets
+                | AssetKind::EggMoves
         )
     }
 
@@ -207,6 +212,8 @@ impl Loaded {
                 let (props, party) = split_pair(bytes)?;
                 Ok(Loaded::Trainer(TrainerDoc::decode(props, party, family)?))
             }
+            // Without a budget: the store gives a table read from a slice its budget.
+            AssetKind::EggMoves => Ok(Loaded::EggMoves(EggMoves::read(bytes)?)),
         }
     }
 
@@ -237,8 +244,34 @@ impl Loaded {
                 let (props, party) = t.encode(family);
                 Ok(trainer_pair_bytes(&props, &party))
             }
+            Loaded::EggMoves(table) => egg_move_bytes(table),
             Loaded::Raw(bytes) => Ok(bytes.clone()),
         }
+    }
+}
+
+/// The bytes of an egg move table. Over its budget it is [`KernelError::Refused`] with
+/// [`budget_full`](crate::data::egg_moves::budget_full); a fixed table whose bytes would fail
+/// the signature (the next open would lock it) is refused too.
+fn egg_move_bytes(table: &EggMoves) -> Result<Vec<u8>, KernelError> {
+    let bytes = table.write().map_err(|words| {
+        KernelError::Refused(crate::data::egg_moves::budget_full(
+            table.budget_words().unwrap_or(words),
+        ))
+    })?;
+    if table.budget.is_some() && !EggMoves::signature_ok(&bytes) {
+        return Err(KernelError::Refused(
+            crate::data::egg_moves::signature_lost(),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Gives an egg move table decoded from bytes (undo, redo, a replace) the budget of the table
+/// it replaces: the slice it is written to keeps its size.
+fn keep_budget(value: &mut Loaded, replaced: Option<&Loaded>) {
+    if let (Loaded::EggMoves(new), Some(Loaded::EggMoves(old))) = (value, replaced) {
+        new.set_budget(old.budget);
     }
 }
 
@@ -268,6 +301,10 @@ fn decode(
                 Loaded::Raw(bytes.to_vec()),
                 Some(format!("{id}: {found} bytes, expected {expected}")),
             ))
+        }
+        // A member that is no egg move table (a move before the first mark).
+        Err(KernelError::Format(e)) if id.kind == AssetKind::EggMoves => {
+            Ok((Loaded::Raw(bytes.to_vec()), Some(format!("{id}: {e}"))))
         }
         Err(e) => Err(e),
     }
@@ -369,6 +406,7 @@ record! {
     TrainerTextTable => TrainerTextTable;
     TrainerTextOffsets => TrainerTextOffsets;
     TrainerDoc => Trainer;
+    EggMoves => EggMoves;
 }
 
 /// The record of type `T` in `asset`; a locked raw member is [`KernelError::ReadOnly`] with
@@ -603,7 +641,9 @@ impl Tx<'_> {
         let family = self.store.project.family;
         let lang = self.store.lang();
         self.edit(id, |loaded| {
-            *loaded = Loaded::from_bytes(id.kind, bytes, family, lang)?;
+            let mut value = Loaded::from_bytes(id.kind, bytes, family, lang)?;
+            keep_budget(&mut value, Some(loaded));
+            *loaded = value;
             Ok(())
         })
     }
@@ -858,6 +898,16 @@ impl Tx<'_> {
         self.record(index)
     }
 
+    /// The egg move table as this transaction sees it (its staged edit included).
+    pub fn egg_moves(&mut self) -> Result<&EggMoves, KernelError> {
+        self.record(EGG_MOVES.index)
+    }
+
+    /// Edits the egg move table, see [`Store::edit_egg_moves`].
+    pub fn edit_egg_moves(&mut self, edit: impl FnOnce(&mut EggMoves)) -> Result<(), KernelError> {
+        self.edit_record(EGG_MOVES.index, edit)
+    }
+
     /// Edits trainer `index`: its properties and its party are one part. A party of more
     /// than six Pokémon fails the transaction as [`KernelError::Format`].
     pub fn edit_trainer(
@@ -939,6 +989,12 @@ const MAPNAME_RECORD: usize = 16;
 /// The one asset of kind `HeaderTable`.
 pub const HEADER_TABLE: AssetId = AssetId {
     kind: AssetKind::HeaderTable,
+    index: 0,
+};
+
+/// The one asset of kind `EggMoves`.
+pub const EGG_MOVES: AssetId = AssetId {
+    kind: AssetKind::EggMoves,
     index: 0,
 };
 
@@ -1186,7 +1242,16 @@ impl Store {
         id: AssetId,
         bytes: &[u8],
     ) -> Result<(Loaded, Option<String>), KernelError> {
-        let (current, locked) = decode(id, bytes, self.project.family, self.lang())?;
+        let family = self.project.family;
+        let (mut current, mut locked) = decode(id, bytes, family, self.lang())?;
+        if let Loaded::EggMoves(table) = &mut current {
+            // Read from the slice of overlay 5, the table fills exactly its budget.
+            let budget = crate::data::egg_moves::egg_moves_place(&self.project)?
+                .ok()
+                .and_then(|place| place.budget);
+            table.set_budget(budget);
+            locked = unwritable_reason(&current, bytes, family);
+        }
         let placeholder = (id.kind == AssetKind::Trainer
             && Some(id.index) == self.placeholder_trainer
             && placeholder_shaped(bytes))
@@ -1201,8 +1266,15 @@ impl Store {
 
     fn load(&mut self, id: AssetId) -> Result<&mut Asset, KernelError> {
         if !self.assets.contains_key(&id) {
-            let bytes = self.read_member(id)?;
-            let (current, locked) = self.decode_locked(id, &bytes)?;
+            let (bytes, current, locked) = match self.egg_moves_lock(id)? {
+                // No place to read from: shown locked with the reason, never written.
+                Some(reason) => (Vec::new(), Loaded::Raw(Vec::new()), Some(reason)),
+                None => {
+                    let bytes = self.read_member(id)?;
+                    let (current, locked) = self.decode_locked(id, &bytes)?;
+                    (bytes, current, locked)
+                }
+            };
             self.assets.insert(
                 id,
                 Asset {
@@ -1213,6 +1285,15 @@ impl Store {
             );
         }
         self.assets.get_mut(&id).ok_or_else(|| mismatch(id))
+    }
+
+    /// Why the egg moves (`id`) have no place to be read from (see
+    /// [`crate::data::egg_moves::egg_moves_place`]); `None` for every other asset.
+    fn egg_moves_lock(&self, id: AssetId) -> Result<Option<String>, KernelError> {
+        if id.kind != AssetKind::EggMoves {
+            return Ok(None);
+        }
+        Ok(crate::data::egg_moves::egg_moves_place(&self.project)?.err())
     }
 
     /// Returns the map member `index`, loading it from disk on first use.
@@ -2086,6 +2167,25 @@ impl Store {
             .map(|((), change)| change)
     }
 
+    /// Returns the egg move table, loading it on first use (from where
+    /// [`crate::data::egg_moves::egg_moves_place`] finds it). A table without a place is
+    /// [`KernelError::ReadOnly`] with the reason.
+    pub fn egg_moves(&mut self) -> Result<&EggMoves, KernelError> {
+        self.record(EGG_MOVES.index)
+    }
+
+    /// Edits the egg move table as one undoable step. Over the budget of the overlay slice
+    /// it is [`KernelError::Refused`] with
+    /// [`budget_full`](crate::data::egg_moves::budget_full) and nothing is recorded. The id
+    /// is `None` when `edit` changed nothing.
+    pub fn edit_egg_moves(
+        &mut self,
+        label: &str,
+        edit: impl FnOnce(&mut EggMoves),
+    ) -> Result<Option<ChangeId>, KernelError> {
+        self.edit_record(EGG_MOVES.index, label, edit)
+    }
+
     /// Locks asset `id` with `reason` for the life of this store, whatever its bytes: it is
     /// shown but read-only (edits are refused with the reason, it is never dirty and `save`
     /// never writes it), also after a reload. A loaded asset is read from disk again, so
@@ -2564,7 +2664,10 @@ impl Store {
                 // Strict on purpose: a part holds the bytes of an editable value, never a
                 // locked raw member.
                 Loaded::from_bytes(id.kind, side.part(part), family, self.lang())
-                    .map(|value| (id, value))
+                    .map(|mut value| {
+                        keep_budget(&mut value, self.assets.get(&id).map(|a| &a.current));
+                        (id, value)
+                    })
                     .map_err(|e| KernelError::Restore {
                         asset: id,
                         reason: e.to_string(),

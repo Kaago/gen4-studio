@@ -342,6 +342,7 @@ pub fn asset_label(id: AssetId) -> String {
         AssetKind::PokemonBattleSprites => "Kampfbild",
         AssetKind::OtherPokemonBattleSprites => "Formen-Kampfbild",
         AssetKind::TrainerGraphics => "Trainerbild",
+        AssetKind::EggMoves => "Ei-Attacken",
     };
     format!("{word} {:04}", id.index)
 }

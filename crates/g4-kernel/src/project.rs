@@ -87,13 +87,18 @@ pub enum AssetKind {
     /// The trainer class graphics (`trainerGraphics`): five members per class, the battle
     /// image (an encrypted linear NCGR) at `5·k + 4`, its palettes at `5·k + 1`. Read only.
     TrainerGraphics,
+    /// The egg move table, one asset (index 0) like the header table: the one member of
+    /// `eggMoves` (HGSS `a/2/2/9`; Platinum DSPRE's patch NARC `files/zcustom/egg_moves.narc`),
+    /// or in Platinum without the patch a fixed slice of overlay 5, read only when its
+    /// signature holds (see `data::egg_moves`). Diamond/Pearl has none.
+    EggMoves,
 }
 
 impl AssetKind {
     /// Every kind, in the order archives are unpacked, packed and listed: the world kinds,
     /// the store-only kinds and the scripts, then the data kinds, and last the trainer, the
-    /// store-only pair of two data kinds.
-    pub const ALL: [AssetKind; 28] = [
+    /// store-only pair of two data kinds, the battle sprites and the egg moves.
+    pub const ALL: [AssetKind; 29] = [
         AssetKind::Map,
         AssetKind::Matrix,
         AssetKind::AreaData,
@@ -122,6 +127,7 @@ impl AssetKind {
         AssetKind::PokemonBattleSprites,
         AssetKind::OtherPokemonBattleSprites,
         AssetKind::TrainerGraphics,
+        AssetKind::EggMoves,
     ];
 
     /// Human-readable name used in error messages.
@@ -155,6 +161,7 @@ impl AssetKind {
             AssetKind::PokemonBattleSprites => "battle sprites",
             AssetKind::OtherPokemonBattleSprites => "form battle sprites",
             AssetKind::TrainerGraphics => "trainer graphics",
+            AssetKind::EggMoves => "egg moves",
         }
     }
 
@@ -189,6 +196,7 @@ impl AssetKind {
             AssetKind::PokemonBattleSprites => 25,
             AssetKind::OtherPokemonBattleSprites => 26,
             AssetKind::TrainerGraphics => 27,
+            AssetKind::EggMoves => 28,
         }
     }
 }
@@ -252,6 +260,9 @@ struct FamilyArchives {
     pokemon_battle_sprites: ArchiveEntry,
     other_pokemon_battle_sprites: ArchiveEntry,
     trainer_graphics: ArchiveEntry,
+    /// The egg move NARC: HGSS `a/2/2/9`, Platinum DSPRE's patch NARC (present only once the
+    /// patch is applied); Diamond/Pearl has none.
+    egg_moves: Option<ArchiveEntry>,
     /// Folders DSPRE unpacks that no asset kind covers, packed by the build only (see
     /// [`ArchiveMap::pack_only`]). DP has none.
     #[serde(default)]
@@ -262,6 +273,7 @@ struct FamilyArchives {
 /// without that archive, so that `unpacked_name` is total.
 const INTERIOR_UNPACKED_NAME: &str = "interiorBuildingModels";
 const DYNAMIC_HEADERS_UNPACKED_NAME: &str = "dynamicHeaders";
+const EGG_MOVES_UNPACKED_NAME: &str = "eggMoves";
 /// What `unpacked_name` reports for the trainer, which has two folders (see
 /// [`Location::MemberPair`]).
 const TRAINER_PAIR_NAME: &str = "trainerProperties+trainerParty";
@@ -411,6 +423,7 @@ impl ArchiveMap {
                 Some(resolve(archives.pokemon_battle_sprites)),
                 Some(resolve(archives.other_pokemon_battle_sprites)),
                 Some(resolve(archives.trainer_graphics)),
+                archives.egg_moves.map(resolve),
             ],
             pack_only: archives.pack_only.into_iter().map(resolve).collect(),
         })
@@ -431,6 +444,7 @@ impl ArchiveMap {
             Some((_, name)) => name,
             // Only the optional archives (and the header table) can be missing.
             None if kind == AssetKind::DynamicHeaders => DYNAMIC_HEADERS_UNPACKED_NAME,
+            None if kind == AssetKind::EggMoves => EGG_MOVES_UNPACKED_NAME,
             // No folder of its own: a name that never is one, so a path built from it never
             // reaches another archive's members.
             None if kind == AssetKind::Trainer => TRAINER_PAIR_NAME,
@@ -694,8 +708,13 @@ impl Project {
     /// has index 0), or, once the Dynamic Headers patch is applied, the files of
     /// `unpacked/dynamicHeaders`. Fails with `InvalidProject` for another index, when
     /// `arm9.bin` is too short for the table or the folder is missing, and with
-    /// `UnknownGame` when the game has no known table offset.
+    /// `UnknownGame` when the game has no known table offset. The egg moves (one asset, index
+    /// 0) are where [`crate::data::egg_moves::egg_moves_place`] finds them; without a place
+    /// they are [`KernelError::ReadOnly`] with its reason (the store loads them locked).
     pub fn member_location(&self, kind: AssetKind, index: u16) -> Result<Location, KernelError> {
+        if kind == AssetKind::EggMoves {
+            return self.egg_moves_location(index);
+        }
         if kind == AssetKind::TextArchive {
             return Ok(Location::TextSource {
                 json: self.expanded_dir(kind).join(format!("{index:04}.json")),
@@ -735,6 +754,23 @@ impl Project {
             offset,
             len: count * MAP_HEADER_SIZE,
         })
+    }
+
+    /// [`Project::member_location`] of the egg moves.
+    fn egg_moves_location(&self, index: u16) -> Result<Location, KernelError> {
+        let asset = AssetId {
+            kind: AssetKind::EggMoves,
+            index,
+        };
+        if index != 0 {
+            return Err(KernelError::InvalidProject(format!(
+                "the egg moves are one asset, index {index} is out of range"
+            )));
+        }
+        match crate::data::egg_moves::egg_moves_place(self)? {
+            Ok(place) => Ok(place.location),
+            Err(reason) => Err(KernelError::ReadOnly { asset, reason }),
+        }
     }
 
     pub(crate) fn arm9_path(&self) -> PathBuf {
@@ -886,6 +922,13 @@ impl Project {
             // applied (and in DSPRE projects, holding the NARC's vanilla members), and
             // unpacking it would fake that patch.
             AssetKind::DynamicHeaders => return Err(store_only(kind)),
+            // Platinum without DSPRE's patch keeps the table in overlay 5: nothing to unpack.
+            AssetKind::EggMoves if self.family == Family::Pt => {
+                let packed = self.require_packed(kind)?;
+                if !self.root.join(packed).is_file() && !self.unpacked_dir(kind).is_dir() {
+                    return Ok(1);
+                }
+            }
             _ => {}
         }
         let packed = self.require_packed(kind)?.to_path_buf();
@@ -950,6 +993,8 @@ impl Project {
         match kind {
             AssetKind::HeaderTable => return Ok(1),
             AssetKind::DynamicHeaders => return Err(store_only(kind)),
+            // One table where the game has one (a member, or the slice of overlay 5).
+            AssetKind::EggMoves => return Ok(usize::from(self.family != Family::Dp)),
             AssetKind::Trainer => {
                 let props = self.member_count(AssetKind::TrainerProperties)?;
                 return Ok(props.min(self.member_count(AssetKind::TrainerParty)?));
@@ -1255,11 +1300,12 @@ mod tests {
             // Only HGSS has interior building models and only Platinum and HGSS the
             // Dynamic Headers NARC; every other archive kind exists everywhere, the ten data
             // kinds, the two icon kinds and the three battle sprite kinds included. The header
-            // table is store-only and never has an archive.
+            // table is store-only and never has an archive. The egg moves have one in Platinum
+            // (DSPRE's patch NARC) and HGSS.
             let expected = match family {
                 Family::Dp => 9 + 15,
-                Family::Pt => 10 + 15,
-                Family::Hgss => 11 + 15,
+                Family::Pt => 10 + 15 + 1,
+                Family::Hgss => 11 + 15 + 1,
             };
             assert_eq!(map.kinds().count(), expected, "{code}");
             for kind in AssetKind::ALL {
@@ -1269,7 +1315,7 @@ mod tests {
                     match kind {
                         AssetKind::HeaderTable | AssetKind::Trainer => false,
                         AssetKind::InteriorBuildingModel => family == Family::Hgss,
-                        AssetKind::DynamicHeaders => family != Family::Dp,
+                        AssetKind::DynamicHeaders | AssetKind::EggMoves => family != Family::Dp,
                         _ => true,
                     }
                 );

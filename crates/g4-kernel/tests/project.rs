@@ -562,8 +562,9 @@ fn archive_map_knows_every_world_kind() {
     ));
     assert_eq!(p.ensure_unpacked(AssetKind::Event).unwrap(), 2);
     // Platinum: the eight world archives plus the Dynamic Headers NARC, the scripts and the
-    // ten data archives, the two icon archives and the three battle sprite archives.
-    assert_eq!(p.archives.kinds().count(), 25);
+    // ten data archives, the two icon archives, the three battle sprite archives and the egg
+    // move NARC of DSPRE's patch.
+    assert_eq!(p.archives.kinds().count(), 26);
 }
 
 #[test]
@@ -643,7 +644,8 @@ fn archive_map_resolves_world_kinds_per_family_and_language() {
             "monIcons",
             "pokemonBattleSprites",
             "otherPokemonBattleSprites",
-            "trainerGraphics"
+            "trainerGraphics",
+            "eggMoves"
         ]
     );
 }
@@ -681,7 +683,8 @@ fn asset_kind_labels() {
             "trainer",
             "battle sprites",
             "form battle sprites",
-            "trainer graphics"
+            "trainer graphics",
+            "egg moves"
         ]
     );
 }
@@ -744,8 +747,8 @@ fn vanilla_headers_carry_location_names() {
 }
 
 #[test]
-fn asset_kinds_have_twenty_eight_slots() {
-    assert_eq!(AssetKind::ALL.len(), 28);
+fn asset_kinds_have_twenty_nine_slots() {
+    assert_eq!(AssetKind::ALL.len(), 29);
     // Every kind is listed once, and `kinds()` of a family only yields kinds of `ALL`.
     for (i, a) in AssetKind::ALL.iter().enumerate() {
         for b in &AssetKind::ALL[i + 1..] {
@@ -773,7 +776,8 @@ fn asset_kinds_have_twenty_eight_slots() {
         ]
     );
     // The two icon archives follow (slots 22 and 23), then the trainer, the store-only pair of
-    // the two trainer archives, and the three read-only battle sprite archives (25 to 27).
+    // the two trainer archives, the three read-only battle sprite archives (25 to 27) and the
+    // egg moves (28).
     assert_eq!(
         AssetKind::ALL[22..],
         [
@@ -783,8 +787,10 @@ fn asset_kinds_have_twenty_eight_slots() {
             AssetKind::PokemonBattleSprites,
             AssetKind::OtherPokemonBattleSprites,
             AssetKind::TrainerGraphics,
+            AssetKind::EggMoves,
         ]
     );
+    assert_eq!(AssetKind::EggMoves.label(), "egg moves");
     assert_eq!(AssetKind::PokemonBattleSprites.label(), "battle sprites");
     assert_eq!(
         AssetKind::OtherPokemonBattleSprites.label(),
@@ -865,6 +871,14 @@ fn data_archives_resolve_per_game() {
         );
         assert_eq!(packed(code, AssetKind::TrainerGraphics), some(trainer));
     }
+    // Egg moves: the vanilla NARC in HGSS, DSPRE's patch NARC in Platinum, none in DP.
+    assert_eq!(packed("IPKD", AssetKind::EggMoves), some("files/a/2/2/9"));
+    assert_eq!(packed("IPGE", AssetKind::EggMoves), some("files/a/2/2/9"));
+    assert_eq!(
+        packed("CPUD", AssetKind::EggMoves),
+        some("files/zcustom/egg_moves.narc")
+    );
+    assert_eq!(packed("ADAE", AssetKind::EggMoves), None);
     let p = Project::open(s.dir.path()).unwrap();
     for (kind, name) in [
         (AssetKind::PokemonBattleSprites, "pokemonBattleSprites"),
@@ -1016,14 +1030,15 @@ fn pack_only_entries_parse_for_pt_and_hgss() {
         );
     }
     assert!(map("ADAE").pack_only().is_empty(), "dp has no pack entries");
-    // The three battle sprite archives are asset kinds, no pack entries.
+    // The three battle sprite archives and the egg moves are asset kinds, no pack entries.
     assert_eq!(map("CPUD").pack_only().len(), 11);
-    assert_eq!(map("IPKD").pack_only().len(), 14);
+    assert_eq!(map("IPKD").pack_only().len(), 13);
     for code in ["CPUD", "IPKE"] {
         for name in [
             "pokemonBattleSprites",
             "otherPokemonBattleSprites",
             "trainerGraphics",
+            "eggMoves",
         ] {
             assert!(
                 !map(code).pack_only().iter().any(|(_, u)| u == name),

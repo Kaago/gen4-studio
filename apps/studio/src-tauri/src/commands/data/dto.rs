@@ -7,6 +7,7 @@ use g4_formats::data::learnset::LearnEntry;
 use g4_formats::data::personal::Personal;
 use g4_kernel::checks::{MapCell, Subject};
 use g4_kernel::data::battle_sprites::SpriteSlots;
+use g4_kernel::data::egg_moves::EggMovesSource;
 use g4_kernel::project::AssetId;
 use serde::{Deserialize, Serialize};
 
@@ -325,6 +326,26 @@ impl From<SpriteSlots> for SpriteSlotsDto {
     }
 }
 
+/// How much of a fixed budget a table fills, in words (Platinum's egg moves in overlay 5:
+/// marks, moves and the end all count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BudgetDto {
+    pub used: u32,
+    pub total: u32,
+}
+
+/// The egg moves of one species: its moves (empty without an entry), where the table is read
+/// from (`narc`, `patch`, `overlay`), the budget of a table in overlay 5 (`None` for a NARC
+/// member), and `locked`, the reason the table cannot be read or edited (then `moves` is empty
+/// and must not be shown as the species' moves).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EggMovesDto {
+    pub moves: Vec<u16>,
+    pub source: EggMovesSource,
+    pub budget: Option<BudgetDto>,
+    pub locked: Option<String>,
+}
+
 /// The document of one data member, tagged by `kind`. `locked` is the reason a member cannot
 /// be edited and `raw_locked` its bytes as read; the decoded fields of a locked part are then
 /// empty (Species: zeros) and must not be shown as values.
@@ -348,6 +369,9 @@ pub enum DataDocDto {
         /// Which genders have battle images of their own (`get_battle_sprite` falls back to
         /// the other gender's silently); `None` when the game has no readable sprites.
         sprite_slots: Option<SpriteSlotsDto>,
+        /// The species' egg moves; `None` where the game has no egg move table
+        /// (Diamond/Pearl).
+        egg_moves: Option<EggMovesDto>,
     },
     /// A move. `name_archive` is the text archive of the move names (message = move index);
     /// `None` where the game's banks do not name it.
@@ -498,7 +522,17 @@ pub enum DataPatch {
     TrainerTexts {
         texts: Vec<TrainerTextInDto>,
     },
+    /// The species' whole egg move list (at most [`EGG_MOVES_MAX`] moves, each a move of the
+    /// game, not 0; empty removes the species' entry). On Platinum without DSPRE's patch the
+    /// table must stay within its budget in overlay 5: adding needs a move removed elsewhere.
+    EggMoves {
+        moves: Vec<u16>,
+    },
 }
+
+/// The most egg moves `DataPatch::EggMoves` takes for one species (the fields `move0` to
+/// `move15` of `g4k check-data egg_moves`; vanilla species have at most 14).
+pub const EGG_MOVES_MAX: usize = 16;
 
 /// The raw bytes of a member as the store holds them, the field map that describes them
 /// (empty for a locked member) and where they come from (packed archive, member).

@@ -30,6 +30,7 @@ use super::arts::{
 use super::base_layer::{BaseLayer, ENTITY_KINDS, RAW_DIR, raw_diff, walk};
 use super::canon::{to_canonical, write_if_changed};
 use super::check::{hints, sources};
+use super::egg_moves::{is_patch, readable_table};
 use super::manifest::{Manifest, SchemaState, manifest_for, read_manifest, refusal, schema_state};
 use super::quirks::{quirks_from_state, write_quirks};
 use super::registry::{IDS_DIR, REGISTRY_KINDS, Symbols, registry_file, trainer_baptism_name};
@@ -334,8 +335,12 @@ fn export_with(
     progress: &mut dyn FnMut(ExportProgress),
 ) -> Result<(), KernelError> {
     let root = &project.root;
-    // Every modelled archive unpacked, so the blobs compare members and never a whole NARC.
-    for kind in ENTITY_KINDS.into_iter().chain([AssetKind::Item]) {
+    // Every modelled archive unpacked, so the blobs compare members and never a whole NARC
+    // (the egg moves only where they are a NARC member: their packed NARC is there).
+    for kind in ENTITY_KINDS
+        .into_iter()
+        .chain([AssetKind::Item, AssetKind::EggMoves])
+    {
         if let Some(packed) = project.archives.packed(kind)
             && root.join(packed).is_file()
         {
@@ -376,7 +381,12 @@ fn export_with(
     write_blobs(project, layer, report)?;
     step(ExportStep::Blobs, 1, 1);
 
-    let manifest = manifest_for(project, keep);
+    let mut manifest = manifest_for(project, keep);
+    // The species files hold the egg moves from now on where the table was read.
+    manifest.egg_moves =
+        project.has_archive(AssetKind::Personal) && readable_table(project)?.is_some();
+    // A clone lacks DSPRE's patch NARC and its folder: the manifest remembers the patch.
+    manifest.egg_moves_patch = manifest.egg_moves && is_patch(project);
     if write_if_changed(root, Path::new(MANIFEST_FILE), &to_canonical(&manifest))? {
         report.written += 1;
     }
@@ -496,11 +506,17 @@ fn art_files(
     if !art.kinds().iter().all(|&k| project.has_archive(k)) {
         return Ok(None);
     }
+    // The egg move table, read once for every species.
+    let egg_moves = match art {
+        Art::Species => readable_table(project)?,
+        _ => None,
+    };
     let mut ctx = ExportCtx {
         family: project.family,
         symbols,
         base: layer,
         side: Vec::new(),
+        egg_moves: egg_moves.as_ref(),
     };
     let mut out = ArtFiles {
         entities: 0,

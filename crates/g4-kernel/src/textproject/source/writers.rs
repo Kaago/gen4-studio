@@ -4,23 +4,33 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use g4_formats::data::egg_moves::EggMoves;
+
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::split_pair;
 
+use super::super::MANIFEST_FILE;
 use super::super::arts::{Art, file_names, numbered};
 use super::super::base_layer::{BaseLayer, part_of_members};
-use super::super::canon::{to_canonical, write_if_changed};
+use super::super::canon::{json_problem, to_canonical, write_if_changed};
+use super::super::codes::SCHEMA_CODE;
+use super::super::egg_moves::{
+    FIELD as EGG_FIELD, assemble, disk_table, egg_field, empty_table, field_of, is_patch,
+    move_count, place as egg_place, place_bytes, readable_table, resolve_field, table_bytes,
+};
 use super::super::export::{baptize_named, entity_files, remove_if_empty};
 use super::super::import::LazyBase;
+use super::super::locate::located;
+use super::super::manifest::read_manifest;
 use super::super::part::{BasePart, PartKey, sha1_hex};
 use super::super::registry::{IDS_DIR, registry_file};
-use super::super::schema::data::export_items;
+use super::super::schema::data::{SpeciesEntity, export_items};
 use super::super::schema::{ExportCtx, ImportCtx};
 use super::super::symbols::SymbolKind;
 use super::units::{
     HEADER_LEN, NAME_LEN, REGISTERS, binary_rel, collect_base_sha1, disk_member, import_art,
-    json_rel, key_of, read_optional,
+    json_rel, key_of, numbered_cached, read_optional,
 };
 use super::{EntitySource, SourceWrite, stamps};
 
@@ -189,9 +199,17 @@ impl EntitySource {
         }
         let rel = json_rel(art, index);
         let mut named = self.base_sha1.remove(&key_of(&rel)).unwrap_or_default();
-        if let Some(bytes) = read_optional(&self.root.join(&rel))? {
-            collect_base_sha1(&bytes, &mut named);
+        let json = read_optional(&self.root.join(&rel))?;
+        if let Some(bytes) = &json {
+            collect_base_sha1(bytes, &mut named);
         }
+        // A species keeps the egg moves its file has (their unit writes them); a new file
+        // gets them from the table on disk.
+        let (keep_eggs, eggs) = match (art, &json) {
+            (Art::Species, Some(bytes)) => (Some(egg_field(bytes).ok().flatten()), None),
+            (Art::Species, None) => (None, readable_table(project)?),
+            _ => (None, None),
+        };
         let base = SaveBase {
             layer: self.layer.as_ref(),
             project,
@@ -202,8 +220,15 @@ impl EntitySource {
             symbols: &mut self.symbols,
             base: &base,
             side: Vec::new(),
+            egg_moves: eggs.as_ref(),
         };
-        let files = entity_files(art, u32::from(index), &parts, &mut ctx)?;
+        let mut files = entity_files(art, u32::from(index), &parts, &mut ctx)?;
+        if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
+            let mut entity: SpeciesEntity = serde_json::from_slice(json)
+                .map_err(|e| KernelError::InvalidProject(format!("{}: {e}", rel.display())))?;
+            entity.egg_moves = field;
+            *json = to_canonical(&entity);
+        }
         put_files(
             &self.root,
             &art.dir(),
@@ -250,6 +275,7 @@ impl EntitySource {
             symbols: &mut self.symbols,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         let items = export_items(&member_of, &members, &mut ctx)?;
         let mut files: Vec<(String, Vec<u8>)> = ids
@@ -369,6 +395,7 @@ impl EntitySource {
             symbols: &mut self.symbols,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         let dir = Art::Headers.dir();
         for (i, (header, name)) in table
@@ -403,6 +430,7 @@ impl EntitySource {
             symbols: &mut self.symbols,
             base: &NoBase,
             side: Vec::new(),
+            egg_moves: None,
         };
         let parts = [Some(header.to_vec()), Some(name.to_vec())];
         let files = entity_files(Art::Headers, u32::from(index), &parts, &mut ctx)?;
@@ -453,4 +481,128 @@ impl EntitySource {
         }
         Ok(())
     }
+}
+
+impl EntitySource {
+    /// The egg move table from the field `egg_moves` of every species file, applied to the
+    /// table on disk (see [`textproject::egg_moves`](super::super::egg_moves)); the table on
+    /// disk while the manifest does not mark the species files as holding it. A file whose
+    /// field does not read (an unknown move id) or a table that does not fit its place is
+    /// `KernelError::Compile` naming the file.
+    pub(super) fn egg_moves_json(&self, project: &Project) -> Result<Option<Vec<u8>>, KernelError> {
+        let Some(place) = egg_place(project) else {
+            return Ok(None);
+        };
+        if !egg_moves_exported(&self.root) {
+            return place_bytes(project, &place);
+        }
+        let dir = Art::Species.dir();
+        let moves = move_count(project);
+        let mut fields: Vec<(u16, Option<Vec<u16>>)> = Vec::new();
+        let mut files: Vec<PathBuf> = Vec::new();
+        for n in numbered_cached(project, &dir, "json")? {
+            let rel = dir.join(format!("{n:04}.json"));
+            let Some(bytes) = read_optional(&self.root.join(&rel))? else {
+                continue;
+            };
+            let field = egg_field(&bytes).map_err(|e| {
+                KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)])
+            })?;
+            let moves = field
+                .map(|refs| resolve_field(&refs, &self.symbols, moves))
+                .transpose()
+                .map_err(|message| KernelError::Compile(vec![located(&rel, &bytes, &message)]))?;
+            if let Ok(species) = u16::try_from(n) {
+                fields.push((species, moves));
+                files.push(rel);
+            }
+        }
+        let current = disk_table(project, &place)?;
+        let start = current.clone().unwrap_or_else(|| empty_table(&place));
+        let table = assemble(start, &fields);
+        table_bytes(&table).map(Some).map_err(|sentence| {
+            let at = fields
+                .iter()
+                .position(|(s, moves)| {
+                    current.as_ref().and_then(|t| t.moves_of(*s)) != moves.as_deref()
+                })
+                .unwrap_or(0);
+            let rel = files.get(at).cloned().unwrap_or(dir);
+            let bytes = std::fs::read(self.root.join(&rel)).unwrap_or_default();
+            KernelError::Compile(vec![located(
+                &rel,
+                &bytes,
+                &format!("{SCHEMA_CODE}: {EGG_FIELD}: {sentence}"),
+            )])
+        })
+    }
+
+    /// Writes the field `egg_moves` of every species file whose entry in the table (`given`,
+    /// the store's bytes) differs from it, in the canonical form; a file whose field names the
+    /// same moves (by id or number) stays as it is, byte for byte. Then every species file
+    /// holds the table: the manifest gets its mark `eggMoves` where it lacks it.
+    pub(super) fn write_egg_moves(
+        &mut self,
+        project: &Project,
+        given: &[(AssetId, &[u8])],
+        out: &mut SourceWrite,
+    ) -> Result<(), KernelError> {
+        let Some(&(_, bytes)) = given.last() else {
+            return Ok(());
+        };
+        let table = EggMoves::read(bytes)?;
+        let dir = Art::Species.dir();
+        for n in numbered_cached(project, &dir, "json")? {
+            let index = u32::try_from(n).unwrap_or(u32::MAX);
+            let rel = json_rel(Art::Species, index);
+            let Some(old) = read_optional(&self.root.join(&rel))? else {
+                continue;
+            };
+            let compile = |e: serde_json::Error| {
+                KernelError::Compile(vec![json_problem(&rel, &old, &e, SCHEMA_CODE)])
+            };
+            let field = egg_field(&old).map_err(compile)?;
+            let new = field_of(&table, index, &self.symbols);
+            let same = match (&field, &new) {
+                (None, None) => true,
+                (Some(was), Some(now)) => {
+                    resolve_field(was, &self.symbols, None).ok()
+                        == resolve_field(now, &self.symbols, None).ok()
+                }
+                _ => false,
+            };
+            if same {
+                if let Some(dry) = self.dry.as_mut() {
+                    dry.insert(rel, old);
+                }
+                continue;
+            }
+            let mut entity: SpeciesEntity = serde_json::from_slice(&old).map_err(compile)?;
+            entity.egg_moves = new;
+            let json = to_canonical(&entity);
+            if let Some(dry) = self.dry.as_mut() {
+                dry.insert(rel, json);
+            } else if write_if_changed(&self.root, &rel, &json)? {
+                out.sources.push(rel);
+            }
+        }
+        let patch = is_patch(project);
+        if self.dry.is_none()
+            && read_manifest(&self.root).is_ok_and(|m| !m.egg_moves || m.egg_moves_patch != patch)
+        {
+            let mut manifest = read_manifest(&self.root)?;
+            manifest.egg_moves = true;
+            manifest.egg_moves_patch = patch;
+            let rel = PathBuf::from(MANIFEST_FILE);
+            if write_if_changed(&self.root, &rel, &to_canonical(&manifest))? {
+                out.sources.push(rel);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether the manifest at `root` marks the species files as holding the egg move table.
+fn egg_moves_exported(root: &Path) -> bool {
+    read_manifest(root).is_ok_and(|m| m.egg_moves)
 }

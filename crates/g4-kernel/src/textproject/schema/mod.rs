@@ -19,6 +19,7 @@
 
 use std::path::Path;
 
+use g4_formats::data::egg_moves::EggMoves;
 use g4_formats::game::Family;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -114,12 +115,14 @@ pub(crate) trait EntitySchema: Sized + Serialize + DeserializeOwned {
 }
 
 /// What an export needs besides the members; side files of [`Part::File`] parts collect in
-/// `side` (name in the entity's folder, bytes).
+/// `side` (name in the entity's folder, bytes). `egg_moves` is the egg move table when it is
+/// readable (read once per export): a species gets its entry as `egg_moves`.
 pub struct ExportCtx<'a> {
     pub family: Family,
     pub symbols: &'a mut Symbols,
     pub base: &'a dyn BasePart,
     pub side: Vec<(String, Vec<u8>)>,
+    pub egg_moves: Option<&'a EggMoves>,
 }
 
 /// What an import needs besides the JSON: `dir` is the entity's folder (side files),

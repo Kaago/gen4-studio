@@ -827,7 +827,7 @@ static TOOLS: &[ToolDef] = &[
                          \"EncounterExtra\": {field, value}}, {\"Encounter\": {method, slot, \
                          field, value}}, {\"TrainerName\": {name}}, {\"TrainerFormat\": {moves, \
                          items}}, {\"TrainerParty\": {party}}, {\"TrainerTexts\": {texts}}, \
-                         {\"CopyMoves\": {from}}"
+                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}"
                     ),
                     "label": label("a label made from the change, such as \"<name>: <field> old → new\""),
                 }),

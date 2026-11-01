@@ -961,6 +961,7 @@ mod project_tests {
             symbols: sym,
             base: &base,
             side: Vec::new(),
+            egg_moves: None,
         };
         let files = export_headers(project, &mut ctx).unwrap();
         assert!(ctx.side.is_empty());

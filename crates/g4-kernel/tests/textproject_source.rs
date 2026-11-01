@@ -776,3 +776,112 @@ fn rename_id_updates_every_reference_on_the_vanilla_project() {
         result.ms
     );
 }
+
+/// The egg moves of a text project edited through the store (as `data_edit` does): species
+/// 1's first two egg moves swapped and saved changes only `data/species/0001.json` (and the
+/// member), the sync finds nothing open, and the built ROM carries the swap: HeartGold
+/// through `g4k check-data egg_moves`, Platinum in the slice of `ov005.bin` of the extracted
+/// ROM. Prints `egg-moves-text <code> count=<n> move0=<n>`.
+#[test]
+fn text_project_egg_move_edit_builds_and_check_data_finds_it() {
+    use g4_formats::data::egg_moves::EggMoves;
+    use g4_kernel::store::EGG_MOVES;
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    let Some((tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let (check, _mark) = g4_kernel::start::assign_base(&root, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    let base = BaseRom::open(&nds, None).unwrap();
+    export(
+        &Project::open(&root).unwrap(),
+        &base,
+        &ExportOptions {
+            adopt_scripts: true,
+            force: false,
+        },
+    )
+    .unwrap();
+    let project = Arc::new(Project::open(&root).unwrap());
+    let field: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("data/species/0001.json")).unwrap())
+            .unwrap();
+    assert!(field["egg_moves"].is_array(), "the export writes the field");
+
+    let before = source_hashes(&root);
+    let mut store = Store::new(Arc::clone(&project));
+    let old = store.egg_moves().unwrap().moves_of(1).unwrap().to_vec();
+    assert!(old.len() >= 2, "{old:?}");
+    let mut swapped = old.clone();
+    swapped.swap(0, 1);
+    store
+        .edit_egg_moves("BISASAM: Ei-Attacken getauscht", |t| {
+            t.set_moves(1, swapped.clone())
+        })
+        .unwrap()
+        .expect("changed");
+    store.save().unwrap();
+    let after = source_hashes(&root);
+    let changed: Vec<&PathBuf> = before
+        .keys()
+        .chain(after.keys())
+        .filter(|k| before.get(*k) != after.get(*k))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(changed, [Path::new("data/species/0001.json")]);
+    let found = scan(&project, &mut |_| {}).unwrap();
+    assert!(
+        found.units.iter().all(|u| u.side == UnitSide::InSync),
+        "{:?}",
+        found.units
+    );
+    let mut source = EntitySource::open(&project).unwrap();
+    let from_json = source.read(&project, EGG_MOVES).unwrap().unwrap();
+    assert_eq!(
+        EggMoves::read(&from_json).unwrap().moves_of(1),
+        Some(swapped.as_slice())
+    );
+
+    let out = tmp.path().join("eggs.nds");
+    build::build(&Project::open(&root).unwrap(), &out).unwrap();
+    let code = base.game_code().to_owned();
+    if project.family == g4_formats::game::Family::Hgss {
+        assert_cmd::Command::cargo_bin("g4k")
+            .unwrap()
+            .arg("check-data")
+            .arg(&out)
+            .args([
+                "--expect",
+                &format!("egg_moves:1:count={}", swapped.len()),
+                "--expect",
+                &format!("egg_moves:1:move0={}", swapped[0]),
+                "--expect",
+                &format!("egg_moves:1:move1={}", swapped[1]),
+            ])
+            .assert()
+            .success();
+    } else {
+        let extracted = tmp.path().join("extracted");
+        build::extract_rom(&out, &extracted).unwrap();
+        let built = Project::open(&extracted).unwrap();
+        let place = g4_kernel::data::egg_moves::egg_moves_place(&built)
+            .unwrap()
+            .unwrap();
+        let g4_kernel::project::Location::Slice { path, offset, len } = place.location else {
+            panic!("Platinum without the patch: {:?}", place.location);
+        };
+        let ov = std::fs::read(&path).unwrap();
+        let at = usize::try_from(offset).unwrap();
+        let table = EggMoves::read(&ov[at..at + len]).unwrap();
+        assert_eq!(table.moves_of(1), Some(swapped.as_slice()));
+    }
+    eprintln!(
+        "egg-moves-text {code} count={} move0={} (was {})",
+        swapped.len(),
+        swapped[0],
+        old[0]
+    );
+}

@@ -36,6 +36,7 @@ pub mod base_layer;
 pub(crate) mod canon;
 mod check;
 pub(crate) mod codes;
+pub(crate) mod egg_moves;
 mod export;
 pub mod ids;
 mod import;

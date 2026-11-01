@@ -35,6 +35,7 @@ use g4_formats::data::record::{FieldSpan, RawRecord};
 use g4_formats::data::trainer::TrainerProps;
 use g4_formats::game::Family;
 use g4_kernel::data::battle_sprites::{self, Side, SpriteRequest};
+use g4_kernel::data::egg_moves::{EggMovesSource, egg_moves_place};
 use g4_kernel::data::icons;
 use g4_kernel::data::names::{Bank, NameTables, bank_index};
 use g4_kernel::error::KernelError;
@@ -438,6 +439,7 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         .ok()
         .flatten()
         .map(SpriteSlotsDto::from);
+    let egg_moves = egg_moves_doc(session, index);
     Ok(DataDocDto::Species {
         personal,
         saved,
@@ -448,6 +450,43 @@ fn species_doc(session: &mut Session, index: u16) -> Result<DataDocDto, CmdError
         raw_locked: lock.raw,
         locked_asset: lock.asset,
         sprite_slots,
+        egg_moves,
+    })
+}
+
+/// The egg moves of species `index`; `None` where the game has no table (Diamond/Pearl). A
+/// table that cannot be read takes nothing from the document: it comes with `locked` (the
+/// store's reason, or the error) and no moves.
+fn egg_moves_doc(session: &mut Session, index: u16) -> Option<EggMovesDto> {
+    if session.project.family == Family::Dp {
+        return None;
+    }
+    // Without a place (only Platinum's overlay table can lack one) or when the place cannot
+    // be looked up, the source is where the game keeps the table.
+    let source = match egg_moves_place(&session.project) {
+        Ok(Ok(place)) => place.source,
+        _ if session.project.family == Family::Hgss => EggMovesSource::Narc,
+        _ => EggMovesSource::Overlay,
+    };
+    let read = session.store.egg_moves().map(|table| {
+        let used = table.words();
+        let moves = table.moves_of(index).unwrap_or_default().to_vec();
+        let budget = table.budget_words().map(|total| BudgetDto {
+            used: u32::try_from(used).unwrap_or(u32::MAX),
+            total: u32::try_from(total).unwrap_or(u32::MAX),
+        });
+        (moves, budget)
+    });
+    let (moves, budget, locked) = match read {
+        Ok((moves, budget)) => (moves, budget, None),
+        Err(KernelError::ReadOnly { reason, .. }) => (Vec::new(), None, Some(reason)),
+        Err(e) => (Vec::new(), None, Some(e.to_string())),
+    };
+    Some(EggMovesDto {
+        moves,
+        source,
+        budget,
+        locked,
     })
 }
 

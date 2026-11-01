@@ -9,9 +9,10 @@
 //! A **unit** ([`EntityUnit`]) is what one source decides, as in the import's plan: an entity
 //! of whole members (a species is its personal data, learnset and evolution), the item files
 //! naming one item member, the header table (every `data/headers/*.json`), a member of a
-//! binary kind. Its key names it in the sync and in the DTOs: the path of the entity's JSON
+//! binary kind, the egg move table (the field `egg_moves` of every species file). Its key
+//! names it in the sync and in the DTOs: the path of the entity's JSON
 //! (`data/species/0025.json`), `data/items/@<member>`, `data/headers/`,
-//! `data/<art>/NNNN.<ext>`; beside the assets [`raw_key`], [`QUIRKS_KEY`],
+//! `data/<art>/NNNN.<ext>`, [`EGG_MOVES_UNIT_KEY`]; beside the assets [`raw_key`], [`QUIRKS_KEY`],
 //! [`text_archive_key`] and [`script_key`].
 //!
 //! Without base layer a write keeps a part `base_sha1` while its bytes keep the SHA-1 the
@@ -71,9 +72,10 @@ mod writers;
 /// `key` names the unit (see the module docs); `sources` are its files under `data/`
 /// (relative to the root: an entity's JSON, whether it exists or not, and its side files; the
 /// JSON and side files of every item id naming the member; every header file; the binary
-/// member's file, whether it exists or not); `members` the members it decides (the header
-/// table: the `arm9.bin` slice or the Dynamic Headers files, and `mapname.bin`); `assets` the
-/// store's assets in it (a trainer is one asset).
+/// member's file, whether it exists or not; every species file for the egg moves); `members`
+/// the members it decides (the header table: the `arm9.bin` slice or the Dynamic Headers
+/// files, and `mapname.bin`; the egg moves: their NARC member or the overlay holding them);
+/// `assets` the store's assets in it (a trainer is one asset).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityUnit {
     pub key: String,
@@ -97,6 +99,11 @@ pub struct SourceWrite {
 
 /// The key of the quirks file's unit.
 pub const QUIRKS_KEY: &str = QUIRKS_FILE;
+
+/// The key of the egg moves' unit: the field `egg_moves` of every species file
+/// (`data/species/NNNN.json`) and the table's member (see
+/// [`textproject::egg_moves`](super::egg_moves)).
+pub const EGG_MOVES_UNIT_KEY: &str = "egg_moves";
 
 /// The key of the blob of file `rel` (relative to the root): `data/raw/<rel>`.
 pub fn raw_key(rel: &Path) -> String {
@@ -126,8 +133,9 @@ fn stamps(project: &Project) -> Vec<(PathBuf, Stamp)> {
 }
 
 /// The unit of `id`: `data/species/0025.json` for Personal/Learnset/Evolution 25, the item
-/// member's files for an Item, `data/headers/` for HEADER_TABLE, …; `None` for kinds the
-/// text project does not model (text archives keep `Location::TextSource`).
+/// member's files for an Item, `data/headers/` for HEADER_TABLE, [`EGG_MOVES_UNIT_KEY`] for the
+/// egg moves where their table has a place, …; `None` for kinds the text project does not
+/// model (text archives keep `Location::TextSource`).
 pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, KernelError> {
     let Some(place) = place_of(project, id) else {
         return Ok(None);
@@ -169,6 +177,14 @@ pub fn unit_of(project: &Project, id: AssetId) -> Result<Option<EntityUnit>, Ker
             (sources, vec![HEADER_TABLE])
         }
         Place::Binary { kind, index } => (vec![binary_rel(kind, index)], vec![id]),
+        Place::EggMoves => {
+            let dir = Art::Species.dir();
+            let sources = numbered_cached(project, &dir, "json")?
+                .into_iter()
+                .map(|n| dir.join(format!("{n:04}.json")))
+                .collect();
+            (sources, vec![id])
+        }
     };
     Ok(Some(EntityUnit {
         key: place.key(),
@@ -313,6 +329,7 @@ impl EntitySource {
                 .and_then(|parts| store_bytes(art, id.kind, &parts))),
             Place::Item { member } => self.item_json(project, member),
             Place::Headers => Ok(self.headers_json(project)?.map(|w| w.table)),
+            Place::EggMoves => self.egg_moves_json(project),
             Place::Binary { kind, index } => {
                 let rel = binary_rel(kind, index);
                 if let Some(bytes) = read_optional(&self.root.join(&rel))? {
@@ -472,6 +489,7 @@ impl EntitySource {
                 }
                 Place::Item { member } => self.write_item(project, member, &given, &mut out)?,
                 Place::Headers => self.write_headers(project, &given, &mut out)?,
+                Place::EggMoves => self.write_egg_moves(project, &given, &mut out)?,
                 Place::Binary { kind, index } => {
                     self.write_binary(project, kind, index, &given, &mut out)?;
                 }

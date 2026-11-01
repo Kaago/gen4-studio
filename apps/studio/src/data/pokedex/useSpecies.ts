@@ -31,7 +31,9 @@ export interface Species {
 }
 
 /**
- * A species is made of its personal data, learnset and evolutions: a change to one of them is a change to the document. No `apply`: the
+ * A species is made of its personal data, learnset and evolutions: a change to one of them is a change to the document. Its egg moves
+ * live in one table for every species (`EggMoves 0`): a change to it announces `species` for any member (`dataBus`, index null), which
+ * reads the shown species again whichever one was edited (undo of an edit made on another species). No `apply`: the
  * Pokédex shows the document as last read (its learnset and evolution drafts follow `read`), so `make` never runs during a render.
  */
 const SPECIES: DocSpec<SpeciesDoc> = {
