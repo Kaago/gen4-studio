@@ -2046,7 +2046,7 @@ pub fn archive_file_step(
 
 /// The first trainer battle script number: script `3000 + k` is jump table entry `k` of the
 /// battle script file, rotom slot `k + 1`, the battle of trainer `k + 1`.
-const FIRST_TRAINER_SCRIPT: u16 = 3000;
+pub const FIRST_TRAINER_SCRIPT: u16 = 3000;
 
 /// Where the trainers' battle script lives and which script the game starts for a trainer
 /// that sees the player (one entry of `metadata/trainer_scripts.yaml`).

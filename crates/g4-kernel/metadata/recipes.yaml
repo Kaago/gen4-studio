@@ -1,12 +1,19 @@
-# Defaults of the recipes (see `src/recipes/new_figure.rs` and `docs/formats/recipes.md`): what
-# a recipe takes when its input leaves a value out. Diamond/Pearl take Platinum's values.
+# Defaults of the recipes (see `src/recipes/new_figure.rs`, `src/recipes/new_trainer_here.rs` and
+# `docs/formats/recipes.md`): what a recipe takes when its input leaves a value out.
+# Diamond/Pearl take Platinum's values.
 #
-# default_look: the overworld graphics id (object event `graphics_id`) of a new figure per
-# family. The values are the ones the gate scenarios place and play: Platinum 6
-# (`scripts/agent/scenarios/pt-flag.yaml` and the gift figure of `pt-trainer-begegnung.yaml`),
-# HeartGold 317 (`hg-flag.yaml` and the gift figure of `hg-trainer-begegnung.yaml`).
+# default_look: the overworld graphics id (object event `graphics_id`) per family.
+#   figure: a new figure. The values are the ones the gate scenarios place and play: Platinum 6
+#     (`scripts/agent/scenarios/pt-flag.yaml` and the gift figure of `pt-trainer-begegnung.yaml`),
+#     HeartGold 317 (`hg-flag.yaml` and the gift figure of `hg-trainer-begegnung.yaml`).
+#   trainer: a new trainer („Neuer Trainer hier“; the kernel does not know the look of a trainer
+#     class). The hiker the trainer scenarios place and battle as Wanderer (class 9): Platinum 20
+#     (`pt-trainer-begegnung.yaml`), HeartGold 333 (`hg-trainer-begegnung.yaml`, as Wanderer Tom
+#     on Route 33).
 default_look:
   pt:
     figure: 6
+    trainer: 20
   hgss:
     figure: 317
+    trainer: 333

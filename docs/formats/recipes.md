@@ -1,7 +1,7 @@
 # Rezepte (`recipes.yaml`, `metadata/recipes/`)
 
 Eine Tatsache über Gen4 Studio selbst, keine Spielformat-Quelle: Rezepte sind Aufgaben in den Worten
-des Spiels („Gebiet anlegen“, „Raum anlegen“, „Neue Figur“, „Tür verbinden“ …). Implementierung:
+des Spiels („Gebiet anlegen“, „Raum anlegen“, „Neue Figur“, „Tür verbinden“, „Neuer Trainer hier“ …). Implementierung:
 `crates/g4-kernel/src/recipes.rs` (Verteiler `plan`, `apply`, `list`, `is_irreversible`), je Rezept ein
 Modul unter `crates/g4-kernel/src/recipes/`, die gemeinsamen Typen in `recipes/types.rs`; Vorgaben in
 `crates/g4-kernel/metadata/recipes.yaml`, Scripts in `crates/g4-kernel/metadata/recipes/`. „Welt
@@ -26,6 +26,7 @@ leeren“ beschreibt `templates.md`.
 | Feld | Platin (und Diamant/Perl) | HeartGold/SoulSilver | Inhalt |
 |---|---|---|---|
 | `default_look.<familie>.figure` | 6 | 317 | `graphics_id` einer neuen Figur, wenn die Eingabe keines nennt; die Werte der Gate-Szenarien `pt-flag.yaml` / `hg-flag.yaml` (Geschenk-Figur der Trainer-Szenarien) |
+| `default_look.<familie>.trainer` | 20 | 333 | `graphics_id` eines neuen Trainers, wenn die Eingabe keines nennt (das Aussehen einer Trainerklasse kennt der Kernel nicht): der Wanderer der Trainer-Szenarien `pt-trainer-begegnung.yaml` / `hg-trainer-begegnung.yaml` |
 
 ## Neue Figur (`new_figure`)
 
@@ -135,4 +136,62 @@ aufeinander), legt keinen Schritt an.
 
 ## Neuer Trainer hier (`new_trainer_here`)
 
-Folgt.
+Modul `recipes/new_trainer_here.rs`. Legt einen Trainer mit Team und Kampftexten an und stellt ihn als
+Objekt mit Sichtlinie auf eine Kachel eines Headers.
+
+**Eingabe** (`NewTrainerHereInput`): `header`, `x`, `z` (absolute Kacheln der Matrix des Headers),
+`dir` (Blickrichtung: 0 oben, 1 unten, 2 links, 3 rechts), `sight` (Sichtweite 1 bis 15 Felder,
+Standard 3), `class`, `name` (höchstens 7 Zeichen), `party` (1 bis 6 `{species, level}`), `texts`
+(`{before, lose, after}` in chatot-Textform; `before` endet auf `\r`, sonst schließt die Box sofort;
+ein leerer Text wird nicht geschrieben), `graphics_id` (`null`: Vorgabe der Familie).
+
+**Prüfungen** (in `plan` und `apply`, vor dem ersten Schreiben, in dieser Reihenfolge): der Header
+existiert, die Scripts sind übernommen („Erst Scripts übernehmen …“), ein Name, der passt (der Satz
+von `create_trainer`), ein Team von 1 bis 6 Pokémon, deren Art das Spiel hat (1 bis Zahl der
+Personal-Member − 1) und deren Level 1 bis 100 ist, die Sichtweite, die Blickrichtung, die Eventdatei
+des Headers ist schreibbar, die Kachel liegt in einer Zelle des Headers (`outside_map`) und kein
+Objekt derselben Datei steht darauf („auf x, z steht schon Objekt k“), die Kampftexte passen zu ihrer
+Tabelle, die nächste Nummer (wie `create_trainer`: die Trainerzahl, der Sicht-Platz übersprungen) hat
+ein Besiegt-Flag, das Kampf-Script ist lesbar. Was `create_trainer` selbst prüft (Namenbank, gesperrte
+Kampftexte, Member auf der Platte), lehnt es dort ab, bevor etwas geschrieben ist. `plan` und `apply`
+nehmen Kampf-Script und Flag-Kapazität aus den Metadaten des Spiels (`trainer_scripts.yaml`,
+`arm9_tables.yaml`); `plan_with`/`apply_with` nehmen sie als Argument (synthetische Fixtures).
+
+**Entwurf:** ein `Object`-Event mit Aussehen auf der Matrix des Headers, die nicht leeren Kampftexte
+als Nachrichten der Kampftext-Bank (Pt 617, HGSS 728: `text_banks.yaml`); `notes`:
+„Legt Trainer „{Klasse} {Name}“ als Nummer {id} an (nächste freie), Team n Pokémon, Trainer-Flag
+0x{550+id}.“, beim Sicht-Platz „Nummer p ist der Sicht-Platz des Kampf-Scripts und bekommt einen
+gesperrten Platzhalter.“, „Stellt ihn auf x, z mit Kampf-Script s und Sichtweite w auf.“ und, wenn
+`before` nicht auf `\r` endet, die Warnung; `irreversible`: „Trainer {id} wird angelegt
+(Undo-Sperre)“ (davor „Platzhalter p wird angelegt“, dahinter „Das Kampf-Script f bekommt Platz id“,
+wenn die Nummer über den Kampf-Plätzen liegt).
+
+**Anwenden:** zuerst `create_trainer` wie heute (Member sofort, Platzhalter und Kampf-Plätze wie dort,
+Name und Textoffset als Undo-Sperre „Trainer {id} angelegt“; `Outcome.created` nennt Platzhalter und
+Trainer). Dahinter **ein** Undo-Schritt „Trainer „{Name}“ hier aufgestellt“: eine Store-Transaktion
+setzt das Team (`Tx::edit_trainer`: wie `newMon` der App, keine Attacken, keine Items, Ballkapsel 0
+außer in Diamant/Perl; das Spiel gibt die Attacken des Levels) und hängt das Objekt an (nächste freie
+`local_id`, `script` = 3000 + id − 1, `trainer_type` 1, `data[0]` = Sichtweite, `dir`,
+`movement_type` 14 + `dir` „Blickt nach …“, `graphics_id`), dann gehen die Kampftexte über
+`set_trainer_texts_labelled` hinein; `squash_since` fügt beides zusammen. Alles sind Teile des Stores:
+⌘Z nimmt Team, Texte und Objekt zurück und hält an der Sperre, auch wenn dazwischen gespeichert wurde.
+Die Namentabellen liest das Rezept neu aus dem Store; die der Sitzung folgen über die Textgeneration
+der Archive (`NameTables` liest eine Bank neu, sobald sich ihre Generation ändert).
+
+**Scheitern hinter der Sperre:** schlägt das Aufstellen fehl (etwa eine inzwischen gesperrte
+Eventdatei), wird der angefangene Schritt zurückgerollt (`Store::rollback_to`, nichts zum Wiederholen);
+der Trainer bleibt als Member, der Verlauf endet mit „Trainer {id} angelegt“, die Antwort ist
+`Partial` („trainer 0928 was created; placing it failed: …“); ein zweiter Aufruf nimmt die nächste
+Nummer.
+
+**Warum kein `StartTrainerBattle`:** ein Trainer, der den Spieler sieht, kämpft über das Kampf-Script
+`3000 + id − 1` und das Sicht-Script der Engine (`trainer_scripts.yaml` `seen_script`, Pt 3928, HGSS
+3739), das die Sichtlinie des Objekts (`trainer_type` 1, `data[0]`) beim Gehen auslöst. Ein eigenes
+Script mit `StartTrainerBattle` (Pt) bzw. `TrainerBattle` (HGSS) liefe nur beim Ansprechen und bräche
+den Kampf aus dem Gehen, den das Gate verlangt; diese Befehle kommen erst mit den Story-Rezepten (3d.7,
+Kampf als Schritt).
+
+**Bericht** (`NewTrainerHereReport`): `trainer`, `placeholder`, `script_extended`, `event_file`,
+`object`, `script`, `trainer_flag`, `text_problems` (Warnungen von `set_trainer_texts`). Das Rezept ist
+immer unumkehrbar (`list()`: `irreversible`, `is_irreversible`: „Trainer anlegen“). **Danach:**
+`play_here` „Hier spielen“ („Kommt mit 3d.9“).

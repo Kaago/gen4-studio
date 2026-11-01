@@ -1530,7 +1530,8 @@ mod tests {
                 "extend_area",
                 "empty_region",
                 "new_figure",
-                "connect_doors"
+                "connect_doors",
+                "new_trainer_here"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

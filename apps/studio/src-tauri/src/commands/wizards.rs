@@ -777,6 +777,7 @@ mod tests {
             matrices: vec![1],
             maps: vec![3, 4],
             event_files: vec![2],
+            trainers: Vec::new(),
         };
         assert_eq!(
             created_text(&created),

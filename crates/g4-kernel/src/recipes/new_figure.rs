@@ -73,6 +73,8 @@ pub struct NewFigureReport {
 pub struct DefaultLook {
     /// The overworld graphics id of a new figure.
     pub figure: u16,
+    /// The overworld graphics id of a new trainer (`new_trainer_here`).
+    pub trainer: u16,
 }
 
 #[derive(Debug, Deserialize)]

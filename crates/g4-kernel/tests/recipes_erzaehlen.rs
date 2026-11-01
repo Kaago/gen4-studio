@@ -1,15 +1,17 @@
 //! The recipes of phase 3d.5 (Erzählen): „Neue Figur“ (an object event, a script slot in the
 //! header's script file and a numbered message in the header's text archive, one undo step) and
 //! „Tür verbinden“ (a warp pair between two places over one or two event files, door tiles, one
-//! undo step); „Neuer Trainer hier“ follows.
+//! undo step) and „Neuer Trainer hier“ (a trainer behind its create barrier, then one undo step
+//! for its team, its battle texts and an object with the battle script and a sight line).
 //!
 //! Synthetic figure tests run on `test_support::TextFixture::exported()` (the synthetic Platinum
 //! project as a text project with the scripts adopted; header 0 has script file 0, event file
 //! 0 and text archive 433, matrix 0 of 2 x 1 maps); door tests on `test_support::synthetic_project()`
 //! (headers 0 „Twinleaf Town“ and 1 „T02“ on matrix 0, both with event file 0). The gated tests
 //! (`G4_TEST_PROJECT`, Platinum DE or HeartGold DE) apply a figure beside the door of the player's
-//! house in the start town and connect the stairs of the player's room with a tile in front of
-//! the house, on a copy, undo them and compare the files:
+//! house in the start town, connect the stairs of the player's room with a tile in front of
+//! the house and place a trainer beside the door, on a copy, undo them and compare the files
+//! (trainer tests: the synthetic battle script of `trainer_create`'s tests in a new script file):
 //!
 //! ```sh
 //! G4_TEST_PROJECT=".../_testkopien/3d-5-fig-pt_DSPRE_contents" \
@@ -25,14 +27,22 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use g4_formats::game::Family;
-use g4_kernel::data::trainer_create::ADOPT_FIRST;
+use g4_kernel::data::names::{Bank, NameTables, bank_index};
+use g4_kernel::data::trainer_create::{
+    ADOPT_FIRST, TRAINER_FLAG_CAPACITY, create_trainer_with, trainer_texts,
+};
 use g4_kernel::error::KernelError;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::recipes::connect_doors::{self, ConnectDoorsInput, DoorEnd, Tile};
 use g4_kernel::recipes::new_figure::{self, NewFigureInput, figure_script};
+use g4_kernel::recipes::new_trainer_here::{
+    self, BattleTexts, NewTrainerHereInput, PartyMon, apply_interrupted, apply_with, plan_with,
+};
 use g4_kernel::recipes::room::DoorTile;
-use g4_kernel::recipes::{self, DraftEventKind, DraftTarget, DraftTile, RecipeId, next_steps};
-use g4_kernel::scripts::{self, ScriptSource};
+use g4_kernel::recipes::{
+    self, CreatedObject, DraftEventKind, DraftTarget, DraftTile, RecipeId, next_steps,
+};
+use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
 use g4_kernel::store::Store;
 
 /// The text archive of header 0 of the fixture.
@@ -146,7 +156,7 @@ fn state(store: &Store) -> State {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn list_names_six_recipes_with_connect_doors_last() {
+fn list_names_seven_recipes_with_new_trainer_here_last() {
     let list = recipes::list();
     let shown: Vec<(RecipeId, &str, bool)> = list
         .iter()
@@ -161,6 +171,7 @@ fn list_names_six_recipes_with_connect_doors_last() {
             (RecipeId::EmptyRegion, "Welt leeren", true),
             (RecipeId::NewFigure, "Neue Figur", false),
             (RecipeId::ConnectDoors, "Tür verbinden", false),
+            (RecipeId::NewTrainerHere, "Neuer Trainer hier", true),
         ]
     );
     assert_eq!(
@@ -170,6 +181,10 @@ fn list_names_six_recipes_with_connect_doors_last() {
     assert_eq!(
         serde_json::to_value(RecipeId::ConnectDoors).unwrap(),
         serde_json::json!("connect_doors")
+    );
+    assert_eq!(
+        serde_json::to_value(RecipeId::NewTrainerHere).unwrap(),
+        serde_json::json!("new_trainer_here")
     );
 }
 
@@ -198,12 +213,14 @@ fn next_steps_after_3d5_lock_with_3d7_and_3d9() {
     assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
     assert_eq!(short["new_figure"], (true, None));
     assert_eq!(short["adjust_terrain"], (false, Some("Kommt mit Phase 6")));
-    // The door and trainer recipes are free as soon as the list has them.
+    // All three recipes of 3d.5 are in the list, so free.
     for id in ["connect_doors", "new_trainer_here"] {
-        let (available, reason) = short[id];
-        assert_eq!(available, listed(id), "{id}");
-        assert_eq!(reason.is_none(), available, "{id}");
+        assert!(listed(id), "{id}");
+        assert_eq!(short[id], (true, None), "{id}");
     }
+    // An unknown step waits for 3d.7 (the transitional „Kommt mit 3d.5“ is gone).
+    let unknown = next_steps(&[("something_new", "Etwas Neues")]);
+    assert_eq!(unknown[0].reason.as_deref(), Some("Kommt mit 3d.7"));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1273,5 +1290,680 @@ fn vanilla_doors_round_trip_in_the_town() {
         "doors {game} a={room_file}:0 b={town_file}:{} tile=({x}, {z}) map={map} door_tile={} ms={ms} (unter Last)",
         report.b.warp,
         report.b.door_tile.is_some()
+    );
+}
+
+// ---------------------------------------------------------------------------------------
+// „Neuer Trainer hier“
+// ---------------------------------------------------------------------------------------
+
+/// A battle script like Platinum's file 1114, for the fixture's three trainers: slots 1 to 3
+/// share the battle code, slot 4 is the sight script (as in the tests of `trainer_create`).
+const BATTLE: &str = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    ReleaseAll\n    \
+                      End\nscript script_4 #4:\n    LockAll\n    ReleaseAll\n    End\n";
+
+/// The fixture's battle text bank (Platinum).
+const BATTLE_TEXTS: u16 = 617;
+
+fn trainer_id(index: u16) -> AssetId {
+    AssetId {
+        kind: AssetKind::Trainer,
+        index,
+    }
+}
+
+/// The text project fixture with the battle script [`BATTLE`] in a new script file, compiled,
+/// a store over it and the battle script's meta (sight slot 4).
+fn trainer_fixture() -> (common::TextFixture, Store, TrainerScriptMeta) {
+    let fx = common::TextFixture::exported();
+    let project = Arc::new(fx.project());
+    assert!(scripts::is_adopted(&project));
+    let battle_file = scripts::new_script_file(&project, SourceKind::Script).unwrap();
+    scripts::write_source(&project, battle_file, &ScriptSource::Rotom(BATTLE.into())).unwrap();
+    let compiled = scripts::compile(&project).unwrap();
+    assert!(compiled.problems.is_empty(), "{:?}", compiled.problems);
+    let mut store = Store::new(project);
+    store.event(0).unwrap();
+    (
+        fx,
+        store,
+        TrainerScriptMeta {
+            battle_file,
+            seen_script: 3003,
+        },
+    )
+}
+
+/// Class 1 („Youngster“ in the fixture), „Jens“ with one Pokémon, the texts of
+/// `pt-trainer-begegnung.yaml`, looking north with sight 3.
+fn trainer_input(x: u16, z: u16) -> NewTrainerHereInput {
+    NewTrainerHereInput {
+        header: 0,
+        x,
+        z,
+        dir: 0,
+        sight: 3,
+        class: 1,
+        name: "Jens".into(),
+        party: vec![PartyMon {
+            species: 25,
+            level: 12,
+        }],
+        texts: BattleTexts {
+            before: "Halt! Ich bin Jens!\\r".into(),
+            lose: "Du bist stark!".into(),
+            after: "Gut gekämpft.".into(),
+        },
+        graphics_id: None,
+    }
+}
+
+fn plan_trainer(
+    store: &mut Store,
+    meta: &TrainerScriptMeta,
+    input: &NewTrainerHereInput,
+) -> Result<recipes::Draft, KernelError> {
+    plan_with(store, input, meta, TRAINER_FLAG_CAPACITY)
+}
+
+fn apply_trainer(
+    store: &mut Store,
+    meta: &TrainerScriptMeta,
+    input: &NewTrainerHereInput,
+) -> Result<recipes::Outcome<new_trainer_here::NewTrainerHereReport>, KernelError> {
+    apply_with(store, input, meta, TRAINER_FLAG_CAPACITY)
+}
+
+/// The battle texts of trainer `id` as (kind, text).
+fn texts_of(store: &mut Store, id: u16) -> Vec<(u16, String)> {
+    let mut names = NameTables::new();
+    trainer_texts(store, &mut names, id)
+        .unwrap()
+        .into_iter()
+        .map(|t| (t.kind, t.text))
+        .collect()
+}
+
+/// The party of trainer `id` as (species, level).
+fn party_of(store: &mut Store, id: u16) -> Vec<(u16, u16)> {
+    store
+        .trainer(id)
+        .unwrap()
+        .party
+        .iter()
+        .map(|m| (m.species(), m.level))
+        .collect()
+}
+
+fn trainer_count(store: &Store) -> usize {
+    store.member_count(AssetKind::Trainer).unwrap()
+}
+
+#[test]
+fn plan_of_a_trainer_names_the_next_id_the_flag_and_three_messages() {
+    let (fx, mut store, meta) = trainer_fixture();
+    assert_eq!(
+        bank_index(
+            store.project().family,
+            store.project().language,
+            Bank::BattleTexts
+        ),
+        Some(BATTLE_TEXTS)
+    );
+    let (depth, dirty, count) = (store.undo_depth(), store.dirty(), trainer_count(&store));
+    let data = files_below(&fx.root().join("data"));
+
+    let input = trainer_input(40, 7);
+    let draft = plan_trainer(&mut store, &meta, &input).unwrap();
+    assert_eq!(draft.events.len(), 1);
+    let event = &draft.events[0];
+    assert_eq!(event.kind, DraftEventKind::Object);
+    assert_eq!((event.matrix, event.x, event.z), (Some(0), 40, 7));
+    assert_eq!(event.look, Some(20), "Platinum's default trainer look");
+    let messages: Vec<(Option<u16>, &str)> = draft
+        .messages
+        .iter()
+        .map(|m| (m.archive, m.text.as_str()))
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            (Some(BATTLE_TEXTS), "Halt! Ich bin Jens!\\r"),
+            (Some(BATTLE_TEXTS), "Du bist stark!"),
+            (Some(BATTLE_TEXTS), "Gut gekämpft."),
+        ]
+    );
+    assert_eq!(
+        draft.notes[0],
+        "Legt Trainer „Youngster Jens“ als Nummer 3 an (nächste freie), Team 1 Pokémon, \
+         Trainer-Flag 0x0553."
+    );
+    assert_eq!(
+        draft.irreversible,
+        ["Trainer 3 wird angelegt (Undo-Sperre)"]
+    );
+    // A text before the battle without \r is a warning, no refusal.
+    let mut open = trainer_input(40, 7);
+    open.texts.before = "Halt!".into();
+    let notes = plan_trainer(&mut store, &meta, &open)
+        .unwrap()
+        .notes
+        .join(" ");
+    assert!(notes.contains("\\r"), "{notes}");
+    // The given look wins over the default.
+    let look = NewTrainerHereInput {
+        graphics_id: Some(97),
+        ..trainer_input(40, 7)
+    };
+    assert_eq!(
+        plan_trainer(&mut store, &meta, &look).unwrap().events[0].look,
+        Some(97)
+    );
+    // Through the dispatcher, with the battle script of the game's metadata (the fixture has
+    // none: the recipe's own checks answer first, the sight default is 3).
+    let call = |sight: u16| -> recipes::RecipeCall {
+        serde_json::from_value(serde_json::json!({
+            "recipe": "new_trainer_here",
+            "input": { "header": 0, "x": 40, "z": 7, "dir": 0, "sight": sight, "class": 1,
+                       "name": "Jens", "party": [{ "species": 25, "level": 12 }],
+                       "texts": { "before": "Halt!\\r", "lose": "a", "after": "b" },
+                       "graphics_id": null },
+        }))
+        .unwrap()
+    };
+    let why = refused(recipes::plan(&mut store, &call(0)));
+    assert!(why.contains("Sichtweite 0"), "{why}");
+    let why = refused(recipes::apply(&mut store, &call(16)));
+    assert!(why.contains("Sichtweite 16"), "{why}");
+    let default: NewTrainerHereInput = serde_json::from_value(serde_json::json!({
+        "header": 0, "x": 40, "z": 7, "dir": 0, "class": 1, "name": "Jens",
+        "party": [{ "species": 25, "level": 12 }],
+        "texts": { "before": "", "lose": "", "after": "" }, "graphics_id": null,
+    }))
+    .unwrap();
+    assert_eq!(default.sight, 3);
+
+    // Nothing written.
+    assert_eq!(store.undo_depth(), depth);
+    assert_eq!(store.dirty(), dirty);
+    assert_eq!(trainer_count(&store), count);
+    assert_eq!(files_below(&fx.root().join("data")), data);
+}
+
+#[test]
+fn apply_creates_the_trainer_then_one_step_for_team_texts_and_object() {
+    let (_fx, mut store, meta) = trainer_fixture();
+    // The session's name tables, read before the recipe: they follow it (generation cache).
+    let mut session_names = NameTables::new();
+    assert_eq!(session_names.trainer_name(&mut store, 2), "Mia");
+    let depth = store.undo_depth();
+    let input = trainer_input(40, 7);
+
+    let outcome = apply_trainer(&mut store, &meta, &input).unwrap();
+    let report = &outcome.report;
+    assert_eq!(
+        (
+            report.trainer,
+            report.placeholder,
+            report.script_extended,
+            report.event_file,
+            report.object,
+            report.script,
+            report.trainer_flag
+        ),
+        (3, None, false, 0, 0, 3002, 0x553)
+    );
+    assert!(
+        report.text_problems.is_empty(),
+        "{:?}",
+        report.text_problems
+    );
+    assert_eq!(
+        outcome.created,
+        [CreatedObject {
+            kind: AssetKind::Trainer,
+            index: 3
+        }]
+    );
+    assert!(outcome.change.is_some());
+    for id in [event_id(0), trainer_id(3), text_id(BATTLE_TEXTS)] {
+        assert!(
+            outcome.changed.contains(&id),
+            "{id:?} in {:?}",
+            outcome.changed
+        );
+    }
+    let next: Vec<(&str, bool, Option<&str>)> = outcome
+        .next
+        .iter()
+        .map(|s| (s.id.as_str(), s.available, s.reason.as_deref()))
+        .collect();
+    assert_eq!(next, [("play_here", false, Some("Kommt mit 3d.9"))]);
+
+    // The trainer: class, name, team, texts.
+    assert_eq!(trainer_count(&store), 4);
+    assert_eq!(store.trainer(3).unwrap().class, 1);
+    assert_eq!(session_names.trainer_name(&mut store, 3), "Jens");
+    assert_eq!(party_of(&mut store, 3), [(25, 12)]);
+    let texts = vec![
+        (0, "Halt! Ich bin Jens!\\r".to_owned()),
+        (1, "Du bist stark!".to_owned()),
+        (2, "Gut gekämpft.".to_owned()),
+    ];
+    assert_eq!(texts_of(&mut store, 3), texts);
+    // The object: battle script 3000 + id − 1, trainer type 1, sight in data[0].
+    let object = store.event(0).unwrap().object_events[0].clone();
+    assert_eq!(
+        (
+            object.x,
+            object.z,
+            object.script,
+            object.trainer_type,
+            object.data[0],
+            object.dir,
+            object.movement_type,
+            object.graphics_id
+        ),
+        (40, 7, 3002, 1, 3, 0, 14, 20)
+    );
+
+    // The barrier, then one step.
+    assert_eq!(store.undo_depth(), depth + 2);
+    let history = store.history().0;
+    assert_eq!(
+        history[history.len() - 2..],
+        ["Trainer 3 angelegt", "Trainer „Jens“ hier aufgestellt"]
+    );
+    store.undo().unwrap();
+    assert!(store.event(0).unwrap().object_events.is_empty());
+    assert!(party_of(&mut store, 3).is_empty());
+    assert!(texts_of(&mut store, 3).is_empty());
+    assert_eq!(trainer_count(&store), 4);
+    assert_eq!(session_names.trainer_name(&mut store, 3), "Jens");
+    assert_eq!(store.history().0.last().unwrap(), "Trainer 3 angelegt");
+    let err = store.undo().unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Refused(r) if r == "Trainer 3 anlegen lässt sich nicht rückgängig machen"),
+        "{err}"
+    );
+    store.redo().unwrap();
+    assert_eq!(party_of(&mut store, 3), [(25, 12)]);
+    assert_eq!(texts_of(&mut store, 3), texts);
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 3002);
+
+    // A second trainer on another tile takes the next id (behind the placeholder of the sight
+    // slot 4), the next object and local id.
+    let second = apply_trainer(&mut store, &meta, &trainer_input(41, 7)).unwrap();
+    assert_eq!(
+        (
+            second.report.trainer,
+            second.report.placeholder,
+            second.report.object
+        ),
+        (5, Some(4), 1)
+    );
+    let objects = store.event(0).unwrap().object_events.clone();
+    assert_ne!(objects[0].local_id, objects[1].local_id);
+}
+
+#[test]
+fn a_save_between_apply_and_undo_takes_back_team_texts_and_object() {
+    let (fx, mut store, meta) = trainer_fixture();
+    let ids = [
+        event_id(0),
+        text_id(BATTLE_TEXTS),
+        AssetId {
+            kind: AssetKind::TrainerTextTable,
+            index: 0,
+        },
+    ];
+    let bytes = |store: &mut Store| -> Vec<Option<Vec<u8>>> {
+        store.event(0).unwrap();
+        store.text_archive(BATTLE_TEXTS).unwrap();
+        store.trainer_text_table(0).unwrap();
+        ids.iter()
+            .map(|&id| store.current_bytes(id).unwrap())
+            .collect()
+    };
+    let before = bytes(&mut store);
+    apply_trainer(&mut store, &meta, &trainer_input(40, 7)).unwrap();
+    let after = bytes(&mut store);
+    store.save().unwrap();
+    let saved = files_below(&fx.root().join("data"));
+
+    // Team, texts and object are store parts: undo after the save needs no file.
+    store.undo().unwrap();
+    assert_eq!(bytes(&mut store), before);
+    assert!(party_of(&mut store, 3).is_empty());
+    store.save().unwrap();
+    assert_ne!(files_below(&fx.root().join("data")), saved);
+    store.redo().unwrap();
+    assert_eq!(bytes(&mut store), after);
+    assert_eq!(party_of(&mut store, 3), [(25, 12)]);
+    store.save().unwrap();
+    assert_eq!(files_below(&fx.root().join("data")), saved);
+}
+
+#[test]
+fn a_failed_placement_leaves_the_trainer_and_no_half_step() {
+    let (fx, mut store, meta) = trainer_fixture();
+    let project = Arc::new(fx.project());
+    let input = trainer_input(40, 7);
+
+    // The event file locked after the trainer was created: the transaction fails.
+    let err = apply_interrupted(&mut store, &input, &meta, TRAINER_FLAG_CAPACITY, |s| {
+        s.lock(event_id(0), "gesperrt im Test")
+    })
+    .unwrap_err();
+    match &err {
+        KernelError::Partial(why) => {
+            assert!(
+                why.starts_with("trainer 0003 was created; placing it failed"),
+                "{why}"
+            );
+        }
+        other => panic!("expected Partial, got {other:?}"),
+    }
+    assert_eq!(trainer_count(&store), 4);
+    assert_eq!(
+        store.history(),
+        (vec!["Trainer 3 angelegt".to_owned()], vec![])
+    );
+    assert!(store.event(0).unwrap().object_events.is_empty());
+    assert!(party_of(&mut store, 3).is_empty());
+    assert!(texts_of(&mut store, 3).is_empty());
+
+    // The battle text table locked: team and object were written, the texts fail; the step
+    // is rolled back, nothing to redo. A store opened anew takes the next id (5, behind the
+    // placeholder of the sight slot 4).
+    store.save().unwrap();
+    let mut store = Store::new(project.clone());
+    store.event(0).unwrap();
+    let table = AssetId {
+        kind: AssetKind::TrainerTextTable,
+        index: 0,
+    };
+    let err = apply_interrupted(&mut store, &input, &meta, TRAINER_FLAG_CAPACITY, |s| {
+        s.lock(table, "gesperrt im Test")
+    })
+    .unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Partial(why)
+            if why.starts_with("trainers 0004, 0005 were created; placing it failed")),
+        "{err:?}"
+    );
+    assert_eq!(
+        store.history(),
+        (vec!["Trainer 5 angelegt".to_owned()], vec![])
+    );
+    assert!(store.event(0).unwrap().object_events.is_empty());
+    assert!(party_of(&mut store, 5).is_empty());
+    assert!(!store.dirty().contains(&event_id(0)), "{:?}", store.dirty());
+
+    // Without the lock the next call places trainer 6.
+    store.save().unwrap();
+    let mut store = Store::new(project);
+    let outcome = apply_trainer(&mut store, &meta, &input).unwrap();
+    assert_eq!(outcome.report.trainer, 6);
+    assert_eq!(party_of(&mut store, 6), [(25, 12)]);
+}
+
+#[test]
+fn is_irreversible_names_trainer_anlegen() {
+    let call: recipes::RecipeCall = serde_json::from_value(serde_json::json!({
+        "recipe": "new_trainer_here",
+        "input": { "header": 0, "x": 40, "z": 7, "dir": 0, "sight": 2, "class": 1,
+                   "name": "Jens", "party": [{ "species": 25, "level": 12 }],
+                   "texts": { "before": "Halt!\\r", "lose": "a", "after": "b" },
+                   "graphics_id": 20 },
+    }))
+    .unwrap();
+    assert_eq!(
+        recipes::is_irreversible(&call).unwrap(),
+        Some("Trainer anlegen")
+    );
+    let unreadable: recipes::RecipeCall = serde_json::from_value(serde_json::json!({
+        "recipe": "new_trainer_here", "input": { "header": 0 },
+    }))
+    .unwrap();
+    assert!(recipes::is_irreversible(&unreadable).is_err());
+}
+
+#[test]
+fn the_seen_slot_is_skipped_like_create_trainer() {
+    let (fx, mut store, meta) = trainer_fixture();
+    let project = Arc::new(fx.project());
+    let mut names = NameTables::new();
+    let first =
+        create_trainer_with(&project, &mut store, &mut names, &meta, 1040, 1, "Kai").unwrap();
+    assert_eq!(first.id, 3);
+
+    let input = trainer_input(40, 7);
+    let notes = plan_trainer(&mut store, &meta, &input).unwrap().notes;
+    assert!(notes[0].contains("als Nummer 5"), "{notes:?}");
+    assert!(notes.join(" ").contains("Nummer 4"), "{notes:?}");
+    let outcome = apply_trainer(&mut store, &meta, &input).unwrap();
+    let report = &outcome.report;
+    assert_eq!(
+        (
+            report.trainer,
+            report.placeholder,
+            report.script_extended,
+            report.script,
+            report.trainer_flag
+        ),
+        (5, Some(4), true, 3004, 0x555)
+    );
+    assert_eq!(
+        outcome.created,
+        [
+            CreatedObject {
+                kind: AssetKind::Trainer,
+                index: 4
+            },
+            CreatedObject {
+                kind: AssetKind::Trainer,
+                index: 5
+            },
+        ]
+    );
+    assert_eq!(party_of(&mut store, 5), [(25, 12)]);
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 3004);
+    let history = store.history().0;
+    assert_eq!(
+        history[history.len() - 2..],
+        ["Trainer 5 angelegt", "Trainer „Jens“ hier aufgestellt"]
+    );
+}
+
+#[test]
+fn a_trainer_with_a_bad_team_name_sight_or_tile_is_refused() {
+    let (_fx, mut store, meta) = trainer_fixture();
+    apply_trainer(&mut store, &meta, &trainer_input(40, 7)).unwrap();
+    let (depth, count) = (store.undo_depth(), trainer_count(&store));
+    let species = store.member_count(AssetKind::Personal).unwrap();
+    let with = |change: &dyn Fn(&mut NewTrainerHereInput)| {
+        let mut input = trainer_input(41, 7);
+        change(&mut input);
+        input
+    };
+    let mon = |species: u16, level: u8| PartyMon { species, level };
+    let cases: Vec<(NewTrainerHereInput, &str)> = vec![
+        (trainer_input(40, 7), "auf 40, 7 steht schon Objekt 0"),
+        (with(&|i| i.x = 64), "outside matrix"),
+        (with(&|i| i.party.clear()), "1 bis 6"),
+        (with(&|i| i.party = vec![mon(25, 12); 7]), "1 bis 6"),
+        (
+            with(&|i| i.party = vec![mon(species as u16, 12)]),
+            "gibt es nicht",
+        ),
+        (with(&|i| i.party = vec![mon(25, 0)]), "Level"),
+        (with(&|i| i.party = vec![mon(25, 101)]), "Level"),
+        (with(&|i| i.sight = 0), "Sichtweite"),
+        (with(&|i| i.sight = 16), "Sichtweite"),
+        (with(&|i| i.dir = 4), "Blickrichtung"),
+        (
+            with(&|i| i.name = "Jens-Peter".into()),
+            "höchstens 7 passen",
+        ),
+        (with(&|i| i.name = String::new()), "Name"),
+    ];
+    for (input, expected) in cases {
+        let why = refused(plan_trainer(&mut store, &meta, &input));
+        assert!(why.contains(expected), "{expected}: {why}");
+        assert_eq!(
+            refused(apply_trainer(&mut store, &meta, &input)),
+            why,
+            "{expected}"
+        );
+    }
+    assert_eq!(store.undo_depth(), depth);
+    assert_eq!(trainer_count(&store), count);
+    assert_eq!(store.event(0).unwrap().object_events.len(), 1);
+}
+
+#[test]
+fn a_trainer_needs_adopted_scripts() {
+    let fx = common::TextFixture::dspre();
+    let project = fx.project();
+    assert!(!scripts::is_adopted(&project));
+    let mut store = Store::new(Arc::new(project));
+    let meta = TrainerScriptMeta {
+        battle_file: 3,
+        seen_script: 3003,
+    };
+    let input = trainer_input(40, 7);
+    assert_eq!(
+        refused(plan_trainer(&mut store, &meta, &input)),
+        ADOPT_FIRST
+    );
+    assert_eq!(
+        refused(apply_trainer(&mut store, &meta, &input)),
+        ADOPT_FIRST
+    );
+    assert_eq!(trainer_count(&store), 3);
+}
+
+// ---------------------------------------------------------------------------------------
+// Gated: a trainer beside the door of the player's house
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn vanilla_trainer_here_in_the_town() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    // The start town and the ground floor of the house; the first new trainer id
+    // (`tests/trainer_create.rs`: Platinum 928, HeartGold 738).
+    let (town, house, expected) = match project.family {
+        Family::Pt => (411, 414, 928),
+        Family::Hgss => (60, 63, 738),
+        Family::Dp => {
+            eprintln!("skipped: no Diamond/Pearl expectations");
+            return;
+        }
+    };
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(project.clone());
+    let game = project.game_code.clone();
+    let file = store.header_table().unwrap()[usize::from(town)].event_file_id();
+    let events = store.event(file).unwrap().clone();
+    let door = events
+        .warp_events
+        .iter()
+        .find(|w| w.dest_header_id == house)
+        .expect("the town has a door into the house")
+        .clone();
+    // Class 9 (Wanderer), „Jens“ with Pikachu at level 12 and the texts of the trainer
+    // scenarios, looking north with sight 3 as Jens there; the tile: beside the door, the
+    // first one the plan takes (the scenarios' tile lies on a place they create).
+    let input = |x: u16, z: u16| NewTrainerHereInput {
+        header: town,
+        x,
+        z,
+        dir: 0,
+        sight: 3,
+        class: 9,
+        name: "Jens".into(),
+        party: vec![PartyMon {
+            species: 25,
+            level: 12,
+        }],
+        texts: BattleTexts {
+            before: "Halt! Ich bin Jens!\\r".into(),
+            lose: "Du bist stark!".into(),
+            after: "Gut gekämpft.".into(),
+        },
+        graphics_id: None,
+    };
+    let (x, z) = [(2i32, 2i32), (-2, 2), (3, 2), (-3, 2), (2, 3), (-2, 3)]
+        .into_iter()
+        .map(|(dx, dz)| {
+            (
+                u16::try_from(i32::from(door.x) + dx).unwrap(),
+                u16::try_from(i32::from(door.z) + dz).unwrap(),
+            )
+        })
+        .find(|&(x, z)| new_trainer_here::plan(&mut store, &input(x, z)).is_ok())
+        .expect("a free tile in front of the house");
+    let draft = new_trainer_here::plan(&mut store, &input(x, z)).unwrap();
+    assert!(
+        draft.notes[0].contains(&format!("als Nummer {expected} ")),
+        "{:?}",
+        draft.notes
+    );
+    let objects = events.object_events.len();
+    let event_member = member_on_disk(&store, event_id(file));
+
+    let started = Instant::now();
+    let outcome = new_trainer_here::apply(&mut store, &input(x, z)).unwrap();
+    let ms = started.elapsed().as_millis();
+    let report = outcome.report;
+    let id = report.trainer;
+    assert_eq!(id, expected, "the next id of vanilla");
+    assert_eq!(report.placeholder, None);
+    assert_eq!(store.trainer(id).unwrap().class, 9);
+    assert_eq!(party_of(&mut store, id), [(25, 12)]);
+    assert_eq!(
+        texts_of(&mut store, id),
+        [
+            (0, "Halt! Ich bin Jens!\\r".to_owned()),
+            (1, "Du bist stark!".to_owned()),
+            (2, "Gut gekämpft.".to_owned()),
+        ]
+    );
+    let object = store.event(file).unwrap().object_events[objects].clone();
+    assert_eq!(
+        (
+            object.x,
+            object.z,
+            object.script,
+            object.trainer_type,
+            object.data[0]
+        ),
+        (x, z, 3000 + id - 1, 1, 3)
+    );
+    let history = store.history().0;
+    assert_eq!(
+        history[history.len() - 2..],
+        [
+            format!("Trainer {id} angelegt"),
+            "Trainer „Jens“ hier aufgestellt".to_owned()
+        ]
+    );
+
+    // Saved, undone, saved: the event file is as before, the trainer stays without a team.
+    store.save().unwrap();
+    store.undo().unwrap();
+    store.save().unwrap();
+    assert_eq!(member_on_disk(&store, event_id(file)), event_member);
+    let mut again = Store::new(project.clone());
+    assert!(party_of(&mut again, id).is_empty());
+    assert!(texts_of(&mut again, id).is_empty());
+    assert_eq!(again.event(file).unwrap().object_events.len(), objects);
+    eprintln!(
+        "trainer {game} id={id} tile=({x}, {z}) object={} ms={ms} (unter Last)",
+        report.object
     );
 }

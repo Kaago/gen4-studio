@@ -38,6 +38,10 @@ const PLACEHOLDER_NAME: &str = "-";
 /// Battle text kind "before the battle"; its text should end with `\r` (the box waits for a
 /// button press), trainer-mechanics-3b3b.md §3.
 pub const TEXT_BEFORE_BATTLE: u16 = 0;
+/// Battle text kind "the trainer lost" (shown in the battle).
+pub const KIND_LOSE: u16 = 1;
+/// Battle text kind "after the battle" (talked to again).
+pub const KIND_AFTER: u16 = 2;
 
 /// AI flags of a new trainer: 1, the basic AI, as the trainers measured in the spike.
 const NEW_TRAINER_AI: u32 = 1;
@@ -91,10 +95,29 @@ pub fn create_trainer(
         return Err(refused(ADOPT_FIRST));
     }
     let meta = scripts::project_trainer_script_meta(project)?;
-    let capacity = arm9_layout(&project.game_code)
-        .and_then(|l| l.trainer_flag_capacity)
-        .unwrap_or(TRAINER_FLAG_CAPACITY);
+    let capacity = trainer_flag_capacity(project);
     create_trainer_with(project, store, names, &meta, capacity, class, name)
+}
+
+/// The trainer IDs with a "defeated" flag of their own: `trainer_flag_capacity` of
+/// `arm9_tables.yaml`, else [`TRAINER_FLAG_CAPACITY`].
+pub fn trainer_flag_capacity(project: &Project) -> u16 {
+    arm9_layout(&project.game_code)
+        .and_then(|l| l.trainer_flag_capacity)
+        .unwrap_or(TRAINER_FLAG_CAPACITY)
+}
+
+/// The refusal for a trainer name longer than [`NAME_MAX_CHARS`] characters (UTF-16 units),
+/// `None` for one that fits.
+pub fn name_too_long(name: &str) -> Option<String> {
+    let units = name_units(name);
+    (units > NAME_MAX_CHARS + 1).then(|| {
+        format!(
+            "Der Name hat {} Zeichen, höchstens {NAME_MAX_CHARS} passen. Kürze ihn; längere Namen \
+             brauchen einen arm9-Patch.",
+            units - 1
+        )
+    })
 }
 
 /// Creates a trainer at the next ID (the trainer count). Refused, with nothing written,
@@ -122,13 +145,8 @@ pub fn create_trainer_with(
     if !scripts::is_adopted(project) {
         return Err(refused(ADOPT_FIRST));
     }
-    let units = name_units(name);
-    if units > NAME_MAX_CHARS + 1 {
-        return Err(refused(format!(
-            "Der Name hat {} Zeichen, höchstens {NAME_MAX_CHARS} passen. Kürze ihn; längere Namen \
-             brauchen einen arm9-Patch.",
-            units - 1
-        )));
+    if let Some(why) = name_too_long(name) {
+        return Err(refused(why));
     }
     store.set_placeholder_trainer(Some(meta.seen_id()))?;
     let props_count = store.member_count(AssetKind::TrainerProperties)?;
