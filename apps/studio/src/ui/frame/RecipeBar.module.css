@@ -13,7 +13,7 @@
   box-shadow: var(--g4-schatten-schwebend);
 }
 
-/* One row like the toolbar, never two: the locked recipes show only their symbol, so five keys fit. */
+/* One row like the toolbar, never two: a locked recipe shows only its symbol (since 3d.5 none is locked, all five show their name). */
 .bar[aria-orientation="horizontal"] {
   flex-direction: row;
   flex-wrap: nowrap;

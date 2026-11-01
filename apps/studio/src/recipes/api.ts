@@ -52,7 +52,7 @@ export interface DraftDto {
   irreversible: string[];
 }
 
-/** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.5“). */
+/** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.7“). */
 export interface NextStep {
   id: string;
   label: string;

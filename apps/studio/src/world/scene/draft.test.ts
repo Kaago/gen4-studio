@@ -1,12 +1,17 @@
 import * as THREE from "three";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftDto, MatrixDto } from "../../api";
 import { draftCount } from "../../api";
 import { szene } from "../../ui/tokens/tokens";
-import { MARKER_Y } from "../markers";
+import { MARKER_Y, PLACEHOLDER_SIZE, SPRITE_TEXELS_PER_TILE } from "../markers";
+import { peekSprite, spriteTexture } from "../sprites";
+import type { SpriteTexture } from "../sprites";
 import { OVERLAY_Y } from "./content";
 import { DRAFT_DASH, DRAFT_OPACITY, setDraft } from "./draft";
 import type { SceneHost } from "./SceneHost";
+
+// The sprite cache asks the backend; here each test says what it holds.
+vi.mock("../sprites", () => ({ peekSprite: vi.fn(), spriteTexture: vi.fn() }));
 
 /** Matrix 0, 3 × 2, cell (1, 1) raised by 4 altitude steps (2 scene units). */
 const matrix0: MatrixDto = { index: 0, name: "m", width: 3, height: 2, maps: [1, 2, 3, 4, 5, 6], headers: null, altitudes: [0, 0, 0, 0, 4, 0] };
@@ -36,6 +41,11 @@ const heights = (line: THREE.LineSegments) => {
 };
 
 describe("setDraft", () => {
+  beforeEach(() => {
+    vi.mocked(peekSprite).mockReset().mockReturnValue(undefined);
+    vi.mocked(spriteTexture).mockReset().mockResolvedValue(null);
+  });
+
   it("draws_cells_tiles_and_events_of_the_shown_matrix_only", () => {
     const h = fakeHost();
     expect(setDraft(h, draft, matrix0)).toBe(3);
@@ -120,5 +130,76 @@ describe("setDraft", () => {
     const beside: DraftDto = { ...draft, cells: [{ matrix: 0, x: 3, y: 0, source_map: 9 }], tiles: [], events: [] };
     expect(setDraft(h, beside, matrix0)).toBe(1);
     expect(heights(h.draft.children[0] as THREE.LineSegments)).toEqual([Math.fround(OVERLAY_Y + 0.1)]);
+  });
+
+  it("an_event_with_a_look_draws_its_sprite", async () => {
+    const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const figure: DraftDto = { ...draft, cells: [], tiles: [], events: [{ kind: "object", matrix: 0, x: 40, z: 33, look: 6, target: null }] };
+    const loaded = (width: number, height: number): SpriteTexture => ({ texture: new THREE.DataTexture(new Uint8Array(width * height * 4), width, height), width, height });
+    const host = () => ({ draft: new THREE.Group(), draftCount: 0, render: vi.fn() }) as unknown as SceneHost & { render: ReturnType<typeof vi.fn> };
+
+    // A sprite the cache already holds: at once, at its size in tiles, standing on the tile's ground, half transparent.
+    const known = loaded(32, 32);
+    vi.mocked(peekSprite).mockReturnValue(known);
+    const h = host();
+    expect(setDraft(h, figure, matrix0)).toBe(1);
+    const sprite = h.draft.children[0] as THREE.Sprite;
+    expect(peekSprite).toHaveBeenCalledWith(6, 1);
+    expect(sprite.material.map).toBe(known.texture);
+    expect(sprite.material.opacity).toBe(DRAFT_OPACITY);
+    expect(sprite.scale.toArray()).toEqual([32 / SPRITE_TEXELS_PER_TILE, 32 / SPRITE_TEXELS_PER_TILE, 1]);
+    expect(sprite.center.toArray()).toEqual([0.5, 0]);
+    expect(sprite.position.toArray()).toEqual([40.5, 2, 33.5]);
+    expect(spriteTexture).not.toHaveBeenCalled();
+    // The texture belongs to the sprite cache: clearing the layer frees the material, not the picture.
+    const freed = vi.fn();
+    known.texture.addEventListener("dispose", freed);
+    setDraft(h, null, matrix0);
+    expect(freed).not.toHaveBeenCalled();
+
+    // Not loaded yet: the placeholder until the sprite comes, then the sprite, and the scene is drawn again.
+    vi.mocked(peekSprite).mockReturnValue(undefined);
+    let arrive: (sprite: SpriteTexture | null) => void = () => {};
+    vi.mocked(spriteTexture).mockReturnValue(new Promise((resolve) => (arrive = resolve)));
+    const later = host();
+    setDraft(later, figure, matrix0);
+    const waiting = later.draft.children[0] as THREE.Sprite;
+    const placeholder = waiting.material.map!;
+    expect(spriteTexture).toHaveBeenCalledWith(6, 1);
+    expect(placeholder).not.toBe(known.texture);
+    expect(waiting.scale.toArray()).toEqual([PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1]);
+    expect(waiting.position.toArray()).toEqual([40.5, MARKER_Y + 2, 33.5]);
+    const placeholderFreed = vi.fn();
+    placeholder.addEventListener("dispose", placeholderFreed);
+    const tall = loaded(32, 48);
+    arrive(tall);
+    await tick();
+    expect(waiting.material.map).toBe(tall.texture);
+    expect(waiting.scale.toArray()).toEqual([2, 3, 1]);
+    expect(waiting.position.toArray()).toEqual([40.5, 2, 33.5]);
+    expect(placeholderFreed).toHaveBeenCalledOnce();
+    expect(later.render).toHaveBeenCalledOnce();
+
+    // A look the game has no sprite for keeps the placeholder, without an error.
+    vi.mocked(spriteTexture).mockResolvedValue(null);
+    const none = host();
+    setDraft(none, figure, matrix0);
+    const kept = (none.draft.children[0] as THREE.Sprite).material.map;
+    await tick();
+    expect((none.draft.children[0] as THREE.Sprite).material.map).toBe(kept);
+    expect(none.render).not.toHaveBeenCalled();
+
+    // A sprite that comes after the draft changed touches nothing (its marker is gone).
+    let late: (sprite: SpriteTexture | null) => void = () => {};
+    vi.mocked(spriteTexture).mockReturnValue(new Promise((resolve) => (late = resolve)));
+    const moved = host();
+    setDraft(moved, figure, matrix0);
+    const gone = moved.draft.children[0] as THREE.Sprite;
+    setDraft(moved, null, matrix0);
+    late(loaded(16, 16));
+    await tick();
+    expect(gone.material.map).not.toBe(null);
+    expect(gone.scale.toArray()).toEqual([PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1]);
+    expect(moved.render).not.toHaveBeenCalled();
   });
 });

@@ -23,10 +23,19 @@ import { EMPTY_WORLD_META } from "./useWorldModel";
 import type { WorldModel } from "./useWorldModel";
 
 /**
- * What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in, or the wizard that
- * clears the world down to the start town ("Welt leeren").
+ * What a panel asks the app to open: the wizard for a new area or a new room, with what it can already fill in, the wizard that
+ * clears the world down to the start town ("Welt leeren"), or one of the recipes of Erzählen (a figure, two doors, a trainer).
  */
-export type WizardRequest = { kind: "area"; prefill?: { matrix?: number } } | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } } | { kind: "clearWorld" } | { kind: "publish" };
+export type WizardRequest =
+  | { kind: "area"; prefill?: { matrix?: number } }
+  | { kind: "room"; prefill?: { outsideHeader?: number; template?: number } }
+  | { kind: "clearWorld" }
+  | { kind: "publish" }
+  // The recipes of 3d.5: where the figure or the trainer stands (a tile of the header's matrix), and door A of „Tür verbinden“ (a door
+  // there or a tile for a new one).
+  | { kind: "new_figure"; prefill?: { header?: number; tile?: { x: number; z: number } } }
+  | { kind: "connect_doors"; prefill?: { a?: { header: number; warp?: number; tile?: { x: number; z: number } } } }
+  | { kind: "new_trainer_here"; prefill?: { header?: number; tile?: { x: number; z: number } } };
 
 /**
  * The data the panels show that changes rarely: the header list, the selection, the matrix, the

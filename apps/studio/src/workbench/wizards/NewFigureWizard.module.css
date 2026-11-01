@@ -1,0 +1,5 @@
+/* The text field of „Was sie sagt“ (and the battle texts of „Neuer Trainer hier“): the column's width up to a readable line. */
+.text {
+  width: 100%;
+  max-width: 360px;
+}

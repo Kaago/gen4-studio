@@ -1,0 +1,26 @@
+/* The DS box of a wizard's text with its pager (as in the dialog editor). */
+.preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.caption {
+  align-self: flex-start;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.page {
+  min-width: 10ch;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+  text-align: center;
+}

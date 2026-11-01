@@ -15,6 +15,7 @@ import { AddEvent } from "./AddEvent";
 import { DialogSection } from "./DialogSection";
 import { dialogTitle } from "../dialog/dialogModel";
 import type { DialogTarget } from "../dialog/dialogModel";
+import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldsAt, movementOptions } from "./eventFields";
 import type { EventFieldKey } from "./eventFields";
@@ -69,6 +70,8 @@ export interface EventEditorContext {
   openDialogEditor: (target: DialogTarget) => void;
   /** Changes whenever texts or scripts may have changed (a text written, undo, redo, a script saved): the field „Dialog“ reads again. */
   dialogRevision?: number;
+  /** Opens a wizard (a door's „Tür verbinden…“ in Erzählen opens „Tür verbinden“ with the door as door A); absent: no button. */
+  openWizard?: (request: WizardRequest) => void;
 }
 
 /** Sentences under fields in Bauen: what the flag of a figure and the value of a trigger do. */
@@ -88,7 +91,7 @@ const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schri
  * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
-  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0 } = context;
+  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0, openWizard } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -300,7 +303,17 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </div>
           </InspectorRow>
         )}
-        {warp && narrating && <WarpField destHeader={destHeader} value={warp.dest_warp_id} disabled={readOnly} onCommit={(n) => commit("dest_warp_id", "Tür", n)} onError={onError} />}
+        {warp && narrating && (
+          <WarpField
+            destHeader={destHeader}
+            value={warp.dest_warp_id}
+            disabled={readOnly}
+            onCommit={(n) => commit("dest_warp_id", "Tür", n)}
+            onError={onError}
+            self={owner ? { header: owner.id, warp: index } : undefined}
+            onConnect={owner && openWizard ? () => openWizard({ kind: "connect_doors", prefill: { a: { header: owner.id, warp: index } } }) : undefined}
+          />
+        )}
         {warp && (
           <HeaderPicker
             open={picking}

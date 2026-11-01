@@ -193,15 +193,22 @@ describe("NewRoomWizard", () => {
     expect(onCreated).toHaveBeenCalledWith(report, spec);
   });
 
-  it("the_result_offers_neue_figur_hier_locked", async () => {
-    await show();
+  it("the_result_offers_neue_figur_hier", async () => {
+    const onStep = vi.fn();
+    await act(async () =>
+      root.render(
+        <NewRoomWizard depth="tuefteln" headers={headers} links={links} counts={{ Map: 600, AreaData: 20 }} matrices={matrices} matricesLoaded matricesFailed={false} shownMatrix={0} places={places} prefill={{ outsideHeader: 0 }} lastTile={lastTile} onClose={onClose} onCreated={onCreated} onHeaderPatch={onHeaderPatch} onError={onError} onDraft={onDraft} onStep={onStep} />,
+      ),
+    );
+    await flush();
     await toEntrance();
     await next();
     await click(button("Anlegen"));
-    // The kernel's next step after a room, as a recipe button that waits for 3d.5.
+    // The kernel's next step after a room, as a recipe button: free since 3d.5, it opens „Neue Figur“.
     const keys = [...container.querySelectorAll<HTMLButtonElement>("button[data-recipe]")];
-    expect(keys.map((b) => [b.getAttribute("data-recipe"), b.textContent, b.disabled])).toEqual([["new_figure", "Neue Figur hier", true]]);
-    expect(document.getElementById(keys[0]!.getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
+    expect(keys.map((b) => [b.getAttribute("data-recipe"), b.textContent, b.disabled])).toEqual([["new_figure", "Neue Figur hier", false]]);
+    await click(keys[0]);
+    expect(onStep).toHaveBeenCalledWith("new_figure", report, expect.anything());
   });
 
   it("keeps_the_default_door_inside_and_leaves_the_door_outside_open_without_a_hovered_tile_or_template_warp", async () => {

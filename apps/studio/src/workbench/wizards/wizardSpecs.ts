@@ -1,4 +1,4 @@
-import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssignHeader, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NextStep, PlaceChoice, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssetKind, AssignHeader, ConnectDoorsInput, ConnectDoorsReport, DoorReport, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NewFigureReport, NewTrainerHereReport, NextStep, PlaceChoice, RecipeOutcome, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
@@ -848,3 +848,77 @@ export function templateWarp(events: EventsDto | null): { x: number; z: number }
   return first ? { x: first.x, z: first.z } : null;
 }
 
+// ---------------------------------------------------------------------------------------------------------- recipes of Erzählen (3d.5)
+
+/** What a recipe's `created` names, in words (the members it made first; they stay after undo). */
+const CREATED_WORDS: Partial<Record<AssetKind, string>> = {
+  Trainer: "Trainer",
+  HeaderTable: TERMS.header.label,
+  Matrix: TERMS.matrix.label,
+  Map: TERMS.map.label,
+  Event: TERMS.eventFile.label,
+  TextArchive: TERMS.textArchive.label,
+  Script: TERMS.scriptFile.label,
+};
+
+/** „Trainer 0042 angelegt (bleibt nach Rückgängig)“: a member a recipe created first. */
+export const createdLine = (created: { kind: AssetKind; index: number }): string => `${CREATED_WORDS[created.kind] ?? created.kind} ${id4(created.index)} angelegt (bleibt nach Rückgängig)`;
+
+/** What „Neue Figur“ did, in the kernel's numbers; the next steps are the kernel's (`outcome.next`). */
+export function figureResult(outcome: RecipeOutcome<NewFigureReport>): WizardOutcome {
+  const r = outcome.report;
+  return {
+    lines: [`Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}`, `Script #${r.slot}, Nachricht ${r.message} in Archiv ${id4(r.archive)}`, ...outcome.created.map(createdLine)],
+    steps: outcome.next,
+    next: ["Ausprobieren: speichern, bauen und die Figur ansprechen"],
+  };
+}
+
+/** One end of „Tür verbinden“ as it was left: „Tür A: Warp 2 in Eventdatei 0005“, a new one „(neu)“, and the door tile it got. */
+function doorLines(name: "A" | "B", door: DoorReport): string[] {
+  const lines = [`Tür ${name}: Warp ${door.warp} in ${TERMS.eventFile.label} ${id4(door.event_file)}${door.created ? " (neu)" : ""}`];
+  if (door.door_tile) lines.push(`Tür ${name}: Türkachel gesetzt auf ${TERMS.map.label} ${id4(door.door_tile.map)}, Kachel x ${door.door_tile.x}, z ${door.door_tile.y}`);
+  return lines;
+}
+
+/** What „Tür verbinden“ did: both ends, and whether B leads back. */
+export function doorsResult(outcome: RecipeOutcome<ConnectDoorsReport>): WizardOutcome {
+  const r = outcome.report;
+  return {
+    lines: [...doorLines("A", r.a), ...doorLines("B", r.b), r.back ? "Tür B führt zurück zu Tür A." : "Tür B bleibt, wohin sie führte."],
+    steps: outcome.next,
+    next: ["Ausprobieren: speichern, bauen und durch die Tür gehen"],
+  };
+}
+
+/** What „Neuer Trainer hier“ did: the trainer it created (it stays after undo), where it stands, and what the kernel says about its texts. */
+export function trainerResult(outcome: RecipeOutcome<NewTrainerHereReport>): WizardOutcome {
+  const r = outcome.report;
+  const created = outcome.created.length > 0 ? outcome.created.map(createdLine) : [createdLine({ kind: "Trainer", index: r.trainer })];
+  return {
+    lines: [
+      ...created,
+      `Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}, Kampf-Script ${r.script}`,
+      ...r.text_problems.map((p) => `Text: ${p.message}`),
+    ],
+    steps: outcome.next,
+    next: ["Ausprobieren: speichern, bauen und dem Trainer in den Blick laufen"],
+  };
+}
+
+/** The end of „Tür verbinden“ the wizard sends: a door that is there, or a tile for a new one (exactly one of the two). */
+export function doorEnd(end: { header: number | null; mode: "door" | "tile"; warp: number | null; x: number | null; z: number | null }): ConnectDoorsInput["a"] | null {
+  if (end.header === null) return null;
+  if (end.mode === "door") return end.warp === null ? null : { header: end.header, warp: end.warp };
+  return end.x === null || end.z === null ? null : { header: end.header, tile: { x: end.x, z: end.z } };
+}
+
+/**
+ * The look a recipe gives when the wizard sends none (`crates/g4-kernel/metadata/recipes.yaml` `default_look`, Diamond/Pearl take
+ * Platinum's): the wizard shows it until another is picked, and sends `graphics_id: null` so the kernel's value counts.
+ */
+export function defaultLook(family: string | null | undefined, kind: "figure" | "trainer"): number {
+  const hgss = (family ?? "").toLowerCase().startsWith("hg");
+  if (kind === "figure") return hgss ? 317 : 6;
+  return hgss ? 333 : 20;
+}

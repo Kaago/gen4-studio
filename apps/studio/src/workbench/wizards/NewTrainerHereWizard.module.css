@@ -1,0 +1,19 @@
+/* The team of „Neuer Trainer hier“: one row per Pokémon (card, species, level, remove), top to bottom. */
+.team {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* The level field takes three digits. */
+.level {
+  width: 88px;
+}

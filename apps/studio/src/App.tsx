@@ -507,6 +507,13 @@ function AppBody() {
     scene.noteHistoryMoved();
     await reloadChanged(report.changed, true);
   });
+  // A recipe of Erzählen went in („Neue Figur“, „Tür verbinden“, „Neuer Trainer hier“): read again on the same path as „Welt leeren“
+  // (a new trainer is a new member, so the counts first).
+  const onRecipeApplied = useStableCallback(async (changed: AssetId[]) => {
+    await session.onCountsChanged();
+    scene.noteHistoryMoved();
+    await reloadChanged(changed, true);
+  });
   // An agent changed assets: read again on the same path as „Welt leeren“ (new areas appear in the world explorer). One change after
   // the other, so two quick ones do not interleave their reloads; without a project there is nothing to read.
   const agentReloads = useRef<Promise<void>>(Promise.resolve());
@@ -1533,6 +1540,9 @@ function AppBody() {
             onClose: closePublish,
           }}
           onDraft={setDraft}
+          project={info}
+          onRecipeApplied={onRecipeApplied}
+          onOpenDialog={setDialogEditor}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />

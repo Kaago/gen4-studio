@@ -525,8 +525,14 @@ describe("EventEditor scripts", () => {
       const goTo = vi.fn();
       const destination: EventsDto = { event_file_id: 2, locked: null, bg: [], objects: [], coords: [], warps: [{ index: 0, x: 6, z: 10, dest_header_id: 3, dest_warp_id: 0, height: 0 }, { index: 1, x: 7, z: 11, dest_header_id: 3, dest_warp_id: 0, height: 0 }] };
       vi.mocked(getEvents).mockImplementation(async (file) => (file === 2 ? destination : { ...events(), warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 1, height: 0 }] }));
-      await show(context({ goTo, family: "Hgss" }), "warp", 0, "erzaehlen");
-      expect(rowLabels()).toEqual(["Ziel", "Tür"]);
+      const openWizard = vi.fn();
+      await show(context({ goTo, family: "Hgss", openWizard }), "warp", 0, "erzaehlen");
+      expect(rowLabels()).toEqual(["Ziel", "Tür", "Gegenstück"]);
+      // Door 1 of the destination leads to header 3, not back here: the counterpart says so, and „Tür verbinden…“ opens the wizard
+      // with this door as door A (in the header that owns the event file).
+      expect(container.querySelector("[data-warp-counterpart]")?.textContent).toContain("führt nicht zurück");
+      await click(container.querySelector("button[data-connect-doors]") ?? undefined);
+      expect(openWizard).toHaveBeenCalledExactlyOnceWith({ kind: "connect_doors", prefill: { a: { header: 9, warp: 0 } } });
       await click(button("H10001 · H1"));
       expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
       // The door of the destination's event file, by its number and tile.

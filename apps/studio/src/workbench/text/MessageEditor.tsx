@@ -27,6 +27,8 @@ export interface MessageEditorProps {
   onFocusChange?: (focused: boolean) => void;
   /** The text area itself (Enter in the message table jumps here). */
   fieldRef?: Ref<HTMLTextAreaElement>;
+  /** The field's accessible name („Text der Nachricht“ unless a form has several texts: „Vor dem Kampf“). */
+  label?: string;
 }
 
 /**
@@ -36,7 +38,7 @@ export interface MessageEditorProps {
  * is read again (after a commit, undo, redo) the field follows the stored text unless there is typing the backend does not have yet.
  * Enter writes a line break (`\n`), Shift+Enter a new page (`\r`); ⌘S commits before the app saves.
  */
-export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRef }: MessageEditorProps) {
+export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRef, label = "Text der Nachricht" }: MessageEditorProps) {
   const [draft, setDraft] = useState(value);
   const draftRef = useRef(draft);
   // The text the backend has, or is about to have: what the draft is compared with.
@@ -130,7 +132,7 @@ export function MessageEditor({ value, onCommit, onDraft, onFocusChange, fieldRe
         ref={setField}
         className={styles.field}
         value={draft}
-        aria-label="Text der Nachricht"
+        aria-label={label}
         rows={5}
         spellCheck={false}
         onChange={(e) => change(e.target.value, e.target.selectionStart)}
