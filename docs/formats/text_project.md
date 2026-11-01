@@ -300,6 +300,25 @@ Feld `id` einer Spezies, Attacke, eines Items, Trainers oder Headers wird gegen 
 Register geprüft (`textproject.id-mismatch`) und nie umbenannt. Die Gitter der Matrizen bleiben
 Zahlen.
 
+Welche Nummern der Welt auf welche Entität zeigen, steht deklarativ in
+`crates/g4-kernel/metadata/entity_refs.yaml` (Quellart → Feld → Zielart); der Referenzindex
+(`data/refs.rs`, Leser in `data/refs/entity.rs`) liest danach, alle Verweise lesend:
+
+- `headers` (Slot = Header-ID): `matrix_id` → Matrix, `event_file_id` → Eventdatei,
+  `script_file_id` und `level_script_id` → Scriptdatei, `text_archive_id` → Textarchiv,
+  `area_data_id` → Gebietsdaten, `location_name` → Ort, `wild_pokemon` → Begegnungsdatei (nicht
+  bei `0xFFFF` bzw. HeartGold/SoulSilver `0xFF`)
+- `matrices` (Slot = Zelle): `maps` → Karte (nicht bei `0xFFFF`), `headers` → Header
+- `events` (Slot = Warp): `warp_events.dest_header_id` → Header, `warp_events.dest_warp_id` →
+  Warp `dest_warp_id` des Headers `dest_header_id` (die Tür als Paar)
+- `area_data`: `map_tileset` → Kartentextur, `building_tileset` → Gebäudetextur
+- `maps` (Slot = Gebäude): `buildings.model_id` → Gebäudemodell; auf HeartGold/SoulSilver zeigt
+  eine Karte, die innen liegt (die Gebietsdaten eines Headers, der sie zeigt, haben `area_type`
+  0; der Header ist der der Matrixzelle, ohne Header-Schicht jeder Header der Matrix), mit
+  `interior_buildings.model_id` auf das Innenraum-Gebäudemodell
+
+Ein Test prüft die Tabelle gegen die Leser (`entity_refs_name_fields_every_reader_yields`).
+
 ## Symboltabellen und Register
 
 Spezies (mit Formen), Attacken, Items, Fähigkeiten und Typen haben feste englische Tabellen in

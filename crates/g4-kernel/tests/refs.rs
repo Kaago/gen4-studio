@@ -12,11 +12,14 @@ use g4_formats::data::encounter::{Encounters, Slot};
 use g4_formats::data::evolution::EvoEntry;
 use g4_formats::data::learnset::LearnEntry;
 use g4_kernel::data::refs::{
-    Access, REFRESH_SCRIPTS_EVERY, Ref, RefIndex, ScriptCounts, Target, Usage,
+    Access, REFRESH_SCRIPTS_EVERY, Ref, RefIndex, SOFT_SOURCES, ScriptCounts, Strength, Target,
+    Usage, strength,
 };
 use g4_kernel::flags::FlagKind;
 use g4_kernel::project::{AssetKind, Project};
-use g4_kernel::store::{AssetId, BgEvent, CoordEvent, EventFile, MapHeader, ObjectEvent, Store};
+use g4_kernel::store::{
+    AssetId, BgEvent, CoordEvent, EventFile, MapHeader, ObjectEvent, Store, WarpEvent,
+};
 use g4_kernel::test_support::TextFixture;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestRunner};
@@ -438,11 +441,8 @@ fn refresh_after_edit_updates_only_that_source() {
     // Nothing changed since: nothing to refresh.
     assert!(index.refresh(&st).unwrap().is_empty());
     // A store change of a kind that is no source is not refreshed either.
-    st.edit_matrix(0, "Matrix", |m| {
-        m.maps[0] = 2;
-        Ok(())
-    })
-    .unwrap();
+    st.edit_move(0, "Stärke", |m| m.set_power(m.power().wrapping_add(1)))
+        .unwrap();
     assert!(index.refresh(&st).unwrap().is_empty());
     // Undo is a change of the learnset again.
     st.undo().unwrap();
@@ -544,6 +544,9 @@ fn index_reads_packed_archives_without_unpacking() {
         AssetKind::TrainerProperties,
         AssetKind::TrainerParty,
         AssetKind::Event,
+        AssetKind::Matrix,
+        AssetKind::AreaData,
+        AssetKind::Map,
     ] {
         assert!(!st.project().unpacked_dir(kind).exists(), "{kind:?}");
     }
@@ -630,6 +633,8 @@ enum Op {
     Personal(u16, u16),
     Header(u16, u16),
     Event(u16, u16),
+    /// Matrix 0: cell `.0` shows map `.1`.
+    Matrix(usize, u16),
     /// Writes an encounter file to disk with grass slot 0 species `.1`, then reloads it.
     DiskReload(u16, u16),
     Reload(usize),
@@ -639,7 +644,7 @@ enum Op {
 }
 
 /// Sources the reload and accept operations pick from.
-const SOURCES: [AssetId; 7] = [
+const SOURCES: [AssetId; 8] = [
     AssetId {
         kind: AssetKind::Encounter,
         index: 0,
@@ -665,6 +670,10 @@ const SOURCES: [AssetId; 7] = [
         index: 0,
     },
     HEADERS,
+    AssetId {
+        kind: AssetKind::Matrix,
+        index: 0,
+    },
 ];
 
 fn op() -> impl Strategy<Value = Op> {
@@ -688,7 +697,9 @@ fn op() -> impl Strategy<Value = Op> {
             prop::sample::select(vec![0u16, 2999, 3000, 3004, 4999, 5000])
         )
             .prop_map(|(i, v)| Op::Event(i, v)),
-        (0u16..2, small).prop_map(|(i, v)| Op::DiskReload(i, v)),
+        (0u16..2, small.clone()).prop_map(|(i, v)| Op::DiskReload(i, v)),
+        (0usize..2, prop::sample::select(vec![0u16, 2, 5, 0xFFFF]))
+            .prop_map(|(c, m)| Op::Matrix(c, m)),
         (0usize..SOURCES.len()).prop_map(Op::Reload),
         (0usize..SOURCES.len()).prop_map(Op::Accept),
         Just(Op::Undo),
@@ -745,6 +756,13 @@ fn apply(st: &mut Store, s: &common::Synthetic, op: Op) {
             })
             .unwrap();
         }
+        Op::Matrix(cell, map) => {
+            st.edit_matrix(0, "Zelle", |m| {
+                m.maps[cell] = map;
+                Ok(())
+            })
+            .unwrap();
+        }
         Op::DiskReload(i, species) => {
             let project = Project::open(s.dir.path()).unwrap();
             write(
@@ -793,6 +811,11 @@ fn targets() -> Vec<Target> {
     all.extend([0, 1, 2, 3, 0xFFFF].map(Target::Encounter));
     all.extend([0, 1, 2, 5, 2000].map(Target::Trainer));
     all.extend([0, 1, 2].map(Target::TrainerClass));
+    all.extend([0, 1, 2, 5, 0xFFFF].map(Target::Map));
+    all.extend([0, 1].map(Target::Matrix));
+    all.extend([0, 1, 2].map(Target::AreaData));
+    all.extend([0, 1].map(Target::Script));
+    all.extend([0, 7].map(Target::BuildingModel));
     all
 }
 
@@ -1536,4 +1559,410 @@ fn trainer_edits_refresh_both_member_sources_from_the_store() {
             Target::TrainerClass(4)
         )]
     );
+}
+
+// --- the world: headers, matrices, warps, area data and maps (`metadata/entity_refs.yaml`) ---
+
+/// Every reference of `source`, in the index's order.
+fn refs_of(index: &mut RefIndex, st: &Store, source: AssetId) -> Vec<Ref> {
+    index
+        .refs_where(st, |_| true)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source == source)
+        .collect()
+}
+
+#[test]
+fn a_header_refers_to_its_matrix_event_file_scripts_archive_area_and_place() {
+    let s = fixture();
+    let st = store_of(&s);
+    let mut index = RefIndex::new();
+    // Header 0 of the fixture: area data 0, matrix 0, script file 0, level script 1, text
+    // archive 433, event file 0, place 1, encounter file 1.
+    let header_0: Vec<Ref> = refs_of(&mut index, &st, HEADERS)
+        .into_iter()
+        .filter(|r| r.slot == Some(0))
+        .collect();
+    let at = |field, target| r(HEADERS, field, Some(0), target);
+    assert_eq!(
+        header_0,
+        [
+            at("matrix_id", Target::Matrix(0)),
+            at("event_file_id", Target::EventFile(0)),
+            at("script_file_id", Target::Script(0)),
+            at("level_script_id", Target::Script(1)),
+            at("text_archive_id", Target::TextArchive(433)),
+            at("area_data_id", Target::AreaData(0)),
+            at("location_name", Target::Place(1)),
+            // `wild_pokemon` comes from the same table.
+            at("wild_pokemon", Target::Encounter(1)),
+        ]
+    );
+    // Header 1: area data 1, place 200, no encounters.
+    assert_eq!(
+        index.refs(&st, Target::AreaData(1)).unwrap(),
+        [r(HEADERS, "area_data_id", Some(1), Target::AreaData(1))]
+    );
+    assert_eq!(
+        index.refs(&st, Target::Place(200)).unwrap(),
+        [r(HEADERS, "location_name", Some(1), Target::Place(200))]
+    );
+    assert_eq!(index.count(&st, Target::Matrix(0)).unwrap(), 2);
+}
+
+/// Matrix `m` written to the unpacked matrix folder.
+fn write_matrix(project: &Project, index: u16, m: &g4_formats::matrix::Matrix) {
+    write(&project.member_path(AssetKind::Matrix, index), &m.write());
+}
+
+#[test]
+fn a_matrix_refers_to_its_maps_and_headers() {
+    let s = fixture();
+    let project = Project::open(s.dir.path()).unwrap();
+    let plain = g4_formats::matrix::Matrix {
+        name: "m".into(),
+        width: 2,
+        height: 1,
+        headers: None,
+        altitudes: None,
+        maps: vec![0, 1],
+    };
+    write_matrix(&project, 0, &plain);
+    // Matrix 1: three cells, the middle one empty, with a header layer.
+    write_matrix(
+        &project,
+        1,
+        &g4_formats::matrix::Matrix {
+            name: "welt".into(),
+            width: 3,
+            height: 1,
+            headers: Some(vec![1, 1, 0]),
+            altitudes: None,
+            maps: vec![7, 0xFFFF, 2],
+        },
+    );
+    let st = store_of(&s);
+    let mut index = RefIndex::new();
+    let m1 = id(AssetKind::Matrix, 1);
+    assert_eq!(
+        refs_of(&mut index, &st, m1),
+        [
+            r(m1, "maps", Some(0), Target::Map(7)),
+            r(m1, "maps", Some(2), Target::Map(2)),
+            r(m1, "headers", Some(0), Target::Header(1)),
+            r(m1, "headers", Some(1), Target::Header(1)),
+            r(m1, "headers", Some(2), Target::Header(0)),
+        ]
+    );
+    // An empty cell is no map.
+    assert_eq!(index.count(&st, Target::Map(0xFFFF)).unwrap(), 0);
+    let m0 = id(AssetKind::Matrix, 0);
+    assert_eq!(
+        refs_of(&mut index, &st, m0),
+        [
+            r(m0, "maps", Some(0), Target::Map(0)),
+            r(m0, "maps", Some(1), Target::Map(1)),
+        ]
+    );
+}
+
+fn warp(dest_header_id: u16, dest_warp_id: u16) -> WarpEvent {
+    WarpEvent {
+        x: 0,
+        z: 0,
+        dest_header_id,
+        dest_warp_id,
+        height: 0,
+    }
+}
+
+#[test]
+fn a_warp_refers_to_its_header_and_its_door() {
+    let mut events = events_with(&[], &[], &[]);
+    events.warp_events = vec![warp(0, 0), warp(0, 1), warp(1, 2)];
+    let (_s, st) = event_store(&events);
+    let mut index = RefIndex::new();
+    let e0 = id(AssetKind::Event, 0);
+    assert_eq!(
+        index.refs(&st, Target::Header(1)).unwrap(),
+        [r(
+            e0,
+            "warp_events.dest_header_id",
+            Some(2),
+            Target::Header(1)
+        )]
+    );
+    assert_eq!(
+        index
+            .refs(
+                &st,
+                Target::Warp {
+                    header: 1,
+                    index: 2
+                }
+            )
+            .unwrap(),
+        [r(
+            e0,
+            "warp_events.dest_warp_id",
+            Some(2),
+            Target::Warp {
+                header: 1,
+                index: 2
+            }
+        )]
+    );
+    // The door is the pair: warp 2 of header 0 has no reference.
+    assert_eq!(
+        index
+            .count(
+                &st,
+                Target::Warp {
+                    header: 0,
+                    index: 2
+                }
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(index.count(&st, Target::Header(0)).unwrap(), 2);
+}
+
+/// `bytes` of a Platinum map as HeartGold/SoulSilver has it: the empty background-sound block
+/// after the four section lengths.
+fn hgss_map(bytes: &[u8]) -> Vec<u8> {
+    [&bytes[..16], &g4_formats::map::BLANK_BGS, &bytes[16..]].concat()
+}
+
+#[test]
+fn area_data_and_maps_refer_to_textures_and_models() {
+    // Platinum: area data 1 has building tileset 1 and map tileset 2; every map of the
+    // fixture has one building of model 7.
+    let s = common::synthetic_project();
+    let st = store_of(&s);
+    let mut index = RefIndex::new();
+    let a1 = id(AssetKind::AreaData, 1);
+    assert_eq!(
+        index.refs(&st, Target::MapTexture(2)).unwrap(),
+        [r(a1, "map_tileset", None, Target::MapTexture(2))]
+    );
+    assert_eq!(
+        index.refs(&st, Target::BuildingTexture(1)).unwrap(),
+        [r(a1, "building_tileset", None, Target::BuildingTexture(1))]
+    );
+    assert_eq!(
+        index.refs(&st, Target::BuildingModel(7)).unwrap(),
+        (0..3)
+            .map(|m| r(
+                id(AssetKind::Map, m),
+                "buildings.model_id",
+                Some(0),
+                Target::BuildingModel(7)
+            ))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        index.count(&st, Target::InteriorBuildingModel(7)).unwrap(),
+        0
+    );
+
+    // HeartGold: header 0 shows matrix 0 (map 0) with area data 0 (inside), header 1 matrix 1
+    // (map 1) with area data 1 (outside).
+    let s = common::synthetic_hgss_project(&["Innen", "Außen"], 2);
+    let project = Project::open(s.dir.path()).unwrap();
+    for kind in [
+        AssetKind::Event,
+        AssetKind::Encounter,
+        AssetKind::Personal,
+        AssetKind::Learnset,
+        AssetKind::Evolution,
+        AssetKind::TrainerProperties,
+        AssetKind::TrainerParty,
+    ] {
+        std::fs::create_dir_all(project.unpacked_dir(kind)).unwrap();
+    }
+    for (i, area_type) in [(0u16, 0u8), (1, 1)] {
+        write(
+            &project.member_path(AssetKind::AreaData, i),
+            &[0, 0, 0, 0, 0, 0, area_type, 0],
+        );
+        write_matrix(
+            &project,
+            i,
+            &g4_formats::matrix::Matrix {
+                name: "m".into(),
+                width: 1,
+                height: 1,
+                headers: None,
+                altitudes: None,
+                maps: vec![i],
+            },
+        );
+        write(
+            &project.member_path(AssetKind::Map, i),
+            &hgss_map(&common::synthetic_map_bytes(i as u8)),
+        );
+    }
+    let mut st = store_of(&s);
+    st.edit_header(1, "Welt", |h| {
+        if let MapHeader::HGSS(h) = h {
+            h.matrix_id = 1;
+            h.area_data_id = 1;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let mut index = RefIndex::new();
+    let (map0, map1) = (id(AssetKind::Map, 0), id(AssetKind::Map, 1));
+    assert_eq!(
+        index.refs(&st, Target::InteriorBuildingModel(7)).unwrap(),
+        [r(
+            map0,
+            "interior_buildings.model_id",
+            Some(0),
+            Target::InteriorBuildingModel(7)
+        )]
+    );
+    assert_eq!(
+        index.refs(&st, Target::BuildingModel(7)).unwrap(),
+        [r(
+            map1,
+            "buildings.model_id",
+            Some(0),
+            Target::BuildingModel(7)
+        )]
+    );
+    // Area data 0 goes outside: map 0 follows on the next refresh, as a full build has it.
+    st.edit_area_data(0, "Außen", |a| {
+        if let g4_formats::area_data::AreaData::Hgss { area_type, .. } = a {
+            *area_type = 1;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        index.count(&st, Target::InteriorBuildingModel(7)).unwrap(),
+        0
+    );
+    let outside = index.refs(&st, Target::BuildingModel(7)).unwrap();
+    assert_eq!(outside.len(), 2);
+    let mut full = RefIndex::new();
+    assert_eq!(full.refs(&st, Target::BuildingModel(7)).unwrap(), outside);
+}
+
+#[test]
+fn strength_is_hard_for_every_source_in_3d_4() {
+    assert!(SOFT_SOURCES.is_empty());
+    for kind in AssetKind::ALL {
+        assert_eq!(strength(id(kind, 0)), Strength::Hard, "{kind:?}");
+    }
+}
+
+#[test]
+fn refresh_follows_a_matrix_edit() {
+    let s = fixture();
+    let mut st = store_of(&s);
+    let mut index = RefIndex::new();
+    let m0 = id(AssetKind::Matrix, 0);
+    assert_eq!(index.count(&st, Target::Map(5)).unwrap(), 0);
+    st.edit_matrix(0, "Zelle", |m| {
+        m.maps[1] = 5;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(index.refresh(&st).unwrap(), [m0]);
+    assert_eq!(
+        index.refs(&st, Target::Map(5)).unwrap(),
+        [r(m0, "maps", Some(1), Target::Map(5))]
+    );
+    assert_eq!(index.count(&st, Target::Map(1)).unwrap(), 0);
+    st.undo().unwrap();
+    assert_eq!(index.count(&st, Target::Map(5)).unwrap(), 0);
+    assert_eq!(index.count(&st, Target::Map(1)).unwrap(), 1);
+}
+
+/// The world edges Gutachten C §2.4 measured, per game: header → matrix, matrix → map, warp →
+/// header (Script → header follows with the script commands).
+const WORLD_EDGES: [(&str, [usize; 3]); 2] =
+    [("CPUD", [593, 1172, 1213]), ("IPKD", [540, 958, 1317])];
+
+/// An edge to count: its name, the source kind and which targets.
+type Edge = (&'static str, AssetKind, fn(&Target) -> bool);
+
+#[test]
+fn vanilla_world_edges_match_the_measured_counts() {
+    let Some(st) = vanilla_store() else {
+        return;
+    };
+    let mut index = RefIndex::new();
+    let all = index.refs_where(&st, |_| true).unwrap();
+    let count = |source: AssetKind, target: fn(&Target) -> bool| {
+        all.iter()
+            .filter(|r| r.source.kind == source && target(&r.target))
+            .count()
+    };
+    let distinct = |source: AssetKind, target: fn(&Target) -> bool| {
+        all.iter()
+            .filter(|r| r.source.kind == source && target(&r.target))
+            .map(|r| r.target)
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    let edges: [Edge; 13] = [
+        ("header → matrix", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::Matrix(_))
+        }),
+        ("matrix → map", AssetKind::Matrix, |t| {
+            matches!(t, Target::Map(_))
+        }),
+        ("warp → header", AssetKind::Event, |t| {
+            matches!(t, Target::Header(_))
+        }),
+        ("header → event file", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::EventFile(_))
+        }),
+        ("header → script", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::Script(_))
+        }),
+        ("header → text archive", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::TextArchive(_))
+        }),
+        ("header → area data", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::AreaData(_))
+        }),
+        ("header → place", AssetKind::HeaderTable, |t| {
+            matches!(t, Target::Place(_))
+        }),
+        ("matrix → header", AssetKind::Matrix, |t| {
+            matches!(t, Target::Header(_))
+        }),
+        ("warp → warp", AssetKind::Event, |t| {
+            matches!(t, Target::Warp { .. })
+        }),
+        ("area data → textures", AssetKind::AreaData, |t| {
+            matches!(t, Target::MapTexture(_) | Target::BuildingTexture(_))
+        }),
+        ("map → building model", AssetKind::Map, |t| {
+            matches!(t, Target::BuildingModel(_))
+        }),
+        ("map → interior building model", AssetKind::Map, |t| {
+            matches!(t, Target::InteriorBuildingModel(_))
+        }),
+    ];
+    let code = st.project().game_code.clone();
+    let mut counted = Vec::new();
+    for (name, source, target) in edges {
+        let n = count(source, target);
+        eprintln!("{code} {name}: {n} / {}", distinct(source, target));
+        counted.push(n);
+    }
+    let Some((_, expected)) = WORLD_EDGES.iter().find(|(c, _)| *c == code) else {
+        eprintln!("{code}: no measured counts, printed only");
+        return;
+    };
+    for (n, want) in counted.iter().zip(expected) {
+        let off = (*n as f64 - *want as f64).abs() / *want as f64;
+        assert!(off <= 0.01, "{code}: {counted:?} against {expected:?}");
+    }
 }
