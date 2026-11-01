@@ -67,6 +67,24 @@ describe("Picker", () => {
     expect(options()[0]!.textContent).toContain("T01R0201");
   });
 
+  it("the_count_title_is_the_title_of_the_count", () => {
+    render({ items: [{ id: 1, label: "Eins", count: "3 · 1", countTitle: "gesetzt 3 · geprüft 1" }, { id: 2, label: "Zwei", count: "7" }] });
+    const counts = [...document.querySelectorAll<HTMLElement>("[role=option] span")].filter((s) => s.textContent === "3 · 1" || s.textContent === "7");
+    expect(counts[0]!.title).toBe("gesetzt 3 · geprüft 1");
+    expect(counts[1]!.hasAttribute("title")).toBe(false);
+  });
+
+  it("the_cut_note_shows_only_while_the_limit_cuts_hits_and_gets_the_numbers", () => {
+    const cutNote = vi.fn((shown: number, total: number) => `${shown} von ${total}`);
+    render({ limitPerGroup: 2, cutNote });
+    // 3 in „Städte“ cut to 2, 1 in „Routen“: 3 of 4 rows listed.
+    expect(document.querySelector("[role=dialog]")!.textContent).toContain("3 von 4");
+    type("t01r01");
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("von");
+    act(() => root.render(<Picker open onOpenChange={vi.fn()} title="Header wählen" items={items} onPick={vi.fn()} cutNote={cutNote} />));
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("von");
+  });
+
   it("typing_narrows_the_list_immediately_and_highlights_the_first_match", () => {
     render();
     type("T01R01");

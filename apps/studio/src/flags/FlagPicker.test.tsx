@@ -127,6 +127,33 @@ describe("FlagPicker", () => {
     else expect(onPick).toHaveBeenCalledWith(rowNumber(highlighted));
   });
 
+  it("a_row_shows_the_short_count_with_the_long_form_as_its_title", async () => {
+    await show();
+    const row = options().find((o) => o.textContent?.includes("FLAG_HAT_MEDAILLE"))!;
+    const count = row.querySelector<HTMLElement>("[title]")!;
+    expect(count.textContent).toBe("3 · 1");
+    expect(count.title).toBe("gesetzt 3 · geprüft 1");
+  });
+
+  it("the_cut_note_appears_only_when_the_list_is_cut", async () => {
+    const note = "Die ersten 1.000 Treffer; Suche und Bereich erreichen die übrigen.";
+    await show();
+    expect(dialog().textContent).not.toContain(note);
+    const many = flagList(
+      "flag",
+      Array.from({ length: 1005 }, (_, i) => flagEntry(i + 1)),
+    );
+    vi.mocked(listFlags).mockImplementation(async () => many);
+    invalidateFlagLists();
+    await act(async () => root.render(<FlagPicker open={false} kind="flag" value={0} onOpenChange={onOpenChange} onPick={onPick} project={project()} revision={1} />));
+    await show({ revision: 2 });
+    expect(options()).toHaveLength(1000);
+    expect(dialog().textContent).toContain(note);
+    // A search that finds fewer rows than the limit takes the note away.
+    await typeInSearch(search(), "0x0005");
+    expect(dialog().textContent).not.toContain(note);
+  });
+
   it("filters_by_area", async () => {
     await show();
     await click(button("Trainer"));

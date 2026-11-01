@@ -13,6 +13,9 @@ const AREA_ORDER: readonly FlagArea[] = ["map_local", "general", "hidden_items",
 /** At most this many rows are listed; a search or an area reaches every number (a full list has 4 097 flags). */
 const ROW_LIMIT = 1000;
 
+/** What the picker says under the list while `ROW_LIMIT` cuts it. */
+const CUT_NOTE = "Die ersten 1.000 Treffer; Suche und Bereich erreichen die übrigen.";
+
 export type FlagPickerProps = {
   open: boolean;
   kind: FlagKind;
@@ -92,6 +95,7 @@ export function FlagPicker({ open, kind, value, onOpenChange, onPick, onShowInDi
       filter={area}
       onFilter={(next) => setArea(next as FlagArea | "all")}
       limitPerGroup={ROW_LIMIT}
+      cutNote={() => CUT_NOTE}
       footer={
         <div className={styles.footer} data-flag-picker={kind}>
           {status !== null && (

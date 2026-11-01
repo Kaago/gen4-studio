@@ -69,6 +69,13 @@ export function usageText(u: FlagUsageCounts): string {
   return u.unknown > 0 ? `${known} · unklar ${u.unknown}` : known;
 }
 
+/** `usageText` in the short form of the picker row: „3 · 1“ (set · checked), „ · 2“ more when something is unclear; „unbenutzt“ when nothing uses the number. */
+export function usageShort(u: FlagUsageCounts): string {
+  if (u.read === 0 && u.write === 0 && u.unknown === 0) return "unbenutzt";
+  const known = `${u.write} · ${u.read}`;
+  return u.unknown > 0 ? `${known} · ${u.unknown}` : known;
+}
+
 const ACCESS_WORDS: Record<FlagAccess, string> = { read: "prüft", write: "setzt", read_write: "setzt und prüft", unknown: "unklar" };
 
 /** What a reference does with its number, as a verb. */
@@ -80,7 +87,7 @@ export function accessWord(a: FlagAccess): string {
  * The rows of a flag or variable picker: „Keins (0)“ first (a search lists it only when the query finds it) (0 is no flag and stays a valid value), then the numbers of `list` that match
  * `query` (own name, pret name, an alias, the number in hex or decimal; empty: all). A row names the own name, else the pret name, else
  * kind and number (an own name `strong`); its second line the pret name (under an own name) or the area; the number in hex as `tech`; the
- * usage as `count`.
+ * usage as `count` (short, its long form the `countTitle`).
  */
 export function pickerItems(list: FlagListDto, query: string): PickerItem[] {
   return filterItems([NONE_ITEM, ...flagRows(list)], query);
@@ -98,7 +105,8 @@ export function flagRows(list: FlagListDto): PickerItem[] {
         tech: hex4(e.number),
         area: "geschichten",
         strong: e.own_id !== null,
-        count: usageText(e.usage),
+        count: usageShort(e.usage),
+        countTitle: usageText(e.usage),
         keywords: [...e.aliases, ...(e.own_id !== null && e.name !== null ? [e.name] : []), `0x${e.number.toString(16)}`, String(e.number)],
       }),
     );

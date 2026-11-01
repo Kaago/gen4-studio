@@ -139,8 +139,9 @@
   color: var(--g4-bereich-technik);
 }
 
+/* The name keeps a readable width: the count gives way first (see `.count`), only then the name is cut. */
 .label {
-  min-width: 0;
+  min-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -164,8 +165,12 @@
 }
 
 .count {
-  flex: none;
+  min-width: 0;
+  flex: 0 1000 auto;
   margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-xs);
 }
@@ -190,7 +195,7 @@
 
 .text {
   display: flex;
-  min-width: 0;
+  min-width: 10rem;
   flex-direction: column;
 }
 
@@ -232,4 +237,11 @@
   display: flex;
   justify-content: space-between;
   gap: var(--g4-raum-12);
+}
+
+/* The line under the list that says the list is cut (`cutNote`). */
+.cutNote {
+  padding: 0 var(--g4-dichte-zeile-innen);
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
 }

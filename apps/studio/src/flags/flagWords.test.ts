@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
-import { NOT_A_TEXT_PROJECT, accessWord, areaWord, displayName, hex4, kindWord, numberText, pickerItems, usageText } from "./flagWords";
+import { NOT_A_TEXT_PROJECT, accessWord, areaWord, displayName, hex4, kindWord, numberText, pickerItems, usageShort, usageText } from "./flagWords";
 
 describe("flag words", () => {
   it("numbers_show_hex_and_decimal", () => {
@@ -35,6 +35,13 @@ describe("flag words", () => {
     ).toEqual(["kartenlokal", "allgemein", "versteckte Items", "Trainer", "System", "Tagesflags", "temporär", "Objektgrafik", "Script-lokal", "außerhalb"]);
   });
 
+  it("usage_short_is_the_picker_form_of_the_count", () => {
+    expect(usageShort({ read: 338, write: 193, unknown: 0, sources: 9 })).toBe("193 · 338");
+    expect(usageShort({ read: 338, write: 193, unknown: 21, sources: 9 })).toBe("193 · 338 · 21");
+    expect(usageShort({ read: 0, write: 0, unknown: 2, sources: 1 })).toBe("0 · 0 · 2");
+    expect(usageShort({ read: 0, write: 0, unknown: 0, sources: 0 })).toBe("unbenutzt");
+  });
+
   it("picker_items_start_with_none_and_match_name_alias_and_number", () => {
     const all = pickerItems(FLAGS, "");
     // 0 is no flag, and it stays a valid choice: the first row.
@@ -42,9 +49,9 @@ describe("flag words", () => {
     expect(all.map((i) => i.id)).toEqual([0, 0x20, 0x94, 0x96, 0x173, 0x550]);
     // The own name in front, the pret name as the second line; without an own name the area.
     // The own name in bold.
-    expect(all[2]).toMatchObject({ label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094", tech: "0x0094", count: "gesetzt 3 · geprüft 1", area: "geschichten" });
-    expect(all[3]).toMatchObject({ label: "FLAG_UNUSED_0x0096", strong: false, description: "allgemein", count: "gesetzt 0 · geprüft 0 · unklar 2" });
-    expect(all[4]).toMatchObject({ label: "Flag 0x0173", tech: "0x0173", count: "unbenutzt" });
+    expect(all[2]).toMatchObject({ label: "FLAG_HAT_MEDAILLE", strong: true, description: "FLAG_UNUSED_0x0094", tech: "0x0094", count: "3 · 1", countTitle: "gesetzt 3 · geprüft 1", area: "geschichten" });
+    expect(all[3]).toMatchObject({ label: "FLAG_UNUSED_0x0096", strong: false, description: "allgemein", count: "0 · 0 · 2", countTitle: "gesetzt 0 · geprüft 0 · unklar 2" });
+    expect(all[4]).toMatchObject({ label: "Flag 0x0173", tech: "0x0173", count: "unbenutzt", countTitle: "unbenutzt" });
     const ids = (query: string) => pickerItems(FLAGS, query).map((i) => i.id);
     // Own name, pret name, alias, hex and decimal number; „Keins (0)“ only where the query finds it, never for a number.
     expect(ids("medaille")).toEqual([0x94]);

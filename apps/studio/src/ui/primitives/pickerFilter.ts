@@ -19,6 +19,8 @@ export interface PickerItem {
   preview?: ReactNode;
   /** Shown at the end of the row ("12 Events"). */
   count?: string;
+  /** The `title` (tooltip) of the count: its long form when `count` is the short one. */
+  countTitle?: string;
   /** Items with the same group sit under one visible group label. */
   group?: string;
   /** Listed (and found) but not pickable: greyed, skipped by the arrow keys; the `description` can say why. */
