@@ -250,7 +250,8 @@ impl ResourceUri {
 /// runs the follow-ups of its id files as an undo does. „Git einrichten“ writes the templates
 /// and a repository past the store; publishing builds and writes a release past it, „Stand
 /// sichern“ commits, and its checks may write the `.gitignore` block. A recipe (`recipe_apply`)
-/// creates members and writes scripts and archives as file steps of its own.
+/// creates members and writes scripts and archives as file steps of its own; splitting a
+/// message (`split_message`) writes and compiles the figure's script file as one.
 /// `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
@@ -288,6 +289,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "git_commit_all",
     "git_commit_prepare",
     "recipe_apply",
+    "split_message",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
@@ -4315,6 +4317,39 @@ mod tests {
             assert!(!not_in_batch("recipe_plan", &args), "{recipe}");
         }
         assert!(!not_in_batch("recipe_list", &json!({})));
+    }
+
+    /// Splitting a message writes and compiles the figure's script file as a file step of its
+    /// own: `split_message` never goes into a batch; reading the dialog does.
+    #[test]
+    fn split_message_is_never_in_a_batch() {
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        let tool_args = json!({ "header": 0, "event_file": 0, "index": 0, "archive": 433,
+                                "message": 0 });
+        let command_args = json!({ "header": 0, "eventFile": 0, "index": 0, "archive": 433,
+                                   "message": 0 });
+        for call in [
+            json!({ "tool": "split_message", "arguments": tool_args }),
+            json!({ "tool": "g4_call",
+                    "arguments": { "command": "split_message", "args": command_args } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call);
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("split_message geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        assert!(not_in_batch("split_message", &command_args));
+        let read = json!({ "header": 0, "eventFile": 0, "kind": "object", "index": 0 });
+        assert!(!not_in_batch("dialog_of", &read));
     }
 
     #[test]

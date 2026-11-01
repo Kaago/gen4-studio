@@ -224,6 +224,9 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("free_flag", Kind::Read),
     // One undo step, like rename_id.
     ("name_flag", Kind::Write),
+    ("dialog_of", Kind::Read),
+    // One undo step: the archive's copy and the script file's step, squashed.
+    ("split_message", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -991,5 +994,13 @@ mod tests {
         }
         // One undo step, like rename_id.
         assert_eq!(kind("name_flag"), Kind::Write);
+    }
+
+    #[test]
+    fn dialog_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("dialog_of"), Kind::Read);
+        // One undo step (the archive's copy and the script file's step, squashed).
+        assert_eq!(kind("split_message"), Kind::Write);
     }
 }

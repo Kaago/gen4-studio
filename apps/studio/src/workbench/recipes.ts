@@ -26,7 +26,7 @@ export const RECIPE_BAR: readonly RecipeEntry[] = [
 ];
 
 /** The steps after each recipe, as the kernel's `next_steps` names them (`crates/g4-kernel/src/recipes/{area,room,extend,empty_region}.rs`). */
-const NEXT: Record<RecipeId, [id: string, label: string][]> = {
+const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
   create_area: [
     ["connect_doors", "Tür verbinden"],
     ["new_figure", "Neue Figur hier"],
@@ -41,7 +41,7 @@ const KNOWN: readonly string[] = ["create_area", "create_room", "extend_area", "
 
 /** The next steps a wizard shows while it still calls the old command (the kernel's table). */
 export function nextStepsFor(recipe: RecipeId): NextStep[] {
-  return NEXT[recipe].map(([id, label]) => {
+  return (NEXT[recipe] ?? []).map(([id, label]) => {
     const available = KNOWN.includes(id);
     return { id, label, available, reason: available ? null : id === "adjust_terrain" ? "Kommt mit Phase 6" : COMES_WITH_3D5 };
   });

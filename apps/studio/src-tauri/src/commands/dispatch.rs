@@ -205,6 +205,8 @@ pub const COMMANDS: &[&str] = &[
     "flag_usage",
     "free_flag",
     "name_flag",
+    "dialog_of",
+    "split_message",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1078,6 +1080,16 @@ pub fn dispatch(
                 }
             )
         ),
+        "dialog_of" => run!(
+            json, "dialog_of", args,
+            { header: u16, event_file: u16, kind: g4_kernel::dialog::DialogKind, index: u16 },
+            |a| dialog_of_impl(state, a.header, a.event_file, a.kind, a.index)
+        ),
+        "split_message" => run!(
+            json, "split_message", args,
+            { header: u16, event_file: u16, index: u16, archive: u16, message: u16 },
+            |a| split_message_impl(state, a.header, a.event_file, a.index, a.archive, a.message)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1486,6 +1498,14 @@ mod tests {
             (
                 "name_flag",
                 json!({"kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null}),
+            ),
+            (
+                "dialog_of",
+                json!({"header": 1, "eventFile": 0, "kind": "object", "index": 0}),
+            ),
+            (
+                "split_message",
+                json!({"header": 1, "eventFile": 0, "index": 0, "archive": 3, "message": 5}),
             ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
