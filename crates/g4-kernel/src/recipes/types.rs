@@ -19,6 +19,7 @@ pub enum RecipeId {
     CreateRoom,
     ExtendArea,
     EmptyRegion,
+    NewFigure,
 }
 
 impl RecipeId {
@@ -29,6 +30,7 @@ impl RecipeId {
             RecipeId::CreateRoom => "Raum anlegen",
             RecipeId::ExtendArea => "Gebiet erweitern",
             RecipeId::EmptyRegion => "Welt leeren",
+            RecipeId::NewFigure => "Neue Figur",
         }
     }
 
@@ -39,6 +41,7 @@ impl RecipeId {
             RecipeId::CreateRoom,
             RecipeId::ExtendArea,
             RecipeId::EmptyRegion,
+            RecipeId::NewFigure,
         ]
     }
 }
@@ -184,17 +187,22 @@ impl<R: Serialize> Outcome<R> {
     }
 }
 
-/// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe, else
-/// locked with `reason` „Kommt mit 3d.5“ (`adjust_terrain`: „Kommt mit Phase 6“).
+/// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
+/// step is no recipe the app runs (`edit_dialog` opens the dialog editor), else locked with
+/// `reason` „Kommt mit 3d.7“ (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit
+/// Phase 6“; `connect_doors` and `new_trainer_here` „Kommt mit 3d.5“ until the list has them).
 pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
     ids.iter()
         .map(|&(id, label)| {
-            let known = serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
-                .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
+            let known = id == "edit_dialog"
+                || serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
+                    .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
+                "connect_doors" | "new_trainer_here" => Some("Kommt mit 3d.5"),
+                "play_here" => Some("Kommt mit 3d.9"),
                 "adjust_terrain" => Some("Kommt mit Phase 6"),
-                _ => Some("Kommt mit 3d.5"),
+                _ => Some("Kommt mit 3d.7"),
             };
             NextStep {
                 id: id.to_owned(),
@@ -401,6 +409,9 @@ mod tests {
         let steps = next_steps(&[
             ("create_area", "Gebiet anlegen"),
             ("new_figure", "Neue Figur hier"),
+            ("edit_dialog", "Dialog bearbeiten"),
+            ("story_join", "Zu einer Geschichte"),
+            ("play_here", "Hier spielen"),
             ("adjust_terrain", "Gelände anpassen"),
         ]);
         let short: Vec<(&str, bool, Option<&str>)> = steps
@@ -411,7 +422,10 @@ mod tests {
             short,
             [
                 ("create_area", true, None),
-                ("new_figure", false, Some("Kommt mit 3d.5")),
+                ("new_figure", true, None),
+                ("edit_dialog", true, None),
+                ("story_join", false, Some("Kommt mit 3d.7")),
+                ("play_here", false, Some("Kommt mit 3d.9")),
                 ("adjust_terrain", false, Some("Kommt mit Phase 6")),
             ]
         );

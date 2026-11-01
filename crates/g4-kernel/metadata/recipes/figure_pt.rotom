@@ -1,0 +1,8 @@
+script figur_{local_id} #{n}:
+    LockAll
+    FacePlayer
+    Message {message}
+    WaitButton
+    CloseMessage
+    ReleaseAll
+    End

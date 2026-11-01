@@ -2010,6 +2010,7 @@ fn cli_recipe_list() {
             "create_room  Raum anlegen",
             "extend_area  Gebiet erweitern",
             "empty_region  Welt leeren  irreversible",
+            "new_figure  Neue Figur",
         ],
         "{out}"
     );

@@ -1,10 +1,11 @@
 //! Recipes (phase 3d.2): tasks in the words of the game — „Gebiet anlegen“, „Raum anlegen“,
-//! „Gebiet erweitern“, „Welt leeren“ — each with a `plan` that runs every check of the
+//! „Gebiet erweitern“, „Welt leeren“, „Neue Figur“ — each with a `plan` that runs every check of the
 //! application and answers a [`Draft`] without writing anything, and an `apply` that creates
 //! the new members first (not undoable; [`Outcome::created`]) and then makes every edit as
-//! **one** undo step. [`area`], [`room`], [`extend`] and [`empty_region`] hold one recipe
-//! each, with its input (the spec the wizard builds, none for the empty region) and its
-//! report; [`types`] holds what they share. [`plan`] and
+//! **one** undo step. [`area`], [`room`], [`extend`], [`empty_region`] and [`new_figure`] hold
+//! one recipe each, with its input (the spec the wizard builds, none for the empty region) and
+//! its report; [`types`] holds what they share, `doors` the door helpers of the room and the
+//! door recipes, [`events`] the event rules the app's event commands share. [`plan`] and
 //! [`apply`] dispatch a [`RecipeCall`] (recipe and JSON input) to them, as MCP and `g4k` call
 //! them; [`list`] names the recipes, [`is_irreversible`] says what an application would do
 //! that undo does not take back.
@@ -12,7 +13,9 @@
 pub mod area;
 pub(crate) mod doors;
 pub mod empty_region;
+pub mod events;
 pub mod extend;
+pub mod new_figure;
 pub mod room;
 pub mod types;
 
@@ -61,7 +64,8 @@ fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
 
 /// Whether applying `call` does something undo does not take back (the access check of
 /// `recipe_apply`): „Header-Patch einspielen“ for an area or room whose header may apply the
-/// patch (`header.allow_patch`), „Welt leeren“ always, else `None`. Input the recipe cannot
+/// patch (`header.allow_patch`), „Welt leeren“ always, else `None` (a new figure is one undo
+/// step). Input the recipe cannot
 /// read is refused.
 pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, KernelError> {
     const PATCH: &str = "Header-Patch einspielen";
@@ -79,6 +83,10 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             None
         }
         RecipeId::EmptyRegion => Some(RecipeId::EmptyRegion.title()),
+        RecipeId::NewFigure => {
+            input::<new_figure::NewFigureInput>(call)?;
+            None
+        }
     })
 }
 
@@ -89,6 +97,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::CreateRoom => room::plan(store, &input(call)?),
         RecipeId::ExtendArea => extend::plan(store, &input(call)?),
         RecipeId::EmptyRegion => empty_region::plan(store, &input(call)?),
+        RecipeId::NewFigure => new_figure::plan(store, &input(call)?),
     }
 }
 
@@ -99,5 +108,6 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::CreateRoom => room::apply(store, &input(call)?)?.into_dto(),
         RecipeId::ExtendArea => extend::apply(store, &input(call)?)?.into_dto(),
         RecipeId::EmptyRegion => empty_region::apply(store, &input(call)?)?.into_dto(),
+        RecipeId::NewFigure => new_figure::apply(store, &input(call)?)?.into_dto(),
     }
 }

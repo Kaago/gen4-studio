@@ -346,7 +346,7 @@ pub fn split_message(
 /// The highest message number command `written` (a message command of `family`) takes: its
 /// message parameter in rotom's database is a u8 (Platinum `Message`, HeartGold `NPCMsg`):
 /// 255; else below the first variable, 0x3FFF (a number from 0x4000 on names a variable).
-fn highest_message(family: Family, written: &str) -> u32 {
+pub(crate) fn highest_message(family: Family, written: &str) -> u32 {
     const BELOW_VARIABLES: u32 = 0x3FFF;
     let Some(db) = database(family) else {
         return BELOW_VARIABLES;

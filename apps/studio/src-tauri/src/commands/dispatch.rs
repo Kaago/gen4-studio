@@ -1524,7 +1524,13 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["create_area", "create_room", "extend_area", "empty_region"]
+            [
+                "create_area",
+                "create_room",
+                "extend_area",
+                "empty_region",
+                "new_figure"
+            ]
         );
         let args = json!({ "recipe": "extend_area", "input": {
             "matrix": 0, "x": 2, "y": 0, "source_map": 2,

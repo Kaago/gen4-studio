@@ -1,0 +1,12 @@
+# Defaults of the recipes (see `src/recipes/new_figure.rs` and `docs/formats/recipes.md`): what
+# a recipe takes when its input leaves a value out. Diamond/Pearl take Platinum's values.
+#
+# default_look: the overworld graphics id (object event `graphics_id`) of a new figure per
+# family. The values are the ones the gate scenarios place and play: Platinum 6
+# (`scripts/agent/scenarios/pt-flag.yaml` and the gift figure of `pt-trainer-begegnung.yaml`),
+# HeartGold 317 (`hg-flag.yaml` and the gift figure of `hg-trainer-begegnung.yaml`).
+default_look:
+  pt:
+    figure: 6
+  hgss:
+    figure: 317

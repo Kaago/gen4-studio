@@ -33,7 +33,7 @@ const CACHE_DIR: &str = ".rotom/cache";
 const STATUS_DIR: &str = ".rotom/status";
 pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
 /// Script numbers from here on are common scripts, shared by all maps.
-const FIRST_COMMON_SCRIPT: u16 = 2000;
+pub(crate) const FIRST_COMMON_SCRIPT: u16 = 2000;
 /// Longest excerpt a search hit carries, in characters.
 const EXCERPT_CHARS: usize = 160;
 

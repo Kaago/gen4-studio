@@ -253,13 +253,7 @@ fn missing_event(file: u16, kind: EventKind, index: u16) -> CmdError {
 
 /// The `local_id` a new object gets: the smallest one no object of the file uses yet.
 fn next_free_local_id(objects: &[ObjectEvent]) -> Result<u16, FormatError> {
-    (0..=u16::MAX)
-        .find(|id| objects.iter().all(|o| o.local_id != *id))
-        .ok_or(FormatError::OutOfRange {
-            what: "object local id",
-            value: usize::from(u16::MAX) + 1,
-            max: usize::from(u16::MAX),
-        })
+    g4_kernel::recipes::events::next_free_local_id(objects)
 }
 
 /// Changes the given fields of event `index` of class `kind` in event file `event_file`. One
