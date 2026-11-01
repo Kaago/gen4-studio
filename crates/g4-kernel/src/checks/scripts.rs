@@ -234,6 +234,27 @@ impl<'a> MessageCommands<'a> {
     }
 }
 
+/// The message uses of `statements` (and their nested blocks) of the source `text`, a part
+/// of the body of script `#script` (`dialog::dialog_of` hands it one command at a time);
+/// message commands are those of `params` (the family's list).
+pub(crate) fn message_uses_of(
+    family: Family,
+    params: &[MessageParam],
+    statements: &[Statement],
+    script: Option<u32>,
+    text: &str,
+) -> Vec<MessageUse> {
+    let mut out = Vec::new();
+    walk(
+        statements,
+        script,
+        &MessageCommands::new(family, params),
+        text,
+        &mut out,
+    );
+    out
+}
+
 /// Collects the message uses of `statements` (and their nested blocks) like
 /// `project_compile::global_dependencies` walks the AST.
 fn walk(

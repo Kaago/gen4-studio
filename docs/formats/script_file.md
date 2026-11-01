@@ -106,3 +106,43 @@ HeartGold `0x4015C`, Koreanisch HeartGold `0x403FC`, SoulSilver `0x403F4`) und i
 ab `0x02000000`. Die Platin-Tabellen der anderen Sprachen und die westliche Diamant/Perl-Tabelle
 stehen in uxie `global_script_table.rs`; der Editor löst für Diamant/Perl kein gemeinsames Script
 auf.
+
+## Dialog einer Figur
+
+`dialog::dialog_of(store, header, file, kind, index)` (`crates/g4-kernel/src/dialog.rs`) sagt, welche
+Nachrichten ein Objekt oder Schild (`kind`: `object`, `bg`) der Eventdatei `file` zeigt, gelesen auf
+Header `header`. Der Weg:
+
+1. **Script-Nummer** des Events: `0` ist `none` (die Figur sagt nichts), `3000` bis `4999` und `5000`
+   bis `6999` sind `trainer` (Trainer `n − 3000 + 1` bzw. `n − 5000 + 1` als Doppelkampf-Partner, seine
+   Texte stehen im Bereich Pokémon), ab `2000` sonst `common` (ein gemeinsames Script, in Bauen zu
+   lesen). Diese drei haben keine Nachrichten.
+2. **Slot:** unter `2000` ist es Script `#n` der Scriptdatei des Headers (`local` mit Datei, Slot und
+   Zeile des Kopfes wie `resolve_script`). Ohne übernommene Scripts, ohne rotom-Quelle (binär, Level-
+   Script) oder ohne den Slot in der Datei ist der Dialog `unreadable` mit dem Grund.
+3. **Nachrichten:** der Rumpf des Scripts wird gelaufen. Jedes nummerierte Argument eines
+   Nachrichtenbefehls (`script.message_params` in `check_limits.yaml`) ist eine Nachricht des
+   Textarchivs des Headers, mit Befehl, Zeile und Spalte der Zahl. Steht sie in einem `if`, trägt
+   sie die Bedingung wie geschrieben (`else` im Else-Zweig, `else if` seine eigene).
+4. **Sprünge:** rotoms Sprungwort (`GoTo`/`Jump`, auch klein) und die Befehle aus
+   `script.jump_params` (Pt `GoTo`, `Call`, `GoToIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; HGSS
+   `Jump`, `Call`, `JumpIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; über rotoms Datenbank aufgelöst,
+   Legacy- und kanonischer Name gelten gleich) springen zu dem Script oder Label derselben Datei,
+   das ein Bezeichner-Argument nennt (`Call hilfe`, `GoToIf EQUAL, label_00A3`). Ein Label ist für
+   rotom eine Funktion ohne Nummer (`hilfe:`). Jedes Ziel wird **einmal** gelaufen (Schleifen
+   brechen ab), und zwar nach dem Rumpf, der springt: erst die eigenen Nachrichten des Scripts, dann
+   die der Sprungziele in der Reihenfolge der Sprünge. Vanilla springt mit `GoToIf … label` weg,
+   bevor der Standardtext kommt; der steht so vorn. `followed` nennt die gelaufenen Labels. Nicht
+   verfolgt: gemeinsame Scripts (`CallCommonScript`), Menü-Ziele und Befehle außerhalb der Liste
+   (etwa `GoToIfEq`).
+5. **Geteilt:** `shared_with` einer Nachricht zählt die **anderen** Objekte, deren Dialog dieselbe
+   (Archiv, Index) zeigt: alle Objekte der Eventdateien aller Header, die das Archiv nutzen (jede
+   Eventdatei einmal, mit der Scriptdatei des ersten solchen Headers), jedes mit seinem Script wie
+   oben. Schilder zählen nicht mit. Gleicher Text an einem anderen Index ist eine andere Nachricht
+   (rotom legt ein Literal mit schon vorhandenem Text auf dessen Index, Vanilla hat Dubletten).
+
+Gemessen auf Platin DE: 3 555 Objekte, keines `unreadable`, 125 Figuren zeigen mindestens eine
+geteilte Nachricht (329 Paare aus Archiv und Index); HeartGold DE: 2 667 Objekte, 132 Figuren, 211
+Paare. Gutachten A zählte ohne Sprünge 66 bzw. 100 Nachrichten, wohl weil eine Nachricht in einem
+Label dort keinem Script gehört (`checks::scripts::walk` gibt ihr keinen Slot). Der Startort Zweiblattdorf (Header 411) hat keine geteilte Nachricht, Neuborkia
+(Header 60) zwei.
