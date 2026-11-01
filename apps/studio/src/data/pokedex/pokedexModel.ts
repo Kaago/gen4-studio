@@ -182,6 +182,12 @@ export const TM_COUNT = 92;
 export const MACHINE_COUNT = 100;
 export const machineLabel = (n: number): string => (n < TM_COUNT ? `TM${String(n + 1).padStart(2, "0")}` : `VM${String(n - TM_COUNT + 1).padStart(2, "0")}`);
 
+/** The most egg moves one species may have (`data_edit` refuses more; `move0` to `move15` of `g4k check-data`). */
+export const MAX_EGG_MOVES = 16;
+
+/** A whole number with spaces between thousands, as the kernel's egg move sentences write it ("1 910"). */
+export const spaced = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+
 /** The game reads at most 20 level-up moves (pokeplatinum `MAX_LEARNSET_ENTRIES`). */
 export const MAX_LEARNSET = 20;
 
@@ -236,16 +242,21 @@ export const TABS: readonly { id: SpeciesTab; label: string }[] = [
   { id: "values", label: "Werte" },
   { id: "abilities", label: "Fähigkeiten und Typen" },
   { id: "learnset", label: "Lernset" },
+  { id: "eggMoves", label: "Ei-Attacken" },
   { id: "evolution", label: "Entwicklung" },
   { id: "machines", label: "TM/VM" },
   { id: "raw", label: "Rohdaten" },
 ];
 
-/** The part of the species each tab edits: its dot comes from that asset's unsaved changes (Rohdaten shows all three). */
+/**
+ * The part of the species each tab edits: its dot comes from that asset's unsaved changes (Rohdaten shows all three). The egg move table
+ * is one asset (`EggMoves 0`) for every species: its changes dot the tab of any species.
+ */
 export const TAB_ASSETS: Record<SpeciesTab, readonly AssetId["kind"][]> = {
   values: ["Personal"],
   abilities: ["Personal"],
   learnset: ["Learnset"],
+  eggMoves: ["EggMoves"],
   evolution: ["Evolution"],
   machines: ["Personal"],
   raw: ["Personal", "Learnset", "Evolution"],

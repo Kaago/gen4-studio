@@ -123,6 +123,7 @@ export function reloadPlan(
     case "TrainerTextTable":
     case "TrainerTextOffsets":
     case "Trainer":
+    case "EggMoves":
       return [{ kind: "dataPanel", asset }];
     default:
       return [];

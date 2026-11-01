@@ -40,12 +40,12 @@ describe("PokedexHand", () => {
 
   it("has_the_tabs_of_the_editor_and_the_raw_data_only_while_tinkering", async () => {
     await h.open(397, "bauen");
-    expect(tabNames()).toEqual(["Werte", "Fähigkeiten und Typen", "Lernset", "Entwicklung", "TM/VM"]);
+    expect(tabNames()).toEqual(["Werte", "Fähigkeiten und Typen", "Lernset", "Ei-Attacken", "Entwicklung", "TM/VM"]);
     expect(dataGet).toHaveBeenCalledWith("species", 397);
     h.unmount();
     h = pokedexHarness();
     await h.open(397, "tuefteln");
-    expect(tabNames()).toEqual(["Werte", "Fähigkeiten und Typen", "Lernset", "Entwicklung", "TM/VM", "Rohdaten"]);
+    expect(tabNames()).toEqual(["Werte", "Fähigkeiten und Typen", "Lernset", "Ei-Attacken", "Entwicklung", "TM/VM", "Rohdaten"]);
   });
 
   it("commits_a_changed_attack_as_one_labelled_edit_and_tells_the_others", async () => {

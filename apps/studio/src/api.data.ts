@@ -461,7 +461,7 @@ export type TargetDto =
   | { kind: "encounter"; index: number };
 
 /** The tabs of the Pokédex hand a reference can open. */
-export type SpeciesTab = "values" | "abilities" | "learnset" | "evolution" | "machines" | "raw";
+export type SpeciesTab = "values" | "abilities" | "learnset" | "eggMoves" | "evolution" | "machines" | "raw";
 
 /**
  * Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`), all of them (a type test keeps both equal).

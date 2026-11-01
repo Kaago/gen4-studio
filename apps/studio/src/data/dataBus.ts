@@ -18,10 +18,14 @@ const KIND_OF: Partial<Record<AssetKind, DataKind>> = {
   TrainerTextTable: "trainer",
   TrainerTextOffsets: "trainer",
   Trainer: "trainer",
+  EggMoves: "species",
 };
 
-/** Kinds shared by every member of their data kind: a change may concern any member (the trainer text table holds every trainer's texts). */
-const SHARED: ReadonlySet<AssetKind> = new Set<AssetKind>(["TrainerTextTable", "TrainerTextOffsets"]);
+/**
+ * Kinds shared by every member of their data kind: a change may concern any member (the trainer text table holds every trainer's texts,
+ * the egg move table every species' egg moves).
+ */
+const SHARED: ReadonlySet<AssetKind> = new Set<AssetKind>(["TrainerTextTable", "TrainerTextOffsets", "EggMoves"]);
 
 /** What `textData` says: a text archive (null: any) may have changed. */
 export type TextDataEvent = { topic: "textData"; archive: number | null };
