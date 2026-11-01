@@ -10,9 +10,14 @@
 //! flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know
 //! is a warning (`story.dangling-ref`), never a refusal. The format is documented in
 //! `docs/formats/stories.md`.
+//!
+//! The threads ([`threads::threads`]) are the variables the game already tells a story with
+//! (three values at two places), the graph of one ([`threads::thread_graph`]) its values and the
+//! places that set and check them, both from the reference index.
 
 pub mod entities;
 pub mod schema;
+pub mod threads;
 
 pub use entities::{
     NOTHING_TO_CHANGE, StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story,
@@ -22,4 +27,8 @@ pub use entities::{
 pub use schema::{
     DANGLING_REF_CODE, Layout, Made, Position, Progress, STORIES_DIR, Step, StepKind, Story, Use,
     check_file, layout_rel, number_of, read_layout, read_story, story_rel,
+};
+pub use threads::{
+    GraphEdge, GraphNode, Place, Thread, ThreadGraph, is_story_var, place_label, thread_graph,
+    threads,
 };

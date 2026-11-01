@@ -149,7 +149,54 @@ führen beide Dateien (ein Textprojekt mit Geschichte baut die Basis-ROM byte-gl
 
 ## Fäden
 
-Folgt mit Task 3 (Fäden aus dem Referenzindex, Graph einer Geschichte).
+Ein **Faden** ist eine Variable, mit der das Spiel eine Geschichte erzählt; `stories::threads`
+findet sie im Referenzindex (Messung: Gutachten A §2.2, `var_threads` in
+`docs/research/2026-10-30-phase-3d/gutachten-a-story.py`). Regel (`threads()`):
+
+- die Variable liegt im allgemeinen Bereich (`area_of(family, Var, n) == General`, ab `0x4030`;
+  nicht kartenlokal, Objektgrafik oder Script-lokal; `is_story_var`);
+- ihr pret-Hauptname fehlt oder enthält weder `UNUSED` noch `DUMMY` (`UNK` zählt:
+  `VAR_UNK_4031` kann ein Faden sein, `VAR_UNUSED_0x406C` nie);
+- sie hat mindestens **drei verschiedene Werte** über alle Verweise mit Wert (`Ref.value`: gesetzt
+  mit `SetVar`/`SetVarFromValue`, verglichen mit `CompareVarToValue`, einer Bedingung
+  `VAR_X == 3`, am Auslöser `value`, im Level-Script `var_conditions[i].value`);
+- und mindestens **zwei verschiedene Orte**. Ein Ort ist der erste Header (nach Nummer), dessen
+  `script_file_id`, `level_script_id` (für die Bedingungen eines Level-Scripts) oder
+  `event_file_id` die Quelle nennt, sonst die Quelle selbst. Jeder Verweis zählt für die Orte,
+  auch einer ohne Wert (`SetVar VAR_X, VAR_Y`).
+
+Ein `Thread` trägt `var`, den pret-Hauptnamen (`name`), den eigenen Namen aus
+`data/ids/vars.json` (`own_id`), die Werte aufsteigend (`values`), die Zahl der Orte (`places`), die
+Header unter den Orten aufsteigend (`headers`), jeden Verweis als `Place` (Quelle, Feld, Platz,
+Zugriff, Wert, Header) und die erste Geschichte (nach Nummer), deren `progress.var` die Variable
+ist (`story`). Die Liste ist nach Nummer sortiert; ein Lauf geht einmal über den Index und liest
+Header-Tabelle, Variablen-Register und Geschichten je einmal. Eine Geschichte, die sich nicht
+lesen lässt oder deren Fortschritt nichts nennt, beansprucht keinen Faden; ein Register, das sich
+nicht lesen lässt, ist der Fehler des Aufrufs.
+
+Auf den Vanilla-Spielen (`tests/threads.rs`, gated) findet der Index 60 Fäden in Platin DE
+(274 Werte, höchstens 16 Werte und 22 Orte) und 62 in HeartGold DE und US (310 Werte,
+höchstens 14 Werte und 29 Orte); die Messung nannte 59 / 62 Fäden und 272 / 311 Werte. Die
+Untergrenzen 59 und 62 prüft der Test.
+
+### Graph eines Fadens
+
+`thread_graph(store, index, var, story)` baut den Graph einer Variable aus ihren Verweisen:
+
+| Knoten | `id` | Inhalt |
+|---|---|---|
+| `Value` | `v:<wert>` | ein Knoten je Wert, aufsteigend; `step` der Schlüssel des ersten Schritts der Geschichte mit diesem Wert; `noted_only` für einen Wert, den nur ein Schritt nennt (keine Kanten, gestrichelt) |
+| `Place` | `p:<art>:<nummer>` (`p:script:0101`, `p:event:0394`) | ein Knoten je Quelle in Index-Reihenfolge, mit `header` (der erste Header, wie oben) und `label` („Scriptdatei 0101“, „Level-Script 0005“, „Eventdatei 0394“; `place_label`); `loose`, wenn sie keine Kante hat (keiner ihrer Verweise trägt einen Wert, oder nur mit unbekanntem Zugriff) |
+
+Kanten (`GraphEdge { from, to, value, access, field, slot }`): je Verweis mit Wert und Zugriff
+`Write`/`ReadWrite` eine Kante Ort → Wert („gesetzt in“), je `Read`/`ReadWrite` eine Kante
+Wert → Ort („geprüft in“); `field` und `slot` sagen wo (Befehl und Zeile, Bedingung, Auslöser).
+Ein Verweis ohne Wert macht nie einen Wert-Knoten; einer mit Wert und unbekanntem Zugriff (`Unknown`)
+macht den Wert-Knoten, aber keine Kante. Eine Variable ohne Verweise hat keine Knoten
+und keine Kanten (kein Fehler). Mit einer Geschichte ist `layout` ihr Beifile (`None` ohne Datei
+oder wenn es sich nicht lesen lässt: die Prüfung nennt es, der Graph legt sich selbst aus).
+Das Label ist der Dateiname der Quelle; den Ortsnamen des Headers setzt die Oberfläche dazu
+(wie bei „Verwendet in“ der Flags).
 
 ## Befehle
 
