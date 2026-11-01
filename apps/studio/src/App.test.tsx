@@ -15,9 +15,9 @@ import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./git/gitTest
 import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
-import { flagUsage, listFlags, listThreads, storyList, threadGraph } from "./api";
+import { flagUsage, listFlags, listThreads, storyGet, storyList, threadGraph } from "./api";
 import { FLAGS, flagUsageOf } from "./flags/flagTesting";
-import { THREADS, graphOf, storiesOf, storyRow } from "./stories/storiesTesting";
+import { THREADS, graphOf, storiesOf, storyDto, storyRow } from "./stories/storiesTesting";
 import { invalidateFlagLists, useFlagList } from "./flags/useFlagList";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
@@ -251,6 +251,7 @@ vi.mock("./api", async (importOriginal) => ({
   listThreads: vi.fn(),
   threadGraph: vi.fn(),
   storyList: vi.fn(),
+  storyGet: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -372,6 +373,7 @@ describe("App wiring", () => {
     vi.mocked(listThreads).mockResolvedValue(THREADS);
     vi.mocked(threadGraph).mockImplementation(async (variable) => graphOf(variable));
     vi.mocked(storyList).mockResolvedValue(storiesOf([storyRow(0), storyRow(1)]));
+    vi.mocked(storyGet).mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id, steps: undefined }));
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -1102,6 +1104,10 @@ describe("App wiring", () => {
       await act(async () => void data().goTo({ kind: "story", number: 1 }));
       await act(async () => {});
       expect(container.querySelector("[data-geschichten]")?.getAttribute("data-geschichten")).toBe("stories");
+      // There the story's row is chosen and its detail shows.
+      expect(container.querySelector("[data-story-row=STORY_0001]")?.getAttribute("aria-selected")).toBe("true");
+      expect(storyGet).toHaveBeenLastCalledWith("STORY_0001");
+      expect(container.querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0001");
     });
 
     describe("placing a trainer in the world", () => {

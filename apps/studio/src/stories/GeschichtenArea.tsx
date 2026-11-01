@@ -1,16 +1,18 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useRef } from "react";
 import type { JSX } from "react";
-import { errorText, storyList } from "../api";
-import type { ProjectInfo, StoryListDto } from "../api";
+import type { ProjectInfo, StoryReport } from "../api";
 import { FLAGS_SOURCE, FlagsSurface, flagsSubtitle } from "../flags/FlagsSurface";
 import type { FlagsSurfaceProps } from "../flags/FlagsSurface";
 import { useFlagList } from "../flags/useFlagList";
 import { ListPane } from "../ui/frame/ListPane";
 import type { Depth } from "../ui/frame/shellState";
-import { EmptyState, ListRow, Notice, useRovingList } from "../ui/primitives";
+import { ListRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
+import { StoriesSurface } from "./StoriesSurface";
+import { storiesCount } from "./storyWords";
 import { ThreadsSurface, threadsCount } from "./ThreadsSurface";
+import { useStories } from "./useStories";
 import { useThreads } from "./useThreads";
 import styles from "./GeschichtenArea.module.css";
 
@@ -49,6 +51,10 @@ export interface GeschichtenAreaProps {
   onOpenProject?: () => void;
   /** What failed (a write's refusal or warning). */
   onError: (text: string) => void;
+  /** A story was created (one undo step): the report and its name (the app's toast; the history and the lists read again). */
+  onStoryCreated?: (r: StoryReport, name: string) => void;
+  /** A story's name or notes were written (one undo step): the history and the lists read again. */
+  onStoryUpdated?: (r: StoryReport) => void;
 }
 
 const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[] = [
@@ -56,11 +62,6 @@ const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[
   { id: "stories", label: "Geschichten", icon: "story" },
   { id: "flags", label: "Flags und Variablen", icon: "flag" },
 ];
-
-/** „2 Geschichten“, „1 Geschichte“, „Keine Geschichten“. */
-function storiesCount(n: number): string {
-  return n === 0 ? "Keine Geschichten" : n === 1 ? "1 Geschichte" : `${n.toLocaleString("de-DE")} Geschichten`;
-}
 
 /** The line under an entry: no project, still reading, not readable, or the count. */
 function subtitleOf<T>(info: ProjectInfo | null, read: { list: T | null; error: string | null }, count: (list: T) => string): string {
@@ -80,7 +81,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
   const list = useRef<HTMLDivElement>(null);
   useRovingList(list);
   const threads = useThreads({ project: info, revision });
-  const stories = useStoryList(info, revision);
+  const stories = useStories({ project: info, revision });
   const flagList = useFlagList("flag", { project: info, revision: props.flags?.revision ?? 0, source: FLAGS_SOURCE });
   const subtitles: Record<GeschichtenEntry, string> = {
     threads: subtitleOf(info, threads, (l) => threadsCount(l.threads.length)),
@@ -111,7 +112,22 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           stories={stories.list?.stories ?? null}
         />
       ) : entry === "stories" ? (
-        <StoriesPlaceholder project={info} stories={stories.list} error={stories.error} onOpenProject={props.onOpenProject} />
+        <StoriesSurface
+          stories={info === null ? null : stories.list}
+          error={stories.error}
+          selected={props.selectedStory}
+          onSelect={props.onSelectStory}
+          textProject={props.textProject}
+          onOpenTextProject={props.onOpenTextProject}
+          depth={depth}
+          goTo={goTo}
+          project={info}
+          revision={revision}
+          onCreated={props.onStoryCreated ?? noSelect}
+          onUpdated={props.onStoryUpdated}
+          onError={props.onError}
+          onOpenProject={props.onOpenProject}
+        />
       ) : (
         <FlagsSurface
           project={info}
@@ -130,56 +146,5 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
   );
 }
 
-/** Without the app's selection the flags surface chooses nothing (`flags` not given: no project either). */
+/** Nothing to tell: without the app's handlers a surface chooses and reports nothing (`flags` not given: no project either). */
 const noSelect = () => {};
-
-type StoriesRead = { project: ProjectInfo; list: StoryListDto | null; error: string | null };
-
-/**
- * The stories of the project (`story_list`) for the entry's count and the threads' story chips, read when there is a project and again for
- * every new `revision`; an answer a newer read overtook never shows, nor the list of another project.
- */
-function useStoryList(project: ProjectInfo | null, revision: number): { list: StoryListDto | null; error: string | null } {
-  const [read, setRead] = useState<StoriesRead | null>(null);
-  useEffect(() => {
-    if (project === null) return;
-    let live = true;
-    storyList().then(
-      (list) => live && setRead({ project, list, error: null }),
-      (e: unknown) => live && setRead({ project, list: null, error: errorText(e) }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [project, revision]);
-  const current = read !== null && project !== null && read.project === project ? read : null;
-  return { list: current?.list ?? null, error: current?.error ?? null };
-}
-
-/** Geschichten › Geschichten until its list and detail come (3d.6 Task 8): how many there are, and that agents create them meanwhile. */
-function StoriesPlaceholder({ project, stories, error, onOpenProject }: { project: ProjectInfo | null; stories: StoryListDto | null; error: string | null; onOpenProject?: () => void }) {
-  const titleId = useId();
-  return (
-    <section className={styles.surface} data-geschichten-surface="stories" aria-labelledby={titleId}>
-      <header className={styles.head}>
-        <h1 id={titleId} className={styles.title}>
-          Geschichten
-        </h1>
-        <p className={styles.text}>Geschichten erzählen mit einer Variable oder einem Flag, Schritt für Schritt, was im Spiel geschieht.</p>
-      </header>
-      {project === null ? (
-        <EmptyState
-          what="Kein Projekt geöffnet."
-          why="Öffne ein Projekt, dann stehen hier seine Geschichten."
-          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
-        />
-      ) : error !== null ? (
-        <Notice kind="error">{error}</Notice>
-      ) : stories === null ? (
-        <p className={styles.note}>Wird gelesen …</p>
-      ) : (
-        <EmptyState what={`${storiesCount(stories.stories.length)}.`} why="Die Liste und das Detail der Geschichten folgen; bis dahin legen Agenten sie über MCP an (story_create)." />
-      )}
-    </section>
-  );
-}

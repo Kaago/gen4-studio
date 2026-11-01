@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { placesText, progressLabel, stepKindWord, threadName, valuesText } from "./storyWords";
+import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
+import { fallbackNumber, flagIdOf, flagNumberOf, placesText, progressLabel, stepKindWord, storiesCount, threadName, useText, valuesText } from "./storyWords";
 import { threadOf } from "./storiesTesting";
 
 describe("storyWords", () => {
@@ -36,5 +37,36 @@ describe("storyWords", () => {
     expect(stepKindWord("appearance")).toBe("Erscheinen/Verschwinden");
     expect(progressLabel({ var: "VAR_RIVALIN" })).toEqual({ kind: "var", id: "VAR_RIVALIN" });
     expect(progressLabel({ flag: "FLAG_HAT_MEDAILLE" })).toEqual({ kind: "flag", id: "FLAG_HAT_MEDAILLE" });
+  });
+
+  it("ids_and_numbers_of_flags_and_variables", () => {
+    // The id a story keeps: the own name, the pret name, else the fallback id (four digits at least, decimal).
+    expect(flagIdOf("var", 0x4040, { name: "VAR_UNK_0x4040", own_id: "VAR_RIVALIN" })).toBe("VAR_RIVALIN");
+    expect(flagIdOf("var", 0x406c, { name: "VAR_UNUSED_0x406C", own_id: null })).toBe("VAR_UNUSED_0x406C");
+    expect(flagIdOf("var", 0x4071, null)).toBe("VAR_16497");
+    expect(flagIdOf("flag", 0x94, undefined)).toBe("FLAG_0148");
+    // And back: by own name, pret name and alias of the list, else a fallback id; null where neither knows it.
+    expect(flagNumberOf("flag", "FLAG_HAT_MEDAILLE", FLAGS)).toBe(0x94);
+    expect(flagNumberOf("flag", "FLAG_UNUSED_0x0094", FLAGS)).toBe(0x94);
+    expect(flagNumberOf("flag", "FLAG_ALT_0x96", FLAGS)).toBe(0x96);
+    expect(flagNumberOf("flag", "FLAG_0371", null)).toBe(0x173);
+    expect(flagNumberOf("var", "VAR_16448", flagList("var", [flagEntry(0x4031)]))).toBe(0x4040);
+    expect(flagNumberOf("flag", "VAR_16448", null)).toBeNull();
+    expect(flagNumberOf("var", "VAR_WEG", null)).toBeNull();
+    expect(fallbackNumber("TRAINER", "TRAINER_0042")).toBe(42);
+    expect(fallbackNumber("TRAINER", "TRAINER_CLASS_0042")).toBeNull();
+    expect(fallbackNumber("TRAINER", "TRAINER_")).toBeNull();
+  });
+
+  it("uses_and_counts", () => {
+    expect(useText({ trainer: "TRAINER_0042" })).toBe("TRAINER_0042");
+    expect(useText({ map: "MAP_ZWEIBLATTDORF" })).toBe("MAP_ZWEIBLATTDORF");
+    expect(useText({ script: { file: 101, slot: 2 } })).toBe("Scriptdatei 0101 · Script 2");
+    expect(useText({ message: { archive: 12, index: 4 } })).toBe("Textarchiv 0012 · Text 4");
+    expect(useText({ levelScript: { file: 12, condition: 1 } })).toBe("Level-Script 0012 · Bedingung 1");
+    expect(useText({ object: { file: 394, local_id: 3 } })).toBe("Objekt 3 · Eventdatei 0394");
+    expect(storiesCount(0)).toBe("Keine Geschichten");
+    expect(storiesCount(1)).toBe("1 Geschichte");
+    expect(storiesCount(1200)).toBe("1.200 Geschichten");
   });
 });

@@ -72,4 +72,15 @@ describe("ContentPage", () => {
     expect(block.textContent).not.toContain("Graph wird gelesen");
     expect(block.querySelector("[data-thread-graph-box]")).toBeNull();
   });
+
+  it("shows_story_rows_and_the_new_story_dialog", async () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="stories"]')!;
+    expect(block.querySelectorAll("[data-story-row]")).toHaveLength(2);
+    expect(block.querySelector("[data-story-row=STORY_RIVALIN] [data-story-progress]")?.textContent).toBe("VAR_164480x4040");
+    expect(block.querySelector("[data-story-row=STORY_0001] [role=status]")?.textContent).toContain("unbekanntes Feld");
+    await act(async () => block.querySelector<HTMLElement>("[data-new-story]")!.click());
+    const dialog = document.querySelector<HTMLElement>("[data-new-story-dialog]")!;
+    expect(dialog.querySelector("h2")?.textContent).toBe("Neue Geschichte");
+    expect([...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Geschichte anlegen")?.disabled).toBe(true);
+  });
 });

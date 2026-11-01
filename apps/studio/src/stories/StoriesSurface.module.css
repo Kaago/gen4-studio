@@ -1,0 +1,145 @@
+/* Geschichten › Geschichten: the surface of Fäden (ThreadsSurface.module.css), the table of stories, the chosen story's detail below. */
+.surface {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+  overflow: auto;
+  padding: var(--g4-raum-32) var(--g4-raum-24);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+}
+
+/* Everything shares one reading width (an empty state centres in it); the graph takes the width it gets. */
+.surface > * {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1080px;
+}
+
+/* The title and its sentence, „Neue Geschichte…“ beside them (below them when narrow). */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--g4-raum-8) var(--g4-raum-16);
+}
+
+.headText {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.title,
+.text,
+.note {
+  margin: 0;
+}
+
+.title {
+  font: var(--g4-font-titel-s);
+}
+
+.text {
+  max-width: 64ch;
+  font: var(--g4-font-text-s);
+}
+
+.note {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.label {
+  font: var(--g4-font-text-s-betont);
+  color: var(--g4-text-primaer);
+}
+
+.tech {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+}
+
+.none {
+  color: var(--g4-text-sekundaer);
+}
+
+/* A row whose file does not read: its id, the problem as a warning below it. */
+.problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+/* The detail of the chosen story: one card, its head (name, progress), the notes, the steps and the graph. */
+.detail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-16);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-fenster);
+  background: var(--g4-flaeche-blatt);
+}
+
+.detailHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--g4-raum-8) var(--g4-raum-16);
+}
+
+.nameField {
+  min-width: 0;
+  flex: 1 1 280px;
+}
+
+.progressChip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
+}
+
+/* The uses of a step: chips that wrap. */
+.uses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.useText {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+/* React Flow needs a box with a height; the graph fits itself into it. */
+.graphBox {
+  box-sizing: border-box;
+  block-size: 480px;
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-bildschirm);
+  background: var(--g4-flaeche-schau);
+}
+
+/* The dialog „Neue Geschichte“: the fields one below the other; the progress a group of its kind and its field. */
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
+}

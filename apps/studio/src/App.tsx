@@ -71,6 +71,7 @@ import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import type { FlagKind } from "./api";
+import type { StoryReport } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -378,6 +379,16 @@ function AppBody() {
     if (number !== undefined) setStoryChoice({ root: openRoot, selected: number });
     setGeschichtenEntry("stories");
     setArea("geschichten");
+  });
+  // A story created, or its name or notes written, in Geschichten › Geschichten (one undo step that wrote files, as `name_flag`): the
+  // history is read again, Änderungen compares again and the area reads its lists again; a creation is said in a toast.
+  const onStoryWritten = useStableCallback((_report: StoryReport) => {
+    bumpChanged();
+    void session.refreshDirty();
+  });
+  const onStoryCreated = useStableCallback((report: StoryReport, name: string) => {
+    toast.info(`Geschichte „${name}“ angelegt`);
+    onStoryWritten(report);
   });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
@@ -1420,6 +1431,8 @@ function AppBody() {
         onOpenTextProject={showTextProjectEntry}
         onOpenProject={openProject}
         onError={session.fail}
+        onStoryCreated={onStoryCreated}
+        onStoryUpdated={onStoryWritten}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

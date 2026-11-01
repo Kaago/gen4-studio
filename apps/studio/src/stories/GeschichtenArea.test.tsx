@@ -3,19 +3,21 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flagUsage, listFlags, listThreads, storyList, threadGraph } from "../api";
+import { entityIds, flagUsage, listFlags, listThreads, storyGet, storyList, threadGraph } from "../api";
 import type { ProjectInfo } from "../api";
 import { FLAGS, flagUsageOf } from "../flags/flagTesting";
 import { invalidateFlagLists } from "../flags/useFlagList";
 import { GeschichtenArea } from "./GeschichtenArea";
 import type { GeschichtenAreaProps, GeschichtenEntry } from "./GeschichtenArea";
-import { THREADS, graphOf, storiesOf, storyRow } from "./storiesTesting";
+import { THREADS, graphOf, storiesOf, storyDto, storyRow } from "./storiesTesting";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
   listThreads: vi.fn(),
   threadGraph: vi.fn(),
   storyList: vi.fn(),
+  storyGet: vi.fn(),
+  entityIds: vi.fn(),
   listFlags: vi.fn(),
   flagUsage: vi.fn(),
 }));
@@ -38,6 +40,8 @@ describe("GeschichtenArea", () => {
     vi.mocked(listThreads).mockReset().mockResolvedValue(THREADS);
     vi.mocked(threadGraph).mockReset().mockImplementation(async (variable) => graphOf(variable));
     vi.mocked(storyList).mockReset().mockResolvedValue(storiesOf([storyRow(0), storyRow(1)]));
+    vi.mocked(storyGet).mockReset().mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id }));
+    vi.mocked(entityIds).mockReset().mockResolvedValue({});
     vi.mocked(listFlags).mockReset().mockResolvedValue(FLAGS);
     vi.mocked(flagUsage).mockReset().mockImplementation(async (kind, number) => flagUsageOf(kind, number));
     onSelectFlag.mockReset();
@@ -158,5 +162,27 @@ describe("GeschichtenArea", () => {
     // A row chosen goes to the app, which holds the selection.
     await click(surface.querySelector("[data-flag-row='148']"));
     expect(onSelectFlag).toHaveBeenCalledWith({ kind: "flag", number: 0x94 });
+  });
+
+  it("the_stories_entry_mounts_the_surface", async () => {
+    await render({ start: "stories" });
+    await settle();
+    expect(area()?.getAttribute("data-geschichten")).toBe("stories");
+    const surface = () => container.querySelector<HTMLElement>("[data-geschichten=stories] [data-geschichten-surface=stories]")!;
+    expect(surface().querySelector("h1")?.textContent).toBe("Geschichten");
+    expect(surface().querySelectorAll("[data-story-row]")).toHaveLength(2);
+    expect(surface().querySelector("[data-new-story]")?.getAttribute("aria-disabled")).toBeNull();
+    // The list and the surface share one read of the stories.
+    expect(storyList).toHaveBeenCalledOnce();
+    // A row chosen is held outside (as a link would set it) and shows its detail.
+    await click(surface().querySelector("[data-story-row=STORY_0001]"));
+    await settle();
+    expect(surface().querySelector("[data-story-row=STORY_0001]")?.getAttribute("aria-selected")).toBe("true");
+    expect(storyGet).toHaveBeenLastCalledWith("STORY_0001");
+    expect(surface().querySelector("[data-story-detail]")?.getAttribute("data-story-detail")).toBe("STORY_0001");
+    // In the DSPRE layout creating is locked with the way out.
+    await render({ start: "stories", textProject: false });
+    await settle();
+    expect(surface().querySelector("[data-new-story]")?.getAttribute("aria-disabled")).toBe("true");
   });
 });

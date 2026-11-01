@@ -1,4 +1,4 @@
-import type { StoryListDto, StoryRowDto, ThreadDto, ThreadGraphDto, ThreadListDto } from "../api";
+import type { Story, StoryDto, StoryListDto, StoryReport, StoryRowDto, ThreadDto, ThreadGraphDto, ThreadListDto } from "../api";
 import { sampleThreadGraph } from "./graph/sampleGraph";
 
 /** One thread as `list_threads` sends it: an unnamed variable with three values at three places (two headers), no story, unless `over` says otherwise. */
@@ -46,4 +46,47 @@ export function storyRow(number: number, over: Partial<StoryRowDto> = {}): Story
 /** A list of `stories` of a text project. */
 export function storiesOf(stories: StoryRowDto[], over: Partial<StoryListDto> = {}): StoryListDto {
   return { stories, text_project: true, ms: 3, ...over };
+}
+
+/** A story as `story_get` sends it: „Rivalin“ on VAR_RIVALIN (0x4040) with three steps and notes, unless `over` says otherwise. */
+export function storyDto(number: number, over: Partial<StoryDto> = {}, story: Partial<Story> = {}): StoryDto {
+  return {
+    number,
+    story: {
+      id: `STORY_${String(number).padStart(4, "0")}`,
+      name: "Rivalin",
+      notes: "Die Rivalin begleitet den Weg.",
+      progress: { var: "VAR_RIVALIN" },
+      steps: [
+        { key: "s1", value: 1, kind: "dialog", name: "Rivalin trifft", uses: [{ map: "MAP_ZWEIBLATTDORF" }, { message: { archive: 12, index: 4 } }] },
+        { key: "s2", value: 2, kind: "battle", name: "Kampf am See", uses: [{ trainer: "TRAINER_0042" }, { script: { file: 101, slot: 2 } }] },
+        {
+          key: "s3",
+          value: 3,
+          kind: "reward",
+          name: "Pokédex bekommen",
+          uses: [{ flag: "FLAG_HAT_MEDAILLE" }, { var: "VAR_16448" }, { object: { file: 394, local_id: 3 } }, { levelScript: { file: 12, condition: 1 } }],
+        },
+      ],
+      ...story,
+    },
+    layout: { nodes: {} },
+    progress_number: 0x4040,
+    ms: 2,
+    ...over,
+  };
+}
+
+/** What `story_create` and `story_update` answer: the story's three files of one undo step, unless `over` says otherwise. */
+export function storyReport(number: number, over: Partial<StoryReport> = {}): StoryReport {
+  const file = String(number).padStart(4, "0");
+  return {
+    id: `STORY_${file}`,
+    number,
+    files: ["data/ids/stories.json", `data/stories/${file}.json`, `data/stories/${file}.layout.json`],
+    change: 3,
+    ms: 2600,
+    warnings: [],
+    ...over,
+  };
 }

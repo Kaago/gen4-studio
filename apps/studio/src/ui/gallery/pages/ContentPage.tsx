@@ -25,6 +25,7 @@ import type { FlagEntryDto, FlagListDto, FlagUsageDto, ProjectInfo, ThreadListDt
 import { FlagDetail } from "../../../flags/FlagDetail";
 import { FlagList } from "../../../flags/FlagList";
 import { sampleThreadGraph } from "../../../stories/graph/sampleGraph";
+import { StoriesSurface } from "../../../stories/StoriesSurface";
 import { ThreadsSurface } from "../../../stories/ThreadsSurface";
 import styles from "../Gallery.module.css";
 
@@ -242,6 +243,36 @@ function ThreadsExample() {
       revision={0}
       onOpenTextProject={() => {}}
       stories={[{ number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_RIVALIN" }, steps: 4, problem: null }]}
+    />
+  );
+}
+
+/**
+ * Geschichten › Geschichten: a readable story (its progress by a fallback id, so the gallery reads no names) and one whose file does not
+ * read; „Neue Geschichte…“ opens the dialog (nothing is created: the gallery has no project to write to).
+ */
+function StoriesExample() {
+  return (
+    <StoriesSurface
+      stories={{
+        stories: [
+          { number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_16448" }, steps: 4, problem: null },
+          { number: 1, id: "STORY_0001", name: "", progress: null, steps: 0, problem: "data/stories/0001.json:3: unbekanntes Feld „note“." },
+        ],
+        text_project: true,
+        ms: 3,
+      }}
+      error={null}
+      selected={null}
+      onSelect={() => {}}
+      textProject
+      onOpenTextProject={() => {}}
+      depth="bauen"
+      goTo={() => {}}
+      project={galleryProject}
+      revision={0}
+      onCreated={() => {}}
+      onError={() => {}}
     />
   );
 }
@@ -470,6 +501,16 @@ export function ContentPage() {
           letzte), die Orte (höchstens drei Namen) und die Geschichte als Chip; in Erzählen fehlt die Nummer.
         </p>
         <ThreadsExample />
+      </section>
+
+      <section className={styles.block} data-gallery-state="stories">
+        <h2 className={styles.blockTitle}>Geschichten</h2>
+        <p className={styles.note}>
+          Geschichten › Geschichten in Bauen: je Geschichte der Name, der Fortschritt als Chip mit der Nummer und die Zahl der Schritte; eine
+          Datei, die nicht lesbar ist, zeigt ihr Problem als Warnung. „Neue Geschichte…“ öffnet den Dialog: Name, Fortschritt als Variable
+          oder Flag, Notizen; „Geschichte anlegen“ erst mit Name und Fortschritt.
+        </p>
+        <StoriesExample />
       </section>
 
       <section className={styles.block}>
