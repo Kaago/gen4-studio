@@ -46,4 +46,17 @@ describe("ContentPage", () => {
     expect(block.querySelector("[data-flag-detail] h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
     expect(block.querySelectorAll("[data-flag-use]")).toHaveLength(2);
   });
+
+  it("shows_the_seven_story_kinds_at_rest_and_selected_and_a_noted_only_node", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="story-nodes"]')!;
+    const kinds = ["start", "dialog", "condition", "battle", "reward", "progress", "appearance"];
+    for (const kind of kinds) {
+      expect(block.querySelectorAll(`[data-story-node][data-kind="${kind}"]:not([data-selected])`).length).toBeGreaterThanOrEqual(1);
+      expect(block.querySelectorAll(`[data-story-node][data-kind="${kind}"][data-selected]`)).toHaveLength(1);
+    }
+    expect(block.querySelectorAll("[data-story-node][data-noted-only]")).toHaveLength(1);
+    expect(block.querySelectorAll('[data-story-node][data-kind="value"]')).toHaveLength(1);
+    expect(block.querySelectorAll('[data-story-node][data-kind="place"][data-loose]')).toHaveLength(1);
+    expect(block.querySelector('[data-story-node][role="button"]')?.getAttribute("aria-label")).toBe("Ort: Zweiblattdorf, Scriptdatei 0101");
+  });
 });

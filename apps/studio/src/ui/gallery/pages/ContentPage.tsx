@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Badge,
@@ -14,15 +14,17 @@ import {
   Reference,
   Section,
   SelectField,
+  StoryNode,
   Switch,
   TextField,
   TreeRow,
   useRovingList,
 } from "../../primitives";
-import type { Area, BadgeKind, MenuEntry } from "../../primitives";
+import type { Area, BadgeKind, MenuEntry, StoryNodeKind } from "../../primitives";
 import type { FlagEntryDto, FlagListDto, FlagUsageDto } from "../../../api";
 import { FlagDetail } from "../../../flags/FlagDetail";
 import { FlagList } from "../../../flags/FlagList";
+import { sampleThreadGraph } from "../../../stories/graph/sampleGraph";
 import styles from "../Gallery.module.css";
 
 const places = [
@@ -152,6 +154,54 @@ function FlagsExample() {
         onDescribe={() => {}}
       />
     </div>
+  );
+}
+
+/** The seven kinds of a story's step with a name each, as the graph of a story shows them on their values. */
+const storySteps: { kind: StoryNodeKind; title: string }[] = [
+  { kind: "start", title: "Aufbruch" },
+  { kind: "dialog", title: "Rivalin trifft" },
+  { kind: "condition", title: "Hat Pokédex" },
+  { kind: "battle", title: "Kampf am See" },
+  { kind: "reward", title: "Pokédex bekommen" },
+  { kind: "progress", title: "Labor besucht" },
+  { kind: "appearance", title: "Rivalin verschwindet" },
+];
+
+// React Flow and dagre load with the graph, in their own chunk.
+const ThreadGraph = lazy(() => import("../../../stories/graph/ThreadGraph"));
+
+function StoryNodesExample() {
+  const [selected, setSelected] = useState<string | null>("p:event:0394");
+  return (
+    <>
+      <h3 className={styles.storyHead}>Ruhe</h3>
+      <div className={styles.storyNodes}>
+        {storySteps.map((step, i) => (
+          <StoryNode key={step.kind} kind={step.kind} title={step.title} subtitle={`Wert ${i}`} />
+        ))}
+      </div>
+      <h3 className={styles.storyHead}>Gewählt</h3>
+      <div className={styles.storyNodes}>
+        {storySteps.map((step, i) => (
+          <StoryNode key={step.kind} kind={step.kind} title={step.title} subtitle={`Wert ${i}`} selected />
+        ))}
+      </div>
+      <h3 className={styles.storyHead}>Nur notiert, Wert, Ort, Ort ohne Wert, Ort als Taste</h3>
+      <div className={styles.storyNodes}>
+        <StoryNode kind="reward" title="Pokédex bekommen" subtitle="Wert 7" notedOnly />
+        <StoryNode kind="value" title="4" />
+        <StoryNode kind="place" title="Route 201" subtitle="Eventdatei 0394" />
+        <StoryNode kind="place" title="Scriptdatei 0200" loose />
+        <StoryNode kind="place" title="Zweiblattdorf" subtitle="Scriptdatei 0101" onOpen={() => {}} />
+      </div>
+      <h3 className={styles.storyHead}>Graph eines Fadens</h3>
+      <div className={styles.graphBox}>
+        <Suspense fallback={<p className={styles.note}>Graph wird geladen…</p>}>
+          <ThreadGraph graph={sampleThreadGraph} selected={selected} onSelect={setSelected} onOpenPlace={() => {}} />
+        </Suspense>
+      </div>
+    </>
   );
 }
 
@@ -360,6 +410,16 @@ export function ContentPage() {
         <h2 className={styles.blockTitle}>Flags und Variablen</h2>
         <p className={styles.note}>Eine Zeile der Liste (eigener Name fett über dem pret-Namen, rechts die leere Spalte „Live“) und das Detail mit „Wo gesetzt“ und „Wo geprüft“.</p>
         <FlagsExample />
+      </section>
+
+      <section className={styles.block} data-gallery-state="story-nodes">
+        <h2 className={styles.blockTitle}>Story-Knoten</h2>
+        <p className={styles.note}>
+          Die sieben Arten eines Schritts, je mit Symbol und Wort (nie Farbe allein), in Ruhe und gewählt; ein Wert, den nur die Geschichte
+          nennt, ist gestrichelt und trägt „nur notiert“. Darunter ein Faden als Graph: links die Orte, die einen Wert setzen, rechts die,
+          die ihn prüfen; ein gewählter Ort öffnet sich mit „Öffnen“.
+        </p>
+        <StoryNodesExample />
       </section>
 
       <section className={styles.block}>

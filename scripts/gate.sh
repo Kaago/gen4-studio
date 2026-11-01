@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Local gate (there is no CI): formatting, lints, licenses and advisories of the
-# dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the full test
+# dependency tree (cargo deny with deny.toml; needs cargo-deny 0.20.2), the licenses of the
+# npm packages (scripts/check-licenses-npm.sh), the full test
 # suite, the studio frontend, then the gated tests against every test project under
 # $G4_ROMS_DIR.
 #
@@ -103,6 +104,8 @@ if ! command -v cargo-deny >/dev/null 2>&1; then
   exit 1
 fi
 run_step "cargo deny (licenses, advisories)" "" cargo deny --locked check licenses advisories
+# The production npm packages of apps/studio against the allow list (MIT, Apache-2.0, ISC, BSD, ...).
+run_step "npm licenses" "" bash scripts/check-licenses-npm.sh
 # Hermetic: a G4_* variable exported in the caller's shell must not switch the gated tests on.
 run_step "cargo test (no ROM data)" "" \
   env -u G4_TEST_PROJECT -u G4_TEST_ROM -u G4_DSROM_CLI -u G4_APICULA -u G4_ROTOM_LSP \

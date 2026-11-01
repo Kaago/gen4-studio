@@ -124,6 +124,7 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --check
 cargo deny --locked check licenses advisories
+bash scripts/check-licenses-npm.sh
 cd apps/studio && pnpm test && pnpm build
 ```
 
@@ -156,6 +157,15 @@ vor jedem Commit.
 Feature-Menge von rotom; dessen `build.rs` läuft dann neu und lädt dabei `db-latest.zip` aus dem Netz (siehe „rotom und
 rotom-lsp“). In den Worktrees von 3b.3a, deren `target/` die rotom-Build-Ausgabe aus dem Haupt-Checkout übernommen hatte,
 scheiterte genau dieser Download („headers' total size surpassed max_headers_size“). Der Namensfilter läuft dieselben Tests.
+
+### npm-Lizenzen
+
+`scripts/check-licenses-npm.sh` prüft die Produktionspakete von `apps/studio` (`pnpm licenses list --prod --json`) gegen die
+Freigabeliste `MIT`, `Apache-2.0`, `ISC`, `BSD-2-Clause`, `BSD-3-Clause`, `0BSD`, `CC0-1.0`, `Unlicense`, `OFL-1.1`, `MPL-2.0` und
+`Zlib`. Ein SPDX-Ausdruck `A OR B` gilt, wenn eine Seite erlaubt ist, `A AND B` nur, wenn beide erlaubt sind; Klammern gruppieren.
+Jede andere Lizenz steht mit Paket und Version auf stderr, das Skript endet mit 1; sonst druckt es `npm licenses: <n> packages ok`.
+Eine neue Abhängigkeit kommt mit genauer Version (ohne `^`) in `package.json`; eine Lizenz außerhalb der Liste (etwa EPL-2.0 von
+`elkjs`) braucht eine Entscheidung, keinen Eintrag im Skript nebenbei.
 
 ### Gated Tests
 
@@ -696,7 +706,7 @@ Es gibt kein Remote und keine CI; `scripts/gate.sh` (Repo-Wurzel, bash) ersetzt 
 
 1. `cargo fmt --check`
 2. `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-3. `cargo deny (licenses, advisories)`: `cargo deny --locked check licenses advisories` mit `deny.toml` (siehe „cargo-deny (Lizenzen und Advisories)“ unter „Tests“); fehlt `cargo-deny`, bricht das Skript mit der Zeile "FAILED (cargo-deny fehlt)" und dem Installationsbefehl ab
+3. `cargo deny (licenses, advisories)`: `cargo deny --locked check licenses advisories` mit `deny.toml` (siehe „cargo-deny (Lizenzen und Advisories)“ unter „Tests“); fehlt `cargo-deny`, bricht das Skript mit der Zeile "FAILED (cargo-deny fehlt)" und dem Installationsbefehl ab; direkt danach `npm licenses`: `scripts/check-licenses-npm.sh` (die Lizenzen der Produktionspakete von `apps/studio` gegen die Freigabeliste, siehe „npm-Lizenzen“ unter „Tests“)
 4. `cargo test --workspace --all-features` (ohne ROM-Daten: `G4_TEST_PROJECT`, `G4_TEST_ROM`, `G4_DSROM_CLI`, `G4_APICULA` und `G4_ROTOM_LSP` aus der aufrufenden Shell werden für diesen Schritt entfernt, die gated Tests überspringen sich)
 5. `mcp`: `cargo test -p studio --test mcp_stdio` (das Produkt-Binary ohne Cargo-Features: `studio mcp` über stdio auf dem synthetischen Projekt, darunter Schreiben, Batch als ein Undo-Schritt, Unumkehrbares nur mit `--allow-irreversible` und der Test, dass `g4_call` ohne `--expert` fehlt; hermetisch wie der Schritt davor, dieselben `G4_*`-Variablen werden entfernt; rund 30 s bei warmem Cache, die Tests selbst 8 s; die gated Tests laufen je Projekt im letzten Schritt mit)
 6. `pnpm test` in `apps/studio`
