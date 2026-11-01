@@ -45,7 +45,9 @@ export type PaletteCommand =
   | "gitSetup"
   | "publish"
   | "commitAll"
-  | "flags";
+  | "flags"
+  | "geschichten"
+  | "threads";
 
 /** What picking an entry does: follow a link (`goTo`) or run a command. */
 export type PaletteRun = { kind: "goTo"; target: NavTarget } | { kind: "command"; command: PaletteCommand };
@@ -181,6 +183,7 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "terms", label: "Begriffe", icon: "help" },
     { command: "settings", label: "Einstellungen", icon: "settings" },
     { command: "welt", label: "Bereich Welt", icon: "world", area: "welt" },
+    { command: "geschichten", label: "Bereich Geschichten", icon: "stories", area: "geschichten" },
     { command: "texte", label: "Bereich Texte", icon: "texts", area: "texte" },
     { command: "pokemon", label: "Bereich Pokémon", icon: "pokemon", area: "pokemon" },
     { command: "trainer", label: "Trainer öffnen", icon: "pokemon", area: "pokemon", description: "Die Trainer im Bereich Pokémon" },
@@ -193,8 +196,9 @@ function commandEntries({ hasProject, commands }: PaletteSource): PaletteEntry[]
     { command: "publish", label: "Veröffentlichen…", icon: "publish", locked: !hasProject ? NO_PROJECT : (publishLocked ?? (busy ? BUSY : wizard ? WIZARD_OPEN : null)) },
     // Only with the project's own repository; it commits the saved state, so it waits like saving.
     ...(hasProject && commitAll ? [{ command: "commitAll", label: "Stand sichern…", icon: "git", locked: busy ? BUSY : null } satisfies CommandSpec] : []),
-    // Technik › Flags und Variablen (3d.1).
-    { command: "flags", label: "Flags und Variablen", icon: "flag", area: "technik", locked: hasProject ? null : NO_PROJECT },
+    // Geschichten › Fäden (3d.6) and › Flags und Variablen (3d.1, moved from Technik with 3d.6).
+    { command: "threads", label: "Fäden", icon: "thread", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
+    { command: "flags", label: "Flags und Variablen", icon: "flag", area: "geschichten", locked: hasProject ? null : NO_PROJECT },
   ];
   return specs.map(({ command, label, icon, area, shortcut, description, locked }) => ({
     id: `cmd-${command}`,

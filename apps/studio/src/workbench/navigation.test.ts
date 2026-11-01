@@ -146,7 +146,7 @@ describe("nextSelection", () => {
   });
 
   it("a_flag_names_the_flag_and_leaves_the_selection_the_pin_and_the_panels_alone", () => {
-    // The list of flags and variables is no deck area: App opens it (Technik › Flags und Variablen) with the number chosen.
+    // The list of flags and variables is no deck area: App opens it (Geschichten › Flags und Variablen) with the number chosen.
     expect(nextSelection(state, { kind: "flag", flagKind: "var", number: 0x4030 })).toEqual({
       area: "welt",
       selectedHeader: 3,
@@ -154,6 +154,12 @@ describe("nextSelection", () => {
       panel: null,
       flag: { kind: "var", number: 0x4030 },
     });
+  });
+
+  it("a_story_or_a_thread_names_its_number_and_leaves_the_selection_the_pin_and_the_panels_alone", () => {
+    // Geschichten is no deck area: App opens Geschichten › Geschichten or › Fäden on the number.
+    expect(nextSelection(state, { kind: "story", number: 2 })).toEqual({ area: "welt", selectedHeader: 3, pinned: null, panel: null, story: 2 });
+    expect(nextSelection(state, { kind: "thread", var: 0x4040 })).toEqual({ area: "welt", selectedHeader: 3, pinned: null, panel: null, thread: 0x4040 });
   });
 
   it("every other target is in the world", () => {

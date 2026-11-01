@@ -80,6 +80,7 @@ describe("paletteEntries", () => {
       "Begriffe",
       "Einstellungen",
       "Bereich Welt",
+      "Bereich Geschichten",
       "Bereich Texte",
       "Bereich Pokémon",
       "Trainer öffnen",
@@ -87,10 +88,11 @@ describe("paletteEntries", () => {
       "Bereich Gegenstände",
       "Bereich Technik",
       "Veröffentlichen…",
+      "Fäden",
       "Flags und Variablen",
     ]);
     const locked = entries.filter((e) => e.disabled).map((e) => e.label);
-    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken", "Veröffentlichen…", "Flags und Variablen"]);
+    expect(locked).toEqual(["Speichern", "Bauen", "Hier spielen", "Gebiet anlegen…", "Raum anlegen…", "Welt leeren…", "Teile in die Karte importieren…", "Als Vorschaubild: 3D-Ansicht", "Als Vorschaubild: Kartenbild der gewählten Karte", "Inspector andocken", "Veröffentlichen…", "Fäden", "Flags und Variablen"]);
     expect(entries.find((e) => e.label === "Als Vorschaubild: 3D-Ansicht")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Als Vorschaubild: Kartenbild der gewählten Karte")?.description).toBe("Erst ein Projekt öffnen");
     expect(entries.find((e) => e.label === "Welt leeren…")?.description).toBe("Erst ein Projekt öffnen");
@@ -314,13 +316,24 @@ describe("paletteEntries", () => {
   });
 
   it("flags_and_variables_only_with_a_project", () => {
-    // With a project: Technik › Flags und Variablen, with the flag's symbol.
+    // With a project: Geschichten › Flags und Variablen, with the flag's symbol.
     const flags = byId("cmd-flags");
-    expect(flags).toMatchObject({ label: "Flags und Variablen", icon: "flag", area: "technik", group: "Befehle", disabled: false, run: { kind: "command", command: "flags" } });
+    expect(flags).toMatchObject({ label: "Flags und Variablen", icon: "flag", area: "geschichten", group: "Befehle", disabled: false, run: { kind: "command", command: "flags" } });
     expect(flags?.description).toBeUndefined();
     // Without one: locked, with the reason.
     expect(byId("cmd-flags", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
     // Found by its name.
     expect(filterItems(paletteEntries(source()), "flags").map((e) => e.id)).toContain("cmd-flags");
   });
+
+  it("geschichten_and_its_threads", () => {
+    // The area, open without a project like the others.
+    expect(byId("cmd-geschichten", { hasProject: false })).toMatchObject({ label: "Bereich Geschichten", icon: "stories", area: "geschichten", disabled: false, run: { kind: "command", command: "geschichten" } });
+    // Its threads need a project.
+    expect(byId("cmd-threads")).toMatchObject({ label: "Fäden", icon: "thread", area: "geschichten", group: "Befehle", disabled: false, run: { kind: "command", command: "threads" } });
+    expect(byId("cmd-threads", { hasProject: false })).toMatchObject({ disabled: true, description: "Erst ein Projekt öffnen" });
+    expect(filterItems(paletteEntries(source()), "Fäden").map((e) => e.id)).toContain("cmd-threads");
+    expect(filterItems(paletteEntries(source()), "geschichten").map((e) => e.id)).toContain("cmd-geschichten");
+  });
+
 });

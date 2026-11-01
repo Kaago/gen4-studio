@@ -453,7 +453,9 @@ export type NavTargetDto =
   | { kind: "item"; id: number }
   | { kind: "trainer"; index: number }
   | { kind: "encounter"; index: number }
-  | { kind: "flag"; flagKind: FlagKind; number: number };
+  | { kind: "flag"; flagKind: FlagKind; number: number }
+  | { kind: "story"; number: number }
+  | { kind: "thread"; var: number };
 
 /**
  * One reference: `field` (entry `slot`) of `source` points at the target; `label` says where in German ("Staravia, Lernset Platz 4"),

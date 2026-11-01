@@ -1,0 +1,59 @@
+/* The area Geschichten: the list column on the left, the surface of the chosen entry beside it (as Technik, TechnikArea.module.css). */
+.area {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-8);
+}
+
+/* A surface of the area: the Technik surface (title, reading width 880). */
+.surface {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-16);
+  overflow: auto;
+  padding: var(--g4-raum-32) var(--g4-raum-24);
+  background: var(--g4-flaeche-deck);
+  color: var(--g4-text-primaer);
+}
+
+.surface > * {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 880px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.title,
+.text,
+.note {
+  margin: 0;
+}
+
+.title {
+  font: var(--g4-font-titel-s);
+}
+
+.text {
+  max-width: 64ch;
+  font: var(--g4-font-text-s);
+}
+
+.note {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}

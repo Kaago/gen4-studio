@@ -61,9 +61,9 @@ function firstChangedLine(diff: Extract<EntityDiff, { shape: "lines" }>): number
 
 /**
  * Where „Öffnen“ leads (plan 4.4 „Öffnen“): the header, the area data, the text archive at its first changed message, the script file at
- * its first changed line, the species, move, item, trainer or encounter file, the matrix at cell 0, 0, and an event file at the event its
- * first changed path lies in. Null where the app has no place: maps, textures, models, members, project files, stories (until the stories'
- * surface has a place for one), an event file whose first change is outside the event lists (or not read yet).
+ * its first changed line, the species, move, item, trainer or encounter file, the matrix at cell 0, 0, an event file at the event its
+ * first changed path lies in, and a story in Geschichten › Geschichten by its number. Null where the app has no place: maps, textures,
+ * models, members, project files, an event file whose first change is outside the event lists (or not read yet).
  */
 export function navTargetOf(subject: DiffSubject, diff: EntityDiff | null): NavTarget | null {
   switch (subject.kind) {
@@ -96,6 +96,9 @@ export function navTargetOf(subject: DiffSubject, diff: EntityDiff | null): NavT
       const event = first === undefined ? null : eventAt(first.path);
       return event === null ? null : { kind: "event", eventFile: subject.index, eventKind: event.kind, index: event.index };
     }
+    case "story":
+      // Geschichten › Geschichten selects the row with this number.
+      return { kind: "story", number: subject.index };
     default:
       return null;
   }

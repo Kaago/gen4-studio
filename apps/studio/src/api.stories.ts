@@ -1,9 +1,11 @@
 import type { AssetId, FlagAccess, NavTargetDto } from "./api";
+import { invoke } from "./platform/transport";
 
 /**
- * Stories and threads (3d.6), mirroring `apps/studio/src-tauri/src/commands/stories.rs` and `g4_kernel::stories`. Field names are the
- * Rust ones (snake_case, `levelScript` as the story file has it). Types only for now; the commands (`list_threads`, `thread_graph`,
- * `story_list`, `story_get`, `story_create`, `story_update`) and the re-export from `api.ts` follow with the area Geschichten.
+ * Stories and threads (3d.6), mirroring `apps/studio/src-tauri/src/commands/stories.rs` and `g4_kernel::stories`. `api.ts` re-exports
+ * everything. Field names are the Rust ones (snake_case, `levelScript` as the story file has it). `storyGet` and `storyUpdate` refuse an id
+ * the register does not have (`unknown_id`), `storyCreate` and `storyUpdate` outside a text project (`not_text_project`); every refusal
+ * carries the kernel's German sentence.
  */
 
 /** What a step of a story is: the seven kinds (`appearance` is appearing or disappearing; the step's name says which). */
@@ -149,3 +151,17 @@ export interface StoryReport {
   ms: number;
   warnings: string[];
 }
+
+/** Every thread of the open project (builds the reference index on first use). */
+export const listThreads = () => invoke<ThreadListDto>("list_threads", {});
+/** The graph of variable `variable`; with `story` (its id) the story's steps lie on the value nodes and its layout places them. */
+export const threadGraph = (variable: number, story?: string) => invoke<ThreadGraphDto>("thread_graph", { var: variable, story: story ?? null });
+/** Every story of the project, a file that does not read with its problem. */
+export const storyList = () => invoke<StoryListDto>("story_list", {});
+/** One story by its id, with its side file. */
+export const storyGet = (id: string) => invoke<StoryDto>("story_get", { id });
+/** Creates a story (its file, side file and register entry) as one undo step. */
+export const storyCreate = (req: { name: string; progress: Progress; notes?: string }) => invoke<StoryReport>("story_create", { req });
+/** Changes the fields given (and with `layout` the side file) as one undo step; the id changes only with `rename_id`. */
+export const storyUpdate = (id: string, patch: Partial<Pick<Story, "name" | "notes" | "progress" | "steps" | "flags">> & { layout?: Layout }) =>
+  invoke<StoryReport>("story_update", { id, patch });

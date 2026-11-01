@@ -33,8 +33,12 @@ export type NavTarget =
   | { kind: "trainer"; index: number }
   /** An encounter file in the Begegnungen of the Pokémon area. */
   | { kind: "encounter"; index: number }
-  /** A flag or a variable in the list of flags and variables (Technik › Flags und Variablen). */
-  | { kind: "flag"; flagKind: FlagKind; number: number };
+  /** A flag or a variable in the list of flags and variables (Geschichten › Flags und Variablen). */
+  | { kind: "flag"; flagKind: FlagKind; number: number }
+  /** A story by its number (`data/stories/NNNN.json`) in Geschichten › Geschichten. */
+  | { kind: "story"; number: number }
+  /** A thread by its variable in Geschichten › Fäden. */
+  | { kind: "thread"; var: number };
 
 /**
  * An event target that names no header (a finding of the checks, whose subject is the event file) with the first header that reads its
@@ -87,6 +91,10 @@ export interface NavResult {
   sceneGroup?: SceneGroup;
   /** Set for a flag or a variable: what the list of flags and variables selects (no deck area holds it: `area` and `panel` mean nothing). */
   flag?: { kind: FlagKind; number: number };
+  /** Set for a story: the number Geschichten › Geschichten selects (as for a flag, `area` and `panel` mean nothing). */
+  story?: number;
+  /** Set for a thread: the variable Geschichten › Fäden selects (as for a flag, `area` and `panel` mean nothing). */
+  thread?: number;
 }
 
 /**
@@ -118,15 +126,19 @@ export function nextSelection(state: NavState, target: NavTarget): NavResult {
     case "item":
       return { area: "gegenstaende", ...keep, panel: "itemView", data: { sub: "items", index: target.id } };
     case "flag":
-      // Technik is no deck area: App opens the list of flags and variables itself; selection, pin and panels stay.
+      // Geschichten is no deck area: App opens the list of flags and variables itself; selection, pin and panels stay.
       return { area: "welt", ...keep, panel: null, flag: { kind: target.flagKind, number: target.number } };
+    case "story":
+      return { area: "welt", ...keep, panel: null, story: target.number };
+    case "thread":
+      return { area: "welt", ...keep, panel: null, thread: target.var };
     default:
       return { area: "welt", ...inWorld(state, target) };
   }
 }
 
 /** Where a target of the world leads (see `nextSelection`). */
-function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "encounter" | "move" | "item" | "flag" }>): Omit<NavResult, "area"> {
+function inWorld(state: NavState, target: Exclude<NavTarget, { kind: "textArchive" | "species" | "trainer" | "encounter" | "move" | "item" | "flag" | "story" | "thread" }>): Omit<NavResult, "area"> {
   const known = (id: number | null | undefined): id is number => typeof id === "number" && (state.headers === undefined || state.headers.some((h) => h.id === id));
   const toHeader = (id: number): Omit<NavResult, "area"> => ({ selectedHeader: id, pinned: { kind: "header", id }, panel: "headers" });
   // A header that the target needs selected first, unless it already is (null: keep the selection).

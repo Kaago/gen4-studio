@@ -21,10 +21,11 @@ import {
   useRovingList,
 } from "../../primitives";
 import type { Area, BadgeKind, MenuEntry, StoryNodeKind } from "../../primitives";
-import type { FlagEntryDto, FlagListDto, FlagUsageDto } from "../../../api";
+import type { FlagEntryDto, FlagListDto, FlagUsageDto, ThreadListDto } from "../../../api";
 import { FlagDetail } from "../../../flags/FlagDetail";
 import { FlagList } from "../../../flags/FlagList";
 import { sampleThreadGraph } from "../../../stories/graph/sampleGraph";
+import { ThreadsSurface } from "../../../stories/ThreadsSurface";
 import styles from "../Gallery.module.css";
 
 const places = [
@@ -202,6 +203,44 @@ function StoryNodesExample() {
         </Suspense>
       </div>
     </>
+  );
+}
+
+/** Two threads of the overview: one with a pret name, one with an own name and a story. */
+const threadsExample: ThreadListDto = {
+  threads: [
+    { var: 0x4031, name: "VAR_UNK_0x4031", own_id: null, values: [0, 1, 2], places: 3, headers: [411, 412], header_names: ["Zweiblattdorf", "Route 201"], story: null },
+    {
+      var: 0x4040,
+      name: "VAR_UNK_0x4040",
+      own_id: "VAR_RIVALIN",
+      values: Array.from({ length: 12 }, (_, i) => i),
+      places: 7,
+      headers: [411, 412, 415, 418],
+      header_names: ["Zweiblattdorf", "Route 201", "Sandgemme", "Route 202"],
+      story: "STORY_RIVALIN",
+    },
+  ],
+  text_project: true,
+  scripts_adopted: true,
+  ms: 7,
+};
+
+function ThreadsExample() {
+  const [selected, setSelected] = useState<number | null>(null);
+  return (
+    <ThreadsSurface
+      threads={threadsExample}
+      error={null}
+      depth="bauen"
+      selected={selected}
+      onSelect={setSelected}
+      goTo={() => {}}
+      project={null}
+      revision={0}
+      onOpenTextProject={() => {}}
+      stories={[{ number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_RIVALIN" }, steps: 4, problem: null }]}
+    />
   );
 }
 
@@ -420,6 +459,15 @@ export function ContentPage() {
           die ihn prüfen; ein gewählter Ort öffnet sich mit „Öffnen“.
         </p>
         <StoryNodesExample />
+      </section>
+
+      <section className={styles.block} data-gallery-state="threads">
+        <h2 className={styles.blockTitle}>Fäden-Übersicht</h2>
+        <p className={styles.note}>
+          Geschichten › Fäden in Bauen: je Faden der Name (eigener Name vor dem pret-Namen) mit der Nummer, die Werte (ab neun nur der erste und der
+          letzte), die Orte (höchstens drei Namen) und die Geschichte als Chip; in Erzählen fehlt die Nummer.
+        </p>
+        <ThreadsExample />
       </section>
 
       <section className={styles.block}>

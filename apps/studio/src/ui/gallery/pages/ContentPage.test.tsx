@@ -59,4 +59,13 @@ describe("ContentPage", () => {
     expect(block.querySelectorAll('[data-story-node][data-kind="place"][data-loose]')).toHaveLength(1);
     expect(block.querySelector('[data-story-node][role="button"]')?.getAttribute("aria-label")).toBe("Ort: Zweiblattdorf, Scriptdatei 0101");
   });
+
+  it("shows_rows_of_the_thread_overview_with_a_story_chip", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="threads"]')!;
+    expect(block.querySelectorAll("[data-thread-row]")).toHaveLength(2);
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-name]")?.textContent).toBe("VAR_RIVALIN");
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-tech]")?.textContent).toBe("0x4040");
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-story]")?.textContent).toContain("Rivalin");
+    expect(block.textContent).toContain("3 Orte: Zweiblattdorf, Route 201, …");
+  });
 });
