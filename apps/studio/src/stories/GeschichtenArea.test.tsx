@@ -29,6 +29,7 @@ describe("GeschichtenArea", () => {
   let root: Root;
   const onSelectFlag = vi.fn();
   const onOpenTextProject = vi.fn();
+  const onOpenProject = vi.fn();
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -41,6 +42,7 @@ describe("GeschichtenArea", () => {
     vi.mocked(flagUsage).mockReset().mockImplementation(async (kind, number) => flagUsageOf(kind, number));
     onSelectFlag.mockReset();
     onOpenTextProject.mockReset();
+    onOpenProject.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -67,6 +69,7 @@ describe("GeschichtenArea", () => {
         flags={withProject ? { project: info, revision: 0, selected: null, onSelect: onSelectFlag, readOnly: false, onError: () => {} } : undefined}
         textProject
         onOpenTextProject={onOpenTextProject}
+        onOpenProject={onOpenProject}
         onError={() => {}}
         {...over}
         entry={entry}
@@ -92,6 +95,16 @@ describe("GeschichtenArea", () => {
     expect(subtitle("Flags und Variablen")).toBe("Kein Projekt");
     expect(listThreads).not.toHaveBeenCalled();
     expect(storyList).not.toHaveBeenCalled();
+    // Each surface says so and offers „Projekt öffnen“ (Fäden, Geschichten, and Flags und Variablen as in Technik before).
+    const openButton = () => [...container.querySelectorAll("button")].find((b) => b.textContent === "Projekt öffnen");
+    for (const entry of ["Fäden", "Geschichten", "Flags und Variablen"]) {
+      await click(row(entry));
+      expect(area()?.textContent).toContain("Kein Projekt geöffnet.");
+      expect(area()?.textContent).not.toContain("Wird gelesen …");
+      await click(openButton());
+    }
+    expect(onOpenProject).toHaveBeenCalledTimes(3);
+    await click(row("Fäden"));
     // With one: each entry with its symbol and its count.
     await render();
     await settle();

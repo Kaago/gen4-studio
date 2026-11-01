@@ -21,7 +21,7 @@ import {
   useRovingList,
 } from "../../primitives";
 import type { Area, BadgeKind, MenuEntry, StoryNodeKind } from "../../primitives";
-import type { FlagEntryDto, FlagListDto, FlagUsageDto, ThreadListDto } from "../../../api";
+import type { FlagEntryDto, FlagListDto, FlagUsageDto, ProjectInfo, ThreadListDto } from "../../../api";
 import { FlagDetail } from "../../../flags/FlagDetail";
 import { FlagList } from "../../../flags/FlagList";
 import { sampleThreadGraph } from "../../../stories/graph/sampleGraph";
@@ -226,17 +226,19 @@ const threadsExample: ThreadListDto = {
   ms: 7,
 };
 
+/** The gallery's stand-in project: the rows need one; a row is not chosen here, so no graph is read (the graph is in „Story-Knoten“). */
+const galleryProject: ProjectInfo = { root: "/galerie", game_code: "CPUD", family: "Pt", language: "de", header_count: 593 };
+
 function ThreadsExample() {
-  const [selected, setSelected] = useState<number | null>(null);
   return (
     <ThreadsSurface
       threads={threadsExample}
       error={null}
       depth="bauen"
-      selected={selected}
-      onSelect={setSelected}
+      selected={null}
+      onSelect={() => {}}
       goTo={() => {}}
-      project={null}
+      project={galleryProject}
       revision={0}
       onOpenTextProject={() => {}}
       stories={[{ number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_RIVALIN" }, steps: 4, problem: null }]}

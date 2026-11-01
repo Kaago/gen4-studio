@@ -24,6 +24,7 @@ describe("ThreadsSurface", () => {
   const onSelect = vi.fn();
   const goTo = vi.fn();
   const onOpenTextProject = vi.fn();
+  const onOpenProject = vi.fn();
   // The graph is a lazy chunk: loaded once here, its `React.lazy` resolves at once (a slow machine takes seconds for the first import).
   beforeAll(async () => {
     await import("./graph/ThreadGraph");
@@ -36,6 +37,7 @@ describe("ThreadsSurface", () => {
     onSelect.mockReset();
     goTo.mockReset();
     onOpenTextProject.mockReset();
+    onOpenProject.mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -55,6 +57,7 @@ describe("ThreadsSurface", () => {
           project={project}
           revision={0}
           onOpenTextProject={onOpenTextProject}
+          onOpenProject={onOpenProject}
           {...over}
         />,
       ),
@@ -117,6 +120,18 @@ describe("ThreadsSurface", () => {
     await show({ selected: 0x4031 });
     await flush();
     expect(container.querySelector("[data-thread-graph-box]")?.textContent).toContain("Der Index ist nicht lesbar.");
+  });
+
+  it("without_a_project_the_empty_state_offers_projekt_oeffnen", async () => {
+    // No project: neither „Wird gelesen …“ forever nor a table, but the way out as the sibling surfaces offer it.
+    await show({ project: null, threads: null });
+    expect(table()).toBeNull();
+    expect(container.textContent).not.toContain("Wird gelesen …");
+    expect(container.textContent).toContain("Kein Projekt geöffnet.");
+    const button = [...container.querySelectorAll("button")].find((b) => b.textContent === "Projekt öffnen")!;
+    await act(async () => button.click());
+    expect(onOpenProject).toHaveBeenCalledOnce();
+    expect(threadGraph).not.toHaveBeenCalled();
   });
 
   it("without_adopted_scripts_the_empty_state_offers_the_way", async () => {

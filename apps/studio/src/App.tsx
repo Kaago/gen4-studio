@@ -1418,6 +1418,7 @@ function AppBody() {
         }
         textProject={isTextProject}
         onOpenTextProject={showTextProjectEntry}
+        onOpenProject={openProject}
         onError={session.fail}
       />
     ) : area === "einstellungen" ? (

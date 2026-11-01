@@ -45,6 +45,8 @@ export interface GeschichtenAreaProps {
   textProject: boolean;
   /** Technik › Textprojekt: where scripts are adopted and a DSPRE folder is set up. */
   onOpenTextProject: () => void;
+  /** „Projekt öffnen“ of the surfaces' empty states without a project (as Technik offered it for Flags und Variablen). */
+  onOpenProject?: () => void;
   /** What failed (a write's refusal or warning). */
   onError: (text: string) => void;
 }
@@ -105,10 +107,11 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           project={info}
           revision={revision}
           onOpenTextProject={props.onOpenTextProject}
+          onOpenProject={props.onOpenProject}
           stories={stories.list?.stories ?? null}
         />
       ) : entry === "stories" ? (
-        <StoriesPlaceholder project={info} stories={stories.list} error={stories.error} />
+        <StoriesPlaceholder project={info} stories={stories.list} error={stories.error} onOpenProject={props.onOpenProject} />
       ) : (
         <FlagsSurface
           project={info}
@@ -120,6 +123,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           readOnly={props.flags?.readOnly ?? false}
           onError={props.flags?.onError ?? noSelect}
           onNamed={props.flags?.onNamed}
+          onOpenProject={props.onOpenProject}
         />
       )}
     </div>
@@ -153,7 +157,7 @@ function useStoryList(project: ProjectInfo | null, revision: number): { list: St
 }
 
 /** Geschichten › Geschichten until its list and detail come (3d.6 Task 8): how many there are, and that agents create them meanwhile. */
-function StoriesPlaceholder({ project, stories, error }: { project: ProjectInfo | null; stories: StoryListDto | null; error: string | null }) {
+function StoriesPlaceholder({ project, stories, error, onOpenProject }: { project: ProjectInfo | null; stories: StoryListDto | null; error: string | null; onOpenProject?: () => void }) {
   const titleId = useId();
   return (
     <section className={styles.surface} data-geschichten-surface="stories" aria-labelledby={titleId}>
@@ -164,7 +168,11 @@ function StoriesPlaceholder({ project, stories, error }: { project: ProjectInfo 
         <p className={styles.text}>Geschichten erzählen mit einer Variable oder einem Flag, Schritt für Schritt, was im Spiel geschieht.</p>
       </header>
       {project === null ? (
-        <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier seine Geschichten." />
+        <EmptyState
+          what="Kein Projekt geöffnet."
+          why="Öffne ein Projekt, dann stehen hier seine Geschichten."
+          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
+        />
       ) : error !== null ? (
         <Notice kind="error">{error}</Notice>
       ) : stories === null ? (

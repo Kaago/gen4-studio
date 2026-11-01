@@ -30,6 +30,8 @@ export type ThreadsSurfaceProps = {
   revision: number;
   /** „Scripts übernehmen…“ of the empty state: Technik › Textprojekt. */
   onOpenTextProject: () => void;
+  /** „Projekt öffnen“ of the empty state without a project; without it the empty state offers nothing. */
+  onOpenProject?: () => void;
   /** The stories of the project, to name a thread's story and open it by its number; without them the chip names the id. */
   stories?: readonly StoryRowDto[] | null;
 };
@@ -50,9 +52,9 @@ export function threadsCount(n: number): string {
  * Geschichten › Fäden (3d.6): the variables the game tells a story with (three values or more at two places or more), as a table with
  * their name (from Bauen with the number), their values, their places and the story kept in them (a chip that opens it); below the table
  * the graph of the chosen thread, which loads in its own chunk. Without adopted scripts the index sees no script: the empty state offers
- * the way to adopt them.
+ * the way to adopt them; without a project it offers to open one.
  */
-export function ThreadsSurface({ threads, error, depth, selected, onSelect, goTo, project, revision, onOpenTextProject, stories }: ThreadsSurfaceProps): JSX.Element {
+export function ThreadsSurface({ threads, error, depth, selected, onSelect, goTo, project, revision, onOpenTextProject, onOpenProject, stories }: ThreadsSurfaceProps): JSX.Element {
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
   const chosen = threads?.threads.find((t) => t.var === selected) ?? null;
@@ -88,7 +90,13 @@ export function ThreadsSurface({ threads, error, depth, selected, onSelect, goTo
         </h1>
         <p className={styles.text}>Variablen, mit denen das Spiel eine Geschichte erzählt: drei Werte oder mehr, gesetzt oder geprüft an zwei Orten oder mehr.</p>
       </header>
-      {threads === null ? (
+      {project === null ? (
+        <EmptyState
+          what="Kein Projekt geöffnet."
+          why="Öffne ein Projekt, dann stehen hier seine Fäden."
+          action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
+        />
+      ) : threads === null ? (
         error === null ? (
           <p className={styles.note}>Wird gelesen …</p>
         ) : (

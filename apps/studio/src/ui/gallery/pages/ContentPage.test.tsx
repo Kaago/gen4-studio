@@ -67,5 +67,9 @@ describe("ContentPage", () => {
     expect(block.querySelector("[data-thread-row='16448'] [data-thread-tech]")?.textContent).toBe("0x4040");
     expect(block.querySelector("[data-thread-row='16448'] [data-thread-story]")?.textContent).toContain("Rivalin");
     expect(block.textContent).toContain("3 Orte: Zweiblattdorf, Route 201, …");
+    // A click on a row reads no graph (the gallery has no project to read it from): nothing hangs on „Graph wird gelesen …“.
+    act(() => block.querySelector<HTMLElement>("[data-thread-row='16448']")!.click());
+    expect(block.textContent).not.toContain("Graph wird gelesen");
+    expect(block.querySelector("[data-thread-graph-box]")).toBeNull();
   });
 });
