@@ -132,7 +132,11 @@ Header `header`. Der Weg:
    rotom eine Funktion ohne Nummer (`hilfe:`). Jedes Ziel wird **einmal** gelaufen (Schleifen
    brechen ab), und zwar nach dem Rumpf, der springt: erst die eigenen Nachrichten des Scripts, dann
    die der Sprungziele in der Reihenfolge der Sprünge. Vanilla springt mit `GoToIf … label` weg,
-   bevor der Standardtext kommt; der steht so vorn. `followed` nennt die gelaufenen Labels. Nicht
+   bevor der Standardtext kommt; der steht so vorn. Endet ein Rumpf nicht mit `End`, `Return`, dem
+   Sprungwort oder einem `if … else`, das auf beiden Seiten so endet, läuft der Code in die
+   nächste Funktion der Datei weiter; sie kommt vor den Sprungzielen dran. rotoms Decompiler
+   schreibt so ein Label, das der Code auch von oben erreicht, mitten ins Script (`label_XXXX:`),
+   und der Parser macht daraus eine eigene Funktion. `followed` nennt die gelaufenen Labels. Nicht
    verfolgt: gemeinsame Scripts (`CallCommonScript`), Menü-Ziele und Befehle außerhalb der Liste
    (etwa `GoToIfEq`).
 5. **Geteilt:** `shared_with` einer Nachricht zählt die **anderen** Objekte, deren Dialog dieselbe
@@ -142,7 +146,7 @@ Header `header`. Der Weg:
    (rotom legt ein Literal mit schon vorhandenem Text auf dessen Index, Vanilla hat Dubletten).
 
 Gemessen auf Platin DE: 3 555 Objekte, keines `unreadable`, 125 Figuren zeigen mindestens eine
-geteilte Nachricht (329 Paare aus Archiv und Index); HeartGold DE: 2 667 Objekte, 132 Figuren, 211
+geteilte Nachricht (329 Paare aus Archiv und Index); HeartGold DE: 2 667 Objekte, 140 Figuren, 240
 Paare. Gutachten A zählte ohne Sprünge 66 bzw. 100 Nachrichten, wohl weil eine Nachricht in einem
 Label dort keinem Script gehört (`checks::scripts::walk` gibt ihr keinen Slot). Der Startort Zweiblattdorf (Header 411) hat keine geteilte Nachricht, Neuborkia
 (Header 60) zwei.

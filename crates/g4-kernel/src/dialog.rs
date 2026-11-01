@@ -1,8 +1,9 @@
 //! The dialog of a figure: the messages an object's (or a sign's) script shows, with the jumps
 //! inside its file followed (`docs/formats/script_file.md`, "Dialog einer Figur"): first the
-//! script's own messages in source order, then those of each label it jumps to, in the order of
-//! the jumps (vanilla jumps away with `GoToIf … label` before its default text, which so comes
-//! first).
+//! script's own messages in source order, together with the functions its code runs on into
+//! (a body without `End`, `Return` or a jump continues with the next function of the file), then
+//! those of each label it jumps to, in the order of the jumps (vanilla jumps away with
+//! `GoToIf … label` before its default text, which so comes first).
 //!
 //! The event's script number says where the dialog is: 0 is none, 3000 to 6999 a trainer's
 //! battle (its texts are trainer texts), 2000 and up a common script, below 2000 script `#n` of
@@ -202,13 +203,28 @@ fn local_dialog(
         }
     };
     let mut messages = shown.messages(archive);
+    if !messages.is_empty() {
+        // An archive that does not load (missing, unreadable) makes the dialog unreadable;
+        // `text: None` stays for a message the archive does not have (script.message-missing).
+        // A script without messages does not need the archive.
+        let doc = match store.text_archive(archive) {
+            Ok(doc) => doc,
+            Err(e) => {
+                return Ok(Dialog::without_messages(DialogSource::Unreadable {
+                    reason: format!("Textarchiv {archive} lässt sich nicht lesen: {e}"),
+                }));
+            }
+        };
+        for m in &mut messages {
+            m.text = doc
+                .messages
+                .get(usize::from(m.index))
+                .map(|t| t.text.clone());
+        }
+    }
     let wanted: BTreeSet<u16> = messages.iter().map(|m| m.index).collect();
     let counts = shared_counts(store, &mut sources, archive, own, &wanted)?;
-    let texts = store.text_archive(archive).ok();
     for m in &mut messages {
-        m.text = texts
-            .and_then(|doc| doc.messages.get(usize::from(m.index)))
-            .map(|t| t.text.clone());
         m.shared_with = counts.get(&m.index).copied().unwrap_or(0);
     }
     Ok(Dialog {
@@ -367,22 +383,54 @@ impl Shown {
     }
 }
 
+/// A script or label of the file, in file order.
+#[derive(Clone, Copy)]
+struct Function<'a> {
+    /// Its first name (a script's stacked headers share one body).
+    name: &'a str,
+    body: &'a [Statement],
+    /// The function right after it in the file: the code runs on into it when the body does
+    /// not end (`ends`). rotom's decompiler writes `label:` inside a script whose code reaches
+    /// the label without `End` (`ir_to_source.rs`, `IrOpcode::Label`), and the parser makes
+    /// the label a function of its own.
+    next: Option<usize>,
+}
+
 /// Walks script `#slot` of `parsed`; `None` when the file does not declare the slot.
 fn shown_in(parsed: &Parsed, family: Family, slot: u32) -> Option<Shown> {
-    let mut labels: BTreeMap<&str, &[Statement]> = BTreeMap::new();
+    let mut functions: Vec<Function> = Vec::new();
+    let mut labels: BTreeMap<&str, usize> = BTreeMap::new();
     let mut start = None;
+    // The function the previous item was, while nothing else stands between.
+    let mut previous: Option<usize> = None;
     for item in &parsed.file.items {
         // A script (`script name #n:`) or a label (`name:`, a function without an id).
-        if let StatementKind::Function { headers, body } = &item.node {
-            for h in headers {
-                labels.entry(h.name.as_str()).or_insert(body.as_slice());
-            }
-            if headers.iter().any(|h| h.id == Some(slot)) {
-                start = Some((headers, body));
-            }
+        let StatementKind::Function { headers, body } = &item.node else {
+            previous = None;
+            continue;
+        };
+        let Some(first) = headers.first() else {
+            previous = None;
+            continue;
+        };
+        let at = functions.len();
+        functions.push(Function {
+            name: first.name.as_str(),
+            body,
+            next: None,
+        });
+        if let Some(previous) = previous {
+            functions[previous].next = Some(at);
+        }
+        previous = Some(at);
+        for h in headers {
+            labels.entry(h.name.as_str()).or_insert(at);
+        }
+        if headers.iter().any(|h| h.id == Some(slot)) {
+            start = Some(at);
         }
     }
-    let (headers, body) = start?;
+    let start = start?;
     let limits = Limits::get();
     let mut walk = Walk {
         family,
@@ -390,9 +438,9 @@ fn shown_in(parsed: &Parsed, family: Family, slot: u32) -> Option<Shown> {
         jumps: limits.jump_commands(family),
         db: database(family),
         text: &parsed.text,
+        functions,
         labels,
-        // The script itself is walked already.
-        visited: headers.iter().map(|h| h.name.as_str()).collect(),
+        visited: BTreeSet::from([start]),
         pending: VecDeque::new(),
         slot,
         shown: Shown {
@@ -400,31 +448,63 @@ fn shown_in(parsed: &Parsed, family: Family, slot: u32) -> Option<Shown> {
             followed: Vec::new(),
         },
     };
-    walk.block(body, None);
+    walk.run(start);
     while let Some(label) = walk.pending.pop_front() {
-        walk.block(label, None);
+        walk.run(label);
     }
     Some(walk.shown)
 }
 
-/// One walk through a script and the labels it jumps to.
+/// Whether `statements` never run past their end: they end with `End`, `Return` or the jump
+/// keyword, or with an `if … else` whose branches both do.
+fn ends(statements: &[Statement]) -> bool {
+    match statements.last().map(|s| &s.node) {
+        Some(StatementKind::End | StatementKind::Return | StatementKind::Jump(_)) => true,
+        Some(StatementKind::IfStatement {
+            body,
+            elseblock: Some(other),
+            ..
+        }) => ends(body) && ends(other),
+        _ => false,
+    }
+}
+
+/// One walk through a script and the labels it jumps or runs on to.
 struct Walk<'a> {
     family: Family,
     params: &'a [MessageParam],
     jumps: &'a [String],
     db: Option<&'static rotom::DatabaseV2>,
     text: &'a str,
+    functions: Vec<Function<'a>>,
     /// The scripts and labels of the file by name.
-    labels: BTreeMap<&'a str, &'a [Statement]>,
-    visited: BTreeSet<&'a str>,
+    labels: BTreeMap<&'a str, usize>,
+    visited: BTreeSet<usize>,
     /// Labels jumped to and not walked yet: each is walked after the body that jumps, so the
     /// path without the jump (vanilla's `GoToIf … label` before the default text) comes first.
-    pending: VecDeque<&'a [Statement]>,
+    pending: VecDeque<usize>,
     slot: u32,
     shown: Shown,
 }
 
 impl<'a> Walk<'a> {
+    /// Walks function `at` and the functions its code runs on into (each once): the path on
+    /// comes before the jump targets.
+    fn run(&mut self, mut at: usize) {
+        loop {
+            let function = self.functions[at];
+            self.block(function.body, None);
+            let Some(next) = function.next else {
+                return;
+            };
+            if ends(function.body) || !self.visited.insert(next) {
+                return;
+            }
+            self.shown.followed.push(self.functions[next].name.to_owned());
+            at = next;
+        }
+    }
+
     fn block(&mut self, statements: &'a [Statement], branch: Option<&'a str>) {
         for statement in statements {
             match &statement.node {
@@ -478,14 +558,14 @@ impl<'a> Walk<'a> {
         let (ExpressionKind::Identifier(name) | ExpressionKind::Label(name)) = &target.node else {
             return;
         };
-        let Some((&key, &body)) = self.labels.get_key_value(name.as_str()) else {
+        let Some(&at) = self.labels.get(name.as_str()) else {
             return;
         };
-        if !self.visited.insert(key) {
+        if !self.visited.insert(at) {
             return;
         }
         self.shown.followed.push(name.clone());
-        self.pending.push_back(body);
+        self.pending.push_back(at);
     }
 
     /// Whether `command` is a jump command of `script.jump_params`, by name or through rotom's
@@ -644,6 +724,55 @@ mod tests {
         let dialog = of(&mut st, 0);
         assert_eq!(indices(&dialog), [1, 2, 3]);
         assert_eq!(dialog.followed, ["spaeter", "ende"]);
+    }
+
+    #[test]
+    fn a_body_without_end_runs_on_into_the_next_label() {
+        // As rotom's decompiler writes a jump target the code also reaches from above.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script figur #1:\n    CheckFlag 148\n    GoToIf EQUAL, spaeter\n    Message 1\n\
+             weiter:\n    Message 2\n    End\n\
+             spaeter:\n    if FLAG_UNUSED_0x0094 then\n        Message 3\n        End\n    \
+             else\n        Message 4\n        Return\n    endif\n\
+             fremd:\n    Message 9\n    End\n",
+            &TEN,
+            &[1],
+        );
+        let dialog = of(&mut st, 0);
+        // `weiter` comes on from the script, before the jump target; `End` and an `if … else`
+        // ending on both sides stop the code, so `fremd` is never reached.
+        assert_eq!(indices(&dialog), [1, 2, 3, 4]);
+        assert_eq!(dialog.followed, ["spaeter", "weiter"]);
+    }
+
+    #[test]
+    fn an_archive_that_does_not_load_makes_the_dialog_unreadable() {
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script spricht #1:\n    Message 1\n    End\nscript stumm #2:\n    End\n",
+            &TEN,
+            &[1, 2],
+        );
+        st.transaction("archive", |tx| {
+            tx.edit_header(0, |h| {
+                if let uxie::map_header::MapHeader::Pt(h) = h {
+                    h.text_archive_id = 9999;
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
+        let DialogSource::Unreadable { reason } = of(&mut st, 0).source else {
+            panic!("not unreadable");
+        };
+        assert!(reason.starts_with("Textarchiv 9999"), "{reason}");
+        // A script without messages does not need the archive.
+        let quiet = of(&mut st, 1);
+        assert!(matches!(quiet.source, DialogSource::Local { slot: 2, .. }));
+        assert!(quiet.messages.is_empty());
     }
 
     #[test]
