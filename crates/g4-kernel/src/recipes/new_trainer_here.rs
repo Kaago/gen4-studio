@@ -23,8 +23,9 @@ use super::types::{
 };
 use crate::data::names::{Bank, NameTables, bank_index};
 use crate::data::trainer_create::{
-    ADOPT_FIRST, KIND_AFTER, KIND_LOSE, TEXT_BEFORE_BATTLE, TrainerText, create_trainer_with,
-    name_too_long, set_trainer_texts_labelled, trainer_flag_capacity,
+    ADOPT_FIRST, KIND_AFTER, KIND_LOSE, NextTrainer, TEXT_BEFORE_BATTLE, TrainerText,
+    create_trainer_with, name_too_long, next_trainer, set_trainer_texts_labelled,
+    trainer_flag_capacity,
 };
 use crate::error::KernelError;
 use crate::project::AssetKind;
@@ -225,30 +226,20 @@ fn check(
         )));
     }
 
-    // The id as `create_trainer_with` gives it: the next one, the sight slot skipped.
+    // The id as `create_trainer_with` gives it (one rule, `trainer_create::next_trainer`).
     let count = store.member_count(AssetKind::TrainerProperties)?;
-    let next = u16::try_from(count)
-        .map_err(|_| refused(format!("{count} Trainer: es ist keine Nummer mehr frei.")))?;
-    if next == 0 {
-        // Trainer 0 is no trainer in the game (its battle script would be 2999).
+    let NextTrainer {
+        id: trainer,
+        placeholder,
+        extend,
+    } = next_trainer(&project, count, meta, flag_capacity)?;
+    if trainer == 0 {
+        // Trainer 0 is no trainer in the game; its battle script would be 2999.
         return Err(refused(
             "Das Spiel hat keine Trainer, nicht einmal Trainer 0; hier lässt sich kein Trainer \
              aufstellen.",
         ));
     }
-    let (trainer, placeholder) = if next == meta.seen_id() {
-        (next.saturating_add(1), Some(next))
-    } else {
-        (next, None)
-    };
-    if trainer >= flag_capacity {
-        return Err(refused(format!(
-            "Trainer {trainer} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 \
-             bis {}. Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
-            flag_capacity.saturating_sub(1)
-        )));
-    }
-    let extend = u32::from(trainer) > scripts::battle_slots(&project, meta)?.max();
     let look = match input.graphics_id {
         Some(look) => look,
         None => default_look(family)?.trainer,

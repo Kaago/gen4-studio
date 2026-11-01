@@ -120,6 +120,48 @@ pub fn name_too_long(name: &str) -> Option<String> {
     })
 }
 
+/// The id a new trainer gets, as [`create_trainer_with`] gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextTrainer {
+    /// The new trainer.
+    pub id: u16,
+    /// The sight slot before it, which gets a locked placeholder first.
+    pub placeholder: Option<u16>,
+    /// The battle script needs new slots for it.
+    pub extend: bool,
+}
+
+/// The next trainer id after `count` trainers: `count`, or `count + 1` behind a placeholder when
+/// `count` is the sight slot of `meta`. Refused when it does not fit 16 bits, has no defeat flag
+/// (`id >= flag_capacity`) or the battle script cannot be read ([`scripts::battle_slots`]); a
+/// plan and the create itself share this rule.
+pub fn next_trainer(
+    project: &Project,
+    count: usize,
+    meta: &TrainerScriptMeta,
+    flag_capacity: u16,
+) -> Result<NextTrainer, KernelError> {
+    let mut id = u16::try_from(count)
+        .map_err(|_| refused(format!("{count} Trainer: es ist keine Nummer mehr frei.")))?;
+    let placeholder = (id == meta.seen_id()).then_some(id);
+    if placeholder.is_some() {
+        id += 1;
+    }
+    if id >= flag_capacity {
+        return Err(refused(format!(
+            "Trainer {id} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis {}. \
+             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
+            flag_capacity.saturating_sub(1)
+        )));
+    }
+    let extend = u32::from(id) > scripts::battle_slots(project, meta)?.max();
+    Ok(NextTrainer {
+        id,
+        placeholder,
+        extend,
+    })
+}
+
 /// Creates a trainer at the next ID (the trainer count). Refused, with nothing written,
 /// unless: the scripts are adopted, the name bank has one name per trainer, the battle
 /// script's sight slot is the one of `meta`, the ID is below `flag_capacity`, and the
@@ -198,24 +240,11 @@ pub fn create_trainer_with(
              keinen Platz. Entferne ungenutzte Kampftexte, dann lässt sich ein Trainer anlegen."
         ))
     })?;
-    let mut id = u16::try_from(props_count).map_err(|_| {
-        refused(format!(
-            "{props_count} Trainer: es ist keine Nummer mehr frei."
-        ))
-    })?;
-    let placeholder = (id == meta.seen_id()).then_some(id);
-    if placeholder.is_some() {
-        id += 1;
-    }
-    if id >= flag_capacity {
-        return Err(refused(format!(
-            "Trainer {id} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis {}. \
-             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
-            flag_capacity.saturating_sub(1)
-        )));
-    }
-    let slots = scripts::battle_slots(project, meta)?;
-    let extend = u32::from(id) > slots.max();
+    let NextTrainer {
+        id,
+        placeholder,
+        extend,
+    } = next_trainer(project, props_count, meta, flag_capacity)?;
     // The extension compiles the scripts and reloads the text archives the compile touched
     // (the text archives of the headers whose scripts it compiled) from disk: an unsaved
     // edit there would be lost, so it is refused as `save_script` refuses it. The trainer name
