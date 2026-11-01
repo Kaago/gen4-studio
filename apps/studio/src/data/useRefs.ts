@@ -11,7 +11,10 @@ export interface FoundRefs {
 }
 
 /** One key per target, so the effect runs again for another target, not for another object of the same one. */
-const keyOf = (target: TargetDto): string => `${target.kind}:${"id" in target ? target.id : target.index}`;
+const keyOf = (target: TargetDto): string => {
+  if (target.kind === "message") return `message:${target.archive}:${target.index}`;
+  return `${target.kind}:${"id" in target ? target.id : target.index}`;
+};
 
 /**
  * The references to `target` (null: none asked for) in the open project, read again when a member of one of `referring` changed
@@ -43,5 +46,28 @@ export function useRefs(area: DataArea, target: TargetDto | null, referring: rea
       if (event.topic === "dataChanged" && referring.includes(event.kind)) void read();
     });
   }, [key, project, bus, referring]);
+  return found !== null && found.key === key && found.project === project ? found : null;
+}
+
+/**
+ * The references to `target` (null: none asked for) in `project`, outside a data area (the text area's „Verwendet in“ of a message): read
+ * whenever the target or the project changes. Null while they are read; an answer that a newer read overtook, or one for another target,
+ * never shows.
+ */
+export function useProjectRefs(project: ProjectInfo | null, target: TargetDto | null): FoundRefs | null {
+  const [found, setFound] = useState<(FoundRefs & { key: string; project: ProjectInfo }) | null>(null);
+  const latest = useRef(0);
+  const asked = useRef(target);
+  asked.current = target;
+  const key = target === null ? null : keyOf(target);
+  useEffect(() => {
+    const current = asked.current;
+    if (key === null || current === null || project === null) return;
+    const mine = ++latest.current;
+    refs(current).then(
+      (all) => latest.current === mine && setFound({ key, project, refs: all, error: null }),
+      (e) => latest.current === mine && setFound({ key, project, refs: null, error: errorText(e) }),
+    );
+  }, [key, project]);
   return found !== null && found.key === key && found.project === project ? found : null;
 }

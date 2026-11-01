@@ -18,6 +18,7 @@ import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "./problems/problems";
 import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
+import type { DialogTarget } from "./dialog/dialogModel";
 import { EMPTY_WORLD_META } from "./useWorldModel";
 import type { WorldModel } from "./useWorldModel";
 
@@ -150,6 +151,8 @@ export interface WorkbenchData {
   draft: DraftDto | null;
   /** Sets the draft: the dialog „Karte bei … anlegen?“ plans its new cell (a stable function). */
   onDraft: (draft: DraftDto | null) => void;
+  /** Opens the dialog editor of a figure or a sign (the field „Dialog“ of the inspector in Erzählen); a stable function. */
+  onOpenDialog: (target: DialogTarget) => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

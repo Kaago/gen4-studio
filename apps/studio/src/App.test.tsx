@@ -16,6 +16,7 @@ import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
 import { flagUsage, listFlags } from "./api";
+import { dialogOf, editTextArchive, validateText } from "./api";
 import { FLAGS, flagUsageOf } from "./flags/flagTesting";
 import { invalidateFlagLists, useFlagList } from "./flags/useFlagList";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
@@ -247,6 +248,9 @@ vi.mock("./api", async (importOriginal) => ({
   gitCommitPrepare: vi.fn(),
   listFlags: vi.fn(),
   flagUsage: vi.fn(),
+  dialogOf: vi.fn(),
+  editTextArchive: vi.fn(),
+  validateText: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -592,6 +596,38 @@ describe("App wiring", () => {
     expect(data().onOpenWizard).toBe(opener);
     await click("Abbrechen");
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("edit_dialog_opens_the_editor_for_the_selected_figure", async () => {
+    vi.mocked(validateText).mockResolvedValue([]);
+    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 1, line: 1 }, messages: [{ archive: 0, index: 3, text: "Hallo!", command: "Message", line: 2, col: 13, branch: null, shared_with: 0 }], followed: [] });
+    vi.mocked(editTextArchive).mockResolvedValue(4);
+    await select(listed[1]);
+    const opener = data().onOpenDialog;
+    await act(async () => opener({ header: 1, eventFile: 1, kind: "object", index: 3, title: "Objekt 3" }));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    const editor = () => document.querySelector<HTMLElement>("[data-dialog-editor]");
+    expect(editor()?.querySelector("h2")?.textContent).toBe("Dialog von Objekt 3");
+    expect(dialogOf).toHaveBeenLastCalledWith(1, 1, "object", 3);
+    // A text written in the editor counts as an edit and is announced to the text panel; the editor reads its dialog again.
+    const texts = vi.fn();
+    data().bus.subscribe("textData", texts);
+    vi.mocked(dirty).mockClear();
+    const field = editor()!.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(field, "Servus!");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => void field.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(editTextArchive).toHaveBeenCalledWith(0, { Set: { index: 3, text: "Servus!" } }, "Dialog geändert");
+    expect(texts).toHaveBeenCalled();
+    expect(dirty).toHaveBeenCalled();
+    // Opening it leaves the workbench's data alone; „Schließen“ closes it.
+    expect(data().onOpenDialog).toBe(opener);
+    const close = [...editor()!.querySelectorAll("button")].find((b) => b.textContent === "Schließen")!;
+    await act(async () => close.click());
+    expect(document.querySelector("[data-dialog-editor]:not([data-closed])")).toBeNull();
   });
 
   describe("browser mode", () => {

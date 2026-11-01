@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, RefObject } from "react";
 import type { TextHit } from "../../api";
+import { useProjectRefs } from "../../data/useRefs";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -246,6 +247,7 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
           onFocusChange={setEditorFocused}
           fieldRef={field}
         />
+        <MessageRefs archive={archive} message={message} />
         <div className={styles.usedIn}>
           <span className={styles.label}>Verwendet in</span>
           {usedBy.length === 0 ? (
@@ -261,5 +263,39 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
         </div>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Where the selected message is used: a chip per line of a script source that shows it (`refs` of the message, 3d.5), which opens the
+ * script panel at that line. Read when another message is chosen.
+ */
+function MessageRefs({ archive, message }: { archive: number; message: number }) {
+  const { project, goTo } = useTextArea();
+  const target = useMemo(() => ({ kind: "message" as const, archive, index: message }), [archive, message]);
+  const found = useProjectRefs(project, target);
+  let chips: ReactNode;
+  if (found === null) chips = <span className={styles.none}>…</span>;
+  else if (found.error !== null) chips = <span className={styles.none}>{found.error}</span>;
+  else if (found.refs!.length === 0) chips = <span className={styles.none}>keinem Script</span>;
+  else
+    chips = found.refs!.map((r) => {
+      const line = r.nav.kind === "script" ? r.nav.line : undefined;
+      return (
+        <Reference
+          key={`${r.source.index}:${r.slot ?? ""}:${r.field}`}
+          area="welt"
+          label={r.source_name}
+          tech={line === undefined ? undefined : `Zeile ${line}`}
+          onOpen={() => goTo(r.nav)}
+          dataAttrs={{ "data-script-line": `${r.source.index}:${line ?? ""}` }}
+        />
+      );
+    });
+  return (
+    <div className={styles.usedIn} data-message-refs="">
+      <span className={styles.label}>Verwendet in</span>
+      {chips}
+    </div>
   );
 }

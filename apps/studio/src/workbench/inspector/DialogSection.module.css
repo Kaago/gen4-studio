@@ -1,0 +1,37 @@
+/* The field „Dialog“ (a sign's „Text“) at the end of a figure's fields in Erzählen: title, DS screen, summary, the way into the editor. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  margin-top: var(--g4-raum-4);
+  padding: var(--g4-raum-8);
+  border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.title {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.preview {
+  min-width: 0;
+}
+
+.summary {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* A disabled button takes no pointer events; its wrapper takes them for the tooltip. */
+.lockedWrap {
+  display: inline-flex;
+  cursor: not-allowed;
+}

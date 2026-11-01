@@ -424,14 +424,15 @@ export interface ItemEntryDto {
   gba: number;
 }
 
-/** What `refs` looks for; items by item id. */
+/** What `refs` looks for; items by item id, a message by its archive and number (its uses in script sources, 3d.5). */
 export type TargetDto =
   | { kind: "species"; index: number }
   | { kind: "move"; index: number }
   | { kind: "item"; id: number }
   | { kind: "trainer"; index: number }
   | { kind: "trainer_class"; index: number }
-  | { kind: "encounter"; index: number };
+  | { kind: "encounter"; index: number }
+  | { kind: "message"; archive: number; index: number };
 
 /** The tabs of the Pokédex hand a reference can open. */
 export type SpeciesTab = "values" | "abilities" | "learnset" | "evolution" | "machines" | "raw";

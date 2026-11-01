@@ -1,0 +1,93 @@
+/* The dialog editor: the messages on the left, the DS screen of the chosen one on the right; under 760 px of width one above the other. */
+.layout {
+  display: flex;
+  container: dialog-editor / inline-size;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--g4-raum-16);
+}
+
+@container dialog-editor (min-width: 760px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  /* The screen stays in view while the messages scroll past it. */
+  .preview {
+    position: sticky;
+    top: 0;
+  }
+}
+
+.messages {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  border-radius: var(--g4-radius-feld);
+}
+
+.message[data-selected] {
+  border-color: var(--g4-linie-stark);
+}
+
+.head {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.split {
+  display: flex;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.caption {
+  align-self: flex-start;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.page {
+  min-width: 10ch;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+  text-align: center;
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

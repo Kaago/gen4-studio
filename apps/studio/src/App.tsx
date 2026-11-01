@@ -119,6 +119,8 @@ import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
 import { invalidateFlagLists } from "./flags/useFlagList";
+import { DialogEditor } from "./workbench/dialog/DialogEditor";
+import type { DialogTarget } from "./workbench/dialog/dialogModel";
 
 /** The message that says what a wizard made, unless an error is showing: that one stays. */
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
@@ -986,6 +988,16 @@ function AppBody() {
   );
   // What an open wizard plans (its recipe's draft): the scene and the world map draw it dashed until the wizard closes or creates.
   const [draft, setDraft] = useState<DraftDto | null>(null);
+  // The dialog editor of a figure (the field „Dialog“ in Erzählen); it reads again when a text archive moved (undo, redo, its own commits)
+  // or a script was saved.
+  const [dialogEditor, setDialogEditor] = useState<DialogTarget | null>(null);
+  const dialogRevision = useBusRevision(bus, "textData") + scripts.api.revision;
+  // Another project (or none): the figure is not there any more.
+  useEffect(() => setDialogEditor(null), [session.info]);
+  const onDialogChanged = useStableCallback(() => {
+    void session.onEdited();
+    bus.emit({ topic: "textData", archive: null });
+  });
   // Rarely changing data and the volatile hover/message state, apart: a hover renders neither the header list nor the matrix tab.
   const { data, live } = useWorkbenchModel({
     bus,
@@ -1005,6 +1017,7 @@ function AppBody() {
     dataStore,
     draft,
     onDraft: setDraft,
+    onOpenDialog: setDialogEditor,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
@@ -1534,6 +1547,17 @@ function AppBody() {
         )}
         {importMap !== null && (
           <ImportPartsDialog map={importMap} open onClose={() => setImportMap(null)} mapCount={session.counts.Map ?? 0} onImported={onMapImported} checks={checks} goTo={data.goTo} />
+        )}
+        {dialogEditor !== null && session.info !== null && (
+          <DialogEditor
+            key={`${dialogEditor.header}:${dialogEditor.eventFile}:${dialogEditor.kind}:${dialogEditor.index}`}
+            target={dialogEditor}
+            revision={dialogRevision}
+            onClose={() => setDialogEditor(null)}
+            onChanged={onDialogChanged}
+            onError={session.fail}
+            scriptFiles={scripts.api}
+          />
         )}
         <Palette open={paletteOpen} onOpenChange={setPaletteOpen} items={paletteItems} onRun={runPalette} />
         {text.dialog === "adopt" && session.info !== null && (
