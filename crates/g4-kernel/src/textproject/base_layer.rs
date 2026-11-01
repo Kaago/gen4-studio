@@ -1005,7 +1005,7 @@ pub(crate) fn check_raw_blob(
         .iter()
         .chain([&AssetKind::Item])
         .any(|&k| project.archives.packed(k) == Some(rel));
-    if owned.contains(rel) || entity_narc {
+    if (owned.contains(rel) && !older_egg_blob(project, rel)) || entity_narc {
         return Err(format!(
             "`{}` gehört einer Entität; ihre JSON unter data/ gilt, nicht ein Blob.",
             rel.display()
@@ -1017,6 +1017,18 @@ pub(crate) fn check_raw_blob(
         return Err(format!("`{}` ist kein lesbares NARC ({e}).", rel.display()));
     }
     Ok(())
+}
+
+/// Whether `rel` is the egg moves' NARC member in a text project exported before the species
+/// files held them (the manifest lacks the mark `eggMoves`): then the member was no entity's
+/// and a blob of it is its version, as it was before 3d.3; the next export takes it into the
+/// species files and drops the blob.
+fn older_egg_blob(project: &Project, rel: &Path) -> bool {
+    rel.starts_with("unpacked")
+        && egg_place(project).is_some_and(|place| {
+            matches!(&place.location, Location::Member(path) if relative(project, path) == rel)
+        })
+        && !super::manifest::read_manifest(&project.root).is_ok_and(|m| m.egg_moves)
 }
 
 /// The folder (absolute) of the packed NARC `rel` when that folder exists: [`place_raw`]

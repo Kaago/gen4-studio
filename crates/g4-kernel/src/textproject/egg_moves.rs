@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use g4_formats::data::egg_moves::{EggMoveEntry, EggMoves, SPECIES_BASE};
 use serde::Deserialize;
 
-use crate::data::egg_moves::{EggMovesPlace, budget_full, egg_moves_place, signature_lost};
+use crate::data::egg_moves::{
+    EggMovesPlace, EggMovesSource, budget_full, egg_moves_place, signature_lost,
+};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetKind, Location, Project};
 
@@ -55,9 +57,18 @@ pub(crate) fn field_of(table: &EggMoves, index: u32, symbols: &Symbols) -> Optio
     })
 }
 
-/// The move numbers of field `refs`; an unknown id or a number the table would read as a
-/// species mark is the error `<code>: egg_moves[i]: …`.
-pub(crate) fn resolve_field(refs: &[SymRef], symbols: &Symbols) -> Result<Vec<u16>, String> {
+/// The move numbers of field `refs`, as `data_edit` takes egg moves: a move from 1 to below
+/// `moves` (the number of moves of the project; without it below the species marks). An
+/// unknown id is the error `textproject.unknown-id: egg_moves[i]: …`, another number
+/// `textproject.schema: egg_moves[i]: …`.
+pub(crate) fn resolve_field(
+    refs: &[SymRef],
+    symbols: &Symbols,
+    moves: Option<usize>,
+) -> Result<Vec<u16>, String> {
+    let limit = moves.map_or(usize::from(SPECIES_BASE), |m| {
+        m.min(usize::from(SPECIES_BASE))
+    });
     refs.iter()
         .enumerate()
         .map(|(i, r)| {
@@ -65,16 +76,23 @@ pub(crate) fn resolve_field(refs: &[SymRef], symbols: &Symbols) -> Result<Vec<u1
             let n = resolve(symbols, SymbolKind::Move, r, &path)?;
             u16::try_from(n)
                 .ok()
-                .filter(|&m| m < SPECIES_BASE)
+                .filter(|&m| m != 0 && usize::from(m) < limit)
                 .ok_or_else(|| {
                     format!(
-                        "{SCHEMA_CODE}: {path}: {n} liegt nicht in 0..={} (ab {SPECIES_BASE} \
-                         beginnt in der Tabelle eine Art).",
-                        SPECIES_BASE - 1
+                        "{SCHEMA_CODE}: {path}: {n} ist keine Ei-Attacke (Attacken 1 bis {}).",
+                        limit.saturating_sub(1)
                     )
                 })
         })
         .collect()
+}
+
+/// The number of moves of `project` (members of its move archive), for [`resolve_field`].
+pub(crate) fn move_count(project: &Project) -> Option<usize> {
+    project
+        .member_count(AssetKind::Move)
+        .ok()
+        .filter(|&n| n > 0)
 }
 
 /// Sets the entry of `species` to `moves` (`None`: no entry) through [`EggMoves::set_moves`];
@@ -107,7 +125,7 @@ pub(crate) fn put_entry(table: &mut EggMoves, species: u16, moves: Option<&[u16]
                 },
             );
             table.terminated = true;
-            table.tail = vec![0; (4 - (2 * table.words()) % 4) % 4];
+            table.tail = table.padding();
         }
     }
 }
@@ -214,6 +232,36 @@ pub(crate) fn place(project: &Project) -> Option<EggMovesPlace> {
     egg_moves_place(project).ok()?.ok()
 }
 
+/// The place the import writes the table to: the table's place, but on Platinum with
+/// `patch` (the manifest's `eggMovesPatch`: the text project holds DSPRE's patch) the patch
+/// NARC's member `unpacked/eggMoves/0000` also when neither the NARC nor its folder is there
+/// (a clone): written there, the folder marks the patch again and the build packs the NARC;
+/// overlay 5 stays as it is. `Err(reason)` when the table has no place.
+pub(crate) fn import_place(
+    project: &Project,
+    patch: bool,
+) -> Result<Result<EggMovesPlace, String>, KernelError> {
+    let place = egg_moves_place(project)?;
+    if patch
+        && project.family == g4_formats::game::Family::Pt
+        && place
+            .as_ref()
+            .map_or(true, |p| p.source != EggMovesSource::Patch)
+    {
+        return Ok(Ok(EggMovesPlace {
+            source: EggMovesSource::Patch,
+            location: Location::Member(project.member_path(AssetKind::EggMoves, 0)),
+            budget: None,
+        }));
+    }
+    Ok(place)
+}
+
+/// Whether the table lives in DSPRE's patch NARC.
+pub(crate) fn is_patch(project: &Project) -> bool {
+    place(project).is_some_and(|p| p.source == EggMovesSource::Patch)
+}
+
 /// The overlay slice of the table, relative to the root (file, offset, length): `None` unless
 /// the table lies in an overlay (Platinum without DSPRE's patch). Read only for a path below
 /// `arm9_overlays/` (`rel`), so a caller asking for every file stays cheap.
@@ -316,18 +364,37 @@ mod tests {
     fn field_numbers_must_stay_below_the_marks() {
         let sym = Symbols::load(Path::new("/nonexistent/g4-textproject")).unwrap();
         assert_eq!(
-            resolve_field(&[SymRef::Num(7), SymRef::Id("MOVE_POUND".into())], &sym),
+            resolve_field(
+                &[SymRef::Num(7), SymRef::Id("MOVE_POUND".into())],
+                &sym,
+                None
+            ),
             Ok(vec![7, 1])
         );
-        let err = resolve_field(&[SymRef::Num(1), SymRef::Num(20000)], &sym).unwrap_err();
+        let err = resolve_field(&[SymRef::Num(1), SymRef::Num(20000)], &sym, None).unwrap_err();
         assert!(
             err.starts_with("textproject.schema: egg_moves[1]: 20000"),
             "{err}"
         );
-        let err = resolve_field(&[SymRef::Id("MOVE_FOO".into())], &sym).unwrap_err();
+        let err = resolve_field(&[SymRef::Id("MOVE_FOO".into())], &sym, None).unwrap_err();
         assert!(
             err.starts_with("textproject.unknown-id: egg_moves[0]:"),
             "{err}"
+        );
+        // As `data_edit`: no move 0, none beyond the project's moves.
+        let err = resolve_field(&[SymRef::Num(0)], &sym, Some(468)).unwrap_err();
+        assert_eq!(
+            err,
+            "textproject.schema: egg_moves[0]: 0 ist keine Ei-Attacke (Attacken 1 bis 467)."
+        );
+        let err = resolve_field(&[SymRef::Num(5), SymRef::Num(468)], &sym, Some(468)).unwrap_err();
+        assert!(
+            err.starts_with("textproject.schema: egg_moves[1]: 468 ist keine"),
+            "{err}"
+        );
+        assert_eq!(
+            resolve_field(&[SymRef::Num(467)], &sym, Some(468)),
+            Ok(vec![467])
         );
     }
 }

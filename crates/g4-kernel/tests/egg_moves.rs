@@ -308,6 +308,52 @@ fn transactions_see_and_edit_the_table() {
 }
 
 #[test]
+fn an_overlay_table_that_does_not_read_locks_the_egg_moves() {
+    let s = common::synthetic_platinum_egg_moves(common::PT_EGG_MOVES_OFFSET);
+    let root = s.dir.path();
+    std::fs::write(root.join("arm9_overlays/overlays.yaml"), "overlays: [").unwrap();
+    let p = Project::open(root).unwrap();
+    let reason = egg_moves_place(&p).unwrap().unwrap_err();
+    assert!(
+        reason.starts_with("Ei-Attacken: Overlay 5 lässt sich nicht finden"),
+        "{reason}"
+    );
+    std::fs::remove_file(root.join("arm9_overlays/overlays.yaml")).unwrap();
+    assert!(
+        egg_moves_place(&p).unwrap().is_err(),
+        "a missing table locks too"
+    );
+}
+
+#[test]
+fn a_slice_whose_padding_is_not_0xff_loads_and_saves_unchanged() {
+    let s = common::synthetic_platinum_egg_moves(common::PT_EGG_MOVES_OFFSET);
+    let root = s.dir.path();
+    let at = common::PT_EGG_MOVES_OFFSET;
+    let mut words = vec![20001u16, 5, 7, 0xFFFF];
+    words.resize(common::PT_EGG_MOVES_BUDGET / 2 - 1, 0);
+    words.push(0xFFFF);
+    let slice = common::egg_move_bytes(&words);
+    let mut ov = std::fs::read(overlay_path(root)).unwrap();
+    ov[at..at + slice.len()].copy_from_slice(&slice);
+    std::fs::write(overlay_path(root), &ov).unwrap();
+    let mut st = store_of(root);
+    assert_eq!(st.egg_moves().unwrap().moves_of(1), Some([5, 7].as_slice()));
+    // A swap keeps the padding as read.
+    st.edit_egg_moves("swap", |t| t.set_moves(1, vec![7, 5]))
+        .unwrap()
+        .unwrap();
+    st.save().unwrap();
+    let saved = std::fs::read(overlay_path(root)).unwrap();
+    let mut want = words.clone();
+    want[1..3].copy_from_slice(&[7, 5]);
+    assert_eq!(
+        &saved[at..at + slice.len()],
+        common::egg_move_bytes(&want).as_slice()
+    );
+}
+
+#[test]
 fn diamond_pearl_has_no_egg_moves() {
     let s = common::synthetic_project();
     let root = s.dir.path();

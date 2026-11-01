@@ -1019,10 +1019,19 @@ impl TextFixture {
     /// [`TextFixture::dspre`] as Platinum DE (`CPUD`), so the egg moves have a place: overlay 5
     /// with [`full_egg_move_table`] ([`add_platinum_egg_moves`]), or with `patch` DSPRE's
     /// patch NARC ([`write_egg_move_patch`], unpacked into `unpacked/eggMoves/0000`). The
-    /// header table moves to the CPUD offset.
+    /// header table moves to the CPUD offset, and the move archive has the 468 moves of the
+    /// game (egg moves are checked against the move count).
     pub fn platinum_de(patch: bool) -> TextFixture {
         TextFixture::with(|p| {
             add_platinum_egg_moves(&p.root, PT_EGG_MOVES_OFFSET);
+            let moves: Vec<Vec<u8>> = (0..468u16)
+                .map(|i| {
+                    let mut m = vec![0u8; 16];
+                    m[..7].copy_from_slice(&[0, 0, 0, (i % 25) as u8 * 10, 0, 100, 35]);
+                    m
+                })
+                .collect();
+            write_narc(&p.root, "files/poketool/waza/pl_waza_tbl.narc", &moves);
             let path = p.root.join("arm9/arm9.bin");
             let arm9 = std::fs::read(&path).unwrap();
             let len = UXIE_PT_HEADER_COUNT * HEADER_SIZE;

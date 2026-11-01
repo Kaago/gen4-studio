@@ -67,7 +67,16 @@ pub fn egg_moves_place(project: &Project) -> Result<Result<EggMovesPlace, String
                     overlay_number(),
                 )));
             };
-            let overlay = project.overlay(table.overlay)?;
+            // An overlay table that does not read locks the egg moves, it fails nothing else.
+            let overlay = match project.overlay(table.overlay) {
+                Ok(overlay) => overlay,
+                Err(e) => {
+                    return Ok(Err(format!(
+                        "{LABEL}: Overlay {} lässt sich nicht finden ({e})",
+                        table.overlay
+                    )));
+                }
+            };
             match read_slice(&overlay.path, table.offset, table.budget)? {
                 Some(bytes) if EggMoves::signature_ok(&bytes) => Ok(Ok(EggMovesPlace {
                     source: EggMovesSource::Overlay,

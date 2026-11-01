@@ -91,8 +91,9 @@ impl EggMoves {
 
     /// Marks and moves, terminator, then: without budget the tail as read while the word
     /// count is unchanged, else zero padding to four bytes ([`EggMoves::set_moves`] replaces
-    /// the tail with that padding when it changes the word count); with a budget 0xFFFF words
-    /// up to it. Err(words) when marks + moves + 1 exceed the budget. A table read without a
+    /// the tail with that padding when it changes the word count); with a budget the tail as
+    /// read while it fills the budget exactly (a slice whose padding is not 0xFF writes back
+    /// byte for byte), else 0xFFFF words up to it. Err(words) when marks + moves + 1 exceed the budget. A table read without a
     /// terminator and without a budget is written without one until `set_moves` changes its
     /// word count.
     pub fn write(&self) -> Result<Vec<u8>, usize> {
@@ -110,6 +111,12 @@ impl EggMoves {
             }
         }
         match self.budget {
+            // The bytes after the end as read (a slice whose padding is not 0xFF), while they
+            // still fill the budget exactly; else 0xFFFF words.
+            Some(budget) if !self.tail.is_empty() && 2 * words + self.tail.len() == budget => {
+                out.extend_from_slice(&TERMINATOR.to_le_bytes());
+                out.extend_from_slice(&self.tail);
+            }
             Some(budget) => out.resize(budget, 0xFF),
             None => {
                 if self.terminated {
@@ -146,7 +153,8 @@ impl EggMoves {
     /// Replaces the list; an empty list removes the entry; a new entry goes in ascending
     /// species order (before the first entry of a higher species). When the word count
     /// changes, the table gets its terminator (if it was read without one) and the tail
-    /// becomes the zero padding to four bytes (see [`EggMoves::write`]).
+    /// becomes the zero padding to four bytes, or none with a budget (then
+    /// [`EggMoves::write`] fills it with 0xFFFF words).
     pub fn set_moves(&mut self, species: u16, moves: Vec<u16>) {
         let before = self.words();
         let at = self.entries.iter().position(|e| e.species == species);
@@ -170,7 +178,16 @@ impl EggMoves {
             // An edited table always ends with its terminator, also one read without (else
             // the padding would be read back as a move).
             self.terminated = true;
-            self.tail = vec![0; (4 - (2 * after) % 4) % 4];
+            self.tail = self.padding();
+        }
+    }
+
+    /// The tail of an edited table: the zero padding to four bytes, none with a budget.
+    pub fn padding(&self) -> Vec<u8> {
+        if self.budget.is_some() {
+            Vec::new()
+        } else {
+            vec![0; (4 - (2 * self.words()) % 4) % 4]
         }
     }
 
@@ -421,5 +438,25 @@ mod tests {
                 found: 30000
             })
         ));
+    }
+
+    #[test]
+    fn a_fixed_table_keeps_its_padding_until_the_word_count_changes() {
+        // Signature-valid, but zeros between the end and the last word.
+        let raw = bytes(&[20001, 5, 7, 0xFFFF, 0, 0, 0xFFFF]);
+        let mut table = EggMoves::read_fixed(&raw).unwrap();
+        assert_eq!(table.write().unwrap(), raw, "byte for byte");
+        table.set_moves(1, vec![7, 5]);
+        assert_eq!(
+            table.write().unwrap(),
+            bytes(&[20001, 7, 5, 0xFFFF, 0, 0, 0xFFFF]),
+            "a swap keeps the padding"
+        );
+        table.set_moves(1, vec![7]);
+        assert_eq!(
+            table.write().unwrap(),
+            bytes(&[20001, 7, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]),
+            "another word count fills with 0xFFFF"
+        );
     }
 }

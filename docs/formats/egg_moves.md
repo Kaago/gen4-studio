@@ -93,4 +93,13 @@ Im Textprojekt ist die Tabelle das Feld `egg_moves` jeder Spezies-Datei (`data/s
 die Attacken des Eintrags als IDs, leer für eine Marke ohne Attacken, fehlend ohne Eintrag) und
 eine Einheit `egg_moves` über alle Spezies-Dateien; in Platin ohne Patch blendet die Basisschicht
 den Ausschnitt in `ov005.bin` aus. Einzelheiten, Code `textproject.egg-moves-locked` und
-Schema-Version: [text_project.md](text_project.md) „Ei-Attacken“.
+Schema-Version: [text_project.md](text_project.md) „Ei-Attacken“. Mit DSPRE-Patch merkt sich das
+Manifest den Patch (`eggMovesPatch`), denn ein Git-Klon hat weder `files/zcustom/egg_moves.narc`
+noch `unpacked/eggMoves/`: der Import legt den Ordner aus den Spezies-Dateien wieder an, statt
+die Tabelle in Overlay 5 zu schreiben.
+
+Ein Ausschnitt in Overlay 5, dessen Rest hinter dem Ende nicht aus `0xFF` besteht (die Signatur
+hält trotzdem), wird byte-gleich zurückgeschrieben, solange die Zahl der Wörter bleibt; ändert
+sie sich, füllt `write()` mit `0xFFFF`-Wörtern auf. Lässt sich die Overlay-Tabelle
+(`arm9_overlays/overlays.yaml`) nicht lesen, sind die Ei-Attacken gesperrt („Ei-Attacken:
+Overlay 5 lässt sich nicht finden (…)“), statt dass ein Laden oder Import scheitert.

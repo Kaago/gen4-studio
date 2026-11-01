@@ -59,6 +59,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
 | `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
 | `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
+| `eggMovesPatch` | `true`, wenn die Ei-Attacken in DSPRE's Patch-NARC liegen (Platin, `files/zcustom/egg_moves.narc`); gesetzt vom Export und vom Speichern der Ei-Attacken. Ein Klon hat NARC und Ordner nicht, der Import legt dann `unpacked/eggMoves/0000` aus den Spezies-Dateien an (siehe „Ei-Attacken“); fehlt sonst |
 | `eggMoves` | `true`, wenn die Spezies-Dateien die Ei-Attacken-Tabelle halten (siehe „Ei-Attacken“): gesetzt vom Export, der die Tabelle lesen konnte, und vom ersten Speichern der Ei-Attacken im Studio; fehlt sonst (auslassbar, keine neue Schema-Version) |
 
 Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](project_base.md)).
@@ -377,7 +378,21 @@ gesperrt). Im Textprojekt stehen sie als Feld `egg_moves` in der Datei jeder Art
   in aufsteigender Artnummer über `EggMoves::set_moves` (Ende und Auffüllung bleiben dessen
   Regel): ohne Feld fällt der Eintrag weg, eine leere Liste ist eine Marke ohne Attacken, der
   Eintrag einer Art ohne Datei bleibt. Geschrieben wird nur, wenn die Bytes abweichen (im Overlay
-  nur der Ausschnitt). Attacken nehmen
+  nur der Ausschnitt). Attacken wie in `data_edit`: von 1 bis unter die Zahl der Attacken des
+  Projekts, sonst `textproject.schema` an `egg_moves[i]` („… ist keine Ei-Attacke (Attacken 1
+  bis 467)“).
+- **Patch und Klon:** liegt die Tabelle in DSPRE's Patch-NARC, sind NARC und
+  `unpacked/eggMoves/` Spieldateien, die `.gitignore` des Textprojekts auslässt (`files/`,
+  `unpacked/`); nach einem Klon und „Textprojekt vervollständigen“ (Basis-ROM ohne Patch) fehlen
+  beide, und die Tabelle läge wieder in Overlay 5. Darum schreibt der Export `eggMovesPatch: true`
+  ins Manifest; mit dieser Marke schreibt der Import die Tabelle nach `unpacked/eggMoves/0000`
+  (der Ordner kennzeichnet den Patch wieder, der Build packt `files/zcustom/egg_moves.narc`),
+  Overlay 5 bleibt unberührt.
+- **Ältere Textprojekte mit Blob:** vor 3d.3 war `unpacked/eggMoves/0000` (HeartGold/SoulSilver,
+  Platin mit Patch) kein Member einer Entität, eine Änderung von DSPRE stand als Blob
+  `data/raw/unpacked/eggMoves/0000`. Ohne die Marke `eggMoves` gilt dieser Blob weiter als der
+  Member (kein `textproject.raw-path`); der nächste Export übernimmt die Tabelle in die
+  Spezies-Dateien und löscht den Blob. Attacken nehmen
   IDs oder Nummern unter 20000 (`textproject.unknown-id`, `textproject.schema` an
   `egg_moves[i]`); passt die Tabelle nicht ins Budget von Overlay 5 oder verlöre sie die Signatur,
   ist das ein Fehler `textproject.schema` an `egg_moves` der ersten Datei, die sie ändert, mit dem

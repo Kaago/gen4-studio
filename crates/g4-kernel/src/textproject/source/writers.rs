@@ -16,8 +16,8 @@ use super::super::base_layer::{BaseLayer, part_of_members};
 use super::super::canon::{json_problem, to_canonical, write_if_changed};
 use super::super::codes::SCHEMA_CODE;
 use super::super::egg_moves::{
-    FIELD as EGG_FIELD, assemble, disk_table, egg_field, empty_table, field_of, place as egg_place,
-    place_bytes, readable_table, resolve_field, table_bytes,
+    FIELD as EGG_FIELD, assemble, disk_table, egg_field, empty_table, field_of, is_patch,
+    move_count, place as egg_place, place_bytes, readable_table, resolve_field, table_bytes,
 };
 use super::super::export::{baptize_named, entity_files, remove_if_empty};
 use super::super::import::LazyBase;
@@ -497,6 +497,7 @@ impl EntitySource {
             return place_bytes(project, &place);
         }
         let dir = Art::Species.dir();
+        let moves = move_count(project);
         let mut fields: Vec<(u16, Option<Vec<u16>>)> = Vec::new();
         let mut files: Vec<PathBuf> = Vec::new();
         for n in numbered_cached(project, &dir, "json")? {
@@ -508,7 +509,7 @@ impl EntitySource {
                 KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)])
             })?;
             let moves = field
-                .map(|refs| resolve_field(&refs, &self.symbols))
+                .map(|refs| resolve_field(&refs, &self.symbols, moves))
                 .transpose()
                 .map_err(|message| KernelError::Compile(vec![located(&rel, &bytes, &message)]))?;
             if let Ok(species) = u16::try_from(n) {
@@ -565,7 +566,8 @@ impl EntitySource {
             let same = match (&field, &new) {
                 (None, None) => true,
                 (Some(was), Some(now)) => {
-                    resolve_field(was, &self.symbols).ok() == resolve_field(now, &self.symbols).ok()
+                    resolve_field(was, &self.symbols, None).ok()
+                        == resolve_field(now, &self.symbols, None).ok()
                 }
                 _ => false,
             };
@@ -584,9 +586,13 @@ impl EntitySource {
                 out.sources.push(rel);
             }
         }
-        if self.dry.is_none() && !egg_moves_exported(&self.root) {
+        let patch = is_patch(project);
+        if self.dry.is_none()
+            && read_manifest(&self.root).is_ok_and(|m| !m.egg_moves || m.egg_moves_patch != patch)
+        {
             let mut manifest = read_manifest(&self.root)?;
             manifest.egg_moves = true;
+            manifest.egg_moves_patch = patch;
             let rel = PathBuf::from(MANIFEST_FILE);
             if write_if_changed(&self.root, &rel, &to_canonical(&manifest))? {
                 out.sources.push(rel);

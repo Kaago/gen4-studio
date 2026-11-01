@@ -38,6 +38,11 @@ pub struct Manifest {
     /// leaves the table alone (the files were exported before the field existed).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub egg_moves: bool,
+    /// Whether the egg moves live in DSPRE's patch NARC (Platinum): the NARC and its folder
+    /// are game files a clone lacks, so the import makes the folder from the species files
+    /// again instead of writing the table into overlay 5.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub egg_moves_patch: bool,
 }
 
 /// The game of the project: its four-letter code, `pt` or `hgss`, and the locale key of its
@@ -101,7 +106,8 @@ pub fn read_manifest(root: &Path) -> Result<Manifest, KernelError> {
 
 /// The manifest for `project` in this Studio version: `schemas` names every data kind with its
 /// version ([`kinds::schemas`](super::kinds::schemas)) and keeps the foreign keys of `keep` (the
-/// manifest on disk), `plugins` and `egg_moves` come unchanged from `keep`; empty without one.
+/// manifest on disk), `plugins`, `egg_moves` and `egg_moves_patch` come unchanged from `keep`;
+/// empty without one.
 pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
     Manifest {
         format: FORMAT.to_owned(),
@@ -115,6 +121,7 @@ pub fn manifest_for(project: &Project, keep: Option<&Manifest>) -> Manifest {
         schemas: super::kinds::schemas(&keep.map(|m| m.schemas.clone()).unwrap_or_default()),
         plugins: keep.map(|m| m.plugins.clone()).unwrap_or_default(),
         egg_moves: keep.is_some_and(|m| m.egg_moves),
+        egg_moves_patch: keep.is_some_and(|m| m.egg_moves_patch),
     }
 }
 
