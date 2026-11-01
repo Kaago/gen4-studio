@@ -1887,6 +1887,56 @@ fn refresh_follows_a_matrix_edit() {
 const WORLD_EDGES: [(&str, [usize; 3]); 2] =
     [("CPUD", [593, 1172, 1213]), ("IPKD", [540, 958, 1317])];
 
+/// Script → header (`Warp`; a call with a variable is not counted) per game code; other games
+/// are printed only. Platinum DE as measured in Gutachten C §2.4. HeartGold DE: the Gutachten's
+/// 154 counted `MoveWarp` with a decimal first argument as a header too (its regex
+/// `(Warp|MoveWarp) <number>`), but that argument is `warp_id`, a warp index of the script's own
+/// header (`hgss_v2.json`): 154 = 114 `Warp` + 40 `MoveWarp` (counted in the adopted sources of
+/// HeartGold DE on 2026-11-01; the index has 43 warp indices, 3 more `MoveWarp` write warp 1 as
+/// `MAPTEMP_FLAG_BASE`, and one `Warp` takes a variable).
+const SCRIPT_HEADER_EDGES: [(&str, usize); 2] = [("CPUD", 67), ("IPKD", 114)];
+
+/// The references from script sources to headers on a copy of the vanilla project at `src`
+/// set up as text project with adopted scripts (below the target's temporary folder, removed
+/// afterwards; the warp indices printed); `None` without the base ROM next to the project.
+fn script_header_edges(src: &Path) -> Option<usize> {
+    use g4_kernel::base::BaseRom;
+    use g4_kernel::textproject::adopt::adopt;
+
+    let Some(nds) = g4_kernel::start::suggest_base(src) else {
+        eprintln!(
+            "script → header skipped: no base ROM next to {}",
+            src.display()
+        );
+        return None;
+    };
+    let folder = src.file_name()?.to_string_lossy().into_owned();
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("refs-{folder}"));
+    let _ = std::fs::remove_dir_all(&root);
+    common::copy_dir(src, &root);
+    let (check, _mark) = g4_kernel::start::assign_base(&root, &nds).unwrap();
+    assert_eq!(check.refused, None);
+    let base = BaseRom::open(&nds, None).unwrap();
+    adopt(&Project::open(&root).unwrap(), &base, &mut |_| {}).unwrap();
+    let st = Store::new(Arc::new(Project::open(&root).unwrap()));
+    let scripts: Vec<Ref> = RefIndex::new()
+        .refs_where(&st, |t| {
+            matches!(t, Target::Header(_) | Target::WarpIndex(_))
+        })
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .collect();
+    let n = scripts
+        .iter()
+        .filter(|r| matches!(r.target, Target::Header(_)))
+        .count();
+    eprintln!("script → warp index: {}", scripts.len() - n);
+    drop(st);
+    let _ = std::fs::remove_dir_all(&root);
+    Some(n)
+}
+
 /// An edge to count: its name, the source kind and which targets.
 type Edge = (&'static str, AssetKind, fn(&Target) -> bool);
 
@@ -1957,6 +2007,13 @@ fn vanilla_world_edges_match_the_measured_counts() {
         eprintln!("{code} {name}: {n} / {}", distinct(source, target));
         counted.push(n);
     }
+    if let Some(n) = script_header_edges(&st.project().root) {
+        eprintln!("{code} script → header: {n}");
+        if let Some(&(_, want)) = SCRIPT_HEADER_EDGES.iter().find(|(c, _)| *c == code) {
+            let off = (n as f64 - want as f64).abs() / want as f64;
+            assert!(off <= 0.01, "{code}: script → header {n} against {want}");
+        }
+    }
     let Some((_, expected)) = WORLD_EDGES.iter().find(|(c, _)| *c == code) else {
         eprintln!("{code}: no measured counts, printed only");
         return;
@@ -1965,4 +2022,77 @@ fn vanilla_world_edges_match_the_measured_counts() {
         let off = (*n as f64 - *want as f64).abs() / *want as f64;
         assert!(off <= 0.01, "{code}: {counted:?} against {expected:?}");
     }
+}
+
+// --- scripts as a source for headers and warp indices (3d.4) ---
+
+#[test]
+fn warp_commands_refer_to_a_header() {
+    let (_fx, st) = script_store(
+        "script Main #1:\n    Warp 3, 0, 5, 5, 0\n    End\n\
+         script Second #2:\n    Warp 0, 0, 1, 1, 0\n    End\n",
+    );
+    let mut index = RefIndex::new();
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Header(3)),
+        [r(SCRIPT_0, "Warp", Some(2), Target::Header(3))]
+    );
+    // Header 0 is a header like any other, not "none".
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Header(0)),
+        [r(SCRIPT_0, "Warp", Some(5), Target::Header(0))]
+    );
+}
+
+#[test]
+fn set_warp_event_pos_refers_to_a_warp_index() {
+    let (_fx, st) = script_store(
+        "script Main #1:\n    SetWarpEventPos 2, 10, 12\n    End\n\
+         script Second #2:\n    SetWarpPosition 0, 1, 1\n    End\n",
+    );
+    let mut index = RefIndex::new();
+    assert_eq!(
+        script_refs(&mut index, &st, Target::WarpIndex(2)),
+        [r(
+            SCRIPT_0,
+            "SetWarpEventPos",
+            Some(2),
+            Target::WarpIndex(2)
+        )]
+    );
+    // DSPRE's (legacy) name counts under rotom's; warp 0 is the first warp, not "none".
+    assert_eq!(
+        script_refs(&mut index, &st, Target::WarpIndex(0)),
+        [r(
+            SCRIPT_0,
+            "SetWarpEventPos",
+            Some(5),
+            Target::WarpIndex(0)
+        )]
+    );
+}
+
+#[test]
+fn a_warp_with_a_variable_is_counted_not_indexed() {
+    let (_fx, st) = script_store(
+        "script Main #1:\n    Warp 0x4001, 0, 5, 5, 0\n    SetWarpEventPos 0x8004, 1, 1\n\
+         \x20   End\nscript Second #2:\n    End\n",
+    );
+    let mut index = RefIndex::new();
+    let world = index
+        .refs_where(&st, |t| {
+            matches!(t, Target::Header(_) | Target::WarpIndex(_))
+        })
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source.kind == AssetKind::Script)
+        .count();
+    assert_eq!(world, 0);
+    // The variables are counted as what they are: a global one is a reference to it, a
+    // local one a script-local count.
+    assert_eq!(
+        script_refs(&mut index, &st, Target::Var(0x4001)),
+        [r(SCRIPT_0, "Warp", Some(2), Target::Var(0x4001))]
+    );
+    assert_eq!(index.script_counts(&st).unwrap().script_local, 1);
 }

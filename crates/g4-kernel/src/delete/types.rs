@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::data::refs::Target;
 use crate::original::{ResetTarget, asset_label};
 use crate::project::{AssetId, AssetKind};
 use crate::store::HEADER_TABLE;
@@ -235,6 +236,31 @@ impl DeleteTarget {
         }
     }
 
+    /// The target of the same kind with number `number` (index, header id, script file, flag or
+    /// variable number).
+    pub(crate) fn with_number(self, number: u16) -> DeleteTarget {
+        match self {
+            DeleteTarget::Trainer { .. } => DeleteTarget::Trainer { index: number },
+            DeleteTarget::Encounter { .. } => DeleteTarget::Encounter { index: number },
+            DeleteTarget::EventFile { .. } => DeleteTarget::EventFile { index: number },
+            DeleteTarget::Matrix { .. } => DeleteTarget::Matrix { index: number },
+            DeleteTarget::Map { .. } => DeleteTarget::Map { index: number },
+            DeleteTarget::Header { .. } => DeleteTarget::Header { id: number },
+            DeleteTarget::Script { .. } => DeleteTarget::Script { file: number },
+            DeleteTarget::TextArchive { .. } => DeleteTarget::TextArchive { index: number },
+            DeleteTarget::AreaData { .. } => DeleteTarget::AreaData { index: number },
+            DeleteTarget::MapTexture { .. } => DeleteTarget::MapTexture { index: number },
+            DeleteTarget::BuildingTexture { .. } => DeleteTarget::BuildingTexture { index: number },
+            DeleteTarget::BuildingModel { .. } => DeleteTarget::BuildingModel { index: number },
+            DeleteTarget::InteriorBuildingModel { .. } => {
+                DeleteTarget::InteriorBuildingModel { index: number }
+            }
+            DeleteTarget::Place { .. } => DeleteTarget::Place { index: number },
+            DeleteTarget::Flag { .. } => DeleteTarget::Flag { number },
+            DeleteTarget::Var { .. } => DeleteTarget::Var { number },
+        }
+    }
+
     /// The target of entity `index` of `art` (the inverse of [`DeleteTarget::art`]); `None`
     /// for an art no target lives in (species, moves, items, …).
     pub(crate) fn of_art(art: Art, index: u16) -> Option<DeleteTarget> {
@@ -282,5 +308,65 @@ impl DeleteTarget {
     /// Whether the target can carry a tombstone: its art has entity JSON.
     pub(crate) fn has_envelope(self) -> bool {
         self.art().is_some_and(|art| TOMBSTONE_ARTS.contains(&art))
+    }
+
+    /// The targets of the reference index that name the entity: a trainer
+    /// [`Target::Trainer`], a header [`Target::Header`], an event file [`Target::EventFile`],
+    /// … (a header's doors, [`Target::Warp`] of any index, are matched by
+    /// [`DeleteTarget::refers`]). None for flags and variables: their pret name and number stay
+    /// valid everywhere, only the scripts writing the own name hold it (3d.1 `plan_rename`).
+    pub fn targets(self) -> Vec<Target> {
+        let target = match self {
+            DeleteTarget::Trainer { index } => Target::Trainer(index),
+            DeleteTarget::Encounter { index } => Target::Encounter(index),
+            DeleteTarget::EventFile { index } => Target::EventFile(index),
+            DeleteTarget::Matrix { index } => Target::Matrix(index),
+            DeleteTarget::Map { index } => Target::Map(index),
+            DeleteTarget::Header { id } => Target::Header(id),
+            DeleteTarget::Script { file } => Target::Script(file),
+            DeleteTarget::TextArchive { index } => Target::TextArchive(index),
+            DeleteTarget::AreaData { index } => Target::AreaData(index),
+            DeleteTarget::MapTexture { index } => Target::MapTexture(index),
+            DeleteTarget::BuildingTexture { index } => Target::BuildingTexture(index),
+            DeleteTarget::BuildingModel { index } => Target::BuildingModel(index),
+            DeleteTarget::InteriorBuildingModel { index } => Target::InteriorBuildingModel(index),
+            DeleteTarget::Place { index } => Target::Place(index),
+            DeleteTarget::Flag { .. } | DeleteTarget::Var { .. } => return Vec::new(),
+        };
+        vec![target]
+    }
+
+    /// Whether a reference to `target` names the entity: one of [`DeleteTarget::targets`], or
+    /// for a header every warp of it ([`Target::Warp`] with its id, whatever the index).
+    pub fn refers(self, target: Target) -> bool {
+        match (self, target) {
+            (DeleteTarget::Header { id }, Target::Warp { header, .. }) => header == id,
+            _ => self.targets().contains(&target),
+        }
+    }
+
+    /// The entity a reference to `target` names, where one can be deleted: the header of a
+    /// warp; `None` for species, moves, items, trainer classes, flags, variables, warp indices
+    /// and any other target.
+    pub(crate) fn of_target(target: Target) -> Option<DeleteTarget> {
+        Some(match target {
+            Target::Trainer(index) => DeleteTarget::Trainer { index },
+            Target::Encounter(index) => DeleteTarget::Encounter { index },
+            Target::EventFile(index) => DeleteTarget::EventFile { index },
+            Target::Matrix(index) => DeleteTarget::Matrix { index },
+            Target::Map(index) => DeleteTarget::Map { index },
+            Target::Header(id) | Target::Warp { header: id, .. } => DeleteTarget::Header { id },
+            Target::Script(file) => DeleteTarget::Script { file },
+            Target::TextArchive(index) => DeleteTarget::TextArchive { index },
+            Target::AreaData(index) => DeleteTarget::AreaData { index },
+            Target::MapTexture(index) => DeleteTarget::MapTexture { index },
+            Target::BuildingTexture(index) => DeleteTarget::BuildingTexture { index },
+            Target::BuildingModel(index) => DeleteTarget::BuildingModel { index },
+            Target::InteriorBuildingModel(index) => DeleteTarget::InteriorBuildingModel { index },
+            Target::Place(index) => DeleteTarget::Place { index },
+            // Species, moves, items, trainer classes, flags, variables, warp indices, and the
+            // targets later phases add.
+            _ => return None,
+        })
     }
 }

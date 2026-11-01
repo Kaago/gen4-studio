@@ -265,6 +265,40 @@ pub(crate) fn after_move(
     warnings
 }
 
+/// The script sources (file numbers, ascending) that write `id`, the own name of `number`, as
+/// an identifier, with how often: the sources a rename of `id` rewrites (rotom's lexer, so
+/// comments and strings do not count). None without adopted scripts, and none when rotom's own
+/// constants name another number by `id` (the sources mean rotom's name then). Deleting an own
+/// flag or variable name is locked by them (3d.4 `plan_delete`).
+pub(crate) fn sources_naming(
+    project: &Project,
+    id: &str,
+    number: u32,
+) -> Result<Vec<(u16, u32)>, KernelError> {
+    if !scripts::is_adopted(project) {
+        return Ok(Vec::new());
+    }
+    let shadowed = scripts::base_constants(project, false)?
+        .get(id)
+        .is_some_and(|v| i64::from(v) != i64::from(number));
+    if shadowed {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for file in scripts::rotom_sources(project)? {
+        let path = scripts::source_path(project, file, SourceKind::Script);
+        let text = std::fs::read_to_string(&path).map_err(io_at(&path))?;
+        if !scripts::names_identifier(&text, id) {
+            continue;
+        }
+        let (_, count) = rename_in_source(&text, id, id)?;
+        if count > 0 {
+            out.push((file, count));
+        }
+    }
+    Ok(out)
+}
+
 /// The kind of `id` by its longest prefix followed by `_`: `TRAINER_CLASS_X` is a class,
 /// `TRAINER_X` a trainer.
 pub fn kind_of(id: &str) -> Option<SymbolKind> {

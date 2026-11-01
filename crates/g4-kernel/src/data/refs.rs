@@ -19,8 +19,10 @@
 //! - evolutions: the target → species; the parameter → item, move or species by method
 //! - script sources (`expanded/scripts/NNNN.rotom`, only with adopted scripts): the
 //!   parameters `metadata/script_refs.yaml` names per command database family → trainer,
-//!   item, species or move ([`ScriptRefTable`]); `field` is the command (rotom's name, also for
-//!   a legacy name or an alias in the source), `slot` the line. An argument counts when it is
+//!   item, species, move, map header (`Warp`) or warp index (`SetWarpEventPos`, `MoveWarp`:
+//!   [`Target::WarpIndex`], of the script file's own header) ([`ScriptRefTable`]); `field` is
+//!   the command (rotom's name, also for a legacy name or an alias in the source), `slot` the
+//!   line; for a header and a warp index 0 is a target, not "none". An argument counts when it is
 //!   a number or an identifier the build resolves (an alias of the file, the text project's
 //!   ids, rotom's own names such as `TRAINER_<NAME>_<NNN>` or `ITEM_…`); a value from
 //!   `0x4000` on is a variable, never a reference.
@@ -89,8 +91,10 @@ use crate::textproject::include::ScriptLookup;
 mod entity;
 mod flagvars;
 
-/// What a reference points at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What a reference points at. JSON: `{"kind": "header", "value": 3}`, a warp
+/// `{"kind": "warp", "value": {"header": 3, "index": 1}}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Target {
     /// A species or form: a personal data member index.
     Species(u16),
@@ -146,7 +150,7 @@ pub enum Access {
 
 /// One reference: `field` of `source` (entry `slot` of it, where the field is a list)
 /// points at `target` and does `access` with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Ref {
     pub source: AssetId,
     pub field: &'static str,
@@ -1151,6 +1155,10 @@ pub(crate) enum ScriptTarget {
     Item,
     Species,
     Move,
+    /// A map header by id (`Warp`).
+    Header,
+    /// A warp of the script file's own header by its index (`SetWarpEventPos`, `MoveWarp`).
+    WarpIndex,
 }
 
 impl ScriptTarget {
@@ -1160,7 +1168,15 @@ impl ScriptTarget {
             ScriptTarget::Item => Target::Item(value),
             ScriptTarget::Species => Target::Species(value),
             ScriptTarget::Move => Target::Move(value),
+            ScriptTarget::Header => Target::Header(value),
+            ScriptTarget::WarpIndex => Target::WarpIndex(value),
         }
+    }
+
+    /// Whether the value 0 is "none" (a trainer, item, species or move) rather than the first
+    /// one (header 0, warp 0).
+    fn zero_is_none(self) -> bool {
+        !matches!(self, ScriptTarget::Header | ScriptTarget::WarpIndex)
     }
 }
 
@@ -1173,10 +1189,11 @@ pub(crate) struct ScriptParam {
     pub(crate) target: ScriptTarget,
 }
 
-/// The commands of one family whose parameters name a trainer, an item, a species or a move,
-/// from `metadata/script_refs.yaml`: command (rotom's name) → parameters, positioned by the
-/// bundled command database of the family. An entry the database does not have is left out
-/// (the test `script_refs_name_existing_commands_and_params` keeps the file honest).
+/// The commands of one family whose parameters name a trainer, an item, a species, a move, a
+/// header or a warp index, from `metadata/script_refs.yaml`: command (rotom's name) →
+/// parameters, positioned by the bundled command database of the family. An entry the database
+/// does not have is left out (the test `script_refs_name_existing_commands_and_params` keeps
+/// the file honest).
 #[derive(Debug, Default)]
 pub(crate) struct ScriptRefTable {
     family: Option<Family>,
@@ -1275,7 +1292,7 @@ const FIRST_VARIABLE: i32 = 0x4000;
 const SCRIPT_LOCAL: i32 = 0x8000;
 
 /// The source of script file `file`.
-fn script_id(file: u16) -> AssetId {
+pub fn script_id(file: u16) -> AssetId {
     AssetId {
         kind: AssetKind::Script,
         index: file,
@@ -1536,7 +1553,7 @@ fn script_refs(
             let Ok(value) = u16::try_from(value) else {
                 continue;
             };
-            if value == 0 || i32::from(value) >= FIRST_VARIABLE {
+            if (value == 0 && param.target.zero_is_none()) || i32::from(value) >= FIRST_VARIABLE {
                 continue;
             }
             let (line, _) = scripts::position_of(text, arg.span.start);
@@ -1842,5 +1859,31 @@ mod tests {
                 id(AssetKind::TrainerParty, 9),
             ]
         );
+    }
+
+    #[test]
+    fn warp_commands_name_a_header_and_a_warp_index_by_their_first_parameter() {
+        for (family, mover) in [(Family::Pt, "SetWarpEventPos"), (Family::Hgss, "MoveWarp")] {
+            let table = script_ref_table(family);
+            let param = |command: &str| {
+                let (_, params) = table.params(command).unwrap();
+                params
+                    .iter()
+                    .map(|p| (p.name.as_str(), p.arg, p.target))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                param("Warp"),
+                [("map", 0, ScriptTarget::Header)],
+                "{family:?}"
+            );
+            assert_eq!(
+                param(mover),
+                [("warp_id", 0, ScriptTarget::WarpIndex)],
+                "{family:?}"
+            );
+            // DSPRE's name of the mover is rotom's legacy name.
+            assert_eq!(table.params("SetWarpPosition").unwrap().0, mover);
+        }
     }
 }

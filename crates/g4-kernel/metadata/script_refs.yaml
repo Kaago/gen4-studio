@@ -1,10 +1,14 @@
-# Script command parameters that name a trainer, an item, a species or a move: the script
-# sources' entries in the reference index (`src/data/refs.rs`). Per command database family
-# (`pt`: `scrcmd/platinum_v2.json`, `hgss`: `scrcmd/hgss_v2.json`), each command and parameter
-# spelled exactly as the bundled database names it (canonical name, not the legacy one); the
-# test `script_refs_name_existing_commands_and_params` checks every entry against it. A source
-# may write a legacy name or an alias of the command: rotom's database resolves it to the
-# entry here. Targets: `trainer`, `item`, `species`, `move`.
+# Script command parameters that name a trainer, an item, a species, a move, a map header or a
+# warp index: the script sources' entries in the reference index (`src/data/refs.rs`). Per
+# command database family (`pt`: `scrcmd/platinum_v2.json`, `hgss`: `scrcmd/hgss_v2.json`),
+# each command and parameter spelled exactly as the bundled database names it (canonical name,
+# not the legacy one); the test `script_refs_name_existing_commands_and_params` checks every
+# entry against it. A source may write a legacy name or an alias of the command: rotom's
+# database resolves it to the entry here. Targets: `trainer`, `item`, `species`, `move`,
+# `header` (a map header by id) and `warp_index` (a warp of the event file of the script file's
+# own header, by its index). For `header` and `warp_index` the value 0 is a target, not "none";
+# an argument that is a variable (from 0x4000 on) is never one (Platinum `Warp` and
+# `SetWarpEventPos` take a variable there).
 pt:
   SetTrainerFlag: { trainer_id: trainer }
   ClearTrainerFlag: { trainer_id: trainer }
@@ -26,6 +30,8 @@ pt:
   BufferMoveName: { move: move }
   CheckPartyMonHasMove: { move_id: move }
   FindPartySlotWithMove: { move_id: move }
+  Warp: { map: header }
+  SetWarpEventPos: { warp_id: warp_index }
 hgss:
   SetTrainerFlag: { var_or_trno: trainer }
   ClearTrainerFlag: { var_or_trno: trainer }
@@ -44,3 +50,5 @@ hgss:
   BufferMoveName: { move: move }
   MonHasMove: { move_id: move }
   GetPartySlotWithMove: { move_id: move }
+  Warp: { map: header }
+  MoveWarp: { warp_id: warp_index }

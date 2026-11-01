@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::data::refs::Ref;
 use crate::project::{AssetId, AssetKind};
 use crate::text::Problem;
 
@@ -85,6 +86,10 @@ pub enum KernelError {
     /// Reading the Git repository failed (`gix`); the text names the path and gix's error.
     #[error("Git: {0}")]
     Git(String),
+    /// An entity cannot be deleted while other entities point at it (the reference lock of
+    /// 3d.4, [`crate::delete::plan_delete`]); `references` lists them. Nothing was changed.
+    #[error("{label} wird noch verwendet ({} Verweise).", .references.len())]
+    Referenced { label: String, references: Vec<Ref> },
 }
 
 /// `0012, 0013`
