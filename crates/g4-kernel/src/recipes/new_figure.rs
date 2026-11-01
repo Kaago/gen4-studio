@@ -23,9 +23,9 @@ use super::types::{
 };
 use crate::data::trainer_create::ADOPT_FIRST;
 use crate::dialog::highest_message;
-use crate::error::KernelError;
+use crate::error::{KernelError, io_at};
 use crate::flags::{FlagKind, in_save, not_in_save_text};
-use crate::project::AssetKind;
+use crate::project::{AssetKind, Project};
 use crate::scripts::{self, ArchiveSnapshot, FIRST_COMMON_SCRIPT, SourceKind};
 use crate::store::{MapHeader, ObjectEvent, Store};
 use crate::text::{TextMessage, default_message_id};
@@ -256,6 +256,27 @@ fn check(store: &mut Store, input: &NewFigureInput) -> Result<Checked, KernelErr
     })
 }
 
+/// Removes the JSON of every archive of `saved` that had none before and that the compile did
+/// not touch: the compile wrote it from the member where DSPRE has not expanded the archive
+/// (same content), so the disk is as before the recipe and no file step is needed. A step for
+/// it would hold the JSON without the figure's message as its `after`; once „Speichern“ wrote
+/// the archive with the message, undo would find the file changed and refuse. The archive's
+/// text sync record follows the removal.
+fn remove_materialized_json(
+    project: &Project,
+    saved: &BTreeMap<u16, ArchiveSnapshot>,
+    touched: &[u16],
+) -> Result<(), KernelError> {
+    for (&a, snapshot) in saved {
+        let json = crate::text::json_path(project, a);
+        if snapshot.json.is_none() && !touched.contains(&a) && json.is_file() {
+            std::fs::remove_file(&json).map_err(io_at(&json))?;
+            crate::text::record_text_sync(project, &[a])?;
+        }
+    }
+    Ok(())
+}
+
 /// What [`apply`] would do, found with the same checks and without writing: the object on the
 /// header's matrix with its look, the message for the header's archive, and the sentences of
 /// the wizard (script slot, message number, visibility flag). Nothing is irreversible.
@@ -295,9 +316,9 @@ pub fn plan(store: &mut Store, input: &NewFigureInput) -> Result<Draft, KernelEr
 /// header's script file and compiled. The files the compile wrote (the source and its member,
 /// rotom's compile state as a whole file, the text archives of the headers with that script
 /// file it touched) are recorded as file steps from their state before and merged with the
-/// transaction; the JSON of an archive the compile only wrote from its member (a DSPRE project
-/// that has not expanded it) goes back with the script file. A compile error puts the source and the compile state back and drops the
-/// transaction (nothing to redo); a compile that wrote a text literal into the figure's archive
+/// transaction. The JSON a compile writes from the member of an archive DSPRE has not expanded
+/// is removed again ([`remove_materialized_json`]). A compile error puts the source and the
+/// compile state back and drops the transaction (nothing to redo); a compile that wrote a text literal into the figure's archive
 /// is rolled back and refused (its number would collide with the store's new message).
 pub fn apply(
     store: &mut Store,
@@ -385,15 +406,9 @@ pub fn apply(
     )?];
     steps[0].rotom_entry = None;
     for (&a, snapshot) in &saved {
-        let mut step = scripts::archive_file_step(&project, a, snapshot)?;
-        if !touched.contains(&a) {
-            // Only the JSON a compile writes from the member where DSPRE has not expanded
-            // the archive (same content): it goes back with the script file, and undo does
-            // not reload the archive, whose store value (the figure's message) is a part of
-            // this step.
-            step.asset = id(AssetKind::Script, script_file);
+        if touched.contains(&a) {
+            steps.push(scripts::archive_file_step(&project, a, snapshot)?);
         }
-        steps.push(step);
     }
     steps.push(scripts::compile_state_step(
         &project,
@@ -422,6 +437,7 @@ pub fn apply(
         }
     }
     store.squash_since(mark, &label);
+    remove_materialized_json(&project, &saved, &touched)?;
 
     Ok(Outcome {
         report: NewFigureReport {

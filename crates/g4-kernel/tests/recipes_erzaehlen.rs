@@ -392,9 +392,9 @@ fn undo_and_redo_of_a_figure_restore_every_file() {
     assert_eq!(state(&store), before);
 }
 
-#[test]
-fn a_dspre_archive_json_the_compile_writes_goes_back_with_undo() {
-    // A DSPRE project has no archive JSON until a compile writes it from the member.
+/// The fixture as a DSPRE project with the scripts adopted: no archive JSON until a compile
+/// writes it from the member.
+fn dspre_fixture() -> (common::TextFixture, Store, PathBuf) {
     let fx = common::TextFixture::dspre();
     let project = fx.project();
     scripts::adopt(&project, &mut |_| {}).unwrap();
@@ -407,20 +407,86 @@ fn a_dspre_archive_json_the_compile_writes_goes_back_with_undo() {
         .expanded_dir(AssetKind::TextArchive)
         .join(format!("{ARCHIVE:04}.json"));
     assert!(!json.exists());
+    (fx, store, json)
+}
+
+#[test]
+fn a_dspre_archive_json_the_compile_writes_is_removed_again() {
+    let (_fx, mut store, json) = dspre_fixture();
     let before = state(&store);
 
     let outcome = new_figure::apply(&mut store, &input(40, 7, "Bis bald!")).unwrap();
     let message = usize::from(outcome.report.message);
-    assert!(json.exists(), "the compile wrote the archive JSON");
+    // The compile wrote the JSON from the member; the recipe removed it again.
+    assert!(!json.exists());
     let after = state(&store);
+    assert_eq!(after.archive, before.archive);
     store.undo().unwrap();
     assert_eq!(state(&store), before);
-    assert!(!json.exists());
     store.redo().unwrap();
     assert_eq!(state(&store), after);
-    // The store kept the figure's message through the reloads of undo and redo.
+    // The store kept the figure's message through undo and redo.
     let doc = store.text_archive(ARCHIVE).unwrap();
     assert_eq!(doc.messages[message].text, "Bis bald!");
+}
+
+#[test]
+fn a_saved_figure_in_a_dspre_project_is_undone_and_redone() {
+    let (fx, mut store, _json) = dspre_fixture();
+    let files = |root: &Path| {
+        let mut all = BTreeMap::new();
+        for dir in ["expanded", "unpacked"] {
+            for (path, bytes) in files_below(&root.join(dir)) {
+                all.insert(Path::new(dir).join(path), bytes);
+            }
+        }
+        all
+    };
+    let differ = |a: &BTreeMap<PathBuf, Vec<u8>>, b: &BTreeMap<PathBuf, Vec<u8>>| {
+        a.keys()
+            .chain(b.keys())
+            .filter(|k| a.get(*k) != b.get(*k))
+            .cloned()
+            .collect::<std::collections::BTreeSet<PathBuf>>()
+    };
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let before_files = files(fx.root());
+    let before = state(&store);
+
+    let outcome = new_figure::apply(&mut store, &input(40, 7, "Bis bald!")).unwrap();
+    store.save().unwrap();
+    let saved_files = files(fx.root());
+    assert!(differ(&saved_files, &before_files).len() >= 5);
+
+    store.undo().unwrap();
+    assert!(store.event(0).unwrap().object_events.is_empty());
+    assert_eq!(
+        store.text_archive(ARCHIVE).unwrap().messages.len(),
+        messages
+    );
+    assert!(!source_of(&store, 0).contains(&format!("#{}:", outcome.report.slot)));
+    store.save().unwrap();
+    // As before, but the archive JSON: the first save wrote it (a store save writes the
+    // archive's JSON and member), now without the figure's message.
+    let json = Path::new("expanded/textArchives").join(format!("{ARCHIVE:04}.json"));
+    let now = files(fx.root());
+    assert_eq!(
+        differ(&now, &before_files),
+        std::collections::BTreeSet::from([json.clone()])
+    );
+    assert!(!String::from_utf8_lossy(&now[&json]).contains("Bis bald!"));
+    let undone = state(&store);
+    assert_eq!(
+        (undone.script, undone.compile_state),
+        (before.script, before.compile_state)
+    );
+
+    store.redo().unwrap();
+    store.save().unwrap();
+    assert_eq!(differ(&files(fx.root()), &saved_files), Default::default());
+    let doc = store.text_archive(ARCHIVE).unwrap();
+    assert_eq!(doc.messages[messages].text, "Bis bald!");
+    assert_eq!(store.event(0).unwrap().object_events.len(), 1);
 }
 
 #[test]

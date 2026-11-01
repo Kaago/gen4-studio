@@ -77,7 +77,9 @@ anzufassen.
 3. Dateischritte: die Scriptdatei (Quelle und Member), jedes Textarchiv der Header mit dieser
    Scriptdatei, das der Compile schrieb (JSON und Member), rotoms Compile-Zustand als ganze Datei;
    schrieb der Compile ein Text-Literal in das Archiv der Figur, wird alles zurückgenommen und
-   abgelehnt;
+   abgelehnt. Die JSON eines Archivs, das DSPRE nicht ausgepackt hat, schreibt der Compile aus dem
+   Member (gleicher Inhalt); das Rezept löscht sie wieder, so dass nach „Speichern“ ⌘Z nicht an
+   einer Datei scheitert, die das Speichern mit der neuen Nachricht schrieb;
 4. alles ab der Marke ein Schritt. ⌘Z stellt Quelle, Member, Compile-Zustand, Archiv und Eventdatei
    byte-gleich her, ⌘⇧Z wieder den Stand danach; eine Quelle, die jemand zwischendurch änderte, lässt
    ⌘Z ablehnen.
