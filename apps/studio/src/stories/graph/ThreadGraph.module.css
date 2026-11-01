@@ -8,6 +8,7 @@
   --xy-node-border: none;
   --xy-node-border-selected: none;
   --xy-handle-background-color: transparent;
+  --xy-attribution-background-color: var(--g4-flaeche-blatt);
 
   position: relative;
   block-size: 100%;
@@ -36,4 +37,16 @@
 /* The anchors are where the edges meet the node; nobody connects anything, so they are not seen. */
 .handle {
   opacity: 0;
+}
+
+/* React Flow's attribution (kept, as its makers ask): a small label inset from the corner, on the sheet, in the secondary text colour. */
+.graph :global(.react-flow__attribution) {
+  margin: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-4);
+  border-radius: var(--g4-radius-plakette);
+  font: var(--g4-font-text-xs);
+}
+
+.graph :global(.react-flow__attribution a) {
+  color: var(--g4-text-sekundaer);
 }

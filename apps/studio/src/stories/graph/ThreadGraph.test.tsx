@@ -65,4 +65,59 @@ describe("ThreadGraph", () => {
     expect(storyNode("v:1").hasAttribute("data-selected")).toBe(true);
     expect(container.querySelector("[data-open-place]")).toBeNull();
   });
+
+  it("a_selection_change_keeps_the_measured_nodes_visible", async () => {
+    // jsdom has no layout: nodes are 192 × 64, the viewport is unscaled, and the observer reports an element once, when it is first
+    // observed (as a browser does on observe). A node whose size React Flow forgets is observed anew and hidden until the report comes.
+    const sizes = (["offsetWidth", "offsetHeight"] as const).map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 192 });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 64 });
+    const observed = new WeakSet<Element>();
+    let observeCalls = 0;
+    class OnceObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element): void {
+        observeCalls += 1;
+        if (observed.has(target)) return;
+        observed.add(target);
+        queueMicrotask(() => act(() => this.callback([{ target } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver)));
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", OnceObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", class { m22 = 1; });
+    // Edge labels measure their text.
+    const svg = SVGElement.prototype as unknown as { getBBox?: () => DOMRect };
+    const hadBBox = svg.getBBox;
+    svg.getBBox = () => ({ x: 0, y: 0, width: 80, height: 12 }) as DOMRect;
+    try {
+      const allVisible = () => {
+        const wrappers = [...container.querySelectorAll<HTMLElement>(".react-flow__node")];
+        return wrappers.length === sampleThreadGraph.nodes.length && wrappers.every((w) => w.style.visibility !== "hidden");
+      };
+      show(null);
+      await act(async () => {
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(allVisible()).toBe(true);
+      const before = observeCalls;
+
+      // Selecting a node and clearing it again leaves every node measured: none is hidden, none is observed anew.
+      act(() => storyNode("p:script:0101").click());
+      show("p:script:0101");
+      expect(allVisible()).toBe(true);
+      show(null);
+      expect(allVisible()).toBe(true);
+      expect(observeCalls).toBe(before);
+    } finally {
+      vi.unstubAllGlobals();
+      if (hadBBox) svg.getBBox = hadBBox;
+      else delete svg.getBBox;
+      for (const [key, descriptor] of sizes) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+      }
+    }
+  });
 });

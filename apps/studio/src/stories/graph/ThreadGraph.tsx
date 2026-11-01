@@ -1,7 +1,7 @@
 import "@xyflow/react/dist/base.css";
-import { Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
+import { applyNodeChanges, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import type { AriaLabelConfig, Edge, Node, NodeChange, NodeProps } from "@xyflow/react";
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { NavTargetDto } from "../../api.data";
 import type { ThreadGraphDto } from "../../api.stories";
 import { Button, StoryNode, storyKindWord } from "../../ui/primitives";
@@ -28,6 +28,11 @@ const ariaLabels: Partial<AriaLabelConfig> = {
   "edge.a11yDescription.default": "Enter oder Leertaste wählt eine Kante.",
   "handle.ariaLabel": "Anschluss",
 };
+
+/** `nodes` with `selected` as the only selected one; a node whose selection stays is the same object (it keeps its measured size). */
+function withSelection(nodes: StoryFlowNode[], selected: string | null): StoryFlowNode[] {
+  return nodes.map((node) => ((node.selected ?? false) === (node.id === selected) ? node : { ...node, selected: node.id === selected }));
+}
 
 const OpenPlace = createContext<(nav: NavTargetDto) => void>(() => {});
 
@@ -65,21 +70,27 @@ const nodeTypes = { [STORY_NODE_TYPE]: StoryFlowNodeView };
 /**
  * The graph of a thread or a story (3d.6, read only): the places that set a value left of it, the places that check it right (dagre,
  * or the story's side file), one `StoryNode` per node, the edges labelled where the reference is. A click selects a node; a selected
- * place opens with „Öffnen“. Fits itself into view; no minimap, nothing to drag (3d.7 writes the layout). The default export is for
- * `React.lazy`: React Flow and dagre stay in this chunk.
+ * place opens with „Öffnen“. Fits itself into view; no minimap, nothing to drag (3d.7 writes the layout); React Flow's attribution
+ * stays (bottom right). The default export is for `React.lazy`: React Flow and dagre stay in this chunk.
  */
 export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: ThreadGraphProps) {
   const flow = useMemo(() => toFlow(graph), [graph]);
-  const placed = useMemo(() => layoutGraph(flow.nodes, flow.edges, graph.layout) as StoryFlowNode[], [flow, graph.layout]);
-  const nodes = useMemo(
+  const placed = useMemo(
     () =>
-      placed.map((node) => ({
+      (layoutGraph(flow.nodes, flow.edges, graph.layout) as StoryFlowNode[]).map((node) => ({
         ...node,
-        selected: node.id === selected,
         ariaLabel: `${storyKindWord(node.data.kind)}: ${node.data.title}${node.data.subtitle ? `, ${node.data.subtitle}` : ""}`,
       })),
-    [placed, selected],
+    [flow, graph.layout],
   );
+  // React Flow keeps the measured size on the node objects it is given: they live in state and take every change it reports (sizes
+  // included), so a selection replaces only the nodes whose selection changes and no node has to be measured (and hidden) again.
+  const [nodes, setNodes] = useState(() => withSelection(placed, selected));
+  const [shown, setShown] = useState({ placed, selected });
+  if (shown.placed !== placed || shown.selected !== selected) {
+    setShown({ placed, selected });
+    setNodes(shown.placed !== placed ? withSelection(placed, selected) : (current) => withSelection(current, selected));
+  }
   const edges = useMemo(
     (): Edge[] =>
       flow.edges.map((edge) => ({
@@ -90,9 +101,12 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: 
       })),
     [flow],
   );
-  // Selection goes through the owner: a click or Enter on a node selects it, a click on the pane or Escape clears it.
+  // Selection goes through the owner: a click or Enter on a node selects it, a click on the pane or Escape clears it. Every other
+  // change (the sizes React Flow measures) is kept on the nodes.
   const onNodesChange = useCallback(
     (changes: NodeChange<StoryFlowNode>[]) => {
+      const kept = changes.filter((c) => c.type !== "select");
+      if (kept.length > 0) setNodes((current) => applyNodeChanges(kept, current));
       const picked = changes.find((c) => c.type === "select" && c.selected);
       if (picked && picked.type === "select") onSelect(picked.id);
       else if (changes.some((c) => c.type === "select" && !c.selected && c.id === selected)) onSelect(null);
@@ -122,7 +136,6 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: 
           maxZoom={2}
           fitView
           fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
-          proOptions={{ hideAttribution: true }}
           ariaLabelConfig={ariaLabels}
         />
       </OpenPlace.Provider>
