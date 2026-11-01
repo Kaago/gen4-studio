@@ -8,5 +8,8 @@
 
 mod types;
 
-pub use types::{DeleteTarget, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule};
+pub use types::{
+    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+    ORIGINAL_KIND, Rule,
+};
 pub(crate) use types::TOMBSTONE_ARTS;

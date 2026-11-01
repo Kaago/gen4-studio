@@ -3,7 +3,8 @@
 mod common;
 
 use g4_kernel::delete::{
-    DeleteTarget, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule,
+    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+    ORIGINAL_KIND, Rule,
 };
 use g4_kernel::original::ResetTarget;
 use g4_kernel::project::{AssetId, AssetKind};
@@ -20,12 +21,12 @@ const TABLE: [(DeleteTarget, Rule); 16] = [
     (DeleteTarget::Script { file: 1 }, Rule::Truncate),
     (DeleteTarget::TextArchive { index: 1 }, Rule::Truncate),
     (DeleteTarget::AreaData { index: 1 }, Rule::OnlyNew),
-    (DeleteTarget::MapTexture { index: 1 }, Rule::OnlyNew),
-    (DeleteTarget::BuildingTexture { index: 1 }, Rule::OnlyNew),
-    (DeleteTarget::BuildingModel { index: 1 }, Rule::OnlyNew),
+    (DeleteTarget::MapTexture { index: 1 }, Rule::Truncate),
+    (DeleteTarget::BuildingTexture { index: 1 }, Rule::Truncate),
+    (DeleteTarget::BuildingModel { index: 1 }, Rule::Truncate),
     (
         DeleteTarget::InteriorBuildingModel { index: 1 },
-        Rule::OnlyNew,
+        Rule::Truncate,
     ),
     (DeleteTarget::Place { index: 1 }, Rule::Truncate),
     (DeleteTarget::Flag { number: 1 }, Rule::RemoveFile),
@@ -124,6 +125,10 @@ fn labels_use_the_words_of_the_app() {
     assert_eq!(
         NO_TOMBSTONE_FOR_FILES,
         "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen."
+    );
+    assert_eq!(
+        NO_TOMBSTONE_FOR_BINARIES,
+        "Texturen und Modelle haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen."
     );
     assert_eq!(
         NOT_A_TEXT_PROJECT,

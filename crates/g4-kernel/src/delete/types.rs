@@ -56,6 +56,8 @@ pub enum Rule {
 pub const ORIGINAL_KIND: &str = "Original-{Art} lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays).";
 /// Why a script file or text archive gets no tombstone.
 pub const NO_TOMBSTONE_FOR_FILES: &str = "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";
+/// Why a texture or model gets no tombstone (binary arts, no JSON).
+pub const NO_TOMBSTONE_FOR_BINARIES: &str = "Texturen und Modelle haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";
 /// Why the DSPRE layout has no tombstones.
 pub const NOT_A_TEXT_PROJECT: &str =
     "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).";
@@ -85,14 +87,14 @@ impl DeleteTarget {
             | DeleteTarget::EventFile { .. }
             | DeleteTarget::Matrix { .. }
             | DeleteTarget::Map { .. } => Rule::Tombstone,
-            DeleteTarget::Header { .. }
-            | DeleteTarget::AreaData { .. }
+            DeleteTarget::Header { .. } | DeleteTarget::AreaData { .. } => Rule::OnlyNew,
+            // Textures and models are binary arts without JSON, so without an envelope.
+            DeleteTarget::Script { .. }
+            | DeleteTarget::TextArchive { .. }
             | DeleteTarget::MapTexture { .. }
             | DeleteTarget::BuildingTexture { .. }
             | DeleteTarget::BuildingModel { .. }
-            | DeleteTarget::InteriorBuildingModel { .. } => Rule::OnlyNew,
-            DeleteTarget::Script { .. }
-            | DeleteTarget::TextArchive { .. }
+            | DeleteTarget::InteriorBuildingModel { .. }
             | DeleteTarget::Place { .. } => Rule::Truncate,
             DeleteTarget::Flag { .. } | DeleteTarget::Var { .. } => Rule::RemoveFile,
         }

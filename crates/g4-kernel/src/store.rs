@@ -2,7 +2,7 @@
 //! byte comparison, and a save that refuses to overwrite files changed on disk.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -22,7 +22,9 @@ use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
-use crate::delete::{DeleteTarget, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT};
+use crate::delete::{
+    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+};
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
@@ -30,7 +32,7 @@ use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::Art;
-use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, read_tombstones};
+use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_on_disk};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
 
 pub use crate::project::AssetId;
@@ -877,7 +879,8 @@ impl Tx<'_> {
     /// records nothing. The flag changes no member bytes: [`Store::save`] writes the envelope
     /// into the entity's JSON. Refused ([`KernelError::Refused`]) outside a text project of
     /// the current schema ([`NOT_A_TEXT_PROJECT`]), for script files and text archives
-    /// ([`NO_TOMBSTONE_FOR_FILES`]) and for the other kinds without an envelope; an entity
+    /// ([`NO_TOMBSTONE_FOR_FILES`]), for textures and models ([`NO_TOMBSTONE_FOR_BINARIES`])
+    /// and for the other kinds without an envelope (places, flags, variables); an entity
     /// that does not exist fails as loading it does.
     pub fn set_deleted(&mut self, target: DeleteTarget, deleted: bool) -> Result<(), KernelError> {
         if *self.store.project.source_mode() != SourceMode::TextProject {
@@ -888,6 +891,15 @@ impl Tx<'_> {
             DeleteTarget::Script { .. } | DeleteTarget::TextArchive { .. }
         ) {
             return Err(KernelError::Refused(NO_TOMBSTONE_FOR_FILES.to_owned()));
+        }
+        if matches!(
+            target,
+            DeleteTarget::MapTexture { .. }
+                | DeleteTarget::BuildingTexture { .. }
+                | DeleteTarget::BuildingModel { .. }
+                | DeleteTarget::InteriorBuildingModel { .. }
+        ) {
+            return Err(KernelError::Refused(NO_TOMBSTONE_FOR_BINARIES.to_owned()));
         }
         if !target.has_envelope() {
             return Err(KernelError::Refused(format!(
@@ -989,12 +1001,11 @@ pub struct Store {
     /// While set, every write is refused with [`KernelError::Busy`] and this reason
     /// ([`Store::set_busy`]).
     busy: Option<String>,
-    /// The tombstones as saved: read from the entity JSON when the store opens (a text project
-    /// of the current schema), taken over from [`Store::tombstones_now`] by a save.
-    tombstones: BTreeSet<DeleteTarget>,
-    /// The tombstones with the unsaved steps: set and taken back by transactions
-    /// ([`Tx::set_deleted`]), undo and redo.
-    tombstones_now: BTreeSet<DeleteTarget>,
+    /// The store's own tombstone flags: set by transactions ([`Tx::set_deleted`]), undo and
+    /// redo, dropped once a save wrote them or a reload dropped the store's changes. Every
+    /// other target is answered from the envelope of its JSON on disk, so an envelope changed
+    /// outside the app is never held stale ([`Store::is_deleted`]).
+    tombstones: BTreeMap<DeleteTarget, bool>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1051,15 +1062,7 @@ fn mismatch(id: AssetId) -> KernelError {
 }
 
 impl Store {
-    /// The store of `project`. In a text project of the current schema the tombstones are read
-    /// from the entity JSON now ([`read_tombstones`]); a folder that cannot be read counts as
-    /// none.
     pub fn new(project: Arc<Project>) -> Store {
-        let tombstones = if *project.source_mode() == SourceMode::TextProject {
-            read_tombstones(&project.root).unwrap_or_default()
-        } else {
-            BTreeSet::new()
-        };
         Store {
             assets: HashMap::new(),
             undo: Vec::new(),
@@ -1076,8 +1079,7 @@ impl Store {
             text_sync: Mutex::new(None),
             source: None,
             busy: None,
-            tombstones_now: tombstones.clone(),
-            tombstones,
+            tombstones: BTreeMap::new(),
             project,
         }
     }
@@ -1985,10 +1987,7 @@ impl Store {
                 .ok_or(KernelError::Stale(HEADER_TABLE))?;
             let members = vec![path, names_path];
             // The other headers keep their tombstones as saved.
-            let saved = self.tombstones.clone();
-            let deleted = move |art: Art, index: u16| {
-                DeleteTarget::of_art(art, index).is_some_and(|t| saved.contains(&t))
-            };
+            let deleted = deleted_on_disk(&self.project.root);
             self.append_json(HEADER_TABLE, members, journal, |source, project| {
                 source.write(project, &[(HEADER_TABLE, table)], &|_| None, &deleted)
             })?;
@@ -2444,20 +2443,17 @@ impl Store {
     /// the bytes of every loaded asset whose value changed and differs from what was last
     /// read from or written to disk, the documents of the changed text archives (cloned, not
     /// serialized), the text generations, and the lock reason of every loaded asset its bytes
-    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding; the tombstones
-    /// and the restored targets (see [`crate::checks::Overlay::restored`]). Nothing is read
-    /// from disk; everything else the snapshot reads there. An asset whose value cannot be
+    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding; the store's own
+    /// tombstone flags, set ones as `tombstones`, taken back ones as `restored` (see
+    /// [`crate::checks::Overlay::restored`]). Nothing is read from disk; everything else the
+    /// snapshot reads there. An asset whose value cannot be
     /// serialized is named in `unwritable` instead.
     pub fn snapshot_overlay(&self) -> crate::checks::Overlay {
         let family = self.project.family;
         let mut overlay = crate::checks::Overlay {
             generation: self.change_generation,
-            tombstones: self.deleted_targets(),
-            restored: self
-                .tombstones
-                .difference(&self.tombstones_now)
-                .copied()
-                .collect(),
+            tombstones: self.own_tombstones(true),
+            restored: self.own_tombstones(false),
             ..Default::default()
         };
         for (&id, asset) in &self.assets {
@@ -2532,7 +2528,7 @@ impl Store {
     }
 
     /// Drops the store's own changes to `id` and loads the member from disk again, the
-    /// tombstones of its entities included. The asset's parts (and those tombstones') leave
+    /// tombstone flags of its entities included. The asset's parts (and those tombstones') leave
     /// the changesets of both the undo and the redo stack (a changeset left without parts goes
     /// with them); the parts of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
@@ -2551,7 +2547,7 @@ impl Store {
             },
         );
         self.forget_history(id);
-        self.reread_tombstones(id, true);
+        self.tombstones.retain(|t, _| !t.assets().contains(&id));
         self.drop_text_index(id);
         self.note_change(id);
         Ok(())
@@ -2561,8 +2557,7 @@ impl Store {
     /// keeping its own changes. The next `save` then overwrites the file with them. The
     /// asset's undo and redo entries are dropped (their snapshots were taken against the old
     /// base; undoing would write it over the external edit); those of other assets stay, see
-    /// [`Store::reload_from_disk`]. The tombstones of its entities on disk become the saved
-    /// ones, the store's own stay. Does
+    /// [`Store::reload_from_disk`]. The store's own tombstone flags of its entities stay. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
@@ -2595,7 +2590,6 @@ impl Store {
             asset.saved_bytes = base;
         }
         self.forget_history(id);
-        self.reread_tombstones(id, false);
         self.drop_text_index(id);
         self.note_change(id);
         Ok(())
@@ -2957,105 +2951,65 @@ impl Store {
         })
     }
 
-    /// Whether a tombstone of an entity `id` belongs to differs from the saved one.
+    /// Whether a tombstone flag of the store's own for an entity `id` belongs to differs from
+    /// the envelope on disk.
     fn tomb_dirty(&self, id: AssetId) -> bool {
         self.tombstones
-            .symmetric_difference(&self.tombstones_now)
-            .any(|t| t.assets().contains(&id))
+            .iter()
+            .any(|(t, &deleted)| t.assets().contains(&id) && deleted != self.deleted_on_disk(*t))
     }
 
-    /// Whether `target` is deleted: its tombstone as the store holds it, unsaved steps
-    /// included. Never outside a text project.
+    /// Whether the JSON of `target` carries the envelope on disk now (a text project only).
+    fn deleted_on_disk(&self, target: DeleteTarget) -> bool {
+        *self.project.source_mode() == SourceMode::TextProject
+            && target
+                .art()
+                .is_some_and(|art| deleted_on_disk(&self.project.root)(art, target.number()))
+    }
+
+    /// Whether `target` is deleted: the store's own flag (unsaved steps included), else the
+    /// envelope of its JSON on disk. Never outside a text project.
     pub fn is_deleted(&self, target: DeleteTarget) -> bool {
-        self.tombstones_now.contains(&target)
+        match self.tombstones.get(&target) {
+            Some(&deleted) => deleted,
+            None => self.deleted_on_disk(target),
+        }
     }
 
-    /// Every deleted target, unsaved steps included, sorted.
+    /// Every deleted target, unsaved steps included, sorted: the envelopes on disk (every
+    /// entity JSON of the arts with one is looked at) with the store's own flags over them.
     pub fn deleted_targets(&self) -> Vec<DeleteTarget> {
-        self.tombstones_now.iter().copied().collect()
+        let mut out = if *self.project.source_mode() == SourceMode::TextProject {
+            crate::textproject::source::read_tombstones(&self.project.root).unwrap_or_default()
+        } else {
+            BTreeSet::new()
+        };
+        for (&target, &deleted) in &self.tombstones {
+            if deleted {
+                out.insert(target);
+            } else {
+                out.remove(&target);
+            }
+        }
+        out.into_iter().collect()
     }
 
-    /// Sets the tombstone of `target` as the store holds it and reports a change of its assets.
+    /// The targets the store's own flag holds `deleted`, sorted.
+    fn own_tombstones(&self, deleted: bool) -> Vec<DeleteTarget> {
+        self.tombstones
+            .iter()
+            .filter(|&(_, &d)| d == deleted)
+            .map(|(&t, _)| t)
+            .collect()
+    }
+
+    /// Sets the store's own flag of `target` and reports a change of its assets.
     fn set_tombstone(&mut self, target: DeleteTarget, deleted: bool) {
-        let changed = if deleted {
-            self.tombstones_now.insert(target)
-        } else {
-            self.tombstones_now.remove(&target)
-        };
+        let changed = self.is_deleted(target) != deleted;
+        self.tombstones.insert(target, deleted);
         if changed {
             for id in target.assets() {
                 self.note_change(id);
-            }
-        }
-    }
-
-    /// Takes the tombstones of the entities of `written` (assets whose JSON a save wrote) as
-    /// saved.
-    fn settle_tombstones(&mut self, written: &[AssetId]) {
-        let settled: Vec<DeleteTarget> = self
-            .tombstones
-            .symmetric_difference(&self.tombstones_now)
-            .filter(|t| t.assets().iter().any(|id| written.contains(id)))
-            .copied()
-            .collect();
-        for target in settled {
-            if self.tombstones_now.contains(&target) {
-                self.tombstones.insert(target);
-            } else {
-                self.tombstones.remove(&target);
-            }
-        }
-    }
-
-    /// Reads the tombstones of the entities of `id` from their JSON again: as saved, and with
-    /// `own` also as the store holds them (a reload drops the store's own changes, taking the
-    /// disk as base keeps them). Only in a text project; a file that cannot be read counts as
-    /// none.
-    fn reread_tombstones(&mut self, id: AssetId, own: bool) {
-        if *self.project.source_mode() != SourceMode::TextProject {
-            return;
-        }
-        let root = &self.project.root;
-        let on_disk: Vec<(DeleteTarget, bool)> = if id == HEADER_TABLE {
-            let deleted = crate::textproject::tombstone::read_deleted(root, Art::Headers.name())
-                .unwrap_or_default();
-            let headers: Vec<DeleteTarget> = self
-                .tombstones
-                .iter()
-                .chain(&self.tombstones_now)
-                .filter(|t| matches!(t, DeleteTarget::Header { .. }))
-                .copied()
-                .chain(deleted.iter().map(|&id| DeleteTarget::Header { id }))
-                .collect();
-            headers
-                .into_iter()
-                .map(|t| (t, deleted.contains(&t.number())))
-                .collect()
-        } else {
-            DeleteTarget::of_asset(id.kind, id.index)
-                .filter(|t| t.has_envelope())
-                .and_then(|t| Some((t, t.art()?)))
-                .map(|(t, art)| {
-                    let rel = art.dir().join(format!("{:04}.json", t.number()));
-                    let deleted =
-                        crate::textproject::tombstone::file_deleted(root, &rel).unwrap_or(false);
-                    (t, deleted)
-                })
-                .into_iter()
-                .collect()
-        };
-        for (target, deleted) in on_disk {
-            let sets = if own {
-                vec![&mut self.tombstones, &mut self.tombstones_now]
-            } else {
-                vec![&mut self.tombstones]
-            };
-            for set in sets {
-                if deleted {
-                    set.insert(target);
-                } else {
-                    set.remove(&target);
-                }
             }
         }
     }
@@ -3237,9 +3191,14 @@ impl Store {
                     .get(&id)
                     .and_then(|a| a.current.to_bytes(family).ok())
             };
-            let tombstones = &self.tombstones_now;
-            let deleted = |art: Art, index: u16| {
-                DeleteTarget::of_art(art, index).is_some_and(|t| tombstones.contains(&t))
+            // The store's own flag, else the envelope on disk stays as it is.
+            let tombstones = &self.tombstones;
+            let on_disk = deleted_on_disk(&project.root);
+            let deleted = |art: Art, index: u16| match DeleteTarget::of_art(art, index)
+                .and_then(|t| tombstones.get(&t))
+            {
+                Some(&deleted) => deleted,
+                None => on_disk(art, index),
             };
             let written = Store::source(&mut self.source, &project)?
                 .write(&project, &writes, &current, &deleted)?;
@@ -3252,7 +3211,9 @@ impl Store {
                     asset.saved_bytes = Some(bytes);
                 }
             }
-            self.settle_tombstones(&ids);
+            // Written: the disk holds the store's flags now.
+            self.tombstones
+                .retain(|t, _| !t.assets().iter().any(|id| ids.contains(id)));
         }
         Ok(out)
     }
