@@ -1,0 +1,124 @@
+# Platin DE, gate 3d.5: the three recipes of Erzählen headless over MCP (`studio mcp`, one session)
+# on one new place, then played. "Neue Figur" (new_figure) puts a figure with a numbered message in
+# the header's own text archive and a new script slot, "Tür verbinden" (connect_doors) turns the
+# bedroom stairs (header 415, warp 0) to a NEW door on the new place and back (door tiles on),
+# "Neuer Trainer hier" (new_trainer_here) creates a trainer with team and battle texts and its
+# object with sight line (irreversible: `--allow-irreversible`).
+#
+# The new place is the one of pt-trainer-begegnung.yaml: a NEW header on copies of the Route 201
+# maps 5 and 6 (template 342) with a new, empty event file; it gets a new script file (script 1
+# empty, the template's level script runs it on entering; the figure's script becomes slot 2) and a
+# new text archive (create_text_archive starts it with one message, "Neuer Text"; the figure's
+# message becomes number 1). Tiles (absolute in the header's matrix):
+#   door B (44, 21)  the new warp 0 of the new event file, back to 415 warp 0; the player arrives
+#                    on it and steps east to (45, 21); back through it from (45, 21) by pushing
+#                    west into it (a door is walked into, not onto, as in pt-flag.yaml)
+#   figure (45, 20)  north of the arrival (the gift's tile in pt-trainer-begegnung.yaml), graphics 6,
+#                    movement 15 (stands), looking down; the player faces up and presses A
+#   Jens (50, 23)    looking north, sight 3: the player walking east on row 21 is seen at (50, 21)
+# The player has no Pokémon in the save, so Jens' battle is lost (`end-battle`, the game takes the
+# player home); `expect-battle` proves the battle with Jens' team before that. g4k check-data knows
+# no trainers, so there is no `check:` (the gated kernel test checks the team).
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   NEUER_HEADER  id the new header gets = the header count before (593 on an unmodified Platin DE)
+#   S_T1 L_T1     Jens' Pokémon (25 Pikachu, 12)
+#   TEXT          the figure's text ("Hallo, Reisender!")
+# Names an edit binds (third element) come from the tools' answers (structuredContent.result): area
+# (create_area), hdr, datei, archiv, figur, tuer, trainer (recipe_apply: report, created, next).
+# Example (from scripts/g4emu; in a worktree set G4_ROMS_DIR and G4_STUDIO_BIN, see
+# docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/pt-erzaehlen.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-5-szen-pt_DSPRE_contents \
+#     --out ../../target/agent/gate-$(date +%F)/3d-5/pt-erzaehlen \
+#     --set NEUER_HEADER=593 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+game: CPUD
+# --expert: adopt_scripts, new_script_file and create_text_archive are no curated tools (g4_call)
+mcp: [--allow-irreversible, --expert]
+edits:
+  # (1) patch, scripts, the new place
+  - [apply_header_patch, {}]
+  - [g4_call, {command: adopt_scripts}]
+  - - create_area
+    - spec:
+        name: Erzählen
+        width: 2
+        height: 1
+        cells:                       # Route 201 (header 342): matrix 0 cells (3, 26) = map 5 and (4, 26) = map 6
+          - {x: 0, y: 0, source_map: 5, clear_buildings: false}
+          - {x: 1, y: 0, source_map: 6, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 342, internal_name: T_ERZAEHLEN}
+    - area
+  # (2) a new script file and a new text archive on the new header, saved (the figure's compile
+  # finds the archive through the saved header)
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, datei]
+  - [g4_call, {command: create_text_archive}, archiv]
+  - - set_header
+    - id: "${area.header}"
+      header: {Pt: {$base: "${hdr.Pt}", script_file_id: "${datei}", text_archive_id: "${archiv}"}}
+  - [save, {}]
+  # (3) the three recipes
+  - - recipe_apply
+    - recipe: new_figure
+      input: {header: "${area.header}", x: 45, z: 20, graphics_id: 6, movement_type: 15, dir: 1, text: "${TEXT}"}
+    - figur
+  - - recipe_apply
+    - recipe: connect_doors
+      input: {a: {header: 415, warp: 0}, b: {header: "${area.header}", tile: {x: 44, z: 21}}, back: true, door_tiles: true}
+    - tuer
+  - - recipe_apply
+    - recipe: new_trainer_here
+      input:
+        header: "${area.header}"
+        x: 50
+        z: 23
+        dir: 0
+        sight: 3
+        class: 9
+        name: Jens
+        party: [{species: "${S_T1}", level: "${L_T1}"}]
+        texts: {before: 'Halt! Ich bin Jens!\r', lose: 'Du bist stark!', after: 'Gut gekämpft.'}
+        graphics_id: 20
+    - trainer
+  - [save, {}]
+build: build/out.nds
+play:
+  - continue
+  - expect-map 415
+  # "Tür verbinden", there: the bedroom stairs lead to the new door
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  - shot ankunft
+  # "Neue Figur": face north, talk; the shot shows "Hallo, Reisender!" in the box
+  - press up:8
+  - press a
+  - wait 90
+  - shot figur
+  # B closes the box and, unlike A, does not talk to the figure again
+  - mash b 120
+  # "Tür verbinden", back: into the new door, then down the stairs again
+  - walk-to 45 21
+  - press left:30
+  - expect-map 415
+  - wait 150
+  - walk-to 8 4
+  - walk right 1
+  - expect-map ${area.header}
+  - wait 150
+  # "Neuer Trainer hier": Jens sees the player at (50, 21), walks up and talks; A through his text
+  - walk-to 49 21
+  - walk right 1
+  - mash a 240
+  - expect-battle ${S_T1} ${L_T1} 900
+  - wait 300                                # the shot shows "Eine Herausforderung von Wanderer Jens!"
+  - shot trainer
+  - end-battle

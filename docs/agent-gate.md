@@ -248,6 +248,15 @@ uv run g4emu scenario ../agent/scenarios/hg-mcp-route.yaml --project $R/_testkop
 
 Bei Rückgabe 1 oder 2 zuerst `mcp.jsonl` (letzte Zeile) und `mcp-stderr.log` lesen. Die Kopie ist nach einem Fehler nach `build_rom` schon gespeichert; für den nächsten Lauf eine neue anlegen.
 
+`pt-erzaehlen.yaml` und `hg-erzaehlen.yaml` (Gate 3d.5, `mcp: [--allow-irreversible, --expert]`): neues Gebiet wie bei den Trainer-Szenarien mit neuer Scriptdatei und neuem Textarchiv, dann `recipe_apply` mit `new_figure`, `connect_doors` (Treppe des Zimmers ↔ neue Tür, Türkacheln) und `new_trainer_here`; spielen: Treppe, Figur ansprechen (`shot figur` zeigt „Hallo, Reisender!“), durch die Tür zurück und wieder hinunter, vom Trainer gesehen (`expect-battle`, ohne Team im Spielstand verloren mit `end-battle`). Erwartet `"ok": true`, Header-Folge 415, 593, 415, 593 bzw. 64, 540, 64, 540:
+
+```sh
+uv run g4emu scenario ../agent/scenarios/pt-erzaehlen.yaml --project $R/_testkopien/3d-5-szen-pt_DSPRE_contents --out $O/pt-erzaehlen \
+  --set NEUER_HEADER=593 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+uv run g4emu scenario ../agent/scenarios/hg-erzaehlen.yaml --project $R/_testkopien/3d-5-szen-hg_DSPRE_contents --out $O/hg-erzaehlen \
+  --set NEUER_HEADER=540 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+```
+
 ### MCP über die Brücke (`/mcp`, seit 3h.3)
 
 Die Brücke der Test-Umgebung bedient MCP auf ihrem eigenen Port unter `/mcp`, auf **derselben Sitzung** wie `/invoke` und die Seite: Was ein Agent dort tut, sieht die Oberfläche im Browser-Fenster sofort (Welt-Explorer, Szene, Verlauf, Statusleiste), und die Nachfrage erscheint dort als Dialog. Das ist der Browser-Modus von Einstellungen › Agenten; die Zeile des Servers heißt dann „Über die Brücke (/mcp)“. Eine Entdeckungsdatei schreibt die Brücke nicht: Die Einrichtungszeile der Seite (`claude mcp add gen4-studio -- "…/target/debug/studio" mcp`) zeigt nur, was die gepackte App zeigen würde; `studio mcp` erreicht die Brücke nicht. Kunde der Test-Umgebung ist `scripts/agent/mcp.sh`.

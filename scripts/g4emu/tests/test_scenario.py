@@ -1842,6 +1842,24 @@ def test_mcp_route_scenarios_load(name):
     }
 
 
+
+@pytest.mark.parametrize("name", ["pt-erzaehlen.yaml", "hg-erzaehlen.yaml"])
+def test_erzaehlen_scenarios_load(name):
+    env = {"NEUER_HEADER": "1", "S_T1": "1", "L_T1": "1", "TEXT": "Hallo, Reisender!"}
+    path = Path(__file__).resolve().parents[2] / "agent" / "scenarios" / name
+    sc = load_scenario(path, env)
+    assert sc.mcp == ["--allow-irreversible", "--expert"] and sc.build == "build/out.nds"
+    # the three recipes of 3d.5, in this order, each bound to a name
+    recipes = [(edit[1]["recipe"], edit[2]) for edit in sc.edits if edit[0] == "recipe_apply"]
+    assert recipes == [("new_figure", "figur"), ("connect_doors", "tuer"), ("new_trainer_here", "trainer")]
+    called = {edit[1]["command"] for edit in sc.edits if edit[0] == "g4_call"}
+    assert called <= {"adopt_scripts", "new_script_file", "create_text_archive"}
+    assert "eventFile" not in json.dumps(sc.edits)
+    shots = {sc.play[i + 1] for i, step in enumerate(sc.play) if step == "shot"}
+    assert {"ankunft", "figur", "trainer"} <= shots
+    # the door both ways: there, back to the room, there again
+    assert sum(step == "expect-map" for step in sc.play) == 4
+
 def test_scenario_save_none_runs_without_save(tmp_path, roms, monkeypatch):
     path = write_yaml(tmp_path, SCENARIO_YAML + "save: none\n")
     sc = load_scenario(path, ENV)
