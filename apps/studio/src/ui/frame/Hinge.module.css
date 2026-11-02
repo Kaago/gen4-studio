@@ -143,9 +143,11 @@
   border-top-color: var(--g4-bereich-welt-punkt);
 }
 
+/* It may shrink (B1): in play mode the state text inside gives way; the controls keep their width (they do not shrink below their content). */
 .right {
   display: flex;
-  flex: none;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--g4-raum-8);
 }
@@ -241,10 +243,27 @@
   color: var(--g4-scharnier-leise);
 }
 
-/* Play mode's part of the right cluster: the badge, the state and its buttons. */
+/*
+ * Play mode's part of the right cluster: the badge, the state and its buttons. Only the state text shrinks; when it gets too short the
+ * hinge yields other parts step by step (`data-hinge-squeeze`, see Hinge.tsx), so the badge and the buttons always stay whole.
+ */
 .liveActions {
   display: flex;
   min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.liveBadge {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
+}
+
+.liveButtons {
+  display: flex;
+  flex: none;
   align-items: center;
   gap: var(--g4-raum-8);
 }
@@ -252,7 +271,7 @@
 /* The state („Verbindet …“, „Gehalten: …“) ends in an ellipsis in a narrow bar; its title carries the full text. */
 .liveText {
   min-width: 0;
-  max-width: calc(var(--g4-raum-16) * 20);
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--g4-scharnier-text);
   font: var(--g4-font-text-s-betont);

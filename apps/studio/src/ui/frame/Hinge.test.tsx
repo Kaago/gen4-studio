@@ -412,6 +412,143 @@ describe("Hinge", () => {
       expect(props.onReload).toHaveBeenCalledOnce();
     });
 
+    it("keeps_weiter_neu_laden_and_stoppen_whole_and_lets_the_state_text_shrink_first", () => {
+      // B1: in a narrow hinge the state text ends in an ellipsis (its title carries the full text); the badge and the buttons never shrink.
+      const text = "Gehalten: Auslöser 0 · Eventdatei 394: 0 → 1";
+      show(base({ live: live({ state: "halted", text }) }));
+      const state = container.querySelector<HTMLElement>("[data-live-state]")!;
+      expect(state.getAttribute("title")).toBe(text);
+      const group = container.querySelector<HTMLElement>("[data-live-buttons]")!;
+      for (const attr of ["data-live-resume", "data-live-reload", "data-live-stop"]) expect(group.querySelector(`button[${attr}]`)).not.toBeNull();
+      expect(container.querySelector("[data-live-badge]")?.textContent).toBe("Spielt in melonDS");
+      const css = readCss("./Hinge.module.css", import.meta.url);
+      // The right cluster may shrink (it held its full width before, and the buttons fell off the bar's end).
+      expect(ruleBody(css, ".right")).toMatch(/flex:\s*0 1 auto/);
+      expect(ruleBody(css, ".right")).toMatch(/min-width:\s*0/);
+      expect(ruleBody(css, ".liveActions")).toMatch(/flex:\s*0 1 auto/);
+      expect(ruleBody(css, ".liveActions")).toMatch(/min-width:\s*0/);
+      const textRule = ruleBody(css, ".liveText");
+      expect(textRule).toMatch(/flex:\s*0 1 auto/);
+      expect(textRule).toMatch(/min-width:\s*0/);
+      expect(textRule).toMatch(/overflow:\s*hidden/);
+      expect(textRule).toMatch(/text-overflow:\s*ellipsis/);
+      expect(textRule).toMatch(/white-space:\s*nowrap/);
+      expect(textRule).not.toMatch(/max-width/);
+      expect(ruleBody(css, ".liveButtons")).toMatch(/flex:\s*none/);
+      expect(ruleBody(css, ".liveBadge")).toMatch(/flex:\s*none/);
+    });
+
+    describe("in a bar too narrow for everything", () => {
+      /** jsdom lays nothing out: the bar's widths follow the squeeze it shows, the state text's from the table. */
+      let barWidth = 700;
+      let barContent: number[] = [];
+      let textWidth: number[] = [];
+      let observed: (() => void) | null = null;
+      const level = () => Number(bar().getAttribute("data-hinge-squeeze") ?? 0);
+      const saved = {
+        scroll: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth"),
+        client: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
+        observer: globalThis.ResizeObserver,
+      };
+      beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+          configurable: true,
+          get(this: HTMLElement) {
+            if (this.getAttribute("aria-label") === "Scharnier") return barContent[level()] ?? barWidth;
+            if (this.hasAttribute("data-live-state")) return 300;
+            return 0;
+          },
+        });
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+          configurable: true,
+          get(this: HTMLElement) {
+            if (this.getAttribute("aria-label") === "Scharnier") return barWidth;
+            if (this.hasAttribute("data-live-state")) return textWidth[level()] ?? 300;
+            return 0;
+          },
+        });
+        globalThis.ResizeObserver = class {
+          constructor(cb: () => void) {
+            observed = cb;
+          }
+          observe() {}
+          unobserve() {}
+          disconnect() {}
+        } as unknown as typeof ResizeObserver;
+      });
+      afterEach(() => {
+        if (saved.scroll) Object.defineProperty(HTMLElement.prototype, "scrollWidth", saved.scroll);
+        if (saved.client) Object.defineProperty(HTMLElement.prototype, "clientWidth", saved.client);
+        globalThis.ResizeObserver = saved.observer;
+        observed = null;
+        barWidth = 700;
+        barContent = [];
+        textWidth = [];
+      });
+      const narrow = (over: Partial<HingeProps> = {}) =>
+        base({ live: live({ state: "halted", text: "Gehalten: Auslöser 0 · Eventdatei 394: 0 → 1" }), problems: { errors: 1, warnings: 101, infos: 11 }, onMaximize: vi.fn(), ...over });
+      const depthLabels = () => [...container.querySelectorAll('[aria-label="Tiefe"] button')].map((b) => [b.getAttribute("aria-label"), b.textContent]);
+
+      it("turns_the_depth_into_symbols_first_when_the_state_text_alone_cannot_make_room", () => {
+        barContent = [1000, 690];
+        show(narrow());
+        expect(level()).toBe(1);
+        // The names stay as the accessible names (and tooltips); the light and „Schau maximieren“ stay as they are.
+        expect(depthLabels()).toEqual([["Erzählen", ""], ["Bauen", ""], ["Tüfteln", ""]]);
+        expect(container.querySelectorAll("[data-count]")).toHaveLength(3);
+        expect(button("Schau maximieren")).toBeDefined();
+      });
+
+      it("then_shows_the_problem_light_as_its_dot_and_lets_schau_maximieren_yield", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow());
+        expect(level()).toBe(3);
+        const light = container.querySelector<HTMLElement>("[data-light]")!;
+        expect(light.querySelectorAll("[data-count]")).toHaveLength(0);
+        // The counts stay in the light's name and its title; a click still opens the problems.
+        expect(light.getAttribute("aria-label")).toBe("1 Fehler, 101 Warnungen, 11 Hinweise");
+        expect(light.getAttribute("title")).toBe("1 Fehler, 101 Warnungen, 11 Hinweise");
+        expect(button("Schau maximieren")).toBeUndefined();
+        // History, redo, the badge and the three buttons stay.
+        expect(button(/Verlauf/)).toBeDefined();
+        expect(button("Wiederholen")).toBeDefined();
+        expect(container.querySelector("[data-live-badge]")).not.toBeNull();
+        for (const attr of ["data-live-resume", "data-live-reload", "data-live-stop"]) expect(container.querySelector(`button[${attr}]`)).not.toBeNull();
+      });
+
+      it("keeps_a_pressed_schau_maximieren_so_the_view_can_be_restored", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow({ maximized: true }));
+        expect(level()).toBe(3);
+        expect(button("Schau maximieren")?.getAttribute("aria-pressed")).toBe("true");
+      });
+
+      it("steps_when_the_state_text_would_shrink_below_a_few_words_even_without_overflow", () => {
+        // Nothing overflows, but the state text is down to 40 px of its 300: the depth gives way before it.
+        textWidth = [40, 140];
+        show(narrow());
+        expect(level()).toBe(1);
+      });
+
+      it("takes_the_room_back_when_the_bar_grows", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow());
+        expect(level()).toBe(3);
+        barWidth = 1200;
+        act(() => observed?.());
+        expect(level()).toBe(0);
+        expect(depthLabels()).toEqual([[null, "Erzählen"], [null, "Bauen"], [null, "Tüfteln"]]);
+        expect(container.querySelectorAll("[data-count]")).toHaveLength(3);
+      });
+
+      it("never_squeezes_outside_play_mode", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow({ live: null }));
+        expect(level()).toBe(0);
+        expect(bar().hasAttribute("data-hinge-squeeze")).toBe(false);
+      });
+    });
+
     it("keeps_depth_light_and_history_in_play_mode", () => {
       const props = base({ live: live({ text: "Live · 2 Haltepunkte", breakpoints: 2 }), history: { undo: labels(2), redo: ["x"] } });
       show(props);

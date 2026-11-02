@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import type { HistoryDto } from "../../api";
 import type { LiveHingeInfo } from "../../api.live";
 import { inTauri } from "../../platform/transport";
@@ -66,6 +66,17 @@ const DEPTHS_OPTIONS = [
   { value: "tuefteln", label: "Tüfteln", icon: "tinker" },
 ] as const;
 
+/**
+ * Play mode in a narrow hinge (B1): „Weiter“, „Neu laden“, „Stoppen“ and the badge never shrink. The state text gives way first (ellipsis,
+ * the full text as its title); when it would fall below `TEXT_ROOM` or the bar still overflows, the other parts yield one step at a time:
+ * 1 the depth shows its symbols (the names stay as accessible names and tooltips), 2 the problem light shows its dot (the counts stay in
+ * its name and title), 3 „Schau maximieren“ steps aside (unless it is pressed; the palette, a double click on a tab and Esc remain).
+ * History and redo always stay. The hinge measures itself (jsdom lays nothing out, so there it stays at 0).
+ */
+const SQUEEZE_MAX = 3;
+/** Below this many pixels of a longer state text the next part yields (about two words: „Gehalten: Auslö…“). */
+const TEXT_ROOM = 96;
+
 /** The light's colour: the worst the checks and the other problems found, or sound; unchecked: nothing is known (no green). */
 type LightKind = "error" | "warning" | "info" | "sound" | "unchecked";
 
@@ -102,10 +113,42 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
   const calm = unchecked ? "Nicht geprüft" : "Alles stimmig";
   const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? `${counts}, nicht geprüft` : counts;
   const play = live !== undefined && live !== null && live.state !== "off" ? live : null;
+  const barRef = useRef<HTMLDivElement>(null);
+  const [squeeze, setSqueeze] = useState(0);
+  const [barSize, setBarSize] = useState("");
+  const inPlay = play !== null;
+  // The bar's own size (its parent sets it; the density changes its height): a new size starts the fit again from the full bar.
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!inPlay || el === null || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setBarSize(`${el.clientWidth}x${el.clientHeight}`));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [inPlay]);
+  const fitKey = play ? [barSize, play.state, play.text, lightLabel, running, undoSteps, maximized, onMaximize !== undefined, depth].join("|") : "";
+  const fitted = useRef("");
+  // After every render in play mode: start from the full bar when what it holds changed, else take one more step while it does not fit.
+  // The steps render synchronously before the paint, so the bar never shows overflowing.
+  useLayoutEffect(() => {
+    if (fitted.current !== fitKey) {
+      fitted.current = fitKey;
+      if (squeeze !== 0) {
+        setSqueeze(0);
+        return;
+      }
+    }
+    const el = barRef.current;
+    if (fitKey === "" || el === null || squeeze >= SQUEEZE_MAX) return;
+    const text = el.querySelector<HTMLElement>("[data-live-state]");
+    const textCut = text !== null && text.clientWidth < Math.min(text.scrollWidth, TEXT_ROOM);
+    if (el.scrollWidth > el.clientWidth || textCut) setSqueeze(squeeze + 1);
+  });
+  const squeezed = play ? squeeze : 0;
+  const lightCompact = squeezed >= 2;
   const classes = [styles.hinge, wizard === true ? styles.wizardMode : null, play ? styles.playMode : null].filter((c) => c !== null).join(" ");
 
   return (
-    <div className={classes} role="toolbar" aria-label="Scharnier" data-hinge-mode={play ? "play" : undefined}>
+    <div className={classes} role="toolbar" aria-label="Scharnier" data-hinge-mode={play ? "play" : undefined} data-hinge-squeeze={play ? squeezed : undefined} ref={barRef}>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-bar="" hidden={!wizard} />}
       {wizard !== true && (
         <>
@@ -151,13 +194,13 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
             </ol>
           </nav>
           <div className={styles.depth}>
-            <Segmented options={DEPTHS_OPTIONS} value={depth} onChange={onDepth} ariaLabel="Tiefe" />
+            <Segmented options={DEPTHS_OPTIONS} value={depth} onChange={onDepth} ariaLabel="Tiefe" iconOnly={squeezed >= 1} />
           </div>
           <div className={styles.right}>
-            <button type="button" className={`${styles.light} ${styles[kind]}`} data-light={kind} data-running={running ? "" : undefined} aria-label={lightLabel} onClick={onProblems}>
+            <button type="button" className={`${styles.light} ${styles[kind]}`} data-light={kind} data-running={running ? "" : undefined} aria-label={lightLabel} title={lightCompact ? lightLabel : undefined} onClick={onProblems}>
               <span className={running ? styles.spinner : styles.dot} aria-hidden="true" />
-              {running && <span className={styles.progress}>{checking}</span>}
-              {counts === "" ? (
+              {running && !lightCompact && <span className={styles.progress}>{checking}</span>}
+              {lightCompact ? null : counts === "" ? (
                 !running && calm
               ) : (
                 <>
@@ -181,25 +224,29 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
               items={historyItems}
             />
             <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
-            {onMaximize && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
+            {onMaximize && (squeezed < 3 || maximized) && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
             {play ? (
               <div className={styles.liveActions}>
-                <Badge kind="live">Spielt in melonDS</Badge>
+                <span className={styles.liveBadge} data-live-badge="">
+                  <Badge kind="live">Spielt in melonDS</Badge>
+                </span>
                 <span className={styles.liveText} data-live-state={play.state} title={play.text} aria-live="polite">
                   {play.text}
                 </span>
-                {play.state === "halted" ? (
-                  <Button kind="primary" data-live-resume="" onClick={play.onResume}>
-                    Weiter
+                <div className={styles.liveButtons} data-live-buttons="">
+                  {play.state === "halted" ? (
+                    <Button kind="primary" data-live-resume="" onClick={play.onResume}>
+                      Weiter
+                    </Button>
+                  ) : null}
+                  {/* „Neu laden“ builds again: it waits with aria-disabled (keeps the focus) while a build runs. */}
+                  <Button kind="secondary" data-live-reload="" aria-disabled={playing || undefined} onClick={() => !playing && play.onReload()}>
+                    Neu laden
                   </Button>
-                ) : null}
-                {/* „Neu laden“ builds again: it waits with aria-disabled (keeps the focus) while a build runs. */}
-                <Button kind="secondary" data-live-reload="" aria-disabled={playing || undefined} onClick={() => !playing && play.onReload()}>
-                  Neu laden
-                </Button>
-                <Button kind="secondary" data-live-stop="" onClick={play.onStop}>
-                  Stoppen
-                </Button>
+                  <Button kind="secondary" data-live-stop="" onClick={play.onStop}>
+                    Stoppen
+                  </Button>
+                </div>
               </div>
             ) : (
               /* Playing blocks with aria-disabled, not `disabled`: the button keeps keyboard focus while it builds (and gets it back from a dialog). */
