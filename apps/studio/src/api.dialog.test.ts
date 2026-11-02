@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { dialogOf, editTextArchive, splitMessage } from "./api";
-import type { Dialog, SplitMessageReport } from "./api";
+import { dialogOf, dialogsOfHeader, editTextArchive, splitMessage } from "./api";
+import type { Dialog, HeaderDialogs, SplitMessageReport } from "./api";
 
 describe("dialog commands", () => {
   beforeEach(() => {
@@ -34,6 +34,27 @@ describe("dialog commands", () => {
     expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: { Set: { index: 5, text: "Neu" } }, label: "Dialog geändert" });
     await editTextArchive(433, "Append");
     expect(invoke).toHaveBeenLastCalledWith("edit_text_archive", { index: 433, edit: "Append" });
+  });
+
+  it("dialogs_of_header_sends_the_header_and_answers_the_figures", async () => {
+    const place: HeaderDialogs = {
+      header: 3,
+      event_file: 2,
+      archive: 433,
+      figures: [
+        {
+          kind: "object", index: 0, local_id: 4, graphics_id: 91, trainer: null,
+          source: { kind: "local", file: 0, slot: 1, line: 1 },
+          first_text: String.raw`A\nB`, messages: 2, pages: 3, message_ids: [2, 3],
+        },
+        { kind: "object", index: 1, local_id: 1, graphics_id: 0, trainer: 6, source: { kind: "trainer", id: 6 }, first_text: null, messages: 0, pages: 0, message_ids: [] },
+        { kind: "bg", index: 0, local_id: null, graphics_id: null, trainer: null, source: { kind: "none" }, first_text: null, messages: 0, pages: 0, message_ids: [] },
+      ],
+      ms: 12,
+    };
+    invoke.mockResolvedValueOnce(place);
+    await expect(dialogsOfHeader(3)).resolves.toBe(place);
+    expect(invoke).toHaveBeenLastCalledWith("dialogs_of_header", { header: 3 });
   });
 
   it("dialog_sources_name_every_kind_the_kernel_answers", () => {

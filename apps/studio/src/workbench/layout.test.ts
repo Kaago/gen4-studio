@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import { AREAS } from "../ui/frame/shellState";
+import { AREAS, POKEMON_SUBS } from "../ui/frame/shellState";
 import { AREA_PANELS, DECK_AREAS, DEFAULT_ARRANGEMENT, arrangementKey, arrangementSteps, dropOldLayouts, isDeckArea, isSaneLayout, isSchauPanel, layoutKey, loadArrangement, loadLayout, panelsFor, saveArrangement, saveLayout } from "./layout";
 import type { ArrangementStep } from "./layout";
 
@@ -71,6 +71,28 @@ describe("deck layout persistence", () => {
     dropOldLayouts(localStorage);
     const left = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).sort();
     expect(left).toEqual(["g4.layout.v11.welt", "g4.layout.v11.welt.arrangement", "g4.layout.v12.welt", "g4.shell.v1"]);
+  });
+
+  it("sub keys stay clear of dropOldLayouts", () => {
+    // Only Pokémon has sub-areas: each keeps its own layout and arrangement beside the area's keys.
+    expect(layoutKey("pokemon", "trainer")).toBe("g4.layout.v11.pokemon.sub.trainer");
+    expect(arrangementKey("pokemon", "trainer")).toBe("g4.layout.v11.pokemon.sub.trainer.arrangement");
+    expect(layoutKey("pokemon", undefined)).toBe("g4.layout.v11.pokemon");
+    expect(arrangementKey("pokemon", undefined)).toBe("g4.layout.v11.pokemon.arrangement");
+    const keys = POKEMON_SUBS.flatMap((sub) => [layoutKey("pokemon", sub), arrangementKey("pokemon", sub)]);
+    expect(new Set([...keys, layoutKey("pokemon"), arrangementKey("pokemon")]).size).toBe(keys.length + 2);
+    for (const key of keys) localStorage.setItem(key, "{}");
+    localStorage.setItem("g4.layout.v10.pokemon", "{}");
+    dropOldLayouts(localStorage);
+    const left = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).sort();
+    expect(left).toEqual([...keys].sort());
+    // The arrangement of one sub-area is its own; a sub-area without one has the area's default.
+    localStorage.clear();
+    saveArrangement("pokemon", "werkbank", "trainer");
+    expect(localStorage.getItem(arrangementKey("pokemon", "trainer"))).toBe("werkbank");
+    expect(loadArrangement("pokemon", "trainer")).toBe("werkbank");
+    expect(loadArrangement("pokemon", "moves")).toBe("doppeldeck");
+    expect(loadArrangement("pokemon")).toBe("doppeldeck");
   });
 
   it("drops_nothing_from_a_storage_that_cannot_be_read", () => {

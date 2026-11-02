@@ -29,7 +29,8 @@ class EmuError(Exception):
 
 
 class Emu(Protocol):
-    """What the steps need from an emulator. `FakeEmu` in the tests implements the same."""
+    """What the steps need from an emulator. `FakeEmu` in the tests implements the same, and
+    `repl.ServedEmu` wraps one to serve the GDB stub between frames (halted, it runs none)."""
 
     frame: int
 

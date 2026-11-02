@@ -610,3 +610,11 @@ def test_flag_steps_without_a_valid_pointer_fail(fake_emu, cpud, tmp_path, step)
         run_step(fake_emu, None, step, tmp_path)
     with pytest.raises(StepFailed, match="save_block fehlt in games.yaml"):
         run_step(fake_emu, dataclasses.replace(cpud, save_block=None), step, tmp_path)
+
+
+@pytest.mark.parametrize("name", ["expect-halted", "expect-running"])
+def test_stub_steps_take_no_arguments_and_need_the_repl(fake_emu, cpud, tmp_path, name):
+    steps = parse_steps([name, "wait", "1"])
+    assert [s.name for s in steps] == [name, "wait"] and steps[0].args == []
+    with pytest.raises(StepFailed, match="kein GDB-Stub"):
+        run_step(fake_emu, cpud, steps[0], tmp_path)

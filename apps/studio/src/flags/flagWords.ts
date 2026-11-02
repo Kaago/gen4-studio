@@ -120,3 +120,15 @@ export const NAMING_NEEDS_TEXT_PROJECT = `${NOT_A_TEXT_PROJECT} (Technik › Tex
 
 /** Why a number past the save cannot be named. */
 export const OUTSIDE_THE_SAVE = "Liegt außerhalb des Spielstands.";
+
+/** What the cell „Live“ shows for a value of the snapshot: a flag „1“ or „0“, a variable its value in decimal; „–“ when the snapshot does not hold it. */
+export function liveCellText(kind: FlagKind, value: number | null): string {
+  if (value === null) return "–";
+  return kind === "flag" ? (value !== 0 ? "1" : "0") : String(value);
+}
+
+/** The tooltip of a cell „Live“ with a value: a flag says what a click does, a variable where it is changed. */
+export function liveCellTip(kind: FlagKind, value: number): string {
+  if (kind === "var") return `Live ${value} · ändern im Detail`;
+  return value !== 0 ? "Live: gesetzt · Klick löscht" : "Live: 0 · Klick setzt";
+}

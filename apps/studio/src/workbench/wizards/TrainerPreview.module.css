@@ -1,0 +1,44 @@
+/* The live preview of „Neuer Trainer hier“: class picture with name and class, the battle, the team as compact cards, top to bottom. */
+.preview {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--g4-raum-12);
+}
+
+/* The trainer's name above its class. */
+.headText {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.name {
+  overflow: hidden;
+  font: var(--g4-font-titel-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cls {
+  color: var(--g4-text-sekundaer);
+}
+
+.heading {
+  margin: var(--g4-raum-8) 0 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+/* Two cards side by side, one when the column is narrow. */
+.team {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: var(--g4-raum-8);
+}

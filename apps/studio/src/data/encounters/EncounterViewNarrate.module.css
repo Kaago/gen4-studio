@@ -1,0 +1,154 @@
+/* „Wer hier wartet“ in Erzählen: three time columns of species with picker, level and class; the slim hand with the rate and the users. */
+
+.view {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-16);
+  padding: var(--g4-raum-16);
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+}
+
+.title {
+  margin: 0;
+  font: var(--g4-font-titel-s);
+}
+
+.note {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.sectionTitle,
+.columnTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--g4-raum-8);
+  margin: 0;
+}
+
+.sectionTitle {
+  font: var(--g4-font-text-m-betont);
+}
+
+.columnTitle {
+  font: var(--g4-font-text-s-betont);
+}
+
+.hours {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* Morgens · Tags · Nachts side by side while there is room, else one under the other. */
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--g4-raum-12);
+}
+
+.column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-6);
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  border-radius: var(--g4-radius-feld);
+  background: var(--g4-flaeche-blatt);
+}
+
+.who {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font: var(--g4-font-text-s-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share {
+  flex: none;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-6);
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.fieldWord {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.rarity {
+  display: inline-flex;
+}
+
+/* The hand. */
+.hand {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+  padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
+  overflow-y: auto;
+}
+
+/* A low hand scrolls instead of squeezing its rows into each other. */
+.hand > * {
+  flex-shrink: 0;
+}
+
+.handEmpty {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}

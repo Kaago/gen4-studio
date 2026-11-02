@@ -131,6 +131,28 @@ fn compile_message(errors: usize, hidden: usize) -> String {
     }
 }
 
+/// Play mode live: `"wrong_game"` (another game runs in melonDS; nothing was written),
+/// `"outside_save"` (the number lies outside the save), `"no_save"` (the save is not loaded
+/// yet), `"no_reply"` (melonDS did not answer), any other connection error `"unavailable"`; the
+/// hub adds `"not_live"` (no connection).
+impl From<g4_kernel::live::LiveError> for CmdError {
+    fn from(e: g4_kernel::live::LiveError) -> Self {
+        use g4_kernel::live::LiveError;
+        let code = match &e {
+            LiveError::WrongGame { .. } => "wrong_game",
+            LiveError::OutsideSave { .. } => "outside_save",
+            LiveError::NoSave => "no_save",
+            LiveError::NoReply => "no_reply",
+            LiveError::Connect { .. }
+            | LiveError::Closed
+            | LiveError::Hangup { .. }
+            | LiveError::Rejected { .. }
+            | LiveError::Io(_) => "unavailable",
+        };
+        CmdError::refused(code, e.to_string())
+    }
+}
+
 impl From<String> for CmdError {
     fn from(message: String) -> Self {
         CmdError {

@@ -111,7 +111,8 @@
   padding: 0 var(--g4-dichte-zeile-innen);
 }
 
-/* The column „Live“ waits for the play mode (3d.9): its head in the warning's amber, its cells empty. */
+/* The column „Live“: outside play mode its head in the warning's amber and its cells empty; in play mode the head in the play colour and
+   the cells the snapshot's values (a flag's value a button that writes the other one). */
 .liveHead,
 .live {
   width: var(--g4-raum-32);
@@ -127,6 +128,35 @@
 
 .live {
   color: var(--g4-text-sekundaer);
+}
+
+.liveHead[data-flag-live-head="on"] {
+  color: var(--g4-live-text);
+}
+
+.liveButton {
+  padding: 0;
+  border: none;
+  border-radius: var(--g4-radius-taste);
+  background: none;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-code-s);
+  cursor: pointer;
+}
+
+.liveButton:hover {
+  background: var(--g4-flaeche-deck);
+}
+
+.liveButton:focus-visible {
+  outline: var(--g4-strich-fokus) solid var(--g4-fokus-ring);
+}
+
+/* The section „Live“ of the detail: a variable's field and „Setzen“ side by side. */
+.liveSet {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--g4-raum-8);
 }
 
 .rows {

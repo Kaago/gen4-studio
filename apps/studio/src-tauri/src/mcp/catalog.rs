@@ -827,7 +827,9 @@ static TOOLS: &[ToolDef] = &[
                          \"EncounterExtra\": {field, value}}, {\"Encounter\": {method, slot, \
                          field, value}}, {\"TrainerName\": {name}}, {\"TrainerFormat\": {moves, \
                          items}}, {\"TrainerParty\": {party}}, {\"TrainerTexts\": {texts}}, \
-                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}"
+                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}, \
+                         {\"EncounterSwap\": {method, a, b}} (slots a and b of a method trade \
+                         species and levels in one step)"
                     ),
                     "label": label("a label made from the change, such as \"<name>: <field> old → new\""),
                 }),
@@ -1728,6 +1730,70 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("story_update"),
     },
+    // Play mode live (3d.9).
+    ToolDef {
+        name: "live_status",
+        title: "State of the play mode",
+        description: "Whether the studio is connected to the running game (\"Hier spielen\" in \
+                      melonDS, or a GDB stub the app was pointed at) and what it reads from its \
+                      RAM: state (off, unavailable with the reason, starting, connecting, \
+                      waiting_for_save until the game has loaded its save, live, halted at a \
+                      breakpoint of the app, lost with the reason), the game code and whether the \
+                      running game matches the project (game_check), the port, the last \
+                      snapshot of the save's flags and variables, the breakpoints, the read_back \
+                      of the last live_set and the melonDS the app found. It only reads the RAM \
+                      of the running game: no change to the project, the game or the history.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("live_status"),
+    },
+    ToolDef {
+        name: "live_set",
+        title: "Set a flag or variable in the running game",
+        description: "Writes a flag (value 0 or 1) or a variable (value 0 to 65535) of the save \
+                      into the RAM of the running game while it plays; number takes a number or \
+                      a name (FLAG_…, VAR_…, also an own id). A live value is not a step in the \
+                      history (undo and g4_batch do not reach it) and changes the save only when \
+                      the game saves. The answer names target, value and read_back (null until \
+                      the next snapshot read the value again, then true, or false when the game \
+                      did not keep it: try again, live_status shows the real value), and \
+                      refusals say not_live, no_save, wrong_game, outside_save or no_reply.",
+        input_schema: || {
+            object(
+                json!({
+                    "kind": flag_kind(),
+                    "number": flag_number(),
+                    "value": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 65535,
+                        "description": "a flag: 0 (cleared) or 1 (set); a variable: 0 to 65535",
+                    },
+                }),
+                &["kind", "number", "value"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("live_set"),
+    },
+    // Erzählen layouts (3d.8).
+    ToolDef {
+        name: "dialogs_of_header",
+        title: "The figures of a place with their dialogs",
+        description: concat!(
+            "Every object (by index), then every sign of the header's event file with its \
+             dialog in one call: kind, index, local_id and graphics_id (objects), source as \
+             dialog_of names it, trainer (the id for a trainer's battle), first_text, messages \
+             (each once), pages (the boxes the game shows) and message_ids (indices into the \
+             header's text archive, archive). An event file that does not load has no figures, \
+             an unreadable dialog is a figure with source unreadable; branches, shared_with \
+             and splits come from dialog_of. ",
+            data_note!()
+        ),
+        input_schema: || object(json!({ "header": dialog_header() }), &["header"]),
+        output_schema: answers_object,
+        route: command("dialogs_of_header"),
+    },
 ];
 
 /// [`object`] with a description (a nested argument).
@@ -1850,7 +1916,7 @@ fn flag_kind() -> Value {
     })
 }
 
-/// The `number` of `flag_usage` and `name_flag`.
+/// The `number` of `flag_usage`, `name_flag` and `live_set`.
 fn flag_number() -> Value {
     id_or_number(
         "the number (a flag from 1, a variable from 0x4000 = 16384) or its name: the pret name \
@@ -2057,7 +2123,8 @@ mod tests {
         // Every description goes into the agent's context with tools/list: a catalog that grows
         // past this asks for a new curation, not a higher bound. Raised from 70 to 71 for 3d.5's
         // dialog_of and split_message (the dialog editor's two commands have no tool to fold
-        // into) and to 80 with the six story tools of 3d.6; 77 with both.
+        // into) and to 80 with the six story tools of 3d.6; 77 with both, 79 with 3d.9's
+        // live_status and live_set, 80 with 3d.8's dialogs_of_header.
         assert!((30..=80).contains(&catalog().len()), "{}", catalog().len());
     }
 
@@ -2116,6 +2183,8 @@ mod tests {
                 "thread_graph",
                 "story_list",
                 "story_get",
+                "live_status",
+                "dialogs_of_header",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -2172,6 +2241,7 @@ mod tests {
             "split_message",
             "story_create",
             "story_update",
+            "live_set",
         ]
         .into_iter()
         .collect();
@@ -2193,6 +2263,37 @@ mod tests {
         assert_eq!(kind_of("name_flag"), Kind::Write);
         assert_eq!(kind_of("story_create"), Kind::Write);
         assert_eq!(kind_of("story_update"), Kind::Write);
+        assert_eq!(kind_of("live_status"), Kind::Read);
+        assert_eq!(kind_of("live_set"), Kind::Write);
+    }
+
+    #[test]
+    fn the_live_tools_say_what_an_agent_needs_to_know() {
+        let status = tool("live_status").description;
+        for word in [
+            "off",
+            "connecting",
+            "waiting_for_save",
+            "live",
+            "halted",
+            "lost",
+            "unavailable",
+            "RAM",
+            "no change",
+        ] {
+            assert!(status.contains(word), "live_status: {word}");
+        }
+        let set = tool("live_set").description;
+        for phrase in [
+            "not a step in the history",
+            "only when the game saves",
+            "read_back",
+        ] {
+            assert!(set.contains(phrase), "live_set: {phrase}");
+        }
+        let schema = (tool("live_set").input_schema)();
+        assert_eq!(schema["required"], json!(["kind", "number", "value"]));
+        assert_eq!(schema["properties"]["value"]["maximum"], 65535);
     }
 
     #[test]
@@ -2309,6 +2410,7 @@ mod tests {
             "thread_graph",
             "story_list",
             "story_get",
+            "dialogs_of_header",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -2630,6 +2732,13 @@ mod tests {
                 "story_update",
                 json!({ "id": "STORY_TEST", "patch": { "notes": "x" } }),
             ),
+            ("live_status", json!({})),
+            // No connection: refused with not_live before anything is written.
+            (
+                "live_set",
+                json!({ "kind": "flag", "number": 148, "value": 1 }),
+            ),
+            ("dialogs_of_header", json!({ "header": 1 })),
         ]
     }
 

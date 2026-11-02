@@ -29,6 +29,11 @@ export interface ScriptsApi {
   active: number | null;
   /** Changes when a document opened, closed, was saved, turned dirty or clean, or got other text from outside. */
   revision: number;
+  /**
+   * Changes only when a script file's text on disk moved through the app (a save, the level-script form's save, an adoption, text the
+   * backend wrote and a document took from disk, a reload of a file no document has open): for readers of the compiled scripts, which neither opening nor typing concerns.
+   */
+  saved: number;
   /** Opens the file (or shows it when open) and moves the cursor to the 1-based `line`. Failures are reported through `onError`. */
   open(file: number, line?: number): Promise<void>;
   /** Writes the document, compiles, hands the problems to the problems store and tells the text panel about archives the compile touched. Rejects like `ScriptBridge.save`. */
@@ -141,6 +146,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
   }
   const { documents } = owned;
   const [revision, bump] = useReducer((n: number) => n + 1, 0);
+  const [saved, bumpSaved] = useReducer((n: number) => n + 1, 0);
 
   const latest = useRef({ info, documents, saving: owned.saving, problems, bus, onError, onSaved });
   latest.current = { info, documents, saving: owned.saving, problems, bus, onError, onSaved };
@@ -238,6 +244,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       latest.current.bus.emit({ topic: "edited" });
       latest.current.onSaved?.();
       bump();
+      bumpSaved();
     })().finally(() => saving.delete(file));
     saving.set(file, job);
     return job;
@@ -261,6 +268,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
     // The checks read the new sources (the message check runs from now on).
     latest.current.bus.emit({ topic: "edited" });
     latest.current.onSaved?.();
+    bumpSaved();
     try {
       const next = await scriptsStatus();
       if (latest.current.documents === docs) setStatus(next);
@@ -322,6 +330,8 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
     (file: number, doc: ScriptDocument, source: ScriptSourceDto, discard: boolean, note?: (name: string) => void) => {
       const { documents: docs, bus } = latest.current;
       const dirty = lf(doc.text) !== doc.savedText;
+      // The file on disk moved (whether or not the document takes it).
+      bumpSaved();
       const name = `${doc.kind === "script" ? TERMS.scriptFile.label : TERMS.levelScript.label} ${id4(file)}`;
       const refuse = () => (note ? note(name) : latest.current.onError(refusal(changedOutsideText([name]))));
       if (source.kind === "binary") {
@@ -353,7 +363,11 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       const doc = docs.get(file);
       const kind = doc?.kind ?? "script";
       bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, kind), type: 2 }] });
-      if (!doc) return;
+      if (!doc) {
+        // The file on disk moved (undo, redo, an outside write) though no editor has it open: what reads the files hears of it.
+        bumpSaved();
+        return;
+      }
       try {
         const source = await readScript(file);
         if (latest.current.documents !== docs || docs.get(file) !== doc) return;
@@ -373,6 +387,7 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
     for (const archive of dto.touched_archives) bus.emit({ topic: "textData", archive });
     bus.emit({ topic: "edited" });
     latest.current.onSaved?.();
+    bumpSaved();
     const open = docs.get(file);
     // A document with unsaved text keeps it: the editor's own save decides then.
     if (open && open.kind === "levelScript" && lf(open.text) === open.savedText) {
@@ -395,8 +410,8 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
   const dirtyCount = documents.dirty().length;
 
   const api = useMemo<ScriptsApi>(
-    () => ({ status, documents, active, revision, open, save, close, adopt, add, saveIfDirty, reload, onLevelScriptSaved, onChange }),
-    [status, documents, active, revision, open, save, close, adopt, add, saveIfDirty, reload, onLevelScriptSaved, onChange],
+    () => ({ status, documents, active, revision, saved, open, save, close, adopt, add, saveIfDirty, reload, onLevelScriptSaved, onChange }),
+    [status, documents, active, revision, saved, open, save, close, adopt, add, saveIfDirty, reload, onLevelScriptSaved, onChange],
   );
   const bridge = useMemo<ScriptBridge>(() => ({ dirtyFiles: () => latest.current.documents.dirty(), save }), [save]);
   return { api, bridge, dirtyCount };

@@ -46,6 +46,7 @@ export function referenceFor(spec: FieldSpec, value: number, headers: readonly H
     }
     case "mapTexture":
     case "buildingTexture":
+    case "music":
     case undefined:
       return plain("welt", null);
   }

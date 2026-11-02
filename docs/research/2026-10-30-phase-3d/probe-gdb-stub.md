@@ -97,6 +97,20 @@ unter einem Bild; ein Ruckeln ist nicht zu erwarten (Bildrate blieb bei 60/s, si
 10. Lesen/Schreiben läuft über den ARM9-Bus inkl. ITCM/DTCM; 1.1 emuliert keinen Daten-Cache, Schreibzugriffe sind für das
     Spiel sofort sichtbar.
 
+### Nachtrag 3d.9 (Befund B2, 2026-11-02, Quelltext `GdbProto.cpp` + Mitschnitt)
+
+11. **Ein Paket je Ankunft.** `MsgRecv` liest alles Angekommene in `RecvBuffer`, behandelt aber nur das erste Paket;
+    der Rest wird erst behandelt, wenn wieder Bytes am Socket ankommen. `c` (ohne Antwort) und das gleich danach
+    geschickte `\x03` oder `D` kommen oft zusammen an; das zweite bleibt dann unbeantwortet. Ein einzelnes `+` danach
+    (wird übersprungen) löst es aus.
+12. **Der Puffer überlebt das Trennen** (`RecvBufferFilled` wird nie zurückgesetzt): der nächste Client bekommt zuerst
+    die Antworten auf das, was der vorige liegen ließ (`S02`, `OK` + `W00`).
+13. **Ein fremdes Zeichen am Pufferanfang** („unknown character“) schließt die Verbindung, ohne das Zeichen zu
+    verwerfen: danach schließt der Stub jeden Client sofort, bis melonDS neu startet. Im Ack-Modus entsteht so ein
+    Zeichen, wenn eine Antwort (`WaitAckBlocking`) Bytes des nächsten Pakets als „Ack“ verschluckt.
+14. **`qSupported` braucht den Doppelpunkt** (`qSupported:…`); ohne ihn antwortet der Stub leer („unknown subcommand“).
+15. Nach `D` antwortet der Stub `OK`, behält die Verbindung und schickt beim nächsten Blick `W00`.
+
 ## Urteil (recommend)
 
 **Weg 3 trägt 3d.9.** Kriterien:

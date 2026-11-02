@@ -1,17 +1,26 @@
 import type { ComponentType, ReactNode } from "react";
 import type { DataRowDto } from "../api";
 import { ListPane } from "../ui/frame/ListPane";
+import { useShell } from "../ui/frame/ShellContext";
+import { depthAtLeast, viewDepth } from "../ui/frame/shellState";
 import { EmptyState, PanelHead } from "../ui/primitives";
 import { AREA_LABEL, SUB_LABEL } from "./dataModel";
 import type { DataArea, DataSub, ListKind } from "./dataModel";
 import { useDataArea } from "./useDataArea";
 import styles from "./DataArea.module.css";
 
-/** What a part of a data area brings: its list (in the area's list column), its view (Schau) and its editor (Hand). */
+/**
+ * What a part of a data area brings: its list (in the area's list column), its view (Schau) and its editor (Hand), and for Erzählen
+ * optionally a view and an editor of their own; without, Erzählen shows the view and the editor of Bauen.
+ */
 export interface DataPart {
   List: ComponentType;
   View: ComponentType;
   Hand: ComponentType;
+  /** The view in Erzählen; without, `View`. */
+  ViewNarrate?: ComponentType;
+  /** The editor in Erzählen; without, `Hand`. */
+  HandNarrate?: ComponentType;
   /** What the list head says the list holds ("493 Arten, 12 Formen"); without, the rows counted ("471 Attacken"). */
   count?: (rows: readonly DataRowDto[]) => string;
 }
@@ -72,13 +81,17 @@ export function DataListPane({ area, parts, open, onToggle }: { area: DataArea; 
 }
 
 /**
- * The view or the hand of a data area: the part's own, once something is chosen; before that, what to do, and in the view a button that
- * shows the first member (the first above 0: member 0 is the games' empty entry, "-----", "Keines").
+ * The view or the hand of a data area: the part's own (in Erzählen its narrating one, if it has one), once something is chosen; before
+ * that, what to do, and in the view a button that shows the first member (the first above 0: member 0 is the games' empty entry, "-----",
+ * "Keines").
  */
 export function DataPanel({ area, parts, place }: { area: DataArea; parts: Partial<Record<DataSub, DataPart>>; place: "View" | "Hand" }) {
   const { sub, row, rows, select } = useDataArea(area);
   const blocked = useBlocked(area);
-  const Part = parts[sub]?.[place];
+  // The depth of this area, not of the one in front: a deck kept behind another area keeps its components.
+  const narrating = !depthAtLeast(viewDepth(area, useShell().state.depth), "bauen");
+  const part = parts[sub];
+  const Part = (narrating ? (place === "View" ? part?.ViewNarrate : part?.HandNarrate) : undefined) ?? part?.[place];
   const nothing = NOTHING_CHOSEN[sub];
   const first = rows.find((r) => r.index > 0) ?? rows[0];
   const action = place === "View" && nothing.first && first ? { label: nothing.first, onClick: () => select(first.index) } : undefined;

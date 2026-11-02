@@ -13,6 +13,7 @@ import type { DataStore } from "../data/dataStore";
 import type { DataAreaProps } from "../data/useDataArea";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
+import { viewDepth } from "../ui/frame/shellState";
 import { EmptyState } from "../ui/primitives";
 import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
@@ -48,7 +49,8 @@ import { WorldList } from "./WorldList";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
+import { useEventLiveMode, useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
+import type { WizardRequest } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
 import { NewPlaceDialog } from "./places/NewPlaceDialog";
 import { DP_PLACES } from "./places/placeChoices";
@@ -415,6 +417,7 @@ const namesTrainers = (info: ProjectInfo | null): info is ProjectInfo => info !=
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
+  const eventLive = useEventLiveMode();
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
@@ -447,6 +450,7 @@ export function InspectorPanel() {
     <Inspector
       model={inspector}
       depth={d.depth}
+      eventLive={eventLive}
       findings={findings}
       checks={d.checks}
       headerEditor={{
@@ -533,10 +537,49 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
   // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, depth } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, matrices, onOpenDialog, dataStore, scripts } = d;
+  // The depth of the texts, not of the area in front: a Texte deck kept behind Technik in Erzählen still narrates.
+  const { state, setDepth } = useShell();
+  const depth = viewDepth("texte", state.depth);
+  // The figures of the places and their dialogs (Erzählen) are read again when a text, an event or a script file on disk moved (not when a
+  // script document opens, closes or is typed into: every read of a place waits for the session).
+  const dialogRevision = textRevision + useBusRevision(d.bus, ["eventData", "eventsRefetch"]) + scripts.saved;
+  // Behind another area the list's rows keep their last read (only the chosen place's figures follow every change).
+  const inFront = state.area === "texte";
+  // A trainer figure is named by class and name: the rows are read once a place with a trainer shows.
+  const trainers = useTrainerRows(dataStore, info);
+  const needTrainers = useCallback(() => {
+    if (namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [dataStore, info]);
+  // The script documents for a split in the hand: stable callbacks, so the area does not render with every script revision.
+  const saveIfDirty = useStableCallback((file: number) => scripts.saveIfDirty(file));
+  const reloadScript = useStableCallback((file: number) => scripts.reload(file));
+  const scriptFiles = useMemo(() => ({ saveIfDirty, reload: reloadScript }), [saveIfDirty, reloadScript]);
   const context = useMemo<TextAreaProps>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth],
+    () => ({
+      project: info,
+      headers,
+      counts: memberCounts,
+      target: textTarget,
+      revision: textRevision,
+      problems,
+      goTo,
+      onEdited,
+      bus,
+      onCountsChanged,
+      onError,
+      onShown,
+      depth,
+      matrices,
+      dialogRevision,
+      inFront,
+      onOpenDialog,
+      onDepth: setDepth,
+      trainers,
+      needTrainers,
+      scriptFiles,
+    }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth, matrices, dialogRevision, inFront, onOpenDialog, setDepth, trainers, needTrainers, scriptFiles],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }
@@ -580,7 +623,7 @@ export function DataAreaHost({
   onPlaceTrainer?: (id: number) => void;
   children?: ReactNode;
 }) {
-  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts } = useWorkbench();
+  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts, onOpenWizard, selected, onSelect } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
   const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
@@ -590,9 +633,21 @@ export function DataAreaHost({
   const saveIfDirty = useStableCallback((file: number) => scripts.saveIfDirty(file));
   const reload = useStableCallback((file: number) => scripts.reload(file));
   const scriptFiles = useMemo(() => ({ saveIfDirty, reload }), [saveIfDirty, reload]);
+  // „Neuer Trainer…“ (Pokémon › Trainer in Erzählen) opens the recipe of the world at the header the world shows or showed last; read
+  // when asked, so choosing another place does not render the area.
+  const worldHeader = useStableCallback(() => selected);
+  // The recipe opens in the world: a place it starts at that the world does not show is selected there (as a click in the list), so the
+  // scene shows the place with the draft, as when the recipe is opened in the world. The wizard opens first: it remembers Pokémon as the
+  // area to go back to.
+  const openWizard = useStableCallback((request: WizardRequest) => {
+    onOpenWizard(request);
+    const at = request.kind === "new_trainer_here" ? request.prefill?.header : undefined;
+    const place = at === undefined || at === selected ? undefined : headers.find((h) => h.id === at);
+    if (place !== undefined) onSelect(place);
+  });
   const pokemon = useMemo<DataAreaProps>(
-    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer }),
-    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer],
+    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader }),
+    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader],
   );
   const items = useMemo<DataAreaProps>(
     () => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail, dirty, onEdited, bus, headers, problems }),

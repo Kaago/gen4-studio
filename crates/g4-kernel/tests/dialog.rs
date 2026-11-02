@@ -5,6 +5,8 @@
 //! dialog is unreadable, and on Platinum figures share messages (Gutachten A counted 66 shared
 //! messages without following jumps; Zweiblattdorf itself has none, its archive 554 is its own
 //! and each message is shown once). Zweiblattdorf's object 7 runs script 65535: no script.
+//! Last the places with the most objects: `dialogs_of_header` lists each within a second
+//! (judged with `G4_TIMING_STRICT=1`, else printed).
 #![cfg(feature = "test-support")]
 mod common;
 
@@ -13,7 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use g4_formats::game::Family;
-use g4_kernel::dialog::{Dialog, DialogKind, DialogSource, dialog_of};
+use g4_kernel::dialog::{Dialog, DialogKind, DialogSource, dialog_of, dialogs_of_header};
 use g4_kernel::project::Project;
 use g4_kernel::scripts::{self, ScriptTarget};
 use g4_kernel::store::Store;
@@ -152,4 +154,69 @@ fn vanilla_dialogs_of_a_town_resolve() {
     if project.family == Family::Pt {
         assert!(shared_figures >= 1, "no figure shares a message");
     }
+}
+
+/// Whether the time limits are judged (`G4_TIMING_STRICT=1`); otherwise they are printed.
+fn strict() -> bool {
+    std::env::var_os("G4_TIMING_STRICT").is_some_and(|v| v == "1")
+}
+
+#[test]
+fn vanilla_dialogs_of_the_largest_places_under_a_second() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let game = &project.game_code;
+
+    // The five headers with the most objects, each event file once (its first header).
+    let mut store = Store::new(project.clone());
+    let files: Vec<(u16, u16)> = (0u16..)
+        .zip(store.header_table().unwrap())
+        .map(|(h, header)| (h, header.event_file_id()))
+        .collect();
+    let mut seen = BTreeSet::new();
+    let mut largest: Vec<(usize, u16)> = Vec::new();
+    for (header, file) in files {
+        if !seen.insert(file) {
+            continue;
+        }
+        if let Ok(events) = store.event(file) {
+            largest.push((events.object_events.len(), header));
+        }
+    }
+    largest.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+
+    // Figures with a local dialog and its first text (some large places hold only trainers).
+    let mut spoken = 0;
+    for &(objects, header) in largest.iter().take(5) {
+        // A store as a session holds it: the header table read, the place not yet.
+        let mut store = Store::new(project.clone());
+        store.header_table().unwrap();
+        let started = Instant::now();
+        let place = dialogs_of_header(&mut store, header).unwrap();
+        let ms = started.elapsed().as_millis();
+        let figures = place.figures.len();
+        eprintln!("dialogs {game} header={header} figures={figures} ms={ms}");
+        let events = store.event(place.event_file).unwrap();
+        assert_eq!(objects, events.object_events.len());
+        assert_eq!(figures, objects + events.bg_events.len());
+        for f in &place.figures {
+            assert!(
+                !matches!(f.source, DialogSource::Unreadable { .. }),
+                "header {header}: {f:?}"
+            );
+            assert_eq!(usize::try_from(f.messages).unwrap(), f.message_ids.len());
+        }
+        spoken += place
+            .figures
+            .iter()
+            .filter(|f| f.messages > 0 && f.first_text.is_some())
+            .count();
+        if strict() {
+            assert!(ms <= 1_000, "header {header}: {ms} ms");
+        }
+    }
+    assert!(spoken > 0, "nobody speaks in the largest places");
 }

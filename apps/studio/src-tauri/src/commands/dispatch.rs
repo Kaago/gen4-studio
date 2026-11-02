@@ -213,6 +213,16 @@ pub const COMMANDS: &[&str] = &[
     "story_get",
     "story_create",
     "story_update",
+    "live_status",
+    "live_play",
+    "live_connect",
+    "live_stop",
+    "live_resume",
+    "live_set",
+    "live_breakpoints",
+    "live_breakpoint_set",
+    "live_breakpoint_clear",
+    "dialogs_of_header",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1117,6 +1127,50 @@ pub fn dispatch(
             { id: String, patch: Value },
             |a| story_update_value(state, a.id, a.patch)
         ),
+        "live_status" => run!(json, "live_status", args, {}, |_a| live_status_impl(state)),
+        // Starts an emulator: the policy decides, like `run_rom` (the bridge refuses it).
+        "live_play" => run!(
+            json, "live_play", args,
+            { emulator: String, rom: String },
+            |a| {
+                let (emulator, rom) = policy.check_run(&a.emulator, &a.rom)?;
+                let text = |path: &std::path::Path| {
+                    path.to_str().map(str::to_owned).ok_or_else(|| {
+                        CmdError::from(format!("Pfad ist kein gültiger Text: {}", path.display()))
+                    })
+                };
+                live_play_impl(state, &text(&emulator)?, &text(&rom)?)
+            }
+        ),
+        "live_connect" => run!(
+            json, "live_connect", args,
+            { port: u16, host: Option<String> },
+            |a| live_connect_impl(state, a.host, a.port)
+        ),
+        "live_stop" => run!(json, "live_stop", args, {}, |_a| live_stop_impl(state)),
+        "live_resume" => run!(json, "live_resume", args, {}, |_a| live_resume_impl(state)),
+        "live_set" => run!(
+            json, "live_set", args,
+            { kind: g4_kernel::flags::FlagKind, number: u16, value: u16 },
+            |a| live_set_impl(state, a.kind, a.number, a.value)
+        ),
+        "live_breakpoints" => run!(json, "live_breakpoints", args, {}, |_a| {
+            live_breakpoints_impl(state)
+        }),
+        "live_breakpoint_set" => run!(
+            json, "live_breakpoint_set", args,
+            { event_file: u16, kind: String, index: u16 },
+            |a| live_breakpoint_set_impl(
+                state,
+                crate::live_hub::EventRef { event_file: a.event_file, kind: a.kind, index: a.index }
+            )
+        ),
+        "live_breakpoint_clear" => run!(json, "live_breakpoint_clear", args, { id: u32 }, |a| {
+            live_breakpoint_clear_impl(state, a.id)
+        }),
+        "dialogs_of_header" => run!(json, "dialogs_of_header", args, { header: u16 }, |a| {
+            dialogs_of_header_impl(state, a.header)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1546,6 +1600,22 @@ mod tests {
                 "story_update",
                 json!({"id": "STORY_TEST", "patch": {"notes": "x"}}),
             ),
+            ("live_status", json!({})),
+            ("live_play", json!({ "emulator": "emu", "rom": "rom.nds" })),
+            ("live_connect", json!({ "port": free_port(), "host": null })),
+            ("live_stop", json!({})),
+            ("live_resume", json!({})),
+            (
+                "live_set",
+                json!({ "kind": "flag", "number": 0x173, "value": 0 }),
+            ),
+            ("live_breakpoints", json!({})),
+            (
+                "live_breakpoint_set",
+                json!({ "eventFile": 0, "kind": "warp", "index": 0 }),
+            ),
+            ("live_breakpoint_clear", json!({ "id": 1 })),
+            ("dialogs_of_header", json!({"header": 1})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
@@ -2246,6 +2316,42 @@ mod tests {
             json_of(call(&state, &policy, "history", json!({})))["undo"],
             json!(["map 0000: permissions imported"])
         );
+    }
+
+    /// A port nothing listens on (bound and let go again).
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    #[cfg(feature = "dev-bridge")]
+    #[test]
+    fn live_play_is_unavailable_and_live_connect_is_not() {
+        let (fixture, state) = open_synthetic();
+        let policy = dev_policy_over(&fixture);
+        match dispatch(
+            &state,
+            &policy,
+            "live_play",
+            json!({ "emulator": "e", "rom": "r" }),
+        ) {
+            Err(DispatchError::Cmd(e)) => {
+                assert_eq!(e.code, "error");
+                assert_eq!(
+                    e.message,
+                    "Im Browser-Modus nicht verfügbar, g4emu benutzen"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        let status = json_of(call(
+            &state,
+            &policy,
+            "live_connect",
+            json!({ "port": free_port() }),
+        ));
+        assert_eq!(status["state"], "connecting");
+        call(&state, &policy, "live_stop", json!({}));
     }
 
     #[cfg(feature = "dev-bridge")]

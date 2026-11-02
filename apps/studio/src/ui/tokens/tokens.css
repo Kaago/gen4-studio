@@ -255,6 +255,7 @@
   --g4-live-auf: var(--g4-platin-950);
   --g4-live-flaeche: var(--g4-bernstein-100);
   --g4-live-text: var(--g4-bernstein-700);
+  --g4-live-taste: var(--g4-bernstein-100);
   --g4-scharnier-grund: var(--g4-platin-850);
   --g4-scharnier-text: var(--g4-platin-150);
   --g4-scharnier-leise: #9CA5BD;
@@ -318,6 +319,7 @@
   --g4-live-auf: var(--g4-platin-950);
   --g4-live-flaeche: var(--g4-bernstein-800);
   --g4-live-text: var(--g4-bernstein-400);
+  --g4-live-taste: var(--g4-bernstein-200);
   --g4-scharnier-grund: var(--g4-platin-700);
   --g4-scharnier-text: var(--g4-platin-150);
   --g4-scharnier-leise: #C6CEDE;
@@ -382,6 +384,7 @@
     --g4-live-auf: var(--g4-platin-950);
     --g4-live-flaeche: var(--g4-bernstein-800);
     --g4-live-text: var(--g4-bernstein-400);
+    --g4-live-taste: var(--g4-bernstein-200);
     --g4-scharnier-grund: var(--g4-platin-700);
     --g4-scharnier-text: var(--g4-platin-150);
     --g4-scharnier-leise: #C6CEDE;

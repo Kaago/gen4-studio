@@ -234,6 +234,18 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     // One undo step each (a file step: register, story, side file).
     ("story_create", Kind::Write),
     ("story_update", Kind::Write),
+    // Play mode live: an agent reads the status and sets a value in the running game (no undo
+    // step); starting melonDS asks like run_rom; the rest belongs to the app's surface.
+    ("live_status", Kind::Read),
+    ("live_play", Kind::Irreversible("ROM im Emulator starten")),
+    ("live_connect", APP_ONLY),
+    ("live_stop", APP_ONLY),
+    ("live_resume", APP_ONLY),
+    ("live_set", Kind::Write),
+    ("live_breakpoints", APP_ONLY),
+    ("live_breakpoint_set", APP_ONLY),
+    ("live_breakpoint_clear", APP_ONLY),
+    ("dialogs_of_header", Kind::Read),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -438,6 +450,7 @@ mod tests {
                 ("create_trainer", Kind::Irreversible("Trainer anlegen")),
                 ("git_commit_all", Kind::Irreversible("Stand sichern")),
                 ("git_init", Kind::Irreversible("Git einrichten")),
+                ("live_play", Kind::Irreversible("ROM im Emulator starten")),
                 ("new_script_file", Kind::Irreversible("Script anlegen")),
                 (
                     "project_preview_set",
@@ -459,9 +472,10 @@ mod tests {
                 ("text_export", Kind::Irreversible("Textprojekt exportieren")),
             ]
         );
-        // The agent hub's commands: `agent_commands_are_app_only`.
+        // The agent hub's commands: `agent_commands_are_app_only`; play mode live's:
+        // `live_commands_have_their_access`.
         let mut unavailable = of(|k| matches!(k, Kind::Unavailable(_)));
-        unavailable.retain(|(name, _)| !name.starts_with("agent_"));
+        unavailable.retain(|(name, _)| !name.starts_with("agent_") && !name.starts_with("live_"));
         unavailable.sort_by_key(|(name, _)| *name);
         assert_eq!(
             unavailable,
@@ -1010,6 +1024,7 @@ mod tests {
     fn dialog_commands_have_their_access() {
         let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
         assert_eq!(kind("dialog_of"), Kind::Read);
+        assert_eq!(kind("dialogs_of_header"), Kind::Read);
         // One undo step (the archive's copy and the script file's step, squashed).
         assert_eq!(kind("split_message"), Kind::Write);
     }
@@ -1023,6 +1038,28 @@ mod tests {
         // One undo step each.
         for name in ["story_create", "story_update"] {
             assert_eq!(kind(name), Kind::Write, "{name}");
+        }
+    }
+
+    #[test]
+    fn live_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("live_status"), Kind::Read);
+        // A live value is no undo step, but it changes the running game.
+        assert_eq!(kind("live_set"), Kind::Write);
+        assert_eq!(
+            kind("live_play"),
+            Kind::Irreversible("ROM im Emulator starten")
+        );
+        for name in [
+            "live_connect",
+            "live_stop",
+            "live_resume",
+            "live_breakpoints",
+            "live_breakpoint_set",
+            "live_breakpoint_clear",
+        ] {
+            assert_eq!(kind(name), APP_ONLY, "{name}");
         }
     }
 }

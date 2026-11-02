@@ -96,6 +96,23 @@ describe("Segmented", () => {
     expect(onChange.mock.calls).toEqual([["baum"]]);
   });
 
+  it("keeps_its_buttons_and_the_focus_when_it_switches_between_symbols_and_names", () => {
+    // A hinge that runs out of room turns its depth into symbols (B1): the same buttons stay, so a focused option keeps the focus.
+    const render = (iconOnly: boolean) => act(() => root.render(<Segmented options={options} value="liste" onChange={() => {}} ariaLabel="Ansicht" iconOnly={iconOnly} />));
+    render(false);
+    const before = buttons();
+    before[0].focus();
+    render(true);
+    expect(buttons()).toEqual(before);
+    expect(buttons()[0].getAttribute("aria-label")).toBe("Baum");
+    expect(document.activeElement).toBe(before[0]);
+    render(false);
+    expect(buttons()).toEqual(before);
+    expect(buttons()[0].getAttribute("aria-label")).toBeNull();
+    expect(buttons()[0].textContent).toBe("Baum");
+    expect(document.activeElement).toBe(before[0]);
+  });
+
   it("names_an_icon_only_option_in_a_tooltip", async () => {
     vi.useFakeTimers();
     try {

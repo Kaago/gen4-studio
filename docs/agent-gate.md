@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür), [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -103,6 +103,8 @@ Nach einem Klick mit Figur, Tür, Auslöser, Schild oder Gebäude steht wieder �
 **Galerie.** `http://127.0.0.1:1430/?gallery` zeigt alle Bausteine ohne Projekt, mit Schaltern für Thema und Dichte; für die Screenshots des Gates (Hell, Dunkel, Kompakt) siehe [dev-setup.md](dev-setup.md), Abschnitt „Galerie“.
 
 **Layout.** Seit 3e.4 merkt jedes Dock sein Layout unter einem Schlüssel je Bereich (`g4.layout.v11.welt`, `g4.layout.v11.texte`, `g4.layout.v11.pokemon`, `g4.layout.v11.gegenstaende`) und die zuletzt gebaute Vorlage unter `g4.layout.v11.<bereich>.arrangement` (`werkbank` oder `doppeldeck`; beim ersten Aufbau der Standard des Bereichs); dazu `g4.shell.v1` für den Rahmen (Einklappen der Liste, Anker der Werkzeugleiste, Höhe der Orte `worldListSplit`, `placesFolded`, Unterbereich von Pokémon, Auswahl je Teil; `handHeight` und `handCollapsed` stehen noch dort, werden aber nicht mehr geschrieben). Ein unbrauchbares Layout (fehlende Panels, ein schwebendes Schau-Panel) setzt nur dieses Dock auf seine Vorlage zurück. Layouts älterer Versionen (`g4.layout.v10.*` und davor) löscht die App beim Start. Palette „Layout zurücksetzen“ baut die gemerkte Vorlage des gezeigten Bereichs neu (auf Start, Technik und Einstellungen die der Welt; ist das Dock nicht gebaut, löscht es nur seine gespeicherten Schlüssel). Alles zurücksetzen im Browser-Modus: `localStorage.clear()` und die Seite neu laden.
+
+**Layout je Unterbereich (3d.8).** Das Pokémon-Dock merkt sein Layout je Unterbereich unter `g4.layout.v11.pokemon.sub.<sub>` (`<sub>`: `pokedex`, `trainer`, `encounters`, `moves`) und die Vorlage unter `g4.layout.v11.pokemon.sub.<sub>.arrangement`; `g4.layout.v11.pokemon` schreibt es nicht mehr. Beim Wechsel des Unterbereichs speichert es erst das Layout des bisherigen (auch schwebende Gruppen) und lädt dann das des neuen im selben Dock (ohne Neuaufbau); ein unbrauchbares Layout eines Unterbereichs fällt auf die Vorlage zurück, ohne die anderen zu berühren. Palette „Layout zurücksetzen“ und „Anordnung zurücksetzen“ im Reitermenü wirken auf den gezeigten Unterbereich. Das Layout je Unterbereich bleibt nach einem Neuladen der Seite.
 
 ## Werkzeuge
 
@@ -1497,3 +1499,141 @@ scripts/agent/mcp.sh call recipe_apply '{"recipe":"new_trainer_here","input":{�
 scripts/agent/call.sh agent_status            # question: {kind: confirm, what: "Trainer anlegen"}
 # im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“
 ```
+
+## Phase 3d.9 ([phase-3d-9-gate.md](phase-3d-9-gate.md))
+
+3d.9 bringt den Spielmodus live: „Hier spielen“ startet das Spiel in melonDS 1.1 mit dem GDB-Stub (nur macOS), der Kernel (`crates/g4-kernel/src/live/`) liest alle 250 ms Zeiger, Variablen und Flags des Spielstands aus dem Arbeitsspeicher und schreibt sie mit Rücklesen (`g4k live status|set|wait|resume`), das Scharnier wird bernsteinfarben (`data-hinge-mode="play"`), die Fläche „Flags und Variablen“ zeigt in der Spalte „Live“ die Werte und im Detail den Abschnitt „Live“, der Inspector setzt Haltepunkte an Figuren (Sichtbarkeits-Flag) und Auslösern (Variable), MCP hat `live_status` und `live_set`. `g4emu repl` lässt das Spiel laufen und hat einen eigenen GDB-Stub, so prüft das Gate ohne melonDS; nur Punkt (4) braucht das echte. **Port 3390 für den g4emu-Stub, nie 3333 (und 3334) anfassen, solange ein melonDS des Nutzers laufen könnte** (`pgrep -x melonDS` leer; nur Punkt (4) benutzt 3333). Der Stub, `g4k live` und die App bedienen je Port genau einen Client.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), `3d-9-<zweck>` (ein ds-rom-Projektordner) und `3d-9-<zweck>.nds` nebeneinander: `pt`, `hgde`, `hgus` für den gated Test und das Szenario kopflos (nur gelesen, `repl` spielt die `.nds`), `web` (Platin DE, als `3d-9-web_DSPRE_contents`) und `webhg` (HeartGold DE) für Browser und MCP über die Brücke (je `g4k git init`, damit `git status` etwas sagt). Spielstände unverändert aus `_saves` (`g4emu` kopiert sie vor jedem Lauf).
+
+**Wo was ist:** Scharnier im Spielmodus `[data-hinge-mode="play"]` mit `[data-live-state]` (`starting`, `connecting`, `waiting_for_save`, `live`, `halted`, `lost`; bei `off` und `unavailable` bleibt die Leiste dunkel), `[data-live-resume]` „Weiter“ (nur im Halt), `[data-live-reload]` „Neu laden“, `[data-live-stop]` „Stoppen“. Technik › Flags und Variablen: Kopf `[data-flag-live-head]` (im Spielmodus `="on"`), Zellen `[data-flag-live]` (Flag: Taste mit `="1"` oder `="0"`, Klick schaltet um; Variable: dezimal; sonst „–“), Detail `[data-flag-section="Live"]` (Schalter „Im Spiel gesetzt“ bzw. Feld „Wert im Spiel“ und „Setzen“), Warnung `[data-flag-live-warning]` für eine nicht gewählte Zeile, deren Wert das Spiel nicht behielt. Inspector einer Figur oder eines Auslösers: `[data-live-breakpoint]` „Haltepunkt“ (nur im Spielmodus; bei Tür und ohne Flag bzw. Variable gesperrt mit Grund). Technik › Emulator: `[data-live-row]` „Spielmodus live“. „Spielmodus“ auf den Flächen heißt: nicht `off`, nicht `unavailable` (wie am Scharnier). Brücke: `live_status`, `live_connect {port, host?}` (verbindet mit einem vorhandenen Stub, auch dem von `g4emu repl`), `live_set`, `live_stop`, `live_resume`, `live_breakpoints`, `live_breakpoint_set`, `live_breakpoint_clear`; `live_play` lehnt die Brücke ab wie `run_rom`. MCP: nur `live_status` und `live_set`.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) Automatik | Agent | fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --all-features --lib`, `cargo test -p studio --test mcp_stdio` (alle drei ohne `G4_*`), `pnpm test`, `pnpm build`, `check-tokens.sh`, `check-styles.sh`, `check-depth.sh`, `g4emu` Einheit (`uv run pytest -m "not integration" -q`) einzeln; das ganze `gate.sh` läuft auf main nach dem Merge |
+| (1) gated `test_live.py` | Agent | Platin DE, HeartGold DE, HeartGold US mit `g4emu repl` + `g4k live` auf Port 3390; `took_ms` und `game_check` je Spiel in die Tabelle der Gate-Datei |
+| (2) kopflos | Agent | `g4emu repl` auf `3d-9-pt` (Port 3390) und Release-`studio mcp`: `live_status` → `off`, `live_set` → `not_live`; die Verbindung selbst ist App-only, darum `live_set` gegen den Stub über die Brücke (nächste Zeile) |
+| (3) Browser | Agent + Blick | Test-Umgebung 1790/1791, Projekt `3d-9-web_DSPRE_contents`; `g4emu repl` mit `CPUD-zimmer.sav` auf 3390; `call.sh live_connect`; Scharnier bernsteinfarben (Bild), Spalte „Live“ (Bild), Flag `0x173` per Klick auf 0 → repl `expect-flag 0x173 0`, Treppe hinunter und über den Warp in 414 wieder hinauf (Ablauf unten, mit `wait 150` nach jedem Kartenwechsel); die Figur erscheint (R23): Flag `0x1F1` (Figur 1 der Eventdatei 393 auf der Fußmatte von 414, (6, 10)) per Klick auf 0, 414 neu betreten, von (6, 8) `walk-until-blocked down 2` → 1 Schritt, `expect-at 6 9` (`shot figur`); Variable `0x40A5` auf 0 → `walk-to 5 5`, `walk-until-blocked left 4` (1 Schritt), `expect-at 4 5`; Haltepunkt am Auslöser mit `var 0x40A5` → repl `set-var 0x40A5 1` → Scharnier „Gehalten: …: 0 → 1“ (Bild), `expect-halted`; „Weiter“ → `expect-running`; „Stoppen“ → Scharnier dunkel, `live_status.state == "off"` |
+| (3) MCP über die Brücke | Agent | `mcp.sh call live_status`, `live_set` (→ `read_back`), `live_set` außerhalb des Spielstands → `outside_save` |
+| (3) HeartGold DE | Agent | wie (3) mit `IPKD-zimmer.sav`, Flag `0x2A9` (Figuren im Zimmer, Header 64), nur Flag und Scharnier |
+| (4) echtes melonDS | Agent + Hand | Agent (nur bei leerem `pgrep -x melonDS`): `melonDS.toml` sichern, eine Kopie mit `g4_kernel::live::melonds::enable_stub` (Wegwerfprogramm im Scratchpad) umschreiben, einsetzen, melonDS 1.1 mit `3d-9-pt` starten, `g4k live status --port 3333 --game CPUD` (Antwort = melonDS liest die umgeschriebene Datei, `toml` 0.8 genügt; sonst Befund, `toml_edit`), `verified`, `has_save`; Original byte-gleich zurück (`cmp`), melonDS beenden. Hand: im melonDS-Fenster bis ins Zimmer fortsetzen; „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten des Zimmers |
+| Blick | Agent + Blick | Bilder `blick-*.png` und `shot-*.png` unter `target/agent/gate-<datum>/3d-9/` |
+
+**Gated Test (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, Kern unter `tools/g4emu/core/`, `g4k` gebaut mit `cargo build -p g4-kernel --bin g4k`):
+
+```sh
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+export G4_ROMS_DIR=<absolut>; K=$G4_ROMS_DIR/_testkopien
+G4K_BIN=$PWD/target/debug/g4k \
+  G4_LIVE_ROM_CPUD=$K/3d-9-pt.nds G4_LIVE_ROM_IPKD=$K/3d-9-hgde.nds G4_LIVE_ROM_IPKE=$K/3d-9-hgus.nds \
+  bash -c 'cd scripts/g4emu && uv run pytest -m integration -k live -q -s'
+```
+
+Der Test (`scripts/g4emu/tests/test_live.py`, Port 3390, die Spielstände werden in einen Temp-Ordner kopiert) überspringt ein Spiel, dessen Variable `G4_LIVE_ROM_<CODE>` fehlt, und druckt je Spiel `game_check`, `took_ms` von `status` und die Wanduhr von `set` (mit den eingebauten 100 ms Warten); `took_ms ≤ 100` erzwingt nur `G4_TIMING_STRICT=1`. Platin DE: `0x173` := 0, `0x40A5` := 0, Auslöser über `walk-to 5 5`, `walk-until-blocked left 4` (genau 1 Schritt), `expect-at 4 5` (auf dem echten Spiel feuert der Auslöser beim Ankommen auf (4, 5); die Probe `walk-to 4 5` + `walk-until-blocked down 3` blockiert sofort, die Gegenprobe mit Variable 1 geht bis (1, 5)), `g4k live wait --var 0x40A5 --timeout 10` mit `set-var 0x40A5 1` im `repl`: `halted` true, `before` 0, `after` 1, `expect-halted`, Zeilenumbruch auf stdin von `wait`, `expect-running`; HeartGold DE und US: Flag `0x2A9` setzen und `expect-flag`.
+
+**`g4emu repl` für Hand und Browser (2) (3)**, aus `scripts/g4emu`, die Schritte kommen von einer Datei (`tail -f`), die Antworten stehen als JSON-Zeilen in `repl.out`:
+
+```sh
+K=$G4_ROMS_DIR/_testkopien; OUT=<Worktree>/target/agent/gate-<datum>/3d-9; mkdir -p $OUT; : > $OUT/repl.in
+( tail -n +1 -f $OUT/repl.in | uv run g4emu repl --rom $K/3d-9-pt.nds --save $K/_saves/CPUD-zimmer.sav \
+    --out $OUT/repl --gdb-port 3390 > $OUT/repl.out 2> $OUT/repl.err ) &
+# erste Zeile von repl.out: {"ready": true, "gdb_port": 3390, "game": "CPUD"}
+echo "continue" >> $OUT/repl.in; echo "expect-map 415" >> $OUT/repl.in
+echo "expect-flag 0x173 0" >> $OUT/repl.in           # nach dem Klick in der Oberfläche; jede Antwort eine Zeile mit ok true/false
+echo "set-var 0x40A5 1" >> $OUT/repl.in; echo "expect-halted" >> $OUT/repl.in
+echo "quit" >> $OUT/repl.in                           # danach das tail beenden (kill)
+```
+
+Der Stub hält beim Verbinden an, bis `c` kommt (wie melonDS); die App und `g4k live` senden es. Ein zweiter Client bekommt keine Antwort.
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
+
+```sh
+K=$G4_ROMS_DIR/_testkopien; P=$K/3d-9-pt
+target/release/studio mcp --project $P                        # live_status → state off; live_set {kind flag, number 371, value 0} → not_live; tools/list nennt beide
+target/release/g4k live status --port 3390 --game CPUD        # mit laufendem repl: state, game_check verified, took_ms
+target/release/g4k live set --port 3390 --game CPUD --flag 0x173 --value 0
+git -C $P status --porcelain                                   # nichts (ein Live-Wert schreibt kein Projekt)
+```
+
+**Browser (3)**, Test-Umgebung auf 1790/1791 (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1790 G4_BRIDGE_PORT=1791 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1790/?project=<…>/_testkopien/3d-9-web_DSPRE_contents`, 1440 × 900, Chrome headless wie bei 3d.2 (Hell und Dunkel in **einer** CDP-Verbindung mit dem Bild). Zuerst `g4emu repl` auf 3390 (oben), dann:
+
+```sh
+scripts/agent/call.sh live_connect '{"port":3390}'            # die App verbindet mit dem Stub; Scharnier wird bernsteinfarben
+scripts/agent/call.sh live_status                             # state live, game_check verified, snapshot
+scripts/agent/call.sh live_set '{"kind":"flag","number":371,"value":0}'   # 0x173; read_back null, danach live_status.read_back true
+scripts/agent/call.sh live_stop                               # oder „Stoppen“ im Fenster: Scharnier dunkel, state off
+```
+
+Ablauf in der Oberfläche: Scharnier (Bild `blick-scharnier-live-{hell,dunkel,kompakt}.png`), Technik › Flags und Variablen (Spalte „Live“, Bild `blick-flags-live-*.png`), Flag `0x173` per Klick auf die Zelle auf 0 (Detail zeigt „Im Spiel gesetzt“ aus), repl `expect-flag 0x173 0`; im repl Treppe hinunter (`walk-to 8 4`, `walk right 1`, `expect-map 414`, `wait 150`, `mash b 600` für die Mutter) und über den Warp der Treppe in 414 hinauf (die Ankunft x 10, y 3 liegt auf ihm, ein Schritt nach Westen löst ihn aus, wie in `pt-neuer-ort.yaml`: `walk left 1`, `expect-map 415`, `wait 150`; Kachel und Richtung aus `scripts/agent/call.sh get_events '{"eventFileId":393}'` (Eventdatei von Header 414, zwei Warps) lesen und prüfen), die Figur erscheint (R23; Figur 0 der Eventdatei 394 auf (10, 4) gehört zur Szene des Rivalen und ist nicht zu erreichen): in 414 Figur 1 der Eventdatei 393 (Kachel (6, 10), Flag `0x1F1`, Startwert im Spielstand 1 notieren; mit 1 ist die Fußmatte leer, Bild auf (8, 8)), in der Spalte „Live“ `0x1F1` per Klick auf 0, repl `expect-flag 0x1F1 0`, 414 neu betreten (`walk-to 10 3`, `walk left 1`, `expect-map 415`, `wait 150`, `walk right 1`, `expect-map 414`, `wait 150`, `mash b 300`), `walk down 2`, `walk-to 6 8` (blockiert bei (8, 8) an der Mutter, dort Bild), `walk down 1`, `walk-to 6 9`, `walk up 1`, `walk-until-blocked down 2` → 1 Schritt, blockiert vor (6, 10), `expect-at 6 9`, `shot figur`; Variable `0x40A5` im Detail auf 0 setzen, `walk-to 5 5`, `walk-until-blocked left 4`, `expect-at 4 5`; Welt › Eventdatei 394 › Auslöser mit `var 0x40A5` › Kästchen „Haltepunkt“, repl `set-var 0x40A5 1` → Scharnier „Gehalten: Auslöser … · Eventdatei 394: 0 → 1“ (Bild `blick-halt-*.png`), `expect-halted`, „Weiter“, `expect-running`; „Stoppen“. HeartGold DE ebenso auf `3d-9-webhg` mit `IPKD-zimmer.sav` und Flag `0x2A9` (nur Flag und Scharnier).
+
+**MCP (3)** über die Brücke (Kopie in der Seite geöffnet, `live_connect` wie oben gemacht):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                   # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call live_status '{}'                                   # state live, snapshot mit flags und vars
+scripts/agent/mcp.sh call live_set '{"kind":"flag","number":371,"value":0}'  # read_back null, danach live_status true; repl expect-flag 0x173 0
+scripts/agent/mcp.sh call live_set '{"kind":"flag","number":4000,"value":1}' # outside_save
+scripts/agent/call.sh history '{}'                                           # unverändert (kein Schritt)
+```
+
+Keine Rückfrage (`agent_status.question` null): `live_set` ist schreibend, aber ohne Verlauf; `live_connect` und `live_play` sind in MCP „Nur in der App“.
+
+**Echtes melonDS (4)**, nur wenn `pgrep -x melonDS` leer ist (kein melonDS des Nutzers). Es prüft, ob melonDS die vom Kernel (`toml` 0.8) umgeschriebene Datei liest; die Funktion `enable_stub` ist in der App nur über `live_play` erreichbar (in der Brücke abgelehnt), darum ein Wegwerfprogramm im Scratchpad (nie ein Test im Repo, nie eingecheckt):
+
+```sh
+K=$G4_ROMS_DIR/_testkopien; OUT=<Worktree>/target/agent/gate-<datum>/3d-9; S=<Scratchpad>/enable-stub; mkdir -p $S
+C=~/Library/Preferences/melonDS/melonDS.toml
+pgrep -x melonDS && echo "läuft: abbrechen"                                       # muss leer sein
+cp -p $C $OUT/melonDS.toml.original; shasum $C; cp $C $S/melonDS.toml            # Original sichern, Kopie zum Umschreiben
+# $S (vorher mkdir -p): cargo init --bin; Cargo.toml: g4-kernel = { path = "<Worktree>/crates/g4-kernel" }
+# main.rs: println!("{:?}", g4_kernel::live::melonds::enable_stub(std::path::Path::new("<Scratchpad>/enable-stub/melonDS.toml")));
+(cd $S && cargo run -q)                                                          # druckt die Einstellungen: enabled true, break_on_startup false, jit false
+cp $S/melonDS.toml $C                                                            # die umgeschriebene Kopie einsetzen
+cp $K/3d-9-pt.nds $OUT/pt.nds; cp $K/_saves/CPUD-zimmer.sav $OUT/pt.sav          # Annahme: melonDS findet den Spielstand als <ROM-Name>.sav
+/Applications/melonDS.app/Contents/MacOS/melonDS $OUT/pt.nds >/dev/null 2>&1 &
+# Hand: im melonDS-Fenster das Spiel fortsetzen, bis es im Zimmer steht (kein Eingabewerkzeug für das Fenster)
+target/release/g4k live status --port 3333 --game CPUD                           # Antwort: melonDS liest die Datei, toml 0.8 genügt; game_check verified, has_save true, took_ms
+# keine Antwort („Kein GDB-Stub auf Port 3333“): Befund, toml_edit als Abhängigkeit (cargo deny, Begründung im Commit)
+pkill -x melonDS; while pgrep -x melonDS >/dev/null; do sleep 1; done            # melonDS schreibt die Datei beim Beenden zurück
+cp -p $OUT/melonDS.toml.original $C; cmp $OUT/melonDS.toml.original $C && echo "byte-gleich"
+```
+
+Hand: im melonDS-Fenster das Spiel bis ins Zimmer fortsetzen (oben) und „Hier spielen“ in der gepackten App (`pnpm bundle`), Scharnier bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers. Antwortet der Stub nach dem Umschreiben nicht, wird `toml_edit` Abhängigkeit (siehe Gate-Datei, „Offen“).
+
+## Phase 3d.8 ([phase-3d-8-gate.md](phase-3d-8-gate.md))
+
+3d.8 bringt die Erzählen-Layouts in Pokémon und Texte: die Taste „Neuer Trainer…“ in Pokémon › Trainer (`[data-new-trainer-recipe]` in der Zeile `[data-new-trainer-row]`; die Welt zeigt danach den vorbelegten Ort), die Live-Vorschau des Assistenten „Neuer Trainer hier“ (`[data-trainer-preview]`, `[data-foe]`, `[data-preview-slot]`), „Wer hier wartet“ in Pokémon › Begegnungen (`li[data-waiting][data-species]`, `[data-rarity]`, Tausch zweier Grasplätze über `data_edit` Teil `EncounterSwap`), Dialoge nach Ort und Figur in Texte (`[data-dialog-list]`, `[data-dialog-header]`, `[data-dialog-cards]`, `[data-dialog-figure]`, Kernel `dialogs_of_header`), das Layout je Unterbereich des Pokémon-Docks (`g4.layout.v11.pokemon.sub.<sub>`, siehe „Layout je Unterbereich (3d.8)“ oben) und den Musik-Picker am Header (`[data-music-field]`, `name_tables.sounds`). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-8-<zweck>` und `.nds` `3d-8-<zweck>.nds` nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen), `web` (Platin DE) und `hgweb` (HeartGold DE) für den Browser. Vor dem Browser je Kopie über die Brücke (Seite offen oder `call.sh open_project '{"path":"<Kopie>"}'`): `git_init`, `adopt_scripts`, `save`, danach außen `git add -A && git commit` (ohne übernommene Scripts lehnt `recipe_plan` den Trainer ab, wie 3d.5 Befund A; ohne Git sagt `git status` nichts). Alle `3d-8-*`-Kopien sind gelöscht (2026-11-02, vom Steuer-Agenten nach dem Nachtest). Bilder und Logs unter `target/agent/gate-<datum>/3d-8/`; die Test-Umgebung läuft auf **1780/1781**.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent (auf main nach dem Merge) | nicht im Worktree (unter Last scheitern die Zeitgrenzen); die berührten Schritte einzeln: fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --lib`, `pnpm test`, `pnpm build`, Tokens, Styles, Depth |
+| (1) gated `dialogs_of_header` | Agent | je Projekt im Release-Profil mit `G4_TIMING_STRICT=1`, Befehl unten; Zeilen `dialogs <Spielcode> header=… figures=… ms=…` |
+| (2) Zeiten über die Brücke | Agent | Resource Timing der Seite und `call.sh`, unten |
+| (3) Browser | Agent | Test-Umgebung auf 1780/1781, Ablauf in der Gate-Datei, Chrome headless 1440 × 900 |
+| Neuer Trainer in der gepackten App | Hand | siehe Gate-Datei, „Hand“ |
+| Blick | Agent + Blick | Bilder `blick-{trainer-assistent,wer-hier-wartet,dialoge,layout,musik}-{hell,dunkel,kompakt}.png` unter `target/agent/gate-<datum>/3d-8/` |
+
+**Gated (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
+G4_TIMING_STRICT=1 G4_TEST_PROJECT="$K/3d-8-<k>" \
+  cargo test --release -p g4-kernel --all-features --test dialog vanilla_dialogs_of_the_largest_places_under_a_second -- --nocapture
+#   die fünf Orte mit den meisten Objekten je Spiel, jeder ≤ 1 000 ms; 2026-11-02 unter Last höchstens 58 / 70 / 67 ms
+```
+
+**Zeiten (2):** Die Seite misst ihre Aufrufe selbst: vor einem Schritt `performance.setResourceTimingBufferSize(20000); performance.clearResourceTimings()`, danach `performance.getEntriesByType("resource").filter(e => e.name.includes("/invoke/"))` (Name, `startTime`, `duration`). Das erste Vorschaubild ist der erste `get_trainer_sprite` nach dem Klick auf „Neuer Trainer…“ (≤ 50 ms). Die Stoppuhr läuft vom Klick bis zum Text „Trainer aufgestellt“ (unter zwei Minuten). Das Feld `ms` des Kerns:
+
+```sh
+scripts/agent/call.sh dialogs_of_header '{"header":3}'      # {header, event_file, archive, figures: [...], ms}
+scripts/agent/call.sh get_events '{"eventFileId":46}'      # das neue Trainer-Objekt (trainer_type 1, sight, x, z)
+scripts/agent/call.sh data_get '{"kind":"encounter","index":140}'   # methods[grass].slots nach Art und Tausch
+scripts/agent/call.sh history '{}'                          # zwei Zeilen „Route 201: Gras Platz …“
+scripts/agent/call.sh get_header '{"id":3}'                 # music_day_id / music_night_id nach dem Picker
+```
+
+**Browser (3):** Seite `http://127.0.0.1:1780/?project=<Roms>/_testkopien/3d-8-web` (danach `3d-8-hgweb`); Erzählen über das Segment „Tiefe“; die Unterbereiche von Pokémon über den Listenkopf (Menü) oder ⌘1 bis ⌘4. Hinweise aus Lauf 1: Meta+A wählt in Chrome headless über CDP nicht alles (Feld über `element.select()` leeren); im Art-Picker des Assistenten und der Begegnungen nimmt Enter nur einen hervorgehobenen Treffer (sonst den Treffer anklicken); ⌘S und ⌘Z tun nichts, solange der Dialog-Editor oder ein Assistent offen ist (Editor schließen, Fokus aus dem Feld nehmen, dann Meta+S bzw. Meta+Z). „Schweben lassen“ steht im Kontextmenü eines Dock-Reiters (Rechtsklick); die Trennlinie zwischen Schau und Hand ist `.dv-sash`. Das Layout gilt je Bereich für alle Projekte im selben Browser-Profil.

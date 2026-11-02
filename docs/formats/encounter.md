@@ -93,6 +93,24 @@ die Tages-Art in `species` und (morgens, nachts) in `alt_species`
 Radar, Radio, Dual-Slot, Nachtangeln) gehören nicht zur Ansicht. Die Slot-Anteile
 (20, 20, 10, ...) stehen im Code des Spiels, nicht in der Datei.
 
+## Tausch zweier Slots
+
+`data_edit` mit `EncounterSwap { method, a, b }` (seit 3d.8) lässt zwei Slots
+einer Methode den Platz tauschen, als ein Undo-Schritt „Begegnungen 0012: Gras
+Platz 3 ↔ 8“ (Plätze ab 1 wie in den anderen Begegnungs-Labels). Getauscht
+wird, was die Methodenansicht zeigt: Art und Level (Wasser und Fels: Mindest-
+und Höchstlevel), im HeartGold-Gras alle drei Spalten (morgens, tags, nachts)
+und das gemeinsame Level. Was die Ansicht nicht zeigt (Platin-Padding, das
+obere Art-Wort), bleibt am Platz. Da die Anteile im Spielcode stehen, ändert
+nur der Platz, wie oft eine Art erscheint. Platins Tag/Nacht-Listen ersetzen
+weiter die Slots 2 und 3 (ab 0), gleich welche Art dort nach dem Tausch steht.
+
+Abgelehnt, bevor etwas geschrieben wird: `a == b`, ein Slot außerhalb der
+Methode (Gras 12, Wasser 5, Zertrümmerer 2) und eine Ersatzliste als
+`method`: deren Einträge ersetzen Slots, sie haben keinen eigenen Platz. Ein
+leerer Slot (Art 0) tauscht wie jeder andere; die Regelwarnungen der Datei
+bleiben, wie sie sind.
+
 ## Grenzen des Codecs
 
 `read` lehnt nur eine andere Länge als 424 (Platin, DP) beziehungsweise 196

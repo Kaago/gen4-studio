@@ -263,6 +263,9 @@ export const slotLabel = (title: string, method: string, slot: number, rest: str
 /** „Route 201: Tag Eintrag 1 Bidiza → Staralili“. */
 export const entryLabel = (title: string, list: string, entry: number, rest: string): string => `${title}: ${listWord(list)} Eintrag ${entry + 1} ${rest}`;
 
+/** „Route 201: Gras Platz 2 ↔ 7“: two slots trade species and levels. */
+export const swapLabel = (title: string, method: string, a: number, b: number): string => `${title}: ${methodWord(method)} Platz ${a + 1} ↔ ${b + 1}`;
+
 /** The word of a slot field in a label. */
 export const FIELD_WORD: Readonly<Record<string, string>> = { level: "Level", min: "Mindestlevel", max: "Höchstlevel", species: "", species_morning: "morgens", species_night: "nachts" };
 
@@ -308,6 +311,20 @@ export function applyEncounter(doc: EncounterDoc, patch: DataPatch): EncounterDo
     return {
       ...doc,
       replacements: doc.replacements.map((l) => (l.list !== method ? l : { ...l, slots: setSlot(l.slots, slot ?? 0, (s) => writeSlot(s, field, value)) })),
+    };
+  }
+  if ("EncounterSwap" in patch) {
+    // Species and levels trade places; the share, the replacements and the slot number belong to the place and stay.
+    const { method, a, b } = patch.EncounterSwap;
+    const traded = (s: SlotDto) => ({ species: s.species, min: s.min, max: s.max, species_morning: s.species_morning, species_night: s.species_night });
+    return {
+      ...doc,
+      methods: doc.methods.map((m) => {
+        const sa = m.slots.find((s) => s.index === a);
+        const sb = m.slots.find((s) => s.index === b);
+        if (m.method !== method || sa === undefined || sb === undefined || a === b) return m;
+        return { ...m, slots: m.slots.map((s) => (s.index === a ? { ...s, ...traded(sb) } : s.index === b ? { ...s, ...traded(sa) } : s)) };
+      }),
     };
   }
   if ("EncounterExtra" in patch) {

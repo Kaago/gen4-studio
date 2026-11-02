@@ -4,8 +4,11 @@ import type { AssetKind, HeaderFamily, MapHeader } from "../../api";
 import type { Depth } from "../../ui/frame/shellState";
 import { TERMS } from "../terms";
 
-/** What an id field points at; pickers get their upper limit from the archive's member count. */
-export type PickKind = "matrix" | "areaData" | "eventFile" | "textArchive" | "script" | "header" | "mapTexture" | "buildingTexture";
+/**
+ * What an id field points at; pickers get their upper limit from the archive's member count. `music` marks a number field (`u16`) that
+ * names a music piece: Erzählen picks it by name (`MusicField`), Bauen and Tüfteln show the name beside the number.
+ */
+export type PickKind = "matrix" | "areaData" | "eventFile" | "textArchive" | "script" | "header" | "mapTexture" | "buildingTexture" | "music";
 
 export interface FieldSpec {
   /** Property name in the serialized header (uxie struct). */
@@ -44,8 +47,8 @@ const matrix = pick("matrix_id", "Matrix", "matrix");
 const script = pick("script_file_id", TERMS.scriptFile.label, "script");
 const levelScript = pick("level_script_id", TERMS.levelScript.label, "script");
 const textArchive = pick("text_archive_id", "Textarchiv", "textArchive");
-const musicDay: FieldSpec = { ...u16("music_day_id", "Musik Tag"), from: "erzaehlen" };
-const musicNight: FieldSpec = { ...u16("music_night_id", "Musik Nacht"), from: "erzaehlen" };
+const musicDay: FieldSpec = { ...u16("music_day_id", "Musik Tag"), pick: "music", from: "erzaehlen" };
+const musicNight: FieldSpec = { ...u16("music_night_id", "Musik Nacht"), pick: "music", from: "erzaehlen" };
 const eventFile = pick("event_file_id", "Eventdatei", "eventFile");
 const weather = u8("weather_id", "Wetter");
 const camera = u8("camera_angle_id", "Kamera");

@@ -209,12 +209,22 @@ describe("depth", () => {
   });
 
   it("view_depth_falls_back_to_bauen_outside_narrating_areas", () => {
-    expect(NARRATING_AREAS).toEqual(["welt", "geschichten"]);
     expect(viewDepth("welt", "erzaehlen")).toBe("erzaehlen");
     expect(viewDepth("technik", "erzaehlen")).toBe("bauen");
     expect(viewDepth("pokemon", "tuefteln")).toBe("tuefteln");
     expect(viewDepth("gegenstaende", "bauen")).toBe("bauen");
     expect(viewDepth("welt", "tuefteln")).toBe("tuefteln");
+  });
+
+  it("pokemon_and_texte_narrate", () => {
+    // Pokémon (its parts may bring views of their own for Erzählen) and Texte (dialogs by place and figure) show Erzählen; the rest Bauen.
+    expect(NARRATING_AREAS).toEqual(["welt", "geschichten", "pokemon", "texte"]);
+    for (const area of ["pokemon", "texte"] as const) {
+      expect(viewDepth(area, "erzaehlen")).toBe("erzaehlen");
+      expect(viewDepth(area, "bauen")).toBe("bauen");
+      expect(viewDepth(area, "tuefteln")).toBe("tuefteln");
+    }
+    for (const area of ["start", "gegenstaende", "technik", "einstellungen"] as const) expect(viewDepth(area, "erzaehlen")).toBe("bauen");
   });
 
   it("geschichten_is_a_narrating_area", () => {

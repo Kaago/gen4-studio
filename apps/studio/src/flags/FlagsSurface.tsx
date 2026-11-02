@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { FlagArea, FlagKind, FlagListDto, NameReport, ProjectInfo } from "../api";
+import type { Live } from "../app/useLive";
+import { useStableCallback } from "../app/useStable";
 import { useTextProject } from "../textproject/TextProjectContext";
 import type { Depth } from "../ui/frame/shellState";
 import { Checkbox, EmptyState, FilterChips, Notice, TextField } from "../ui/primitives";
 import type { FilterChipOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { FlagDetail } from "./FlagDetail";
+import { FlagDetail, NOT_TAKEN } from "./FlagDetail";
+import type { FlagLive } from "./FlagDetail";
 import { DEFAULT_FILTER, areasOf, filterEntries } from "./flagFilter";
 import type { FlagFilter } from "./flagFilter";
 import { FlagList } from "./FlagList";
-import { areaWord } from "./flagWords";
+import { areaWord, displayName } from "./flagWords";
 import { NameFlagDialog, namedText } from "./NameFlagDialog";
 import { invalidateFlagLists, useFlagList } from "./useFlagList";
 import { useFlagUsage } from "./useFlagUsage";
@@ -52,6 +55,8 @@ export type FlagsSurfaceProps = {
   onNamed?: (report: NameReport, said: string) => void;
   /** „Projekt öffnen“ of the empty state; without it the empty state offers nothing. */
   onOpenProject?: () => void;
+  /** Play mode (`useLive`): with a snapshot the list's column „Live“ and the detail's section „Live“ show and write its values. */
+  live?: Live;
 };
 
 const KINDS: readonly FilterChipOption[] = [
@@ -69,7 +74,7 @@ type Naming = { kind: FlagKind; number: number; name: string | null; current: { 
  * from; while the scripts are not adopted, one says that „frei“ is only a hint. A link (`selected` from outside) shows its kind and lifts a
  * filter that would hide it.
  */
-export function FlagsSurface({ project, revision, selected, onSelect, goTo, depth, readOnly, onError, onNamed, onOpenProject }: FlagsSurfaceProps): JSX.Element {
+export function FlagsSurface({ project, revision, selected, onSelect, goTo, depth, readOnly, onError, onNamed, onOpenProject, live }: FlagsSurfaceProps): JSX.Element {
   const titleId = useId();
   const text = useTextProject();
   const [filter, setFilter] = useState<FlagFilter>(() => ({ ...DEFAULT_FILTER, kind: selected?.kind ?? DEFAULT_FILTER.kind }));
@@ -109,6 +114,44 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
   ];
   const entry = number === null ? null : (list?.entries.find((e) => e.number === number) ?? null);
   const names = usage ?? entry;
+
+  // Play mode as the hinge shows it (ruling R19: not while melonDS is unavailable): the values are the snapshot's (never what was asked
+  // for), a write goes straight to the game and is no step in the history. Before the first snapshot the cells wait with the hinge's text.
+  const hinge = live?.hinge ?? null;
+  const values = hinge !== null ? (live?.values ?? null) : null;
+  const livePending = hinge !== null && values === null ? hinge.text : undefined;
+  // The number last written (its read-back is the status's) and how many writes are under way.
+  const [written, setWritten] = useState<{ kind: FlagKind; number: number } | null>(null);
+  const [writing, setWriting] = useState(0);
+  const writeLive = useStableCallback(async (k: FlagKind, n: number, value: number) => {
+    if (live === undefined) return;
+    setWritten({ kind: k, number: n });
+    setWriting((w) => w + 1);
+    try {
+      await (k === "flag" ? live.setFlag(n, value !== 0) : live.setVar(n, value));
+    } finally {
+      setWriting((w) => w - 1);
+    }
+  });
+  const onLiveToggle = useStableCallback((n: number) => {
+    const set = values?.flag(n) ?? null;
+    if (set !== null) void writeLive("flag", n, set ? 0 : 1);
+  });
+  // A write the game undid (ruling R20): the detail warns for the chosen number, the surface names any other one.
+  const notTaken = hinge !== null && written !== null && live?.status.read_back === false;
+  const notTakenElsewhere = notTaken && !(written.kind === kind && written.number === number);
+  const writtenEntry = written !== null && list !== null && list.kind === written.kind ? list.entries.find((e) => e.number === written.number) : undefined;
+  const writtenName = written === null ? "" : displayName(writtenEntry ?? { name: null, own_id: null }, written.kind, written.number);
+  let flagLive: FlagLive | undefined;
+  if (values !== null && live !== undefined && number !== null) {
+    const set = kind === "flag" ? values.flag(number) : null;
+    flagLive = {
+      value: kind === "flag" ? (set === null ? null : set ? 1 : 0) : values.var(number),
+      busy: writing > 0,
+      readBack: !(notTaken && written.kind === kind && written.number === number),
+      onSet: (value) => void writeLive(kind, number, value),
+    };
+  }
   const onDone = (report: NameReport) => {
     // The lists on screen (the chips of the inspector too) and this usage show the new name.
     invalidateFlagLists();
@@ -172,12 +215,17 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
             </div>
           </div>
           {error !== null && <Notice kind="error">{error}</Notice>}
+          {notTakenElsewhere && (
+            <div data-flag-live-warning="">
+              <Notice kind="warning">{`${writtenName}: ${NOT_TAKEN}`}</Notice>
+            </div>
+          )}
           {list === null ? (
             error === null && <p className={styles.note}>Wird gelesen …</p>
           ) : (
             <div className={styles.split} data-flag-split="">
               <div className={styles.columns}>
-                <FlagList list={list} entries={entries} selected={number} onSelect={select} />
+                <FlagList list={list} entries={entries} selected={number} onSelect={select} live={values} livePending={livePending} onLiveToggle={onLiveToggle} />
                 <FlagDetail
                   kind={kind}
                   number={number}
@@ -194,6 +242,7 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
                   onDescribe={() =>
                     number !== null && setNaming({ kind, number, name: names?.name ?? null, current: { id: names?.own_id ?? null, description: names?.description ?? null } })
                   }
+                  live={flagLive}
                 />
               </div>
             </div>

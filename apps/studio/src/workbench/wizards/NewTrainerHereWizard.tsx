@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { errorText, nameTables, recipeApply } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NameTablesDto, NewTrainerHereInput, NewTrainerHereReport, ProjectInfo, RecipeOutcome } from "../../api";
-import { NAME_MAX, PARTY_MAX, className, classOptions, nameCount, nameError } from "../../data/trainer/trainerModel";
+import { NAME_MAX, PARTY_MAX, className, classOptions, nameCount, nameError, namedClassOptions, speciesName as speciesLabel } from "../../data/trainer/trainerModel";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
-import { Badge, Button, Notice, NumberField, Picker, PokemonCard, Segmented, SelectField, TextField } from "../../ui/primitives";
+import { Badge, Button, Notice, NumberField, Picker, Segmented, SelectField, TextField } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
 import { headerLabel } from "../headers";
 import { FACINGS } from "../inspector/eventFields";
@@ -12,6 +14,8 @@ import { MessageEditor } from "../text/MessageEditor";
 import { DraftNotes } from "./DraftNotes";
 import { PlaceField, TileFields, placeTiles } from "./PlaceField";
 import { TextPreview } from "./TextPreview";
+import { NO_NAME, TeamRowCard, TrainerPreview } from "./TrainerPreview";
+import type { TeamRow } from "./TrainerPreview";
 import { useDraftPlan } from "./useDraftPlan";
 import { DoneResult, PartialResult } from "./WizardResult";
 import { WizardFrame } from "./WizardFrame";
@@ -38,12 +42,6 @@ export interface NewTrainerHereWizardProps {
   /** The wizard is left; `written` says it changed the project without the app having read it again (the trainer of a partial failure). */
   onCancel: (written: boolean) => void;
   onError: (e: unknown) => void;
-}
-
-/** One Pokémon of the team as the wizard asks for it; the species is null until one is picked. */
-interface TeamRow {
-  species: number | null;
-  level: number;
 }
 
 interface TrainerForm {
@@ -83,13 +81,13 @@ function trainerInput(form: TrainerForm): NewTrainerHereInput | null {
 }
 
 /** A species by its name from the name table, else its number. */
-const speciesName = (names: NameTablesDto | null, species: number) => names?.species[species]?.trim() || `Pokémon ${species}`;
+const speciesName = (names: NameTablesDto | null, species: number) => speciesLabel(names?.species ?? [], species);
 
 /**
  * „Neuer Trainer hier“ in Erzählen: the trainer („Trainer“: class and name), its team („Team“: one to six Pokémon by species and level),
  * its battle texts („Texte“), where it stands („Wo“: place, tile, facing, sight, look) and the summary with the barrier; „Aufstellen“
  * applies the recipe `new_trainer_here`. The trainer itself cannot be taken back (the kernel's barrier „Trainer N angelegt“); its team,
- * texts and figure are one undo step behind it.
+ * texts and figure are one undo step behind it. Beside every step stands the live preview (`TrainerPreview`: class picture, battle, team).
  */
 export function NewTrainerHereWizard({ depth, headers, matrices, project, prefill, onDraft, onDone, onShow, onStep, onCancel, onError }: NewTrainerHereWizardProps) {
   const [form, setForm] = useState<TrainerForm>(() => ({
@@ -160,12 +158,34 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
   }
 
   const team = form.party.map((row) => (row.species === null ? "?" : `${speciesName(names, row.species)} Lv. ${row.level}`)).join(", ");
-  const who = `${form.name.trim() || "Ohne Namen"} (${className(classes, form.cls)})`;
+  const who = `${form.name.trim() || NO_NAME} (${className(classes, form.cls)})`;
   const summaryLines = [
     `${who} mit ${team}`,
     located ? `„${headerLabel(place)}“, Kachel x ${form.x}, z ${form.z}, Blick ${FACINGS.find((f) => f.value === form.dir)?.label ?? form.dir}, Sichtweite ${form.sight}` : "Noch kein Ort und keine Kachel.",
     form.texts.before === "" ? "Sagt vor dem Kampf nichts." : "Sagt vor dem Kampf etwas und kämpft, sobald er dich sieht.",
   ];
+
+  // The preview and the species picker stand beside every step in the same place, so the preview keeps its side of the battle across steps
+  // and a card of the preview picks the species of its place from any step.
+  const withPreview = (content: ReactNode) => (
+    <div className={styles.step}>
+      <div className={styles.layout}>
+        <div className={styles.form}>{content}</div>
+        <div className={styles.side}>
+          <TrainerPreview cls={form.cls} name={form.name} party={form.party} names={names} classes={classes} onSlot={setPicking} />
+        </div>
+      </div>
+      <Picker
+        open={picking !== null}
+        onOpenChange={(open) => !open && setPicking(null)}
+        title="Art wählen"
+        items={species}
+        placeholder="Art oder Nummer suchen"
+        emptyText={names === null ? "Lädt …" : "Keine Art gefunden."}
+        onPick={(item) => picking !== null && setRow(picking, { species: Number(item.id) })}
+      />
+    </div>
+  );
 
   const steps: WizardStep[] = [
     {
@@ -176,7 +196,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
         <section className={parts.column}>
           <h3 className={parts.heading}>Wer</h3>
           <div className={parts.field}>
-            <SelectField label="Klasse" showLabel value={form.cls} options={classOptions(classes, form.cls)} onChange={(cls) => set({ cls })} />
+            <SelectField label="Klasse" showLabel value={form.cls} options={(depthAtLeast(depth, "bauen") ? classOptions : namedClassOptions)(classes, form.cls)} onChange={(cls) => set({ cls })} />
           </div>
           <div className={parts.field}>
             <TextField label="Name" showLabel value={form.name} onChange={(name) => set({ name })} onCommit={(name) => set({ name })} error={tooLong ?? undefined} hint={tooLong === null ? `${nameCount(form.name)} (höchstens ${NAME_MAX})` : undefined} />
@@ -194,15 +214,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
           <div className={styles.team}>
             {form.party.map((row, i) => (
               <div key={i} className={styles.row} data-team-row={i}>
-                <PokemonCard
-                  state={row.species === null ? "empty" : "idle"}
-                  species={row.species ?? undefined}
-                  name={row.species === null ? undefined : speciesName(names, row.species)}
-                  level={row.species === null ? undefined : row.level}
-                  slot={i + 1}
-                  ariaLabel={row.species === null ? `Platz ${i + 1}: leer` : `Platz ${i + 1}: ${speciesName(names, row.species)}, Level ${row.level}`}
-                  onClick={() => setPicking(i)}
-                />
+                <TeamRowCard row={row} slot={i} names={names} onClick={() => setPicking(i)} />
                 <Button kind="secondary" size="s" onClick={() => setPicking(i)}>
                   Art wählen…
                 </Button>
@@ -219,15 +231,6 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
             Pokémon hinzufügen
           </Button>
           {!teamDone && <p className={parts.note}>Jede Zeile braucht eine Art.</p>}
-          <Picker
-            open={picking !== null}
-            onOpenChange={(open) => !open && setPicking(null)}
-            title="Art wählen"
-            items={species}
-            placeholder="Art oder Nummer suchen"
-            emptyText={names === null ? "Lädt …" : "Keine Art gefunden."}
-            onPick={(item) => picking !== null && setRow(picking, { species: Number(item.id) })}
-          />
         </section>
       ),
     },
@@ -305,13 +308,13 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
         </section>
       ),
     },
-  ];
+  ].map((entry) => ({ ...entry, content: withPreview(entry.content) }));
 
   let result = null;
   let show: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const done = outcome;
-    result = <DoneResult title="Trainer aufgestellt" {...trainerResult(done.outcome)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
+    result = <DoneResult title="Trainer aufgestellt" {...trainerResult(done.outcome, done.input, names)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
     if (onShow) show = () => onShow(done.outcome, done.input);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} depth={depth} />;

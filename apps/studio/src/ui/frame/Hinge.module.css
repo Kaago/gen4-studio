@@ -30,6 +30,25 @@
   cursor: pointer;
 }
 
+/*
+ * Play mode: the bar turns amber (Bernstein belongs to playing alone); the primitives follow through the hinge tokens, the transition stays.
+ * Deviation from the plan's mapping (R17): the controls' surface is `--g4-live-taste`, not `--g4-live-flaeche` (Bernstein 800 in Dunkel
+ * left their text at 1.45:1), and the selection (the depth chosen, a pressed button) turns dark with light text instead of `--g4-live-text`
+ * (Bernstein 700 in Hell: 2.98:1); the lines of the controls take the text colour (Bernstein 400/700 on the amber was under 3:1).
+ */
+.playMode {
+  --g4-scharnier-grund: var(--g4-live-grund);
+  --g4-scharnier-text: var(--g4-live-auf);
+  --g4-scharnier-leise: var(--g4-live-auf);
+  --g4-scharnier-taste: var(--g4-live-taste);
+  --g4-scharnier-kante: var(--g4-live-text);
+  --g4-flaeche-blatt: var(--g4-live-auf);
+  --g4-auswahl-flaeche: var(--g4-live-auf);
+  --g4-akzent-text: var(--g4-live-taste);
+  --g4-linie-leise: var(--g4-live-auf);
+  --g4-linie-standard: var(--g4-live-auf);
+}
+
 .crumbs {
   min-width: 0;
   flex: 1 1 0;
@@ -124,9 +143,11 @@
   border-top-color: var(--g4-bereich-welt-punkt);
 }
 
+/* It may shrink (B1): in play mode the state text inside gives way; the controls keep their width (they do not shrink below their content). */
 .right {
   display: flex;
-  flex: none;
+  min-width: 0;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--g4-raum-8);
 }
@@ -220,4 +241,40 @@
 
 .zero {
   color: var(--g4-scharnier-leise);
+}
+
+/*
+ * Play mode's part of the right cluster: the badge, the state and its buttons. Only the state text shrinks; when it gets too short the
+ * hinge yields other parts step by step (`data-hinge-squeeze`, see Hinge.tsx), so the badge and the buttons always stay whole.
+ */
+.liveActions {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.liveBadge {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
+}
+
+.liveButtons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* The state („Verbindet …“, „Gehalten: …“) ends in an ellipsis in a narrow bar; its title carries the full text. */
+.liveText {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--g4-scharnier-text);
+  font: var(--g4-font-text-s-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

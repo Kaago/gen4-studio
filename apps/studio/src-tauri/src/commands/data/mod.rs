@@ -37,7 +37,7 @@ use g4_formats::game::Family;
 use g4_kernel::data::battle_sprites::{self, Side, SpriteRequest};
 use g4_kernel::data::egg_moves::{EggMovesSource, egg_moves_place};
 use g4_kernel::data::icons;
-use g4_kernel::data::names::{Bank, NameTables, bank_index};
+use g4_kernel::data::names::{Bank, NameTables, bank_index, sound_names};
 use g4_kernel::error::KernelError;
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
@@ -811,6 +811,10 @@ pub fn name_tables_impl(state: &AppState) -> Result<NameTablesDto, CmdError> {
         classes: bank(names, store, Bank::TrainerClasses),
         forms: bank(names, store, Bank::Forms),
         archives,
+        sounds: sound_names(project.family)
+            .into_iter()
+            .map(|(id, name, used_in)| SoundNameDto { id, name, used_in })
+            .collect(),
     })
 }
 

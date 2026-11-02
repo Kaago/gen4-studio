@@ -11,6 +11,7 @@ import type { BuildingEditorContext } from "./inspector/BuildingEditor";
 import { ChecksSection } from "./inspector/ChecksSection";
 import { EventEditor } from "./inspector/EventEditor";
 import type { EventEditorContext } from "./inspector/EventEditor";
+import type { EventLive } from "./inspector/eventBreakpoint";
 import styles from "./inspector/Editor.module.css";
 import { HeaderEditor } from "./inspector/HeaderEditor";
 import type { HeaderEditorContext } from "./inspector/HeaderEditor";
@@ -66,6 +67,7 @@ export function Inspector({
   buildingEditor,
   eventEditor,
   depth,
+  eventLive,
   findings = NO_FINDINGS,
   checks = null,
 }: {
@@ -77,6 +79,8 @@ export function Inspector({
   eventEditor: EventEditorContext;
   /** Bauen, or Tüfteln: the section "Technisch" and the Dez | Hex switch of the number fields. */
   depth: Depth;
+  /** Play mode: the event editor's row „Haltepunkt“. */
+  eventLive?: EventLive;
   /** What the checks found at the record shown (`findingsFor`): the section „Prüfungen“ below its editor. */
   findings?: readonly CheckProblemDto[];
   checks?: ChecksApi | null;
@@ -103,7 +107,7 @@ export function Inspector({
     case "building":
       return withChecks(<BuildingEditor key={`${model.map}:${model.index}`} map={model.map} index={model.index} context={buildingEditor} depth={depth} />);
     case "event":
-      return withChecks(<EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} depth={depth} />);
+      return withChecks(<EventEditor key={`${model.eventFile}:${model.eventKind}:${model.index}`} file={model.eventFile} kind={model.eventKind} index={model.index} context={eventEditor} depth={depth} live={eventLive} />);
     case "matrixCell":
       return withChecks(<MatrixCellEditor key={`${model.matrix}:${model.x}:${model.y}`} matrix={model.matrix} x={model.x} y={model.y} context={matrixEditor} depth={depth} />);
     case "none":

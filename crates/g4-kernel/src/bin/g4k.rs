@@ -197,6 +197,14 @@ enum Command {
     /// and create stories (written at once, no undo), list the threads, print the graph of one.
     #[command(subcommand)]
     Story(StoryCommand),
+    /// Play mode live: read and write flags and variables of the running game through the GDB
+    /// stub of melonDS. Every command prints one JSON line on stdout and exits 0; a failure
+    /// prints `{"error": {"code", "message"}}` on stdout and exits 1. Codes: `connect`,
+    /// `no_reply`, `closed` (the stub closes every connection at once: restart melonDS),
+    /// `wrong_game`, `outside_save`, `no_save`, `timeout`, `invalid_value`, `unsupported_game`
+    /// (no save layout for the game code), `rejected` (the stub answered an error) and `io`.
+    #[command(subcommand)]
+    Live(LiveCommand),
 }
 
 #[derive(Subcommand)]
@@ -309,6 +317,8 @@ fn apply_template(path: &Path, template: WorldTemplate) -> Result<(), Failure> {
 enum Failure {
     Kernel(KernelError),
     Message(String),
+    /// Already reported on stdout (`g4k live`); only the exit code is left.
+    Reported,
 }
 
 impl From<KernelError> for Failure {
@@ -331,6 +341,7 @@ fn main() -> ExitCode {
             eprintln!("error: {m}");
             ExitCode::from(1)
         }
+        Err(Failure::Reported) => ExitCode::from(1),
     }
 }
 
@@ -495,6 +506,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
         }
         Command::Recipe(command) => recipe(command),
         Command::Story(command) => story(command),
+        Command::Live(command) => live(command),
     }
 }
 
@@ -1960,6 +1972,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_addr_brackets_an_ipv6_host_once() {
+        assert_eq!(live_addr("127.0.0.1", 3333), "127.0.0.1:3333");
+        assert_eq!(live_addr("::1", 3333), "[::1]:3333");
+        assert_eq!(live_addr("[::1]", 3333), "[::1]:3333");
+    }
+
+    #[test]
     fn every_listed_field_reads_and_parses() {
         for (kind, len) in [
             (DataKind::Species, 44),
@@ -2734,5 +2753,300 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
                 None,
             )?)
         }
+    }
+}
+
+/// A flag or variable number or a value: decimal or `0x…`.
+fn parse_number(text: &str) -> Result<u16, String> {
+    let parsed = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(hex) => u16::from_str_radix(hex, 16),
+        None => text.parse::<u16>(),
+    };
+    parsed.map_err(|e| format!("`{text}` is not a number (decimal or 0x…, up to 65535): {e}"))
+}
+
+/// A positive number of seconds that fits a `Duration` (`1e30` does not).
+fn parse_seconds(text: &str) -> Result<std::time::Duration, String> {
+    match text.parse::<f64>() {
+        Ok(s) if s.is_finite() && s > 0.0 => std::time::Duration::try_from_secs_f64(s)
+            .map_err(|_| format!("`{text}` seconds is too long a timeout")),
+        _ => Err(format!("`{text}` is not a positive number of seconds")),
+    }
+}
+
+/// Where the GDB stub of melonDS listens and which game the project is.
+#[derive(clap::Args)]
+struct LiveConnect {
+    /// The GDB port of melonDS.
+    #[arg(long)]
+    port: u16,
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    /// The game code of the project (`CPUD`); another game in melonDS is refused.
+    #[arg(long)]
+    game: String,
+}
+
+/// A flag or a variable, by number (decimal or `0x…`).
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+struct LiveTarget {
+    #[arg(long, value_parser = parse_number)]
+    flag: Option<u16>,
+    #[arg(long, value_parser = parse_number)]
+    var: Option<u16>,
+}
+
+impl LiveTarget {
+    fn target(&self) -> g4_kernel::live::Target {
+        use g4_kernel::live::Target;
+        match (self.flag, self.var) {
+            (Some(number), _) => Target::Flag { number },
+            (_, Some(number)) => Target::Var { number },
+            (None, None) => unreachable!("clap requires one of --flag and --var"),
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum LiveCommand {
+    /// Game code check, whether a save is loaded, the flags that are set and the variables that
+    /// are not 0.
+    Status {
+        #[command(flatten)]
+        connect: LiveConnect,
+    },
+    /// Write a flag (`--value 0|1`) or a variable, wait 100 ms and read it back.
+    Set {
+        #[command(flatten)]
+        connect: LiveConnect,
+        #[command(flatten)]
+        target: LiveTarget,
+        #[arg(long, value_parser = parse_number)]
+        value: u16,
+    },
+    /// Watch a flag or variable until it changes, print the change, then keep the game halted
+    /// until a line (or EOF) arrives on stdin; then let it run and detach. Once the baseline
+    /// snapshot is taken, `{"watching":true}` goes to stderr: a change from then on is seen.
+    Wait {
+        #[command(flatten)]
+        connect: LiveConnect,
+        #[command(flatten)]
+        target: LiveTarget,
+        /// Seconds to wait for a change.
+        #[arg(long, default_value = "30", value_parser = parse_seconds)]
+        timeout: std::time::Duration,
+    },
+    /// Let the game run (a halt left behind by another client).
+    Resume {
+        #[command(flatten)]
+        connect: LiveConnect,
+    },
+}
+
+/// Connect deadline of `g4k live` (the TCP connect and each handshake reply).
+const LIVE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// How often `g4k live wait` looks at the values.
+const LIVE_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Prints one JSON line on stdout.
+fn live_line(value: &serde_json::Value) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{value}");
+    let _ = out.flush();
+}
+
+/// Prints `{"error": {"code", "message"}}` and gives the exit-1 failure.
+fn live_error(code: &str, message: impl fmt::Display) -> Failure {
+    live_line(&serde_json::json!({ "error": { "code": code, "message": message.to_string() } }));
+    Failure::Reported
+}
+
+fn live_failure(e: g4_kernel::live::LiveError) -> Failure {
+    use g4_kernel::live::LiveError;
+    let code = match &e {
+        LiveError::Connect { .. } => "connect",
+        // `Closed` is a connection that broke while a command ran: for the caller melonDS just
+        // did not answer (retry once it runs again). `Hangup` is the stub that closes every
+        // new connection at once (melonDS 1.1 after a stray byte): it needs a restart, so it
+        // gets its own code.
+        LiveError::NoReply | LiveError::Closed => "no_reply",
+        LiveError::Hangup { .. } => "closed",
+        LiveError::Rejected { .. } => "rejected",
+        LiveError::WrongGame { .. } => "wrong_game",
+        LiveError::OutsideSave { .. } => "outside_save",
+        LiveError::NoSave => "no_save",
+        LiveError::Io(io) if io.kind() == std::io::ErrorKind::Unsupported => "unsupported_game",
+        LiveError::Io(_) => "io",
+    };
+    live_error(code, e)
+}
+
+/// Connects to the stub and checks the game; the game runs afterwards.
+fn connect_or_fail(
+    connect: &LiveConnect,
+) -> Result<(g4_kernel::live::LiveSession, g4_kernel::live::GameCheck), Failure> {
+    let addr = live_addr(&connect.host, connect.port);
+    g4_kernel::live::LiveSession::connect(&addr, &connect.game, LIVE_CONNECT_TIMEOUT)
+        .map_err(live_failure)
+}
+
+/// `host:port`; an IPv6 host gets its brackets (once: `[::1]` stays as it is).
+fn live_addr(host: &str, port: u16) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn millis(since: std::time::Instant) -> u64 {
+    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+fn live(command: LiveCommand) -> Result<(), Failure> {
+    match command {
+        LiveCommand::Status { connect } => live_status(&connect),
+        LiveCommand::Set {
+            connect,
+            target,
+            value,
+        } => live_set(&connect, target.target(), value),
+        LiveCommand::Wait {
+            connect,
+            target,
+            timeout,
+        } => live_wait(&connect, target.target(), timeout),
+        LiveCommand::Resume { connect } => {
+            let (mut session, _) = connect_or_fail(&connect)?;
+            session.resume().map_err(live_failure)?;
+            session.detach().map_err(live_failure)?;
+            live_line(&serde_json::json!({ "resumed": true }));
+            Ok(())
+        }
+    }
+}
+
+fn live_status(connect: &LiveConnect) -> Result<(), Failure> {
+    use g4_kernel::live::LiveError;
+    let (mut session, check) = connect_or_fail(connect)?;
+    let started = std::time::Instant::now();
+    let mut flags_set: Vec<u16> = Vec::new();
+    let mut vars = serde_json::Map::new();
+    let has_save = match session.refresh() {
+        Ok(snapshot) => {
+            for (byte_index, byte) in snapshot.flags.iter().enumerate() {
+                for bit in 0..8 {
+                    if byte & (1 << bit) != 0
+                        && let Ok(number) = u16::try_from(byte_index * 8 + bit)
+                    {
+                        flags_set.push(number);
+                    }
+                }
+            }
+            for (index, value) in snapshot.vars.iter().enumerate() {
+                if *value != 0 {
+                    vars.insert(format!("0x{:04X}", 0x4000 + index), (*value).into());
+                }
+            }
+            true
+        }
+        Err(LiveError::NoSave) => false,
+        Err(e) => return Err(live_failure(e)),
+    };
+    let took_ms = millis(started);
+    session.detach().map_err(live_failure)?;
+    live_line(&serde_json::json!({
+        "game": connect.game,
+        "game_check": check,
+        "has_save": has_save,
+        "flags_set": flags_set,
+        "vars": vars,
+        "took_ms": took_ms,
+    }));
+    Ok(())
+}
+
+fn live_set(
+    connect: &LiveConnect,
+    target: g4_kernel::live::Target,
+    value: u16,
+) -> Result<(), Failure> {
+    use g4_kernel::live::{LiveError, Target};
+    if matches!(target, Target::Flag { .. }) && value > 1 {
+        return Err(live_error(
+            "invalid_value",
+            format!("A flag is set with --value 0 or 1, not {value}"),
+        ));
+    }
+    let (mut session, _) = connect_or_fail(connect)?;
+    session.set(target, value).map_err(live_failure)?;
+    std::thread::sleep(LIVE_POLL);
+    let read_back = match session.refresh() {
+        Ok(_) => session.read_back() == Some(true),
+        // The save went away between the write and the look: the value did not hold.
+        Err(LiveError::NoSave) => false,
+        Err(e) => return Err(live_failure(e)),
+    };
+    session.detach().map_err(live_failure)?;
+    live_line(&serde_json::json!({
+        "target": target,
+        "value": value,
+        "read_back": read_back,
+    }));
+    Ok(())
+}
+
+fn live_wait(
+    connect: &LiveConnect,
+    target: g4_kernel::live::Target,
+    timeout: std::time::Duration,
+) -> Result<(), Failure> {
+    use g4_kernel::live::LiveError;
+    use std::io::{BufRead, Write};
+    let (mut session, _) = connect_or_fail(connect)?;
+    let started = std::time::Instant::now();
+    session
+        .add_watch(target, "g4k live wait".to_string())
+        .map_err(live_failure)?;
+    let mut watching = false;
+    loop {
+        match session.refresh() {
+            Ok(_) if !watching => {
+                // The baseline is taken: tell a caller that waits to change the value.
+                watching = true;
+                let mut err = std::io::stderr().lock();
+                let _ = writeln!(err, "{}", serde_json::json!({ "watching": true }));
+                let _ = err.flush();
+            }
+            // Without a save there is nothing to compare yet: keep looking.
+            Ok(_) | Err(LiveError::NoSave) => {}
+            Err(e) => return Err(live_failure(e)),
+        }
+        if let Some(halt) = session.halt() {
+            live_line(&serde_json::json!({
+                "halted": true,
+                "before": halt.before,
+                "after": halt.after,
+                "took_ms": millis(started),
+            }));
+            // Holds the game halted until the caller says so (or goes away).
+            let _ = std::io::stdin().lock().read_line(&mut String::new());
+            session.resume().map_err(live_failure)?;
+            session.detach().map_err(live_failure)?;
+            return Ok(());
+        }
+        if started.elapsed() >= timeout {
+            let _ = session.detach();
+            return Err(live_error(
+                "timeout",
+                format!(
+                    "Keine Änderung innerhalb von {} Sekunden",
+                    timeout.as_secs_f64()
+                ),
+            ));
+        }
+        std::thread::sleep(LIVE_POLL);
     }
 }

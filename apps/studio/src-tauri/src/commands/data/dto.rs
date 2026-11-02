@@ -491,6 +491,14 @@ pub enum DataPatch {
         field: String,
         value: i64,
     },
+    /// Slots `a` and `b` (0-based) of `method` trade places: species (HeartGold grass: all
+    /// three times of day) and levels, one step. Refused before writing when `a == b`, a slot
+    /// lies outside the method or `method` is a replacement list.
+    EncounterSwap {
+        method: String,
+        a: u8,
+        b: u8,
+    },
     /// A Platinum value that is no slot: `form_rate_0` to `form_rate_4`, `unown_table`.
     EncounterExtra {
         field: String,
@@ -547,7 +555,8 @@ pub struct RawDto {
 /// The name tables of the project. `species` and `moves` hold one name per data member
 /// (forms 496 to 507 from `species_forms.yaml`, English fallbacks "species 0520" and
 /// "move 0469" where the text archive has none); `items` is indexed by item id; the other
-/// tables are the text archives' messages as they are.
+/// tables are the text archives' messages as they are; `sounds` are the music pieces of the
+/// family's command database, sorted by id.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct NameTablesDto {
     pub species: Vec<String>,
@@ -559,6 +568,16 @@ pub struct NameTablesDto {
     pub forms: Vec<String>,
     /// The text archives the tables are read from.
     pub archives: NameArchivesDto,
+    pub sounds: Vec<SoundNameDto>,
+}
+
+/// One music piece: its id (`music_day_id`, `music_night_id`, the script's `PlayMusic`), its
+/// constant name (`SEQ_TOWN01`) and where the game plays it, when the database says so.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SoundNameDto {
+    pub id: u16,
+    pub name: String,
+    pub used_in: Option<String>,
 }
 
 /// The text archive of each name table (`None` where the game's banks do not name one): an

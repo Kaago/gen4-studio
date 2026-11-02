@@ -11,7 +11,7 @@ use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::{ChangeId, EGG_MOVES, Store};
 
 use super::dto::{DataKind, DataPatch, EGG_MOVES_MAX, LearnEntryDto};
-use super::encounter::{EncounterEdit, apply_extra};
+use super::encounter::{EncounterEdit, apply_extra, swap};
 use super::fields::{fits, get, numeric_span, set};
 use super::{display, item_member, labels, shared_with};
 use crate::errors::CmdError;
@@ -307,6 +307,19 @@ pub fn apply(
             };
             let label = label_or(format!(
                 "Begegnungen {index:04}: {method_name}{place} {field_name} {old} → {value}"
+            ));
+            let change = store.edit_encounter(index, &label, |e| *e = copy)?;
+            Ok(one(asset(AssetKind::Encounter, index), change))
+        }
+        DataPatch::EncounterSwap { method, a, b } if kind == DataKind::Encounter => {
+            // Checked and swapped on a copy: a refused swap writes nothing.
+            let mut copy = store.encounter(index)?.clone();
+            swap(&mut copy, &method, a.into(), b.into())?;
+            let method_name = labels::label(labels::ENCOUNTER, &method).unwrap_or(&method);
+            let label = label_or(format!(
+                "Begegnungen {index:04}: {method_name} Platz {} ↔ {}",
+                u16::from(a) + 1,
+                u16::from(b) + 1
             ));
             let change = store.edit_encounter(index, &label, |e| *e = copy)?;
             Ok(one(asset(AssetKind::Encounter, index), change))

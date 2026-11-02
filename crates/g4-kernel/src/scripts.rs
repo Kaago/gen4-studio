@@ -2558,11 +2558,17 @@ fn line_of_slot(project: &Project, file: u16, slot: u32) -> u32 {
         return 1;
     };
     // A panicking parser is a missing line here, the lookup still resolves the file.
-    let Some((_, span)) = declared_slots(&text)
-        .unwrap_or_default()
-        .into_iter()
-        .find(|(id, _)| *id == slot)
-    else {
+    line_of_slot_in(&text, &declared_slots(&text).unwrap_or_default(), slot)
+}
+
+/// [`line_of_slot`] in the source `text` whose slots are `slots` ([`slots_in`]): 1 for a slot
+/// it does not declare.
+pub(crate) fn line_of_slot_in(
+    text: &str,
+    slots: &[(u32, std::ops::Range<usize>)],
+    slot: u32,
+) -> u32 {
+    let Some((_, span)) = slots.iter().find(|(id, _)| *id == slot) else {
         return 1;
     };
     let start = span.start.min(text.len());
@@ -2580,7 +2586,7 @@ fn line_of_slot(project: &Project, file: u16, slot: u32) -> u32 {
                 .is_some_and(|at| !l[at + tag.len()..].starts_with(|c: char| c.is_ascii_digit()))
         })
         .map(|(i, _)| i as u32);
-    position_of(&text, start).0 + header_line.unwrap_or(0)
+    position_of(text, start).0 + header_line.unwrap_or(0)
 }
 
 /// Where script number `n` of the event on map header `header` lives. `n < 2000` is a script

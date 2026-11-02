@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getEvents } from "../../api";
-import type { BattleSpriteRequest, HeaderSummary, RefDto } from "../../api";
+import type { HeaderSummary, RefDto } from "../../api";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -9,15 +9,17 @@ import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { renameEntry } from "../../textproject/renameEntry";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { useEntityIds } from "../../textproject/useEntityIds";
-import { Badge, Button, DSBattlePreview, Notice, PokemonCard, Reference, Segmented } from "../../ui/primitives";
+import { Badge, Button, Notice, PokemonCard, Reference } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
-import { battleSprite, battleSpriteKey, monIcon, monIconKey, trainerSprite, trainerSpriteKey, useIcon } from "../icons";
+import { monIcon, monIconKey, useIcon } from "../icons";
 import { itemName } from "../pokedex/pokedexModel";
 import { useDataArea } from "../useDataArea";
 import { PLACEHOLDER_TEXT, docTitle, isDouble, speciesName } from "./trainerModel";
 import type { TrainerDoc } from "./trainerModel";
 import { ClassSprite } from "./ClassSprite";
+import { TrainerBattlePreview } from "./TrainerBattlePreview";
+import type { Foe, FirstMon } from "./TrainerBattlePreview";
 import { useTrainer } from "./useTrainer";
 import styles from "./Trainer.module.css";
 
@@ -74,8 +76,11 @@ function placeOf(file: number, headers: readonly HeaderSummary[]): { name: strin
   return { name: header.location_name || header.internal_name || `Header ${id4(header.id)}`, header: header.id };
 }
 
-/** „Steht in der Welt“: the object events that start the battle, each with its place and tile, opening it in the world. */
-function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
+/**
+ * „Steht in der Welt“: the object events that start the battle, each with its place and tile, opening it in the world; from Bauen on with
+ * its event file.
+ */
+function InWorld({ doc, index, narrating }: { doc: TrainerDoc; index: number; narrating: boolean }) {
   const { headers, goTo, placeTrainer } = useDataArea("pokemon");
   const tiles = useEventTiles(doc.events);
   return (
@@ -103,7 +108,7 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
                 key={`${eventFile}:${object}`}
                 area="welt"
                 label={label}
-                tech={`Eventdatei ${id4(eventFile)}`}
+                tech={narrating ? undefined : `Eventdatei ${id4(eventFile)}`}
                 onOpen={() => goTo({ kind: "event", eventFile, eventKind: "object", index: object, header: place.header })}
                 dataAttrs={{ "data-event": object }}
               />
@@ -115,36 +120,21 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
   );
 }
 
-type Foe = "trainer" | "pokemon";
-
 /**
- * "Kampfvorschau": the DS battle screen with the opponent's side: the trainer's class picture (the box names class and trainer, no level) or
- * the first Pokémon of the team (front picture, level from the party). One's own side stays empty: there is no player data to show. Without
- * a team only the trainer is offered.
+ * "Kampfvorschau": the shared battle preview of the trainer (`TrainerBattlePreview`) with the first Pokémon of the party. Only an explicit ♀
+ * asks for the female picture (HeartGold's gender field; Platinum has none, and the low nibble of byte 1 is an IV byte there, so `genderOf`
+ * is not used). The backend falls back to the other gender when a species has no picture of that one.
  */
 function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: string; foe: Foe; onFoe: Dispatch<SetStateAction<Foe>> }) {
   const { names } = useDataArea("pokemon");
-  const first = doc.party[0];
-  const shown: Foe = first ? foe : "trainer";
-  // Only an explicit ♀ asks for the female picture (HeartGold's gender field; Platinum has none, and the low nibble of byte 1 is an IV
-  // byte there, so `genderOf` is not used). The backend falls back to the other gender when a species has no picture of that one.
-  const request: BattleSpriteRequest | null = first ? { species: first.species, ...(first.form > 0 ? { form: first.form } : {}), side: "front", ...(first.gender === 2 ? { female: true } : {}) } : null;
-  const monUrl = useIcon(request && shown === "pokemon" ? battleSpriteKey(request) : null, () => battleSprite(request!), true);
-  const classUrl = useIcon(trainerSpriteKey(doc.class), () => trainerSprite(doc.class), true);
-  const options = first
-    ? [
-        { value: "trainer" as const, label: "Trainer" },
-        { value: "pokemon" as const, label: "Erstes Pokémon" },
-      ]
-    : [{ value: "trainer" as const, label: "Trainer" }];
-  const side = shown === "pokemon" && first ? { name: speciesName(names.species, first.species), level: first.level, spriteUrl: monUrl } : { name: title, level: 0, spriteUrl: classUrl };
+  const mon = doc.party[0];
+  const first: FirstMon | null = mon
+    ? { name: speciesName(names.species, mon.species), level: mon.level, sprite: { species: mon.species, ...(mon.form > 0 ? { form: mon.form } : {}), side: "front", ...(mon.gender === 2 ? { female: true } : {}) } }
+    : null;
   return (
     <section className={styles.section} aria-label="Kampfvorschau" data-ds-battle-section="">
       <h3 className={styles.sectionTitle}>Kampfvorschau</h3>
-      <DSBattlePreview foe={side} own={null} />
-      <div className={styles.previewControls} data-foe={shown}>
-        <Segmented options={options} value={shown} onChange={onFoe} ariaLabel="Gegnerseite" size="s" />
-      </div>
+      <TrainerBattlePreview cls={doc.class} title={title} first={first} foe={foe} onFoe={onFoe} />
     </section>
   );
 }
@@ -152,9 +142,9 @@ function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: str
 /**
  * The view (Schau) of a trainer: class and name, a double battle, the team as cards (a card opens its species), where the trainer stands
  * in the world or the way to place it, a warning for an empty team (the battle crashes). The placeholder of the sight script says what it
- * is instead.
+ * is instead. `narrating` (Erzählen): without the trainer's number and the event files.
  */
-export function TrainerView() {
+export function TrainerView({ narrating = false }: { narrating?: boolean }) {
   const { row, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useTrainer(selected);
   // The opponent's side of the preview belongs to the view for the session, so the loading gap between two trainers does not reset it.
@@ -174,7 +164,7 @@ export function TrainerView() {
           <ClassSprite cls={usable ? doc.class : null} name={title} size={80} />
           <div className={styles.headText}>
             <h2 className={styles.name}>{title}</h2>
-            <span className={styles.tech}>{row.tech}</span>
+            {!narrating && <span className={styles.tech}>{row.tech}</span>}
             {entityId !== null && <EntityIdLine id={entityId} />}
             {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
           </div>
@@ -200,9 +190,14 @@ export function TrainerView() {
           </section>
         )}
         {usable && <BattlePreview doc={doc} title={title} foe={foe} onFoe={setFoe} />}
-        {doc && !doc.placeholder && <InWorld doc={doc} index={selected} />}
+        {doc && !doc.placeholder && <InWorld doc={doc} index={selected} narrating={narrating} />}
         {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
       </div>
     </section>
   );
+}
+
+/** The view of a trainer in Erzählen (`DataPart.ViewNarrate`): the same view without numbers. */
+export function TrainerViewNarrate() {
+  return <TrainerView narrating />;
 }

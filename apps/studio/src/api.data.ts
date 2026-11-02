@@ -386,6 +386,11 @@ export type DataPatch =
    * species_night. A water `min` above `max` raises `max` along, a `max` below `min` lowers `min` (one step).
    */
   | { Encounter: { method: string; slot?: number | null; field: string; value: number } }
+  /**
+   * Slots `a` and `b` (0-based) of a method (not a replacement list) trade species and levels, HeartGold grass with all three times of day;
+   * one step "Begegnungen 0012: Gras Platz 3 ↔ 8". Refused before writing when `a === b` or a slot lies outside the method.
+   */
+  | { EncounterSwap: { method: EncounterMethod; a: number; b: number } }
   /** Platinum only: `form_rate_0` to `form_rate_4`, `unown_table`. */
   | { EncounterExtra: { field: string; value: number } }
   /** A trainer property: `class`, `ai`, `battle_type`, `item0` to `item3`. */
@@ -430,6 +435,15 @@ export interface NameTablesDto {
   forms: string[];
   /** The text archives the tables are read from: an edit there changes the names (and the rows that carry them). */
   archives: NameArchivesDto;
+  /** The music pieces of the family's command database, sorted by id. */
+  sounds: SoundNameDto[];
+}
+
+/** One music piece: id (`music_day_id`, `music_night_id`), constant name (`SEQ_TOWN01`) and where the game plays it, null when the database does not say. */
+export interface SoundNameDto {
+  id: number;
+  name: string;
+  used_in: string | null;
 }
 
 /** The text archive of each name table; null where the game's banks do not name one. */

@@ -6,6 +6,8 @@ mod commands;
 /// The command table and the path policies behind it, for callers other than the webview.
 pub use commands::{dispatch, policy};
 mod errors;
+/// Play mode live (3d.9): the connection to the running game, shared by app, bridge and MCP.
+pub mod live_hub;
 mod lsp;
 /// The command layer for coding agents (Model Context Protocol): tool catalog and access.
 pub mod mcp;
@@ -49,12 +51,16 @@ use commands::{assign_base, base_status, check_base, create_patch, register_base
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
-use commands::{dialog_of, split_message};
+use commands::{dialog_of, dialogs_of_header, split_message};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
 use commands::{git_commit_all, publish_patch, releases, reveal_path};
 use commands::{list_threads, story_create, story_get, story_list, story_update, thread_graph};
+use commands::{
+    live_breakpoint_clear, live_breakpoint_set, live_breakpoints, live_connect, live_play,
+    live_resume, live_set, live_status, live_stop,
+};
 use commands::{project_preview_get, project_preview_set};
 use commands::{recipe_apply, recipe_list, recipe_plan};
 use commands::{text_check, text_export};
@@ -74,6 +80,7 @@ pub fn run() {
         .menu(menu::app_menu)
         .setup(|app| {
             setup_agents(app.handle());
+            setup_live(app.handle());
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -248,7 +255,17 @@ pub fn run() {
             story_list,
             story_get,
             story_create,
-            story_update
+            story_update,
+            live_status,
+            live_play,
+            live_connect,
+            live_stop,
+            live_resume,
+            live_set,
+            live_breakpoints,
+            live_breakpoint_set,
+            live_breakpoint_clear,
+            dialogs_of_header
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -264,6 +281,8 @@ pub fn run() {
                 RunEvent::ExitRequested { .. } => lsp::stop_on_exit(app),
                 RunEvent::Exit => {
                     lsp::stop_on_exit(app);
+                    // Detach from melonDS's stub, end our melonDS, stop the worker.
+                    live_hub::stop_on_exit(app);
                     // The MCP server stops and its discovery file goes; the switch stays on.
                     if let Some(server) = app.try_state::<Arc<AppServer>>() {
                         server.shutdown();
@@ -328,4 +347,15 @@ fn exit_request_needs_confirmation(app: &tauri::AppHandle) -> bool {
         .map_or(0, |session| session.store.dirty().len());
     let window_open = !app.webview_windows().is_empty();
     quit_action(window_open, dirty, state.force_quit.load(Ordering::SeqCst)) == QuitAction::Confirm
+}
+
+/// Play mode live: each status change goes to the webview as `live-event`.
+fn setup_live(app: &tauri::AppHandle) {
+    let emitter = app.clone();
+    app.state::<AppState>()
+        .live
+        .set_notifier(Arc::new(move |status| {
+            // A failed emit only means the webview misses one update; `live_status` catches up.
+            let _ = emitter.emit("live-event", status);
+        }));
 }

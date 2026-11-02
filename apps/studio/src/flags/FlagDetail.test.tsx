@@ -8,7 +8,9 @@ import type { FlagEntryDto, FlagUsageDto } from "../api";
 import { EntityIdCache, TextProjectProvider } from "../textproject/TextProjectContext";
 import { FLAGS, flagEntry, flagRef, flagUsageOf } from "./flagTesting";
 import { FlagDetail } from "./FlagDetail";
-import type { FlagDetailProps } from "./FlagDetail";
+import type { FlagDetailProps, FlagLive } from "./FlagDetail";
+import { OUTSIDE_THE_SAVE } from "./flagWords";
+import { typeInto } from "../ui/primitives/testUtils";
 
 vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), entityIds: vi.fn() }));
 
@@ -186,5 +188,70 @@ describe("FlagDetail", () => {
     expect(handlers.onDescribe).toHaveBeenCalledTimes(1);
     // The pret name stays in sight under the own one.
     expect(detail().textContent).toContain("FLAG_UNUSED_0x0094");
+  });
+
+  describe("live", () => {
+    const onSet = vi.fn();
+    beforeEach(() => onSet.mockReset());
+    const live = (over: Partial<FlagLive> = {}): FlagLive => ({ value: 1, busy: false, readBack: true, onSet, ...over });
+    const liveSection = () => section("Live");
+    const toggle = () => liveSection()!.querySelector<HTMLElement>("[role=switch]")!;
+
+    it("the_live_section_sets_a_flag_with_a_switch_and_a_var_with_a_field", async () => {
+      // Without play mode there is no section.
+      await show();
+      expect(liveSection()).toBeNull();
+      // A flag: a switch that shows the real value; a click asks for the other one.
+      await show({ live: live({ value: 1 }) });
+      const sections = [...detail().querySelectorAll("[data-flag-section]")].map((s) => s.getAttribute("data-flag-section"));
+      expect(sections.indexOf("Live")).toBeLessThan(sections.indexOf("Wo gesetzt"));
+      expect(toggle().getAttribute("aria-checked")).toBe("true");
+      await act(async () => toggle().click());
+      expect(onSet).toHaveBeenCalledWith(0);
+      // A write under way: the switch waits.
+      await show({ live: live({ value: 0, busy: true }) });
+      expect(toggle().getAttribute("aria-checked")).toBe("false");
+      expect(toggle().hasAttribute("data-disabled")).toBe(true);
+      // A variable: a field with the real value and „Setzen“, which writes what was typed.
+      onSet.mockReset();
+      const VAR = flagEntry(0x4030, { name: "VAR_TEST" });
+      await show({ kind: "var", number: 0x4030, entry: VAR, usage: null, live: live({ value: 7 }) });
+      const input = liveSection()!.querySelector<HTMLInputElement>("input")!;
+      expect(input.value).toBe("7");
+      expect(liveSection()!.querySelector("[role=switch]")).toBeNull();
+      await act(async () => void input.focus());
+      typeInto(input, "1234");
+      await act(async () => void input.blur());
+      // Typed is not written yet.
+      expect(onSet).not.toHaveBeenCalled();
+      const setzen = [...liveSection()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Setzen")!;
+      await act(async () => setzen.click());
+      expect(onSet).toHaveBeenCalledWith(1234);
+      // Written: the field shows the value the game holds, not the one asked for.
+      expect(input.value).toBe("7");
+      // A number outside the save takes no live value.
+      onSet.mockReset();
+      await show({ entry: { ...MEDAILLE, in_save: false }, usage: null, live: live() });
+      expect(liveSection()!.textContent).toContain(OUTSIDE_THE_SAVE);
+      expect(liveSection()!.querySelector("[role=switch]")).toBeNull();
+    });
+
+    it("warns_when_the_read_back_failed", async () => {
+      await show({ live: live({ value: 0 }) });
+      expect(liveSection()!.textContent).not.toContain("Wert nicht übernommen");
+      await show({ live: live({ value: 0, readBack: false }) });
+      const warning = liveSection()!.querySelector("[role=alert], [role=status]") ?? liveSection()!;
+      expect(warning.textContent).toContain("Wert nicht übernommen, noch einmal versuchen.");
+      // The switch shows what the game holds.
+      expect(toggle().getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("names_the_map_reload_for_flags_only", async () => {
+      const RELOAD = "Sichtbarkeits-Flags wirken beim nächsten Betreten der Karte.";
+      await show({ live: live() });
+      expect(liveSection()!.textContent).toContain(RELOAD);
+      await show({ kind: "var", number: 0x4030, entry: flagEntry(0x4030), usage: null, live: live({ value: 3 }) });
+      expect(liveSection()!.textContent).not.toContain(RELOAD);
+    });
   });
 });
