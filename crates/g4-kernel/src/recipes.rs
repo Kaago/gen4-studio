@@ -13,8 +13,9 @@
 //!
 //! The story recipes of 3d.7 (Erzählen): [`new_story`] names a variable of the pool and makes a
 //! story with the step „Anfang“; „Gespräch schaltet weiter“, „Figur erscheint/verschwindet ab
-//! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it. `story_common`
-//! holds what they share.
+//! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it ([`talk_advances`]
+//! is the first). `story_common` holds what they share, `story_wrap` the hull script a talk or
+//! a reward puts in front of a figure.
 
 pub mod area;
 pub mod connect_doors;
@@ -28,6 +29,8 @@ pub mod new_trainer_here;
 pub mod room;
 pub mod story_common;
 pub mod story_scripts;
+pub(crate) mod story_wrap;
+pub mod talk_advances;
 pub mod types;
 
 use serde::Serialize;
@@ -111,6 +114,7 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             input::<new_story::NewStoryInput>(call)?;
             None
         }
+        // A talk is one undo step, whatever its input.
         RecipeId::TalkAdvances
         | RecipeId::FigureAppears
         | RecipeId::SceneOnEnter
@@ -129,7 +133,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::ConnectDoors => connect_doors::plan(store, &input(call)?),
         RecipeId::NewTrainerHere => new_trainer_here::plan(store, &input(call)?),
         RecipeId::NewStory => new_story::plan(store, &input(call)?),
-        RecipeId::TalkAdvances => Err(not_yet(3)),
+        RecipeId::TalkAdvances => talk_advances::plan(store, &input(call)?),
         RecipeId::FigureAppears => Err(not_yet(5)),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
         RecipeId::RewardOnce => Err(not_yet(4)),
@@ -147,7 +151,7 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::ConnectDoors => connect_doors::apply(store, &input(call)?)?.into_dto(),
         RecipeId::NewTrainerHere => new_trainer_here::apply(store, &input(call)?)?.into_dto(),
         RecipeId::NewStory => new_story::apply(store, &input(call)?)?.into_dto(),
-        RecipeId::TalkAdvances => Err(not_yet(3)),
+        RecipeId::TalkAdvances => talk_advances::apply(store, &input(call)?)?.into_dto(),
         RecipeId::FigureAppears => Err(not_yet(5)),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
         RecipeId::RewardOnce => Err(not_yet(4)),

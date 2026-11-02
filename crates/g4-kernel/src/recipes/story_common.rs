@@ -317,39 +317,48 @@ pub(crate) fn message_command(family: Family) -> &'static str {
     }
 }
 
+/// The number a new message of text archive `archive` gets when it has `count` messages
+/// (`count` itself). A number past what the message command of `family` takes
+/// ([`highest_message`]) is refused.
+pub(crate) fn message_number(
+    family: Family,
+    archive: u16,
+    count: usize,
+) -> Result<u16, KernelError> {
+    let command = message_command(family);
+    let highest = highest_message(family, command);
+    u16::try_from(count)
+        .ok()
+        .filter(|&n| u32::from(n) <= highest)
+        .ok_or_else(|| {
+            refused(format!(
+                "Textarchiv {archive} hat schon {count} Nachrichten; {command} nimmt Nummern bis \
+                 {highest}, die neue Nachricht bekäme {count}."
+            ))
+        })
+}
+
 /// Appends `text` to text archive `archive` in transaction `tx` and answers its number (the
 /// number of messages before). A number past what the message command of `family` takes
-/// ([`highest_message`]) fails the transaction with a refusal.
+/// ([`message_number`]) fails the transaction with a refusal.
 pub(crate) fn push_message(
     tx: &mut Tx<'_>,
     family: Family,
     archive: u16,
     text: &str,
 ) -> Result<u16, KernelError> {
-    let command = message_command(family);
-    let highest = highest_message(family, command);
-    let mut number = None;
-    let mut count = 0;
+    let mut number = Ok(0);
     tx.edit_text_archive(archive, |doc| {
-        count = doc.messages.len();
-        if let Some(n) = u16::try_from(count)
-            .ok()
-            .filter(|&n| u32::from(n) <= highest)
-        {
+        number = message_number(family, archive, doc.messages.len());
+        if number.is_ok() {
             doc.messages.push(TextMessage {
-                id: default_message_id(count),
+                id: default_message_id(doc.messages.len()),
                 text: text.to_owned(),
                 other: Default::default(),
             });
-            number = Some(n);
         }
     })?;
-    number.ok_or_else(|| {
-        refused(format!(
-            "Textarchiv {archive} hat schon {count} Nachrichten; {command} nimmt Nummern bis \
-             {highest}, die neue Nachricht bekäme {count}."
-        ))
-    })
+    number
 }
 
 /// The script templates of the story recipes (`metadata/recipes/story_*.rotom`): the name, the
