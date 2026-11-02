@@ -602,10 +602,12 @@ def _var(
 def _stub_state(
     emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
 ) -> dict:
-    """`expect-halted` / `expect-running`: whether the GDB stub of `g4emu repl` holds the game."""
+    """`expect-halted` / `expect-running`: whether the GDB stub of `g4emu repl` holds the game.
+    The stub is serviced first, so a `c` or `\\x03` that has arrived counts."""
     server = getattr(emu, "server", None)
     if server is None:
         raise StepFailed("kein GDB-Stub (nur in g4emu repl)")
+    server.service()
     if step.name == "expect-halted" and not server.halted:
         raise StepFailed("Stub läuft, kein Halt")
     if step.name == "expect-running" and server.halted:

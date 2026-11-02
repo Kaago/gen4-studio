@@ -121,12 +121,52 @@ def test_a_step_line_runs_and_prints_its_result(repl, fake_emu):
 
 
 def test_frames_run_between_lines(repl, fake_emu):
-    assert _frames_grow(fake_emu)
+    assert _frames_grow(fake_emu, 0.1)
+
+
+def test_idle_frames_run_at_about_60_per_second(repl, fake_emu):
+    before = fake_emu.frame
+    time.sleep(0.5)
+    frames = fake_emu.frame - before
+    assert 5 <= frames <= 45, frames  # 30 at 60/s; unpaced it was hundreds
+
+
+def test_a_step_line_after_idle_is_not_paced(repl, fake_emu):
+    started = time.monotonic()
+    line = repl.step("wait 600")  # 10 s of game time at 60/s
+    assert line["ok"] is True
+    assert time.monotonic() - started < 2.0
+
+
+def test_stub_steps_service_the_stub_before_they_look(tmp_path, fake_emu, cpud):
+    """`c` arrives and `expect-running` runs before any frame or tick services the stub."""
+    from g4emu.gdbstub import GdbStubServer
+    from g4emu.repl import ServedEmu
+    from g4emu.steps import parse_steps, run_step
+
+    server = GdbStubServer(fake_emu.ram, port=0)
+    server.start()
+    try:
+        served = ServedEmu(fake_emu, server)
+        with socket.create_connection(("127.0.0.1", server.port), timeout=2) as sock:
+            sock.sendall(b"+")
+            _until("the client to be served", lambda: server.service() >= 0 and server.halted)
+            sock.sendall(b"$c#63")
+            time.sleep(0.05)  # delivered, but nobody serviced it yet
+            (step,) = parse_steps(["expect-running"])
+            assert run_step(served, cpud, step, tmp_path)["halted"] is False
+            sock.sendall(b"\x03")
+            time.sleep(0.05)
+            (step,) = parse_steps(["expect-halted"])
+            assert run_step(served, cpud, step, tmp_path)["halted"] is True
+    finally:
+        server.close()
 
 
 def test_a_halt_from_the_stub_stops_the_frames_and_c_resumes(repl, fake_emu):
     sock = repl.connect()
-    _until("the halt", lambda: not _frames_grow(fake_emu, 0.03))
+    _until("the halt", lambda: repl.step("expect-halted")["ok"])
+    assert not _frames_grow(fake_emu, 0.1)
     # A step that runs frames waits inside the halt.
     repl.stdin.send("wait 3")
     with pytest.raises(queue.Empty):
@@ -134,7 +174,7 @@ def test_a_halt_from_the_stub_stops_the_frames_and_c_resumes(repl, fake_emu):
     sock.sendall(b"$c#63")
     line = repl.stdout.next()
     assert line["step"] == "wait" and line["ok"] is True
-    assert _frames_grow(fake_emu)
+    assert _frames_grow(fake_emu, 0.1)
     sock.close()
 
 

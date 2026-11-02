@@ -20,12 +20,13 @@ from g4emu.games import load_games
 from g4emu.steps import StepFailed, parse_steps, run_step
 
 _HALT_POLL = 0.001  # seconds between two services while the stub holds the game
+IDLE_FRAME = 1 / 60  # between lines the game runs at about 60 frames per second, like melonDS
 
 
 class ServedEmu:
     """Wraps an Emu: `step()` runs one frame at a time with the stub serviced before each frame
     and waits while the stub holds the game, so a halt stops it mid-step and `c` lets the step go
-    on. Everything else is delegated."""
+    on. Everything else is delegated. Pacing is the repl's business: `step()` runs unpaced."""
 
     def __init__(self, inner: emu.Emu, server: GdbStubServer) -> None:
         self.inner = inner
@@ -116,12 +117,23 @@ def run_repl(
             lines: queue.Queue[str | None] = queue.Queue()
             threading.Thread(target=_reader, args=(stdin, lines), daemon=True).start()
             emit({"ready": True, "gdb_port": server.port, "game": code})
+            next_frame = time.monotonic()
             while True:
+                # Idle: one frame per IDLE_FRAME; in between the stub is serviced and stdin
+                # looked at every millisecond. Step lines run their frames unpaced.
+                wait = min(max(next_frame - time.monotonic(), 0.0), _HALT_POLL)
                 try:
-                    line = lines.get_nowait()
+                    line = lines.get(timeout=wait) if wait > 0 else lines.get_nowait()
                 except queue.Empty:
-                    if not served.tick():
-                        time.sleep(_HALT_POLL)
+                    now = time.monotonic()
+                    if now < next_frame:
+                        server.service()
+                    elif served.tick():
+                        next_frame += IDLE_FRAME
+                        if next_frame < now - IDLE_FRAME:  # far behind (after a step): no burst
+                            next_frame = now + IDLE_FRAME
+                    else:  # halted: look again in a millisecond
+                        next_frame = now + _HALT_POLL
                     continue
                 if line is None:
                     return 0
