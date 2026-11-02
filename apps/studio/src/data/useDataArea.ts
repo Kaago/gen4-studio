@@ -132,6 +132,7 @@ const NO_NAMES: NameTablesDto = {
   classes: [],
   forms: [],
   archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
+  sounds: [],
 };
 const NO_ROWS: readonly DataRowDto[] = [];
 const NO_HEADERS: readonly HeaderSummary[] = [];

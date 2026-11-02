@@ -827,7 +827,9 @@ static TOOLS: &[ToolDef] = &[
                          \"EncounterExtra\": {field, value}}, {\"Encounter\": {method, slot, \
                          field, value}}, {\"TrainerName\": {name}}, {\"TrainerFormat\": {moves, \
                          items}}, {\"TrainerParty\": {party}}, {\"TrainerTexts\": {texts}}, \
-                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}"
+                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}, \
+                         {\"EncounterSwap\": {method, a, b}} (slots a and b of a method trade \
+                         species and levels in one step)"
                     ),
                     "label": label("a label made from the change, such as \"<name>: <field> old → new\""),
                 }),

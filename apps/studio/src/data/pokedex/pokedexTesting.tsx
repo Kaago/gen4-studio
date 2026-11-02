@@ -71,6 +71,7 @@ export const POKEDEX_NAMES: NameTablesDto = {
   classes: [],
   forms: [],
   archives: PT_ARCHIVES,
+  sounds: [],
 };
 
 export const POKEDEX_SPECIES: DataRowDto[] = [

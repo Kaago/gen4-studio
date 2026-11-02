@@ -63,7 +63,7 @@ export const ITEM_ROWS: DataRowDto[] = [
   row(114, "Andenken", 0, 0, 0),
 ];
 
-export const ITEM_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES };
+export const ITEM_NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES, sounds: [] };
 
 /** Item ids 0 to 134: 1 and 4 share icon and palette, 17 has its own, 113 and up use data member 0 and one icon. */
 export const ITEM_TABLE: ItemEntryDto[] = Array.from({ length: 135 }, (_, id) => ({

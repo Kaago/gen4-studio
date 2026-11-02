@@ -971,6 +971,87 @@ fn encounter_min_above_max_pulls_max() {
 }
 
 #[test]
+fn encounter_swap_is_one_undo_step_and_data_get_shows_it() {
+    let (_fixture, state) = open_synthetic();
+    let grass = |state: &AppState| match encounter_doc(state, 0) {
+        DataDocDto::Encounter { methods, .. } => methods[0]
+            .slots
+            .iter()
+            .map(|s| (s.species, s.min, s.max))
+            .collect::<Vec<_>>(),
+        _ => unreachable!(),
+    };
+    let set = |slot: u16, field: &str, value: i64| DataPatch::Encounter {
+        method: "grass".into(),
+        slot: Some(slot),
+        field: field.into(),
+        value,
+    };
+    data_edit_impl(&state, DataKind::Encounter, 0, set(2, "species", 2), None).unwrap();
+    data_edit_impl(&state, DataKind::Encounter, 0, set(2, "level", 4), None).unwrap();
+    data_edit_impl(&state, DataKind::Encounter, 0, set(7, "species", 3), None).unwrap();
+    data_edit_impl(&state, DataKind::Encounter, 0, set(7, "level", 9), None).unwrap();
+    let before = grass(&state);
+    let steps = history_impl(&state).unwrap().undo.len();
+    let swap = |method: &str, a: u8, b: u8| DataPatch::EncounterSwap {
+        method: method.into(),
+        a,
+        b,
+    };
+
+    let changed =
+        data_edit_impl(&state, DataKind::Encounter, 0, swap("grass", 2, 7), None).unwrap();
+    assert_eq!(changed, [id(AssetKind::Encounter, 0)]);
+    assert_eq!(last_label(&state), "Begegnungen 0000: Gras Platz 3 ↔ 8");
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
+    let after = grass(&state);
+    assert_eq!((after[2], after[7]), ((3, 9, 9), (2, 4, 4)));
+    let mut expected = before.clone();
+    expected.swap(2, 7);
+    assert_eq!(after, expected);
+
+    // Refused before writing: no step, nothing changed.
+    for patch in [
+        swap("grass", 2, 2),
+        swap("grass", 2, 12),
+        swap("swarm", 0, 1),
+        swap("day", 0, 1),
+    ] {
+        assert!(
+            data_edit_impl(&state, DataKind::Encounter, 0, patch.clone(), None).is_err(),
+            "{patch:?}"
+        );
+    }
+    assert_eq!(history_impl(&state).unwrap().undo.len(), steps + 1);
+    assert_eq!(grass(&state), after);
+
+    // One undo brings both slots back.
+    undo_impl(&state).unwrap();
+    assert_eq!(grass(&state), before);
+}
+
+#[test]
+fn name_tables_carry_the_sounds() {
+    let (_fixture, state) = open_synthetic();
+    let sounds = name_tables_impl(&state).unwrap().sounds;
+    // The synthetic fixture is Platinum: the sounds of `platinum_v2.json`, sorted by id.
+    assert_eq!(sounds.len(), 1013);
+    assert!(sounds.windows(2).all(|w| w[0].id < w[1].id));
+    assert_eq!(
+        serde_json::to_value(&sounds[0]).unwrap(),
+        json!({ "id": 1, "name": "SEQ_PV001", "used_in": null })
+    );
+    let dummy = sounds.iter().find(|s| s.id == 1000).unwrap();
+    assert_eq!(
+        (dummy.name.as_str(), dummy.used_in.as_deref()),
+        (
+            "SEQ_DUMMY",
+            Some("Beta version of Rt. 206 (Plays in mystery zone)")
+        )
+    );
+}
+
+#[test]
 fn create_trainer_command_reports_placeholder() {
     let (_fixture, state) = open_synthetic();
     // Without adopted scripts: refused with the kernel's words, nothing written.

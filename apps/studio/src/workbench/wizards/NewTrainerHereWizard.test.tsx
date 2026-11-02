@@ -38,6 +38,7 @@ const names: NameTablesDto = {
   classes: ["Pokémon-Trainer", "Wanderer", "Käfersammler"],
   forms: [],
   archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
+  sounds: [],
 };
 const planned: DraftDto = {
   cells: [],
