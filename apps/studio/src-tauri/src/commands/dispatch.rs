@@ -321,11 +321,11 @@ fn bytes(result: Result<Vec<u8>, CmdError>) -> Result<Reply, DispatchError> {
 /// Parses `$args` into a struct of the listed fields (camelCase keys, `Option` stays
 /// optional), runs `$call` on it and turns its result into a reply with `$reply`.
 macro_rules! run {
-    ($reply:ident, $name:literal, $args:expr, { $($field:ident : $ty:ty),* $(,)? }, |$a:ident| $call:expr) => {{
+    ($reply:ident, $name:literal, $args:expr, { $($(#[$meta:meta])* $field:ident : $ty:ty),* $(,)? }, |$a:ident| $call:expr) => {{
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Args {
-            $($field: $ty),*
+            $($(#[$meta])* $field: $ty),*
         }
         let $a: Args = parse($name, $args)?;
         $reply($call)
@@ -1089,7 +1089,12 @@ pub fn dispatch(
         ),
         "delete_entity" => run!(
             json, "delete_entity", args,
-            { target: g4_kernel::delete::DeleteTarget, free_number: Option<bool> },
+            {
+                target: g4_kernel::delete::DeleteTarget,
+                // `g4_call` passes the curated tool's snake_case key as it is.
+                #[serde(alias = "free_number")]
+                free_number: Option<bool>,
+            },
             |a| delete_entity_impl(state, a.target, a.free_number.unwrap_or(false))
         ),
         "restore_entity" => run!(
@@ -1538,6 +1543,26 @@ mod tests {
                     e.message
                 ),
             }
+        }
+    }
+
+    /// `delete_entity` honours `free_number` as `g4_call` passes the curated tool's key, as it
+    /// does `freeNumber`: a flag has no number to free.
+    #[test]
+    fn delete_entity_takes_free_number_in_snake_case() {
+        let (fixture, state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        for key in ["freeNumber", "free_number"] {
+            let mut args = json!({ "target": { "kind": "flag", "number": 148 } });
+            args[key] = json!(true);
+            let message = match dispatch(&state, &policy, "delete_entity", args) {
+                Err(DispatchError::Cmd(e)) => e.message,
+                other => panic!("{key}: {:?}", other.map(|_| ())),
+            };
+            assert_eq!(
+                message, "Flag 0x0094 hat keine Nummer, die sich freigeben lässt.",
+                "{key}"
+            );
         }
     }
 

@@ -2473,7 +2473,9 @@ fn recipe(command: RecipeCommand) -> Result<(), Failure> {
 enum DeleteCommand {
     /// Print what deleting would do as JSON (refusal, references, original, can_free, …);
     /// writes nothing. Needs the base ROM (`--base-rom`, else the sibling `.nds`, else
-    /// `G4_BASE_ROM_DIR`), but for an own flag or variable name. A refused plan exits 1.
+    /// `G4_BASE_ROM_DIR`), but for an own flag or variable name. A refused plan is printed
+    /// like any other (its `refusal` and `references`) and exits 0; only an error (no base ROM,
+    /// no project) exits 1.
     Plan {
         project: PathBuf,
         /// `trainer`, `encounter`, `event_file`, `matrix`, `map`, `header`, `script`,

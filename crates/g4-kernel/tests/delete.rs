@@ -864,6 +864,63 @@ fn delete_of_the_last_own_place_is_one_step() {
     assert_eq!(fx.read(PLACE_REGISTER), bytes);
 }
 
+/// Header `id` of `st` names place `place` (one step).
+fn name_place(st: &mut Store, id: u16, place: u16) {
+    st.edit_header(id, "Ort", |h| {
+        match h {
+            MapHeader::DP(h) => h.location_name = place,
+            MapHeader::Pt(h) => h.location_name = u8::try_from(place).unwrap(),
+            MapHeader::HGSS(h) => h.location_name = u8::try_from(place).unwrap(),
+        }
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn plan_of_a_place_allows_only_the_last_own_one() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    let first = u16::from(create_place(&mut st, "Erstort", &[]).unwrap().index);
+    let last = u16::from(create_place(&mut st, "Zweitort", &[]).unwrap().index);
+    assert_eq!(last, first + 1);
+
+    // The last own place: allowed; it goes as a file step, there is no number to free.
+    let p = plan(&mut st, &base, DeleteTarget::Place { index: last });
+    assert_eq!(p.refusal, None);
+    assert_eq!(p.cannot_free, None);
+    assert!(p.can_free.is_none());
+    assert!(!p.original);
+    assert!(p.references.is_empty(), "{:?}", p.references);
+
+    // An own place before it and an original one: refused with the sentence.
+    for index in [first, 0] {
+        let p = plan(&mut st, &base, DeleteTarget::Place { index });
+        assert_eq!(p.refusal.as_deref(), Some(PLACE_ONLY_LAST), "{index}");
+        assert_eq!(p.cannot_free.as_deref(), Some(PLACE_ONLY_LAST), "{index}");
+        assert_eq!(
+            PLACE_ONLY_LAST,
+            "Nur der letzte eigene Ort lässt sich entfernen; Orte rücken nicht nach."
+        );
+    }
+
+    // A header naming the last one: its reference locks it.
+    name_place(&mut st, 1, last);
+    let p = plan(&mut st, &base, DeleteTarget::Place { index: last });
+    let found: Vec<(AssetId, &str, Option<u16>)> = p
+        .references
+        .iter()
+        .map(|r| (r.source, r.field, r.slot))
+        .collect();
+    assert_eq!(found, [(HEADER_TABLE, "location_name", Some(1))]);
+    assert_eq!(p.refusal, None);
+
+    // A tombstoned header's entry in the table does not count.
+    tombstone(&mut st, DeleteTarget::Header { id: 1 });
+    let p = plan(&mut st, &base, DeleteTarget::Place { index: last });
+    assert!(p.references.is_empty(), "{:?}", p.references);
+}
+
 #[test]
 fn free_number_truncates_a_new_trainer_at_the_end() {
     let (fx, mut st) = fixture();
@@ -1378,6 +1435,30 @@ fn deleting_a_targeted_door_is_refused_with_the_list() {
     assert_eq!(st.undo_depth(), depth);
     assert_eq!(destinations(&mut st, 0).len(), 3);
     assert_eq!(destinations(&mut st, 1), [(0, 1), (0, 2)]);
+}
+
+#[test]
+fn a_later_door_of_the_same_file_leading_into_it_is_shifted() {
+    // Door 2 of event file 0 leads to door 2 of header 0: its own event file.
+    let (_fx, mut st) = doors(&[]);
+    st.edit_event(0, "Tür", |e| {
+        e.warp_events[2].dest_header_id = 0;
+        e.warp_events[2].dest_warp_id = 2;
+        Ok(())
+    })
+    .unwrap();
+    let result = delete_warp(&mut st, &mut RefIndex::new(), 0, 1).unwrap();
+    // It moved up to slot 1 and still leads to itself, now door 1.
+    assert_eq!(result.shifted, [(0, 1)]);
+    assert_eq!(destinations(&mut st, 0), [(1, 0), (0, 1)]);
+    let doors: Vec<u16> = st
+        .event(0)
+        .unwrap()
+        .warp_events
+        .iter()
+        .map(|w| w.x)
+        .collect();
+    assert_eq!(doors, [10, 12]);
 }
 
 #[test]

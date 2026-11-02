@@ -856,14 +856,10 @@ fn the_sync_takeover_keeps_the_envelope_on_disk() {
     const HEADER: &str = "data/headers/0001.json";
     envelope(&fx, TRAINER);
     envelope(&fx, HEADER);
+    let on_disk = deleted_on_disk(&p.root);
+    assert!(on_disk(Art::Trainers, 1) && on_disk(Art::Headers, 1));
+    assert!(!on_disk(Art::Trainers, 2));
     let mut source = EntitySource::open(&p).unwrap();
-    assert_eq!(
-        source.tombstones().iter().copied().collect::<Vec<_>>(),
-        [
-            crate::delete::DeleteTarget::Trainer { index: 1 },
-            crate::delete::DeleteTarget::Header { id: 1 },
-        ]
-    );
 
     // DSPRE changed the trainer's properties (its AI) and header 1 (area data 1 → 0).
     let mut props = member(&fx, AssetKind::TrainerProperties, 1);

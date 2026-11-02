@@ -161,6 +161,31 @@ describe("DeleteDialog", () => {
     expect(buttons().map((b) => b.textContent)).toEqual(["Schließen"]);
   });
 
+  it("the_dspre_layout_names_the_clearing_path", async () => {
+    const refusal = "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).";
+    const hint = "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.";
+    vi.mocked(planDelete).mockResolvedValue(deletePlan({ refusal }));
+    await show();
+    expect(notices("alert")).toEqual([refusal]);
+    expect(notices("status")).toEqual([hint]);
+    expect(buttons().map((b) => b.textContent)).toEqual(["Schließen"]);
+
+    // A new entry at the end can still be freed there: the reason as a warning, the hint beside it.
+    act(() => root.unmount());
+    root = createRoot(container);
+    vi.mocked(planDelete).mockResolvedValue(deletePlan({ refusal, can_free: { count: 1, files: ["unpacked/trainerProperties/0901"] } }));
+    await show();
+    expect(notices("status")).toEqual([refusal, hint]);
+    expect(box(FREE)).toBeDefined();
+
+    // Any other refusal goes without it.
+    act(() => root.unmount());
+    root = createRoot(container);
+    vi.mocked(planDelete).mockResolvedValue(deletePlan({ refusal: "Original-Header lassen sich nicht löschen." }));
+    await show();
+    expect(notices("status")).toEqual([]);
+  });
+
   it("free_number_calls_delete_with_the_flag", async () => {
     // A script file has no tombstone: only freeing it is possible, so „Löschen“ waits for the checkbox.
     const refusal = "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";

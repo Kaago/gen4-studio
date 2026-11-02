@@ -3139,24 +3139,6 @@ impl Store {
         }
     }
 
-    /// Every deleted target, unsaved steps included, sorted: the envelopes on disk (every
-    /// entity JSON of the arts with one is looked at) with the store's own flags over them.
-    pub fn deleted_targets(&self) -> Vec<DeleteTarget> {
-        let mut out = if *self.project.source_mode() == SourceMode::TextProject {
-            crate::textproject::source::read_tombstones(&self.project.root).unwrap_or_default()
-        } else {
-            BTreeSet::new()
-        };
-        for (&target, &deleted) in &self.tombstones {
-            if deleted {
-                out.insert(target);
-            } else {
-                out.remove(&target);
-            }
-        }
-        out.into_iter().collect()
-    }
-
     /// The deleted entities of `art` by number, unsaved steps included: one read of the
     /// envelopes under `data/<art>/` (a text project, an art with them) with the store's own
     /// flags over them. For a list of every entity of an art, where [`Store::is_deleted`]

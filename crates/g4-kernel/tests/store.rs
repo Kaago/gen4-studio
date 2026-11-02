@@ -2785,12 +2785,24 @@ use g4_kernel::delete::{
     DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
 };
 use g4_kernel::store::HEADER_TABLE;
+use g4_kernel::textproject::Art;
 
 const TRAINER_1_JSON: &str = "data/trainers/0001.json";
 const ENVELOPE_END: &[u8] = b",\n  \"deleted\": true\n}\n";
 
 fn text_store(fx: &common::TextFixture) -> Store {
     Store::new(Arc::new(fx.project()))
+}
+
+/// The deleted trainers and encounters (the arts these tests delete in), unsaved steps
+/// included, sorted.
+fn deleted(st: &Store) -> Vec<DeleteTarget> {
+    let trainers = st.deleted_in(Art::Trainers).into_iter();
+    let encounters = st.deleted_in(Art::Encounters).into_iter();
+    trainers
+        .map(|index| DeleteTarget::Trainer { index })
+        .chain(encounters.map(|index| DeleteTarget::Encounter { index }))
+        .collect()
 }
 
 /// Every file below `data/`, relative to the root, with its bytes.
@@ -2853,7 +2865,7 @@ fn set_deleted_is_one_undo_step_and_save_writes_the_envelope() {
     assert!(change.is_some());
     assert_eq!(st.undo_depth(), depth + 1);
     assert!(st.is_deleted(trainer));
-    assert_eq!(st.deleted_targets(), [trainer]);
+    assert_eq!(deleted(&st), [trainer]);
     assert_eq!(st.dirty(), [trainer_id(1)]);
     // Setting it again records nothing.
     let ((), again) = st
@@ -2881,7 +2893,7 @@ fn set_deleted_is_one_undo_step_and_save_writes_the_envelope() {
 
     st.undo().unwrap();
     assert!(!st.is_deleted(trainer));
-    assert!(st.deleted_targets().is_empty());
+    assert!(deleted(&st).is_empty());
     assert_eq!(st.dirty(), [trainer_id(1)]);
     st.save().unwrap();
     assert_eq!(fx.read(TRAINER_1_JSON), before);
@@ -2988,7 +3000,7 @@ fn an_envelope_removed_outside_is_not_written_back() {
     fx.write(TRAINER_1_JSON, &without);
     assert!(!st.is_deleted(encounter));
     assert!(!st.is_deleted(trainer));
-    assert!(st.deleted_targets().is_empty());
+    assert!(deleted(&st).is_empty());
     assert!(st.snapshot_overlay().tombstones.is_empty());
     assert!(st.dirty().is_empty());
 
@@ -3033,13 +3045,10 @@ fn squash_since_carries_the_tombstones() {
         tx.set_deleted(DeleteTarget::Trainer { index: 2 }, true)
     })
     .unwrap();
-    assert_eq!(
-        st.deleted_targets(),
-        [trainer, DeleteTarget::Trainer { index: 2 }]
-    );
+    assert_eq!(deleted(&st), [trainer, DeleteTarget::Trainer { index: 2 }]);
 
     assert_eq!(st.undo().unwrap(), [trainer_id(2)]);
-    assert_eq!(st.deleted_targets(), [trainer]);
+    assert_eq!(deleted(&st), [trainer]);
     assert_eq!(st.undo().unwrap(), [trainer_id(1)]);
     assert!(!st.is_deleted(trainer));
     assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), bytes_a);
@@ -3110,7 +3119,7 @@ fn a_tombstone_survives_reopen() {
 
     let mut st = text_store(&fx);
     assert!(st.is_deleted(encounter));
-    assert_eq!(st.deleted_targets(), [encounter]);
+    assert_eq!(deleted(&st), [encounter]);
     assert!(st.dirty().is_empty());
     // Restoring it is a step like deleting it.
     st.transaction("Wiederhergestellt", |tx| tx.set_deleted(encounter, false))
@@ -3140,7 +3149,7 @@ fn set_deleted_refuses_the_dspre_layout() {
         "{err}"
     );
     assert_eq!(st.undo_depth(), 0);
-    assert!(st.deleted_targets().is_empty());
+    assert!(deleted(&st).is_empty());
 
     // In a text project, kinds without an envelope are refused with their sentence.
     let fx = common::TextFixture::exported();
@@ -3175,7 +3184,7 @@ fn set_deleted_refuses_the_dspre_layout() {
         })
         .unwrap_err();
     assert!(matches!(err, KernelError::Refused(_)), "{err}");
-    assert!(st.deleted_targets().is_empty());
+    assert!(deleted(&st).is_empty());
     assert_eq!(st.undo_depth(), 0);
     // An entity that does not exist cannot be deleted.
     assert!(
@@ -3183,7 +3192,7 @@ fn set_deleted_refuses_the_dspre_layout() {
             .set_deleted(DeleteTarget::Trainer { index: 999 }, true))
             .is_err()
     );
-    assert!(st.deleted_targets().is_empty());
+    assert!(deleted(&st).is_empty());
 }
 
 #[test]

@@ -71,8 +71,9 @@ pub struct Overlay {
     /// Changed assets whose value cannot be serialized, with the error; the snapshot reads
     /// them from the disk and names them unreadable.
     pub unwritable: Vec<(AssetId, String)>,
-    /// Every target the store holds deleted, unsaved steps included
-    /// ([`crate::store::Store::deleted_targets`]).
+    /// Every target the store's own flag holds deleted (`Store::own_tombstones(true)`: unsaved
+    /// steps, and saved ones the store still flags); a tombstone only on disk is not listed,
+    /// the snapshot reads its envelope from the JSON.
     pub tombstones: Vec<DeleteTarget>,
     /// The targets the store holds not deleted while their saved JSON carries the envelope
     /// (an unsaved restore): the store's flag wins over the disk's.

@@ -690,8 +690,9 @@ pub(crate) fn import_headers_with(
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
 /// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
 /// `unpacked/dynamicHeaders` is created with every header file, and a table shorter than
-/// `mapname.bin` is refused (deleting headers is 3d); without it the table must have the
-/// length of the slice in `arm9.bin`.
+/// `mapname.bin` is refused (a header leaves the table only through „Nummer freigeben“, which
+/// shortens `mapname.bin` with it, [`crate::delete::free_number`]); without it the table must
+/// have the length of the slice in `arm9.bin`.
 pub(crate) fn write_headers(
     project: &Project,
     w: &HeaderWrite,
@@ -1122,7 +1123,8 @@ mod project_tests {
             arm9
         );
 
-        // Back to two is refused: deleting a header is 3d, and nothing is written.
+        // Back to two is refused (only „Nummer freigeben“ shortens the table), and nothing is
+        // written.
         let three = import_headers(&project, &files, &sym).unwrap();
         files.pop();
         let problems = import_headers(&project, &files, &sym).unwrap_err();

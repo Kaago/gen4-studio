@@ -22,6 +22,10 @@ export const ORIGINAL_WARNING = "Original aus der Basis-ROM: der Eintrag bleibt 
 /** What a tombstone keeps. */
 export const TOMBSTONE_KEEPS = "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.";
 const FREE_LABEL = "Nummer freigeben (nicht rückgängig)";
+/** The kernel's refusal in the DSPRE layout (`delete::NOT_A_TEXT_PROJECT`). */
+export const NOT_A_TEXT_PROJECT = "Echtes Löschen gibt es im Textprojekt (Technik › Textprojekt).";
+/** What the dialog says beside it: emptying stays an ordinary edit. */
+export const CLEAR_HINT = "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.";
 
 /** „{n} Verweise: zuerst umhängen.“ (one: „Verweis“). */
 export function referencesText(n: number): string {
@@ -38,7 +42,7 @@ function removesText(files: readonly string[]): string {
  * a number to free) or a failed one shows only the reason; references lock „Löschen“ and list where they come from (a click leads there);
  * an original warns that the entry stays in the ROM. Where the plan allows it, „Nummer freigeben (nicht rückgängig)“ frees the number
  * for good, else the plan's reason why not is said quietly. A failed delete keeps the dialog open with the reason (references it names
- * lock it as above).
+ * lock it as above). In the DSPRE layout the refusal comes with the way to empty an entity instead ({@link CLEAR_HINT}).
  */
 export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogProps) {
   const { plan, error: planError } = useDeletePlan(target);
@@ -113,7 +117,10 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
             Prüfe Verweise …
           </p>
         ) : refused ? (
-          <Notice kind="error">{plan.refusal ?? `${label} ist schon gelöscht.`}</Notice>
+          <>
+            <Notice kind="error">{plan.refusal ?? `${label} ist schon gelöscht.`}</Notice>
+            {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
+          </>
         ) : locked ? (
           <>
             <Notice kind="error">{referencesText(references.length)}</Notice>
@@ -124,6 +131,7 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
             {plan.original && <Notice kind="warning">{ORIGINAL_WARNING}</Notice>}
             {plan.warnings.length > 0 && <RefList refs={plan.warnings} soft onFollow={goTo === undefined ? undefined : follow} />}
             {plan.refusal !== null && <Notice kind="warning">{plan.refusal}</Notice>}
+            {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
             {plan.refusal === null && plan.deleted && <Notice kind="info">{`${label} ist schon gelöscht.`}</Notice>}
             {tombstone && <Notice kind="info">{TOMBSTONE_KEEPS}</Notice>}
             {canFree !== null ? (

@@ -232,8 +232,6 @@ pub struct EntitySource {
     /// A source for the diff ([`EntitySource::open_for_diff`]): fallback ids instead of a
     /// baptism, no base layer, and nothing but exports into memory.
     for_diff: bool,
-    /// The tombstones on disk when the source opened ([`read_tombstones`]; none for the diff).
-    tombstones: BTreeSet<DeleteTarget>,
 }
 
 impl EntitySource {
@@ -244,14 +242,7 @@ impl EntitySource {
         if let Some(why) = refusal(schema_state(&project.root)?) {
             return Err(KernelError::Refused(why));
         }
-        let mut source = EntitySource::opened(project, false)?;
-        source.tombstones = read_tombstones(&project.root)?;
-        Ok(source)
-    }
-
-    /// The tombstones on disk, read when the source opened.
-    pub fn tombstones(&self) -> &BTreeSet<DeleteTarget> {
-        &self.tombstones
+        EntitySource::opened(project, false)
     }
 
     /// The source the diff exports with ([`crate::diff`]), in a text project or not: the
@@ -284,7 +275,6 @@ impl EntitySource {
             names_from_disk: false,
             dry: None,
             for_diff,
-            tombstones: BTreeSet::new(),
         };
         source.refresh(project)?;
         Ok(source)

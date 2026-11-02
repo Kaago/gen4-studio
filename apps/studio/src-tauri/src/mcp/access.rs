@@ -274,7 +274,8 @@ impl From<Kind> for Class {
 /// a `path` (another project folder) are unavailable, also when it names the bound project.
 /// `publish_patch` with `overwrite` replaces files (irreversible), with a `dir` outside
 /// `build/` writes there (irreversible), else it is a write. `delete_entity` with `freeNumber`
-/// frees a number for good (irreversible), without it is one undo step. A name the table does
+/// (or `free_number`, see [`frees_number`]) frees a number for good (irreversible), without it
+/// is one undo step. A name the table does
 /// not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
@@ -329,11 +330,18 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
             .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
-        "delete_entity" if args.get("freeNumber") == Some(&Value::Bool(true)) => {
-            Kind::Irreversible("Nummer freigeben").into()
-        }
+        "delete_entity" if frees_number(args) => Kind::Irreversible("Nummer freigeben").into(),
         _ => Class::Write,
     }
+}
+
+/// Whether the arguments of `delete_entity` free the number: `freeNumber` as `dispatch` takes
+/// it, or `free_number` (the curated tool's key, which `g4_call` passes as it is and the
+/// command honours too).
+pub fn frees_number(args: &Value) -> bool {
+    ["freeNumber", "free_number"]
+        .iter()
+        .any(|key| args.get(key) == Some(&Value::Bool(true)))
 }
 
 /// What an agent may do: change the project (`write`), do what undo does not bring back
@@ -994,9 +1002,19 @@ mod tests {
             ),
             Class::Irreversible("Nummer freigeben".to_owned())
         );
+        // g4_call passes the curated tool's key as it is; the command honours it too.
+        assert_eq!(
+            classify(
+                "delete_entity",
+                &json!({ "target": target, "free_number": true }),
+                &policy
+            ),
+            Class::Irreversible("Nummer freigeben".to_owned())
+        );
         // A tombstone is one undo step.
         for args in [
             json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target, "free_number": false }),
             json!({ "target": target }),
         ] {
             assert_eq!(

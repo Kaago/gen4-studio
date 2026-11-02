@@ -31,7 +31,9 @@ use crate::commands::policy::UserPolicy;
 use crate::commands::{ProjectInfo, TextChoice, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
-use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
+use crate::mcp::access::{
+    Access, COMMAND_KINDS, Class, Kind, admit, classify, frees_number, kind_of,
+};
 use crate::mcp::catalog::{Route, ToolDef, catalog};
 use crate::mcp::docs;
 use crate::mcp::host::StateSource;
@@ -312,8 +314,8 @@ const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init", "publish_patch"]
 /// and `reset_to_original` of a script, texture or model, which writes its files at once
 /// (the batch's squash and rollback carry file steps, as for `name_flag`; a reset of a file
 /// target stays out of a batch like the saves and compiles), and `delete_entity` with
-/// `freeNumber`, which removes files past the store behind an undo barrier (a tombstone is an
-/// edit like any other).
+/// `freeNumber` (or `free_number`, see [`frees_number`]), which removes files past the store
+/// behind an undo barrier (a tombstone is an edit like any other).
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
@@ -334,7 +336,7 @@ fn not_in_batch(command: &str, args: &Value) -> bool {
                         | "interior_building_model"
                 )
             ))
-        || (command == "delete_entity" && args.get("freeNumber") == Some(&Value::Bool(true)))
+        || (command == "delete_entity" && frees_number(args))
 }
 
 /// Runs call `index` of a batch (the call's own `run`; tests wrap it).
@@ -979,7 +981,8 @@ impl<'a> Call<'a> {
     /// answers `unsaved` (and `busy`) unasked. `publish_patch` (asked only with `overwrite` or
     /// a `dir` outside `build/`) answers the refusals of `check_publish_patch` unasked and names
     /// the patch file; `git_commit_all` answers `unsaved`, `no_repo`, `enclosing_repo`,
-    /// `no_git` and `nothing_to_commit` unasked.
+    /// `no_git` and `nothing_to_commit` unasked. `delete_entity` (asked only with the number
+    /// freed) names the entity.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -1030,6 +1033,16 @@ impl<'a> Call<'a> {
                 crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
             }
+            // „Nummer freigeben: Trainer 0002“; a target that is none is refused by the command.
+            ("delete_entity", _) => Ok(args
+                .get("target")
+                .and_then(|target| {
+                    serde_json::from_value::<g4_kernel::delete::DeleteTarget>(target.clone()).ok()
+                })
+                .map_or_else(
+                    || why.to_owned(),
+                    |target| format!("{why}: {}", target.label()),
+                )),
             _ => Ok(why.to_owned()),
         }
     }
@@ -4721,12 +4734,14 @@ mod tests {
     #[test]
     fn free_number_is_refused_in_a_batch() {
         let target = json!({ "kind": "trainer", "index": 2 });
-        assert!(not_in_batch(
-            "delete_entity",
-            &json!({ "target": target, "freeNumber": true })
-        ));
+        for key in ["freeNumber", "free_number"] {
+            let mut args = json!({ "target": target });
+            args[key] = json!(true);
+            assert!(not_in_batch("delete_entity", &args), "{key}");
+        }
         for args in [
             json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target, "free_number": false }),
             json!({ "target": target }),
         ] {
             assert!(!not_in_batch("delete_entity", &args), "{args}");
@@ -4738,20 +4753,65 @@ mod tests {
 
         let (_fixture, toolbox) = open_toolbox(ALL);
         let species = data(&toolbox, "species", 1);
-        let mut calls = three_edits();
-        calls.push(json!({ "tool": "delete_entity",
-                           "arguments": { "target": target, "free_number": true } }));
-        let (code, message, details) =
-            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
-        assert_eq!(code, "error", "{message}");
-        assert_eq!(details["index"], 3);
-        assert!(
-            message.ends_with("delete_entity geht nicht in g4_batch"),
-            "{message}"
-        );
+        // The curated tool and g4_call with either key.
+        for call in [
+            json!({ "tool": "delete_entity",
+                    "arguments": { "target": target, "free_number": true } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "delete_entity",
+                    "args": { "target": target, "free_number": true } } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "delete_entity",
+                    "args": { "target": target, "freeNumber": true } } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call.clone());
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{call}: {message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("delete_entity geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
         // Nothing ran.
         assert_eq!(data(&toolbox, "species", 1), species);
         assert_eq!(history(&toolbox)["undo"], json!([]));
+    }
+
+    /// „Nummer freigeben“ asks the user with the entity's name, through the curated tool and
+    /// through g4_call with the curated tool's key; a no frees nothing.
+    #[test]
+    fn free_number_question_names_the_entity() {
+        use g4_kernel::delete::DeleteTarget;
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        state.agents.set_expert(true).unwrap();
+        let target = json!({ "kind": "trainer", "index": 2 });
+        let label = DeleteTarget::Trainer { index: 2 }.label();
+        assert!(label.starts_with("Trainer "), "{label}");
+        for (tool, args) in [
+            (
+                "delete_entity",
+                json!({ "target": target, "free_number": true }),
+            ),
+            (
+                "g4_call",
+                json!({ "command": "delete_entity",
+                        "args": { "target": target, "free_number": true } }),
+            ),
+        ] {
+            let user = answer_next(&state, "deny");
+            let (code, message, _) = failed(toolbox.call(tool, args, AGENT));
+            let question = user.join().unwrap();
+            assert_eq!(question.kind, "confirm");
+            assert_eq!(
+                question.what.as_deref(),
+                Some(format!("Nummer freigeben: {label}").as_str()),
+                "{tool}"
+            );
+            assert_eq!(code, "needs_confirmation", "{tool}: {message}");
+        }
+        assert!(history_impl(&state).unwrap().undo.is_empty());
     }
 
     #[test]
