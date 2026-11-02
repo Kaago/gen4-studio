@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B), [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) und [phase-3d-9-gate.md](phase-3d-9-gate.md) (Spielmodus live) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -1403,3 +1403,95 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 ```
 
 `publish_patch` ohne `overwrite` fragt nicht: es legt nur neue Dateien unter `build/` an, und eine vorhandene Datei lehnt es mit `exists` ab, statt zu fragen; unumkehrbar wird es mit `overwrite: true` und mit einem `dir` außerhalb von `build/` („Bauen außerhalb von build/“). `git_commit_all` fragt immer. Beide sind nicht in `g4_batch` erlaubt, ebenso `git_commit_prepare` (über `g4_call`; seine Prüfung kann den Block der `.gitignore` schreiben). Ein `dir` außerhalb `build/` muss über MCP in einem `--allow-dir`-Ordner liegen und existieren: die Pfadprüfung der Policy kommt vor dem Kern. Eine Datei als `dir` ist dort `bad_dir`, ein Ort **unter** einer Datei oder ein fehlender Ordner antwortet schon in der Pfadprüfung mit `error` „Pfad nicht lesbar: …“ (so gewollt); `g4k publish` antwortet für beides `bad_dir`. Der Eintrag in `.g4/releases.json` bleibt in jedem Fall; `undo` nimmt ihn nicht zurück.
+
+## Phase 3d.9 ([phase-3d-9-gate.md](phase-3d-9-gate.md))
+
+3d.9 bringt den Spielmodus live: „Hier spielen“ startet das Spiel in melonDS 1.1 mit dem GDB-Stub (nur macOS), der Kernel (`crates/g4-kernel/src/live/`) liest alle 250 ms Zeiger, Variablen und Flags des Spielstands aus dem Arbeitsspeicher und schreibt sie mit Rücklesen (`g4k live status|set|wait|resume`), das Scharnier wird bernsteinfarben (`data-hinge-mode="play"`), die Fläche „Flags und Variablen“ zeigt in der Spalte „Live“ die Werte und im Detail den Abschnitt „Live“, der Inspector setzt Haltepunkte an Figuren (Sichtbarkeits-Flag) und Auslösern (Variable), MCP hat `live_status` und `live_set`. `g4emu repl` lässt das Spiel laufen und hat einen eigenen GDB-Stub, so prüft das Gate ohne melonDS; nur Punkt (4) braucht das echte. **Port 3390 für den g4emu-Stub, nie 3333 (und 3334) anfassen, solange ein melonDS des Nutzers laufen könnte** (`pgrep -x melonDS` leer; nur Punkt (4) benutzt 3333). Der Stub, `g4k live` und die App bedienen je Port genau einen Client.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), `3d-9-<zweck>` (ein ds-rom-Projektordner) und `3d-9-<zweck>.nds` nebeneinander: `pt`, `hgde`, `hgus` für den gated Test und das Szenario kopflos (nur gelesen, `repl` spielt die `.nds`), `web` (Platin DE, als `3d-9-web_DSPRE_contents`) und `webhg` (HeartGold DE) für Browser und MCP über die Brücke (je `g4k git init`, damit `git status` etwas sagt). Spielstände unverändert aus `_saves` (`g4emu` kopiert sie vor jedem Lauf).
+
+**Wo was ist:** Scharnier im Spielmodus `[data-hinge-mode="play"]` mit `[data-live-state]` (`starting`, `connecting`, `waiting_for_save`, `live`, `halted`, `lost`; bei `off` und `unavailable` bleibt die Leiste dunkel), `[data-live-resume]` „Weiter“ (nur im Halt), `[data-live-reload]` „Neu laden“, `[data-live-stop]` „Stoppen“. Technik › Flags und Variablen: Kopf `[data-flag-live-head]` (im Spielmodus `="on"`), Zellen `[data-flag-live]` (Flag: Taste mit `="1"` oder `="0"`, Klick schaltet um; Variable: dezimal; sonst „–“), Detail `[data-flag-section="Live"]` (Schalter „Im Spiel gesetzt“ bzw. Feld „Wert im Spiel“ und „Setzen“), Warnung `[data-flag-live-warning]` für eine nicht gewählte Zeile, deren Wert das Spiel nicht behielt. Inspector einer Figur oder eines Auslösers: `[data-live-breakpoint]` „Haltepunkt“ (nur im Spielmodus; bei Tür und ohne Flag bzw. Variable gesperrt mit Grund). Technik › Emulator: `[data-live-row]` „Spielmodus live“. „Spielmodus“ auf den Flächen heißt: nicht `off`, nicht `unavailable` (wie am Scharnier). Brücke: `live_status`, `live_connect {port, host?}` (verbindet mit einem vorhandenen Stub, auch dem von `g4emu repl`), `live_set`, `live_stop`, `live_resume`, `live_breakpoints`, `live_breakpoint_set`, `live_breakpoint_clear`; `live_play` lehnt die Brücke ab wie `run_rom`. MCP: nur `live_status` und `live_set`.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) Automatik | Agent | fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --all-features --lib`, `cargo test -p studio --test mcp_stdio` (alle drei ohne `G4_*`), `pnpm test`, `pnpm build`, `check-tokens.sh`, `check-styles.sh`, `check-depth.sh`, `g4emu` Einheit (`uv run pytest -m "not integration" -q`) einzeln; das ganze `gate.sh` läuft auf main nach dem Merge |
+| (1) gated `test_live.py` | Agent | Platin DE, HeartGold DE, HeartGold US mit `g4emu repl` + `g4k live` auf Port 3390; `took_ms` und `game_check` je Spiel in die Tabelle der Gate-Datei |
+| (2) kopflos | Agent | `g4emu repl` auf `3d-9-pt` (Port 3390) und Release-`studio mcp`: `live_status` → `off`, `live_set` → `not_live`; die Verbindung selbst ist App-only, darum `live_set` gegen den Stub über die Brücke (nächste Zeile) |
+| (3) Browser | Agent + Blick | Test-Umgebung 1790/1791, Projekt `3d-9-web_DSPRE_contents`; `g4emu repl` mit `CPUD-zimmer.sav` auf 3390; `call.sh live_connect`; Scharnier bernsteinfarben (Bild), Spalte „Live“ (Bild), Flag `0x173` per Klick auf 0 → repl `expect-flag 0x173 0`, Treppe hinunter und hinauf, `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394: blockiert eine Kachel davor = die Figur erscheint (`shot figur`); Variable `0x40A5` auf 0 → `walk-to 5 5`, `walk-until-blocked left 4` (1 Schritt), `expect-at 4 5`; Haltepunkt am Auslöser mit `var 0x40A5` → repl `set-var 0x40A5 1` → Scharnier „Gehalten: …: 0 → 1“ (Bild), `expect-halted`; „Weiter“ → `expect-running`; „Stoppen“ → Scharnier dunkel, `live_status.state == "off"` |
+| (3) MCP über die Brücke | Agent | `mcp.sh call live_status`, `live_set` (→ `read_back`), `live_set` außerhalb des Spielstands → `outside_save` |
+| (3) HeartGold DE | Agent | wie (3) mit `IPKD-zimmer.sav`, Flag `0x2A9` (Figuren im Zimmer, Header 64), nur Flag und Scharnier |
+| (4) echtes melonDS | Agent + Hand | Agent: `melonDS.toml` sichern, Stub einschalten, melonDS mit der ROM und dem Spielstand starten, `g4k live status --port 3333 --game CPUD` → `verified`, `has_save`; Datei byte-gleich zurück, melonDS beenden. Hand: „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten des Zimmers |
+| Blick | Agent + Blick | Bilder `blick-*.png` und `shot-*.png` unter `target/agent/gate-<datum>/3d-9/` |
+
+**Gated Test (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, Kern unter `tools/g4emu/core/`, `g4k` gebaut mit `cargo build -p g4-kernel --bin g4k`):
+
+```sh
+export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
+G4_ROMS_DIR=<absolut> G4K_BIN=$PWD/target/debug/g4k \
+  G4_LIVE_ROM_CPUD=$K/3d-9-pt.nds G4_LIVE_ROM_IPKD=$K/3d-9-hgde.nds G4_LIVE_ROM_IPKE=$K/3d-9-hgus.nds \
+  bash -c 'cd scripts/g4emu && uv run pytest -m integration -k live -q -s'
+```
+
+Der Test (`scripts/g4emu/tests/test_live.py`, Port 3390, die Spielstände werden in einen Temp-Ordner kopiert) überspringt ein Spiel, dessen Variable `G4_LIVE_ROM_<CODE>` fehlt, und druckt je Spiel `game_check`, `took_ms` von `status` und die Wanduhr von `set` (mit den eingebauten 100 ms Warten); `took_ms ≤ 100` erzwingt nur `G4_TIMING_STRICT=1`. Platin DE: `0x173` := 0, `0x40A5` := 0, Auslöser über `walk-to 5 5`, `walk-until-blocked left 4` (genau 1 Schritt), `expect-at 4 5` (auf dem echten Spiel feuert der Auslöser beim Ankommen auf (4, 5); die Probe `walk-to 4 5` + `walk-until-blocked down 3` blockiert sofort, die Gegenprobe mit Variable 1 geht bis (1, 5)), `g4k live wait --var 0x40A5 --timeout 10` mit `set-var 0x40A5 1` im `repl`: `halted` true, `before` 0, `after` 1, `expect-halted`, Zeilenumbruch auf stdin von `wait`, `expect-running`; HeartGold DE und US: Flag `0x2A9` setzen und `expect-flag`.
+
+**`g4emu repl` für Hand und Browser (2) (3)**, aus `scripts/g4emu`, die Schritte kommen von einer Datei (`tail -f`), die Antworten stehen als JSON-Zeilen in `repl.out`:
+
+```sh
+OUT=<Worktree>/target/agent/gate-<datum>/3d-9; mkdir -p $OUT; : > $OUT/repl.in
+( tail -n +1 -f $OUT/repl.in | uv run g4emu repl --rom $K/3d-9-pt.nds --save $K/_saves/CPUD-zimmer.sav \
+    --out $OUT/repl --gdb-port 3390 > $OUT/repl.out 2> $OUT/repl.err ) &
+# erste Zeile von repl.out: {"ready": true, "gdb_port": 3390, "game": "CPUD"}
+echo "continue" >> $OUT/repl.in; echo "expect-map 415" >> $OUT/repl.in
+echo "expect-flag 0x173 0" >> $OUT/repl.in           # nach dem Klick in der Oberfläche; jede Antwort eine Zeile mit ok true/false
+echo "set-var 0x40A5 1" >> $OUT/repl.in; echo "expect-halted" >> $OUT/repl.in
+echo "quit" >> $OUT/repl.in                           # danach das tail beenden (kill)
+```
+
+Der Stub hält beim Verbinden an, bis `c` kommt (wie melonDS); die App und `g4k live` senden es. Ein zweiter Client bekommt keine Antwort.
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
+
+```sh
+P=$K/3d-9-pt
+target/release/studio mcp --project $P                        # live_status → state off; live_set {kind flag, number …, value 0} → not_live; tools/list nennt beide
+target/release/g4k live status --port 3390 --game CPUD        # mit laufendem repl: state, game_check verified, took_ms
+target/release/g4k live set --port 3390 --game CPUD --flag 0x173 --value 0
+git -C $P status --porcelain                                   # nichts (ein Live-Wert schreibt kein Projekt)
+```
+
+**Browser (3)**, Test-Umgebung auf 1790/1791 (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1790 G4_BRIDGE_PORT=1791 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1790/?project=<…>/_testkopien/3d-9-web_DSPRE_contents`, 1440 × 900, Chrome headless wie bei 3d.2 (Hell und Dunkel in **einer** CDP-Verbindung mit dem Bild). Zuerst `g4emu repl` auf 3390 (oben), dann:
+
+```sh
+scripts/agent/call.sh live_connect '{"port":3390}'            # die App verbindet mit dem Stub; Scharnier wird bernsteinfarben
+scripts/agent/call.sh live_status                             # state live, game_check verified, snapshot
+scripts/agent/call.sh live_set '{"kind":"flag","number":371,"value":0}'   # 0x173; read_back null, danach live_status.read_back true
+scripts/agent/call.sh live_stop                               # oder „Stoppen“ im Fenster: Scharnier dunkel, state off
+```
+
+Ablauf in der Oberfläche: Scharnier (Bild `blick-scharnier-live-{hell,dunkel,kompakt}.png`), Technik › Flags und Variablen (Spalte „Live“, Bild `blick-flags-live-*.png`), Flag `0x173` per Klick auf die Zelle auf 0 (Detail zeigt „Im Spiel gesetzt“ aus), repl `expect-flag 0x173 0`; im repl Treppe hinunter (`walk-to 8 4`, `walk right 1`, `expect-map 414`) und hinauf (`expect-map 415`), `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394 (Kachel aus `scripts/agent/call.sh get_events '{"eventFileId":394}'`): blockiert eine Kachel davor, ist die Figur da (`shot figur`); Variable `0x40A5` im Detail auf 0 setzen, `walk-to 5 5`, `walk-until-blocked left 4`, `expect-at 4 5`; Welt › Eventdatei 394 › Auslöser mit `var 0x40A5` › Kästchen „Haltepunkt“, repl `set-var 0x40A5 1` → Scharnier „Gehalten: Auslöser … · Eventdatei 394: 0 → 1“ (Bild `blick-halt-*.png`), `expect-halted`, „Weiter“, `expect-running`; „Stoppen“. HeartGold DE ebenso auf `3d-9-webhg` mit `IPKD-zimmer.sav` und Flag `0x2A9` (nur Flag und Scharnier).
+
+**MCP (3)** über die Brücke (Kopie in der Seite geöffnet, `live_connect` wie oben gemacht):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'                   # „Lesen und bearbeiten“
+scripts/agent/mcp.sh call live_status '{}'                                   # state live, snapshot mit flags und vars
+scripts/agent/mcp.sh call live_set '{"kind":"flag","number":371,"value":0}'  # read_back null, danach live_status true; repl expect-flag 0x173 0
+scripts/agent/mcp.sh call live_set '{"kind":"flag","number":4000,"value":1}' # outside_save
+scripts/agent/call.sh history '{}'                                           # unverändert (kein Schritt)
+```
+
+Keine Rückfrage (`agent_status.question` null): `live_set` ist schreibend, aber ohne Verlauf; `live_connect` und `live_play` sind in MCP „Nur in der App“.
+
+**Echtes melonDS (4)**, nur wenn `pgrep -x melonDS` leer ist (kein melonDS des Nutzers):
+
+```sh
+C=~/Library/Preferences/melonDS/melonDS.toml; cp -p $C $OUT/melonDS.toml.vorher; shasum $C
+# Stub einschalten: [Instance0.Gdb] Enabled = true; [Instance0.Gdb.ARM9] BreakOnStartup = false; [JIT] Enable = false
+cp $K/3d-9-pt.nds $OUT/pt.nds; cp $K/_saves/CPUD-zimmer.sav $OUT/pt.sav          # der Spielstand heißt wie die ROM
+/Applications/melonDS.app/Contents/MacOS/melonDS $OUT/pt.nds >/dev/null 2>&1 &    # bis ins Zimmer fortsetzen
+target/release/g4k live status --port 3333 --game CPUD                           # game_check verified, has_save true, took_ms
+pkill -x melonDS; cp -p $OUT/melonDS.toml.vorher $C; shasum $C                   # byte-gleich zurück (Prüfsumme wie vorher)
+```
+
+Hand: „Hier spielen“ in der gepackten App (`pnpm bundle`), Scharnier bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers. Lässt `toml` 0.8 die Datei so zurück, dass melonDS sie nicht liest, wird `toml_edit` Abhängigkeit (siehe Gate-Datei, „Offen“).

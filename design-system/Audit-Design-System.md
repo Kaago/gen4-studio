@@ -21,7 +21,7 @@ Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind v
 
 1. **Die Tiefe Erzählen ist nur zum Teil da.** Seit 3d.2 gibt es sie in der Welt (Rezept-Leiste, reduzierter Inspector, Entwurf der Assistenten in der Schau); andere Bereiche zeigen dort Bauen, und drei der fünf Rezepte sind gesperrt (bewusst, 3d.5 bis 3d.8).
 2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil und Kampfvorschau stehen seit 3d.3 Teil A (Pokédex, Trainer), das Laden fehlt (bewusst, später: keine Daten).
-3. **Es gibt keinen Spielmodus.** „Hier spielen“ startet den Emulator extern; ein bernsteinfarbenes Scharnier mit Live-Flags gibt es nicht (bewusst, Phase 4).
+3. **Es gab keinen Spielmodus** (umgesetzt in 3d.9). „Hier spielen“ startete den Emulator extern; seit 3d.9 gibt es das bernsteinfarbene Scharnier mit Live-Flags (nur macOS, siehe „Nachtrag 3d.9“ im README).
 4. **Die zweite Sprachebene ist nur halb da.** Kennungen sind Nummern statt Symbolen. Räume heißen nach ihrem Kürzel (`T01R0102`), Event-Titel sind technisch („Objekt 2 · ID 2“), Grafik und Bewegung sind rohe Zahlen (Lücke).
 5. **„Nie nur Farbe“ gilt in der Szene nicht.** Das Gelände-Overlay hat keine Muster, und die Ereignis-Marker sind Quader statt Formen (bewusst für das Overlay, Phase 6; Lücke für die Marker).
 6. **Assistenten sind Formulare.** Sie laufen in der Hand, ohne Live-Vorschau in der Schau und ohne große Auswahlkarten. Der Assistent „Neuer Trainer“ ist ein Dialog geworden (bewusst, 3d).
@@ -67,7 +67,7 @@ Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind v
 |---|---|---|---|
 | Prüflicht | Ein Punkt mit Text („2 Hinweise“) | Punkt plus drei Zähler (Fehler, Warnungen, Hinweise) mit Symbol. Eine 0 ist gedämpft. Während eines Laufs „Prüft … Texte 312/724“, ohne Ergebnis „Nicht geprüft“, nie fälschlich „Alles stimmig“ | Verbesserung (3b.4a) |
 | Verlauf | Undo-Zahl | Menü mit den letzten 10 Schritten und ihren Labels, eigene Taste „Wiederholen“ | Verbesserung |
-| Spielmodus | Scharnier in Bernstein, „Spielt in melonDS“, „Neu laden“, „Stoppen“ | Fehlt; „Hier spielen“ zeigt beim Bauen „Baut …“ | bewusst (Spec 3c §1, Phase 4) |
+| Spielmodus | Scharnier in Bernstein, „Spielt in melonDS“, „Neu laden“, „Stoppen“ | umgesetzt (3d.9): Scharnier in Bernstein mit „Spielt in melonDS“, Zustandstext, „Weiter“, „Neu laden“, „Stoppen“; „Hier spielen“ zeigt beim Bauen weiter „Baut …“ | umgesetzt (3d.9; nur macOS, siehe „Nachtrag 3d.9“) |
 | Assistent | Schrittleiste im Scharnier, Vorschau in der Schau | Die Schrittleiste ist da (Titel Zen Maru 15 px statt 16). Der Schritt steht in der Hand, die Schau bleibt ohne Vorschau. Assistenten gibt es nur in der Welt | Vorschau bewusst (3d) |
 | Titelleiste | Projekt, Spiel, Speicherstand, Suche, Aktionen mit „Veröffentlichen“; Windows-Variante | Neu ist „Projekt öffnen“. „Veröffentlichen“ ist seit 4.5 da (zwischen „Bauen“ und „Thema wechseln“, gesperrt mit Hinweis im Tooltip), offen bleibt Windows: Windows hat keine eigenen Knöpfe, die 40-px-Zeile liegt unter der Systemleiste | Windows bewusst (Spec 3c §3) |
 | Atlas | 7 Einträge | Dazu Hilfe und Einstellungen unten. Geschichten ist gesperrt („Kommt mit Phase 3d“). Kompakt ist 56 px breit und zeigt nur Symbole. Während eines Assistenten ist alles außer Welt gesperrt | Verbesserung (Varianten jetzt in der `.fig`) |
@@ -174,7 +174,7 @@ Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind v
 | 10 | Geschichten: Übersicht | offen (3d) | Atlas gesperrt |
 | 11 | Geschichte: Graph | offen (3d) | – |
 | 12 | Skript: Mutter, Morgen | teilweise | Reiter „Script“ der Welt-Hand, Scripts nach Nummer |
-| 13 | Flags und Variablen | teilweise (3d.1: Technik › Flags und Variablen) | liegt bis 3d.6 in Technik statt im Bereich Geschichten; Liste mit Filtern, Detail „Wo gesetzt“ und „Wo geprüft“, Picker und Flag-Feld im Inspector, Dialog „Als eigenes Flag benennen“; „Live“ leer bis 3d.9, Namen nur in der Oberfläche, die Event-JSON tragen bis 3d.4 Zahlen. Die Frames stehen noch nicht in der `.fig` (OpenPencil war nicht erreichbar, `openpencil/NACHTRAG-3D-1.md`) |
+| 13 | Flags und Variablen | teilweise (3d.1: Technik › Flags und Variablen) | liegt bis 3d.6 in Technik statt im Bereich Geschichten; Liste mit Filtern, Detail „Wo gesetzt“ und „Wo geprüft“, Picker und Flag-Feld im Inspector, Dialog „Als eigenes Flag benennen“; „Live“ seit 3d.9 mit Werten im Spielmodus, Namen nur in der Oberfläche, die Event-JSON tragen bis 3d.4 Zahlen. Die Frames stehen noch nicht in der `.fig` (OpenPencil war nicht erreichbar, `openpencil/NACHTRAG-3D-1.md`) |
 | 14 | Dialog bearbeiten | teilweise | über Archiv und Nummer im Bereich Texte, kein Weg von der Figur |
 | 15 | Pokédex: Staravia | umgesetzt | DS-Profil seit 3d.3 Teil A (Text, Kategorie, Größe, Gewicht „folgt“); „vorher“ im Wertebalken heißt letzte Speicherung, nicht Original. Den Vergleich mit der Basis-ROM zeigt seit 4.1b nur der Dialog „Auf Original zurücksetzen…“ (teilweise: keine Plakette „geändert“ im Kopf, Nicht in Phase 4) |
 | 16 | Entwicklung und Lernset | teilweise | Reiter im Pokédex, keine Kettenansicht; seit 3d.3 Teil B steht der Reiter „Ei-Attacken“ daneben (kein Vorbild in der `.fig`) |

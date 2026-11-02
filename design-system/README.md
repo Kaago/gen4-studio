@@ -286,7 +286,7 @@ Abweichungen vom Design-System, bewusst oder bis auf Weiteres:
 - Beschreibungen über `data_get` (3b.3a): Beschreibungen von Attacken und Gegenständen kommen mit dem Dokument aus `data_get` (Archiv, Nachricht, Text) und stehen nur lesend als DS-Textbox in der Schau; bearbeitet werden sie im Bereich Texte („Beschreibung bearbeiten“ springt dorthin).
 - Pokédex-Profil und Kampfsprites (3b.3a, seit 3d.3 Teil A da): der Pokédex zeigt den „Spielerblick“ mit dem DS-Profil und den Kampfbildern aus dem geöffneten ROM; Pokédex-Text, Kategorie, Größe und Gewicht stehen noch als „folgt“ (siehe „Nachtrag 3d.3“). Item- und Pokémon-Symbole kommen aus dem geöffneten ROM.
 - Kampfsprites (3b.3b, seit 3d.3 Teil A da): Trainer und Pokémon haben ihre Kampfbilder im Kopf und in der Schau (Klassenbild, Spielerblick, Kampfvorschau); die Pokémon-Karten im Team zeigen weiter die Menüsymbole aus dem ROM. Ebenso später: der Assistent „Neuer Trainer“ mit Live-Vorschau (3d, Erzählen); die App legt Trainer über einen Dialog an.
-- Flags und Variablen (3d.1): Die Fläche liegt bis 3d.6 in Technik statt im Bereich Geschichten (Screen 13 des Zielbilds); die Spalte „Live“ ist leer bis 3d.9; Namen stehen nur in der Oberfläche, die Event-JSON des Textprojekts tragen bis 3d.4 Zahlen; die Frames von 3d.1 stehen noch nicht in der `.fig` (siehe „Nachtrag 3d.1“).
+- Flags und Variablen (3d.1): Die Fläche liegt bis 3d.6 in Technik statt im Bereich Geschichten (Screen 13 des Zielbilds); die Spalte „Live“ trägt seit 3d.9 im Spielmodus die Werte (siehe „Nachtrag 3d.9“); Namen stehen nur in der Oberfläche, die Event-JSON des Textprojekts tragen bis 3d.4 Zahlen; die Frames von 3d.1 stehen noch nicht in der `.fig` (siehe „Nachtrag 3d.1“).
 
 Nicht in 3b.3: Läden und die übrigen Punkte der Tabelle „Später“ der Spezifikation 3b.3 (in [docs/ROADMAP.md](../docs/ROADMAP.md) übernommen) und das Budget. Trainer, Begegnungen und die Pokémon-Karte kamen mit 3b.3b.
 
@@ -702,7 +702,7 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   - **Danach:** Der Dialog schließt, die Meldung sagt „FLAG_HAT_MEDAILLE benannt (ein Schritt im Verlauf).“ oder „Beschreibung gespeichert.“; Liste, Detail und alle Chips im Inspector zeigen den neuen Namen. Warnungen des Berichts erscheinen als Meldung.
 - **Abweichungen und offene Punkte:**
   - **Die Fläche liegt bis 3d.6 in Technik** statt im Bereich Geschichten (Screen 13 des Zielbilds): Geschichten ist im Atlas gesperrt, Technik hält schon projektweite Flächen. Mit 3d.6 zieht der Eintrag um (eine Zeile in `ENTRIES`, ein Mount).
-  - **„Live“ ist leer bis 3d.9:** der Spielmodus mit lebendigen Werten kommt später; Kopf und Zellen stehen schon da, damit die Spalte nicht nachträglich die Zeile verschiebt.
+  - **„Live“ im Spielmodus (seit 3d.9):** Kopf und Zellen standen schon da, damit die Spalte nicht nachträglich die Zeile verschiebt; seit 3d.9 tragen sie die Werte aus dem laufenden Spiel (siehe „Nachtrag 3d.9“).
   - **Namen stehen nur in der Oberfläche:** Die Event-JSON des Textprojekts tragen bis 3d.4 Zahlen (`schemaVersion` 2 bringt Namen); ein eigener Name steht im Register unter `data/ids/` und in `data/flags` oder `data/vars` des Textprojekts, nicht in den Eventdateien. Auch „Datei entfernen“ eines eigenen Namens, ein Diff-Eintrag für Flags und Befehle der Konsole kommen später (3d.4); der MCP-Zugang (`list_flags`, `flag_usage`, `free_flag`, `name_flag`) ist da.
   - **Eigene Namen nur im Textprojekt:** Im DSPRE-Layout sind „Als eigenes Flag benennen…“ und „Umbenennen…“ gesperrt, mit dem Weg dorthin als Grund.
   - **„Frei“ ist ein Hinweis:** Ohne übernommene Scripts fehlen deren Verweise im Index; die Fläche sagt es in einer Notiz, und „Freies Flag nehmen“ ist dann gesperrt.
@@ -945,3 +945,58 @@ Die Frames von 4.5 stehen noch nicht in `Editor_DesignSystem.fig`: OpenPencil wa
   - „Im Finder zeigen“ öffnet unter macOS den Finder mit der Datei markiert; unter Linux öffnet es nur den Ordner, unter Windows (`explorer /select,`) ist es ungeprüft. Im Browser-Modus gibt es keinen Dateimanager („Nur in der App.“).
   - Die `.fig` kennt die Frames noch nicht (siehe `openpencil/NACHTRAG-4-5.md`): die Frames folgen.
   - **Blick für den Nutzer:** Titelleiste, Assistent, Fläche und Dialog in Hell, Dunkel und Kompakt an den Bildern (`blick-veroeffentlichen-*`, `blick-assistent-veroeffentlichen-*`, `blick-stand-sichern-*`, Namen nach dem Gate).
+
+## Nachtrag 3d.9
+
+Phase 3d.9 „Spielmodus live“ (Stand 02.11.2026): „Hier spielen“ startet das Spiel in melonDS mit dem GDB-Stub, und das Scharnier wird bernsteinfarben. Solange es so ist, liest die App Flags und Variablen aus dem Arbeitsspeicher des laufenden Spiels: Die Spalte „Live“ der Fläche „Flags und Variablen“ zeigt die Werte, ein Klick auf eine Flag-Zelle oder der Abschnitt „Live“ im Detail schreibt einen Wert ins Spiel, und an Figuren und Auslösern lässt sich ein Haltepunkt setzen. Ein Live-Wert ist kein Projektschritt: er steht in keinem Verlauf, `undo` nimmt ihn nicht zurück, und das Projekt bleibt, wie es ist.
+
+Quelle: `apps/studio/src/ui/frame/{Hinge,LiveRow}.tsx` (und `.module.css`), `app/{useLive.ts,liveStore.ts,HingeHost.tsx}`, `platform/liveEvents.ts`, `api.live.ts`, `flags/{FlagList,FlagDetail,FlagsSurface,flagWords}` (Spalte, Abschnitt „Live“, Warnung), `workbench/inspector/{EventEditor.tsx,eventBreakpoint.ts}` (Zeile „Haltepunkt“), `technik/TechnikArea.tsx` (Zeile „Spielmodus live“); Kernel `crates/g4-kernel/src/live/`. Plan: [docs/superpowers/plans/2026-11-01-phase-3d-9-spielmodus-live.md](../docs/superpowers/plans/2026-11-01-phase-3d-9-spielmodus-live.md). Gate: `docs/phase-3d-9-gate.md`.
+
+**Ein neuer Token, kein neues Symbol.** Der Plan wollte ohne neue Tokens auskommen (Bernstein war da: `live/grund`, `live/auf`, `live/flaeche`, `live/text`); die Prüfung der Kontraste im Scharnier verlangte einen: `live/taste` (`--g4-live-taste`, Hell Bernstein 100 wie `live/flaeche`, Dunkel Bernstein 200 `#FFE7A5`) ist die Fläche der Tasten und der Schiene im bernsteinfarbenen Scharnier. Mit `live/flaeche` (Dunkel Bernstein 800) stand dunkler Text auf dunklem Bernstein (rund 1,45 : 1). Dazu bildet `.playMode` im Scharnier einige Tokens um, damit jedes Paar aus Text und Fläche in beiden Themen mindestens 4,5 : 1 und jede Kante der Bedienelemente mindestens 3 : 1 erreicht (Menüs und Tooltips liegen in Portalen außerhalb des Scharniers und bleiben, wie sie sind). `check_tokens.py` prüft das neue Paar (`live/auf` auf `live/taste`).
+
+| Token im Scharnier (`.playMode`) | wird | Wirkung |
+|---|---|---|
+| `scharnier/grund` | `live/grund` | Bernstein 500 statt Marine |
+| `scharnier/text`, `scharnier/leise` | `live/auf` | dunkle Schrift auf Bernstein (7,95 : 1) |
+| `scharnier/taste` | `live/taste` | Fläche von „Neu laden“, „Stoppen“, der Schiene der Tiefe (15,08 : 1 Hell, 13,24 : 1 Dunkel) |
+| `scharnier/kante` | `live/text` | Rand der Leiste (unverändert nach dem Plan; trennt sie von den Flächen, nicht von ihrem Grund) |
+| `flaeche/blatt`, `auswahl/flaeche` | `live/auf` | die gewählte Tiefe und die gedrückte Taste „Schau maximieren“ drehen sich: dunkle Fläche, helle Schrift (`akzent/text` wird `live/taste`) |
+| `linie/leise`, `linie/standard` | `live/auf` | Kanten der Bedienelemente (7,95 : 1 gegen den Grund) |
+
+Die Frames „Scharnier: Spielmodus“ und „Flags: Live“ stehen noch nicht in `Editor_DesignSystem.fig`: OpenPencil war beim Schreiben dieses Nachtrags nicht erreichbar (Verbindungsfehler); die Frames folgen, dieser Nachtrag trägt die Beschreibung. Vergleichsquelle sind die Bilder der Test-Umgebung unter `target/agent/gate-2026-11-02/3d-9/` (1440 × 900, nicht im Repo; die Liste steht in `docs/phase-3d-9-gate.md`).
+
+- **Scharnier im Spielmodus** (`Hinge`, `data-hinge-mode="play"`; der Zustand kommt von `useLive`, die Hülle `HingeHost` reicht ihn durch): in jedem Zustand außer „aus“ und „nicht verfügbar“ trägt die Leiste `.playMode`, der Übergang der Farbe dauert wie immer 280 ms. Links bleiben Ort und Tiefe, rechts bleiben Prüflicht, Verlauf, Wiederholen und „Schau maximieren“; statt „Hier spielen“ steht:
+  - die Plakette `Badge` Art `live` „Spielt in melonDS“;
+  - der Zustandstext (`data-live-state="<zustand>"`, `aria-live="polite"`, in einer Zeile mit Auslassung, der volle Text als Tooltip):
+
+    | Zustand | Text |
+    |---|---|
+    | `starting` | „Startet melonDS …“ |
+    | `connecting` | „Verbindet …“ |
+    | `waiting_for_save` | „Wartet auf den Spielstand“ |
+    | `live` | „Live“, mit Haltepunkten „Live · 1 Haltepunkt“, „Live · 2 Haltepunkte“ |
+    | `halted` | „Gehalten: <Name des Haltepunkts>: <vorher> → <nachher>“, etwa „Gehalten: Auslöser 0 · Eventdatei 394: 0 → 1“ |
+    | `lost` | „Verbindung verloren: <Grund>“ |
+
+  - „Weiter“ (primär, `data-live-resume`) nur im Halt; „Neu laden“ (sekundär, `data-live-reload`: stoppen, bauen, neu starten wie „Hier spielen“; `aria-disabled` während ein Build läuft) und „Stoppen“ (sekundär, `data-live-stop`: trennt, beendet das eigene melonDS, das Scharnier wird wieder dunkel).
+  - Ist der Spielmodus „nicht verfügbar“ (kein melonDS 1.1 oder neuer, ein melonDS läuft schon mit falschen Einstellungen, kein Stub auf dem Port), bleibt die Leiste dunkel, und „Hier spielen“ startet das Spiel wie bisher; die Meldung nennt den Grund („Ohne Live-Verbindung: …“). Bei einem Start im Spielmodus lautet sie „Spielt in melonDS: <ROM>“.
+  - Die Tasten haben Wort, nie nur Symbol; der Fokus bleibt nach dem Tastendruck, wo er war (`aria-disabled` statt `disabled`).
+- **Technik › Emulator, Zeile „Spielmodus live“** (`LiveRow`, `data-live-row`, unter der Emulator-Zeile): die Beschriftung „Spielmodus live“, dann „melonDS 1.1 · GDB-Stub an · Port 3333 · JIT aus“ oder, was fehlt, je eine Zeile in leiser Schrift („GDB-Stub aus: wird beim nächsten „Hier spielen“ eingeschaltet, wenn melonDS nicht läuft“, ebenso „JIT an: … ausgeschaltet …“ und „Halt beim Start an: … ausgeschaltet …“), zuletzt der Pfad der Einstellungsdatei in Codeschrift (voller Pfad als Tooltip). Vor dem ersten „Hier spielen“ mit gewähltem Emulator: „Noch nicht geprüft: wird beim nächsten „Hier spielen“ gelesen“; ohne Emulator „Kein melonDS gewählt“; nicht lesbar „melonDS 1.1 · Einstellungen nicht lesbar“.
+- **Technik › Flags und Variablen, Spalte „Live“** (`FlagList`): der Kopf `[data-flag-live-head]` steht im Spielmodus in `live/text` (`data-flag-live-head="on"`), sonst wie in 3d.1. Die Zellen `[data-flag-live]`:
+  - ein Flag ist eine kleine Schalttaste mit „1“ oder „0“ (`<button data-flag-live="1">`, Codeschrift, Tooltip „Live: gesetzt · Klick löscht“ oder „Live: 0 · Klick setzt“); der Klick schreibt den Wert ins Spiel und wählt die Zeile nicht an; die Taste liegt nicht in der Tabulatorfolge (der Weg mit der Tastatur ist der Schalter im Detail);
+  - eine Variable zeigt den Wert dezimal (`data-flag-live="<wert>"`, Tooltip „Live <wert> · ändern im Detail“);
+  - eine Nummer außerhalb des Spielstands zeigt „–“ mit dem Tooltip „Liegt außerhalb des Spielstands.“;
+  - ohne Spielmodus zeigt jede Zelle „–“ mit dem Tooltip „Kommt mit „Hier spielen“ in melonDS“ (ersetzt „Kommt mit dem Spielmodus (3d.9)“); im Spielmodus ohne Schnappschuss (`starting`, `connecting`, `waiting_for_save`, `lost`) steht „–“ und der Zustandstext des Scharniers als Tooltip;
+  - die Zeilen werden nur neu gezeichnet, wo sich ihr Wert geändert hat (kein Flackern bei 250 ms Takt).
+- **Detail, Abschnitt „Live“** (`FlagDetail`, `data-flag-section="Live"`, vor „Wo gesetzt“; nur im Spielmodus mit Schnappschuss): bei einem Flag der Schalter „Im Spiel gesetzt“ und die Notiz „Sichtbarkeits-Flags wirken beim nächsten Betreten der Karte.“; bei einer Variable das Zahlfeld „Wert im Spiel“ (0 bis 65535) und die sekundäre Taste „Setzen“ (getippt wird erst mit „Setzen“ geschrieben, danach zeigt das Feld wieder den Wert aus dem Spiel); außerhalb des Spielstands der Satz „Liegt außerhalb des Spielstands.“. Gezeigt wird immer der gelesene Wert, nie der gewünschte; während des Schreibens sind Schalter und Feld gesperrt.
+- **Nicht übernommen:** behält das Spiel einen Wert nicht (`read_back: false`), steht im Detail der gewählten Nummer eine `Notice` Warnung „Wert nicht übernommen, noch einmal versuchen.“; ging es um eine Zeile, die nicht gewählt ist, steht die Warnung über der Liste (`[data-flag-live-warning]`) mit dem Namen: „FLAG_HAT_MEDAILLE: Wert nicht übernommen, noch einmal versuchen.“ bzw. „Flag 0x0173: …“. Sie verschwindet mit dem nächsten gelesenen Wert.
+- **Inspector, Zeile „Haltepunkt“** (`EventEditor`, `[data-live-breakpoint]`, unter den Feldern; nur im Spielmodus): `InspectorRow` „Haltepunkt“ mit einer `Checkbox` „Anhalten, wenn sich das Flag ändert“ (Figur: ihr Sichtbarkeits-Flag) bzw. „Anhalten, wenn sich die Variable ändert“ (Auslöser: seine Variable). Gesperrt mit dem Grund als Hinweis: „Die Figur hat kein Sichtbarkeits-Flag“, „Der Auslöser hat keine Variable“, bei Türen und Hintergrund-Events „Haltepunkte gibt es an Figuren und Auslösern“. Ein Haltepunkt hält das Spiel an, sobald sich der Wert ändert (Zustand „Gehalten“, Scharnier „Gehalten: …“, „Weiter“ lässt es laufen); die Zahl steht im Text „Live · 2 Haltepunkte“.
+- **Agenten:** über MCP gibt es nur `live_status` (lesend) und `live_set` (schreibend, kein Verlaufsschritt, nicht in `g4_batch`); Starten, Verbinden, Stoppen, Weiter und Haltepunkte bleiben in der App (siehe `docs/mcp.md`, „Spielmodus live“). In der Test-Umgebung verbindet `scripts/agent/call.sh live_connect '{"port":3390}'` die App mit dem Stub von `g4emu repl`; `live_play` lehnt die Brücke wie `run_rom` ab.
+- **Abweichungen und offene Punkte:**
+  - **Abfrage statt Haltepunkten an Adressen:** Die App fragt den Spielstand alle 250 ms ab und hält, wenn sich ein überwachter Wert zwischen zwei Schnappschüssen geändert hat (spätestens ein Bild nach der Abfrage); der Plan aus der Spezifikation („Haltepunkte an `Z`-Paketen im Script-Interpreter“) braucht ROM-Adressen und einen ungeprüften `hwbreak` von melonDS. Ein Haltepunkt hält darum nicht auf dem Befehl, der den Wert schreibt, sondern kurz danach.
+  - **Nur macOS:** Das Starten und Einstellen von melonDS (Version aus `Info.plist`, `melonDS.toml` unter `~/Library/Preferences/melonDS/`, Stub und JIT) gibt es nur unter macOS; Windows und Linux starten das Spiel wie bisher ohne Live-Werte.
+  - **Ein Client:** der Stub von melonDS bedient nur einen Client; ein zweiter Debugger neben der App bekommt keine Antwort (und umgekehrt).
+  - **Scharnier:** der Plan sah „keine neuen Tokens“ vor; es gibt `live/taste` und die Umbildung der Tokens in `.playMode` (siehe oben). Die Spielmodus-Fläche des Zielbilds trägt „Live“-Werte nur für Flags und Variablen; Team, Inventar und Werte anderer Daten gibt es nicht (Entscheidung „Nicht in 3d.9“).
+  - „Neu laden“ stoppt zuerst; scheitert der Build danach, bleibt melonDS gestoppt.
+  - Die `.fig` kennt die Frames noch nicht (siehe oben): die Frames „Scharnier: Spielmodus“ und „Flags: Live“ folgen.
+  - **Blick für den Nutzer:** das Scharnier im Spielmodus in Hell, Dunkel und Kompakt (Lesbarkeit der Tasten, der Plakette und des Textes auf Bernstein), die Spalte „Live“ mit Werten, der Halt mit „Weiter“ (Bilder `blick-scharnier-live-*`, `blick-flags-live-*`, `blick-halt-*`, Namen nach dem Gate).
