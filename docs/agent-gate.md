@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau und Ei-Attacken; Teil A und B) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür) und [phase-3d-8-gate.md](phase-3d-8-gate.md) (Erzählen-Layouts) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -1499,3 +1499,39 @@ scripts/agent/mcp.sh call recipe_apply '{"recipe":"new_trainer_here","input":{�
 scripts/agent/call.sh agent_status            # question: {kind: confirm, what: "Trainer anlegen"}
 # im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“
 ```
+
+## Phase 3d.8 ([phase-3d-8-gate.md](phase-3d-8-gate.md))
+
+3d.8 bringt die Erzählen-Layouts in Pokémon und Texte: die Taste „Neuer Trainer…“ in Pokémon › Trainer (`[data-new-trainer-recipe]` in der Zeile `[data-new-trainer-row]`; die Welt zeigt danach den vorbelegten Ort), die Live-Vorschau des Assistenten „Neuer Trainer hier“ (`[data-trainer-preview]`, `[data-foe]`, `[data-preview-slot]`), „Wer hier wartet“ in Pokémon › Begegnungen (`li[data-waiting][data-species]`, `[data-rarity]`, Tausch zweier Grasplätze über `data_edit` Teil `EncounterSwap`), Dialoge nach Ort und Figur in Texte (`[data-dialog-list]`, `[data-dialog-header]`, `[data-dialog-cards]`, `[data-dialog-figure]`, Kernel `dialogs_of_header`), das Layout je Unterbereich des Pokémon-Docks (`g4.layout.v11.pokemon.sub.<sub>`, siehe „Layout je Unterbereich (3d.8)“ oben) und den Musik-Picker am Header (`[data-music-field]`, `name_tables.sounds`). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-8-<zweck>` und `.nds` `3d-8-<zweck>.nds` nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen), `web` (Platin DE) und `hgweb` (HeartGold DE) für den Browser. Vor dem Browser je Kopie über die Brücke (Seite offen oder `call.sh open_project '{"path":"<Kopie>"}'`): `git_init`, `adopt_scripts`, `save`, danach außen `git add -A && git commit` (ohne übernommene Scripts lehnt `recipe_plan` den Trainer ab, wie 3d.5 Befund A; ohne Git sagt `git status` nichts). Alle `3d-8-*` nach dem Gate löschen. Bilder und Logs unter `target/agent/gate-<datum>/3d-8/`; die Test-Umgebung läuft auf **1780/1781**.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent (auf main nach dem Merge) | nicht im Worktree (unter Last scheitern die Zeitgrenzen); die berührten Schritte einzeln: fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --lib`, `pnpm test`, `pnpm build`, Tokens, Styles, Depth |
+| (1) gated `dialogs_of_header` | Agent | je Projekt im Release-Profil mit `G4_TIMING_STRICT=1`, Befehl unten; Zeilen `dialogs <Spielcode> header=… figures=… ms=…` |
+| (2) Zeiten über die Brücke | Agent | Resource Timing der Seite und `call.sh`, unten |
+| (3) Browser | Agent | Test-Umgebung auf 1780/1781, Ablauf in der Gate-Datei, Chrome headless 1440 × 900 |
+| Neuer Trainer in der gepackten App | Hand | siehe Gate-Datei, „Hand“ |
+| Blick | Agent + Blick | Bilder `blick-{trainer-assistent,wer-hier-wartet,dialoge,layout,musik}-{hell,dunkel,kompakt}.png` unter `target/agent/gate-<datum>/3d-8/` |
+
+**Gated (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
+G4_TIMING_STRICT=1 G4_TEST_PROJECT="$K/3d-8-<k>" \
+  cargo test --release -p g4-kernel --all-features --test dialog vanilla_dialogs_of_the_largest_places_under_a_second -- --nocapture
+#   die fünf Orte mit den meisten Objekten je Spiel, jeder ≤ 1 000 ms; 2026-11-02 unter Last höchstens 58 / 70 / 67 ms
+```
+
+**Zeiten (2):** Die Seite misst ihre Aufrufe selbst: vor einem Schritt `performance.setResourceTimingBufferSize(20000); performance.clearResourceTimings()`, danach `performance.getEntriesByType("resource").filter(e => e.name.includes("/invoke/"))` (Name, `startTime`, `duration`). Das erste Vorschaubild ist der erste `get_trainer_sprite` nach dem Klick auf „Neuer Trainer…“ (≤ 50 ms). Die Stoppuhr läuft vom Klick bis zum Text „Trainer aufgestellt“ (unter zwei Minuten). Das Feld `ms` des Kerns:
+
+```sh
+scripts/agent/call.sh dialogs_of_header '{"header":3}'      # {header, event_file, archive, figures: [...], ms}
+scripts/agent/call.sh get_events '{"eventFileId":46}'      # das neue Trainer-Objekt (trainer_type 1, sight, x, z)
+scripts/agent/call.sh data_get '{"kind":"encounter","index":140}'   # methods[grass].slots nach Art und Tausch
+scripts/agent/call.sh history '{}'                          # zwei Zeilen „Route 201: Gras Platz …“
+scripts/agent/call.sh get_header '{"id":3}'                 # music_day_id / music_night_id nach dem Picker
+```
+
+**Browser (3):** Seite `http://127.0.0.1:1780/?project=<Roms>/_testkopien/3d-8-web` (danach `3d-8-hgweb`); Erzählen über das Segment „Tiefe“; die Unterbereiche von Pokémon über den Listenkopf (Menü) oder ⌘1 bis ⌘4. Hinweise aus Lauf 1: Meta+A wählt in Chrome headless über CDP nicht alles (Feld über `element.select()` leeren); im Art-Picker des Assistenten und der Begegnungen nimmt Enter nur einen hervorgehobenen Treffer (sonst den Treffer anklicken); ⌘S und ⌘Z tun nichts, solange der Dialog-Editor oder ein Assistent offen ist (Editor schließen, Fokus aus dem Feld nehmen, dann Meta+S bzw. Meta+Z). „Schweben lassen“ steht im Kontextmenü eines Dock-Reiters (Rechtsklick); die Trennlinie zwischen Schau und Hand ist `.dv-sash`. Das Layout gilt je Bereich für alle Projekte im selben Browser-Profil.
