@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau; Teil A, Teil B folgt) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau; Teil A, Teil B folgt) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) sowie [phase-3d-4-gate.md](phase-3d-4-gate.md) (Löschen mit Referenzsperre) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -1359,3 +1359,90 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 ```
 
 `publish_patch` ohne `overwrite` fragt nicht: es legt nur neue Dateien unter `build/` an, und eine vorhandene Datei lehnt es mit `exists` ab, statt zu fragen; unumkehrbar wird es mit `overwrite: true` und mit einem `dir` außerhalb von `build/` („Bauen außerhalb von build/“). `git_commit_all` fragt immer. Beide sind nicht in `g4_batch` erlaubt, ebenso `git_commit_prepare` (über `g4_call`; seine Prüfung kann den Block der `.gitignore` schreiben). Ein `dir` außerhalb `build/` muss über MCP in einem `--allow-dir`-Ordner liegen und existieren: die Pfadprüfung der Policy kommt vor dem Kern. Eine Datei als `dir` ist dort `bad_dir`, ein Ort **unter** einer Datei oder ein fehlender Ordner antwortet schon in der Pfadprüfung mit `error` „Pfad nicht lesbar: …“ (so gewollt); `g4k publish` antwortet für beides `bad_dir`. Der Eintrag in `.g4/releases.json` bleibt in jedem Fall; `undo` nimmt ihn nicht zurück.
+
+## Phase 3d.4 ([phase-3d-4-gate.md](phase-3d-4-gate.md))
+
+3d.4 bringt das Löschen mit Referenzsperre: den Grabstein (`deleted: true`, ein Undo-Schritt), den deklarativen Index der Welt-Kanten, `plan_delete`/`delete_entity`/`restore_entity` (MCP) und `g4k delete`, „Nummer freigeben“ mit Undo-Grenze, den Import, der über Git hinweg kürzt, Warp löschen ohne stille Umlenkung, `schemaVersion` 2 mit Migration, den Dialog „Löschen…“, die Plakette im Inspector-Kopf, „Gelöschte zeigen“ und Technik › Änderungen „Gelöscht“. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie. **`scripts/gate.sh` läuft in 3d.4 nicht aus dem Worktree:** die Hauptsitzung führt es einmal auf main nach dem Merge der Welle aus; bis dahin laufen seine Schritte einzeln (Gate-Datei, (1) 2).
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher `g4k git init`), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke (je `g4k git init`), `tuer-pt` und `tuer-hg` für die Szenarien, `git-pt` und `git-hgde` für den Branch-Test in `tests/git.rs`. `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`). Alle `3d-4-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+
+**Ports:** `G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741` (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1740/?project=<Roms>/_testkopien/3d-4-web_DSPRE_contents`; andere Ports nie anfassen. Chrome headless 1440 × 900; Hell und Dunkel über `Emulation.setEmulatedMedia` in derselben CDP-Verbindung wie das Bild.
+
+**Wo was ist:** Dialog `[data-delete-dialog]` (Titel „<Name> löschen“): Fehlermeldung „{n} Verweise: zuerst umhängen.“ mit der Liste `[data-reference]` (weiche Verweise `[data-warning-reference]`), „Löschen“ gesperrt; Original-Warnung „Original aus der Basis-ROM: …“; Kästchen „Nummer freigeben (nicht rückgängig)“ mit Plakette „Nicht rückgängig“ in `[data-free-number]`, sonst der Satz aus `cannot_free` in `[data-cannot-free]`; Tasten „Abbrechen“, „Löschen“ (primär), abgelehnt nur „Schließen“. Menüeintrag „Löschen…“ im Menü „Aktionen“ der Köpfe Gebiet, Raum, Ort, Karte, Trainer, Begegnungsdatei; in Technik › Textprojekt der Abschnitt „Löschen“ `[data-delete-section]` (nur Tüfteln; Art Matrix, Karte, Eventdatei, Gebietsdaten, Scriptdatei, Textarchiv, Nummer, „Löschen…“). Plakette `[data-entity-state="changed|new|deleted"]` im Inspector-Kopf. „Gelöschte zeigen“ `[data-show-deleted="true|false"]` im Kopf der Listen Trainer, Begegnungen, Welt › Orte; gelöschte Zeilen `data-deleted="true"` mit Plakette „gelöscht“ und im Kontextmenü „Wiederherstellen“. Technik › Änderungen: „Gelöscht“ (Plakette `[data-tombstone=deleted]` im Detail). Agentenfrage `[data-agent-question]` „Nummer freigeben“.
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) Schritte von `scripts/gate.sh` | Agent | fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --all-features --lib`, `cargo test -p studio --test mcp_stdio`, `pnpm test`, `pnpm build`, die drei Prüfskripte, `g4emu` Unit einzeln; das ganze Skript läuft auf main nach dem Merge |
+| (1) gated Tests | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime`), Befehle unten |
+| (2) Szenario kopflos | Agent | Release-`studio mcp --project <Kopie> [--allow-irreversible]` über JSON-RPC/stdio und `g4k`, Ablauf unten; die Szenarien mit `g4emu` |
+| (3) Browser | Agent | Test-Umgebung auf 1740/1741, Ablauf unten |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| (3) Blick, (4) Blick | Agent + Blick, Blick | Bilder unter `target/agent/gate-<Datum>/3d-4/` |
+| (4) gepackte App, DSPRE-Hand-Probe „Entfernen“ | Hand | Gate-Datei, Abschnitt „Hand“ |
+
+**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
+G4_TEST_PROJECT="$K/3d-4-<k>_DSPRE_contents" \
+  cargo test --release -p g4-kernel --all-features \
+    --test delete --test refs --test textproject --test textproject_migrate --test original \
+    --test diff --test git --test vanilla_checks --test textproject_source \
+    -- --nocapture --test-threads 1
+#   vanilla_world_edges_match_the_measured_counts: Zeilen „<Spielcode> header → matrix: n / m“ usw.; Soll Header→Matrix / Matrix→Karte / Warp→Header
+#     Platin 593 / 1 172 / 1 213, HeartGold 540 / 958 / 1 317 (±1 %); Script → Header Platin 67, HeartGold 114 (nicht 154: MoveWarp trägt als ersten Parameter einen Warp-Index)
+#   vanilla_index_builds_under_a_second: Index-Zeit; die Grenze 1 000 ms gilt nur mit G4_TIMING_STRICT=1 und auf ruhiger Maschine
+#   textproject_round_trip_with_tombstone, textproject_export_idempotent_with_tombstone, migration_1_to_2_changes_only_the_manifest_without_own_names,
+#   vanilla_checks_match_the_fixed_counts (0 Fehler), a_branch_without_the_freed_file_builds_after_git_switch (braucht git; zusätzlich einzeln auf 3d-4-git-pt, 3d-4-git-hgde)
+G4_TEST_PROJECT="$K/3d-4-<k>_DSPRE_contents" \
+  cargo test -p studio --all-features --lib delete_over_the_command_path -- --nocapture --test-threads 1
+#   delete_over_the_command_path_on_the_vanilla_copy: löschen, ⌘Z, Nummer freigeben; druckt Zeiten (Debug)
+```
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
+
+```sh
+P=$K/3d-4-k<k>_DSPRE_contents
+target/release/g4k git init $P                               # Ausgangsstand, damit git status etwas sagt
+target/release/studio mcp --project $P                       # ohne Erlaubnis:
+#   plan_delete {"target":{"kind":"trainer","index":<n>}} → references, original, can_free
+#   delete_entity einer verwiesenen Entität → referenced mit details.references (Trainer an einer Figur, Begegnungsdatei an einem Header,
+#     Karte in einer Matrix, Header als Warp-Ziel und in einem Warp-Script, Tür mit eingehendem Warp über delete_event)
+#   delete_entity mit free_number → needs_confirmation
+#   plan_delete / delete_entity eines Original-Headers, einer Original-Scriptdatei, eines Original-Textarchivs → refusal mit ORIGINAL_KIND
+target/release/studio mcp --project $P --allow-irreversible --expert
+#   je Art eine neue Entität anlegen (create_trainer, recipe_apply create_room für Karte/Header/Eventdatei/Matrix, Begegnungsdatei, g4_call für Scriptdatei/Textarchiv/Gebietsdaten),
+#     delete_entity (Grabstein), save; Prüfsumme der Dateien außer .git und .g4 vor und nach undo gleich; g4k build und g4k check 0 Fehler
+#   restore_entity; reset_to_original eines gelöschten Original-Trainers → wieder da
+#   delete_entity mit free_number → freed {count, files}; git status nennt die entfernte Datei; undo hält an der Grenze
+target/release/g4k delete plan  $P trainer <n>               # JSON; ein abgelehnter Plan endet mit Exit 1
+target/release/g4k delete apply $P trainer <n> [--free-number --allow-irreversible]
+target/release/g4k delete restore $P trainer <n>
+# Migration: Kopie mit schemaVersion 1 (aus einem Commit vor 3d.4 exportiert)
+target/release/g4k text migrate $P                           # changed == [g4-project.json]; mit name_flag vorher dazu die eine Eventdatei
+```
+
+**Szenarien (2)**, aus `scripts/g4emu` mit `G4_ROMS_DIR` absolut (in einem Worktree auch `G4_STUDIO_BIN` und `G4K_BIN`, siehe „Szenarien über MCP“); die Platzhalter stehen im Kopf der Dateien und in der Liste „Szenarien“ oben (`pt-tuer-loeschen.yaml`, `hg-tuer-loeschen.yaml`, `mcp: [--allow-irreversible, --expert]`):
+
+```sh
+uv run g4emu scenario ../agent/scenarios/pt-tuer-loeschen.yaml --project $K/3d-4-tuer-pt_DSPRE_contents --out ../../target/agent/3d-4/tuer-pt \
+  --set ZIMMER=415 --set ZIMMER_DATEI=394 --set ZIMMER_KARTE=187 --set A_X=3 --set A_Y=7 --set B_X=5 --set B_Y=10 --set B_DIR=down \
+  --set RIVALE=412 --set RIVALE_DATEI=391 --set RIVALE_TUER=0 --set TUER_X=6 --set TUER_Y=10          # Header-Folge 415, 412, 415
+uv run g4emu scenario ../agent/scenarios/hg-tuer-loeschen.yaml --project $K/3d-4-tuer-hg_DSPRE_contents --out ../../target/agent/3d-4/tuer-hg \
+  --set ZIMMER=64 --set ZIMMER_DATEI=61 --set ZIMMER_KARTE=217 --set A_X=7 --set A_Y=7 --set B_X=5 --set B_Y=10 --set B_DIR=down \
+  --set RIVALE=65 --set RIVALE_DATEI=62 --set RIVALE_TUER=0 --set TUER_X=4 --set TUER_Y=8             # Header-Folge 64, 65, 64
+```
+
+**Browser (3)**, Test-Umgebung auf 1740/1741, Kopien `3d-4-web` und `3d-4-hgweb`. Ablauf: einen neuen Trainer anlegen, an einer Figur eintragen, „Löschen…“ im Kopf: Dialog mit Verweisen (Liste, Weg zur Quelle, „Löschen“ gesperrt); den Verweis lösen, erneut: „Löschen“, Meldung „Gelöscht: …“, Plakette `[data-entity-state=deleted]`, ⌘Z (Fokus in der Seite, Meta+Z über CDP); `[data-show-deleted]` aus und an, „Wiederherstellen“ im Kontextmenü; Plakette „geändert“ nach Speichern, „neu“ bei einer angelegten Entität; Technik › Änderungen „Gelöscht“, „Auf Original zurücksetzen…“ eines gelöschten Original-Trainers (Dialog nennt „Grabstein“); „Nummer freigeben“ (Kästchen, Plakette „Nicht rückgängig“) mit `git -C <Kopie> status --porcelain`; Tüfteln: Technik › Textprojekt › „Löschen“ mit Art und Nummer. Danach Hell, Dunkel und Kompakt, jeweils ein Bild.
+
+**MCP (3)** über die Brücke (Kopie `3d-4-web` in der Seite geöffnet):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'
+scripts/agent/mcp.sh call plan_delete '{"target":{"kind":"trainer","index":<n>}}'     # ohne Rückfrage
+scripts/agent/mcp.sh call delete_entity '{"target":{"kind":"trainer","index":<verwiesen>}}'   # referenced mit der Liste
+scripts/agent/mcp.sh call delete_entity '{"target":{"kind":"trainer","index":<neu>},"free_number":true}' > target/agent/mcp-free.out 2>&1 &   # wartet auf die Frage
+scripts/agent/call.sh agent_status            # question: {kind: confirm, what: „Nummer freigeben“}
+# im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“ → freed
+```

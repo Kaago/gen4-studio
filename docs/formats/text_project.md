@@ -1095,6 +1095,8 @@ den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
 | 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
 | 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
 
+Das Gate von 3d.4 (Grabstein je Art, Round-Trip und Idempotenz mit Grabstein, Kürz-Regel des Imports über Git hinweg, Migration 1 → 2 ändert nur Manifest und die Namen in der Event-JSON) und die Zahlen dazu stehen in [phase-3d-4-gate.md](../phase-3d-4-gate.md); die Befehle in [agent-gate.md](../agent-gate.md), Abschnitt „Phase 3d.4“.
+
 ## Codes
 
 Jede Meldung ist `<code>: <Satz>`, bei einer Entität `<code>: <JSON-Pfad>: <Satz>`. Ein Fehler hält Import
