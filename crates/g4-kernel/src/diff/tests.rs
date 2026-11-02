@@ -1143,3 +1143,225 @@ fn touch_trainer_1_on_disk(root: &Path) {
     bytes[1] ^= 0x01;
     std::fs::write(&member, bytes).unwrap();
 }
+
+const STORY_0: DiffSubject = DiffSubject::Story { index: 0 };
+
+fn story_step(
+    key: &str,
+    value: u16,
+    kind: crate::stories::StepKind,
+    name: &str,
+) -> crate::stories::Step {
+    crate::stories::Step {
+        key: key.to_owned(),
+        value,
+        kind,
+        name: name.to_owned(),
+        notes: String::new(),
+        made: None,
+        uses: vec![crate::stories::Use::Trainer("TRAINER_0001".to_owned())],
+    }
+}
+
+/// Story 0 of the text project with two steps and the notes „Alt“, written without a store.
+fn create_story_0(fx: &TextFixture) -> String {
+    use crate::stories::{Progress, StepKind, StoryRequest, create_story_files};
+    let report = create_story_files(
+        &fx.project(),
+        &StoryRequest {
+            name: "Testfaden".to_owned(),
+            progress: Progress::Var("VAR_UNUSED_0x406C".to_owned()),
+            notes: "Alt".to_owned(),
+            steps: vec![
+                story_step("s0", 0, StepKind::Start, "Beginn"),
+                story_step("s1", 1, StepKind::Battle, "Kampf"),
+            ],
+            flags: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert_eq!(report.number, 0);
+    report.id
+}
+
+#[test]
+fn a_story_diffs_as_fields_against_head() {
+    use crate::stories::{Layout, Position, StepKind, StoryPatch, update_story_files};
+    let fx = TextFixture::exported();
+    let id = create_story_0(&fx);
+    GitFixture::init(fx.root());
+    GitFixture::commit_all(fx.root(), "Ausgangsstand");
+    assert_eq!(
+        diff_text(&fx, &STORY_0, Against::Head).state,
+        DiffState::Same
+    );
+
+    // The notes and the name of step 1 change, and a node is moved in the side file.
+    update_story_files(
+        &fx.project(),
+        &id,
+        &StoryPatch {
+            notes: Some("Neu".to_owned()),
+            steps: Some(vec![
+                story_step("s0", 0, StepKind::Start, "Beginn"),
+                story_step("s1", 1, StepKind::Battle, "Kampf am Tor"),
+            ]),
+            layout: Some(Layout {
+                nodes: [("s1".to_owned(), Position { x: 12.0, y: -4.5 })].into(),
+            }),
+            ..StoryPatch::default()
+        },
+    )
+    .unwrap();
+    let report = diff_text(&fx, &STORY_0, Against::Head);
+    assert_eq!(report.state, DiffState::Changed);
+    assert_eq!(report.label, "Geschichte 0000");
+    assert!(report.old_label.starts_with("Commit "), "{report:?}");
+    assert_eq!(report.new_label, "Projekt (gespeichert)");
+    assert_eq!(report.reset, None);
+    let mut changes = fields(&report).to_vec();
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
+    // The side file is not part of the story's meaning.
+    assert_eq!(
+        changes,
+        [
+            FieldChange {
+                path: "notes".into(),
+                old: Some("Alt".into()),
+                new: Some("Neu".into()),
+            },
+            FieldChange {
+                path: "steps[1].name".into(),
+                old: Some("Kampf".into()),
+                new: Some("Kampf am Tor".into()),
+            },
+        ]
+    );
+
+    // In the list of `HEAD` the story is its own row, the side file a project file.
+    let entries = head_list(fx.root());
+    let rows: Vec<(ChangeState, &str, &str)> = rows(&entries)
+        .into_iter()
+        .filter(|(_, _, label)| !label.starts_with(".g4/"))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (ChangeState::Changed, "Geschichten", "Geschichte 0000"),
+            (
+                ChangeState::Changed,
+                "Projektdateien",
+                "data/stories/0000.layout.json"
+            ),
+        ]
+    );
+    let story = entries.iter().find(|e| e.subject == STORY_0).unwrap();
+    assert_eq!(story.target, None);
+    assert_eq!(story.folder, None);
+    assert!(story.assets.is_empty());
+
+    // Stories have no unsaved state: against the saved state both sides are the file.
+    let project = fx.project();
+    let mut store = Store::new(Arc::new(fx.project()));
+    let sources = DiffSources {
+        original: None,
+        base_label: None,
+        repo: None,
+    };
+    let saved = diff_entity(
+        &project,
+        Some(&mut store),
+        &sources,
+        &STORY_0,
+        Against::Saved,
+    )
+    .unwrap();
+    assert_eq!(saved.state, DiffState::Same);
+    assert!(fields(&saved).is_empty());
+}
+
+#[test]
+fn a_new_story_is_new_against_head_and_refused_against_base() {
+    let fx = TextFixture::exported();
+    GitFixture::init(fx.root());
+    GitFixture::commit_all(fx.root(), "Ausgangsstand");
+    // Neither side has it: the same, as fields.
+    let none = diff_text(&fx, &STORY_0, Against::Head);
+    assert_eq!(none.state, DiffState::Same);
+    assert!(fields(&none).is_empty());
+
+    create_story_0(&fx);
+    let report = diff_text(&fx, &STORY_0, Against::Head);
+    assert_eq!(report.state, DiffState::New);
+    let changes = fields(&report);
+    assert!(changes.iter().all(|c| c.old.is_none() && c.new.is_some()));
+    for path in [
+        "name",
+        "notes",
+        "progress.var",
+        "steps[1].name",
+        "steps[1].uses[0].trainer",
+    ] {
+        assert!(
+            changes.iter().any(|c| c.path == path),
+            "{path}: {changes:?}"
+        );
+    }
+
+    // A story has no base side: refused before a base ROM is asked for.
+    assert_eq!(
+        refusal(try_diff(fx.root(), None, &STORY_0, Against::Base)),
+        NO_BASE_FOR_FILES
+    );
+}
+
+#[test]
+fn of_path_maps_the_story_json_and_leaves_the_layout_a_file() {
+    let fx = TextFixture::exported();
+    let project = fx.project();
+    let of = |rel: &str| DiffSubject::of_path(&project, rel);
+    assert_eq!(of("data/stories/0000.json"), Some(STORY_0));
+    assert_eq!(
+        of("data/stories/0012.json"),
+        Some(DiffSubject::Story { index: 12 })
+    );
+    for rel in [
+        "data/stories/0000.layout.json",
+        "data/stories/12.json",
+        "data/stories/README.md",
+        "data/ids/stories.json",
+    ] {
+        assert_eq!(
+            of(rel),
+            Some(DiffSubject::File {
+                path: rel.to_owned()
+            }),
+            "{rel}"
+        );
+    }
+}
+
+#[test]
+fn story_label_and_group() {
+    let story = DiffSubject::Story { index: 7 };
+    assert_eq!(
+        serde_json::to_value(&story).unwrap(),
+        serde_json::json!({"kind": "story", "index": 7})
+    );
+    assert_eq!(story.label(), "Geschichte 0007");
+    assert_eq!(story.group(), "Geschichten");
+    assert_eq!(story.index(), Some(7));
+    assert_eq!(story.reset_target(), None);
+    assert!(story.check().is_ok());
+    let fx = TextFixture::exported();
+    let project = fx.project();
+    assert!(story.assets(&project).is_empty());
+    assert_eq!(story.folder(&project), None);
+    // A store asset never is a story.
+    assert!(
+        AssetKind::ALL
+            .into_iter()
+            .filter_map(|kind| DiffSubject::from_asset(&project, AssetId { kind, index: 0 }))
+            .all(|s| !matches!(s, DiffSubject::Story { .. }))
+    );
+}

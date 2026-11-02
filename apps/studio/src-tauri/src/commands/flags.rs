@@ -68,7 +68,8 @@ pub struct FlagListDto {
 /// One reference to a flag or a variable: `label` says what of the source refers („Objekt 3 ·
 /// Sichtbarkeits-Flag“, „Zeile 12 · SetFlag“), `source_name` the source („Eventdatei 0394“,
 /// „Scriptdatei 0101“, „Level-Script 0005“), `nav` where a click leads, `header` the first
-/// header that uses the source (with its name).
+/// header that uses the source (with its name), `value` the constant a variable reference sets
+/// or compares (`Ref::value`).
 #[derive(Debug, Clone, Serialize)]
 pub struct FlagRefDto {
     pub source: AssetId,
@@ -80,6 +81,7 @@ pub struct FlagRefDto {
     pub nav: NavTargetDto,
     pub header: Option<u16>,
     pub header_name: Option<String>,
+    pub value: Option<u16>,
 }
 
 /// `flag_usage`: one number with its names, area, whether the save holds it, usage and every
@@ -218,7 +220,11 @@ impl Users {
 /// an object's visibility flag („Objekt 3 · Sichtbarkeits-Flag“), the "defeated" flag of the
 /// trainer an object starts („Trainer 0928 · Script“, to the trainer), a hidden item
 /// („Schild 2 · Verstecktes Item“), a trigger's variable („Auslöser 1 · Variable“).
-fn event_place(family: Family, r: &Ref, header: Option<u16>) -> (String, String, NavTargetDto) {
+pub(crate) fn event_place(
+    family: Family,
+    r: &Ref,
+    header: Option<u16>,
+) -> (String, String, NavTargetDto) {
     let event_file = r.source.index;
     let slot = r.slot.unwrap_or(0);
     let event = |event_kind| NavTargetDto::Event {
@@ -268,11 +274,13 @@ fn describe(family: Family, r: &Ref, users: &Users) -> Option<FlagRefDto> {
         nav,
         header,
         header_name: None,
+        value: r.value,
     })
 }
 
-/// The names of the headers `wanted`: the place's name, the internal name when it has none.
-fn header_names(session: &mut Session, wanted: &BTreeSet<u16>) -> HashMap<u16, String> {
+/// The names of the headers `wanted`: the place's name, the internal name when it has none
+/// (also the threads and the graph of a thread, `commands::stories`).
+pub(crate) fn header_names(session: &mut Session, wanted: &BTreeSet<u16>) -> HashMap<u16, String> {
     if wanted.is_empty() {
         return HashMap::new();
     }

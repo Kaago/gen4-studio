@@ -102,7 +102,8 @@ pub fn sources(project: &Project) -> Result<Vec<PathBuf>, KernelError> {
 
 /// The hints of the text project: folders under `data/` no art or data kind knows, reserved
 /// manifest keys in use (in `schemas` only keys no data kind has), register entries whose
-/// number is gone, and the problems of the data kinds' files.
+/// number is gone, and the problems of the data kinds' files (a story's id that names nothing
+/// is the warning `story.dangling-ref`, never an error).
 pub(crate) fn hints(project: &Project, manifest: &Manifest) -> Result<Vec<Problem>, KernelError> {
     let mut hints = Vec::new();
     let data = project.root.join(DATA_DIR);
@@ -357,7 +358,7 @@ mod tests {
         let manifest = read_manifest(fx.root()).unwrap();
         assert_eq!(
             manifest.schemas.keys().collect::<Vec<_>>(),
-            ["flags", "vars"]
+            ["flags", "stories", "vars"]
         );
         assert!(hints_of(&fx).is_empty(), "{:#?}", hints_of(&fx));
 
@@ -365,10 +366,70 @@ mod tests {
         fx.edit(
             MANIFEST_FILE,
             "\"flags\": 1,",
-            "\"flags\": 1,\n    \"stories\": 1,",
+            "\"flags\": 1,\n    \"plugins\": 1,",
         );
         let hints = hints_of(&fx);
         assert_eq!(codes_of(&hints), [RESERVED_CODE], "{hints:#?}");
         assert_eq!(hints[0].severity, Severity::Info);
+    }
+
+    #[test]
+    fn a_dangling_story_use_is_a_warning_with_its_line() {
+        use crate::stories::{
+            DANGLING_REF_CODE, Progress, Step, StepKind, StoryRequest, Use, create_story_files,
+            story_rel,
+        };
+        let fx = TextFixture::exported();
+        let created = create_story_files(
+            &fx.project(),
+            &StoryRequest {
+                name: "Testfaden".to_owned(),
+                progress: Progress::Var("VAR_UNUSED_0x406C".to_owned()),
+                notes: String::new(),
+                steps: vec![Step {
+                    key: "s0".to_owned(),
+                    value: 0,
+                    kind: StepKind::Battle,
+                    name: "Kampf".to_owned(),
+                    notes: String::new(),
+                    made: None,
+                    uses: vec![Use::Trainer("TRAINER_NOPE".to_owned())],
+                }],
+                flags: Vec::new(),
+            },
+        )
+        .unwrap();
+        let rel = story_rel(created.number);
+        let text = fx.text(&slash(&rel).to_string_lossy());
+        let line = text
+            .lines()
+            .position(|l| l.contains("\"TRAINER_NOPE\""))
+            .map(|i| u32::try_from(i + 1).unwrap())
+            .unwrap();
+
+        let report = check(&fx.project()).unwrap();
+        let warnings: Vec<&Problem> = report
+            .problems
+            .iter()
+            .filter(|p| p.message.starts_with(DANGLING_REF_CODE))
+            .collect();
+        assert_eq!(warnings.len(), 1, "{:#?}", report.problems);
+        let warning = warnings[0];
+        assert_eq!(warning.severity, Severity::Warning);
+        assert_eq!(warning.file, rel);
+        assert_eq!(warning.line, line);
+        assert_eq!(
+            warning.message,
+            "story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NOPE."
+        );
+        // A warning holds nothing up: the check finds no error.
+        assert!(
+            report
+                .problems
+                .iter()
+                .all(|p| p.severity != Severity::Error),
+            "{:#?}",
+            report.problems
+        );
     }
 }

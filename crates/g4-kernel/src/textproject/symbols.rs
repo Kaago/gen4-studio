@@ -28,11 +28,12 @@ pub enum SymbolKind {
     Place,
     Flag,
     Var,
+    Story,
 }
 
 impl SymbolKind {
     /// `SPECIES`, `MOVE`, `ITEM`, `ABILITY`, `TYPE`, `MAP`, `TRAINER`, `TRAINER_CLASS`, `PLACE`,
-    /// `FLAG`, `VAR`.
+    /// `FLAG`, `VAR`, `STORY`.
     pub fn prefix(self) -> &'static str {
         match self {
             SymbolKind::Species => "SPECIES",
@@ -46,6 +47,7 @@ impl SymbolKind {
             SymbolKind::Place => "PLACE",
             SymbolKind::Flag => "FLAG",
             SymbolKind::Var => "VAR",
+            SymbolKind::Story => "STORY",
         }
     }
 }
@@ -85,8 +87,9 @@ impl SymbolTable {
 }
 
 /// The fixed table of `kind`: `Some` for species (forms included), moves, items, abilities and
-/// types; the other kinds are christened per project and live in its registers, the flags and
-/// variables have the pret names of `flags::names` per family instead of a fixed table.
+/// types; the other kinds are christened per project and live in its registers (a story is
+/// christened from its name when it is made), the flags and variables have the pret names of
+/// `flags::names` per family instead of a fixed table.
 pub fn table(kind: SymbolKind) -> Option<&'static SymbolTable> {
     static SPECIES: OnceLock<SymbolTable> = OnceLock::new();
     static MOVES: OnceLock<SymbolTable> = OnceLock::new();
@@ -104,7 +107,8 @@ pub fn table(kind: SymbolKind) -> Option<&'static SymbolTable> {
         | SymbolKind::TrainerClass
         | SymbolKind::Place
         | SymbolKind::Flag
-        | SymbolKind::Var => {
+        | SymbolKind::Var
+        | SymbolKind::Story => {
             return None;
         }
     };
@@ -125,7 +129,8 @@ fn files(kind: SymbolKind) -> &'static [(&'static str, &'static str)] {
         | SymbolKind::TrainerClass
         | SymbolKind::Place
         | SymbolKind::Flag
-        | SymbolKind::Var => &[],
+        | SymbolKind::Var
+        | SymbolKind::Story => &[],
     }
 }
 
@@ -388,9 +393,24 @@ mod tests {
             SymbolKind::Place,
             SymbolKind::Flag,
             SymbolKind::Var,
+            SymbolKind::Story,
         ] {
             assert!(table(kind).is_none(), "{kind:?} is christened per project");
         }
+    }
+
+    #[test]
+    fn story_has_a_prefix_and_no_fixed_table() {
+        assert_eq!(SymbolKind::Story.prefix(), "STORY");
+        assert!(table(SymbolKind::Story).is_none());
+        assert!(files(SymbolKind::Story).is_empty());
+        assert_eq!(fallback_id(SymbolKind::Story, 0), "STORY_0000");
+        assert_eq!(parse_fallback(SymbolKind::Story, "STORY_0007"), Some(7));
+        assert_eq!(parse_fallback(SymbolKind::Story, "STORY_TESTFADEN"), None);
+        assert_eq!(
+            serde_json::to_value(SymbolKind::Story).unwrap(),
+            serde_json::json!("Story")
+        );
     }
 
     #[test]
@@ -462,7 +482,9 @@ mod tests {
         );
         assert_eq!(fallback_id(SymbolKind::Map, 12345), "MAP_12345");
         assert_eq!(fallback_id(SymbolKind::Flag, 148), "FLAG_0148");
+        assert_eq!(fallback_id(SymbolKind::Story, 3), "STORY_0003");
         assert_eq!(parse_fallback(SymbolKind::Var, "VAR_16492"), Some(16492));
+        assert_eq!(parse_fallback(SymbolKind::Story, "STORY_0003"), Some(3));
         assert_eq!(parse_fallback(SymbolKind::Item, "ITEM_0113"), Some(113));
         assert_eq!(parse_fallback(SymbolKind::Item, "ITEM_12345"), Some(12345));
         assert_eq!(parse_fallback(SymbolKind::Item, "MOVE_0001"), None);

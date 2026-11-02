@@ -20,6 +20,7 @@ Diamant/Perl in Phase 4.“).
 | `data/<art>/NNNN.json` | eine Entität je Datei, `NNNN` vierstellig ab `0000`, lückenlos |
 | `data/<art>/NNNN.<ext>` | Beifiles einer Entität (gleicher Stamm) und die Member der Binärarten |
 | `data/ids/{maps,trainers,trainer_classes,places}.json` | Register der getauften IDs |
+| `data/ids/{flags,vars,stories}.json` | Register der eigenen Flag- und Variablennamen und der Geschichten |
 | `data/raw/<pfad>` | Blobs: geänderte Dateien, die keine Entität und keine Quelle besitzt |
 | `data/rotom-quirks.json` | rotoms Binär-Eigenheiten je Script-Quelle |
 | `expanded/textArchives/NNNN.json` | Texte (wie in 4.2, unverändert) |
@@ -43,6 +44,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
   "studioVersion": "0.1.0",
   "schemas": {
     "flags": 1,
+    "stories": 1,
     "vars": 1
   },
   "plugins": []
@@ -57,7 +59,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 | `game.family` | `pt` oder `hgss` |
 | `game.language` | Sprachschlüssel (`de_DE`, `en_US`, …) |
 | `studioVersion` | Version des Kernels, der zuletzt exportierte |
-| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
+| `schemas` | die Schema-Version jeder Datenart ohne ROM-Gegenstück (`flags`, `vars`, siehe [flags_vars.md](flags_vars.md) „Art-Beschreibung“; `stories`, siehe [stories.md](stories.md)), vom Export geschrieben; andere Schlüssel sind reserviert und bleiben unverändert (`textproject.reserved`) |
 | `plugins` | reserviert; der Inhalt bleibt unverändert, gelesen wird er nicht (`textproject.reserved`) |
 | `eggMovesPatch` | `true`, wenn die Ei-Attacken in DSPRE's Patch-NARC liegen (Platin, `files/zcustom/egg_moves.narc`); gesetzt vom Export und vom Speichern der Ei-Attacken. Ein Klon hat NARC und Ordner nicht, der Import legt dann `unpacked/eggMoves/0000` aus den Spezies-Dateien an (siehe „Ei-Attacken“); fehlt sonst |
 | `eggMoves` | `true`, wenn die Spezies-Dateien die Ei-Attacken-Tabelle halten (siehe „Ei-Attacken“): gesetzt vom Export, der die Tabelle lesen konnte, und vom ersten Speichern der Ei-Attacken im Studio; fehlt sonst (auslassbar, keine neue Schema-Version) |
@@ -84,9 +86,11 @@ Keine Basis-SHA-1: die Basis-ROM nennt `.g4/base.json` ([project_base.md](projec
 | `building_models`, `interior_building_models` | – | `exteriorBuildingModels`, `interiorBuildingModels` (nur HeartGold/SoulSilver): nur `NNNN.nsbmd` bei Abweichung |
 | `flags` | eigener Name eines Flags (`NNNN.json`, dezimal) | keiner: Datenart ohne ROM-Gegenstück, `{id, description?}` ([flags_vars.md](flags_vars.md)) |
 | `vars` | eigener Name einer Variable (`NNNN.json`, dezimal, `16492.json`) | keiner, wie `flags` |
+| `stories` | Geschichte (Projekt-Entität ohne Member, Beifile `.layout.json`) | keiner: Datenart ohne ROM-Gegenstück ([stories.md](stories.md)) |
 
-`flags` und `vars` sind Datenarten (`textproject/kinds.rs`): Export und Import fassen sie nicht an,
-nur der Check liest sie, und es gibt eine Datei nur für eine Nummer mit eigenem Namen. Eine Art,
+`flags`, `vars` und `stories` sind Datenarten (`textproject/kinds.rs`): Export und Import fassen sie
+nicht an, nur der Check liest sie; bei Flags und Variablen gibt es eine Datei nur für eine Nummer
+mit eigenem Namen, bei Geschichten eine je Registereintrag. Eine Art,
 deren Archiv das Spiel nicht hat, fehlt. Items gibt es nur mit geprüfter Item-Tabelle
 (`arm9_tables.yaml`); ohne sie laufen die Item-Member wie alles Nicht-Abgebildete (Blob bei
 Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weitere
@@ -289,11 +293,12 @@ Spezies (mit Formen), Attacken, Items, Fähigkeiten und Typen haben feste englis
 Stellen, auch über der Tabelle).
 
 Maps, Trainer, Trainerklassen und Orte haben Register `data/ids/<art>.json`, dazu die eigenen
-Namen der Flags und Variablen (`flags.json`, `vars.json`): sechs Register, je ein JSON-Objekt
-ID → Nummer, Schlüssel sortiert, ohne eigenes Versionsfeld. Der Export schreibt alle sechs (leer
-als `{}`). Flags und Variablen werden nie getauft: ihr Register hält nur Namen, die „Als eigenes
-Flag benennen…“ vergeben hat, die pret-Namen stehen nicht darin
-([flags_vars.md](flags_vars.md)).
+Namen der Flags und Variablen (`flags.json`, `vars.json`) und die Geschichten (`stories.json`):
+sieben Register, je ein JSON-Objekt ID → Nummer, Schlüssel sortiert, ohne eigenes Versionsfeld.
+Der Export schreibt alle sieben (leer als `{}`). Flags und Variablen werden nie getauft: ihr
+Register hält nur Namen, die „Als eigenes Flag benennen…“ vergeben hat, die pret-Namen stehen
+nicht darin ([flags_vars.md](flags_vars.md)). Eine Geschichte bekommt ihre ID `STORY_…` beim
+Anlegen aus ihrem Namen ([stories.md](stories.md)); in die ID-Dateien für rotom kommt sie nicht.
 
 ```json
 {
@@ -1016,11 +1021,13 @@ oben).
 
 ## ID umbenennen
 
-Eine **Register-ID** (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, und die eigenen Namen
-`FLAG_`, `VAR_`) lässt sich umbenennen; die IDs der festen Tabellen (Spezies, Formen, Attacken,
+Eine **Register-ID** (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, die eigenen Namen
+`FLAG_`, `VAR_` und die Geschichten `STORY_`) lässt sich umbenennen; die IDs der festen Tabellen (Spezies, Formen, Attacken,
 Items, Fähigkeiten, Typen) und die pret-Namen der Flags und Variablen (`Unbekannte ID: …`) bleiben
 fest. Ein eigener Flag-Name zieht dabei auch die `id` seiner Entitätsdatei `data/flags/NNNN.json`
-nach (sie liegt unter `data/`). Die
+nach (sie liegt unter `data/`), eine Geschichte die `id` ihrer Datei `data/stories/NNNN.json`
+(ihre Nummer bleibt); jede Geschichte, die die alte ID nennt (`progress`, `uses`, `flags`), zieht
+ohne eigenen Code mit. Die
 Art einer ID gibt das längste passende Präfix: `TRAINER_CLASS_X` ist eine Trainerklasse, kein
 Trainer. Kernel: `textproject::rename::{plan_rename, rename_id, rename_id_files}`, kopflos
 `g4k text rename-id <projekt> <alt> <neu> [--json]` (ohne Undo).
@@ -1115,7 +1122,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |
 | `textproject.unknown-art` | Warnung | ein Ordner unter `data/`, den keine Art kennt; bleibt unberührt |
 | `textproject.reserved` | Info | `schemas` hat einen Schlüssel, der keine Datenart ist, oder `plugins` ist nicht leer |
-| `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt (Flags, Variablen: der eigene Name hat keine Entitätsdatei) |
+| `textproject.id-dangling` | Warnung | ein Registereintrag nennt eine Nummer, die es nicht mehr gibt; er bleibt (Flags, Variablen: der eigene Name hat keine Entitätsdatei; Geschichten: der Eintrag hat keine `data/stories/NNNN.json`) |
 | `textproject.id-shadowed` | Warnung | Check: eine ID fehlt in den ID-Dateien für rotom, weil rotom den Namen schon mit anderer Nummer kennt (in Scripts gilt rotoms) oder eine Art davor ihn hat |
 | `textproject.base-unchecked` | Warnung | Binärmember ohne Datei ließen sich ohne Basisschicht nicht vergleichen |
 | `textproject.member-newer` | Warnung | Build: ein Member ist seit dem letzten Build geändert, seine JSON nicht; der Member bleibt (`g4k text export` übernimmt ihn, `g4k text import` verwirft ihn) |
@@ -1123,6 +1130,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.unsynced` | Fehler | Build ohne Eintrag (erster Build, „ohne Cache“, neues Salz): ein Member weicht von seiner JSON und von der Basisschicht ab; nichts geschrieben |
 | `textproject.egg-moves-unexported` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber `g4-project.json` hat die Marke `eggMoves` nicht (vor dem Feld exportiert); nichts wird geschrieben, bis ein Export oder das Speichern der Ei-Attacken im Studio sie setzt |
 | `textproject.egg-moves-locked` | Warnung | Import: Spezies-Dateien tragen `egg_moves`, aber die Ei-Attacken-Tabelle hat keinen Ort (Platin mit ungeprüfter Fassung oder fehlender Signatur); der Grund steht im Satz, nichts wird geschrieben |
+| `story.dangling-ref` | Warnung | Check: eine ID in `progress`, `uses` oder `flags` einer Geschichte nennt im Projekt nichts; gemeldet mit Datei und Zeile des Eintrags, hält nichts auf ([stories.md](stories.md) „Prüfung“) |
 
 ## Quellenliste
 

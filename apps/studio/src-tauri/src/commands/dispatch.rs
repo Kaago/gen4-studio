@@ -205,6 +205,12 @@ pub const COMMANDS: &[&str] = &[
     "flag_usage",
     "free_flag",
     "name_flag",
+    "list_threads",
+    "thread_graph",
+    "story_list",
+    "story_get",
+    "story_create",
+    "story_update",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1078,6 +1084,27 @@ pub fn dispatch(
                 }
             )
         ),
+        "list_threads" => run!(json, "list_threads", args, {}, |_a| list_threads_impl(
+            state
+        )),
+        "thread_graph" => run!(
+            json, "thread_graph", args,
+            { var: u16, story: Option<String> },
+            |a| thread_graph_impl(state, a.var, a.story)
+        ),
+        "story_list" => run!(json, "story_list", args, {}, |_a| story_list_impl(state)),
+        "story_get" => run!(json, "story_get", args, { id: String }, |a| {
+            story_get_impl(state, a.id)
+        }),
+        // A progress the symbolic arguments made a number becomes its id again.
+        "story_create" => run!(json, "story_create", args, { req: Value }, |a| {
+            story_create_value(state, a.req)
+        }),
+        "story_update" => run!(
+            json, "story_update", args,
+            { id: String, patch: Value },
+            |a| story_update_value(state, a.id, a.patch)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1486,6 +1513,18 @@ mod tests {
             (
                 "name_flag",
                 json!({"kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null}),
+            ),
+            ("list_threads", json!({})),
+            ("thread_graph", json!({"var": 16432, "story": null})),
+            ("story_list", json!({})),
+            ("story_get", json!({"id": "STORY_TEST"})),
+            (
+                "story_create",
+                json!({"req": {"name": "Test", "progress": {"var": "VAR_UNUSED_0x406C"}}}),
+            ),
+            (
+                "story_update",
+                json!({"id": "STORY_TEST", "patch": {"notes": "x"}}),
             ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),

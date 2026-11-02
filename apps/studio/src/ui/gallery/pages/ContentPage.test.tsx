@@ -46,4 +46,41 @@ describe("ContentPage", () => {
     expect(block.querySelector("[data-flag-detail] h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
     expect(block.querySelectorAll("[data-flag-use]")).toHaveLength(2);
   });
+
+  it("shows_the_seven_story_kinds_at_rest_and_selected_and_a_noted_only_node", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="story-nodes"]')!;
+    const kinds = ["start", "dialog", "condition", "battle", "reward", "progress", "appearance"];
+    for (const kind of kinds) {
+      expect(block.querySelectorAll(`[data-story-node][data-kind="${kind}"]:not([data-selected])`).length).toBeGreaterThanOrEqual(1);
+      expect(block.querySelectorAll(`[data-story-node][data-kind="${kind}"][data-selected]`)).toHaveLength(1);
+    }
+    expect(block.querySelectorAll("[data-story-node][data-noted-only]")).toHaveLength(1);
+    expect(block.querySelectorAll('[data-story-node][data-kind="value"]')).toHaveLength(1);
+    expect(block.querySelectorAll('[data-story-node][data-kind="place"][data-loose]')).toHaveLength(1);
+    expect(block.querySelector('[data-story-node][role="button"]')?.getAttribute("aria-label")).toBe("Ort: Zweiblattdorf, Scriptdatei 0101");
+  });
+
+  it("shows_rows_of_the_thread_overview_with_a_story_chip", () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="threads"]')!;
+    expect(block.querySelectorAll("[data-thread-row]")).toHaveLength(2);
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-name]")?.textContent).toBe("VAR_RIVALIN");
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-tech]")?.textContent).toBe("0x4040");
+    expect(block.querySelector("[data-thread-row='16448'] [data-thread-story]")?.textContent).toContain("Rivalin");
+    expect(block.textContent).toContain("3 Orte: Zweiblattdorf, Route 201, …");
+    // A click on a row reads no graph (the gallery has no project to read it from): nothing hangs on „Graph wird gelesen …“.
+    act(() => block.querySelector<HTMLElement>("[data-thread-row='16448']")!.click());
+    expect(block.textContent).not.toContain("Graph wird gelesen");
+    expect(block.querySelector("[data-thread-graph-box]")).toBeNull();
+  });
+
+  it("shows_story_rows_and_the_new_story_dialog", async () => {
+    const block = container.querySelector<HTMLElement>('[data-gallery-state="stories"]')!;
+    expect(block.querySelectorAll("[data-story-row]")).toHaveLength(2);
+    expect(block.querySelector("[data-story-row=STORY_RIVALIN] [data-story-progress]")?.textContent).toBe("VAR_164480x4040");
+    expect(block.querySelector("[data-story-row=STORY_0001] [role=status]")?.textContent).toContain("unbekanntes Feld");
+    await act(async () => block.querySelector<HTMLElement>("[data-new-story]")!.click());
+    const dialog = document.querySelector<HTMLElement>("[data-new-story-dialog]")!;
+    expect(dialog.querySelector("h2")?.textContent).toBe("Neue Geschichte");
+    expect([...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Geschichte anlegen")?.disabled).toBe(true);
+  });
 });

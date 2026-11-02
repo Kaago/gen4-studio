@@ -32,3 +32,5 @@ pub mod world_meta;
 // Appended last on purpose (parallel phases append here); rustfmt must not sort it up.
 #[rustfmt::skip]
 pub mod flags;
+#[rustfmt::skip]
+pub mod stories;

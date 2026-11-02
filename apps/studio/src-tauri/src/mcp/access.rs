@@ -224,6 +224,13 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("free_flag", Kind::Read),
     // One undo step, like rename_id.
     ("name_flag", Kind::Write),
+    ("list_threads", Kind::Read),
+    ("thread_graph", Kind::Read),
+    ("story_list", Kind::Read),
+    ("story_get", Kind::Read),
+    // One undo step each (a file step: register, story, side file).
+    ("story_create", Kind::Write),
+    ("story_update", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -978,5 +985,17 @@ mod tests {
         }
         // One undo step, like rename_id.
         assert_eq!(kind("name_flag"), Kind::Write);
+    }
+
+    #[test]
+    fn story_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        for name in ["list_threads", "thread_graph", "story_list", "story_get"] {
+            assert_eq!(kind(name), Kind::Read, "{name}");
+        }
+        // One undo step each.
+        for name in ["story_create", "story_update"] {
+            assert_eq!(kind(name), Kind::Write, "{name}");
+        }
     }
 }

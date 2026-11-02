@@ -1,6 +1,6 @@
-//! „ID umbenennen“: a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, and the own
-//! names `FLAG_`, `VAR_`) gets a new name everywhere it is written, as one step on the undo
-//! stack. The pret names of flags and variables are no register ids: they cannot be renamed, and
+//! „ID umbenennen“: a register id (`MAP_`, `TRAINER_`, `TRAINER_CLASS_`, `PLACE_`, the own
+//! names `FLAG_`, `VAR_`, and the stories `STORY_`) gets a new name everywhere it is written,
+//! as one step on the undo stack. The pret names of flags and variables are no register ids: they cannot be renamed, and
 //! no own name may take the pret name of another number.
 //!
 //! What is renamed: the register entry (`data/ids/<kind>.json`, which also renames the `id` of
@@ -62,7 +62,7 @@ pub const NOT_A_TEXT_PROJECT: &str =
 pub const SAME_ID: &str = "Die neue ID ist die alte.";
 
 /// Every kind, to split an id by its longest prefix (`TRAINER_CLASS_X` is a class).
-const KINDS: [SymbolKind; 11] = [
+const KINDS: [SymbolKind; 12] = [
     SymbolKind::Species,
     SymbolKind::Move,
     SymbolKind::Item,
@@ -74,6 +74,7 @@ const KINDS: [SymbolKind; 11] = [
     SymbolKind::Place,
     SymbolKind::Flag,
     SymbolKind::Var,
+    SymbolKind::Story,
 ];
 
 /// One file a rename writes, relative to the root, and how many references it changes there.

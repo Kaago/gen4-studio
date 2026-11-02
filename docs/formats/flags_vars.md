@@ -264,6 +264,38 @@ einer Bedingung (`CheckItem(ITEM_POTION, 1) == 1`) ist ein Befehl wie jeder ande
 Ergebnisvariable ist kein Verweis. Quelle: rotom `src/compiler/ir/lowerer.rs:1300-1356,
 1792-1807`.
 
+**Der Wert.** Ein Verweis auf eine Variable trägt den konstanten Wert, auf den er sie setzt oder
+mit dem er sie vergleicht (`Ref.value`, im DTO `FlagRefDto.value`; Grundlage der Fäden einer
+Geschichte, gemessen in [Gutachten A](../research/2026-10-30-phase-3d/gutachten-a-geschichten-erzaehlen.md)
+§2.2):
+
+| Stelle | Wert |
+|---|---|
+| Befehl mit Eintrag in `values` der Familie | das Argument des dort genannten Parameters, am Verweis des einen anderen Variablen-Parameters des Befehls |
+| Vergleich in `if`/`while` (`==`, `!=`, `<`, `<=`, `>`, `>=`, auch durch `!`, `&&`, `\|\|`) | der andere Operand, auf welcher Seite auch immer (`if 5 >= VAR_X` → 5) |
+| Auslöser (Events) | sein `value` |
+| Level-Script | `var_conditions[i].value` |
+
+`values` (`metadata/script_flagvars.yaml`): Platin `SetVar` (`valueOrVarID`), `SetVarFromValue`
+und `CompareVarToValue` (`value`), `CompareVar`, `GoToIf…` und `CallIf…` (`valueOrVarID`);
+HeartGold `SetVar` und `CompareVarToValue` (`val`, HeartGold hat kein `SetVarFromValue`, sein
+`SetVar` nimmt den Wert) und `SetOrCopyVar` (`flexible_value`). `AddVar`/`SubVar` addieren und
+tragen keinen Wert. Ein Wert zählt, wenn er zu einer Zahl unter `0x4000` auflöst (Zahl, Alias der
+Datei, Name, den der Build kennt); kein Wert (`None`) bleibt
+
+- ein Argument oder Operand ab `0x4000`: eine Variable (`SetVar VAR_X, VAR_Y` gibt beiden
+  Verweisen keinen Wert, `CompareVarToValue VAR_X, VAR_RESULT` keinen; dort ist `VAR_RESULT` die
+  Zahl `0x800C`, die der Befehl als Wert nimmt, und wird nicht gezählt), ebenso bei Auslöser und
+  Level-Script ein `value` ab `0x4000`;
+- was nicht auflöst (unbekannter Name, Alias ohne Wert, Ausdruck, Aufruf wie
+  `VAR_X == CheckItem(…)`);
+- der Kopf von `match` und ein nackter Operand (`if VAR_X then`);
+- jedes Flag und jedes Trainer-Flag.
+
+Die Prüfung `values_name_existing_commands` hält `values` ehrlich: der Befehl steht in der
+Datenbank, der Parameter an genau einer Stelle, und der Befehl hat außer ihm genau einen
+Variablen-Parameter, der den Wert trägt.
+
 **Nicht indexiert, nur gezählt.** Variablen ab `0x8000` (Script-lokale Register) und Flags oder
 Trainer aus einer Variable (ein Flag ab `0x4000` nur, wenn es nicht als Flag-Name geschrieben
 ist, s. o.). Die Zähler je Datei summiert der Index: `RefIndex::script_counts`
@@ -288,7 +320,7 @@ Hintergrund-Events, dann die Auslöser; `slot` ist der Index des Events in seine
 | `hidden_flag` | Objekt mit `hidden_flag ≠ 0` | `Flag(hidden_flag)` | `read` (ist das Flag gesetzt, bleibt das Objekt verborgen) |
 | `script` | Objekt mit Script `3000`–`4999` (Trainer `n` = Script − 2999) oder `5000`–`6999` (Partner, Script − 4999) | `Trainer(n)` wie bisher **und** `Flag(0x550 + n)`, solange es im Bereich `trainer` liegt | `read` bzw. `read_write` (die Engine prüft das Flag vor dem Kampf und setzt es nach dem Sieg) |
 | `hidden_item` | Hintergrund-Event mit `event_type == 2` und Script `8000 + n` | `Flag(hidden_items.start + n)`: Platin `0x2DA + n`, HeartGold `0x320 + n`; über die Länge des Bereichs hinaus (284 bzw. 231) kein Verweis | `read_write` (geprüft, ob das Item liegt, gesetzt beim Aufheben) |
-| `var` | Auslöser mit `var` `0x4000`–`0x7FFF` | `Var(var)` | `read` (der Auslöser läuft, wenn die Variable `value` hat) |
+| `var` | Auslöser mit `var` `0x4000`–`0x7FFF` | `Var(var)` mit dem Wert `value` | `read` (der Auslöser läuft, wenn die Variable `value` hat) |
 
 Ein Sichtbarkeits-Flag 0 und eine Auslöser-Variable 0 sind kein Verweis (kein Flag, keine
 Variable); der Wert bleibt speicherbar. Begründung: Gutachten B §1.3 und §3.2 Punkt 3. Ob jedes
@@ -302,7 +334,7 @@ HeartGold DE).
 Quell-ID wie eine `.rotom`-Datei dieser Nummer (`AssetKind::Script`, eine Nummer, eine Quelle;
 gibt es beide, gilt die `.rotom` wie bei `scripts::source_kind`). Jede Bedingung
 `var_conditions[i]` mit `var` `0x4000`–`0x7FFF` ist `Var(var)`, `read`, Feld `var_conditions`,
-Slot `i`. `var` 0 beendet die Tabelle wie in der Engine: weder dieser Eintrag noch die folgenden
+Slot `i`, mit dem Wert `value` der Bedingung. `var` 0 beendet die Tabelle wie in der Engine: weder dieser Eintrag noch die folgenden
 zählen. Eine Variable ab `0x8000` wird nur gezählt (`ScriptCounts.script_local`). Eine JSON, die
 nicht liest, trägt nichts bei.
 

@@ -673,6 +673,18 @@ pub enum NavTargetDto {
         flag_kind: g4_kernel::flags::FlagKind,
         number: u16,
     },
+    /// A story in Geschichten › Geschichten, by its number. Mirrors `NavTarget`; no backend
+    /// answer leads to one yet.
+    #[allow(dead_code)]
+    Story {
+        number: u16,
+    },
+    /// A thread in Geschichten › Fäden, by its variable. Mirrors `NavTarget`; no backend answer
+    /// leads to one yet.
+    #[allow(dead_code)]
+    Thread {
+        var: u16,
+    },
 }
 
 /// Where a finding about `subject` leads (spec 3b.4 §5): the spot its `key` names when the

@@ -1,0 +1,106 @@
+/* A node of a story's or a thread's graph (3d.6). Values and steps carry the colour of the area Geschichten, places are a plain sheet.
+   The width is the one the graph's layout reserves (stories/graph/layout.ts, NODE_WIDTH). */
+.node {
+  display: flex;
+  box-sizing: border-box;
+  width: 192px;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-6) var(--g4-raum-8);
+  border: var(--g4-strich-standard) solid var(--g4-linie-standard);
+  border-radius: var(--g4-radius-taste);
+  color: var(--g4-text-primaer);
+  text-align: start;
+  transition: border-color var(--g4-dauer-kurz), box-shadow var(--g4-dauer-kurz);
+}
+
+.value {
+  border-inline-start: var(--g4-raum-4) solid var(--g4-bereich-geschichten);
+  background: var(--g4-bereich-geschichten-flaeche);
+}
+
+.place {
+  background: var(--g4-flaeche-blatt);
+}
+
+.node[role="button"] {
+  cursor: pointer;
+}
+
+.node[role="button"]:hover {
+  border-color: var(--g4-linie-stark);
+}
+
+.value[role="button"]:hover {
+  border-inline-start-color: var(--g4-bereich-geschichten);
+}
+
+.selected,
+.selected[role="button"]:hover {
+  border-color: var(--g4-auswahl-kante);
+  box-shadow: 0 0 0 var(--g4-strich-standard) var(--g4-auswahl-kante);
+}
+
+.value.selected {
+  border-inline-start-color: var(--g4-auswahl-kante);
+}
+
+/* Noted only: dashed, and the plakette says it (never the line alone). */
+.notedOnly {
+  border-style: dashed;
+}
+
+.loose {
+  border-style: dotted;
+}
+
+.head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--g4-raum-4);
+}
+
+.kind {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-4);
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value .kind {
+  color: var(--g4-bereich-geschichten);
+  font-weight: 600;
+}
+
+.action {
+  display: inline-flex;
+  flex: none;
+  margin-block: calc(-1 * var(--g4-raum-2));
+}
+
+.kind svg {
+  flex: none;
+  font-size: var(--g4-schrift-groesse-s);
+}
+
+.title {
+  overflow: hidden;
+  font: var(--g4-font-text-s-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

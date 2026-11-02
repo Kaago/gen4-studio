@@ -55,6 +55,7 @@ export function flagRef(over: Partial<FlagRefDto> = {}): FlagRefDto {
     nav: { kind: "event", eventFile: 1, eventKind: "object", index: 0, header: 411 },
     header: 411,
     header_name: "Zweiblattdorf",
+    value: null,
     ...over,
   };
 }

@@ -71,6 +71,7 @@ import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
 import type { FlagKind } from "./api";
+import type { StoryReport } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -119,15 +120,15 @@ import { projectFromUrl } from "./platform/dialogs";
 import { WebDialogHost } from "./platform/WebDialogHost";
 import { inTauri } from "./platform/transport";
 import { invalidateFlagLists } from "./flags/useFlagList";
+import { GeschichtenArea } from "./stories/GeschichtenArea";
+import type { GeschichtenEntry } from "./stories/GeschichtenArea";
 
 /** The message that says what a wizard made, unless an error is showing: that one stays. */
 const announce = (text: string) => (shown: Message | null): Message => (shown?.kind === "error" ? shown : { kind: "info", text });
 
-/** What the atlas cannot open yet, and why (spec 5.3 and 5.9). */
-const LOCKED_AREAS: readonly AreaId[] = ["geschichten"];
-const LOCKED_HINTS: Partial<Record<AreaId, string>> = {
-  geschichten: "Kommt mit Phase 3d",
-};
+/** What the atlas cannot open yet, and why (spec 5.3 and 5.9): since 3d.6 every area is open. */
+const LOCKED_AREAS: readonly AreaId[] = [];
+const LOCKED_HINTS: Partial<Record<AreaId, string>> = {};
 
 /** The list column of each area with a deck. */
 const AREA_LISTS: Record<DeckArea, ReactNode> = {
@@ -284,6 +285,12 @@ function AppBody() {
     setTechnikEntry("textprojekt");
     setArea("technik");
   });
+  // Technik › Textprojekt without a focus on a group (Geschichten › Fäden's „Scripts übernehmen…“); not while a wizard holds the frame.
+  const showTextProjectEntry = useStableCallback(() => {
+    if (wizardOpen.current || startOpen) return;
+    setTechnikEntry("textprojekt");
+    setArea("technik");
+  });
   // The sync of a text project, run before a build (set below, once the sync hook exists).
   const syncBeforeBuild = useRef<(() => Promise<SyncOutcome | null>) | null>(null);
   // A folder that opened as a clone of a text project without its game files: „Textprojekt vervollständigen?“ asks about it.
@@ -340,16 +347,48 @@ function AppBody() {
     bumpIdsRevision();
     invalidateFlagLists();
   }, []);
-  // The number chosen in Technik › Flags und Variablen, kept for the session and the project it was chosen in (a picker's link sets it).
+  // The entry Geschichten shows; kept while another area shows.
+  const [geschichtenEntry, setGeschichtenEntry] = useState<GeschichtenEntry>("threads");
+  // The number chosen in Geschichten › Flags und Variablen, kept for the session and the project it was chosen in (a picker's link sets it).
   const [flagChoice, setFlagChoice] = useState<{ root: string; selected: { kind: FlagKind; number: number } | null } | null>(null);
   const flagSelected = flagChoice !== null && flagChoice.root === openRoot ? flagChoice.selected : null;
   const chooseFlag = useCallback((selected: { kind: FlagKind; number: number } | null) => setFlagChoice(openRoot === null ? null : { root: openRoot, selected }), [openRoot]);
-  // Technik › Flags und Variablen, on a number when given (a link, „Im Verzeichnis zeigen“); not while a wizard holds the frame.
+  // Geschichten › Flags und Variablen, on a number when given (a link, „Im Verzeichnis zeigen“); not while a wizard holds the frame.
   const showFlags = useStableCallback((selected?: { kind: FlagKind; number: number }) => {
     if (wizardOpen.current || startOpen || openRoot === null) return;
     if (selected !== undefined) setFlagChoice({ root: openRoot, selected });
-    setTechnikEntry("flags");
-    setArea("technik");
+    setGeschichtenEntry("flags");
+    setArea("geschichten");
+  });
+  // The thread chosen in Geschichten › Fäden and the story in › Geschichten (by number), kept like the flag for the session and project.
+  const [threadChoice, setThreadChoice] = useState<{ root: string; selected: number | null } | null>(null);
+  const threadSelected = threadChoice !== null && threadChoice.root === openRoot ? threadChoice.selected : null;
+  const chooseThread = useCallback((selected: number | null) => setThreadChoice(openRoot === null ? null : { root: openRoot, selected }), [openRoot]);
+  const [storyChoice, setStoryChoice] = useState<{ root: string; selected: number | null } | null>(null);
+  const storySelected = storyChoice !== null && storyChoice.root === openRoot ? storyChoice.selected : null;
+  const chooseStory = useCallback((selected: number | null) => setStoryChoice(openRoot === null ? null : { root: openRoot, selected }), [openRoot]);
+  // Geschichten › Fäden or › Geschichten, on a thread or story when given (a link, the palette); not while a wizard holds the frame.
+  const showThreads = useStableCallback((variable?: number) => {
+    if (wizardOpen.current || startOpen || openRoot === null) return;
+    if (variable !== undefined) setThreadChoice({ root: openRoot, selected: variable });
+    setGeschichtenEntry("threads");
+    setArea("geschichten");
+  });
+  const showStories = useStableCallback((number?: number) => {
+    if (wizardOpen.current || startOpen || openRoot === null) return;
+    if (number !== undefined) setStoryChoice({ root: openRoot, selected: number });
+    setGeschichtenEntry("stories");
+    setArea("geschichten");
+  });
+  // A story created, or its name or notes written, in Geschichten › Geschichten (one undo step that wrote files, as `name_flag`): the
+  // history is read again, Änderungen compares again and the area reads its lists again; a creation is said in a toast.
+  const onStoryWritten = useStableCallback((_report: StoryReport) => {
+    bumpChanged();
+    void session.refreshDirty();
+  });
+  const onStoryCreated = useStableCallback((report: StoryReport, name: string) => {
+    toast.info(`Geschichte „${name}“ angelegt`);
+    onStoryWritten(report);
   });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
@@ -403,6 +442,8 @@ function AppBody() {
     onOpenData: openDataLink,
     depth,
     onOpenFlag: showFlags,
+    onOpenStory: showStories,
+    onOpenThread: showThreads,
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
@@ -1118,7 +1159,7 @@ function AppBody() {
         hasProject: session.info !== null,
         commands: {
           busy: session.busy,
-          hasList: isDeckArea(area) || area === "technik",
+          hasList: isDeckArea(area) || area === "technik" || area === "geschichten",
           inApp: inTauri(),
           deck: paletteDeck,
           docked: isDeckArea(area),
@@ -1283,6 +1324,12 @@ function AppBody() {
       case "flags":
         showFlags();
         break;
+      case "geschichten":
+        showArea("geschichten");
+        break;
+      case "threads":
+        showThreads();
+        break;
     }
   });
 
@@ -1360,11 +1407,32 @@ function AppBody() {
         revision={shownRevision}
         changesChosen={changesChosen}
         onChangesChosen={chooseChange}
+      />
+    ) : area === "geschichten" ? (
+      <GeschichtenArea
+        project={info?.root ?? null}
+        entry={geschichtenEntry}
+        onEntry={setGeschichtenEntry}
+        listOpen={shell.state.listOpen.geschichten}
+        onToggleList={() => shell.setListOpen("geschichten", !shell.state.listOpen.geschichten)}
+        depth={depth}
+        revision={shownRevision + idsRevision}
+        goTo={(target) => data.goTo(withHeaderHint(target, scene.headers))}
+        selectedThread={threadSelected}
+        onSelectThread={chooseThread}
+        selectedStory={storySelected}
+        onSelectStory={chooseStory}
         flags={
           info
             ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed }
             : undefined
         }
+        textProject={isTextProject}
+        onOpenTextProject={showTextProjectEntry}
+        onOpenProject={openProject}
+        onError={session.fail}
+        onStoryCreated={onStoryCreated}
+        onStoryUpdated={onStoryWritten}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea

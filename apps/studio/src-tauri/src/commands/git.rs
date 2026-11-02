@@ -299,8 +299,11 @@ pub fn diff_entity_impl(
         }
         Against::Base => {
             let project = super::open_project_arc(state)?;
-            // A file has no base side: refused before the base ROM is searched.
-            if matches!(subject, DiffSubject::File { .. }) {
+            // A file or a story has no base side: refused before the base ROM is searched.
+            if matches!(
+                subject,
+                DiffSubject::File { .. } | DiffSubject::Story { .. }
+            ) {
                 return Err(CmdError::refused("not_diffable", NO_BASE_FOR_FILES));
             }
             let (mark, hit) = found_base(state, &project.root)?;

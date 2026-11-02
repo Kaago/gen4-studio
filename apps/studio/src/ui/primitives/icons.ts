@@ -75,6 +75,8 @@ import {
   X,
   XCircle,
   Flag,
+  FlowArrow,
+  Scroll,
 } from "@phosphor-icons/react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 
@@ -163,6 +165,10 @@ export const icons = {
   git: GitBranch,
   /** Flags and variables (3d.1): the Technik entry, the palette. */
   flag: Flag,
+  /** A thread (3d.6): a variable with several values at several places; the value nodes of its graph. */
+  thread: FlowArrow,
+  /** A story (3d.6): the area Geschichten › Geschichten. */
+  story: Scroll,
 } as const satisfies Record<string, PhosphorIcon>;
 
 export type IconName = keyof typeof icons;

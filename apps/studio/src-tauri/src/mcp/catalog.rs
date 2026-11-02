@@ -1535,7 +1535,186 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("name_flag"),
     },
+    // Stories (3d.6).
+    ToolDef {
+        name: "list_threads",
+        title: "List the story threads of the game",
+        description: "Every saved variable of the general area that the scripts, level scripts \
+                      and triggers set to at least three different values at at least two places \
+                      (headers): number, its pret name and own id, the values, the places and the \
+                      story that claims it. Threads come from the reference index; no story file \
+                      is needed.",
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("list_threads"),
+    },
+    ToolDef {
+        name: "thread_graph",
+        title: "Graph of one thread",
+        description: concat!(
+            "One node per value of the variable and one per place; an edge from a place to a \
+             value where a script sets it, from a value to a place where a script, level script \
+             or trigger checks it; with story the steps lie on the value nodes. var takes a \
+             number or VAR_… (also an own id). ",
+            data_note!()
+        ),
+        input_schema: || {
+            object(
+                json!({
+                    "var": id_or_number(
+                        "the variable: its number (from 0x4000 = 16384) or its name (VAR_…, the \
+                         pret name or the project's own id)"
+                    ),
+                    "story": {
+                        "type": ["string", "null"],
+                        "description": "a story's id (STORY_…): its steps on the value nodes and \
+                                        its layout; left out: the variable alone",
+                    },
+                }),
+                &["var"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("thread_graph"),
+    },
+    ToolDef {
+        name: "story_list",
+        title: "List the stories",
+        description: concat!(
+            "The stories of a text project by number: id, name, progress (var or flag) and the \
+             number of steps; a story file that does not read is a row with its problem instead \
+             (progress null). Empty outside a text project. ",
+            data_note!()
+        ),
+        input_schema: no_args,
+        output_schema: answers_object,
+        route: command("story_list"),
+    },
+    ToolDef {
+        name: "story_get",
+        title: "Read a story",
+        description: concat!(
+            "One story by its id (STORY_…): the story file with its layout (the side file, empty \
+             without one), its number and the number of its progress variable or flag; \
+             unknown_id for an id the project does not have. ",
+            data_note!()
+        ),
+        input_schema: || object(json!({ "id": story_id() }), &["id"]),
+        output_schema: answers_object,
+        route: command("story_get"),
+    },
+    ToolDef {
+        name: "story_create",
+        title: "Create a story",
+        description: "Creates data/stories/NNNN.json and its .layout.json in a text project as \
+                      one undo step; progress names a variable or a flag (VAR_…, FLAG_…, own ids \
+                      or numbers); the id STORY_… comes from the name. Answers id, number, \
+                      files, change, ms and warnings. Refused before anything is written: \
+                      not_text_project in the DSPRE layout, unknown_id for a progress that names \
+                      nothing, refused for an empty name or a step key two steps have.",
+        input_schema: || {
+            object(
+                json!({
+                    "req": object_described(
+                        json!({
+                            "name": text("the story's name; the id STORY_… is made from it"),
+                            "progress": progress(),
+                            "notes": text("free notes (default none)"),
+                            "steps": steps(),
+                            "flags": story_flags(),
+                        }),
+                        &["name", "progress"],
+                        "the story to make",
+                    ),
+                }),
+                &["req"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("story_create"),
+    },
+    ToolDef {
+        name: "story_update",
+        title: "Change a story",
+        description: "Replaces the given fields (name, notes, progress, steps, flags, layout) \
+                      as one undo step; the id changes only with rename_id. Refused before \
+                      anything is written: not_text_project in the DSPRE layout, unknown_id for \
+                      a story or a progress the project does not have, refused when nothing \
+                      changes, for an empty name or a step key two steps have.",
+        input_schema: || {
+            object(
+                json!({
+                    "id": story_id(),
+                    "patch": object_described(
+                        json!({
+                            "name": text("the new name (the id stays)"),
+                            "notes": text("the notes; empty: none"),
+                            "progress": progress(),
+                            "steps": steps(),
+                            "flags": story_flags(),
+                            "layout": nested(
+                                "the side file: {\"nodes\": {\"<step key>\": {\"x\": 0, \
+                                 \"y\": 0}}}, where the nodes sit in the graph"
+                            ),
+                        }),
+                        &[],
+                        "the fields to replace; a field left out stays",
+                    ),
+                }),
+                &["id", "patch"],
+            )
+        },
+        output_schema: answers_object,
+        route: command("story_update"),
+    },
 ];
+
+/// [`object`] with a description (a nested argument).
+fn object_described(properties: Value, required: &[&str], description: &str) -> Value {
+    let mut schema = object(properties, required);
+    schema["description"] = json!(description);
+    schema
+}
+
+/// The `id` of `story_get` and `story_update`.
+fn story_id() -> Value {
+    text("the story's id STORY_…, as story_list returns it")
+}
+
+/// The `progress` of a story: a variable or a flag.
+fn progress() -> Value {
+    object_described(
+        json!({
+            "var": id_or_number("a variable: its number or name (VAR_…, also an own id)"),
+            "flag": id_or_number("a flag: its number or name (FLAG_…, also an own id)"),
+        }),
+        &[],
+        "the number the story keeps its progress in: exactly one of var and flag; the story \
+         keeps its id",
+    )
+}
+
+/// The `steps` of a story.
+fn steps() -> Value {
+    json!({
+        "type": "array",
+        "description": "the steps, each {key, value, kind, name, notes?, uses?}: key unique in \
+                        the story, value the progress value, kind one of start, dialog, \
+                        condition, battle, reward, progress, appearance; uses entries with one \
+                        key each (trainer, map, flag, var as id; object {file, local_id}, script \
+                        {file, slot}, message {archive, index}, levelScript {file, condition})",
+        "items": nested("one step"),
+    })
+}
+
+/// The `flags` of a story.
+fn story_flags() -> Value {
+    json!({
+        "type": "array",
+        "description": "further flags the story uses, as ids (FLAG_…)",
+        "items": text("a flag's id"),
+    })
+}
 
 /// The arguments of `recipe_plan` and `recipe_apply`: the recipe and its input.
 fn recipe_args() -> Value {
@@ -1606,7 +1785,7 @@ fn flag_number() -> Value {
 }
 
 /// The kinds of `g4_kernel::diff::DiffSubject`, in its order.
-const DIFF_KINDS: [&str; 18] = [
+const DIFF_KINDS: [&str; 19] = [
     "map",
     "matrix",
     "area_data",
@@ -1625,6 +1804,7 @@ const DIFF_KINDS: [&str; 18] = [
     "interior_building_model",
     "member",
     "file",
+    "story",
 ];
 
 /// The arguments of `diff_entity`: the subject, flat, and what it is compared against.
@@ -1802,7 +1982,8 @@ mod tests {
     fn the_curated_tool_count_stays_within_what_an_agent_reads_at_once() {
         // Every description goes into the agent's context with tools/list: a catalog that grows
         // past this asks for a new curation, not a higher bound.
-        assert!((30..=70).contains(&catalog().len()), "{}", catalog().len());
+        // Raised from 70 to 80 with the six story tools of 3d.6.
+        assert!((30..=80).contains(&catalog().len()), "{}", catalog().len());
     }
 
     #[test]
@@ -1855,6 +2036,10 @@ mod tests {
                 "list_flags",
                 "flag_usage",
                 "free_flag",
+                "list_threads",
+                "thread_graph",
+                "story_list",
+                "story_get",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -1908,6 +2093,8 @@ mod tests {
             "git_commit_all",
             "recipe_apply",
             "name_flag",
+            "story_create",
+            "story_update",
         ]
         .into_iter()
         .collect();
@@ -1927,6 +2114,8 @@ mod tests {
         // Irreversible only with overwrite or a place outside build/.
         assert_eq!(kind_of("publish_patch"), Kind::Depends);
         assert_eq!(kind_of("name_flag"), Kind::Write);
+        assert_eq!(kind_of("story_create"), Kind::Write);
+        assert_eq!(kind_of("story_update"), Kind::Write);
     }
 
     #[test]
@@ -2039,6 +2228,9 @@ mod tests {
             "plan_reset",
             "diff_entity",
             "flag_usage",
+            "thread_graph",
+            "story_list",
+            "story_get",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -2323,6 +2515,18 @@ mod tests {
                 "name_flag",
                 json!({ "kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null }),
             ),
+            ("list_threads", json!({})),
+            ("thread_graph", json!({ "var": 16432 })),
+            ("story_list", json!({})),
+            ("story_get", json!({ "id": "STORY_TEST" })),
+            (
+                "story_create",
+                json!({ "req": { "name": "Test", "progress": { "var": "VAR_UNUSED_0x406C" } } }),
+            ),
+            (
+                "story_update",
+                json!({ "id": "STORY_TEST", "patch": { "notes": "x" } }),
+            ),
         ]
     }
 
@@ -2468,6 +2672,7 @@ mod tests {
             DiffSubject::File {
                 path: "g4-world.json".into(),
             },
+            DiffSubject::Story { index: 0 },
         ];
         let schema = (tool("diff_entity").input_schema)();
         let kinds = &schema["properties"]["kind"]["enum"];

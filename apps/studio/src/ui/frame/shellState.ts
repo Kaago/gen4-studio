@@ -24,7 +24,7 @@ export function depthAtLeast(depth: Depth, min: Depth): boolean {
 }
 
 /** The areas that have a view of their own in Erzählen; every other area shows Bauen there. */
-export const NARRATING_AREAS: readonly AreaId[] = ["welt"];
+export const NARRATING_AREAS: readonly AreaId[] = ["welt", "geschichten"];
 
 /** The depth `area` shows for the chosen `depth`: Erzählen only in a narrating area, else Bauen; Bauen and Tüfteln as chosen. */
 export function viewDepth(area: AreaId, depth: Depth): Depth {

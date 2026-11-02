@@ -1,0 +1,52 @@
+/* The graph of a thread (3d.6). React Flow brings only its measures (@xyflow/react/dist/base.css); every colour comes from the tokens,
+   set through React Flow's own variables. */
+.graph {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--g4-linie-stark);
+  --xy-edge-stroke-selected: var(--g4-auswahl-kante);
+  --xy-edge-stroke-width: var(--g4-strich-standard);
+  --xy-node-border: none;
+  --xy-node-border-selected: none;
+  --xy-handle-background-color: transparent;
+  --xy-attribution-background-color: var(--g4-flaeche-blatt);
+
+  position: relative;
+  block-size: 100%;
+  min-block-size: 320px;
+  inline-size: 100%;
+}
+
+/* The checks of a value are drawn as plainly as its setters; a value only noted is dashed. */
+.graph :global(.react-flow__edge.noted .react-flow__edge-path) {
+  stroke-dasharray: 6 4;
+}
+
+.graph :global(.react-flow__edge-textbg) {
+  fill: var(--g4-flaeche-blatt);
+}
+
+.graph :global(.react-flow__edge-text) {
+  fill: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.flowNode {
+  position: relative;
+}
+
+/* The anchors are where the edges meet the node; nobody connects anything, so they are not seen. */
+.handle {
+  opacity: 0;
+}
+
+/* React Flow's attribution (kept, as its makers ask): a small label inset from the corner, on the sheet, in the secondary text colour. */
+.graph :global(.react-flow__attribution) {
+  margin: var(--g4-raum-4);
+  padding: 0 var(--g4-raum-4);
+  border-radius: var(--g4-radius-plakette);
+  font: var(--g4-font-text-xs);
+}
+
+.graph :global(.react-flow__attribution a) {
+  color: var(--g4-text-sekundaer);
+}

@@ -88,3 +88,5 @@ export { DRAG_SLOP, Splitter } from "./Splitter";
 export type { SplitterProps } from "./Splitter";
 export { RecipeButton } from "./RecipeButton";
 export type { RecipeButtonProps } from "./RecipeButton";
+export { StoryNode, storyKindWord } from "./StoryNode";
+export type { StoryNodeKind, StoryNodeProps } from "./StoryNode";

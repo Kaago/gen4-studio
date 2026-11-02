@@ -59,9 +59,9 @@ pub(crate) const EGG_MOVES_LOCKED_CODE: &str = "textproject.egg-moves-locked";
 /// project holds the egg move table (exported before the field existed); nothing is written.
 pub(crate) const EGG_MOVES_UNEXPORTED_CODE: &str = "textproject.egg-moves-unexported";
 
-/// Every code, for the documentation test.
+/// Every code, for the documentation test (with the stories' own check code).
 #[cfg(test)]
-const ALL: [&str; 22] = [
+const ALL: [&str; 23] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -84,6 +84,7 @@ const ALL: [&str; 22] = [
     UNSYNCED_CODE,
     EGG_MOVES_LOCKED_CODE,
     EGG_MOVES_UNEXPORTED_CODE,
+    crate::stories::DANGLING_REF_CODE,
 ];
 
 #[cfg(test)]

@@ -13,7 +13,8 @@
 //!   `hidden_flag` → that flag (read, field `hidden_flag`)
 //! - background events of type [`HIDDEN_ITEM_EVENT_TYPE`] with script `8000 + n` → the flag of
 //!   hidden item `n` (read and written, field `hidden_item`; none past the range)
-//! - triggers: a variable `0x4000..0x8000` → that variable (read, field `var`)
+//! - triggers: a variable `0x4000..0x8000` → that variable (read, field `var`, with the
+//!   trigger's `value`)
 //! - personal data: `item1`, `item2` → items
 //! - learnsets → moves
 //! - evolutions: the target → species; the parameter → item, move or species by method
@@ -28,11 +29,16 @@
 //!   declares per family (by type, rotom's name rule and entries, [`flagvars`]) and the
 //!   conditions of `if`, `while` and `match` → flag or variable with its [`Access`]; variables
 //!   from `0x8000` on and flags named through a variable are only counted ([`ScriptCounts`]).
+//!   A variable carries the constant a command sets or compares it with (the family's
+//!   `values` in the file) or the literal operand of its comparison.
 //! - level scripts (`expanded/scripts/NNNN.json`, the same source id as a `.rotom` file of that
 //!   number): each `var_conditions[i]` with a variable `0x4000..0x8000` → that variable (read,
-//!   field `var_conditions`, slot `i`); a `var` of 0 ends the table.
+//!   field `var_conditions`, slot `i`, with the condition's `value`); a `var` of 0 ends the
+//!   table.
 //!
 //! Every reference but those of flags and variables reads its target ([`Access::Read`]).
+//! [`Ref::value`] is a constant below `0x4000`; from there on the engine reads a variable, and
+//! the reference carries none.
 //!
 //! The value 0 is "none" for species, moves, items and the trainers of scripts and is never
 //! a reference; trainer classes and encounter files count from 0.
@@ -120,6 +126,11 @@ pub struct Ref {
     pub slot: Option<u16>,
     pub target: Target,
     pub access: Access,
+    /// For a variable: the constant the reference sets it to or compares it with (a command's
+    /// value parameter, a comparison's literal operand, a trigger's `value`, a level script
+    /// condition's `value`); None for flags and where the other operand is a variable or does
+    /// not resolve.
+    pub value: Option<u16>,
 }
 
 /// What the scripts use without a target: variables from 0x8000 on and flags named through a
@@ -637,6 +648,15 @@ impl Refs {
         self.push_access(field, slot, target, Access::Read);
     }
 
+    /// A read of variable `target` that compares it with `value` (none from `0x4000` on:
+    /// [`constant`]).
+    fn push_value(&mut self, field: &'static str, slot: Option<usize>, target: Target, value: u16) {
+        self.push(field, slot, target);
+        if let Some(r) = self.refs.last_mut() {
+            r.value = constant(i32::from(value));
+        }
+    }
+
     fn push_access(
         &mut self,
         field: &'static str,
@@ -651,6 +671,7 @@ impl Refs {
             slot: slot.map(|s| s as u16),
             target,
             access,
+            value: None,
         });
     }
 
@@ -795,7 +816,7 @@ fn event_refs(out: &mut Refs, events: &EventFile, family: Family) {
     }
     for (slot, trigger) in events.coord_events.iter().enumerate() {
         if let Some(var) = variable(trigger.var) {
-            out.push("var", Some(slot), Target::Var(var));
+            out.push_value("var", Some(slot), Target::Var(var), trigger.value);
         }
     }
 }
@@ -1039,6 +1060,14 @@ pub(crate) fn script_ref_table(family: Family) -> &'static ScriptRefTable {
 /// Numbers from here on in a command argument name a variable.
 const FIRST_VARIABLE: i32 = 0x4000;
 
+/// `n` as the constant value of a variable reference: below [`FIRST_VARIABLE`] (from there on
+/// the engine reads a variable), never negative.
+fn constant(n: i32) -> Option<u16> {
+    u16::try_from(n)
+        .ok()
+        .filter(|&v| i32::from(v) < FIRST_VARIABLE)
+}
+
 /// Variables from here on are local to a script.
 const SCRIPT_LOCAL: i32 = 0x8000;
 
@@ -1252,7 +1281,12 @@ fn level_script_refs(file: u16, bytes: &[u8]) -> (Vec<Ref>, ScriptCounts) {
             break;
         }
         match variable(condition.var) {
-            Some(var) => out.push("var_conditions", Some(slot), Target::Var(var)),
+            Some(var) => out.push_value(
+                "var_conditions",
+                Some(slot),
+                Target::Var(var),
+                condition.value,
+            ),
             None if i32::from(condition.var) >= SCRIPT_LOCAL => counts.script_local += 1,
             None => {}
         }
@@ -1315,6 +1349,7 @@ fn script_refs(
                 slot: Some(u16::try_from(line).unwrap_or(u16::MAX)),
                 target: param.target.target(value),
                 access: Access::Read,
+                value: None,
             });
         }
     }

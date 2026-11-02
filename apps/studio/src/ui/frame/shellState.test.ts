@@ -209,12 +209,20 @@ describe("depth", () => {
   });
 
   it("view_depth_falls_back_to_bauen_outside_narrating_areas", () => {
-    expect(NARRATING_AREAS).toEqual(["welt"]);
+    expect(NARRATING_AREAS).toEqual(["welt", "geschichten"]);
     expect(viewDepth("welt", "erzaehlen")).toBe("erzaehlen");
     expect(viewDepth("technik", "erzaehlen")).toBe("bauen");
     expect(viewDepth("pokemon", "tuefteln")).toBe("tuefteln");
     expect(viewDepth("gegenstaende", "bauen")).toBe("bauen");
     expect(viewDepth("welt", "tuefteln")).toBe("tuefteln");
+  });
+
+  it("geschichten_is_a_narrating_area", () => {
+    // The thread overview shows names only in Erzählen, the numbers from Bauen on.
+    expect(NARRATING_AREAS).toContain("geschichten");
+    expect(viewDepth("geschichten", "erzaehlen")).toBe("erzaehlen");
+    expect(viewDepth("geschichten", "bauen")).toBe("bauen");
+    expect(viewDepth("geschichten", "tuefteln")).toBe("tuefteln");
   });
 });
 

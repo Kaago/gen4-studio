@@ -77,5 +77,8 @@ describe("diffWords", () => {
     expect(navTargetOf({ kind: "member", folder: "pokeHeight", index: 5 }, null)).toBeNull();
     expect(navTargetOf({ kind: "map_texture", index: 1 }, null)).toBeNull();
     expect(navTargetOf({ kind: "building_model", index: 1 }, null)).toBeNull();
+    // A story opens in Geschichten › Geschichten by its number.
+    expect(navTargetOf({ kind: "story", index: 0 }, fields("notes"))).toEqual({ kind: "story", number: 0 });
+    expect(navTargetOf({ kind: "story", index: 3 }, null)).toEqual({ kind: "story", number: 3 });
   });
 });

@@ -2194,3 +2194,106 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
     assert!(!stderr.contains("rückgängig"), "{stderr}");
 }
+
+/// `script Main #1:` with `lines`, then `End`.
+fn rotom_script(lines: &[&str]) -> Vec<u8> {
+    let mut out = String::from("script Main #1:\n");
+    for line in lines {
+        out.push_str(&format!("    {line}\n"));
+    }
+    out.push_str("    End\n");
+    out.into_bytes()
+}
+
+#[test]
+fn story_create_and_list_on_a_text_fixture() {
+    let fx = common::TextFixture::exported();
+    let root = fx.root();
+    // A thread: 0x4030 set to 1 and 2 in script file 0 (header 0), to 3 in script file 0102
+    // (no header names it).
+    fx.write(
+        "expanded/scripts/0000.rotom",
+        &rotom_script(&["SetVar 0x4030, 1", "SetVar 0x4030, 2"]),
+    );
+    fx.write(
+        "expanded/scripts/0102.rotom",
+        &rotom_script(&["SetVar 0x4030, 3"]),
+    );
+    let story = |args: &[&str]| {
+        let mut cmd = g4k();
+        cmd.args(["story", args[0]]).arg(root).args(&args[1..]);
+        cmd
+    };
+
+    // Nothing yet.
+    let out = stdout_of(&story(&["list"]).assert().success());
+    assert!(out.is_empty(), "{out}");
+
+    let assert = story(&["create", "--name", "Test", "--var", "VAR_UNUSED_0x406C"])
+        .assert()
+        .success();
+    let out = stdout_of(&assert);
+    assert!(
+        out.starts_with(
+            "created STORY_TEST number=0 files=data/ids/stories.json,data/stories/0000.json,\
+             data/stories/0000.layout.json ms="
+        ),
+        "{out}"
+    );
+    let file = std::fs::read_to_string(root.join("data/stories/0000.json")).unwrap();
+    assert!(file.contains("\"id\": \"STORY_TEST\""), "{file}");
+    assert!(file.contains("\"var\": \"VAR_UNUSED_0x406C\""), "{file}");
+    assert!(root.join("data/stories/0000.layout.json").is_file());
+
+    let out = stdout_of(&story(&["list"]).assert().success());
+    assert_eq!(
+        out.trim_end(),
+        "0000 STORY_TEST var=VAR_UNUSED_0x406C steps=0 Test"
+    );
+
+    let out = stdout_of(&story(&["get", "STORY_TEST"]).assert().success());
+    let got: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(got["number"], 0);
+    assert_eq!(got["story"]["name"], "Test");
+    assert_eq!(got["layout"], serde_json::json!({ "nodes": {} }));
+    story(&["get", "STORY_NOPE"])
+        .assert()
+        .code(1)
+        .stderr(contains("Unbekannte ID: STORY_NOPE."));
+
+    // A refusal: unknown progress, nothing written.
+    story(&["create", "--name", "Zwei", "--var", "VAR_NOPE"])
+        .assert()
+        .code(1)
+        .stderr(contains("Unbekannte ID: VAR_NOPE."));
+    assert!(!root.join("data/stories/0001.json").exists());
+
+    // The threads: one line each, or JSON.
+    let out = stdout_of(&story(&["threads"]).assert().success());
+    assert!(
+        out.lines()
+            .any(|l| l == "0x4030 VAR_PLAYER_STARTER 3 Werte · 2 Orte"),
+        "{out}"
+    );
+    let out = stdout_of(&story(&["threads", "--json"]).assert().success());
+    let threads: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let thread = threads
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["var"] == 0x4030)
+        .unwrap();
+    assert_eq!(thread["values"], serde_json::json!([1, 2, 3]));
+
+    // The graph of the thread by its name.
+    let out = stdout_of(&story(&["graph", "VAR_PLAYER_STARTER"]).assert().success());
+    let graph: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(graph["var"], 0x4030);
+    let values = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["kind"] == "value")
+        .count();
+    assert_eq!(values, 3);
+}

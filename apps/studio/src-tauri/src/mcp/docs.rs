@@ -95,6 +95,10 @@ pub static FORMATS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/formats/script_file.md"),
     ),
     (
+        "stories",
+        include_str!("../../../../../docs/formats/stories.md"),
+    ),
+    (
         "templates",
         include_str!("../../../../../docs/formats/templates.md"),
     ),

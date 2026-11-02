@@ -14,13 +14,16 @@ use crate::textproject::source::{entity_of_data_file, item_member_of, item_membe
 
 /// The group of a project file.
 const FILES_GROUP: &str = "Projektdateien";
+/// The group of a story (`data/stories/NNNN.json`).
+const STORIES_GROUP: &str = "Geschichten";
 
 /// One entity. `index` is the entity's number: a header's id, a script file, an item's item
 /// id (as in the app's item list and `data/items/`; the member follows from the item table).
 /// `member` is a member of a folder below `unpacked/` the Studio has no kind for; `file` any
-/// other project file (relative to the root, with `/`). JSON: `{"kind": "trainer", "index":
-/// 1}`, `{"kind": "member", "folder": "pokeHeight", "index": 5}`, `{"kind": "file", "path":
-/// "g4-world.json"}`.
+/// other project file (relative to the root, with `/`); `story` a story of the text project
+/// (`data/stories/NNNN.json`, its side file stays a `file`). JSON: `{"kind": "trainer",
+/// "index": 1}`, `{"kind": "member", "folder": "pokeHeight", "index": 5}`, `{"kind": "file",
+/// "path": "g4-world.json"}`, `{"kind": "story", "index": 0}`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DiffSubject {
@@ -42,6 +45,7 @@ pub enum DiffSubject {
     InteriorBuildingModel { index: u16 },
     Member { folder: String, index: u16 },
     File { path: String },
+    Story { index: u16 },
 }
 
 impl DiffSubject {
@@ -52,13 +56,14 @@ impl DiffSubject {
             DiffSubject::Header { index } => format!("Header {index:04}"),
             DiffSubject::Member { folder, index } => format!("{folder} {index:04}"),
             DiffSubject::File { path } => path.clone(),
+            DiffSubject::Story { index } => format!("Geschichte {index:04}"),
             _ => self.asset().map(asset_label).unwrap_or_default(),
         }
     }
 
     /// The store asset of a subject of an archive kind (a species its personal data, a
-    /// trainer its pair, an item its item id, not its member); `None` for header, member and
-    /// file.
+    /// trainer its pair, an item its item id, not its member); `None` for header, member,
+    /// file and story.
     fn asset(&self) -> Option<AssetId> {
         let (kind, index) = match *self {
             DiffSubject::Map { index } => (AssetKind::Map, index),
@@ -81,6 +86,7 @@ impl DiffSubject {
             DiffSubject::Header { .. } | DiffSubject::Member { .. } | DiffSubject::File { .. } => {
                 return None;
             }
+            DiffSubject::Story { .. } => return None,
         };
         Some(AssetId { kind, index })
     }
@@ -106,13 +112,14 @@ impl DiffSubject {
             | DiffSubject::InteriorBuildingModel { index }
             | DiffSubject::Member { index, .. } => Some(index),
             DiffSubject::File { .. } => None,
+            DiffSubject::Story { index } => Some(index),
         }
     }
 
     /// The store assets of the subject, so the app can mark the unsaved ones: those of its
     /// reset target (a trainer its pair, a species its three parts, a header the table), an
-    /// item its member, a member that of its folder's kind; none for a file, an item no item
-    /// table names and a folder of no kind.
+    /// item its member, a member that of its folder's kind; none for a file, a story (no store
+    /// asset), an item no item table names and a folder of no kind.
     pub fn assets(&self, project: &Project) -> Vec<AssetId> {
         match self {
             DiffSubject::Item { index } => item_member_of(project, u32::from(*index))
@@ -130,6 +137,7 @@ impl DiffSubject {
                 .into_iter()
                 .collect(),
             DiffSubject::File { .. } => Vec::new(),
+            DiffSubject::Story { .. } => Vec::new(),
             _ => match self.reset_target() {
                 Some(target) => target.assets(),
                 None => self.asset().into_iter().collect(),
@@ -138,12 +146,13 @@ impl DiffSubject {
     }
 
     /// The folder below `unpacked/` of the subject's (first) member, as 4.1b's list names it
-    /// (a trainer its properties, a species its personal data); `None` for a header and a
-    /// file.
+    /// (a trainer its properties, a species its personal data); `None` for a header, a file
+    /// and a story.
     pub fn folder(&self, project: &Project) -> Option<String> {
         let kind = match self {
             DiffSubject::Header { .. } | DiffSubject::File { .. } => return None,
             DiffSubject::Member { folder, .. } => return Some(folder.clone()),
+            DiffSubject::Story { .. } => return None,
             DiffSubject::Trainer { .. } => AssetKind::TrainerProperties,
             _ => self.asset()?.kind,
         };
@@ -151,12 +160,13 @@ impl DiffSubject {
     }
 
     /// The group of the list: the groups of 4.1b's list of changes, the folder's name for a
-    /// member, „Projektdateien“ for a file.
+    /// member, „Projektdateien“ for a file, „Geschichten“ for a story.
     pub fn group(&self) -> String {
         match self {
             DiffSubject::Header { .. } => GROUPS[HEADER_GROUP].to_owned(),
             DiffSubject::Member { folder, .. } => folder.clone(),
             DiffSubject::File { .. } => FILES_GROUP.to_owned(),
+            DiffSubject::Story { .. } => STORIES_GROUP.to_owned(),
             _ => {
                 let kind = match self.asset().map(|id| id.kind) {
                     Some(AssetKind::Trainer) => AssetKind::TrainerProperties,
@@ -210,7 +220,7 @@ impl DiffSubject {
     }
 
     /// What „Auf Original zurücksetzen…“ resets for this subject; `None` for kinds without a
-    /// reset (matrices, area data, moves, items, members, files).
+    /// reset (matrices, area data, moves, items, members, files, stories).
     pub fn reset_target(&self) -> Option<ResetTarget> {
         Some(match *self {
             DiffSubject::Map { index } => ResetTarget::Map { index },
@@ -233,6 +243,7 @@ impl DiffSubject {
             | DiffSubject::Item { .. }
             | DiffSubject::Member { .. }
             | DiffSubject::File { .. } => return None,
+            DiffSubject::Story { .. } => return None,
         })
     }
 
@@ -257,8 +268,9 @@ impl DiffSubject {
     /// (an asset's subject, else `member`), a text archive's or script's source below
     /// `expanded/`, a file of the text project below `data/` (an entity's JSON or side file,
     /// a header file, an item file, a binary member, a blob `data/raw/unpacked/…` as
-    /// `member`), a Dynamic Headers file as its header; any other file is `file`. `None` for
-    /// an empty path and anything below `.git/`.
+    /// `member`), a story `data/stories/NNNN.json` as `story` (its side file `NNNN.layout.json`
+    /// stays a `file`), a Dynamic Headers file as its header; any other file is `file`. `None`
+    /// for an empty path and anything below `.git/`.
     pub fn of_path(project: &Project, rel: &str) -> Option<DiffSubject> {
         let rel = rel.trim_start_matches("./").trim_end_matches('/');
         let parts: Vec<&str> = rel.split('/').collect();
@@ -277,6 +289,10 @@ impl DiffSubject {
                     index,
                 })
             }
+            ["data", "stories", name] => name
+                .strip_suffix(".json")
+                .and_then(number)
+                .map(|index| DiffSubject::Story { index }),
             ["data", ..] => {
                 entity_of_data_file(Path::new(rel)).and_then(|(kind, index)| match kind {
                     AssetKind::HeaderTable => Some(DiffSubject::Header { index }),

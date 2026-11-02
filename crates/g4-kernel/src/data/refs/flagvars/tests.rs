@@ -64,12 +64,20 @@ fn script_flagvars_name_existing_commands_and_params() {
                         seen.insert((name.clone(), param.clone())),
                         "{family:?}: {name}.{param} twice"
                     );
+                    // The value of a variable parameter: the family's `values` entry of the
+                    // command, unless it is this parameter itself.
+                    let value_arg = rules
+                        .values
+                        .get(name)
+                        .and_then(|value| command.params.iter().position(|p| p.name == *value))
+                        .filter(|&at| role == ParamRole::Var && at != arg);
                     let entry = FlagVarParam {
                         name: param.clone(),
                         arg,
                         role,
                         access: *access,
                         direct: !matches!(command.params[arg].ty.as_str(), "var" | "flex"),
+                        value_arg,
                     };
                     assert_eq!(
                         table.param(name, param),
@@ -82,6 +90,82 @@ fn script_flagvars_name_existing_commands_and_params() {
     }
     // Diamond and Pearl have no rules.
     assert!(flagvar_table(Family::Dp).commands.is_empty());
+}
+
+#[test]
+fn values_name_existing_commands() {
+    let raw = raw_flagvars().expect("metadata/script_flagvars.yaml parses");
+    for family in [Family::Pt, Family::Hgss] {
+        let db = raw_database(family).unwrap();
+        let rules = raw.family(family).unwrap();
+        let table = flagvar_table(family);
+        for (name, value) in &rules.values {
+            let command = db
+                .commands
+                .get(name)
+                .unwrap_or_else(|| panic!("{family:?} values: no command {name}"));
+            assert_ne!(command.kind, "movement", "{family:?} values: {name}");
+            // The parameter is at one place.
+            let at: Vec<usize> = command
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.name == *value)
+                .map(|(at, _)| at)
+                .collect();
+            assert_eq!(
+                at.len(),
+                1,
+                "{family:?} values: {name} has no one parameter {value}"
+            );
+            // The command has exactly one variable parameter besides the value, and the value
+            // belongs to it.
+            let params = table.commands.get(name).map_or(&[][..], Vec::as_slice);
+            let vars: Vec<&FlagVarParam> = params
+                .iter()
+                .filter(|p| p.role == ParamRole::Var && p.arg != at[0])
+                .collect();
+            assert_eq!(
+                vars.len(),
+                1,
+                "{family:?} values: {name} needs one variable"
+            );
+            assert_eq!(vars[0].value_arg, Some(at[0]), "{family:?} values: {name}");
+        }
+        // No other parameter of the table carries a value.
+        for (name, params) in &table.commands {
+            for param in params {
+                if param.value_arg.is_some() {
+                    assert!(
+                        rules.values.contains_key(name),
+                        "{family:?}: {name}.{}",
+                        param.name
+                    );
+                    assert_eq!(
+                        param.role,
+                        ParamRole::Var,
+                        "{family:?}: {name}.{}",
+                        param.name
+                    );
+                }
+            }
+        }
+    }
+    // The commands of the measurement (Gutachten A §2.2) and their HeartGold counterparts: the
+    // HeartGold database has no `SetVarFromValue`, its `SetVar` takes a value (DSPRE's `SetVar`
+    // in both).
+    let value_of = |family: Family, command: &str| {
+        let (_, params) = flagvar_table(family).params(command).unwrap();
+        params.iter().find_map(|p| p.value_arg)
+    };
+    assert_eq!(value_of(Family::Pt, "SetVar"), Some(1));
+    assert_eq!(value_of(Family::Pt, "SetVarFromValue"), Some(1));
+    assert_eq!(value_of(Family::Pt, "CompareVarToValue"), Some(1));
+    assert_eq!(value_of(Family::Pt, "CompareVar"), Some(1));
+    assert_eq!(value_of(Family::Hgss, "SetVar"), Some(1));
+    assert_eq!(value_of(Family::Hgss, "CompareVarToValue"), Some(1));
+    // Adding is no value the variable has.
+    assert_eq!(value_of(Family::Pt, "AddVar"), None);
 }
 
 #[test]
@@ -238,6 +322,15 @@ mod sources {
             slot: Some(line),
             target,
             access,
+            value: None,
+        }
+    }
+
+    /// [`r`] of a variable reference that carries `value`.
+    fn rv(field: &'static str, line: u16, target: Target, access: Access, value: u16) -> Ref {
+        Ref {
+            value: Some(value),
+            ..r(field, line, target, access)
         }
     }
 
@@ -293,17 +386,165 @@ mod sources {
         assert_eq!(
             refs,
             [
-                r("CompareVarToValue", 2, Target::Var(0x4030), Access::Read),
+                rv("CompareVarToValue", 2, Target::Var(0x4030), Access::Read, 2),
                 // The macro: the access of its variants, from the file (the database has none).
-                r("SetVar", 3, Target::Var(0x406C), Access::Write),
+                rv("SetVar", 3, Target::Var(0x406C), Access::Write, 1),
+                // An addend is no value the variable has.
                 r("AddVar", 4, Target::Var(0x4031), Access::ReadWrite),
                 r("AddVar", 4, Target::Var(0x4032), Access::Read),
-                r("SetVarFromValue", 5, Target::Var(0x4033), Access::Write),
-                // DSPRE's name of the command counts under rotom's; `value` is a value.
+                rv("SetVarFromValue", 5, Target::Var(0x4033), Access::Write, 5),
+                // DSPRE's name of the command counts under rotom's; `value` is a value (from
+                // 0x4000 on none the index keeps).
                 r("CompareVarToValue", 6, Target::Var(0x4034), Access::Read),
             ]
         );
         assert_eq!(counts, ScriptCounts::default());
+    }
+
+    #[test]
+    fn set_and_compare_carry_their_value() {
+        let (refs, counts) = flagvars_of(
+            "alias 6 as SECHS\n\
+             script Main #1:\n    SetVar VAR_UNUSED_0x406C, 3\n    CompareVarToValue 0x406C, 7\n\
+             \x20   SetVarFromValue 0x4033, 5\n    CompareVar 0x4034, SECHS\n\
+             \x20   GoToIfEq 0x4035, 1, Second\n    CallIfLt 0x4036, 0x3FFF, Second\n    End\n\
+             script Second #2:\n    End\n",
+        );
+        assert_eq!(
+            refs,
+            [
+                rv("SetVar", 3, Target::Var(0x406C), Access::Write, 3),
+                rv("CompareVarToValue", 4, Target::Var(0x406C), Access::Read, 7),
+                rv("SetVarFromValue", 5, Target::Var(0x4033), Access::Write, 5),
+                // An alias of the file resolves like a number.
+                rv("CompareVar", 6, Target::Var(0x4034), Access::Read, 6),
+                rv("GoToIfEq", 7, Target::Var(0x4035), Access::Read, 1),
+                rv("CallIfLt", 8, Target::Var(0x4036), Access::Read, 0x3FFF),
+            ]
+        );
+        assert_eq!(counts, ScriptCounts::default());
+        // HeartGold: `SetVar` and `CompareVarToValue` take a value, `SetOrCopyVar` a value or a
+        // variable.
+        let (refs, _) = heartgold_refs(
+            "script Main #1:\n    SetVar 0x4031, 4\n    CompareVarToValue 0x4031, 9\n\
+             \x20   SetOrCopyVar 0x4032, 2\n    End\n",
+            &[],
+            &[],
+        );
+        assert_eq!(
+            refs,
+            [
+                rv("SetVar", 2, Target::Var(0x4031), Access::Write, 4),
+                rv("CompareVarToValue", 3, Target::Var(0x4031), Access::Read, 9),
+                rv("SetOrCopyVar", 4, Target::Var(0x4032), Access::Write, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_condition_literal_is_the_value() {
+        let (refs, counts) = flagvars_of(
+            "script Main #1:\n\
+             \x20   if VAR_UNUSED_0x406C == 2 then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   while VAR_UNUSED_0x406C < 4 do\n\
+             \x20       End\n\
+             \x20   endwhile\n\
+             \x20   if 5 >= VAR_UNUSED_0x406C && !(VAR_UNUSED_0x406C != 1) then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   match VAR_UNUSED_0x406C with\n\
+             \x20       case 1:\n\
+             \x20           End\n\
+             \x20   endmatch\n\
+             \x20   if VAR_UNUSED_0x406C then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   if VAR_UNUSED_0x406C + 1 then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   End\n",
+        );
+        assert_eq!(
+            refs,
+            [
+                rv("if", 2, Target::Var(0x406C), Access::Read, 2),
+                rv("while", 5, Target::Var(0x406C), Access::Read, 4),
+                // Either side; through `!` and `&&`.
+                rv("if", 8, Target::Var(0x406C), Access::Read, 5),
+                rv("if", 8, Target::Var(0x406C), Access::Read, 1),
+                // The head of `match` and a bare operand compare with no literal.
+                r("match", 11, Target::Var(0x406C), Access::Read),
+                r("if", 15, Target::Var(0x406C), Access::Read),
+                // Arithmetic is no comparison.
+                r("if", 18, Target::Var(0x406C), Access::Read),
+            ]
+        );
+        assert_eq!(counts, ScriptCounts::default());
+    }
+
+    #[test]
+    fn a_variable_operand_gives_no_value() {
+        let (refs, counts) = flagvars_of(
+            "alias UNSET as NO_VALUE\n\
+             script Main #1:\n    SetVar VAR_UNUSED_0x406C, VAR_UNUSED_0x406D\n\
+             \x20   CompareVarToValue VAR_UNUSED_0x406C, VAR_RESULT\n\
+             \x20   CompareVar VAR_UNUSED_0x406C, VAR_RESULT\n\
+             \x20   SetVar VAR_UNUSED_0x406C, NO_VALUE\n\
+             \x20   SetVar VAR_UNUSED_0x406C, UNKNOWN_NAME\n\
+             \x20   if VAR_UNUSED_0x406C == VAR_UNUSED_0x406D then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   if VAR_UNUSED_0x406C == CheckItem(ITEM_POTION, 1) then\n\
+             \x20       End\n\
+             \x20   endif\n\
+             \x20   End\n",
+        );
+        assert_eq!(
+            refs,
+            [
+                r("SetVar", 3, Target::Var(0x406C), Access::Write),
+                r("SetVar", 3, Target::Var(0x406D), Access::Read),
+                r("CompareVarToValue", 4, Target::Var(0x406C), Access::Read),
+                r("CompareVar", 5, Target::Var(0x406C), Access::Read),
+                r("SetVar", 6, Target::Var(0x406C), Access::Write),
+                r("SetVar", 7, Target::Var(0x406C), Access::Write),
+                r("if", 8, Target::Var(0x406C), Access::Read),
+                r("if", 8, Target::Var(0x406D), Access::Read),
+                r("if", 11, Target::Var(0x406C), Access::Read),
+            ]
+        );
+        // `CompareVar`'s `VAR_RESULT` is a variable parameter local to the script;
+        // `CompareVarToValue` takes its `value` as a plain number (no variable, no count).
+        assert_eq!(
+            counts,
+            ScriptCounts {
+                script_local: 1,
+                dynamic: 0
+            }
+        );
+    }
+
+    #[test]
+    fn flags_never_carry_a_value() {
+        let (refs, _) = flagvars_of(
+            "script Main #1:\n    SetFlag 148\n    CheckFlag 150\n    SetTrainerFlag 3\n\
+             \x20   GoToIfSet 151, Second\n    if FLAG_UNUSED_0x0094 && VAR_UNUSED_0x406C == 1 then\n\
+             \x20       End\n    endif\n    End\n\
+             script Second #2:\n    End\n",
+        );
+        let flags: Vec<&Ref> = refs
+            .iter()
+            .filter(|r| matches!(r.target, Target::Flag(_)))
+            .collect();
+        assert_eq!(flags.len(), 5);
+        assert!(flags.iter().all(|r| r.value.is_none()), "{flags:?}");
+        // The variable beside the flag still carries its value.
+        assert_eq!(
+            refs.last(),
+            Some(&rv("if", 6, Target::Var(0x406C), Access::Read, 1))
+        );
     }
 
     #[test]
@@ -326,8 +567,8 @@ mod sources {
         assert_eq!(
             refs,
             [
-                r("CompareVarToValue", 2, Target::Var(0x4030), Access::Read),
-                r("SetVar", 3, Target::Var(0x4031), Access::Write),
+                rv("CompareVarToValue", 2, Target::Var(0x4030), Access::Read, 2),
+                rv("SetVar", 3, Target::Var(0x4031), Access::Write, 1),
                 r("CopyVar", 4, Target::Var(0x4032), Access::Write),
                 r("CopyVar", 4, Target::Var(0x4033), Access::Read),
                 r("HasItem", 5, Target::Var(0x4034), Access::Unknown),
@@ -402,12 +643,12 @@ mod sources {
             [
                 r("if", 2, Target::Flag(148), Access::Read),
                 r("if", 4, Target::Flag(149), Access::Read),
-                r("if", 4, Target::Var(0x406C), Access::Read),
-                r("while", 7, Target::Var(0x406C), Access::Read),
+                rv("if", 4, Target::Var(0x406C), Access::Read, 2),
+                rv("while", 7, Target::Var(0x406C), Access::Read, 0),
                 r("AddVar", 8, Target::Var(0x406C), Access::ReadWrite),
                 // `CheckItem(…) == 1`: a command, its result no variable.
                 r("match", 13, Target::Var(0x406C), Access::Read),
-                r("if", 17, Target::Var(0x4031), Access::Read),
+                rv("if", 17, Target::Var(0x4031), Access::Read, 2),
             ]
         );
         // `VAR_RESULT` in a comparison is local to the script.

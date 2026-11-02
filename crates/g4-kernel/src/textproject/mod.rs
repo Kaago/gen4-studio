@@ -31,7 +31,7 @@
 use std::path::Path;
 
 pub mod adopt;
-mod arts;
+pub(crate) mod arts;
 pub mod base_layer;
 pub(crate) mod canon;
 mod check;
@@ -42,7 +42,7 @@ pub mod ids;
 mod import;
 pub mod include;
 pub mod kinds;
-mod locate;
+pub(crate) mod locate;
 pub mod manifest;
 pub mod migrate;
 pub(crate) mod part;

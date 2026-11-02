@@ -1,6 +1,6 @@
 //! The registers `data/ids/*.json` of the kinds without a fixed table (maps, trainers,
-//! trainer classes, places, and the own names of flags and variables) and their baptism (never
-//! for flags and variables); [`Symbols`] resolves the ids of every kind.
+//! trainer classes, places, the own names of flags and variables, and the stories) and their
+//! baptism (never for flags, variables and stories); [`Symbols`] resolves the ids of every kind.
 //!
 //! A register is one JSON object id → number, keys sorted, in the canonical form and without
 //! a version field of its own (the manifest carries the version). Ids are christened once in
@@ -25,18 +25,19 @@ use super::symbols::{SymbolKind, fallback_id, normalize, parse_fallback, table};
 pub const IDS_DIR: &str = "data/ids";
 
 /// The kinds with a register, in the order [`Symbols`] loads and saves them.
-pub(crate) const REGISTRY_KINDS: [SymbolKind; 6] = [
+pub(crate) const REGISTRY_KINDS: [SymbolKind; 7] = [
     SymbolKind::Map,
     SymbolKind::Trainer,
     SymbolKind::TrainerClass,
     SymbolKind::Place,
     SymbolKind::Flag,
     SymbolKind::Var,
+    SymbolKind::Story,
 ];
 
 /// The register file of `kind` in [`IDS_DIR`]: `maps.json`, `trainers.json`,
-/// `trainer_classes.json`, `places.json`, `flags.json`, `vars.json`; `None` for the kinds with a
-/// fixed table.
+/// `trainer_classes.json`, `places.json`, `flags.json`, `vars.json`, `stories.json`; `None` for
+/// the kinds with a fixed table.
 pub fn registry_file(kind: SymbolKind) -> Option<&'static str> {
     match kind {
         SymbolKind::Map => Some("maps.json"),
@@ -45,6 +46,7 @@ pub fn registry_file(kind: SymbolKind) -> Option<&'static str> {
         SymbolKind::Place => Some("places.json"),
         SymbolKind::Flag => Some("flags.json"),
         SymbolKind::Var => Some("vars.json"),
+        SymbolKind::Story => Some("stories.json"),
         SymbolKind::Species
         | SymbolKind::Move
         | SymbolKind::Item
@@ -427,7 +429,9 @@ mod tests {
         assert_eq!(registry_file(SymbolKind::Place), Some("places.json"));
         assert_eq!(registry_file(SymbolKind::Flag), Some("flags.json"));
         assert_eq!(registry_file(SymbolKind::Var), Some("vars.json"));
-        assert_eq!(REGISTRY_KINDS.len(), 6);
+        assert_eq!(registry_file(SymbolKind::Story), Some("stories.json"));
+        assert_eq!(REGISTRY_KINDS.len(), 7);
+        assert!(REGISTRY_KINDS.contains(&SymbolKind::Story));
         assert_eq!(registry_file(SymbolKind::Species), None);
         assert_eq!(registry_file(SymbolKind::Type), None);
     }
@@ -698,8 +702,8 @@ mod tests {
         // `maps.json` is not canonical, so it is rewritten too.
         assert_eq!(
             symbols.save(root).unwrap(),
-            6,
-            "maps, places, trainers, classes, flags, vars"
+            7,
+            "maps, places, trainers, classes, flags, vars, stories"
         );
         assert_eq!(symbols.save(root).unwrap(), 0);
         assert_eq!(

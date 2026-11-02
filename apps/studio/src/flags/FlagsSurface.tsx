@@ -16,7 +16,7 @@ import { invalidateFlagLists, useFlagList } from "./useFlagList";
 import { useFlagUsage } from "./useFlagUsage";
 import styles from "./FlagsSurface.module.css";
 
-/** What the surface and the entry of Technik read under: one read of the flags for both. */
+/** What the surface and the entry of Geschichten read under: one read of the flags for both (the name stayed from Technik, 3d.1). */
 export const FLAGS_SOURCE = "technik";
 
 /** Why the list's „frei“ is only a hint while the scripts are not adopted (ruling R15). */
@@ -27,7 +27,7 @@ export const OWN_NAMES_NOTE = "Eigene Namen gibt es im Textprojekt: Technik › 
 
 const de = (n: number) => n.toLocaleString("de-DE");
 
-/** The line under „Flags und Variablen“ in the list of Technik: „4.097 Flags · 135 frei“, „Wird gelesen …“ while the list is read. */
+/** The line under „Flags und Variablen“ in the list of Geschichten: „4.097 Flags · 135 frei“, „Wird gelesen …“ while the list is read. */
 export function flagsSubtitle(list: FlagListDto | null): string {
   if (list === null) return "Wird gelesen …";
   const n = list.entries.length;
@@ -63,8 +63,8 @@ const KINDS: readonly FilterChipOption[] = [
 type Naming = { kind: FlagKind; number: number; name: string | null; current: { id: string | null; description: string | null } };
 
 /**
- * Technik › Flags und Variablen: which flags and variables the game knows and where scripts, objects, triggers, level scripts and trainers
- * set or check them. Above the list the filters (kind, area, unused, free, own name, a search); the list and the detail of the chosen
+ * Geschichten › Flags und Variablen (moved from Technik with 3d.6): which flags and variables the game knows and where scripts, objects,
+ * triggers, level scripts and trainers set or check them. Above the list the filters (kind, area, unused, free, own name, a search); the list and the detail of the chosen
  * number side by side when the surface has room (≥ 760 px), else the detail below. In the DSPRE layout a notice names where own names come
  * from; while the scripts are not adopted, one says that „frei“ is only a hint. A link (`selected` from outside) shows its kind and lifts a
  * filter that would hide it.
@@ -127,7 +127,7 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
       {project === null ? (
         <EmptyState
           what="Kein Projekt geöffnet."
-          why="Öffne ein Projekt, dann zeigt Technik hier seine Flags und Variablen."
+          why="Öffne ein Projekt, dann stehen hier seine Flags und Variablen."
           action={onOpenProject && { label: "Projekt öffnen", onClick: onOpenProject }}
         />
       ) : (

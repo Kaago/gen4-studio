@@ -1,0 +1,13 @@
+/* The area Geschichten: the list column on the left, the surface of the chosen entry beside it (as Technik, TechnikArea.module.css); each surface brings its own styles. */
+.area {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+  padding: var(--g4-raum-8);
+}
