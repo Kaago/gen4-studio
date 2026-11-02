@@ -583,7 +583,7 @@ export function DataAreaHost({
   onPlaceTrainer?: (id: number) => void;
   children?: ReactNode;
 }) {
-  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts } = useWorkbench();
+  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts, onOpenWizard: openWizard, selected } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
   const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
@@ -593,9 +593,12 @@ export function DataAreaHost({
   const saveIfDirty = useStableCallback((file: number) => scripts.saveIfDirty(file));
   const reload = useStableCallback((file: number) => scripts.reload(file));
   const scriptFiles = useMemo(() => ({ saveIfDirty, reload }), [saveIfDirty, reload]);
+  // „Neuer Trainer…“ (Pokémon › Trainer in Erzählen) opens the recipe of the world at the header the world shows or showed last; read
+  // when asked, so choosing another place does not render the area.
+  const worldHeader = useStableCallback(() => selected);
   const pokemon = useMemo<DataAreaProps>(
-    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer }),
-    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer],
+    () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader }),
+    [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader],
   );
   const items = useMemo<DataAreaProps>(
     () => ({ project: info, store, active: itemsActive, target, goTo, onTrail: itemsTrail, dirty, onEdited, bus, headers, problems }),

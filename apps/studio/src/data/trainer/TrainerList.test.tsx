@@ -235,4 +235,51 @@ describe("TrainerList", () => {
     // The right click selects nothing.
     expect(row(930).getAttribute("aria-selected")).toBe("false");
   });
+
+  describe("new trainer recipe in Erzählen", () => {
+    const recipe = () => h.list().querySelector<HTMLButtonElement>("[data-new-trainer-recipe]");
+    const create = () => h.list().querySelector<HTMLElement>('button[aria-label="Trainer anlegen…"]');
+
+    it("replaces_trainer_anlegen_with_neuer_trainer_that_opens_the_recipe_at_the_place_of_the_chosen_trainer", async () => {
+      const openWizard = vi.fn();
+      await h.open(12, "erzaehlen", { openWizard, worldHeader: () => 9 });
+      expect(create()).toBeNull();
+      expect(recipe()?.textContent).toBe("Neuer Trainer…");
+      await h.click(recipe());
+      // Wanderer Jens stands on Route 201 (header 5): the recipe starts there, not at the place the world showed last.
+      expect(openWizard).toHaveBeenCalledWith({ kind: "new_trainer_here", prefill: { header: 5 } });
+      expect(createTrainer).not.toHaveBeenCalled();
+      expect(document.querySelector("[role=dialog]")).toBeNull();
+    });
+
+    it("takes_the_place_the_world_showed_last_for_a_trainer_that_stands_nowhere", async () => {
+      const openWizard = vi.fn();
+      await h.open(40, "erzaehlen", { openWizard, worldHeader: () => 9 });
+      await h.click(recipe());
+      expect(openWizard).toHaveBeenCalledWith({ kind: "new_trainer_here", prefill: { header: 9 } });
+    });
+
+    it("opens_the_recipe_without_a_place_when_neither_the_trainer_nor_the_world_has_one", async () => {
+      const openWizard = vi.fn();
+      await h.open(null, "erzaehlen", { openWizard, worldHeader: () => null });
+      await h.click(recipe());
+      expect(openWizard).toHaveBeenCalledWith({ kind: "new_trainer_here" });
+    });
+
+    it("is_disabled_without_wizards", async () => {
+      await h.open(12, "erzaehlen");
+      expect(recipe()?.disabled).toBe(true);
+    });
+
+    it("keeps_trainer_anlegen_in_bauen_and_tuefteln", async () => {
+      await h.open(12, "bauen", { openWizard: vi.fn() });
+      expect(recipe()).toBeNull();
+      expect(create()).not.toBeNull();
+      h.unmount();
+      h = trainerHarness();
+      await h.open(12, "tuefteln", { openWizard: vi.fn() });
+      expect(recipe()).toBeNull();
+      expect(create()).not.toBeNull();
+    });
+  });
 });

@@ -190,6 +190,14 @@ export function classOptions(classes: readonly string[], current: number): Selec
   return current < classes.length ? options : [...options, { value: current, label: className(classes, current) }];
 }
 
+/**
+ * The classes with a name of their own as choices (Erzählen: no class numbers); the trainer's class `current` stays offered without a
+ * name too, so the field can show it.
+ */
+export function namedClassOptions(classes: readonly string[], current: number): SelectOption<number>[] {
+  return classOptions(classes, current).filter((o) => o.value === current || o.label !== `Klasse ${o.value}`);
+}
+
 /** A trainer's own name: empty for the kernel's fallback ("trainer 0005"). */
 export const ownName = (name: string, index: number): string => (name.trim() === `trainer ${id4(index)}` ? "" : name.trim());
 
