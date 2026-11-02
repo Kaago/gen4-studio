@@ -1,6 +1,6 @@
 # Gate mit dem Agenten
 
-Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau; Teil A, Teil B folgt) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
+Diese Anleitung sagt einem Claude-Agenten, wie er die Gates [phase-3a-gate.md](phase-3a-gate.md), [phase-3b1-gate.md](phase-3b1-gate.md), [phase-3b2-gate.md](phase-3b2-gate.md), [phase-3c-gate.md](phase-3c-gate.md), [phase-3b3-gate.md](phase-3b3-gate.md) (Teil A und B) und [phase-3b4-gate.md](phase-3b4-gate.md) (Teil A und B) sowie [phase-3g-gate.md](phase-3g-gate.md) (Teil A und B), [phase-3h-gate.md](phase-3h-gate.md) (Teile 3h.2 bis 3h.4), [phase-3f-gate.md](phase-3f-gate.md) (3f.1 bis 3f.4 und Gesamtgate), [phase-4-1a-gate.md](phase-4-1a-gate.md) (Basis-ROM und Patch), [phase-4-1b-gate.md](phase-4-1b-gate.md) (Auf Original zurücksetzen), [phase-4-3a-gate.md](phase-4-3a-gate.md) (Textprojekt im Kernel), [phase-4-3b-gate.md](phase-4-3b-gate.md) (Textprojekt als Quelle), [phase-4-4-gate.md](phase-4-4-gate.md) (Git minimal und Gate der Phase 4), [phase-3d-1-gate.md](phase-3d-1-gate.md) (Flags und Variablen), [phase-3d-2-gate.md](phase-3d-2-gate.md) (Erzählen-Rahmen), [phase-3d-3-gate.md](phase-3d-3-gate.md) (Kampfsprites, DS-Profil, Kampfvorschau; Teil A, Teil B folgt) und [phase-4-5-gate.md](phase-4-5-gate.md) (Veröffentlichen), dazu [phase-3d-5-gate.md](phase-3d-5-gate.md) (Figur, Dialog, Tür) abarbeitet. Die Punkte selbst stehen in den Gate-Dateien; hier steht nur, **wer** sie prüft und **wie**. Entwurf: [docs/superpowers/specs/2026-10-22-agent-test-harness-design.md](superpowers/specs/2026-10-22-agent-test-harness-design.md) (§5 ist die Zuordnung).
 
 Das Prinzip: Die echte Oberfläche läuft im Browser-Fenster der Claude-Desktop-App (statt im Tauri-Fenster), ihre Befehle gehen über eine Brücke an dieselbe Rust-Logik. Das Spiel läuft in einem Emulator ohne Fenster (`g4emu`).
 
@@ -1366,3 +1366,84 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 ```
 
 `publish_patch` ohne `overwrite` fragt nicht: es legt nur neue Dateien unter `build/` an, und eine vorhandene Datei lehnt es mit `exists` ab, statt zu fragen; unumkehrbar wird es mit `overwrite: true` und mit einem `dir` außerhalb von `build/` („Bauen außerhalb von build/“). `git_commit_all` fragt immer. Beide sind nicht in `g4_batch` erlaubt, ebenso `git_commit_prepare` (über `g4_call`; seine Prüfung kann den Block der `.gitignore` schreiben). Ein `dir` außerhalb `build/` muss über MCP in einem `--allow-dir`-Ordner liegen und existieren: die Pfadprüfung der Policy kommt vor dem Kern. Eine Datei als `dir` ist dort `bad_dir`, ein Ort **unter** einer Datei oder ein fehlender Ordner antwortet schon in der Pfadprüfung mit `error` „Pfad nicht lesbar: …“ (so gewollt); `g4k publish` antwortet für beides `bad_dir`. Der Eintrag in `.g4/releases.json` bleibt in jedem Fall; `undo` nimmt ihn nicht zurück.
+
+## Phase 3d.5 ([phase-3d-5-gate.md](phase-3d-5-gate.md))
+
+3d.5 bringt Figur, Dialog und Tür in Erzählen: `dialog_of` und `split_message` im Kernel, über MCP und die Brücke (der Dialog einer Figur mit Sprüngen und dem Zähler „geteilt“, das Abspalten einer geteilten Nachricht), die Rezepte „Neue Figur“ (`new_figure`, nummerierte Nachricht im Archiv des Headers), „Tür verbinden“ (`connect_doors`) und „Neuer Trainer hier“ (`new_trainer_here`, unumkehrbar) in `recipe_list`, `recipe_plan`, `recipe_apply` und `g4k recipe`, in der Oberfläche das Feld „Dialog“, den Dialog-Editor, die Zeile „Gegenstück“ an der Tür und die drei Assistenten, dazu die Szenarien `pt-erzaehlen` und `hg-erzaehlen`. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
+
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-5-<zweck>_DSPRE_contents` und `.nds` `3d-5-<zweck>.nds` nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher `g4k git init`), `szen-pt` und `szen-hg` für `pt-erzaehlen.yaml` und `hg-erzaehlen.yaml`, `trainer` für `pt-trainer-begegnung.yaml`, `flag` für `pt-flag.yaml` (mit `.nds` für `--set BASIS=../3d-5-flag.nds`), `web` (Platin DE), `webhg` (HeartGold DE) und `mcp` (Platin DE) für Browser und MCP über die Brücke (je `g4k git init`, damit `git status` etwas sagt). Alle `3d-5-*` nach dem Gate löschen. Bilder und Logs unter `target/agent/gate-<datum>/3d-5/`; die Test-Umgebung läuft auf **1750/1751**.
+
+**Wo was ist:** Rezept-Leiste `[role=toolbar][aria-label=Rezepte]` mit fünf freien Tasten `[data-recipe=create_area|create_room|new_figure|connect_doors|new_trainer_here]`; die Assistenten `[data-wizard=new_figure|connect_doors|new_trainer_here]` mit dem Entwurf `[data-draft][data-draft-count]`, in der Zusammenfassung des Trainers `[data-trainer-barrier]`; im Inspector einer Figur `[data-dialog-section]` (Schild: „Text“) mit `[data-dialog-preview]` und „Dialog bearbeiten…“; der Dialog-Editor `[data-dialog-editor]` mit `[data-dialog-message="<Archiv>:<Index>"]` je Nachricht, der Plakette „Geteilt mit N Figuren“ und „Für diese Figur abspalten“; an der Tür unter „Tür“ die Zeile „Gegenstück“ (`[data-warp-counterpart]`) und `[data-connect-doors]` „Tür verbinden…“; die Ergebnis-Tasten unter „Als Nächstes“ (`[data-next-steps]`): „Dialog bearbeiten“ frei, „Zu einer Geschichte“ gesperrt „Kommt mit 3d.7“, „Hier spielen“ gesperrt „Kommt mit 3d.9“. Die Agentenfrage `[data-agent-question]` heißt bei `recipe_apply` mit `new_trainer_here` „Trainer anlegen“. Bei offenem Dialog-Editor sperrt die Modal-Regel den ⌘Z des Stores: Editor schließen, dann ⌘Z.
+
+**Zählung über die Test-API:** wie bei 3d.2: `[data-draft-count]` ist gleich `draftCount(<Antwort von recipe_plan>, <gezeigte Matrix>)`; den Körper der Anfrage mit einem umhüllten `window.fetch` mitschneiden (`/__bridge/invoke/recipe_plan`) und mit `scripts/agent/call.sh recipe_plan '<derselbe Körper>'` selbst zählen. Der Entwurf der Figur steht ab Schritt 1 (mit dem Platzhaltertext „...“, bis Text getippt ist).
+
+| Punkt | Wer | Wie |
+|---|---|---|
+| (1) `scripts/gate.sh` | Agent (Orchestrator, auf main nach dem Merge) | im Hintergrund, allein; in dieser Phase **nicht** im Worktree (unter Last scheitern die Zeitgrenzen), die Schritte, die 3d.5 berührt, laufen einzeln (fmt, clippy, die drei Testläufe ohne `G4_*`, `pnpm test`, `pnpm build`, Tokens, Styles, Depth) |
+| (1) gated Tests | Agent | je Projekt im Release-Profil, nacheinander (Last mit `uptime` je Lauf), Befehle unten; die Zeilen `dialog …`, `refs …`, `figure …`, `doors …`, `trainer …` in die Zahlentabelle |
+| (1) `g4emu` Unit | Agent | `cd scripts/g4emu && uv run pytest -q` |
+| (2) Szenario kopflos | Agent | Release-`studio mcp --project <Kopie> [--allow-irreversible] [--expert]` über JSON-RPC/stdio, Ablauf unten; die Szenarien mit `g4emu` |
+| (3) Browser | Agent | Test-Umgebung auf 1750/1751, Ablauf in der Gate-Datei, Chrome headless 1440 × 900 |
+| (3) MCP über die Brücke | Agent | `mcp.sh`, Befehle unten |
+| (4) `figur.png` lesen, Dialog-Commit in der gepackten App | Hand | siehe Gate-Datei, Abschnitt „Hand“ |
+| Blick | Agent + Blick | Bilder `blick-{figur,dialog,dialog-geteilt,tuer,trainer}-{hell,dunkel,kompakt}.png` unter `target/agent/gate-<datum>/3d-5/` |
+
+**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+
+```sh
+export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH"
+for t in dialog refs_messages recipes_erzaehlen recipes templates trainer_create; do
+  G4_TEST_PROJECT="$K/3d-5-<k>_DSPRE_contents" \
+    cargo test --release -p g4-kernel --all-features --test $t -- --nocapture --test-threads 1
+done
+```
+
+Auf stderr stehen `dialog <Spiel> objects=… local=… messages=… shared=… ms=…` und `dialog-all <Spiel> objects=… unreadable=… shared_pairs=… shared_figures=… ms=…` (jede Figur des Spiels, keine unlesbare; auf Platin mindestens eine geteilte Nachricht), `refs <Spiel> messages=… warm_ms=…`, `figure <Spiel> slot=… message=… apply_ms=… undo_ms=…`, `doors <Spiel> a=… b=… tile=… map=… door_tile=… ms=…`, `trainer <Spiel> id=… tile=… object=… ms=…`. `vanilla_new_figure_message_equals_the_input` prüft die Nachricht im Archiv des Headers gleich der Eingabe und undo/redo byte-gleich; `recipes`, `templates` und `trainer_create` bleiben unverändert grün (`recipes.rs` mit den kleinen Änderungen für sieben Rezepte).
+
+**Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` (`G=target/release/g4k`):
+
+```sh
+P=$K/3d-5-k<k>_DSPRE_contents
+$G git init $P                                               # Ausgangsstand, damit git status etwas sagt
+target/release/studio mcp --project $P                       # ohne Erlaubnis:
+#   recipe_list → sieben Einträge
+#   recipe_plan {"recipe":"new_figure","input":{header,x,z,movement_type,dir,text}} → events 1 (look), messages 1; git status leer
+#   recipe_apply {"recipe":"new_trainer_here","input":{…}} → needs_confirmation „Trainer anlegen“
+target/release/studio mcp --project $P --allow-irreversible --expert
+#   g4_call adopt_scripts; save; danach außen: git add -A && git commit
+#   recipe_apply new_figure → history + 1, report.message; get_text_archive des Header-Archivs: Text gleich der Eingabe
+#   undo → git status leer; redo → wie nach apply
+#   recipe_apply connect_doors {a, b, back, door_tiles} → ein Schritt; get_events beider Dateien zeigen aufeinander
+#   recipe_apply new_trainer_here → created nennt den Trainer, history endet mit „Trainer N angelegt“ und dem Rezept-Label
+#   dialog_of {header, event_file, kind:"object", index} der neuen Figur → eine Nachricht, shared_with 0
+#   dialog_of einer Vanilla-Figur mit shared_with ≥ 1 → split_message {header, event_file, index, archive, message} → new_index;
+#   git status nennt Quelle, Member, compile-state.json und das eine Textarchiv; undo → git status leer
+```
+
+**Szenarien (2)**, aus `scripts/g4emu` mit `G4_ROMS_DIR` absolut (`G4_STUDIO_BIN` und `G4K_BIN` auf die Release-Programme, `G4_BRIDGE_BIN` für `pt-trainer-begegnung`):
+
+```sh
+uv run g4emu scenario ../agent/scenarios/pt-erzaehlen.yaml --project $K/3d-5-szen-pt_DSPRE_contents --out $O/pt-erzaehlen \
+  --set NEUER_HEADER=593 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+uv run g4emu scenario ../agent/scenarios/hg-erzaehlen.yaml --project $K/3d-5-szen-hg_DSPRE_contents --out $O/hg-erzaehlen \
+  --set NEUER_HEADER=540 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+uv run g4emu scenario ../agent/scenarios/pt-trainer-begegnung.yaml --project $K/3d-5-trainer_DSPRE_contents --out $O/pt-trainer-begegnung \
+  --set NEUER_HEADER=593 --set S_WILD=150 --set L_WILD=5 --set S_T1=25 --set L_T1=12 --set S_T2=133 --set L_T2=14 --set S_GIFT=445
+uv run g4emu scenario ../agent/scenarios/pt-flag.yaml --project $K/3d-5-flag_DSPRE_contents --set BASIS=../3d-5-flag.nds --out $O/pt-flag \
+  --set NEUER_HEADER=593 --set X_FIGUR=54 --set Z_FIGUR=17
+```
+
+`"ok": true` in `results.json`; `pt-erzaehlen` und `hg-erzaehlen` haben zweimal `expect-map` (Tür hin und zurück) und `expect-battle`, `figur.png` zeigt „Hallo, Reisender!“ in der Box (Agent + Blick). Die Szenarien haben keinen `check:`-Block (`g4k check-data` kennt keinen Trainer; der gated Test prüft das Team).
+
+**Browser (3)**, Test-Umgebung auf 1750/1751 (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1750 G4_BRIDGE_PORT=1751 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1750/?project=<…>/_testkopien/3d-5-web_DSPRE_contents`, 1440 × 900, Chrome headless mit `--use-angle=swiftshader --enable-unsafe-swiftshader`; Hell und Dunkel gelten nur in der CDP-Verbindung, die sie setzt. Ablauf: Erzählen, Rezept-Leiste mit fünf freien Tasten; „Neue Figur“ bis zur Zusammenfassung (Zählung wie oben), Esc, `git status` leer; Aufstellen, „Dialog bearbeiten“; ein Dialog einer Vanilla-Figur geändert (Blur) → nur das eine Textarchiv im `git status`; Editor schließen, ⌘Z (Meta+Z, Fokus in der Seite) → `call.sh dirty` und `git status` leer; eine geteilte Nachricht → Plakette, „Für diese Figur abspalten“, ⌘Z; Tür → „Gegenstück“, „Tür verbinden…“; „Neuer Trainer hier“; HeartGold DE (`3d-5-webhg`) ebenso.
+
+**MCP (3)** über die Brücke (Kopie `3d-5-mcp` in der Seite geöffnet):
+
+```sh
+scripts/agent/call.sh agent_set_enabled '{"on":true}'
+scripts/agent/call.sh agent_set_grant '{"level":"write"}'
+scripts/agent/mcp.sh call recipe_plan '{"recipe":"new_trainer_here","input":{…}}'          # ohne Rückfrage
+scripts/agent/mcp.sh call recipe_apply '{"recipe":"new_trainer_here","input":{…}}' > target/agent/mcp-trainer.out 2>&1 &   # wartet auf die Frage
+scripts/agent/call.sh agent_status            # question: {kind: confirm, what: "Trainer anlegen"}
+# im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“
+```

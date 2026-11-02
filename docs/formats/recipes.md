@@ -195,3 +195,5 @@ Kampf als Schritt).
 `object`, `script`, `trainer_flag`, `text_problems` (Warnungen von `set_trainer_texts`). Das Rezept ist
 immer unumkehrbar (`list()`: `irreversible`, `is_irreversible`: „Trainer anlegen“). **Danach:**
 `play_here` „Hier spielen“ („Kommt mit 3d.9“).
+
+Gate und Zahlen der drei Rezepte von 3d.5: [docs/phase-3d-5-gate.md](../phase-3d-5-gate.md).
