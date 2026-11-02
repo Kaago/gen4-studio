@@ -9,14 +9,25 @@
 //! 0 and text archive 433), as `recipes_erzaehlen.rs` does; a reward saved between applying and
 //! undoing is compared file by file over the whole folder. Gated (`G4_TEST_PROJECT` of the
 //! family and the base ROM next to it): a talk in the start town of a vanilla copy set up as
-//! text project, its commands per family; prints one line `talk …` each.
+//! text project, its commands per family; prints one line `talk …` each. The story chain on a
+//! vanilla copy (Platinum, HeartGold DE and US; the adopted text project is made once per test
+//! process): trainer B is placed, saved and committed first (its members stay after undo),
+//! then `new_story` → `new_figure` → `talk_advances` → `figure_appears` → `scene_on_enter` →
+//! `reward_once` on the start town, one undo step each; git names only the expected paths and
+//! is clean after undo to the mark, the pool loses one variable and two flags, the project
+//! builds and the checks find no error. Prints `chain …`, `pool …` and `chain-build …`:
+//!
+//! ```sh
+//! G4_TEST_PROJECT=…/_testkopien/3d-7-pt cargo test --release -p g4-kernel --all-features \
+//!   --test recipes_story -- vanilla --nocapture --test-threads 1
+//! ```
 #![cfg(feature = "test-support")]
 #![allow(clippy::unwrap_used)]
 mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use g4_formats::game::Family;
@@ -27,7 +38,11 @@ use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag, taken_text};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::recipes::figure_appears::{self, FigureAppearsInput};
+use g4_kernel::recipes::new_figure::{self, NewFigureInput};
 use g4_kernel::recipes::new_story::{self, NewStoryInput};
+use g4_kernel::recipes::new_trainer_here::{
+    self, BattleTexts, NewTrainerHereInput, PartyMon as TrainerPartyMon,
+};
 use g4_kernel::recipes::reward_once::{self, RewardOnceInput};
 use g4_kernel::recipes::scene_on_enter::{self, SceneOnEnterInput};
 use g4_kernel::recipes::story_common::FigureRef;
@@ -2704,4 +2719,503 @@ fn a_failed_scene_takes_back_the_script_and_the_level_script() {
     assert_eq!(store.history(), history);
     scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
     assert_eq!(store.undo_depth(), mark + 1);
+}
+
+// ---------------------------------------------------------------------------------------
+// Gated: the story chain on a vanilla copy (Platinum, HeartGold DE and US)
+// ---------------------------------------------------------------------------------------
+
+/// The isolated `git` with an identity from the environment (as in `tests/stories.rs`);
+/// `None` (the test skips) without one.
+fn git_cli(home: &Path) -> Option<g4_kernel::git::GitCli> {
+    let mut cli = common::GitFixture::cli(home)?;
+    for (key, value) in [
+        ("GIT_AUTHOR_NAME", "Gen4 Studio Gate"),
+        ("GIT_AUTHOR_EMAIL", "gate@gen4.invalid"),
+        ("GIT_COMMITTER_NAME", "Gen4 Studio Gate"),
+        ("GIT_COMMITTER_EMAIL", "gate@gen4.invalid"),
+        ("GIT_CONFIG_COUNT", "2"),
+        ("GIT_CONFIG_KEY_0", "maintenance.auto"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+        ("GIT_CONFIG_KEY_1", "gc.auto"),
+        ("GIT_CONFIG_VALUE_1", "0"),
+    ] {
+        cli.env.push((key.to_owned(), value.to_owned()));
+    }
+    Some(cli)
+}
+
+/// The paths `git status` shows, sorted.
+fn git_changed(root: &Path) -> Vec<String> {
+    let status = g4_kernel::git::GitRepo::discover(root)
+        .unwrap()
+        .expect("a repository")
+        .status()
+        .unwrap();
+    let mut paths: Vec<String> = status.paths.iter().map(|p| p.path.clone()).collect();
+    paths.sort();
+    paths
+}
+
+fn commit(project: &Project, cli: &g4_kernel::git::GitCli, message: &str) {
+    let commit = g4_kernel::git::commit_all(
+        project,
+        Some(cli),
+        &g4_kernel::git::CommitOptions {
+            message: Some(message.to_owned()),
+            notes: None,
+        },
+        &mut |_| {},
+    )
+    .unwrap();
+    assert!(commit.committed, "{commit:?}");
+}
+
+/// The free numbers of the pool of `kind`, from an index built anew over `store`.
+fn pool_free(store: &Store, kind: FlagKind) -> Vec<u16> {
+    let usage = g4_kernel::data::refs::RefIndex::new()
+        .usage(store, kind)
+        .unwrap();
+    g4_kernel::flags::pool(store.project(), &usage, kind)
+        .unwrap()
+        .free
+}
+
+/// A vanilla copy as text project after the story chain: the story, figure A (talks from step
+/// 0, rewards from step 2), trainer B (appears from step 1, placed and saved before the
+/// chain, in Git when `git`), the scene on the same header (step 1 → 2).
+struct VanillaChain {
+    _tmp: tempfile::TempDir,
+    _home: tempfile::TempDir,
+    root: PathBuf,
+    project: Arc<Project>,
+    cli: Option<g4_kernel::git::GitCli>,
+    store: Store,
+    game: String,
+    header: u16,
+    /// The undo depth before the chain.
+    mark: usize,
+    /// The variable and the two flags the chain took from the pool.
+    var: u16,
+    flags: [u16; 2],
+    /// The pool sizes (variables, flags) before the chain.
+    pool_before: (usize, usize),
+    /// What the chain wrote, as git shows it after a save (empty without `git`).
+    changed: Vec<String>,
+}
+
+/// A copy of `G4_TEST_PROJECT` set up as text project with the base ROM next to it and the
+/// scripts adopted, made once per test process below `CARGO_TARGET_TMPDIR` (adopting takes
+/// minutes under load; as `tests/flags.rs`); each chain copies it. `None` when skipped.
+fn adopted_vanilla() -> Option<&'static Path> {
+    static ADOPTED: OnceLock<Option<PathBuf>> = OnceLock::new();
+    ADOPTED
+        .get_or_init(|| {
+            let src = common::vanilla_project()?;
+            let nds = base_rom(&src)?;
+            let folder = src.file_name()?.to_string_lossy().into_owned();
+            let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("story-{folder}"));
+            let _ = std::fs::remove_dir_all(&root);
+            common::copy_dir(&src, &root);
+            let started = Instant::now();
+            let (assigned, _) = assign_base(&root, &nds).unwrap();
+            assert_eq!(assigned.refused, None);
+            let base = BaseRom::open(&nds, None).unwrap();
+            adopt(&Project::open(&root).unwrap(), &base, &mut |_| {}).unwrap();
+            eprintln!(
+                "adopt {} ms={} (unter Last)",
+                base.game_code(),
+                started.elapsed().as_millis()
+            );
+            Some(root)
+        })
+        .as_deref()
+}
+
+/// The chain on a vanilla copy of `G4_TEST_PROJECT` (with the base ROM next to it), set up as
+/// text project (in Git when `git`); `None` when skipped (no project, no base ROM, no git,
+/// Diamond/Pearl). Asserts one undo step per recipe (`new_trainer_here`: its barrier and one
+/// step, before the chain) and prints one line `chain …` with the ms of each recipe.
+fn vanilla_chain(git: bool) -> Option<VanillaChain> {
+    let src = common::vanilla_project()?;
+    let family = Project::open(&src).unwrap().family;
+    // The start town and the ground floor of the player's house (as `recipes_erzaehlen.rs`).
+    let (header, house) = match family {
+        Family::Pt => (411u16, 414u16),
+        Family::Hgss => (60, 63),
+        Family::Dp => {
+            eprintln!("skipped: no Diamond/Pearl expectations");
+            return None;
+        }
+    };
+    let home = tempfile::tempdir().unwrap();
+    let cli = if git {
+        Some(git_cli(home.path())?)
+    } else {
+        None
+    };
+    let adopted = adopted_vanilla()?;
+    let started = Instant::now();
+    // The copy for this test (written only there, as `vanilla_copy`).
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("project");
+    common::copy_dir(adopted, &root);
+    let project = Arc::new(Project::open(&root).unwrap());
+    assert!(scripts::is_adopted(&project));
+    if let Some(cli) = &cli {
+        let init = g4_kernel::git::git_init(
+            &project,
+            Some(cli),
+            &g4_kernel::git::InitOptions::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert!(init.committed, "{init:?}");
+        assert!(git_changed(&root).is_empty(), "{:?}", git_changed(&root));
+    }
+    let setup_ms = started.elapsed().as_millis();
+    let game = project.game_code.clone();
+    let mut store = Store::new(project.clone());
+
+    let file = store.header_table().unwrap()[usize::from(header)].event_file_id();
+    let door = store
+        .event(file)
+        .unwrap()
+        .warp_events
+        .iter()
+        .find(|w| w.dest_header_id == house)
+        .expect("the town has a door into the house")
+        .clone();
+    let near = |offsets: &[(i32, i32)]| -> Vec<(u16, u16)> {
+        offsets
+            .iter()
+            .map(|&(dx, dz)| {
+                (
+                    u16::try_from(i32::from(door.x) + dx).unwrap(),
+                    u16::try_from(i32::from(door.z) + dz).unwrap(),
+                )
+            })
+            .collect()
+    };
+
+    // Trainer B, before the chain: its members stay after undo (the barrier), so it is
+    // placed, saved and committed first.
+    let trainer = |x: u16, z: u16| NewTrainerHereInput {
+        header,
+        x,
+        z,
+        dir: 0,
+        sight: 3,
+        class: 9,
+        name: "Bert".into(),
+        party: vec![TrainerPartyMon {
+            species: 25,
+            level: 5,
+        }],
+        texts: BattleTexts {
+            before: "Halt! Ich bin Bert!\\r".into(),
+            lose: "Du bist stark!".into(),
+            after: "Gut gekämpft.".into(),
+        },
+        graphics_id: None,
+    };
+    let (bx, bz) = near(&[(2, 3), (-2, 3), (3, 3), (-3, 3), (2, 4), (-2, 4)])
+        .into_iter()
+        .find(|&(x, z)| new_trainer_here::plan(&mut store, &trainer(x, z)).is_ok())
+        .expect("a free tile for trainer B");
+    let depth = store.undo_depth();
+    let started = Instant::now();
+    let placed = new_trainer_here::apply(&mut store, &trainer(bx, bz)).unwrap();
+    let trainer_ms = started.elapsed().as_millis();
+    // The barrier „Trainer N angelegt“ and one step.
+    assert_eq!(store.undo_depth(), depth + 2);
+    let b_local =
+        store.event(file).unwrap().object_events[usize::from(placed.report.object)].local_id;
+    store.save().unwrap();
+    if let Some(cli) = &cli {
+        commit(&project, cli, "Trainer B");
+        assert!(git_changed(&root).is_empty(), "{:?}", git_changed(&root));
+    }
+
+    // The numbers the caller takes from the pool (the index is the session's).
+    let free_vars = pool_free(&store, FlagKind::Var);
+    let free_flags = pool_free(&store, FlagKind::Flag);
+    let pool_before = (free_vars.len(), free_flags.len());
+    let var = free_vars[0];
+    let flags = [free_flags[0], free_flags[1]];
+
+    let mark = store.undo_depth();
+    let mut ms: Vec<(&str, u128)> = Vec::new();
+    let mut timed = |name: &'static str, store: &mut Store, run: &mut dyn FnMut(&mut Store)| {
+        let depth = store.undo_depth();
+        let started = Instant::now();
+        run(store);
+        ms.push((name, started.elapsed().as_millis()));
+        assert_eq!(store.undo_depth(), depth + 1, "{name} is one undo step");
+    };
+
+    let mut story = String::new();
+    timed("new_story", &mut store, &mut |store| {
+        let outcome = new_story::apply(
+            store,
+            &NewStoryInput {
+                name: "Gate".to_owned(),
+                var,
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        story = outcome.report.story;
+    });
+    assert_eq!(story, "STORY_GATE");
+    let a_tiles = near(&[(1, 1), (-1, 1), (2, 1), (-2, 1), (1, 2), (-1, 2)]);
+    let figure = |x: u16, z: u16| NewFigureInput {
+        header,
+        x,
+        z,
+        graphics_id: None,
+        movement_type: 15,
+        dir: 1,
+        text: "Ich bin Figur A.".into(),
+        hidden_flag: None,
+    };
+    let (ax, az) = a_tiles
+        .into_iter()
+        .find(|&(x, z)| new_figure::plan(&mut store, &figure(x, z)).is_ok())
+        .expect("a free tile for figure A");
+    let mut a_local = 0;
+    timed("new_figure", &mut store, &mut |store| {
+        a_local = new_figure::apply(store, &figure(ax, az))
+            .unwrap()
+            .report
+            .local_id;
+    });
+    let a = FigureRef {
+        header,
+        local_id: a_local,
+    };
+    timed("talk_advances", &mut store, &mut |store| {
+        let report = talk_advances::apply(
+            store,
+            &TalkAdvancesInput {
+                story: story.clone(),
+                figure: a,
+                from_step: 0,
+                text: "Geh zum Haus!".to_owned(),
+                step_name: None,
+            },
+        )
+        .unwrap()
+        .report;
+        assert_eq!((report.step.as_str(), report.value), ("s1", 1));
+    });
+    timed("figure_appears", &mut store, &mut |store| {
+        let report = figure_appears::apply(
+            store,
+            &FigureAppearsInput {
+                story: story.clone(),
+                figure: FigureRef {
+                    header,
+                    local_id: b_local,
+                },
+                step: 1,
+                appears: true,
+                flag: flags[0],
+                step_name: None,
+            },
+        )
+        .unwrap()
+        .report;
+        assert_eq!(report.rules, 1);
+    });
+    timed("scene_on_enter", &mut store, &mut |store| {
+        let report = scene_on_enter::apply(
+            store,
+            &SceneOnEnterInput {
+                story: story.clone(),
+                header,
+                step: 1,
+                text: "Ein Brief liegt hier.".to_owned(),
+                step_name: None,
+            },
+        )
+        .unwrap()
+        .report;
+        assert_eq!((report.step.as_str(), report.value), ("s2", 2));
+    });
+    timed("reward_once", &mut store, &mut |store| {
+        reward_once::apply(
+            store,
+            &RewardOnceInput {
+                story: story.clone(),
+                figure: a,
+                from_step: 2,
+                item: 17,
+                text: "Nimm diesen Trank!".to_owned(),
+                flag: flags[1],
+                step_name: None,
+            },
+        )
+        .unwrap();
+    });
+    assert_eq!(store.undo_depth(), mark + 6);
+
+    store.save().unwrap();
+    let changed = if git { git_changed(&root) } else { Vec::new() };
+    let times: Vec<String> = ms.iter().map(|(n, t)| format!("{n}_ms={t}")).collect();
+    eprintln!(
+        "chain {game} header={header} var={var:#06X} flags={:#06X},{:#06X} trainer_b={b_local} \
+         figure_a={a_local} setup_ms={setup_ms} new_trainer_here_ms={trainer_ms} {} (unter Last)",
+        flags[0],
+        flags[1],
+        times.join(" ")
+    );
+    Some(VanillaChain {
+        _tmp: tmp,
+        _home: home,
+        root,
+        project,
+        cli,
+        store,
+        game,
+        header,
+        mark,
+        var,
+        flags,
+        pool_before,
+        changed,
+    })
+}
+
+#[test]
+fn vanilla_story_chain_is_five_undo_steps_and_git_status_is_empty_after_undo() {
+    let Some(mut chain) = vanilla_chain(true) else {
+        return;
+    };
+    eprintln!("chain {} git: {:?}", chain.game, chain.changed);
+    assert!(chain.cli.is_some());
+    // Git names only what the chain writes: the story and its register, the variable's and
+    // the two flags' own names, the header's event file, script source, level script and
+    // text archive (no new level script file: the town owns its own).
+    let h = chain.store.header_table().unwrap()[usize::from(chain.header)].clone();
+    let mut expected = vec![
+        format!("data/events/{:04}.json", h.event_file_id()),
+        format!("data/flags/{:04}.json", chain.flags[0]),
+        format!("data/flags/{:04}.json", chain.flags[1]),
+        "data/ids/flags.json".to_owned(),
+        "data/ids/stories.json".to_owned(),
+        "data/ids/vars.json".to_owned(),
+        "data/stories/0000.json".to_owned(),
+        "data/stories/0000.layout.json".to_owned(),
+        format!("data/vars/{:04}.json", chain.var),
+        format!("expanded/scripts/{:04}.json", h.level_script_id()),
+        format!("expanded/scripts/{:04}.rotom", h.script_file_id()),
+        format!("expanded/textArchives/{:04}.json", h.text_archive_id()),
+    ];
+    expected.sort();
+    assert_eq!(chain.changed, expected);
+    let story = read_story(&chain.project, 0).unwrap().unwrap();
+    let steps: Vec<(&str, u16, StepKind)> = story
+        .steps
+        .iter()
+        .map(|s| (s.key.as_str(), s.value, s.kind))
+        .collect();
+    let (f1, f2) = (chain.flags[0], chain.flags[1]);
+    assert_eq!(
+        steps,
+        [
+            ("s0", 0, StepKind::Start),
+            ("s1", 1, StepKind::Dialog),
+            (format!("a{f1}").as_str(), 1, StepKind::Appearance),
+            ("s2", 2, StepKind::Dialog),
+            (format!("r{f2}").as_str(), 2, StepKind::Reward),
+        ]
+    );
+
+    // Undo to the mark: the working tree is the commit again.
+    let started = Instant::now();
+    while chain.store.undo_depth() > chain.mark {
+        chain.store.undo().unwrap();
+    }
+    let undo_ms = started.elapsed().as_millis();
+    chain.store.save().unwrap();
+    let after = git_changed(&chain.root);
+    eprintln!(
+        "chain-undo {} undo_ms={undo_ms} git_after_undo={after:?}",
+        chain.game
+    );
+    assert!(after.is_empty(), "{after:?}");
+}
+
+#[test]
+fn vanilla_pool_shrinks_by_one_var_and_two_flags() {
+    let Some(chain) = vanilla_chain(false) else {
+        return;
+    };
+    let vars = pool_free(&chain.store, FlagKind::Var);
+    let flags = pool_free(&chain.store, FlagKind::Flag);
+    eprintln!(
+        "pool {} vars {} -> {} flags {} -> {}",
+        chain.game,
+        chain.pool_before.0,
+        vars.len(),
+        chain.pool_before.1,
+        flags.len()
+    );
+    assert_eq!(vars.len(), chain.pool_before.0 - 1);
+    assert_eq!(flags.len(), chain.pool_before.1 - 2);
+    assert!(!vars.contains(&chain.var));
+    assert!(!flags.contains(&chain.flags[0]) && !flags.contains(&chain.flags[1]));
+}
+
+#[test]
+fn vanilla_story_chain_builds_and_checks_clean() {
+    use g4_kernel::checks::{
+        Group, IgnoreSet, Limits, Overlay, Runner, Severity, Snapshot, SnapshotCache,
+    };
+
+    let Some(chain) = vanilla_chain(false) else {
+        return;
+    };
+    let project = chain.project.clone();
+    let started = Instant::now();
+    let compiled = scripts::compile(&project).unwrap();
+    assert!(compiled.problems.is_empty(), "{:?}", compiled.problems);
+    let started_build = Instant::now();
+    let built = g4_kernel::build::build(&project, &chain.root.join("build/out.nds")).unwrap();
+    let build_ms = started_build.elapsed().as_millis();
+    assert!(built.problems.is_empty(), "{:?}", built.problems);
+    assert!(chain.root.join("build/out.nds").is_file());
+
+    let snap = Snapshot::build(
+        project.clone(),
+        Overlay::default(),
+        SnapshotCache::default(),
+    );
+    let checks_started = Instant::now();
+    let report = Runner::run(
+        &snap,
+        Limits::get(),
+        &IgnoreSet::default(),
+        &Group::ALL,
+        |_, _, _| {},
+    );
+    let checks_ms = checks_started.elapsed().as_millis();
+    let errors: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .map(|f| (f.code, f.subject, f.key.clone(), f.message.clone()))
+        .collect();
+    eprintln!(
+        "chain-build {} header={} compile_ms={} build_ms={build_ms} checks_ms={checks_ms} \
+         findings={} errors={} skipped={:?}",
+        chain.game,
+        chain.header,
+        started_build.duration_since(started).as_millis(),
+        report.findings.len(),
+        errors.len(),
+        report.skipped
+    );
+    assert!(errors.is_empty(), "{errors:?}");
 }

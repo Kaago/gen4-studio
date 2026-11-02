@@ -2203,6 +2203,70 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
     assert!(!stderr.contains("rückgängig"), "{stderr}");
 }
 
+/// `g4k recipe apply new_story` on the text fixture: the input names the story and the pool
+/// variable (`--input`), the outcome is printed as JSON and saved (the variable's own name, the
+/// story file); a second story on the same variable is refused, its name is taken now.
+#[test]
+fn cli_recipe_apply_new_story_prints_the_outcome_and_saves() {
+    let fx = common::TextFixture::exported();
+    let root = fx.root();
+    let input = r#"{"name":"Testfaden","var":16432,"notes":"Aus g4k."}"#;
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["new_story", "--input", input])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(outcome["report"]["story"], "STORY_TESTFADEN", "{outcome}");
+    assert_eq!(outcome["report"]["number"], 0, "{outcome}");
+    assert_eq!(outcome["report"]["var"], 16432, "{outcome}");
+    assert_eq!(
+        outcome["report"]["var_id"], "VAR_STORY_TESTFADEN",
+        "{outcome}"
+    );
+    assert_eq!(outcome["created"], serde_json::json!([]), "{outcome}");
+    let next: Vec<&str> = outcome["next"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(next, ["talk_advances", "figure_appears"], "{outcome}");
+
+    // Saved: the variable's own name and the story with its first step are on disk.
+    let read = |rel: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(root.join(rel)).unwrap()).unwrap()
+    };
+    assert_eq!(read("data/ids/vars.json")["VAR_STORY_TESTFADEN"], 16432);
+    assert_eq!(read("data/ids/stories.json")["STORY_TESTFADEN"], 0);
+    let story = read("data/stories/0000.json");
+    assert_eq!(story["name"], "Testfaden", "{story}");
+    assert_eq!(story["notes"], "Aus g4k.", "{story}");
+    assert_eq!(story["steps"][0]["key"], "s0", "{story}");
+    assert_eq!(story["steps"][0]["kind"], "start", "{story}");
+    assert_eq!(story["steps"][0]["made"]["recipe"], "new_story", "{story}");
+
+    // The variable has its own name now: a second story on it is refused, nothing is written.
+    let before = files_of(root);
+    g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args([
+            "new_story",
+            "--input",
+            r#"{"name":"Zweiter Faden","var":16432}"#,
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("VAR_STORY_TESTFADEN"));
+    assert!(!root.join("data/stories/0001.json").exists());
+    assert_eq!(
+        before.get(&root.join("data/ids/vars.json")),
+        files_of(root).get(&root.join("data/ids/vars.json"))
+    );
+}
+
 /// `g4k recipe apply` asks the project whether a visibility creates a level script file: a
 /// figure on header 0, which owns its level script file, goes through without
 /// `--allow-irreversible`; one on header 1, which has none (a new file would stay after undo),
