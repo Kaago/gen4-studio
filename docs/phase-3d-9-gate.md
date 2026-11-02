@@ -63,7 +63,7 @@ So vorzubereiten (der gated Test von (1) lief auf den Kopien `3d-9-pt`, `3d-9-hg
 Offen. `g4emu repl` auf der Kopie `3d-9-pt` mit `CPUD-zimmer.sav` (Port 3390) und das Release-`studio mcp --project <Kopie>` über JSON-RPC/stdio; Ablauf in `agent-gate.md`. Das kopflose `studio mcp` hat keine App und damit keinen `live_connect` (in MCP „Nur in der App“): dort ist `live_status` immer `off`; die Verbindung und `live_set` gegen den Stub prüft darum der Abschnitt „MCP über die Brücke“ in (3) (Test-Umgebung, `call.sh live_connect`).
 
 - [ ] 1. `live_status` → `state` `off`, `game_check` null, `breakpoints` leer (Antwortzeit notieren).
-- [ ] 2. `live_set {kind: "flag", number: "FLAG_…", value: 0}` ohne Verbindung → `not_live`.
+- [ ] 2. `live_set {kind: "flag", number: 371, value: 0}` ohne Verbindung → `not_live`.
 - [ ] 3. `tools/list` nennt genau `live_status` (lesend) und `live_set` (schreibend); `g4_batch` mit `live_set` lehnt vor dem Lauf ab („nicht in `g4_batch`“); `git status` der Kopie leer.
 
 ## (3) Browser-Teil
@@ -73,13 +73,13 @@ Offen. Test-Umgebung auf 1790/1791, Chrome headless 1440 × 900, Seite `http://1
 - [ ] 1. **Scharnier bernsteinfarben:** nach `live_connect` trägt das Scharnier `data-hinge-mode="play"`, `[data-live-state]` geht über „Verbindet …“ zu „Live“, die Plakette „Spielt in melonDS“ steht da, „Hier spielen“ nicht; Bilder `blick-scharnier-live-{hell,dunkel,kompakt}.png` (Lesbarkeit der Tasten und des Texts, Kontrast ≥ 4,5 : 1 steht in der README).
 - [ ] 2. **Spalte „Live“:** Technik › Flags und Variablen zeigt in `[data-flag-live]` Werte („1“/„0“ bei Flags, Dezimalzahl bei Variablen), der Kopf trägt `data-flag-live-head="on"`; Zellen außerhalb des Spielstands „–“; Bild `blick-flags-live-{hell,dunkel}.png`.
 - [ ] 3. **Flag `0x173` per Klick auf 0:** der Klick auf die Zelle schreibt; repl `expect-flag 0x173 0` besteht; der Schalter im Detail („Im Spiel gesetzt“) zeigt 0; `git status` der Kopie bleibt leer, der Verlauf (`history`) unverändert (Live-Wert ist kein Schritt).
-- [ ] 4. **Die Figur erscheint:** vor dem Klick (Flag 1, die Figur ist versteckt) blockiert `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394 nicht (Gegenprobe); nach dem Klick auf 0 (Punkt 3): repl Treppe hinunter (`walk-to 8 4`, `walk right 1`, `expect-map 414`, Kachel der Treppe laut `scripts/agent/scenarios/pt-treppe-warp.yaml`) und wieder hinauf (`expect-map 415`), dann `walk-until-blocked` auf dieselbe Kachel: blockiert eine Kachel davor = **die Figur erscheint** (`shot figur`, Bild `shot-figur.png`). Das Flag wirkt erst beim nächsten Betreten der Karte; die Notiz im Detail sagt es.
+- [ ] 4. **Die Figur erscheint:** zuerst den Startwert des Flags `0x173` im Spielstand prüfen (die Zelle in der Spalte „Live“ oder `live_status`; Byte 46, Bit 3 des Flag-Blocks) und notieren; ist es 1 (Figur versteckt), blockiert `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394 nicht (Gegenprobe). Nach dem Klick auf 0 (Punkt 3) im repl, mit `wait 150` nach jedem Kartenwechsel (die Überblendung läuft noch; `expect-map` kehrt früh zurück): `walk-to 8 4`, `walk right 1` (die Treppe, Warp 0 von Eventdatei 394), `expect-map 414`, `wait 150`, `mash b 600` (die Mutter spricht); zurück über den Warp der Treppe in 414: die Ankunft (x 10, y 3) liegt auf ihm, ein Schritt nach Westen löst ihn aus (so tun es `pt-neuer-ort.yaml` und `pt-nahtlos.yaml`, die dort „a step west from them warps back up“ vermerken): `walk left 1`, `expect-map 415`, `wait 150`. **Kachel und Richtung dieses Warps aus `get_events` der Eventdatei von Header 414 (Eventdatei 393, zwei Warps) lesen und prüfen**, bevor man sich auf `walk left 1` verlässt; stimmt es nicht, `walk-to` auf die Warp-Kachel und einen Schritt in Richtung Ausgang (ein Warp feuert nur dann). Dann `walk-until-blocked` auf die Kachel der Figur: blockiert eine Kachel davor = **die Figur erscheint** (`shot figur`, Bild `shot-figur.png`). Das Flag wirkt erst beim nächsten Betreten der Karte; die Notiz im Detail sagt es.
 - [ ] 5. **Variable `0x40A5` auf 0:** im Detail der Variable „Wert im Spiel“ 0 und „Setzen“; repl `walk-to 5 5`, `walk-until-blocked left 4` (1 Schritt), `expect-at 4 5` (der Auslöser feuert; R13).
 - [ ] 6. **Haltepunkt:** Welt › Eventdatei 394 › Auslöser mit `var 0x40A5` → im Inspector das Kästchen „Haltepunkt“ an (`[data-live-breakpoint]`); das Scharnier sagt „Live · 1 Haltepunkt“; repl `set-var 0x40A5 1` → Scharnier „Gehalten: Auslöser … · Eventdatei 394: 0 → 1“ mit „Weiter“ (`[data-live-resume]`; Bild `blick-halt-{hell,dunkel}.png`); repl `expect-halted`; „Weiter“ → repl `expect-running`, `[data-live-state]` „Live“.
 - [ ] 7. **Warnung bei nicht übernommenem Wert:** (nur wenn sich ein Wert erzwingen lässt, sonst Einheitstest `FlagsSurface.test.tsx` nennen) `[data-flag-live-warning]` und die Meldung im Detail, `read_back` false.
 - [ ] 8. **„Stoppen“:** das Scharnier wird dunkel (`data-hinge-mode` fehlt), `live_status.state` ist `off`, der Stub auf 3390 ist frei (repl `expect-running`); „Hier spielen“ steht wieder da.
 - [ ] 9. **Technik › Emulator:** die Zeile `[data-live-row]` „Spielmodus live“ im Browser-Modus (ohne gewähltes melonDS: „Kein melonDS gewählt“); Bild `blick-emulator-live.png`.
-- [ ] 10. **MCP über die Brücke** (Freigabe „Lesen und bearbeiten“): `mcp.sh call live_status` (Zustand `live`, `game_check` `verified`, `snapshot` mit Flags und Variablen); `mcp.sh call live_set '{"kind":"flag","number":"FLAG_…","value":0}'` → `read_back` (die Antwort nennt `null`, bis der nächste Schnappschuss kam; `live_status` danach `true`), repl `expect-flag`; `live_set` mit einer Nummer außerhalb des Spielstands (Flag 4000) → `outside_save`; Verlauf und `git status` unverändert, keine Frage (`agent_status.question` null).
+- [ ] 10. **MCP über die Brücke** (Freigabe „Lesen und bearbeiten“): `mcp.sh call live_status` (Zustand `live`, `game_check` `verified`, `snapshot` mit Flags und Variablen); `mcp.sh call live_set '{"kind":"flag","number":371,"value":0}'` → `read_back` (die Antwort nennt `null`, bis der nächste Schnappschuss kam; `live_status` danach `true`), repl `expect-flag`; `live_set` mit einer Nummer außerhalb des Spielstands (Flag 4000) → `outside_save`; Verlauf und `git status` unverändert, keine Frage (`agent_status.question` null).
 - [ ] 11. **Konsole und Brückenlog:** kein Eintrag in `console.error`, `console.warn`, Ausnahmen; im Brückenlog kein Fehler und keine Panik; der Stub kennt nach „Stoppen“ keinen Client mehr.
 
 ### (3) HeartGold DE
@@ -88,16 +88,28 @@ Offen. Test-Umgebung auf 1790/1791, Chrome headless 1440 × 900, Seite `http://1
 
 ## (4) Echtes melonDS
 
-Offen. **Agent:** zuerst `pgrep -x melonDS` (leer, sonst kein Lauf und kein Anfassen von Port 3333); `~/Library/Preferences/melonDS/melonDS.toml` sichern (Kopie in den Ausgabeordner, Prüfsumme notieren), den Stub einschalten (`[Instance0.Gdb] Enabled = true`, `BreakOnStartup = false`, `[JIT] Enable = false`; Tabellen und Schlüssel prüfen: schreibt `toml` 0.8 die Datei so, dass melonDS sie liest, oder braucht es `toml_edit`, siehe „Offen“), `/Applications/melonDS.app/Contents/MacOS/melonDS <3d-9-pt.nds> >/dev/null 2>&1 &` mit dem Spielstand (`CPUD-zimmer.sav` als `3d-9-pt.sav` neben der ROM), das Spiel bis ins Zimmer fortsetzen, dann `g4k live status --port 3333 --game CPUD` → `game_check` **verified** und `has_save` true; die Datei byte-gleich zurück (Prüfsumme gleich), melonDS beenden. **Hand:** „Hier spielen“ in der gepackten App (`pnpm bundle`), das Scharnier wird bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers.
+Offen. Der Punkt prüft zwei Dinge, die nur das echte melonDS 1.1 beantwortet: ob der Spielcode an `0x023FFE0C` dort steht (`game_check`) und ob melonDS die `melonDS.toml` liest, die der Kernel mit `toml` 0.8 umgeschrieben hat (`toml::to_string` verliert Kommentare und kann Tabellen umsortieren). `enable_stub` ist in der App nur über `live_play` zu erreichen (in der Brücke abgelehnt); darum schreibt der Agent die Datei mit der Funktion des Kernels selbst um, in einem Wegwerfprogramm (Entscheidung R21).
 
-- [ ] 1. Agent: `game_check` an `0x023FFE0C` im echten melonDS 1.1 auf `CPUD`: offen (`verified` oder `unverified`; ein `unverified` nennt das Spiel hier, die Entscheidung gilt: weiter, der Status zeigt es).
-- [ ] 2. Agent: `has_save` und ein Lesen der Variablen in Zahlen (Pause und Zeit `took_ms`): offen.
-- [ ] 3. Agent: `melonDS.toml` byte-gleich zurück, melonDS beendet, kein Rest auf Port 3333: offen.
-- [ ] 4. Hand: „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten: offen.
+**Agent:**
+
+1. Zuerst `pgrep -x melonDS`: leer, sonst kein Lauf und kein Anfassen von Port 3333.
+2. Die Datei sichern: `~/Library/Preferences/melonDS/melonDS.toml` als Original in den Ausgabeordner kopieren (`cp -p`, Prüfsumme notieren) und ein zweites Mal in den Scratchpad (die Kopie, die umgeschrieben wird).
+3. Die **Kopie** mit der Funktion des Kernels umschreiben: ein Wegwerf-Cargo-Programm im Scratchpad (nie ein Test im Repo, nie eingecheckt) mit einer Pfad-Abhängigkeit auf `crates/g4-kernel`, das `g4_kernel::live::melonds::enable_stub(Path::new(<Kopie>))` aufruft und die zurückgegebenen Einstellungen druckt (`enabled` true, `break_on_startup` false, `jit` false, Port). `enable_stub` legt dabei `<Kopie>.g4-backup` neben der Kopie an; das ist nur Beiwerk im Scratchpad.
+4. Die umgeschriebene Kopie an den Platz der Datei kopieren, dann melonDS 1.1 mit der Kopie `3d-9-pt` starten (`/Applications/melonDS.app/Contents/MacOS/melonDS <3d-9-pt.nds> >/dev/null 2>&1 &`; die ROM und der Spielstand `CPUD-zimmer.sav` als `<ROM-Name>.sav` daneben: **Annahme**, dass melonDS den Spielstand so findet; zeigt `has_save` false, den Namen prüfen).
+5. **Hand:** im melonDS-Fenster das Spiel fortsetzen, bis es im Zimmer steht (der Agent hat kein Eingabewerkzeug für dieses Fenster). Dann der Agent: `g4k live status --port 3333 --game CPUD`. **Antwortet es** (`state`, `game_check`), hat melonDS die umgeschriebene Datei gelesen: `toml` 0.8 genügt. **Antwortet es nicht** („Kein GDB-Stub auf Port 3333“) oder liest melonDS die Datei nicht, ist das ein Befund: dann `toml_edit` als Abhängigkeit (`cargo deny` prüfen), Begründung im Commit.
+6. melonDS beenden (`pkill -x melonDS`, warten bis `pgrep -x melonDS` leer ist: melonDS schreibt die Datei beim Beenden zurück), das **Original** zurückkopieren und mit `cmp` prüfen, dass die Datei byte-gleich ist; kein Rest auf Port 3333.
+
+**Hand:** „Hier spielen“ in der gepackten App (`pnpm bundle`), das Scharnier wird bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers.
+
+- [ ] 1. Agent: melonDS liest die mit `toml` 0.8 umgeschriebene `melonDS.toml` (der Stub antwortet auf 3333): offen. Antwortet er nicht, steht hier der Befund und `toml_edit` kommt.
+- [ ] 2. Agent: `game_check` an `0x023FFE0C` im echten melonDS 1.1 auf `CPUD`: offen (`verified` oder `unverified`; ein `unverified` nennt das Spiel hier, die Entscheidung gilt: weiter, der Status zeigt es).
+- [ ] 3. Agent: `has_save` und ein Lesen der Variablen in Zahlen (Pause und Zeit `took_ms`): offen; die Benennung `<ROM-Name>.sav` als Annahme bestätigt oder korrigiert.
+- [ ] 4. Agent: das Original der `melonDS.toml` byte-gleich zurück (`cmp`), melonDS beendet, kein Rest auf Port 3333: offen.
+- [ ] 5. Hand: im melonDS-Fenster das Spiel bis ins Zimmer fortsetzen (für 1 bis 3) und „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten: offen.
 
 ## Hand und Blick
 
-- [ ] **Hand:** wie (4) Punkt 4; dazu in der gepackten App „Neu laden“ (stoppt, baut, startet neu) und „Stoppen“ (das Scharnier wird wieder dunkel; `Gen4 Studio` beenden lässt kein melonDS und keinen Stub zurück).
+- [ ] **Hand:** wie (4) Punkt 5; dazu in der gepackten App „Neu laden“ (stoppt, baut, startet neu) und „Stoppen“ (das Scharnier wird wieder dunkel; `Gen4 Studio` beenden lässt kein melonDS und keinen Stub zurück).
 - [ ] **Blick** (Agent + Blick): Bilder unter `target/agent/gate-2026-11-02/3d-9/`, 1440 × 900, aus der Test-Umgebung über Chrome headless (Hell und Dunkel über `prefers-color-scheme` **in einer CDP-Verbindung** mit dem Bild, Kompakt über die Taste der Statusleiste):
   - `blick-scharnier-live-{hell,dunkel,kompakt}.png`: das Scharnier im Spielmodus, Tasten „Neu laden“ und „Stoppen“ lesbar, die gewählte Tiefe und „Schau maximieren“ in dunkler Fläche mit heller Schrift;
   - `blick-flags-live-{hell,dunkel}.png`: Spalte „Live“ mit Werten, Kopf in `live/text`, der Abschnitt „Live“ im Detail;
@@ -115,8 +127,8 @@ Offen. **Agent:** zuerst `pgrep -x melonDS` (leer, sonst kein Lauf und kein Anfa
 | (2) kopflos `live_status`, `live_set` | Agent | offen | – |
 | (3) 1 bis 11 Browser-Teil und MCP über die Brücke (Platin DE) | Agent | offen | – |
 | (3) 12 HeartGold DE (nur Flag und Scharnier) | Agent | offen | – |
-| (4) 1 bis 3 echtes melonDS 1.1 | Agent | offen | – |
-| (4) 4 „Hier spielen“ in der gepackten App | Hand | offen | – |
+| (4) 1 bis 4 echtes melonDS 1.1 (umgeschriebene `melonDS.toml`, `game_check`, `has_save`, Original zurück) | Agent | offen | – |
+| (4) 5 melonDS-Fenster bis ins Zimmer fortsetzen, „Hier spielen“ in der gepackten App | Hand | offen | – |
 | Blick auf Scharnier, Spalte, Halt, Emulator-Zeile (Hell, Dunkel, Kompakt) | Agent + Blick | offen | – |
 
 Zahlentabelle (gated `test_live.py`, **unter Last**; die Spalten der Oberfläche und des echten melonDS füllt der UI-Test):
@@ -155,8 +167,8 @@ Entscheidungen des Steuer-Agenten, die das Gate berühren (Ledger `R1` bis `R20`
 ## Offen
 
 - **`0x023FFE0C` im echten melonDS 1.1:** die gated Prüfung hat den Spielcode im libretro-Kern auf allen drei Spielen gefunden; die Messung im echten melonDS (Punkt (4)) steht aus. Bleibt ein Spiel `unverified`, gilt die Entscheidung (weiter, Status zeigt es), und diese Datei nennt das Spiel.
-- **`toml` und die Konfiguration von melonDS:** `toml::to_string` verliert Kommentare der `melonDS.toml` und kann Tabellen umsortieren; melonDS schreibt die Datei beim Beenden ohnehin neu. Liest melonDS die Datei nach dem Schreiben nicht (Punkt (4) 1), wird `toml_edit` Abhängigkeit (`cargo deny` prüfen), Begründung im Commit.
+- **`toml` und die Konfiguration von melonDS:** `toml::to_string` verliert Kommentare der `melonDS.toml` und kann Tabellen umsortieren; melonDS schreibt die Datei beim Beenden ohnehin neu. Punkt (4) prüft es mit dem Wegwerfprogramm (R21, `enable_stub` auf einer Kopie, dann melonDS 1.1 mit der umgeschriebenen Datei): antwortet der Stub, genügt `toml` 0.8; sonst wird `toml_edit` Abhängigkeit (`cargo deny` prüfen), Begründung im Commit.
 - **Position der Figur 0 in Eventdatei 394** (Platin) und der Figuren in Header 64 (HeartGold): aus `get_events` der Kopie lesen und im Abschnitt (3) eintragen.
 - **HeartGold-Auslöser:** auf HeartGold nur Flags geprüft; die Variable (Haltepunkt am Auslöser) bleibt dort ungeprüft.
 - **Haltepunkte durch Abfrage:** ein Haltepunkt hält bis zu 250 ms und ein Bild nach der Änderung, nicht auf dem schreibenden Befehl (Abweichung von der Spezifikation, siehe README); `Z`-Pakete und `hwbreak` bleiben ungeprüft.
-- **Hand:** die gepackte App mit echtem melonDS (Punkt (4) 4).
+- **Hand:** die gepackte App mit echtem melonDS (Punkt (4) 5).

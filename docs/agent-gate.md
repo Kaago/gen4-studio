@@ -1417,10 +1417,10 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 | (1) Automatik | Agent | fmt, clippy, `cargo test -p g4-kernel --all-features`, `cargo test -p studio --all-features --lib`, `cargo test -p studio --test mcp_stdio` (alle drei ohne `G4_*`), `pnpm test`, `pnpm build`, `check-tokens.sh`, `check-styles.sh`, `check-depth.sh`, `g4emu` Einheit (`uv run pytest -m "not integration" -q`) einzeln; das ganze `gate.sh` läuft auf main nach dem Merge |
 | (1) gated `test_live.py` | Agent | Platin DE, HeartGold DE, HeartGold US mit `g4emu repl` + `g4k live` auf Port 3390; `took_ms` und `game_check` je Spiel in die Tabelle der Gate-Datei |
 | (2) kopflos | Agent | `g4emu repl` auf `3d-9-pt` (Port 3390) und Release-`studio mcp`: `live_status` → `off`, `live_set` → `not_live`; die Verbindung selbst ist App-only, darum `live_set` gegen den Stub über die Brücke (nächste Zeile) |
-| (3) Browser | Agent + Blick | Test-Umgebung 1790/1791, Projekt `3d-9-web_DSPRE_contents`; `g4emu repl` mit `CPUD-zimmer.sav` auf 3390; `call.sh live_connect`; Scharnier bernsteinfarben (Bild), Spalte „Live“ (Bild), Flag `0x173` per Klick auf 0 → repl `expect-flag 0x173 0`, Treppe hinunter und hinauf, `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394: blockiert eine Kachel davor = die Figur erscheint (`shot figur`); Variable `0x40A5` auf 0 → `walk-to 5 5`, `walk-until-blocked left 4` (1 Schritt), `expect-at 4 5`; Haltepunkt am Auslöser mit `var 0x40A5` → repl `set-var 0x40A5 1` → Scharnier „Gehalten: …: 0 → 1“ (Bild), `expect-halted`; „Weiter“ → `expect-running`; „Stoppen“ → Scharnier dunkel, `live_status.state == "off"` |
+| (3) Browser | Agent + Blick | Test-Umgebung 1790/1791, Projekt `3d-9-web_DSPRE_contents`; `g4emu repl` mit `CPUD-zimmer.sav` auf 3390; `call.sh live_connect`; Scharnier bernsteinfarben (Bild), Spalte „Live“ (Bild), Flag `0x173` per Klick auf 0 → repl `expect-flag 0x173 0`, Treppe hinunter und über den Warp in 414 wieder hinauf (Ablauf unten, mit `wait 150` nach jedem Kartenwechsel), `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394: blockiert eine Kachel davor = die Figur erscheint (`shot figur`); Variable `0x40A5` auf 0 → `walk-to 5 5`, `walk-until-blocked left 4` (1 Schritt), `expect-at 4 5`; Haltepunkt am Auslöser mit `var 0x40A5` → repl `set-var 0x40A5 1` → Scharnier „Gehalten: …: 0 → 1“ (Bild), `expect-halted`; „Weiter“ → `expect-running`; „Stoppen“ → Scharnier dunkel, `live_status.state == "off"` |
 | (3) MCP über die Brücke | Agent | `mcp.sh call live_status`, `live_set` (→ `read_back`), `live_set` außerhalb des Spielstands → `outside_save` |
 | (3) HeartGold DE | Agent | wie (3) mit `IPKD-zimmer.sav`, Flag `0x2A9` (Figuren im Zimmer, Header 64), nur Flag und Scharnier |
-| (4) echtes melonDS | Agent + Hand | Agent: `melonDS.toml` sichern, Stub einschalten, melonDS mit der ROM und dem Spielstand starten, `g4k live status --port 3333 --game CPUD` → `verified`, `has_save`; Datei byte-gleich zurück, melonDS beenden. Hand: „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten des Zimmers |
+| (4) echtes melonDS | Agent + Hand | Agent (nur bei leerem `pgrep -x melonDS`): `melonDS.toml` sichern, eine Kopie mit `g4_kernel::live::melonds::enable_stub` (Wegwerfprogramm im Scratchpad) umschreiben, einsetzen, melonDS 1.1 mit `3d-9-pt` starten, `g4k live status --port 3333 --game CPUD` (Antwort = melonDS liest die umgeschriebene Datei, `toml` 0.8 genügt; sonst Befund, `toml_edit`), `verified`, `has_save`; Original byte-gleich zurück (`cmp`), melonDS beenden. Hand: im melonDS-Fenster bis ins Zimmer fortsetzen; „Hier spielen“ in der gepackten App, Scharnier bernsteinfarben, Figur erscheint nach Flag-Klick beim nächsten Betreten des Zimmers |
 | Blick | Agent + Blick | Bilder `blick-*.png` und `shot-*.png` unter `target/agent/gate-<datum>/3d-9/` |
 
 **Gated Test (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, Kern unter `tools/g4emu/core/`, `g4k` gebaut mit `cargo build -p g4-kernel --bin g4k`):
@@ -1437,7 +1437,7 @@ Der Test (`scripts/g4emu/tests/test_live.py`, Port 3390, die Spielstände werden
 **`g4emu repl` für Hand und Browser (2) (3)**, aus `scripts/g4emu`, die Schritte kommen von einer Datei (`tail -f`), die Antworten stehen als JSON-Zeilen in `repl.out`:
 
 ```sh
-OUT=<Worktree>/target/agent/gate-<datum>/3d-9; mkdir -p $OUT; : > $OUT/repl.in
+K=$G4_ROMS_DIR/_testkopien; OUT=<Worktree>/target/agent/gate-<datum>/3d-9; mkdir -p $OUT; : > $OUT/repl.in
 ( tail -n +1 -f $OUT/repl.in | uv run g4emu repl --rom $K/3d-9-pt.nds --save $K/_saves/CPUD-zimmer.sav \
     --out $OUT/repl --gdb-port 3390 > $OUT/repl.out 2> $OUT/repl.err ) &
 # erste Zeile von repl.out: {"ready": true, "gdb_port": 3390, "game": "CPUD"}
@@ -1452,8 +1452,8 @@ Der Stub hält beim Verbinden an, bis `c` kommt (wie melonDS); die App und `g4k 
 **Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
 
 ```sh
-P=$K/3d-9-pt
-target/release/studio mcp --project $P                        # live_status → state off; live_set {kind flag, number …, value 0} → not_live; tools/list nennt beide
+K=$G4_ROMS_DIR/_testkopien; P=$K/3d-9-pt
+target/release/studio mcp --project $P                        # live_status → state off; live_set {kind flag, number 371, value 0} → not_live; tools/list nennt beide
 target/release/g4k live status --port 3390 --game CPUD        # mit laufendem repl: state, game_check verified, took_ms
 target/release/g4k live set --port 3390 --game CPUD --flag 0x173 --value 0
 git -C $P status --porcelain                                   # nichts (ein Live-Wert schreibt kein Projekt)
@@ -1468,7 +1468,7 @@ scripts/agent/call.sh live_set '{"kind":"flag","number":371,"value":0}'   # 0x17
 scripts/agent/call.sh live_stop                               # oder „Stoppen“ im Fenster: Scharnier dunkel, state off
 ```
 
-Ablauf in der Oberfläche: Scharnier (Bild `blick-scharnier-live-{hell,dunkel,kompakt}.png`), Technik › Flags und Variablen (Spalte „Live“, Bild `blick-flags-live-*.png`), Flag `0x173` per Klick auf die Zelle auf 0 (Detail zeigt „Im Spiel gesetzt“ aus), repl `expect-flag 0x173 0`; im repl Treppe hinunter (`walk-to 8 4`, `walk right 1`, `expect-map 414`) und hinauf (`expect-map 415`), `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394 (Kachel aus `scripts/agent/call.sh get_events '{"eventFileId":394}'`): blockiert eine Kachel davor, ist die Figur da (`shot figur`); Variable `0x40A5` im Detail auf 0 setzen, `walk-to 5 5`, `walk-until-blocked left 4`, `expect-at 4 5`; Welt › Eventdatei 394 › Auslöser mit `var 0x40A5` › Kästchen „Haltepunkt“, repl `set-var 0x40A5 1` → Scharnier „Gehalten: Auslöser … · Eventdatei 394: 0 → 1“ (Bild `blick-halt-*.png`), `expect-halted`, „Weiter“, `expect-running`; „Stoppen“. HeartGold DE ebenso auf `3d-9-webhg` mit `IPKD-zimmer.sav` und Flag `0x2A9` (nur Flag und Scharnier).
+Ablauf in der Oberfläche: Scharnier (Bild `blick-scharnier-live-{hell,dunkel,kompakt}.png`), Technik › Flags und Variablen (Spalte „Live“, Bild `blick-flags-live-*.png`), Flag `0x173` per Klick auf die Zelle auf 0 (Detail zeigt „Im Spiel gesetzt“ aus), repl `expect-flag 0x173 0`; im repl Treppe hinunter (`walk-to 8 4`, `walk right 1`, `expect-map 414`, `wait 150`, `mash b 600` für die Mutter) und über den Warp der Treppe in 414 hinauf (die Ankunft x 10, y 3 liegt auf ihm, ein Schritt nach Westen löst ihn aus, wie in `pt-neuer-ort.yaml`: `walk left 1`, `expect-map 415`, `wait 150`; Kachel und Richtung aus `scripts/agent/call.sh get_events '{"eventFileId":393}'` (Eventdatei von Header 414, zwei Warps) lesen und prüfen), `walk-until-blocked` auf die Kachel der Figur 0 der Eventdatei 394 (Kachel aus `scripts/agent/call.sh get_events '{"eventFileId":394}'`): blockiert eine Kachel davor, ist die Figur da (`shot figur`; vorher den Startwert des Flags im Spielstand notieren, ist er 1, blockiert der Weg nicht); Variable `0x40A5` im Detail auf 0 setzen, `walk-to 5 5`, `walk-until-blocked left 4`, `expect-at 4 5`; Welt › Eventdatei 394 › Auslöser mit `var 0x40A5` › Kästchen „Haltepunkt“, repl `set-var 0x40A5 1` → Scharnier „Gehalten: Auslöser … · Eventdatei 394: 0 → 1“ (Bild `blick-halt-*.png`), `expect-halted`, „Weiter“, `expect-running`; „Stoppen“. HeartGold DE ebenso auf `3d-9-webhg` mit `IPKD-zimmer.sav` und Flag `0x2A9` (nur Flag und Scharnier).
 
 **MCP (3)** über die Brücke (Kopie in der Seite geöffnet, `live_connect` wie oben gemacht):
 
@@ -1483,15 +1483,24 @@ scripts/agent/call.sh history '{}'                                           # u
 
 Keine Rückfrage (`agent_status.question` null): `live_set` ist schreibend, aber ohne Verlauf; `live_connect` und `live_play` sind in MCP „Nur in der App“.
 
-**Echtes melonDS (4)**, nur wenn `pgrep -x melonDS` leer ist (kein melonDS des Nutzers):
+**Echtes melonDS (4)**, nur wenn `pgrep -x melonDS` leer ist (kein melonDS des Nutzers). Es prüft, ob melonDS die vom Kernel (`toml` 0.8) umgeschriebene Datei liest; die Funktion `enable_stub` ist in der App nur über `live_play` erreichbar (in der Brücke abgelehnt), darum ein Wegwerfprogramm im Scratchpad (nie ein Test im Repo, nie eingecheckt):
 
 ```sh
-C=~/Library/Preferences/melonDS/melonDS.toml; cp -p $C $OUT/melonDS.toml.vorher; shasum $C
-# Stub einschalten: [Instance0.Gdb] Enabled = true; [Instance0.Gdb.ARM9] BreakOnStartup = false; [JIT] Enable = false
-cp $K/3d-9-pt.nds $OUT/pt.nds; cp $K/_saves/CPUD-zimmer.sav $OUT/pt.sav          # der Spielstand heißt wie die ROM
-/Applications/melonDS.app/Contents/MacOS/melonDS $OUT/pt.nds >/dev/null 2>&1 &    # bis ins Zimmer fortsetzen
-target/release/g4k live status --port 3333 --game CPUD                           # game_check verified, has_save true, took_ms
-pkill -x melonDS; cp -p $OUT/melonDS.toml.vorher $C; shasum $C                   # byte-gleich zurück (Prüfsumme wie vorher)
+K=$G4_ROMS_DIR/_testkopien; OUT=<Worktree>/target/agent/gate-<datum>/3d-9; S=<Scratchpad>/enable-stub; mkdir -p $S
+C=~/Library/Preferences/melonDS/melonDS.toml
+pgrep -x melonDS && echo "läuft: abbrechen"                                       # muss leer sein
+cp -p $C $OUT/melonDS.toml.original; shasum $C; cp $C $S/melonDS.toml            # Original sichern, Kopie zum Umschreiben
+# $S (vorher mkdir -p): cargo init --bin; Cargo.toml: g4-kernel = { path = "<Worktree>/crates/g4-kernel" }
+# main.rs: println!("{:?}", g4_kernel::live::melonds::enable_stub(std::path::Path::new("<Scratchpad>/enable-stub/melonDS.toml")));
+(cd $S && cargo run -q)                                                          # druckt die Einstellungen: enabled true, break_on_startup false, jit false
+cp $S/melonDS.toml $C                                                            # die umgeschriebene Kopie einsetzen
+cp $K/3d-9-pt.nds $OUT/pt.nds; cp $K/_saves/CPUD-zimmer.sav $OUT/pt.sav          # Annahme: melonDS findet den Spielstand als <ROM-Name>.sav
+/Applications/melonDS.app/Contents/MacOS/melonDS $OUT/pt.nds >/dev/null 2>&1 &
+# Hand: im melonDS-Fenster das Spiel fortsetzen, bis es im Zimmer steht (kein Eingabewerkzeug für das Fenster)
+target/release/g4k live status --port 3333 --game CPUD                           # Antwort: melonDS liest die Datei, toml 0.8 genügt; game_check verified, has_save true, took_ms
+# keine Antwort („Kein GDB-Stub auf Port 3333“): Befund, toml_edit als Abhängigkeit (cargo deny, Begründung im Commit)
+pkill -x melonDS; while pgrep -x melonDS >/dev/null; do sleep 1; done            # melonDS schreibt die Datei beim Beenden zurück
+cp -p $OUT/melonDS.toml.original $C; cmp $OUT/melonDS.toml.original $C && echo "byte-gleich"
 ```
 
-Hand: „Hier spielen“ in der gepackten App (`pnpm bundle`), Scharnier bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers. Lässt `toml` 0.8 die Datei so zurück, dass melonDS sie nicht liest, wird `toml_edit` Abhängigkeit (siehe Gate-Datei, „Offen“).
+Hand: im melonDS-Fenster das Spiel bis ins Zimmer fortsetzen (oben) und „Hier spielen“ in der gepackten App (`pnpm bundle`), Scharnier bernsteinfarben, nach dem Klick auf ein Flag in der Spalte „Live“ erscheint die Figur beim nächsten Betreten des Zimmers. Antwortet der Stub nach dem Umschreiben nicht, wird `toml_edit` Abhängigkeit (siehe Gate-Datei, „Offen“).
