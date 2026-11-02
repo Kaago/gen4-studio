@@ -2633,7 +2633,8 @@ enum LiveCommand {
         value: u16,
     },
     /// Watch a flag or variable until it changes, print the change, then keep the game halted
-    /// until a line (or EOF) arrives on stdin; then let it run and detach.
+    /// until a line (or EOF) arrives on stdin; then let it run and detach. Once the baseline
+    /// snapshot is taken, `{"watching":true}` goes to stderr: a change from then on is seen.
     Wait {
         #[command(flatten)]
         connect: LiveConnect,
@@ -2800,15 +2801,23 @@ fn live_wait(
     timeout: f64,
 ) -> Result<(), Failure> {
     use g4_kernel::live::LiveError;
-    use std::io::BufRead;
+    use std::io::{BufRead, Write};
     let (mut session, _) = connect_or_fail(connect)?;
     let started = std::time::Instant::now();
     session
         .add_watch(target, "g4k live wait".to_string())
         .map_err(live_failure)?;
     let deadline = std::time::Duration::from_secs_f64(timeout);
+    let mut watching = false;
     loop {
         match session.refresh() {
+            Ok(_) if !watching => {
+                // The baseline is taken: tell a caller that waits to change the value.
+                watching = true;
+                let mut err = std::io::stderr().lock();
+                let _ = writeln!(err, "{}", serde_json::json!({ "watching": true }));
+                let _ = err.flush();
+            }
             // Without a save there is nothing to compare yet: keep looking.
             Ok(_) | Err(LiveError::NoSave) => {}
             Err(e) => return Err(live_failure(e)),

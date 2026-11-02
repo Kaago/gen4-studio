@@ -5,7 +5,7 @@
 mod fake_stub;
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -40,14 +40,6 @@ fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
     }
 }
 
-/// The process took its first snapshot (it reads the flags), so a change from now on is seen.
-fn watching(stub: &FakeStub) {
-    let prefix = format!("m{FLAGS:08x},");
-    wait_until("the first snapshot", || {
-        stub.log_lines().iter().any(|l| l.starts_with(&prefix))
-    });
-}
-
 fn g4k(stub: &FakeStub, args: &[&str]) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_g4k"));
     cmd.args(["live", args[0], "--port"])
@@ -76,6 +68,7 @@ struct Waiting {
     child: Child,
     stdin: Option<ChildStdin>,
     stdout: BufReader<ChildStdout>,
+    stderr: BufReader<ChildStderr>,
 }
 
 impl Waiting {
@@ -83,15 +76,28 @@ impl Waiting {
         let mut child = g4k(stub, args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("spawn g4k");
         let stdin = child.stdin.take();
         let stdout = BufReader::new(child.stdout.take().unwrap());
+        let stderr = BufReader::new(child.stderr.take().unwrap());
         Waiting {
             child,
             stdin,
             stdout,
+            stderr,
         }
+    }
+
+    /// Reads stderr until `{"watching": true}`: the baseline snapshot is taken, so a change from
+    /// now on is seen.
+    fn watching(&mut self) {
+        let mut line = String::new();
+        self.stderr.read_line(&mut line).expect("read stderr");
+        let value: Value =
+            serde_json::from_str(&line).unwrap_or_else(|e| panic!("not JSON ({e}): {line:?}"));
+        assert_eq!(value, serde_json::json!({ "watching": true }));
     }
 
     fn line(&mut self) -> Value {
@@ -141,7 +147,7 @@ fn status_set_and_wait_work_against_the_fake_stub() {
     stub.poke(VAR_40A5, &[1, 0]);
 
     let mut waiting = Waiting::spawn(&stub, &["wait", "--var", "0x40A5", "--timeout", "5"]);
-    watching(&stub);
+    waiting.watching();
     std::thread::sleep(Duration::from_millis(300));
     stub.poke(VAR_40A5, &[0, 0]);
     let halted = waiting.line();
@@ -168,7 +174,7 @@ fn status_set_and_wait_work_against_the_fake_stub() {
 fn wait_resumes_on_eof_of_stdin() {
     let stub = platinum(b"CPUD");
     let mut waiting = Waiting::spawn(&stub, &["wait", "--flag", "371", "--timeout", "5"]);
-    watching(&stub);
+    waiting.watching();
     stub.poke(FLAG_173_BYTE, &[0]);
     let halted = waiting.line();
     assert_eq!(

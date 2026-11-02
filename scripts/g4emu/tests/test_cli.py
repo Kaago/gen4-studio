@@ -325,3 +325,34 @@ def test_find_u16_pointer_range_options(capfd, tmp_path):
     assert capfd.readouterr().out == "0x02004000\n"
     assert main([*args, "--max-back", "0x3000", "--hi", "0x02140000"]) == 0
     assert capfd.readouterr().out == "0x02004000\n  ptr 0x02130000 + 0x3000\n"
+
+
+def test_repl_passes_its_arguments_on(capfd, monkeypatch, tmp_path, make_rom):
+    from g4emu import repl
+
+    calls = []
+
+    def fake_run_repl(rom, save, out, core, gdb_port, stdin, stdout, state=None):
+        calls.append((rom, save, out, core, gdb_port, state))
+        stdout.write('{"ready": true}\n')
+        return 0
+
+    monkeypatch.setattr(repl, "run_repl", fake_run_repl)
+    rom = make_rom()
+    core = tmp_path / "core.dylib"
+    core.write_bytes(b"x")
+    save = tmp_path / "in.sav"
+    save.write_bytes(b"s")
+    out = tmp_path / "out"
+    code = main(["repl", "--rom", str(rom), "--save", str(save), "--out", str(out),
+                 "--core", str(core), "--gdb-port", "3390"])
+    assert code == 0
+    assert calls == [(rom, save, out.resolve(), core, 3390, None)]
+    assert capfd.readouterr().out == '{"ready": true}\n'
+    assert (out / "core.log").exists()
+
+
+def test_repl_refuses_a_missing_rom(capfd, tmp_path):
+    code = main(["repl", "--rom", str(tmp_path / "none.nds"), "--out", str(tmp_path / "out")])
+    assert code == 1
+    assert "ROM nicht gefunden" in capfd.readouterr().err

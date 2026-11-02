@@ -52,6 +52,8 @@ ARITY: dict[str, tuple[int, int]] = {
     "set-var": (2, 2),
     "expect-flag": (2, 2),
     "expect-var": (2, 2),
+    "expect-halted": (0, 0),
+    "expect-running": (0, 0),
 }
 FLAG_STEPS = frozenset({"flag", "set-flag", "expect-flag"})
 VAR_STEPS = frozenset({"var", "set-var", "expect-var"})
@@ -597,6 +599,20 @@ def _var(
     return {"var": v, "value": value}
 
 
+def _stub_state(
+    emu: Emu, game: Game | None, step: Step, out: Path, protected: Path | None = None
+) -> dict:
+    """`expect-halted` / `expect-running`: whether the GDB stub of `g4emu repl` holds the game."""
+    server = getattr(emu, "server", None)
+    if server is None:
+        raise StepFailed("kein GDB-Stub (nur in g4emu repl)")
+    if step.name == "expect-halted" and not server.halted:
+        raise StepFailed("Stub läuft, kein Halt")
+    if step.name == "expect-running" and server.halted:
+        raise StepFailed("Stub ist gehalten")
+    return {"halted": server.halted}
+
+
 Handler = Callable[..., dict]
 HANDLERS: dict[str, Handler] = {
     "expect-battle": _expect_battle,
@@ -625,6 +641,8 @@ HANDLERS: dict[str, Handler] = {
     "var": _var,
     "set-var": _var,
     "expect-var": _var,
+    "expect-halted": _stub_state,
+    "expect-running": _stub_state,
 }
 
 
