@@ -728,6 +728,11 @@ mod tests {
         let stub = platinum_stub();
         let mut stray = std::net::TcpStream::connect(stub.addr()).unwrap();
         std::io::Write::write_all(&mut stray, b"+x").unwrap();
+        // `open_connections() == 0` is already true before the stub accepted the connection:
+        // wait for the stray byte to be seen first.
+        within(1000, "the stub to see the stray byte", || {
+            stub.log_lines().contains(&"<stray 0x78>".to_string())
+        });
         within(1000, "the stub to close it", || {
             stub.open_connections() == 0
         });

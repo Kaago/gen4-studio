@@ -25,6 +25,8 @@
 //! - `D` answers `OK`, keeps the connection and sends `W00` at the stub's next look;
 //! - stop replies are `S02` (`?`, `\x03` while halted) and `S05` (`\x03` while running).
 //!
+//! [`Quirks::chatter`] plays a stub that answers `qSupported:` with a stream of other replies.
+//!
 //! [`Quirks::answer_after`] plays "melonDS stops answering" (it sits in the user's debugger, or a
 //! frame never ends): after the handshake the stub answers that many packets, then nothing.
 //!
@@ -80,6 +82,9 @@ pub struct Quirks {
     /// the game runs and its thread can be descheduled under load, so what a client sends in
     /// quick succession arrives together; tests set this to make that certain.
     pub read_pause: Duration,
+    /// `Some(every)`: the answer to `qSupported:` is an endless stream of `S02` replies, one per
+    /// `every`, never the features (a stub that is not a GDB stub, or a broken one).
+    pub chatter: Option<Duration>,
 }
 
 impl Quirks {
@@ -94,6 +99,7 @@ impl Quirks {
             answer_after: None,
             ack_wait: Duration::from_secs(2),
             read_pause: Duration::ZERO,
+            chatter: None,
         }
     }
 }
@@ -562,6 +568,15 @@ impl Conn {
     fn command(&mut self, packet: &str) -> Step {
         // melonDS matches `Supported:`: without the colon it is an unknown query.
         if packet.starts_with("qSupported:") {
+            if let Some(every) = self.shared.quirks.chatter {
+                while !self.stopping() {
+                    if !self.reply("S02") {
+                        return Step::Disconnect;
+                    }
+                    std::thread::sleep(every);
+                }
+                return Step::Continue;
+            }
             return self.answer(FEATURES);
         }
         if packet == "QStartNoAckMode" {

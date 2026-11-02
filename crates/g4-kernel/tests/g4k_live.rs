@@ -338,6 +338,11 @@ fn a_stub_that_closes_every_connection_is_closed_with_a_sentence() {
     let stub = platinum(b"CPUD");
     let mut stray = std::net::TcpStream::connect(stub.addr()).unwrap();
     stray.write_all(b"+x").unwrap();
+    // `open_connections() == 0` is already true before the stub accepted the connection: wait
+    // for the stray byte to be seen first.
+    wait_until("the stub to see the stray byte", || {
+        stub.log_lines().contains(&"<stray 0x78>".to_string())
+    });
     wait_until("the stub to close it", || stub.open_connections() == 0);
     drop(stray);
     let (code, out) = run(&stub, &["status"]);

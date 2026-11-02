@@ -2683,6 +2683,10 @@ fn live_failure(e: g4_kernel::live::LiveError) -> Failure {
     use g4_kernel::live::LiveError;
     let code = match &e {
         LiveError::Connect { .. } => "connect",
+        // `Closed` is a connection that broke while a command ran: for the caller melonDS just
+        // did not answer (retry once it runs again). `Hangup` is the stub that closes every
+        // new connection at once (melonDS 1.1 after a stray byte): it needs a restart, so it
+        // gets its own code.
         LiveError::NoReply | LiveError::Closed => "no_reply",
         LiveError::Hangup { .. } => "closed",
         LiveError::Rejected { .. } => "rejected",

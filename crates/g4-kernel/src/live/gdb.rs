@@ -44,6 +44,9 @@ const SUPPORTED: &str = "qSupported:swbreak+;hwbreak+";
 /// Acks sent after the handshake `+`, one for each reply another client may have left in the
 /// stub's buffer while it still waits for acks (see the module notes).
 const SPARE_ACKS: &[u8] = b"+++";
+/// Replies before the one to `qSupported:` that the handshake skips (an earlier client leaves a
+/// stop reply, an `OK` and a `W00` at most) before it gives up with [`LiveError::NoReply`].
+const MAX_SKIPPED_REPLIES: usize = 8;
 
 /// Errors of the live connection; the German texts are shown in the studio as they are.
 #[derive(Debug, thiserror::Error)]
@@ -55,7 +58,7 @@ pub enum LiveError {
     },
     #[error("melonDS antwortet nicht")]
     NoReply,
-    #[error("stub closed the connection")]
+    #[error("melonDS hat die Verbindung geschlossen")]
     Closed,
     /// The stub accepted and closed the connection during the handshake: melonDS 1.1 does that
     /// to every client once its receive buffer starts with a stray byte.
@@ -178,9 +181,10 @@ pub struct GdbClient {
 impl GdbClient {
     /// Connects, sends `+` (and [`SPARE_ACKS`]), `qSupported:` and `QStartNoAckMode`; replies
     /// before the one to `qSupported:` were left by an earlier client and are skipped. The stub
-    /// is halted afterwards (no `c` is sent). `timeout` bounds the TCP connect and every
-    /// handshake reply. A stub that closes the connection during the handshake is
-    /// [`LiveError::Hangup`].
+    /// is halted afterwards (no `c` is sent). `timeout` bounds the TCP connect and, as one
+    /// deadline, all the handshake replies together. A stub that closes the connection during the handshake is
+    /// [`LiveError::Hangup`]; one that does not answer `qSupported:` within `timeout` (all of
+    /// it, however many other packets it sends meanwhile) is [`LiveError::NoReply`].
     pub fn connect(addr: &str, timeout: Duration) -> Result<GdbClient, LiveError> {
         GdbClient::open(addr, timeout).map_err(|e| match e {
             LiveError::Closed => LiveError::Hangup {
@@ -228,10 +232,20 @@ impl GdbClient {
         client.send_raw(b"+")?;
         client.send_raw(SPARE_ACKS)?;
         client.send_packet(SUPPORTED.as_bytes())?;
-        client.features = loop {
-            let reply = client.read_packet()?;
-            if reply.contains("PacketSize=") {
-                break reply;
+        // One deadline for the whole handshake, and a cap on the replies skipped: a stub that
+        // keeps sending packets without `PacketSize=` must not keep `connect` busy for good.
+        let deadline = Instant::now() + timeout;
+        client.features = {
+            let mut skipped = 0;
+            loop {
+                let reply = client.read_packet_until(deadline)?;
+                if reply.contains("PacketSize=") {
+                    break reply;
+                }
+                skipped += 1;
+                if skipped > MAX_SKIPPED_REPLIES {
+                    return Err(LiveError::NoReply);
+                }
             }
         };
         if client.features.contains("QStartNoAckMode+") {
@@ -369,7 +383,11 @@ impl GdbClient {
     /// in no-ack mode. Acks of the stub are skipped. Every [`NUDGE`] without a packet a lone `+`
     /// goes out, so melonDS handles a packet it holds in its buffer.
     fn read_packet(&mut self) -> Result<String, LiveError> {
-        let deadline = Instant::now() + self.reply_timeout;
+        self.read_packet_until(Instant::now() + self.reply_timeout)
+    }
+
+    /// Like [`GdbClient::read_packet`], with the deadline given.
+    fn read_packet_until(&mut self, deadline: Instant) -> Result<String, LiveError> {
         loop {
             if let Some(payload) = self.take_packet()? {
                 return Ok(payload);
@@ -616,6 +634,10 @@ mod tests {
         drop(stub);
         let result = client.read(SAVE, 4);
         assert!(matches!(result, Err(LiveError::Closed)), "{result:?}");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "melonDS hat die Verbindung geschlossen"
+        );
     }
 
     #[test]
@@ -631,6 +653,49 @@ mod tests {
             matches!(&result, Err(LiveError::Connect { addr: a, .. }) if *a == addr),
             "{result:?}"
         );
+    }
+
+    /// Connects to a stub that answers `qSupported:` with a stream of other replies, one per
+    /// `every`; returns the result and how long it took. A watchdog stops a `connect` that
+    /// does not return: the test fails instead of hanging.
+    fn connect_to_chatter(
+        every: Duration,
+        timeout: Duration,
+    ) -> (Result<GdbClient, LiveError>, Duration) {
+        let stub = FakeStub::start(Quirks {
+            chatter: Some(every),
+            ..Quirks::melonds_1_1()
+        });
+        let addr = stub.addr();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let result = GdbClient::connect(&addr, timeout);
+            let _ = tx.send((result, started.elapsed()));
+        });
+        let outcome = rx
+            .recv_timeout(Duration::from_secs(3))
+            .expect("connect never returned: the handshake has no deadline");
+        drop(stub);
+        outcome
+    }
+
+    #[test]
+    fn a_stub_that_keeps_sending_other_replies_is_no_reply_within_the_deadline() {
+        // Slower than the skip cap allows: only the one deadline for the handshake ends this.
+        let timeout = Duration::from_millis(400);
+        let (result, took) = connect_to_chatter(Duration::from_millis(100), timeout);
+        assert!(matches!(result, Err(LiveError::NoReply)), "{result:?}");
+        assert!(took < timeout + Duration::from_millis(500), "took {took:?}");
+    }
+
+    #[test]
+    fn a_stub_that_floods_other_replies_is_no_reply_after_a_few_of_them() {
+        // Faster than the deadline: the cap on skipped replies ends this.
+        let timeout = Duration::from_secs(2);
+        let (result, took) = connect_to_chatter(Duration::from_millis(2), timeout);
+        assert!(matches!(result, Err(LiveError::NoReply)), "{result:?}");
+        assert!(took < timeout, "took {took:?}");
     }
 
     /// melonDS 1.1 under load (B2): the stub reads its socket only every 5 ms, so what the
@@ -726,6 +791,11 @@ mod tests {
         // A stray byte at the start of melonDS's buffer: it closes every client from then on.
         let mut stream = raw(&stub);
         send(&mut stream, b"+x");
+        // `open_connections() == 0` alone is true before the stub has even accepted this
+        // connection: wait for the stray byte to be seen first.
+        wait_until("the stub to see the stray byte", || {
+            stub.log_lines().contains(&"<stray 0x78>".to_string())
+        });
         wait_until("the stub to be free", || stub.open_connections() == 0);
         drop(stream);
         for _ in 0..2 {
