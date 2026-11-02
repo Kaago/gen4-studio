@@ -250,7 +250,9 @@ impl ResourceUri {
 /// runs the follow-ups of its id files as an undo does. „Git einrichten“ writes the templates
 /// and a repository past the store; publishing builds and writes a release past it, „Stand
 /// sichern“ commits, and its checks may write the `.gitignore` block. A recipe (`recipe_apply`)
-/// creates members and writes scripts and archives as file steps of its own.
+/// creates members and writes scripts and archives as file steps of its own. A live value
+/// (`live_set`) goes into the running game's RAM, past the store: no squash or rollback
+/// reaches it.
 /// `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
@@ -288,6 +290,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "git_commit_all",
     "git_commit_prepare",
     "recipe_apply",
+    "live_set",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
@@ -3929,6 +3932,17 @@ mod tests {
         ] {
             assert!(not_in_batch(command, &json!({})), "{command}");
         }
+    }
+
+    /// A live value goes into the running game, not into the project: no step of the batch's
+    /// squash or rollback reaches it, so `live_set` never goes into a batch; the status does.
+    #[test]
+    fn live_set_is_not_in_batch() {
+        assert!(not_in_batch(
+            "live_set",
+            &json!({ "kind": "flag", "number": 148, "value": 1 })
+        ));
+        assert!(!not_in_batch("live_status", &json!({})));
     }
 
     #[test]

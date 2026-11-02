@@ -91,6 +91,7 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
     arg("get_trainer_sprite", "/class", TRAINER_CLASS),
     arg("flag_usage", "/number", FromKindField("/kind")),
     arg("name_flag", "/number", FromKindField("/kind")),
+    arg("live_set", "/number", FromKindField("/kind")),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -349,6 +350,31 @@ mod tests {
     }
 
     #[test]
+    fn live_set_takes_a_flag_name() {
+        let synthetic = g4_kernel::test_support::synthetic_project();
+        let project = g4_kernel::project::Project::open(synthetic.dir.path()).unwrap();
+        let platinum = Resolver::for_project(&project).unwrap();
+        assert_eq!(
+            resolve_args(
+                "live_set",
+                json!({ "kind": "flag", "number": "FLAG_UNUSED_0x0094", "value": 1 }),
+                &platinum
+            )
+            .unwrap(),
+            json!({ "kind": "flag", "number": 148, "value": 1 })
+        );
+        assert_eq!(
+            resolve_args(
+                "live_set",
+                json!({ "kind": "var", "number": "VAR_UNUSED_0x406C", "value": 7 }),
+                &platinum
+            )
+            .unwrap(),
+            json!({ "kind": "var", "number": 0x406C, "value": 7 })
+        );
+    }
+
+    #[test]
     fn patch_values_of_reference_fields_are_resolved() {
         let patch = |variant: &str, field: &str, value: Value| {
             json!({ "kind": "species", "index": 1,
@@ -454,6 +480,7 @@ mod tests {
             "get_trainer_sprite",
             "flag_usage",
             "name_flag",
+            "live_set",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),
