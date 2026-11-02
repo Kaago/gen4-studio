@@ -163,7 +163,8 @@ pub const SHARED_SCRIPT: &str =
 /// (an object or a sign of an event file whose header names the script file) runs as well
 /// ([`SHARED_SCRIPT`]: the rewrite would change its dialog too). The copy keeps the text and
 /// the other languages and takes the id `msg_<n>`; the store's archive takes it (saved with
-/// the next save), the source is written and compiled at once. A compile error in the file
+/// the next save), the source is written and compiled at once (the JSON that compile writes
+/// for an archive DSPRE has not expanded is removed again, as by „Neue Figur“). A compile error in the file
 /// puts the source back and leaves no step; a compile that writes into `archive` itself (a
 /// text literal of the file) is undone as a whole and refused.
 pub fn split_message(
@@ -339,6 +340,8 @@ pub fn split_message(
         }
     }
     store.squash_since(mark, &label);
+    // The JSON the compile wrote from the member of an archive DSPRE has not expanded.
+    scripts::remove_materialized_json(&project, &saved, &touched)?;
     Ok(SplitReport {
         archive,
         old_index: message,

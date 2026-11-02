@@ -1999,6 +1999,28 @@ pub fn snapshot_archive(project: &Project, archive: u16) -> Result<ArchiveSnapsh
     })
 }
 
+/// Removes the JSON of every archive of `saved` that had none before and that the compile did
+/// not touch: the compile wrote it from the member where DSPRE has not expanded the archive
+/// (same content), so the disk is as before the change and no file step is needed
+/// (`recipes::new_figure`, `dialog::split_message`). A step for it would hold the JSON
+/// without the store's new message as its `after`; once „Speichern“ wrote the archive with
+/// the message, undo would find the file changed and refuse. The archive's text sync record
+/// follows the removal.
+pub(crate) fn remove_materialized_json(
+    project: &Project,
+    saved: &BTreeMap<u16, ArchiveSnapshot>,
+    touched: &[u16],
+) -> Result<(), KernelError> {
+    for (&a, snapshot) in saved {
+        let json = crate::text::json_path(project, a);
+        if snapshot.json.is_none() && !touched.contains(&a) && json.is_file() {
+            std::fs::remove_file(&json).map_err(io_at(&json))?;
+            crate::text::record_text_sync(project, &[a])?;
+        }
+    }
+    Ok(())
+}
+
 /// The step of a text archive from `before` to the files on disk now (kind `Recipe`, asset the
 /// archive): its JSON and its member, those that differ.
 pub fn archive_file_step(

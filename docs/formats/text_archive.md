@@ -160,6 +160,17 @@ Prüfungen (`checks::Snapshot`) einmal je Lauf.
 gibt `KernelError::TextConflict` zurück, bevor irgendetwas geschrieben ist. Nach dem Auflösen gilt
 die übliche Regel: Weicht die geltende Datei von dem ab, was der Store geladen hat, ist es `Stale`.
 
+**Nicht entpackte Archive (DSPRE):** Ein DSPRE-Projekt hat für die meisten Archive keine JSON; das
+erste Speichern schreibt sie (`write_archive`: JSON und Member). Liest der Store ein Archiv, solange
+es keine JSON hat, merkt er sich die Bytes des Members (`Store::note_unexpanded`, auch nach
+`reload_from_disk` und `accept_disk_as_base` neu). Soll er später genau die Texte speichern, die
+dieser Member hielt (eine Änderung, ihr Undo, Speichern), und hält die JSON auf der Platte, falls
+es eine gibt, das zuletzt Gespeicherte oder die Texte des Members, schreibt er die gemerkten Bytes
+zurück und löscht die JSON (`Store::unexpanded_member`): Das Projekt steht wieder wie DSPRE es
+ließ, `git status` ist leer. Eine JSON mit anderen Texten (von DSPRE oder von Hand) bleibt und wird
+wie sonst geschrieben. Gefunden im UI-Test von 3d.5 (U1); das Verhalten davor (die JSON blieb mit
+den Texten des Members liegen) galt schon auf main für jede Textbearbeitung.
+
 **Bauen (`chatot`):** kodiert die Archive mit `OnlyJson`, `JsonNewer` und `Unknown`, deren
 Member die Texte der JSON noch nicht hält; hält er sie schon, wird nur aufgezeichnet. Hat ein
 Archiv `Conflict`, bricht der Schritt mit `KernelError::TextConflict` ab, bevor etwas
@@ -196,7 +207,8 @@ Dialogs ersetzt, von hinten nach vorn. Die Quelle wird ganz geschrieben und übe
 (`scripts::write_and_compile`). Kopie, Quelle, Member, berührte Archive und rotoms
 `compile-state.json` (als ganze Datei) sind **ein** Undo-Schritt „Dialog von Figur {local_id}
 abgespalten“. Die Kopie liegt im Store (gespeichert mit dem nächsten Speichern), die Quelle steht
-sofort auf der Platte.
+sofort auf der Platte. Die JSON, die das Übersetzen für ein nicht entpacktes Archiv aus dem Member
+schreibt, löscht das Abspalten wieder (`scripts::remove_materialized_json`, wie „Neue Figur“).
 
 Abgelehnt (`KernelError::Refused`, nichts geschrieben):
 

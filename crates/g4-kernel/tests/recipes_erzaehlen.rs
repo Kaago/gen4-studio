@@ -493,15 +493,9 @@ fn a_saved_figure_in_a_dspre_project_is_undone_and_redone() {
     );
     assert!(!source_of(&store, 0).contains(&format!("#{}:", outcome.report.slot)));
     store.save().unwrap();
-    // As before, but the archive JSON: the first save wrote it (a store save writes the
-    // archive's JSON and member), now without the figure's message.
-    let json = Path::new("expanded/textArchives").join(format!("{ARCHIVE:04}.json"));
-    let now = files(fx.root());
-    assert_eq!(
-        differ(&now, &before_files),
-        std::collections::BTreeSet::from([json.clone()])
-    );
-    assert!(!String::from_utf8_lossy(&now[&json]).contains("Bis bald!"));
+    // As before: the first save wrote the archive's JSON and member; saved with the texts
+    // the member had, the member is back and the JSON gone (UI test 3d.5, U1).
+    assert_eq!(differ(&files(fx.root()), &before_files), Default::default());
     let undone = state(&store);
     assert_eq!(
         (undone.script, undone.compile_state),
