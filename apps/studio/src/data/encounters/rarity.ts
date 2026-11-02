@@ -36,13 +36,6 @@ export function slotRarity(slot: number): Rarity | null {
   return (Object.keys(RARITY_SLOTS) as Rarity[]).find((r) => RARITY_SLOTS[r].includes(slot)) ?? null;
 }
 
-/** The slot `from` trades with to become `rarity`: the first slot of that class; null when it is already of it or the method lacks it. */
-export function swapTarget(slots: readonly SlotDto[], from: number, rarity: Rarity): number | null {
-  if (slotRarity(from) === rarity) return null;
-  const target = RARITY_SLOTS[rarity][0]!;
-  return slots.some((s) => s.index === target) && slots.some((s) => s.index === from) ? target : null;
-}
-
 /** The species field of a slot as the `Encounter` patch names it. */
 export type SpeciesField = "species" | "species_morning" | "species_night";
 
@@ -80,6 +73,25 @@ export function timeSlot(doc: EncounterDoc, family: string, when: TimeKey, speci
   for (const slot of [...grass.slots].sort((a, b) => a.index - b.index)) {
     const here = atTime(doc, family, when, slot);
     if (here.species === species) return here.at;
+  }
+  return null;
+}
+
+/**
+ * The grass slot that slot `from` trades with so that the species it gives at `when` becomes `rarity` (ruling R6b): the first slot of that
+ * class that the time does not take from a replacement list (Platinum by day and by night: grass slots 2 and 3) and that does not already
+ * give the same species then. Null when `from` is already of that class or no slot of it qualifies: nothing is written.
+ */
+export function swapTarget(doc: EncounterDoc, family: string, when: TimeKey, from: number, rarity: Rarity): number | null {
+  const slots = doc.methods.find((m) => m.method === "grass")?.slots ?? [];
+  const own = slots.find((s) => s.index === from);
+  if (own === undefined || slotRarity(from) === rarity) return null;
+  const species = atTime(doc, family, when, own).species;
+  for (const target of RARITY_SLOTS[rarity]) {
+    const slot = slots.find((s) => s.index === target);
+    if (slot === undefined) continue;
+    const there = atTime(doc, family, when, slot);
+    if (there.at.method === "grass" && there.species !== species) return target;
   }
   return null;
 }

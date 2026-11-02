@@ -76,9 +76,10 @@ const listTitle = (at: TimeSlot, word: string): string =>
 /**
  * One species waiting at one time of day: picture, name, its share as a badge („24 % · häufig“), and what changes it there: the species
  * (the place it has at this time: a grass slot's column, or Platinum's list entry by day and by night), the level of its grass slot, and
- * its class (häufig · gewöhnlich · selten), which trades its grass slot with the first slot of the chosen class in one undo step.
+ * its class (häufig · gewöhnlich · selten), which trades its grass slot with the first fitting slot of the chosen class (`swapTarget`) in one
+ * undo step.
  */
-function WaitingRow({ e, when, word, species, share }: { e: Editing; when: TimeKey; word: string; species: number; share: number }) {
+function WaitingRow({ e, when, label, word, species, share }: { e: Editing; when: TimeKey; label: string; word: string; species: number; share: number }) {
   const name = speciesName(e.names.species, species);
   const icon = useIcon(monIconKey(species), () => monIcon(species), true);
   const at = timeSlot(e.doc, e.family, when, species);
@@ -87,32 +88,30 @@ function WaitingRow({ e, when, word, species, share }: { e: Editing; when: TimeK
   const rarity: Rarity = (at === null ? null : slotRarity(at.grass)) ?? rarityOf(share);
   const fixed = e.locked || at === null || fromList;
 
-  const pick = (value: number) => {
-    if (at === null) return;
+  // Each edit finds the species' place in the file as it is when the edit runs, not as it was shown.
+  const pick = (value: number) =>
     e.write((now) => {
-      const old = speciesAt(now, at);
-      if (old === null || old === value) return null;
+      const place = timeSlot(now, e.family, when, species);
+      const old = place === null ? null : speciesAt(now, place);
+      if (place === null || old === null || old === value) return null;
       const words = `${speciesText(e.names, old)} → ${speciesText(e.names, value)}`;
-      if (at.method !== "grass") return { patch: { Encounter: { method: at.method, slot: at.slot, field: "species", value } }, label: entryLabel(e.title, at.method, at.slot, words) };
+      if (place.method !== "grass") return { patch: { Encounter: { method: place.method, slot: place.slot, field: "species", value } }, label: entryLabel(e.title, place.method, place.slot, words) };
       // HeartGold names the column („Gras Platz 1 nachts Hoothoot → Taubsi“).
-      const column = e.family === "Hgss" ? `${TIME_COLUMNS.find((c) => c.field === at.field)?.word ?? ""} ` : "";
-      return { patch: { Encounter: { method: "grass", slot: at.slot, field: at.field, value } }, label: slotLabel(e.title, "grass", at.slot, `${column}${words}`) };
+      const column = e.family === "Hgss" ? `${TIME_COLUMNS.find((c) => c.field === place.field)?.word ?? ""} ` : "";
+      return { patch: { Encounter: { method: "grass", slot: place.slot, field: place.field, value } }, label: slotLabel(e.title, "grass", place.slot, `${column}${words}`) };
     });
-  };
-  const setLevel = (value: number) => {
-    if (at === null) return;
+  const setLevel = (value: number) =>
     e.write((now) => {
-      const old = levelAt(now, at.grass);
-      return old === null || old === value ? null : { patch: { Encounter: { method: "grass", slot: at.grass, field: "level", value } }, label: slotLabel(e.title, "grass", at.grass, `Level ${old} → ${value}`) };
+      const place = timeSlot(now, e.family, when, species);
+      const old = place === null ? null : levelAt(now, place.grass);
+      return place === null || old === null || old === value ? null : { patch: { Encounter: { method: "grass", slot: place.grass, field: "level", value } }, label: slotLabel(e.title, "grass", place.grass, `Level ${old} → ${value}`) };
     });
-  };
   // Named as a result: the species' place at this time is of class `to`. Already there (or no longer waiting here) writes nothing.
   const setRarity = (to: Rarity) =>
     e.write((now) => {
       const here = timeSlot(now, e.family, when, species);
-      const grass = now.methods.find((m) => m.method === "grass");
-      if (here === null || here.method !== "grass" || grass === undefined) return null;
-      const target = swapTarget(grass.slots, here.grass, to);
+      if (here === null || here.method !== "grass") return null;
+      const target = swapTarget(now, e.family, when, here.grass, to);
       return target === null ? null : { patch: { EncounterSwap: { method: "grass", a: here.grass, b: target } }, label: swapLabel(e.title, "grass", here.grass, target) };
     });
 
@@ -127,9 +126,14 @@ function WaitingRow({ e, when, word, species, share }: { e: Editing; when: TimeK
       </div>
       <div className={styles.controls}>
         <PickField label={`Pokémon ${word}`} text={name} choice="species" only={isEvolutionTarget} disabled={e.locked || at === null} onPick={pick} />
-        <NumberField label="Level" value={level ?? 0} bits={8} disabled={e.locked || level === null} onCommit={setLevel} />
+        <span className={styles.field}>
+          <span className={styles.fieldWord} aria-hidden="true">
+            Level
+          </span>
+          <NumberField label={`Level ${name} ${label}`} value={level ?? 0} bits={8} disabled={e.locked || level === null} onCommit={setLevel} />
+        </span>
         <span className={styles.rarity} data-rarity={rarity} title={at !== null && fromList ? listTitle(at, word) : undefined}>
-          <Segmented ariaLabel={`Wie häufig ${word}`} size="s" options={RARITIES.map((r) => ({ ...r, disabled: fixed }))} value={rarity} onChange={setRarity} />
+          <Segmented ariaLabel={`Wie häufig ${name} ${label}`} size="s" options={RARITIES.map((r) => ({ ...r, disabled: fixed }))} value={rarity} onChange={setRarity} />
         </span>
       </div>
     </li>
@@ -149,7 +153,7 @@ function TimeColumn({ e, when, label, word }: { e: Editing; when: TimeKey; label
       ) : (
         <ul className={styles.rows}>
           {waiting.map((w) => (
-            <WaitingRow key={w.species} e={e} when={when} word={word} species={w.species} share={w.share} />
+            <WaitingRow key={w.species} e={e} when={when} label={label} word={word} species={w.species} share={w.share} />
           ))}
         </ul>
       )}

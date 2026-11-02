@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataEdit } from "../../api";
+import { dataEdit, dataGet } from "../../api";
 import { pressKey, typeInto } from "../../ui/primitives/testUtils";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import type { EncounterDoc } from "./encounterModel";
 import { HG_FILE, ROUTE_201, encounterHarness, projectHg, wireApi } from "./encounterTesting";
+
+/** The HeartGold file with Habitak (21) in the morning on slot 2 only. */
+const HG_MORNING: EncounterDoc = {
+  ...HG_FILE,
+  methods: HG_FILE.methods.map((m) => (m.method !== "grass" ? m : { ...m, slots: m.slots.map((s) => (s.index === 1 ? { ...s, species_morning: 21 } : s)) })),
+  effective: [{ when: "morning", species: [{ species: 16, share: 80 }, { species: 21, share: 20 }] }, ...HG_FILE.effective.slice(1)],
+};
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -69,7 +76,9 @@ describe("EncounterViewNarrate", () => {
     // The class of its first slot (Platz 1).
     expect(rarity(staralili).dataset.rarity).toBe("haeufig");
     expect(inRow(staralili, "Pokémon nachts wählen, jetzt Staralili")).toBeDefined();
-    expect(staralili.querySelector<HTMLInputElement>('input[aria-label="Level"]')?.value).toBe("2");
+    expect(staralili.querySelector<HTMLInputElement>('input[aria-label="Level Staralili Nachts"]')?.value).toBe("2");
+    expect(staralili.textContent).toContain("Level");
+    expect(rarity(staralili).querySelector("[role=group]")?.getAttribute("aria-label")).toBe("Wie häufig Staralili Nachts");
     // Surfen and Angeln stay in Bauen.
     expect(h.view().textContent).not.toContain("Enton");
     // The hand: only how often, and who uses the file.
@@ -97,7 +106,7 @@ describe("EncounterViewNarrate", () => {
     expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { Encounter: { method: "grass", slot: 0, field: "species_night", value: 16 } }, "Route 201: Gras Platz 1 nachts Hoothoot → Taubsi");
     vi.mocked(dataEdit).mockClear();
     // The level column is shared by all three times.
-    const level = row("morning", 16).querySelector<HTMLInputElement>('input[aria-label="Level"]')!;
+    const level = row("morning", 16).querySelector<HTMLInputElement>('input[aria-label="Level Taubsi Morgens"]')!;
     typeInto(level, "9");
     pressKey(level, "Enter");
     await flush();
@@ -108,6 +117,15 @@ describe("EncounterViewNarrate", () => {
     await h.open(140, "erzaehlen");
     await pick(row("morning", 399), "Pokémon morgens wählen, jetzt Bidiza", "Sheinux");
     expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { Encounter: { method: "grass", slot: 1, field: "species", value: 403 } }, "Route 201: Gras Platz 2 Bidiza → Sheinux");
+  });
+
+  it("a pick finds the place in the file as it is when the edit runs", async () => {
+    await h.open(140, "erzaehlen");
+    // Behind the view, Bidiza has left slot 2: its lowest slot is now 4.
+    const moved: EncounterDoc = { ...ROUTE_201, methods: ROUTE_201.methods.map((m) => (m.method !== "grass" ? m : { ...m, slots: m.slots.map((s) => (s.index === 1 ? { ...s, species: 396 } : s)) })) };
+    vi.mocked(dataGet).mockResolvedValue(moved);
+    await pick(row("morning", 399), "Pokémon morgens wählen, jetzt Bidiza", "Sheinux");
+    expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { Encounter: { method: "grass", slot: 3, field: "species", value: 403 } }, "Route 201: Gras Platz 4 Bidiza → Sheinux");
   });
 
   it("a_day_only_species_patches_the_day_list", async () => {
@@ -131,6 +149,34 @@ describe("EncounterViewNarrate", () => {
     const bidiza = row("morning", 399);
     expect(rarity(bidiza).dataset.rarity).toBe("haeufig");
     await h.click(rarityButton(bidiza, "selten"));
+    expect(dataEdit).toHaveBeenCalledTimes(1);
+    expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { EncounterSwap: { method: "grass", a: 1, b: 6 } }, "Route 201: Gras Platz 2 ↔ 7");
+  });
+
+  it("a platinum day row on a grass slot swaps past the slots the day list takes", async () => {
+    await h.open(140, "erzaehlen");
+    const bidiza = row("day", 399);
+    expect([...rarity(bidiza).querySelectorAll("button")].every((b) => !b.disabled)).toBe(true);
+    expect(rarity(bidiza).title).toBe("");
+    await h.click(rarityButton(bidiza, "gewöhnlich"));
+    expect(dataEdit).toHaveBeenCalledTimes(1);
+    expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { EncounterSwap: { method: "grass", a: 1, b: 4 } }, "Route 201: Gras Platz 2 ↔ 5");
+  });
+
+  it("a class without a fitting slot is no edit", async () => {
+    await h.open(140, "erzaehlen");
+    // By day slots 3 and 4 are the „Tag“ entries and Staralili already waits on 5 and 6.
+    await h.click(rarityButton(row("day", 396), "gewöhnlich"));
+    expect(dataEdit).not.toHaveBeenCalled();
+    expect(h.calls.onEdited).not.toHaveBeenCalled();
+  });
+
+  it("a heartgold rarity swap trades the slot of that time's column", async () => {
+    wireApi(() => HG_MORNING);
+    await h.open(140, "erzaehlen", { project: projectHg });
+    const habitak = row("morning", 21);
+    expect(rarity(habitak).dataset.rarity).toBe("haeufig");
+    await h.click(rarityButton(habitak, "selten"));
     expect(dataEdit).toHaveBeenCalledTimes(1);
     expect(dataEdit).toHaveBeenCalledWith("encounter", 140, { EncounterSwap: { method: "grass", a: 1, b: 6 } }, "Route 201: Gras Platz 2 ↔ 7");
   });

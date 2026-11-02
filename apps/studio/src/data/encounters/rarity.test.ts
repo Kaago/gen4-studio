@@ -22,14 +22,29 @@ describe("rarity", () => {
   });
 
   it("swaps_with_the_first_slot_of_the_target_class_and_not_within_its_own", () => {
-    expect(swapTarget(grass, 1, "selten")).toBe(6);
-    expect(swapTarget(grass, 7, "haeufig")).toBe(0);
-    expect(swapTarget(grass, 9, "gewoehnlich")).toBe(2);
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 1, "selten")).toBe(6);
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 11, "haeufig")).toBe(0);
+    // Slot 7 gives Staralili, as slot 0 does: „häufig“ from 7 goes to slot 1 (Bidiza).
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 7, "haeufig")).toBe(1);
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 1, "gewoehnlich")).toBe(2);
     // Already in that class: nothing to swap.
-    expect(swapTarget(grass, 1, "haeufig")).toBeNull();
-    expect(swapTarget(grass, 4, "gewoehnlich")).toBeNull();
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 1, "haeufig")).toBeNull();
+    expect(swapTarget(ROUTE_201, "Pt", "morning", 4, "gewoehnlich")).toBeNull();
     // A method without that place.
-    expect(swapTarget(grass.slice(0, 4), 1, "selten")).toBeNull();
+    const short: EncounterDoc = { ...ROUTE_201, methods: [{ ...ROUTE_201.methods[0]!, slots: grass.slice(0, 4) }] };
+    expect(swapTarget(short, "Pt", "morning", 1, "selten")).toBeNull();
+  });
+
+  it("skips_slots_a_list_replaces_at_that_time_and_slots_with_the_same_species", () => {
+    // Platinum by day: grass slots 2 and 3 are the „Tag“ entries, so „gewöhnlich“ from slot 1 goes to slot 4.
+    expect(swapTarget(ROUTE_201, "Pt", "day", 1, "gewoehnlich")).toBe(4);
+    expect(swapTarget(ROUTE_201, "Pt", "night", 1, "gewoehnlich")).toBe(4);
+    // Staralili already gives slots 4 to 10: „selten“ goes to the empty slot 11.
+    expect(swapTarget(ROUTE_201, "Pt", "day", 0, "selten")).toBe(11);
+    // No candidate: 2 and 3 are replaced, 4 and 5 hold Staralili.
+    expect(swapTarget(ROUTE_201, "Pt", "day", 0, "gewoehnlich")).toBeNull();
+    // HeartGold: the column of the time decides; every slot gives Taubsi in the morning.
+    expect(swapTarget(HG_FILE, "Hgss", "morning", 0, "selten")).toBeNull();
   });
 
   it("finds_the_lowest_grass_slot_of_a_species_at_a_time_and_the_field_its_picker_writes", () => {

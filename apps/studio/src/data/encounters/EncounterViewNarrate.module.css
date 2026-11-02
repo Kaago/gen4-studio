@@ -114,6 +114,17 @@
   gap: var(--g4-raum-6);
 }
 
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}
+
+.fieldWord {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
 .rarity {
   display: inline-flex;
 }
