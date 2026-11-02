@@ -7,6 +7,7 @@ import type { DataSub } from "./dataModel";
 import { EncounterHand } from "./encounters/EncounterHand";
 import { EncounterList } from "./encounters/EncounterList";
 import { EncounterView } from "./encounters/EncounterView";
+import { EncounterHandNarrate, EncounterViewNarrate } from "./encounters/EncounterViewNarrate";
 import { MoveHand } from "./moves/MoveHand";
 import { MovesList } from "./moves/MovesList";
 import { MoveView } from "./moves/MoveView";
@@ -41,7 +42,7 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
   trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand, ViewNarrate: TrainerView, HandNarrate: TrainerHandNarrate },
-  encounters: { List: EncounterList, View: EncounterView, Hand: EncounterHand },
+  encounters: { List: EncounterList, View: EncounterView, Hand: EncounterHand, ViewNarrate: EncounterViewNarrate, HandNarrate: EncounterHandNarrate },
   moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };
 

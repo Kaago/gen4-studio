@@ -99,6 +99,17 @@ describe("encounterModel", () => {
     expect(rate.warnings).toBe(ROUTE_201.warnings);
   });
 
+  it("swaps_two_slots_with_species_and_levels_and_keeps_their_places", () => {
+    const hg = { ...ROUTE_201.methods[0]!.slots[1]!, species_morning: 16, species_night: 163 };
+    const doc = { ...ROUTE_201, methods: ROUTE_201.methods.map((m) => (m.method !== "grass" ? m : { ...m, slots: m.slots.map((s) => (s.index === 1 ? hg : s)) })) };
+    const swapped = applyEncounter(doc, { EncounterSwap: { method: "grass", a: 1, b: 6 } });
+    const slots = swapped.methods[0]!.slots;
+    expect(slots[1]).toMatchObject({ index: 1, species: 396, min: 4, max: 4, species_morning: null, species_night: null, share: 20 });
+    expect(slots[6]).toMatchObject({ index: 6, species: 399, min: 2, max: 2, species_morning: 16, species_night: 163, share: 5 });
+    expect(slots[0]).toBe(doc.methods[0]!.slots[0]);
+    expect(swapped.methods[1]).toBe(doc.methods[1]);
+  });
+
   it("takes_a_slot_without_species_and_levels_as_empty", () => {
     expect(isEmptySlot(slot(3, 0, 0))).toBe(true);
     expect(isEmptySlot(slot(3, 0, 5))).toBe(false);
