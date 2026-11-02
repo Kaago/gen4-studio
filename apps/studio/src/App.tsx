@@ -625,8 +625,9 @@ function AppBody() {
       playing.current = false;
     }
   });
-  // Play mode (3d.9): followed once here; the hinges show it. „Neu laden“ stops, then plays again (build and start); „Stoppen“ ends it.
-  const liveMode = useLive(session.fail);
+  // Play mode (3d.9): followed once here; the hinges show it, the message says why it ended by itself. „Neu laden“ stops, then plays
+  // again (build and start); „Stoppen“ ends it.
+  const liveMode = useLive(session.fail, session.setMessage);
   const onLiveReload = useStableCallback(async () => {
     await liveMode.stop();
     await onPlay();

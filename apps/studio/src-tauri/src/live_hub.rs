@@ -45,6 +45,9 @@ pub const WAITING_FOR_SAVE: &str = "Wartet auf den Spielstand (Spiel fortsetzen)
 /// melonDS runs already, so its config cannot be changed (it writes the file back on exit).
 pub const RUNS_ALREADY: &str =
     "melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)";
+/// A melonDS runs already with its stub ready: a second one would not get the port, and the
+/// studio would connect to whichever holds it.
+pub const RUNS_ALREADY_READY: &str = "melonDS läuft schon: erst beenden, dann „Hier spielen“";
 /// A command that needs the connection, without one.
 pub const NOT_LIVE: &str = "Nicht live: melonDS ist nicht verbunden";
 
@@ -175,6 +178,8 @@ struct Inner {
     next_breakpoint: u32,
     config_path: Option<PathBuf>,
     timings: Timings,
+    /// Whether a melonDS runs ([`melonds::is_running`]); tests answer it themselves.
+    running: fn() -> bool,
 }
 
 impl Default for Inner {
@@ -194,6 +199,7 @@ impl Default for Inner {
             next_breakpoint: 1,
             config_path: melonds::default_config_path(),
             timings: Timings::default(),
+            running: melonds::is_running,
         }
     }
 }
@@ -379,8 +385,9 @@ impl Shared {
     }
 
     /// One snapshot; answers how long to wait before the next one, `None` when the
-    /// connection ended.
-    fn refresh(&self, timings: &Timings) -> Option<Duration> {
+    /// connection ended. Told to `stop` meanwhile, a failure only drops the session: the stop
+    /// (which may have ended our melonDS, closing the stub) says how play mode ends.
+    fn refresh(&self, timings: &Timings, stop: &AtomicBool) -> Option<Duration> {
         let mut slot = lock(&self.session);
         let session = slot.as_mut()?;
         let result = session.refresh().map(|_| ());
@@ -389,6 +396,10 @@ impl Shared {
             Err(LiveError::NoSave) => self
                 .inner()
                 .take_session(session, LiveState::WaitingForSave),
+            Err(_) if stop.load(Ordering::SeqCst) => {
+                *slot = None;
+                return None;
+            }
             Err(e) => {
                 self.fail(&mut slot, &e);
                 return None;
@@ -474,7 +485,12 @@ fn work_until_end(shared: &Shared, stop: &AtomicBool, addr: &str, port: u16, gam
                     shared.inner().state = LiveState::Connecting;
                     shared.publish();
                 }
-                match LiveSession::connect(addr, game, timings.connect_timeout) {
+                let connected = LiveSession::connect(addr, game, timings.connect_timeout);
+                // Told to stop meanwhile: the stop says how play mode ends.
+                if stop.load(Ordering::SeqCst) {
+                    return;
+                }
+                match connected {
                     Ok((session, check)) => {
                         shared.install(session, check);
                         Duration::ZERO
@@ -504,8 +520,9 @@ fn work_until_end(shared: &Shared, stop: &AtomicBool, addr: &str, port: u16, gam
                 }
             }
             LiveState::WaitingForSave | LiveState::Live | LiveState::Halted => {
-                match shared.refresh(&timings) {
+                match shared.refresh(&timings, stop) {
                     Some(pause) => pause,
+                    None if stop.load(Ordering::SeqCst) => return,
                     None => {
                         let state = shared.inner().state;
                         shared.publish();
@@ -538,6 +555,10 @@ pub struct LiveHub {
     worker: Mutex<Option<Worker>>,
     /// Serialises connect, play, stop and close: one worker and one melonDS at a time.
     lifecycle: Mutex<()>,
+    /// Runs right after a stop killed our melonDS (tests close the stub there, as melonDS's
+    /// end does).
+    #[cfg(test)]
+    after_kill: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl LiveHub {
@@ -555,6 +576,19 @@ impl LiveHub {
     /// to [`melonds::default_config_path`]; tests point it into a temp folder.
     pub fn set_config_path(&self, path: Option<PathBuf>) {
         self.shared.inner().config_path = path;
+    }
+
+    /// Whether a melonDS runs, instead of [`melonds::is_running`]: tests never depend on the
+    /// user's melonDS.
+    #[cfg(test)]
+    pub(crate) fn set_running_check(&self, running: fn() -> bool) {
+        self.shared.inner().running = running;
+    }
+
+    /// What runs right after a stop killed our melonDS.
+    #[cfg(test)]
+    pub(crate) fn set_after_kill(&self, f: Box<dyn Fn() + Send + Sync>) {
+        *lock(&self.after_kill) = Some(f);
     }
 
     /// The worker's rhythm for the next connection (tests shorten it).
@@ -588,8 +622,8 @@ impl LiveHub {
         })
     }
 
-    /// „Hier spielen“: a melonDS 1.1 bundle starts with its GDB stub switched on (the config
-    /// is changed only when melonDS does not run) and the worker connects; anything else
+    /// „Hier spielen“: a melonDS 1.1 bundle starts with its GDB stub switched on, when no
+    /// melonDS runs yet, and the worker connects; anything else
     /// starts through `launcher` as before, with `live: false` and the reason (state
     /// `unavailable`). Bundle and version are checked before the config is read. Waits only
     /// for the launch.
@@ -602,8 +636,11 @@ impl LiveHub {
     ) -> Result<LivePlayDto, CmdError> {
         let _lifecycle = lock(&self.lifecycle);
         self.stop_locked();
-        let config_path = self.shared.inner().config_path.clone();
-        let (melonds, port) = match prepare(bundle, config_path.as_deref()) {
+        let (config_path, running) = {
+            let inner = self.shared.inner();
+            (inner.config_path.clone(), inner.running)
+        };
+        let (melonds, port) = match prepare(bundle, config_path.as_deref(), running) {
             Ok(ready) => ready,
             Err(refusal) => {
                 let pid = launcher(bundle, rom)?;
@@ -643,15 +680,28 @@ impl LiveHub {
         self.stop_locked()
     }
 
-    /// [`LiveHub::stop`] under the lifecycle lock. Our melonDS is killed first, so a worker
-    /// waiting for its stub returns at once.
+    /// [`LiveHub::stop`] under the lifecycle lock. The worker is told first, so the closed
+    /// stub of our melonDS ending is no „melonDS wurde beendet“; then our melonDS is killed, so
+    /// a worker waiting for its stub returns at once, and the worker is waited for.
     fn stop_locked(&self) -> LiveStatusDto {
+        let worker = lock(&self.worker).take();
+        if let Some(worker) = &worker {
+            worker.stop.store(true, Ordering::SeqCst);
+        }
         let child = lock(&self.shared.child).take();
         let child = child.map(|mut child| {
             let _ = child.kill();
             child
         });
-        self.stop_worker();
+        #[cfg(test)]
+        if child.is_some()
+            && let Some(f) = lock(&self.after_kill).as_ref()
+        {
+            f();
+        }
+        if let Some(worker) = worker {
+            let _ = worker.handle.join();
+        }
         if let Some(session) = lock(&self.shared.session).take() {
             // Best effort: closing the socket lets melonDS run as well.
             let _ = session.detach();
@@ -844,12 +894,18 @@ impl LiveHub {
 
 impl Drop for LiveHub {
     fn drop(&mut self) {
+        let worker = lock(&self.worker).take();
+        if let Some(worker) = &worker {
+            worker.stop.store(true, Ordering::SeqCst);
+        }
         let child = lock(&self.shared.child).take();
         if let Some(mut child) = child {
             let _ = child.kill();
             let _ = child.wait();
         }
-        self.stop_worker();
+        if let Some(worker) = worker {
+            let _ = worker.handle.join();
+        }
     }
 }
 
@@ -873,8 +929,14 @@ impl Refusal {
 }
 
 /// Checks the bundle (binary, then version), then reads the config and switches the stub on
-/// when it is off and melonDS does not run. Answers what was found and the stub's port.
-fn prepare(bundle: &Path, config_path: Option<&Path>) -> Result<(MelonDs, u16), Box<Refusal>> {
+/// when it is off. A melonDS that runs already (`running`, before anything is launched) is
+/// refused either way: its config cannot be changed, and with a ready one a second melonDS
+/// would not get the port. Answers what was found and the stub's port.
+fn prepare(
+    bundle: &Path,
+    config_path: Option<&Path>,
+    running: fn() -> bool,
+) -> Result<(MelonDs, u16), Box<Refusal>> {
     if !cfg!(target_os = "macos") {
         return Err(Refusal::new("Spielmodus live gibt es nur unter macOS"));
     }
@@ -906,15 +968,24 @@ fn prepare(bundle: &Path, config_path: Option<&Path>) -> Result<(MelonDs, u16), 
             bundle.display()
         )));
     };
-    if let Some(config) = found.config.as_ref().filter(|c| melonds::stub_ready(c)) {
-        let port = config.port;
-        return Ok((found, port));
-    }
-    if melonds::is_running() {
+    let ready = found
+        .config
+        .as_ref()
+        .filter(|c| melonds::stub_ready(c))
+        .map(|c| c.port);
+    if running() {
+        let reason = if ready.is_some() {
+            RUNS_ALREADY_READY
+        } else {
+            RUNS_ALREADY
+        };
         return Err(Box::new(Refusal {
-            reason: RUNS_ALREADY.to_owned(),
+            reason: reason.to_owned(),
             melonds: Some(found),
         }));
+    }
+    if let Some(port) = ready {
+        return Ok((found, port));
     }
     match melonds::enable_stub(config_path) {
         Ok(config) => {

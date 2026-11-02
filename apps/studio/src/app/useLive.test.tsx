@@ -38,9 +38,10 @@ describe("useLive", () => {
   let emit: (s: LiveStatusDto) => void = () => {};
   let current: LiveStatusDto;
   const onError = vi.fn();
+  const onNotice = vi.fn();
 
   function Probe() {
-    hook = useLive(onError);
+    hook = useLive(onError, onNotice);
     return null;
   }
   const settle = () => act(async () => void (await vi.advanceTimersByTimeAsync(0)));
@@ -62,6 +63,7 @@ describe("useLive", () => {
       return () => {};
     });
     onError.mockReset();
+    onNotice.mockReset();
     container = document.createElement("div");
     root = createRoot(container);
   });
@@ -179,5 +181,39 @@ describe("useLive", () => {
     // Off and unavailable leave the hinge dark.
     expect(liveHingeOf(status("unavailable", { reason: "melonDS 1.1 oder neuer" }))).toBeNull();
     expect(liveHingeOf(status("off", { reason: "melonDS wurde beendet" }))).toBeNull();
+  });
+
+  it("says_why_play_mode_ended_or_never_came_up", async () => {
+    await render();
+    // Connecting ran out of time: unavailable with the reason, said as an error.
+    await send(status("connecting", { port: 3333 }));
+    await send(status("unavailable", { reason: "Kein GDB-Stub auf Port 3333 (lauscht ein anderes Programm?)" }));
+    expect(onNotice).toHaveBeenLastCalledWith({ kind: "error", text: "Kein GDB-Stub auf Port 3333 (lauscht ein anderes Programm?)" });
+    // Another game in melonDS.
+    await send(status("starting"));
+    await send(status("unavailable", { reason: "melonDS spielt IPKE, das Projekt ist CPUD" }));
+    expect(onNotice).toHaveBeenLastCalledWith({ kind: "error", text: "melonDS spielt IPKE, das Projekt ist CPUD" });
+    // melonDS quit while live: off with the reason, said as info.
+    await send(live());
+    await send(status("off", { reason: "melonDS wurde beendet" }));
+    expect(onNotice).toHaveBeenLastCalledWith({ kind: "info", text: "melonDS wurde beendet" });
+    expect(onNotice).toHaveBeenCalledTimes(3);
+    // The same status again says nothing new.
+    await send(status("off", { reason: "melonDS wurde beendet" }));
+    expect(onNotice).toHaveBeenCalledTimes(3);
+  });
+
+  it("a_user_stop_or_a_refused_start_says_nothing_here", async () => {
+    await render();
+    await send(live({ state: "halted" }));
+    invoke.mockImplementation(async (cmd: string) => (cmd === "live_stop" ? OFF_STATUS : current));
+    await act(() => hook.stop());
+    expect(hook.status).toEqual(OFF_STATUS);
+    // Lost, then stopped by the user: still nothing.
+    await send(status("lost", { reason: "melonDS antwortet nicht: melonDS neu starten" }));
+    await send(status("off"));
+    // A start refused from off: the answer of „Hier spielen“ says why (useProjectSession), not this.
+    await send(status("unavailable", { reason: "melonDS 1.1 oder neuer nötig (gefunden 1.0)" }));
+    expect(onNotice).not.toHaveBeenCalled();
   });
 });

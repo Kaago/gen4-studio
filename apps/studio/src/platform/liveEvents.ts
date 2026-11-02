@@ -7,13 +7,13 @@ export { OFF_STATUS };
 
 /** How often the browser mode asks for the status while play mode is off (the bridge has no pushed events). */
 export const LIVE_POLL_MS = 1000;
-/** How often it asks while play mode is on (any state but `off`). */
+/** How often it asks while play mode is under way (any state but `off` and `unavailable`). */
 export const LIVE_POLL_ACTIVE_MS = 500;
 
 /**
  * Follows play mode: `onStatus` gets every status, the latest one counts. Inside the app Tauri emits each one as `live-event`, and the
  * status is read once when listening began (an event that arrives before that read answers wins over it). The browser mode polls
- * `liveStatus`, each poll `LIVE_POLL_MS` (`LIVE_POLL_ACTIVE_MS` while not off) after the previous one answered. Errors are silent.
+ * `liveStatus`, each poll `LIVE_POLL_MS` (`LIVE_POLL_ACTIVE_MS` while neither off nor unavailable) after the previous one answered. Errors are silent.
  * Returns the unsubscribe; nothing arrives after it, not even the answer of a read under way.
  */
 export function subscribeLive(onStatus: (s: LiveStatusDto) => void): () => void {
@@ -63,7 +63,7 @@ function pollTheBridge(onStatus: (s: LiveStatusDto) => void): () => void {
     try {
       const status = await liveStatus();
       if (disposed) return;
-      active = status.state !== "off";
+      active = status.state !== "off" && status.state !== "unavailable";
       onStatus(status);
     } catch {
       // Silent: the bridge may be restarting; the next poll tries again.

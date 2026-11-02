@@ -1967,6 +1967,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn live_addr_brackets_an_ipv6_host_once() {
+        assert_eq!(live_addr("127.0.0.1", 3333), "127.0.0.1:3333");
+        assert_eq!(live_addr("::1", 3333), "[::1]:3333");
+        assert_eq!(live_addr("[::1]", 3333), "[::1]:3333");
+    }
+
+    #[test]
     fn every_listed_field_reads_and_parses() {
         for (kind, len) in [
             (DataKind::Species, 44),
@@ -2574,9 +2581,11 @@ fn parse_number(text: &str) -> Result<u16, String> {
     parsed.map_err(|e| format!("`{text}` is not a number (decimal or 0x…, up to 65535): {e}"))
 }
 
-fn parse_seconds(text: &str) -> Result<f64, String> {
+/// A positive number of seconds that fits a `Duration` (`1e30` does not).
+fn parse_seconds(text: &str) -> Result<std::time::Duration, String> {
     match text.parse::<f64>() {
-        Ok(s) if s.is_finite() && s > 0.0 => Ok(s),
+        Ok(s) if s.is_finite() && s > 0.0 => std::time::Duration::try_from_secs_f64(s)
+            .map_err(|_| format!("`{text}` seconds is too long a timeout")),
         _ => Err(format!("`{text}` is not a positive number of seconds")),
     }
 }
@@ -2642,7 +2651,7 @@ enum LiveCommand {
         target: LiveTarget,
         /// Seconds to wait for a change.
         #[arg(long, default_value = "30", value_parser = parse_seconds)]
-        timeout: f64,
+        timeout: std::time::Duration,
     },
     /// Let the game run (a halt left behind by another client).
     Resume {
@@ -2689,13 +2698,18 @@ fn live_failure(e: g4_kernel::live::LiveError) -> Failure {
 fn connect_or_fail(
     connect: &LiveConnect,
 ) -> Result<(g4_kernel::live::LiveSession, g4_kernel::live::GameCheck), Failure> {
-    let addr = if connect.host.contains(':') {
-        format!("[{}]:{}", connect.host, connect.port)
-    } else {
-        format!("{}:{}", connect.host, connect.port)
-    };
+    let addr = live_addr(&connect.host, connect.port);
     g4_kernel::live::LiveSession::connect(&addr, &connect.game, LIVE_CONNECT_TIMEOUT)
         .map_err(live_failure)
+}
+
+/// `host:port`; an IPv6 host gets its brackets (once: `[::1]` stays as it is).
+fn live_addr(host: &str, port: u16) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
 }
 
 fn millis(since: std::time::Instant) -> u64 {
@@ -2798,7 +2812,7 @@ fn live_set(
 fn live_wait(
     connect: &LiveConnect,
     target: g4_kernel::live::Target,
-    timeout: f64,
+    timeout: std::time::Duration,
 ) -> Result<(), Failure> {
     use g4_kernel::live::LiveError;
     use std::io::{BufRead, Write};
@@ -2807,7 +2821,6 @@ fn live_wait(
     session
         .add_watch(target, "g4k live wait".to_string())
         .map_err(live_failure)?;
-    let deadline = std::time::Duration::from_secs_f64(timeout);
     let mut watching = false;
     loop {
         match session.refresh() {
@@ -2835,11 +2848,14 @@ fn live_wait(
             session.detach().map_err(live_failure)?;
             return Ok(());
         }
-        if started.elapsed() >= deadline {
+        if started.elapsed() >= timeout {
             let _ = session.detach();
             return Err(live_error(
                 "timeout",
-                format!("Keine Änderung innerhalb von {timeout} Sekunden"),
+                format!(
+                    "Keine Änderung innerhalb von {} Sekunden",
+                    timeout.as_secs_f64()
+                ),
             ));
         }
         std::thread::sleep(LIVE_POLL);

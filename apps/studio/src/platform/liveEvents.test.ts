@@ -83,6 +83,22 @@ describe("subscribeLive", () => {
     expect(invoke).toHaveBeenCalledTimes(5);
   });
 
+  it("polls_slowly_while_unavailable_in_the_browser", async () => {
+    // Unavailable is an end like off: no worker moves it on, so the browser asks every 1000 ms.
+    tauri.on = false;
+    invoke.mockResolvedValue(status("unavailable", "Kein GDB-Stub auf Port 3390"));
+    const onStatus = vi.fn();
+    const stop = subscribeLive(onStatus);
+    await settle();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(LIVE_POLL_ACTIVE_MS);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(LIVE_POLL_MS - LIVE_POLL_ACTIVE_MS);
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(onStatus).toHaveBeenLastCalledWith(status("unavailable", "Kein GDB-Stub auf Port 3390"));
+    stop();
+  });
+
   it("an_event_wins_over_the_first_read_answering_late_in_the_app", async () => {
     tauri.on = true;
     let resolve: (s: LiveStatusDto) => void = () => {};

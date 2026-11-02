@@ -316,3 +316,18 @@ fn a_silent_stub_is_no_reply() {
     assert_eq!(code, 1, "{out}");
     assert_eq!(out["error"]["code"], "no_reply");
 }
+
+/// A timeout too large for a `Duration` is a usage error (exit 2), not a panic.
+#[test]
+fn a_timeout_too_large_is_a_usage_error() {
+    let stub = platinum(b"CPUD");
+    let out = g4k(&stub, &["wait", "--flag", "371", "--timeout", "1e30"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("--timeout"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert!(stub.log_lines().is_empty(), "never connected");
+}

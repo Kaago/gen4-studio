@@ -301,6 +301,8 @@ mod tests {
         )
         .unwrap();
         let state = AppState::default();
+        // Whether the user's melonDS runs never decides a test.
+        state.live.set_running_check(|| false);
         open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
         (fixture, state)
     }
@@ -866,6 +868,108 @@ mod tests {
             state.live.status().reason.as_deref(),
             Some("melonDS wurde beendet")
         );
+    }
+
+    /// „Stoppen“ ends our melonDS, and its end closes the stub: the worker meeting the closed
+    /// connection must not say „melonDS wurde beendet“ before the plain `off` of the stop.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn stopping_our_melonds_never_says_it_quit() {
+        let (_fixture, state) = open_cpud();
+        let stub = Arc::new(Mutex::new(Some(platinum_stub())));
+        let port = stub.lock().unwrap().as_ref().unwrap().port;
+        let dir = tempfile::tempdir().unwrap();
+        state
+            .live
+            .set_config_path(Some(ready_config(dir.path(), port)));
+        state.live.set_timings(Timings {
+            refresh: Duration::from_millis(20),
+            ..Timings::default()
+        });
+        let published = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&published);
+        state.live.set_notifier(Arc::new(move |s: &LiveStatusDto| {
+            log.lock().unwrap().push((s.state, s.reason.clone()));
+        }));
+        // melonDS's end closes its stub; long enough for the worker's next refresh to meet it.
+        let closing = Arc::clone(&stub);
+        state.live.set_after_kill(Box::new(move || {
+            drop(closing.lock().unwrap().take());
+            std::thread::sleep(Duration::from_millis(200));
+        }));
+        let app = bundle(dir.path(), "1.1", "exec sleep 30");
+        let (_calls, launcher) = recording();
+        let played = live_play_with(&state, app.to_str().unwrap(), "game.nds", &launcher).unwrap();
+        assert!(played.live, "{played:?}");
+        within(1000, "live", || state_of(&state) == LiveState::Live);
+        let status = live_stop_impl(&state).unwrap();
+        assert_eq!((status.state, status.reason), (LiveState::Off, None));
+        let seen = published.lock().unwrap().clone();
+        assert!(
+            !seen
+                .iter()
+                .any(|(_, reason)| reason.as_deref() == Some("melonDS wurde beendet")),
+            "{seen:?}"
+        );
+        assert_eq!(seen.last(), Some(&(LiveState::Off, None)));
+    }
+
+    /// A melonDS that runs already (the user's own) is not launched a second time: with a ready
+    /// config the studio would connect to whichever holds the port. The game starts as before
+    /// (the fallback) and the reason says what to do.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_melonds_running_already_is_not_launched_again() {
+        let (_fixture, state) = open_cpud();
+        state.live.set_running_check(|| true);
+        let stub = platinum_stub();
+        let dir = tempfile::tempdir().unwrap();
+        let config = ready_config(dir.path(), stub.port);
+        let text = std::fs::read_to_string(&config).unwrap();
+        state.live.set_config_path(Some(config.clone()));
+        let app = bundle(dir.path(), "1.1", "exec sleep 30");
+        let rom = dir.path().join("game.nds");
+        let (calls, launcher) = recording();
+        let played = live_play_with(
+            &state,
+            app.to_str().unwrap(),
+            rom.to_str().unwrap(),
+            &launcher,
+        )
+        .unwrap();
+        assert_eq!(
+            played,
+            LivePlayDto {
+                live: false,
+                reason: Some("melonDS läuft schon: erst beenden, dann „Hier spielen“".into()),
+                pid: Some(4242),
+            }
+        );
+        assert_eq!(*calls.lock().unwrap(), [(app.clone(), rom.clone())]);
+        let status = state.live.status();
+        assert_eq!(status.state, LiveState::Unavailable);
+        assert_eq!(status.reason, played.reason);
+        assert!(!status.own_process);
+        assert_eq!(status.melonds.unwrap().version, "1.1");
+        assert_eq!(state.live.workers_alive(), 0);
+        assert!(stub.log_lines().is_empty(), "never connected");
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), text);
+        // A config that is not ready yet cannot be changed while melonDS runs.
+        std::fs::write(&config, "").unwrap();
+        let played = live_play_with(
+            &state,
+            app.to_str().unwrap(),
+            rom.to_str().unwrap(),
+            &launcher,
+        )
+        .unwrap();
+        assert_eq!(
+            played.reason.as_deref(),
+            Some(
+                "melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)"
+            )
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
     }
 
     #[test]
