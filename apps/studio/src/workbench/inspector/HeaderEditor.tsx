@@ -233,7 +233,7 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const canSplit = sharedRoom !== undefined && roomMatrix?.has_headers === false;
   const narrating = !depthAtLeast(depth, "bauen");
   // The names of the music pieces (the fields with `pick: "music"`).
-  const sounds = useSoundNames(info);
+  const { sounds, error: soundsError } = useSoundNames(info);
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -246,9 +246,10 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
     if (spec.key === "wild_pokemon" && family !== "DP") {
       return <EncounterFileField key={spec.key} spec={spec} value={value} family={family} headers={headers} goTo={goTo} onCommit={commit} />;
     }
-    // Music: Erzählen picks the piece by its name, Bauen and Tüfteln keep the number with the piece's name beside it.
+    // Music: Erzählen picks the piece by its name, Bauen and Tüfteln keep the number with the piece's name beside it. Without the names
+    // (they could not be read) Erzählen too has the number field, with the reason beside it.
     if (spec.pick === "music") {
-      if (narrating) return <MusicField key={spec.key} spec={spec} value={value} sounds={sounds} onCommit={commit} />;
+      if (narrating && soundsError === null) return <MusicField key={spec.key} spec={spec} value={value} sounds={sounds} onCommit={commit} />;
       const piece = soundOf(sounds, value);
       return (
         <Field
@@ -259,10 +260,16 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
           onCommit={commit}
           showBase={depthAtLeast(depth, "tuefteln")}
           extra={
-            piece && (
-              <span className={styles.pieceName} data-music-name="">
-                {piece.name}
+            narrating && soundsError !== null ? (
+              <span className={styles.pieceName} role="note" data-music-error="">
+                {soundsError}
               </span>
+            ) : (
+              piece && (
+                <span className={styles.pieceName} data-music-name="">
+                  {piece.name}
+                </span>
+              )
             )
           }
         />

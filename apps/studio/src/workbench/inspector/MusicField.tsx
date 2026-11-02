@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { nameTables } from "../../api";
+import { errorText, nameTables } from "../../api";
 import type { ProjectInfo, SoundNameDto } from "../../api";
 import { Button, InspectorRow, Picker } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -9,12 +9,20 @@ import type { FieldSpec } from "./fields";
 /** The music pieces of each opened project, read once (they come from the family's command database, no edit changes them). */
 const soundsOf = new WeakMap<ProjectInfo, Promise<readonly SoundNameDto[]>>();
 
+/** The music pieces as read: `sounds` null while they are read or without a project; `error` why they could not be read. */
+export interface SoundNames {
+  sounds: readonly SoundNameDto[] | null;
+  error: string | null;
+}
+
+const NOT_READ: SoundNames = { sounds: null, error: null };
+
 /**
- * The music pieces of `project` (`name_tables`' `sounds`, sorted by id); null while they are read, without a project, or when they cannot
- * be read (the fields then name a piece by its number).
+ * The music pieces of `project` (`name_tables`' `sounds`, sorted by id), or why they cannot be read (the fields then are number fields
+ * that say so).
  */
-export function useSoundNames(project: ProjectInfo | null): readonly SoundNameDto[] | null {
-  const [read, setRead] = useState<{ project: ProjectInfo; sounds: readonly SoundNameDto[] } | null>(null);
+export function useSoundNames(project: ProjectInfo | null): SoundNames {
+  const [read, setRead] = useState<{ project: ProjectInfo; names: SoundNames } | null>(null);
   useEffect(() => {
     if (project === null) return;
     let live = true;
@@ -26,14 +34,14 @@ export function useSoundNames(project: ProjectInfo | null): readonly SoundNameDt
       request.catch(() => soundsOf.delete(project));
     }
     request.then(
-      (sounds) => live && setRead({ project, sounds }),
-      () => undefined,
+      (sounds) => live && setRead({ project, names: { sounds, error: null } }),
+      (e: unknown) => live && setRead({ project, names: { sounds: null, error: errorText(e) } }),
     );
     return () => {
       live = false;
     };
   }, [project]);
-  return read !== null && read.project === project ? read.sounds : null;
+  return read !== null && read.project === project ? read.names : NOT_READ;
 }
 
 /** The piece with the number `id`; undefined when the table does not know it (or is not read). */
@@ -49,14 +57,12 @@ export function MusicField({
   value,
   sounds,
   onCommit,
-  disabled,
 }: {
   spec: FieldSpec;
   value: number;
   /** The pieces of the project; null while they are read. */
   sounds: readonly SoundNameDto[] | null;
   onCommit: (spec: FieldSpec, value: number) => void;
-  disabled?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const piece = soundOf(sounds, value);
@@ -70,7 +76,7 @@ export function MusicField({
         <div className={styles.inline} data-music-field={spec.key}>
           <span>{piece?.name ?? `Stück ${value}`}</span>
           {piece?.used_in && <span className={styles.pieceName}>{piece.used_in}</span>}
-          <Button kind="quiet" size="s" aria-label={`${spec.label} wählen…`} disabled={disabled} onClick={() => setPicking(true)}>
+          <Button kind="quiet" size="s" aria-label={`${spec.label} wählen…`} onClick={() => setPicking(true)}>
             Wählen…
           </Button>
         </div>

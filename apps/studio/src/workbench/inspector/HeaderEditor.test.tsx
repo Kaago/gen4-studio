@@ -723,6 +723,23 @@ describe("HeaderEditor scripts", () => {
       expect(nameTables).toHaveBeenCalledTimes(1);
     });
 
+    it("falls_back_to_the_number_with_the_reason_when_the_music_names_cannot_be_read", async () => {
+      vi.mocked(nameTables).mockReset().mockRejectedValue({ code: "error", message: "Namen nicht lesbar", asset: null });
+      const info: ProjectInfo = { root: "/projekt-ohne-namen", game_code: "CPUD", family: "Pt", language: "de", header_count: 593 };
+      await show(context({ info }), "erzaehlen");
+      // No picker that would wait for ever: the number field, which still writes, and why the names are missing.
+      expect(button("Musik (Tag) wählen…")).toBeUndefined();
+      expect(container.querySelector("[data-music-field]")).toBeNull();
+      const day = input("Musik (Tag)")!;
+      expect(day.value).toBe("6");
+      expect([...container.querySelectorAll("[data-music-error]")].map((n) => n.textContent)).toEqual([expect.stringContaining("Namen nicht lesbar"), expect.stringContaining("Namen nicht lesbar")]);
+      await act(async () => void day.focus());
+      typeInto(day, "9");
+      await act(async () => void day.blur());
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ music_day_id: 9 }), "Musik (Tag)");
+    });
+
     it("erzaehlen_writes_the_chosen_look_as_one_header_edit", async () => {
       const other: HeaderSummary = { ...summary, id: 500, internal_name: "R01", location_name: "Route 201", area_data_id: 3 };
       await show(context({ headers: [summary, other] }), "erzaehlen");
