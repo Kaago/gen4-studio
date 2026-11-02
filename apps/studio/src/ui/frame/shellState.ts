@@ -23,8 +23,11 @@ export function depthAtLeast(depth: Depth, min: Depth): boolean {
   return DEPTHS.indexOf(depth) >= DEPTHS.indexOf(min);
 }
 
-/** The areas that have a view of their own in Erzählen; every other area shows Bauen there. */
-export const NARRATING_AREAS: readonly AreaId[] = ["welt", "geschichten"];
+/**
+ * The areas that have a view of their own in Erzählen; every other area shows Bauen there. In Pokémon a part without views of its own
+ * for Erzählen (`DataPart.ViewNarrate`, `HandNarrate`) shows its Bauen views.
+ */
+export const NARRATING_AREAS: readonly AreaId[] = ["welt", "geschichten", "pokemon", "texte"];
 
 /** The depth `area` shows for the chosen `depth`: Erzählen only in a narrating area, else Bauen; Bauen and Tüfteln as chosen. */
 export function viewDepth(area: AreaId, depth: Depth): Depth {

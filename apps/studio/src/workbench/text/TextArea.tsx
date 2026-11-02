@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createTextArchive, editTextArchive, errorText, searchText } from "../../api";
 import type { HeaderSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
 import type { EditBus } from "../../bus/editBus";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { NavTarget } from "../navigation";
 import type { ProblemsStore } from "../problems/problems";
@@ -47,7 +48,7 @@ export interface TextAreaProps {
   onError: (e: unknown) => void;
   /** Hears which archive and message the area shows (the hinge's breadcrumb follows them). Must keep its identity. */
   onShown?: (shown: TextShown) => void;
-  /** Bauen names the users of an archive places ("Ort"), Tüfteln headers. */
+  /** The depth the area shows (Erzählen, Bauen or Tüfteln): Bauen names the users of an archive places ("Ort"), Tüfteln headers. */
   depth: Depth;
 }
 
@@ -234,6 +235,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       createArchive: () => void createArchive(),
       goTo,
       depth,
+      narrating: !depthAtLeast(depth, "bauen"),
     }),
     [archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append, removeLast, createArchive, goTo, depth],
   );

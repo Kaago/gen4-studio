@@ -101,6 +101,8 @@ export interface TextAreaModel extends TextAreaState {
   goTo(target: NavTarget): void;
   /** The words of the depth: Bauen names the users of an archive places, Tüfteln headers. */
   depth: Depth;
+  /** The area shows Erzählen (its depth is below Bauen). */
+  narrating: boolean;
 }
 
 export const TextAreaContext = createContext<TextAreaModel | null>(null);

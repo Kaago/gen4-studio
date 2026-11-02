@@ -2,6 +2,8 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTextArchive, editTextArchive, getTextArchive, searchText, validateText } from "../../api";
+import { TextArea } from "./TextArea";
+import { useTextArea } from "./TextAreaContext";
 import { archive, flush, projectA, textHarness } from "./textTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -411,5 +413,33 @@ describe("TextArea", () => {
     await flush();
     expect(h.container.textContent).toContain("Wähle links ein Archiv.");
     expect(h.textarea()).toBeNull();
+  });
+
+  it("narrates while it shows Erzählen and keeps its parts as they are", async () => {
+    // The parts render as in Bauen: the archives in the list, the messages of a clicked one.
+    h.show(h.base({ depth: "erzaehlen" }));
+    await flush();
+    h.click(h.archiveRow(433));
+    await flush();
+    expect(h.messageRow(1)?.textContent).toContain("Twinleaf Town");
+    // The flag the dialogs by place and figure will follow.
+    let narrating: boolean | undefined;
+    function Probe() {
+      narrating = useTextArea().narrating;
+      return null;
+    }
+    const narratingIn = (depth: "erzaehlen" | "bauen" | "tuefteln") => {
+      act(() =>
+        h.root.render(
+          <TextArea context={h.base({ depth })}>
+            <Probe />
+          </TextArea>,
+        ),
+      );
+      return narrating;
+    };
+    expect(narratingIn("erzaehlen")).toBe(true);
+    expect(narratingIn("bauen")).toBe(false);
+    expect(narratingIn("tuefteln")).toBe(false);
   });
 });

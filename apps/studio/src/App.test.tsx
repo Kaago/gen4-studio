@@ -1264,7 +1264,7 @@ describe("App wiring", () => {
       });
 
       it("keeps_the_figure_tool_of_a_waiting_trainer_on_the_way_into_erzaehlen", async () => {
-        // Erzählen chosen in Pokémon (which shows Bauen): placing the trainer shows the world, and so Erzählen, with the binding.
+        // Erzählen chosen in Pokémon: placing the trainer shows the world, in Erzählen too, with the binding.
         const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
         await act(async () => tinker.click());
         await place(928);
@@ -1862,6 +1862,20 @@ describe("App wiring", () => {
       expect(readShellState().depth).toBe("tuefteln");
       await pressHinge("Bauen");
       expect(readShellState().depth).toBe("bauen");
+    });
+
+    it("keeps_erzaehlen_in_pokemon_and_texte_and_shows_bauen_in_gegenstaende", async () => {
+      // The depth the areas work with (`depth` of the workbench): Pokémon and Texte narrate, Gegenstände show Bauen; the chosen depth stays Erzählen.
+      await act(async () => atlasEntry("Pokémon")!.click());
+      await pressHinge("Erzählen");
+      expect(data().depth).toBe("erzaehlen");
+      await act(async () => atlasEntry("Gegenstände")!.click());
+      expect(data().depth).toBe("bauen");
+      await act(async () => atlasEntry("Texte")!.click());
+      expect(data().depth).toBe("erzaehlen");
+      await act(async () => atlasEntry("Pokémon")!.click());
+      expect(data().depth).toBe("erzaehlen");
+      expect(readShellState().depth).toBe("erzaehlen");
     });
 
     it("plays_in_the_browser_by_building_only_and_says_so", async () => {
