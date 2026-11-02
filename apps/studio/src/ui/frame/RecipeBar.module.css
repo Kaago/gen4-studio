@@ -2,6 +2,7 @@
 .bar {
   display: flex;
   width: max-content;
+  max-width: 100%;
   flex-direction: column;
   align-items: stretch;
   gap: var(--g4-raum-4);
@@ -13,10 +14,11 @@
   box-shadow: var(--g4-schatten-schwebend);
 }
 
-/* One row like the toolbar, never two: the locked recipes show only their symbol, so five keys fit. */
+/* One row like the toolbar: flat, every key shows only its symbol (the names would run past the view beside the layer bar). Only a view
+   narrower than the symbols wraps them, so the bar never runs past its host. */
 .bar[aria-orientation="horizontal"] {
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
 }
 

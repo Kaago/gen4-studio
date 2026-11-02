@@ -594,6 +594,7 @@ pub enum TargetDto {
     Trainer { index: u16 },
     TrainerClass { index: u8 },
     Encounter { index: u16 },
+    Message { archive: u16, index: u16 },
 }
 
 /// Where a link leads: the shapes of the frontend's `NavTarget` (`workbench/navigation.ts`),

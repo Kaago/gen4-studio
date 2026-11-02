@@ -188,7 +188,14 @@ describe("SceneOverlays", () => {
     // „Raum anlegen“ puts the door outside into the selected area or room.
     act(() => recipe("create_room").click());
     expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "room", prefill: { outsideHeader: 7 } });
-    expect(onOpenWizard).toHaveBeenCalledTimes(2);
+    // The recipes of 3d.5 start in the selected place (the host adds the tile last chosen in the scene).
+    act(() => recipe("new_figure").click());
+    expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "new_figure", prefill: { header: 7 } });
+    act(() => recipe("connect_doors").click());
+    expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "connect_doors", prefill: { a: { header: 7 } } });
+    act(() => recipe("new_trainer_here").click());
+    expect(onOpenWizard).toHaveBeenLastCalledWith({ kind: "new_trainer_here", prefill: { header: 7 } });
+    expect(onOpenWizard).toHaveBeenCalledTimes(5);
     act(() => root.unmount());
     root = createRoot(container);
     localStorage.setItem(KEY, JSON.stringify({ area: "welt", depth: "bauen" }));

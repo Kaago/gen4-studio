@@ -558,6 +558,7 @@ mod sources {
              \x20   SetFlagVar 0x8004\n    End\n",
             Family::Hgss,
             &lookup,
+            None,
         )
         .unwrap();
         let refs: Vec<Ref> = refs
@@ -753,7 +754,7 @@ mod sources {
         flag_ids: &[&str],
     ) -> (Vec<Ref>, ScriptCounts) {
         let lookup = ScriptLookup::of_ids(ids, flag_ids);
-        let (refs, counts) = script_refs(0, source, Family::Hgss, &lookup).unwrap();
+        let (refs, counts) = script_refs(0, source, Family::Hgss, &lookup, None).unwrap();
         let refs = refs
             .into_iter()
             .filter(|r| is_flag_or_var(r.target))

@@ -12,6 +12,10 @@ import { KIND_LABELS, eventTitle, lockedText } from "../../world/events";
 import type { NavTarget } from "../navigation";
 import { TERMS, id4, termFor } from "../terms";
 import { AddEvent } from "./AddEvent";
+import { DialogSection } from "./DialogSection";
+import { dialogTitle } from "../dialog/dialogModel";
+import type { DialogTarget } from "../dialog/dialogModel";
+import type { WizardRequest } from "../WorkbenchContext";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldsAt, movementOptions } from "./eventFields";
 import type { EventFieldKey } from "./eventFields";
@@ -62,6 +66,12 @@ export interface EventEditorContext {
   onError: (e: unknown) => void;
   /** The open project: the flag and variable fields read their names from it (none: they show the numbers). */
   project?: ProjectInfo | null;
+  /** Opens the dialog editor of a figure or a sign (the field „Dialog“ in Erzählen). */
+  openDialogEditor: (target: DialogTarget) => void;
+  /** Changes whenever texts or scripts may have changed (a text written, undo, redo, a script saved): the field „Dialog“ reads again. */
+  dialogRevision?: number;
+  /** Opens a wizard (a door's „Tür verbinden…“ in Erzählen opens „Tür verbinden“ with the door as door A); absent: no button. */
+  openWizard?: (request: WizardRequest) => void;
 }
 
 /** Sentences under fields in Bauen: what the flag of a figure and the value of a trigger do. */
@@ -70,8 +80,8 @@ const BAUEN_HINTS: Partial<Record<EventFieldKey, string>> = {
   value: "Der Auslöser feuert, wenn die Variable diesen Wert hat.",
 };
 
-/** What Erzählen says instead of the fields of a trigger and a sign: their stories come with later phases. */
-const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schritt kommen mit 3d.7.", bg: "Der Text des Schilds kommt mit 3d.5." };
+/** What Erzählen says instead of the fields of a trigger: its story comes with a later phase. */
+const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schritt kommen mit 3d.7." };
 
 /**
  * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
@@ -81,7 +91,7 @@ const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schri
  * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
-  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null } = context;
+  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0, openWizard } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -271,6 +281,14 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </InspectorRow>
           )}
         </div>
+        {narrating && (kind === "object" || kind === "bg") && owner && (
+          <DialogSection
+            target={{ header: owner.id, eventFile: file, kind, index, title: dialogTitle(kind, index) }}
+            revision={revision + dialogRevision}
+            onEdit={openDialogEditor}
+            onError={onError}
+          />
+        )}
         {warp && destination && (
           <InspectorRow label="Ziel" hint={destinationTarget === null ? "Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür." : undefined}>
             <div className={styles.inline}>
@@ -285,7 +303,17 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </div>
           </InspectorRow>
         )}
-        {warp && narrating && <WarpField destHeader={destHeader} value={warp.dest_warp_id} disabled={readOnly} onCommit={(n) => commit("dest_warp_id", "Tür", n)} onError={onError} />}
+        {warp && narrating && (
+          <WarpField
+            destHeader={destHeader}
+            value={warp.dest_warp_id}
+            disabled={readOnly}
+            onCommit={(n) => commit("dest_warp_id", "Tür", n)}
+            onError={onError}
+            self={owner ? { header: owner.id, warp: index } : undefined}
+            onConnect={owner && openWizard ? () => openWizard({ kind: "connect_doors", prefill: { a: { header: owner.id, warp: index } } }) : undefined}
+          />
+        )}
         {warp && (
           <HeaderPicker
             open={picking}

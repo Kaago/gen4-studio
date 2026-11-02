@@ -19,6 +19,9 @@ pub enum RecipeId {
     CreateRoom,
     ExtendArea,
     EmptyRegion,
+    NewFigure,
+    ConnectDoors,
+    NewTrainerHere,
 }
 
 impl RecipeId {
@@ -29,6 +32,9 @@ impl RecipeId {
             RecipeId::CreateRoom => "Raum anlegen",
             RecipeId::ExtendArea => "Gebiet erweitern",
             RecipeId::EmptyRegion => "Welt leeren",
+            RecipeId::NewFigure => "Neue Figur",
+            RecipeId::ConnectDoors => "Tür verbinden",
+            RecipeId::NewTrainerHere => "Neuer Trainer hier",
         }
     }
 
@@ -39,6 +45,9 @@ impl RecipeId {
             RecipeId::CreateRoom,
             RecipeId::ExtendArea,
             RecipeId::EmptyRegion,
+            RecipeId::NewFigure,
+            RecipeId::ConnectDoors,
+            RecipeId::NewTrainerHere,
         ]
     }
 }
@@ -184,17 +193,21 @@ impl<R: Serialize> Outcome<R> {
     }
 }
 
-/// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe, else
-/// locked with `reason` „Kommt mit 3d.5“ (`adjust_terrain`: „Kommt mit Phase 6“).
+/// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
+/// step is no recipe the app runs (`edit_dialog` opens the dialog editor), else locked with
+/// `reason` „Kommt mit 3d.7“ (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit
+/// Phase 6“).
 pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
     ids.iter()
         .map(|&(id, label)| {
-            let known = serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
-                .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
+            let known = id == "edit_dialog"
+                || serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
+                    .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
+                "play_here" => Some("Kommt mit 3d.9"),
                 "adjust_terrain" => Some("Kommt mit Phase 6"),
-                _ => Some("Kommt mit 3d.5"),
+                _ => Some("Kommt mit 3d.7"),
             };
             NextStep {
                 id: id.to_owned(),
@@ -217,6 +230,8 @@ pub struct Created {
     pub matrices: Vec<u16>,
     pub maps: Vec<u16>,
     pub event_files: Vec<u16>,
+    /// Trainers (`new_trainer_here`: the placeholder of the sight slot, then the trainer).
+    pub trainers: Vec<u16>,
 }
 
 impl Created {
@@ -226,9 +241,11 @@ impl Created {
             && self.matrices.is_empty()
             && self.maps.is_empty()
             && self.event_files.is_empty()
+            && self.trainers.is_empty()
     }
 
-    /// The created members as [`CreatedObject`]s: headers, matrices, maps, event files.
+    /// The created members as [`CreatedObject`]s: headers, matrices, maps, event files,
+    /// trainers.
     pub(crate) fn objects(&self) -> Vec<CreatedObject> {
         let of = |kind, ids: &[u16]| {
             ids.iter()
@@ -240,6 +257,7 @@ impl Created {
             of(AssetKind::Matrix, &self.matrices),
             of(AssetKind::Map, &self.maps),
             of(AssetKind::Event, &self.event_files),
+            of(AssetKind::Trainer, &self.trainers),
         ]
         .concat()
     }
@@ -277,6 +295,7 @@ fn members_text(created: &Created) -> Option<String> {
         part("matrix", "matrices", &created.matrices),
         part("map", "maps", &created.maps),
         part("event file", "event files", &created.event_files),
+        part("trainer", "trainers", &created.trainers),
     ]
     .into_iter()
     .flatten()
@@ -284,7 +303,8 @@ fn members_text(created: &Created) -> Option<String> {
     let total = created.headers.len()
         + created.matrices.len()
         + created.maps.len()
-        + created.event_files.len();
+        + created.event_files.len()
+        + created.trainers.len();
     let verb = if total == 1 { "was" } else { "were" };
     match parts.as_slice() {
         [] => None,
@@ -381,6 +401,15 @@ mod tests {
             "matrix 0001 and maps 0003, 0004 were created"
         );
         assert_eq!(created_text(&Created::default()), "nothing was created");
+        let trainers = Created {
+            trainers: vec![929, 930],
+            ..Created::default()
+        };
+        assert_eq!(created_text(&trainers), "trainers 0929, 0930 were created");
+        assert!(matches!(
+            late(&trainers, "placing it", "boom"),
+            KernelError::Partial(_)
+        ));
         let patch_only = Created {
             patch: true,
             ..Created::default()
@@ -401,6 +430,9 @@ mod tests {
         let steps = next_steps(&[
             ("create_area", "Gebiet anlegen"),
             ("new_figure", "Neue Figur hier"),
+            ("edit_dialog", "Dialog bearbeiten"),
+            ("story_join", "Zu einer Geschichte"),
+            ("play_here", "Hier spielen"),
             ("adjust_terrain", "Gelände anpassen"),
         ]);
         let short: Vec<(&str, bool, Option<&str>)> = steps
@@ -411,7 +443,10 @@ mod tests {
             short,
             [
                 ("create_area", true, None),
-                ("new_figure", false, Some("Kommt mit 3d.5")),
+                ("new_figure", true, None),
+                ("edit_dialog", true, None),
+                ("story_join", false, Some("Kommt mit 3d.7")),
+                ("play_here", false, Some("Kommt mit 3d.9")),
                 ("adjust_terrain", false, Some("Kommt mit Phase 6")),
             ]
         );

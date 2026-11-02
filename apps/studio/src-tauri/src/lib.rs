@@ -49,6 +49,7 @@ use commands::{assign_base, base_status, check_base, create_patch, register_base
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
+use commands::{dialog_of, split_message};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
@@ -240,6 +241,8 @@ pub fn run() {
             flag_usage,
             free_flag,
             name_flag,
+            dialog_of,
+            split_message,
             list_threads,
             thread_graph,
             story_list,

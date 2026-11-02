@@ -40,11 +40,14 @@ export type DialogProps = {
    * Default true.
    */
   dismissible?: boolean;
+  /** `wide` widens a dialog to 960 px for work in two columns (the dialog editor of a figure). Default `standard` (480 px). */
+  size?: "standard" | "wide";
 };
 
 /** A modal dialog: focus is trapped inside, Escape closes (Base UI). Wizards are not dialogs. */
-export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus, dismissible = true }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, actions, children, variant = "dialog", data, finalFocus, dismissible = true, size = "standard" }: DialogProps) {
   const palette = variant === "palette";
+  const popupClass = palette ? `${styles.popup} ${styles.palette}` : size === "wide" ? `${styles.popup} ${styles.wide}` : styles.popup;
   return (
     <BaseDialog.Root
       open={open}
@@ -63,7 +66,7 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
     >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className={styles.backdrop} />
-        <BaseDialog.Popup {...data} finalFocus={finalFocus} className={palette ? `${styles.popup} ${styles.palette}` : styles.popup} aria-modal="true">
+        <BaseDialog.Popup {...data} finalFocus={finalFocus} className={popupClass} aria-modal="true">
           <BaseDialog.Title className={palette ? styles.titleHidden : styles.title}>{title}</BaseDialog.Title>
           {description && <BaseDialog.Description className={styles.description}>{description}</BaseDialog.Description>}
           {children && <div className={styles.body}>{children}</div>}

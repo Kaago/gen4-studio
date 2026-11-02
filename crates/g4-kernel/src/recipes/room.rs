@@ -2,15 +2,17 @@
 //! entrance, a warp outside and a warp inside that lead to each other, tiles a warp would not
 //! fire on made doors.
 
-use g4_formats::game::Family;
-use g4_formats::map::{Cell, MAP_SIZE};
-use g4_formats::matrix::MATRIX_EMPTY;
+use g4_formats::map::MAP_SIZE;
 use serde::{Deserialize, Serialize};
 
 use super::area::{
     AssignHeader, EventFileChoice, PlannedPlace, assign_header, assign_irreversible, assign_notes,
     check_assign, check_event_file_writable, event_file_irreversible, plan_place,
     provide_event_file, provide_header, provide_patch,
+};
+use super::doors::{
+    WarpWrite, fires, header_event_file, local, outside_map, set_door, warp, warp_at, warp_count,
+    write_warps,
 };
 use super::types::{
     Created, Draft, DraftCell, DraftEvent, DraftEventKind, DraftTarget, DraftTile, Outcome,
@@ -19,8 +21,7 @@ use super::types::{
 use crate::error::KernelError;
 use crate::places;
 use crate::project::AssetKind;
-use crate::store::{MapHeader, Store, Tx, WarpEvent};
-use crate::tiles::{DOOR, DOOR_COLLISION, warp_fires};
+use crate::store::{Store, Tx};
 
 /// The door between the outside and the room: the outside warp stands at (`x`, `z`) of the
 /// outside header's matrix, the room warp at (`inside_x`, `inside_z`) of the room.
@@ -70,98 +71,6 @@ pub struct RoomReport {
     pub snapshot: Option<String>,
     /// The place the header got.
     pub place: Option<u8>,
-}
-
-/// Number of warps in event file `index` as a warp index.
-fn warp_count(store: &mut Store, index: u16) -> Result<u16, KernelError> {
-    let count = store.event(index)?.warp_events.len();
-    u16::try_from(count).map_err(|_| refused(format!("event file {index:04} has too many warps")))
-}
-
-/// The first warp of event file `file` on tile (`x`, `z`): the one the game takes there.
-fn warp_at(store: &mut Store, file: u16, x: u16, z: u16) -> Result<Option<u16>, KernelError> {
-    let found = store
-        .event(file)?
-        .warp_events
-        .iter()
-        .position(|w| w.x == x && w.z == z);
-    found
-        .map(|i| {
-            u16::try_from(i)
-                .map_err(|_| refused(format!("event file {file:04} has too many warps")))
-        })
-        .transpose()
-}
-
-/// The event file `header` has now.
-fn header_event_file(store: &mut Store, header: u16) -> Result<u16, KernelError> {
-    store
-        .header_table()?
-        .get(usize::from(header))
-        .map(MapHeader::event_file_id)
-        .ok_or_else(|| refused(format!("header {header} does not exist")))
-}
-
-/// The matrix `header` uses and the map under tile (`x`, `z`) of it. Refuses a tile outside
-/// that matrix, in a cell without a map, and in a cell the matrix gives to another header: the
-/// game loads a header's warps only while the player is in one of its cells.
-fn outside_map(store: &mut Store, header: u16, x: u16, z: u16) -> Result<(u16, u16), KernelError> {
-    let matrix_id = store
-        .header_table()?
-        .get(usize::from(header))
-        .map(MapHeader::matrix_id)
-        .ok_or_else(|| refused(format!("header {header} does not exist")))?;
-    let m = store.matrix(matrix_id)?;
-    let (cx, cy) = (usize::from(x) / MAP_SIZE, usize::from(z) / MAP_SIZE);
-    let (width, height) = (usize::from(m.width), usize::from(m.height));
-    if cx >= width || cy >= height {
-        return Err(refused(format!(
-            "tile ({x}, {z}) lies outside matrix {matrix_id:04} ({} x {} tiles)",
-            width * MAP_SIZE,
-            height * MAP_SIZE
-        )));
-    }
-    let i = cy * width + cx;
-    let map = m.maps[i];
-    if map == MATRIX_EMPTY {
-        return Err(refused(format!(
-            "tile ({x}, {z}) lies in cell ({cx}, {cy}) of matrix {matrix_id:04}, which has no map"
-        )));
-    }
-    if let Some(owner) = m.headers.as_ref().map(|h| h[i])
-        && owner != header
-    {
-        return Err(refused(format!(
-            "tile ({x}, {z}) lies in cell ({cx}, {cy}) of header {owner:04}, not of header {header:04}"
-        )));
-    }
-    Ok((matrix_id, map))
-}
-
-/// Whether the game would take a warp on tile (`x`, `y`) of `map`.
-fn fires(store: &mut Store, family: Family, map: u16, x: u16, y: u16) -> Result<bool, KernelError> {
-    let cell = store.map(map)?.cell(usize::from(x), usize::from(y))?;
-    Ok(warp_fires(family, cell.kind, cell.collision))
-}
-
-/// Makes tile (`x`, `y`) of `map` a door the player bumps into: an edit of the recipe's one
-/// transaction.
-fn set_door(tx: &mut Tx<'_>, map: u16, (x, y): (u16, u16)) -> Result<DoorTile, KernelError> {
-    let (x, y) = (
-        u8::try_from(x).unwrap_or(u8::MAX),
-        u8::try_from(y).unwrap_or(u8::MAX),
-    );
-    let door = Cell {
-        kind: DOOR,
-        collision: DOOR_COLLISION,
-    };
-    tx.edit_map(map, |m| m.set_cell(usize::from(x), usize::from(y), door))?;
-    Ok(DoorTile { map, x, y })
-}
-
-/// The tile of a map that tile `n` of a matrix lies on.
-fn local(n: u16) -> u16 {
-    n % MAP_SIZE as u16
 }
 
 /// What the entrance of a room needs from the existing files, found before anything is
@@ -306,18 +215,8 @@ fn check(store: &mut Store, spec: &RoomSpec) -> Result<Checked, KernelError> {
     })
 }
 
-fn warp(x: u16, z: u16, dest_header_id: u16, dest_warp_id: u16) -> WarpEvent {
-    WarpEvent {
-        x,
-        z,
-        dest_header_id,
-        dest_warp_id,
-        height: 0,
-    }
-}
-
 /// Adds the warp outside (to the room's warp) and the room's warp back (or points the reused
-/// one outside): edits of the recipe's one transaction, one per event file.
+/// one outside): edits of the recipe's one transaction, one per event file ([`write_warps`]).
 fn connect(
     tx: &mut Tx<'_>,
     entrance: &Entrance,
@@ -326,31 +225,27 @@ fn connect(
     room_file: u16,
 ) -> Result<(), KernelError> {
     let outside = warp(entrance.x, entrance.z, room_header, plan.room_index);
-    let back = (entrance.outside_header, plan.outside_index);
-    let inside = warp(entrance.inside_x, entrance.inside_z, back.0, back.1);
-    if plan.shared {
-        return tx.edit_event(plan.outside_file, |f| {
-            f.warp_events.push(outside);
-            f.warp_events.push(inside);
-            Ok(())
-        });
-    }
-    tx.edit_event(plan.outside_file, |f| {
-        f.warp_events.push(outside);
-        Ok(())
-    })?;
-    tx.edit_event(room_file, |f| {
-        match plan.reused {
-            Some(i) => {
-                if let Some(w) = f.warp_events.get_mut(usize::from(i)) {
-                    w.dest_header_id = back.0;
-                    w.dest_warp_id = back.1;
-                }
-            }
-            None => f.warp_events.push(inside),
-        }
-        Ok(())
-    })
+    let (header, index) = (entrance.outside_header, plan.outside_index);
+    let inside = match plan.reused {
+        Some(reused) => WarpWrite::Point {
+            index: reused,
+            header,
+            warp: index,
+        },
+        None => WarpWrite::Add(warp(entrance.inside_x, entrance.inside_z, header, index)),
+    };
+    let room_file = if plan.shared {
+        plan.outside_file
+    } else {
+        room_file
+    };
+    write_warps(
+        tx,
+        &[
+            (plan.outside_file, WarpWrite::Add(outside)),
+            (room_file, inside),
+        ],
+    )
 }
 
 /// What [`apply`] would do, found with the same checks and without writing: the one cell of the

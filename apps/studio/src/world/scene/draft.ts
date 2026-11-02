@@ -2,7 +2,9 @@ import * as THREE from "three";
 import type { DraftDto, MatrixDto } from "../../api";
 import { szene } from "../../ui/tokens/tokens";
 import { MAP_SIZE, cellOrigin, cellY, cellYAtTile } from "../layout";
-import { MARKER_Y, PLACEHOLDER_SIZE, markerPlaceholder } from "../markers";
+import { MARKER_Y, PLACEHOLDER_SIZE, SPRITE_TEXELS_PER_TILE, markerPlaceholder } from "../markers";
+import { peekSprite, spriteTexture } from "../sprites";
+import type { SpriteTexture } from "../sprites";
 import { OVERLAY_Y } from "./content";
 import type { SceneHost } from "./SceneHost";
 
@@ -39,12 +41,32 @@ function dashedFrame(x0: number, z0: number, x1: number, z1: number, y: number):
   return frame;
 }
 
-/** Frees what `group` holds: each frame's geometry and material, each marker's material and its placeholder (a sprite's geometry is three's shared one). */
+/** The facing a planned figure is drawn in: the draft names no `dir`, so it looks down, as a figure stands by default. */
+const DRAFT_FACING = 1;
+
+/** Marks a marker whose picture belongs to the sprite cache (`world/sprites.ts`): clearing frees its material, never the picture. */
+const SHARED_PICTURE = "draftSharedPicture";
+
+/**
+ * Gives `marker` the overworld sprite: the cache's texture at `width / 16 x height / 16` tiles, standing on the ground of its tile
+ * (anchored at the bottom, like the markers of the scene). The placeholder it had is freed.
+ */
+function wearSprite(marker: THREE.Sprite, sprite: SpriteTexture, ground: number) {
+  if (marker.userData[SHARED_PICTURE] !== true) marker.material.map?.dispose();
+  marker.material.map = sprite.texture;
+  marker.material.needsUpdate = true;
+  marker.userData[SHARED_PICTURE] = true;
+  marker.center.set(0.5, 0);
+  marker.scale.set(sprite.width / SPRITE_TEXELS_PER_TILE, sprite.height / SPRITE_TEXELS_PER_TILE, 1);
+  marker.position.y = ground;
+}
+
+/** Frees what `group` holds: each frame's geometry and material, each marker's material and its placeholder (a sprite's geometry is three's shared one, a figure's picture the sprite cache's). */
 function clear(group: THREE.Group) {
   for (const child of [...group.children]) {
     group.remove(child);
     if (child instanceof THREE.Sprite) {
-      child.material.map?.dispose();
+      if (child.userData[SHARED_PICTURE] !== true) child.material.map?.dispose();
       child.material.dispose();
     } else if (child instanceof THREE.LineSegments) {
       child.geometry.dispose();
@@ -69,15 +91,35 @@ export function setDraft(h: SceneHost, draft: DraftDto | null, matrix: MatrixDto
       drawn++;
     }
     for (const event of draft.events.filter(on)) {
-      // The placeholder of the marker's kind; a `look` gets its sprite later (3d.5).
+      // The placeholder of the marker's kind; a figure with a `look` wears its overworld sprite once the cache has it.
+      const ground = cellYAtTile(matrix, event.x, event.z);
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerPlaceholder(event.kind), transparent: true, opacity: DRAFT_OPACITY, depthTest: false }));
       sprite.scale.set(PLACEHOLDER_SIZE.width, PLACEHOLDER_SIZE.height, 1);
-      sprite.position.set(event.x + 0.5, MARKER_Y + cellYAtTile(matrix, event.x, event.z), event.z + 0.5);
+      sprite.position.set(event.x + 0.5, MARKER_Y + ground, event.z + 0.5);
       sprite.renderOrder = 11;
       h.draft.add(sprite);
       drawn++;
+      if (event.look !== null) dressInSprite(h, sprite, event.look, ground);
     }
   }
   h.draftCount = drawn;
   return drawn;
+}
+
+/**
+ * The overworld sprite of `look` for a planned figure: at once when the cache holds it, else when it has loaded (then the scene is
+ * drawn again). A marker the layer dropped meanwhile (the draft changed) stays as it is; a look without a sprite keeps the placeholder.
+ */
+function dressInSprite(h: SceneHost, marker: THREE.Sprite, look: number, ground: number) {
+  const known = peekSprite(look, DRAFT_FACING);
+  if (known) {
+    wearSprite(marker, known, ground);
+    return;
+  }
+  if (known === null) return;
+  void spriteTexture(look, DRAFT_FACING).then((sprite) => {
+    if (!sprite || marker.parent !== h.draft) return;
+    wearSprite(marker, sprite, ground);
+    h.render();
+  });
 }

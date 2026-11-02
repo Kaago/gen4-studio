@@ -107,6 +107,18 @@ script:
       - { command: DirectionSignpostEx, arg: 2 }
     verified: false
     source: "derived from metadata/scrcmd/{diamond_pearl,platinum,hgss}_v2.json (DS-Pokemon-Rom-Editor/scrcmd-database revision 33, the database rotom v0.7.0 fb11503 reads; Pt and HGSS synced from pret/pokeplatinum c248fb3 and pret/pokeheartgold 9d8b759): parameter name text_slot or type msg_id, rule of task0-3b4.md section 4 (Pt 15 commands; HGSS 11 here, task0 counted 12)"
+  # The script commands that jump to a label of the same file (dialog_of follows them once each).
+  # Their label argument is an identifier naming a script or label of the file (`Call hilfe`,
+  # `GoToIfSet FLAG_X, hilfe`); `GoTo`/`Jump` are rotom's jump keyword and always followed.
+  # A name is matched through rotom's database like message_params, so the legacy_name (DSPRE:
+  # Jump, JumpIf) and the canonical name (GoTo, GoToIf) count alike. HGSS has no JumpIfSet or
+  # JumpIfUnset: its flag jumps are the macros GoToIfSet and GoToIfUnset, as in Platinum.
+  jump_params:
+    dp: [GoTo, Call, GoToIf, CallIf]
+    pt: [GoTo, Call, GoToIf, CallIf, GoToIfSet, GoToIfUnset]
+    hgss: [Jump, Call, JumpIf, CallIf, GoToIfSet, GoToIfUnset]
+    verified: false
+    source: "metadata/scrcmd/{diamond_pearl,platinum,hgss}_v2.json (revision 33, rotom v0.7.0 fb11503): script_cmd GoTo (legacy_name Jump), Call, GoToIf (legacy_name JumpIf), CallIf with a relative_jump parameter; macros GoToIfSet, GoToIfUnset (Pt, HGSS) with a label parameter; rotom src/compiler/token.rs normalize_control_keyword (goto, jump)"
 
 encounter:
   # Header value for no wild encounters: Platin 0xFFFF, HGSS 0xFF.

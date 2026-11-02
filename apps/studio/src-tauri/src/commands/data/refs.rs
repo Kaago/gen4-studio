@@ -21,6 +21,7 @@ impl From<TargetDto> for Target {
             TargetDto::Trainer { index } => Target::Trainer(index),
             TargetDto::TrainerClass { index } => Target::TrainerClass(index),
             TargetDto::Encounter { index } => Target::Encounter(index),
+            TargetDto::Message { archive, index } => Target::Message { archive, index },
         }
     }
 }

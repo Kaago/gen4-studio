@@ -909,9 +909,11 @@ export interface TextHit {
 export const getTextArchive = (index: number) => invoke<TextArchiveDto>("get_text_archive", { index });
 /**
  * Applies one edit to an archive (one undoable change). Resolves to null when it left the archive as it was; rejects
- * (code "error") for a message that does not exist or when the last message would be removed.
+ * (code "error") for a message that does not exist or when the last message would be removed. `label` names the step
+ * („Dialog geändert“ from the dialog editor); without it the backend names it after the edit.
  */
-export const editTextArchive = (index: number, edit: TextEdit) => invoke<number | null>("edit_text_archive", { index, edit });
+export const editTextArchive = (index: number, edit: TextEdit, label?: string) =>
+  invoke<number | null>("edit_text_archive", label === undefined ? { index, edit } : { index, edit, label });
 /** Appends an archive with one message and resolves to its index. Written at once; not undoable. */
 export const createTextArchive = () => invoke<number>("create_text_archive");
 /** Case-insensitive search over the messages of all archives; at most `limit` hits. */
@@ -1084,4 +1086,5 @@ export * from "./project/api.templates";
 export * from "./api.publish";
 export * from "./recipes/api";
 export * from "./api.flags";
+export * from "./api.dialog";
 export * from "./api.stories";

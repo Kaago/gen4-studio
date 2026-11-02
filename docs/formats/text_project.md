@@ -965,6 +965,13 @@ Befehle einen Trainer, ein Item, eine Spezies oder eine Attacke nennen, steht je
 Name, den der Build auflöst (`alias` der Datei, die IDs, rotoms eigene Namen); ein Wert ab
 `0x4000` ist eine Variable, 0 heißt „keiner“. Feld ist der Befehl (rotoms Name, auch für einen
 DSPRE-Namen in der Quelle), `slot` die Zeile.
+Jedes nummerierte Argument eines Nachrichtenbefehls (`script.message_params`) ist dort zudem ein
+`Target::Message { archive, index }` (`data/refs/messages.rs`, Zugriff lesen): `archive` ist das
+Textarchiv des ersten Headers, der die Scriptdatei nennt (wie `script.message-missing`); eine Datei,
+die kein Header nennt (gemeinsame Scripts), hat keine. Die Archive kommen aus der Header-Tabelle
+des Stores, wenn er sie hält (ungespeicherte Änderungen eingeschlossen), sonst von der Platte; ändert
+sich das Archiv einer Datei, wird sie neu gelesen. Der Index zählt Zeilen, nicht Figuren
+(`shared_with` des Dialogs zählt Figuren und nutzt ihn nicht).
 
 ## Projektdateien neben dem Textprojekt
 

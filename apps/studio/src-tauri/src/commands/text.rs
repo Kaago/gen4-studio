@@ -61,11 +61,14 @@ pub fn get_text_archive_impl(state: &AppState, index: u16) -> Result<TextArchive
     })
 }
 
-/// Applies `edit`; `None` when it left the archive as it was (nothing to undo then).
+/// Applies `edit`; `None` when it left the archive as it was (nothing to undo then). The step
+/// is named `label` ("Dialog geändert" from the dialog editor), else after the edit ("edit
+/// text", "add message", "remove message").
 pub fn edit_text_archive_impl(
     state: &AppState,
     index: u16,
     edit: TextEdit,
+    label: Option<String>,
 ) -> Result<Option<ChangeId>, CmdError> {
     let mut guard = lock(state)?;
     let store = &mut session(&mut guard)?.store;
@@ -80,7 +83,7 @@ pub fn edit_text_archive_impl(
                     format!("text archive {index} has {len} messages, none at {message}").into(),
                 );
             }
-            store.edit_text_archive(index, "edit text", |doc| {
+            store.edit_text_archive(index, label.as_deref().unwrap_or("edit text"), |doc| {
                 doc.messages[usize::from(message)].text = text;
             })?
         }
@@ -89,7 +92,7 @@ pub fn edit_text_archive_impl(
             if len >= usize::from(u16::MAX) {
                 return Err(format!("text archive {index} is full").into());
             }
-            store.edit_text_archive(index, "add message", |doc| {
+            store.edit_text_archive(index, label.as_deref().unwrap_or("add message"), |doc| {
                 doc.messages.push(g4_kernel::text::TextMessage {
                     id: default_message_id(len),
                     text: String::new(),
@@ -104,7 +107,7 @@ pub fn edit_text_archive_impl(
                 )
                 .into());
             }
-            store.edit_text_archive(index, "remove message", |doc| {
+            store.edit_text_archive(index, label.as_deref().unwrap_or("remove message"), |doc| {
                 doc.messages.pop();
             })?
         }
@@ -146,8 +149,9 @@ pub fn edit_text_archive(
     state: State<AppState>,
     index: u16,
     edit: TextEdit,
+    label: Option<String>,
 ) -> Result<Option<ChangeId>, CmdError> {
-    edit_text_archive_impl(&state, index, edit)
+    edit_text_archive_impl(&state, index, edit, label)
 }
 
 #[tauri::command]
@@ -222,6 +226,7 @@ mod tests {
                 index: 1,
                 text: "Neu".to_owned(),
             },
+            None,
         )
         .unwrap();
         assert!(change.is_some());
@@ -238,6 +243,7 @@ mod tests {
                 index: 1,
                 text: "Neu".to_owned(),
             },
+            None,
         )
         .unwrap();
         assert!(same.is_none());
@@ -268,6 +274,7 @@ mod tests {
                 index: 3,
                 text: "x".to_owned(),
             },
+            None,
         )
         .unwrap_err();
         assert_eq!(err.code, "error");
@@ -285,7 +292,7 @@ mod tests {
         };
         assert_eq!(count(&state), 3);
         assert!(
-            edit_text_archive_impl(&state, ARCHIVE, TextEdit::Append)
+            edit_text_archive_impl(&state, ARCHIVE, TextEdit::Append, None)
                 .unwrap()
                 .is_some()
         );
@@ -295,7 +302,7 @@ mod tests {
             (doc.messages[3].id.as_str(), doc.messages[3].text.as_str()),
             ("msg_00003", "")
         );
-        edit_text_archive_impl(&state, ARCHIVE, TextEdit::RemoveLast).unwrap();
+        edit_text_archive_impl(&state, ARCHIVE, TextEdit::RemoveLast, None).unwrap();
         assert_eq!(count(&state), 3);
         // Undo of the removal restores the appended message.
         undo_impl(&state).unwrap();
@@ -305,7 +312,7 @@ mod tests {
         let (_f, state) = open_synthetic();
         let created = create_text_archive_impl(&state).unwrap();
         assert_eq!(created, 698);
-        let err = edit_text_archive_impl(&state, created, TextEdit::RemoveLast).unwrap_err();
+        let err = edit_text_archive_impl(&state, created, TextEdit::RemoveLast, None).unwrap_err();
         assert_eq!(err.code, "error");
         assert_eq!(
             get_text_archive_impl(&state, created)
@@ -376,6 +383,7 @@ mod tests {
                 index: 2,
                 text: "[NOPE]".to_owned(),
             },
+            None,
         )
         .unwrap();
         let report = save_impl(&state).unwrap();
@@ -393,5 +401,27 @@ mod tests {
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["written"][0]["kind"], "TextArchive");
         assert_eq!(json["problems"][0]["source"], "text");
+    }
+
+    #[test]
+    fn edit_text_archive_takes_a_label() {
+        let (_f, state) = open_synthetic();
+        let set = |text: &str, label: Option<String>| {
+            edit_text_archive_impl(
+                &state,
+                ARCHIVE,
+                TextEdit::Set {
+                    index: 1,
+                    text: text.to_owned(),
+                },
+                label,
+            )
+            .unwrap()
+        };
+        assert!(set("Neu", Some("Dialog geändert".to_owned())).is_some());
+        assert!(set("Neuer", None).is_some());
+        let history = super::super::history_impl(&state).unwrap();
+        // Without a label the step keeps the name it had.
+        assert_eq!(history.undo, ["Dialog geändert", "edit text"]);
     }
 }

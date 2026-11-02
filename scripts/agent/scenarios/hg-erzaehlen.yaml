@@ -1,0 +1,125 @@
+# HeartGold DE, gate 3d.5: the three recipes of Erzählen headless over MCP (`studio mcp`, one
+# session) on one new place, then played. The HeartGold twin of pt-erzaehlen.yaml. "Neue Figur"
+# (new_figure) puts a figure with a numbered message in the header's own text archive and a new
+# script slot (NPCMsg, CloseMsg: the HeartGold template), "Tür verbinden" (connect_doors) turns the
+# bedroom stairs (header 64, event file 61, warp 0) to a NEW door on the new place and back (door
+# tiles on), "Neuer Trainer hier" (new_trainer_here) creates a trainer with team and battle texts
+# and its object with sight line (irreversible: `--allow-irreversible`).
+#
+# The new place is the one of hg-trainer-begegnung.yaml: a NEW header on a copy of the Route 29
+# map 1 (template 33) with a new, empty event file; it gets a new script file (script 1 empty, the
+# template's level script 470 runs it on entering; the figure's script becomes slot 2) and a new
+# text archive (create_text_archive starts it with one message, "Neuer Text"; the figure's message
+# becomes number 1). The area is one map, its coordinates are the map's:
+#   door B (24, 16)  the new warp 0 of the new event file, back to 64 warp 0; the player arrives
+#                    on it and steps west to (23, 16); back through it from (23, 16) by pushing
+#                    east into it (a door is walked into, not onto, as in hg-flag.yaml)
+#   figure (23, 15)  north of the arrival (the gift's tile in hg-trainer-begegnung.yaml), graphics
+#                    317, movement 15 (stands), looking down; the player faces up and presses A
+#   Jens (20, 18)    looking north through the gap in the fence, sight 3 (graphics 333: hiker): the
+#                    player walking west on row 16 is seen at (20, 16)
+# The player has no Pokémon in the save, so Jens' battle is lost (`end-battle`, the game takes the
+# player home); `expect-battle` proves the battle with Jens' team before that. g4k check-data knows
+# no trainers, so there is no `check:` (the gated kernel test checks the team).
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   NEUER_HEADER  id the new header gets = the header count before (540 on an unmodified HeartGold DE)
+#   S_T1 L_T1     Jens' Pokémon (25 Pikachu, 12)
+#   TEXT          the figure's text ("Hallo, Reisender!")
+# Names an edit binds (third element) come from the tools' answers (structuredContent.result): area
+# (create_area), hdr, datei, archiv, figur, tuer, trainer (recipe_apply: report, created, next).
+# Example (from scripts/g4emu; in a worktree set G4_ROMS_DIR and G4_STUDIO_BIN, see
+# docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/hg-erzaehlen.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-5-szen-hg_DSPRE_contents \
+#     --out ../../target/agent/gate-$(date +%F)/3d-5/hg-erzaehlen \
+#     --set NEUER_HEADER=540 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
+game: IPKD
+# --expert: adopt_scripts, new_script_file and create_text_archive are no curated tools (g4_call)
+mcp: [--allow-irreversible, --expert]
+edits:
+  # (1) patch, scripts, the new place
+  - [apply_header_patch, {}]
+  - [g4_call, {command: adopt_scripts}]
+  - - create_area
+    - spec:
+        name: Erzählen
+        width: 1
+        height: 1
+        cells:                       # Route 29 (header 33): matrix 0 cell (18, 12) = map 1
+          - {x: 0, y: 0, source_map: 1, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 33, internal_name: T_ERZAEHLEN}
+    - area
+  # (2) a new script file and a new text archive on the new header, saved (the figure's compile
+  # finds the archive through the saved header)
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, datei]
+  - [g4_call, {command: create_text_archive}, archiv]
+  - - set_header
+    - id: "${area.header}"
+      header: {HGSS: {$base: "${hdr.HGSS}", script_file_id: "${datei}", text_archive_id: "${archiv}"}}
+  - [save, {}]
+  # (3) the three recipes
+  - - recipe_apply
+    - recipe: new_figure
+      input: {header: "${area.header}", x: 23, z: 15, graphics_id: 317, movement_type: 15, dir: 1, text: "${TEXT}"}
+    - figur
+  - - recipe_apply
+    - recipe: connect_doors
+      input: {a: {header: 64, warp: 0}, b: {header: "${area.header}", tile: {x: 24, z: 16}}, back: true, door_tiles: true}
+    - tuer
+  - - recipe_apply
+    - recipe: new_trainer_here
+      input:
+        header: "${area.header}"
+        x: 20
+        z: 18
+        dir: 0
+        sight: 3
+        class: 9
+        name: Jens
+        party: [{species: "${S_T1}", level: "${L_T1}"}]
+        texts: {before: 'Halt! Ich bin Jens!\r', lose: 'Du bist stark!', after: 'Gut gekämpft.'}
+        graphics_id: 333
+    - trainer
+  - [save, {}]
+build: build/out.nds
+play:
+  - continue
+  - expect-map 64
+  # "Tür verbinden", there: the bedroom stairs lead to the new door
+  - walk left 1
+  - walk down 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  - shot ankunft
+  # "Neue Figur": face north, talk; the shot shows "Hallo, Reisender!" in the box
+  - press up:8
+  - press a
+  - wait 90
+  - shot figur
+  # B closes the box and, unlike A, does not talk to the figure again
+  - mash b 120
+  # "Tür verbinden", back: into the new door, then down the stairs again
+  - walk-to 23 16
+  - press right:30
+  - expect-map 64
+  - wait 150
+  - walk-to 2 4
+  - walk down 1
+  - expect-map ${area.header}
+  - wait 150
+  # "Neuer Trainer hier": Jens sees the player at (20, 16), walks up through the gap and talks
+  - walk-to 21 16
+  - walk left 1
+  - mash a 240
+  - expect-battle ${S_T1} ${L_T1} 900
+  - wait 300                                # the shot shows the challenge text
+  - shot trainer
+  - end-battle

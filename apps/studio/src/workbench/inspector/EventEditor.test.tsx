@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getEvents, getObjectSprite, listFlags, resolveScript, updateEvent } from "../../api";
+import { dialogOf, getEvents, getObjectSprite, listFlags, resolveScript, updateEvent } from "../../api";
 import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
 import { FLAGS, flagEntry, flagList } from "../../flags/flagTesting";
 import { invalidateFlagLists } from "../../flags/useFlagList";
@@ -16,7 +16,7 @@ import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
 import type { Depth } from "../../ui/frame/shellState";
 import { resetSprites } from "../../world/sprites";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), getObjectSprite: vi.fn(), listFlags: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), getObjectSprite: vi.fn(), listFlags: vi.fn(), dialogOf: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -32,6 +32,7 @@ describe("EventEditor scripts", () => {
   const onAddScript = vi.fn();
   const onError = vi.fn();
   const onChanged = vi.fn();
+  const openDialogEditor = vi.fn();
   let reset = resetSpy();
   const context = (over: Partial<EventEditorContext> = {}): EventEditorContext => ({
     // Header 3 (script file 40) and 9 (script file 77) share event file 8.
@@ -48,6 +49,7 @@ describe("EventEditor scripts", () => {
     onOpenScript,
     onAddScript,
     onError,
+    openDialogEditor,
     ...over,
   });
   beforeEach(() => {
@@ -58,10 +60,11 @@ describe("EventEditor scripts", () => {
     vi.mocked(updateEvent).mockReset().mockResolvedValue(undefined);
     vi.mocked(resolveScript).mockReset();
     vi.mocked(getObjectSprite).mockReset().mockResolvedValue(null);
+    vi.mocked(dialogOf).mockReset().mockResolvedValue({ source: { kind: "none" }, messages: [], followed: [] });
     // The sprite cache outlives a test: each one asks the backend anew.
     resetSprites();
     invalidateFlagLists();
-    for (const fn of [onOpenScript, onAddScript, onError, onChanged]) fn.mockReset();
+    for (const fn of [onOpenScript, onAddScript, onError, onChanged, openDialogEditor]) fn.mockReset();
     reset = resetSpy();
   });
   afterEach(() => {
@@ -522,8 +525,14 @@ describe("EventEditor scripts", () => {
       const goTo = vi.fn();
       const destination: EventsDto = { event_file_id: 2, locked: null, bg: [], objects: [], coords: [], warps: [{ index: 0, x: 6, z: 10, dest_header_id: 3, dest_warp_id: 0, height: 0 }, { index: 1, x: 7, z: 11, dest_header_id: 3, dest_warp_id: 0, height: 0 }] };
       vi.mocked(getEvents).mockImplementation(async (file) => (file === 2 ? destination : { ...events(), warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 1, height: 0 }] }));
-      await show(context({ goTo, family: "Hgss" }), "warp", 0, "erzaehlen");
-      expect(rowLabels()).toEqual(["Ziel", "Tür"]);
+      const openWizard = vi.fn();
+      await show(context({ goTo, family: "Hgss", openWizard }), "warp", 0, "erzaehlen");
+      expect(rowLabels()).toEqual(["Ziel", "Tür", "Gegenstück"]);
+      // Door 1 of the destination leads to header 3, not back here: the counterpart says so, and „Tür verbinden…“ opens the wizard
+      // with this door as door A (in the header that owns the event file).
+      expect(container.querySelector("[data-warp-counterpart]")?.textContent).toContain("führt nicht zurück");
+      await click(container.querySelector("button[data-connect-doors]") ?? undefined);
+      expect(openWizard).toHaveBeenCalledExactlyOnceWith({ kind: "connect_doors", prefill: { a: { header: 9, warp: 0 } } });
       await click(button("H10001 · H1"));
       expect(goTo).toHaveBeenCalledWith({ kind: "header", id: 1 });
       // The door of the destination's event file, by its number and tile.
@@ -548,9 +557,34 @@ describe("EventEditor scripts", () => {
       // Adding events and the hint how to move them stay.
       expect(container.textContent).toContain("Ziehen in der 3D-Ansicht verschiebt das Event");
       await show(context(), "bg", 0, "erzaehlen");
-      expect(container.textContent).toContain("Der Text des Schilds kommt mit 3d.5.");
+      // A sign's text came with 3d.5: no sentence for later, the section „Text“ instead.
+      expect(container.textContent).not.toContain("Der Text des Schilds kommt mit 3d.5.");
+      expect(container.querySelector("section[data-dialog-section]")).not.toBeNull();
       expect(rowLabels()).toEqual([]);
       expect(container.textContent).not.toContain("Nur lesbar");
+    });
+
+    it("erzaehlen_renders_the_dialog_section_for_object_and_bg", async () => {
+      vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }] }));
+      vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 77, slot: 4, line: 3 }, messages: [{ archive: 9, index: 2, text: "Hallo!", command: "Message", line: 5, col: 13, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
+      await show(context(), "object", 2, "erzaehlen");
+      // The selected header 9 of the two that share event file 8.
+      expect(dialogOf).toHaveBeenLastCalledWith(9, 8, "object", 2);
+      const section = () => container.querySelector<HTMLElement>("section[data-dialog-section]");
+      expect(section()?.querySelector("h3")?.textContent).toBe("Dialog");
+      expect(section()?.textContent).toContain("1 Nachricht · 1 Seite");
+      await click(button("Dialog bearbeiten…"));
+      expect(openDialogEditor).toHaveBeenCalledWith({ header: 9, eventFile: 8, kind: "object", index: 2, title: "Objekt 2" });
+      await show(context(), "bg", 0, "erzaehlen");
+      expect(dialogOf).toHaveBeenLastCalledWith(9, 8, "bg", 0);
+      expect(section()?.querySelector("h3")?.textContent).toBe("Text");
+      await click(button("Dialog bearbeiten…"));
+      expect(openDialogEditor).toHaveBeenLastCalledWith({ header: 9, eventFile: 8, kind: "bg", index: 0, title: "Schild 0" });
+      // Not in Bauen, and not for a door or a trigger.
+      await show(context(), "object", 2, "bauen");
+      expect(section()).toBeNull();
+      await show(context(), "warp", 0, "erzaehlen");
+      expect(section()).toBeNull();
     });
 
     it("erzaehlen_offers_adding_events_and_the_drag_hint_in_the_words_of_bauen", async () => {

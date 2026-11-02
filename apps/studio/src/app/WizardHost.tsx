@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { World } from "../workbench/worldModel";
-import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, DraftDto, HeaderSummary, MatrixSummary, MemberCounts, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
+import type { AdoptProgressDto, AdoptReportDto, AreaReport, AreaSpec, AssetId, DraftDto, HeaderSummary, MatrixSummary, MemberCounts, ProjectInfo, RegionReport, RoomReport, RoomSpec, ScriptsStatusDto, WarpLink } from "../api";
 import { errorText, releases } from "../api";
 import type { ReleasesDto } from "../api";
 import { PublishWizard } from "../publish/PublishWizard";
@@ -11,6 +11,13 @@ import { buildPlaces } from "../workbench/places";
 import { recipeRequest } from "../workbench/recipes";
 import { NewAreaWizard } from "../workbench/wizards/NewAreaWizard";
 import { NewRoomWizard } from "../workbench/wizards/NewRoomWizard";
+import { ConnectDoorsWizard } from "../workbench/wizards/ConnectDoorsWizard";
+import { NewFigureWizard } from "../workbench/wizards/NewFigureWizard";
+import { NewTrainerHereWizard } from "../workbench/wizards/NewTrainerHereWizard";
+import { dialogTitle } from "../workbench/dialog/dialogModel";
+import type { DialogTarget } from "../workbench/dialog/dialogModel";
+import type { ScriptFiles } from "../data/useDataArea";
+import { headerLabel } from "../workbench/headers";
 import { areaResult, roomResult } from "../workbench/wizards/wizardSpecs";
 import type { Created, Wizards } from "./useWizards";
 
@@ -52,6 +59,14 @@ interface Props {
   publish: PublishHostProps;
   /** The open wizard's draft (null: none, or the wizard closed or created): the app hands it to the scene and the world map. */
   onDraft: (draft: DraftDto | null) => void;
+  /** The open project (null: none): the recipes of Erzählen take the family's default looks from it, the flag field its names. */
+  project?: ProjectInfo | null;
+  /** A recipe of Erzählen went in (one undo step): the app reads the assets it changed again, as after ⌘Z. */
+  onRecipeApplied?: (changed: AssetId[]) => Promise<void>;
+  /** „Dialog bearbeiten“ after „Neue Figur“: the app opens the dialog editor of the new figure. */
+  onOpenDialog?: (target: DialogTarget) => void;
+  /** The script panel's documents: „Neue Figur“ appends to the place's script file, so typing there is saved first (as before a split). */
+  scriptFiles?: ScriptFiles;
 }
 
 type PublishHostProps = Omit<PublishWizardProps, "defaults" | "defaultsError">;
@@ -85,6 +100,25 @@ export function WizardHost(props: Props) {
   const roomMade = (report: RoomReport, spec: RoomSpec): Created => ({ matrix: report.matrix, header: spec.header.id, announcement: roomResult(report, spec, depth).lines[0], name: spec.name });
   // The town is a header of matrix 0 (the recipe looks for it there).
   const regionMade = (report: RegionReport): Created => ({ matrix: 0, header: report.plan.start_header, announcement: clearedAnnouncement(report) });
+  // The recipes of Erzählen start in the request's place, else the selected one, on the request's tile, else the tile last hovered
+  // when the scene shows that place's matrix.
+  const headerOf = (id: number) => headers.find((h) => h.id === id);
+  const sceneTile = (header: number) => (headerOf(header)?.matrix_id === shownMatrix ? (lastTile() ?? undefined) : undefined);
+  const startAt = (prefill: { header?: number; tile?: { x: number; z: number } } | undefined) => {
+    const header = prefill?.header ?? selected?.header;
+    if (header === undefined) return undefined;
+    const tile = prefill?.tile ?? sceneTile(header);
+    return tile ? { header, tile } : { header };
+  };
+  const placeName = (id: number) => {
+    const h = headerOf(id);
+    return h ? `„${headerLabel(h)}“` : "dem Ort";
+  };
+  // What a recipe made, shown as „Zeigen“ shows it: the place it went into (the one of door A for two doors).
+  const recipeMade = (header: number, announcement: string): Created => ({ matrix: headerOf(header)?.matrix_id ?? shownMatrix ?? 0, header, announcement });
+  const applied = async (changed: AssetId[]) => {
+    await props.onRecipeApplied?.(changed);
+  };
   switch (request.kind) {
     case "area":
       return (
@@ -150,6 +184,74 @@ export function WizardHost(props: Props) {
       );
     case "publish":
       return <PublishHost {...props.publish} />;
+    case "new_figure": {
+      const figureMade = (input: { header: number }) => recipeMade(input.header, `Figur in ${placeName(input.header)} aufgestellt`);
+      return (
+        <NewFigureWizard
+          depth={depth}
+          headers={headers}
+          matrices={matrices}
+          project={props.project ?? null}
+          prefill={startAt(request.prefill)}
+          onDraft={onDraft}
+          onDone={(outcome) => applied(outcome.changed)}
+          onShow={(_, input) => void created(figureMade(input))}
+          onStep={(id, outcome, input) => {
+            // „Dialog bearbeiten“: show the figure's place, then its dialog editor (an app dialog, not a wizard).
+            if (id === "edit_dialog") {
+              const { event_file, object } = outcome.report;
+              const target: DialogTarget = { header: input.header, eventFile: event_file, kind: "object", index: object, title: dialogTitle("object", object) };
+              void created(figureMade(input)).then(() => props.onOpenDialog?.(target));
+            } else step(id, figureMade(input));
+          }}
+          onCancel={close}
+          onError={onError}
+          beforeApply={async (input) => {
+            // The recipe appends the figure's slot to the place's script file: typing there would overwrite it on the next save.
+            const file = headerOf(input.header)?.script_file_id;
+            if (file !== undefined) await props.scriptFiles?.saveIfDirty(file);
+          }}
+        />
+      );
+    }
+    case "connect_doors": {
+      const doorsMade = (input: { a: { header: number }; b: { header: number } }) => recipeMade(input.a.header, `Türen verbunden: ${placeName(input.a.header)} und ${placeName(input.b.header)}`);
+      // Door A from the scene: the tile last hovered when it shows that place (a door there is offered by the wizard).
+      const a = request.prefill?.a;
+      const startA = a ? (a.warp !== undefined || a.tile !== undefined ? a : startAt({ header: a.header })) : startAt(undefined);
+      return (
+        <ConnectDoorsWizard
+          depth={depth}
+          headers={headers}
+          matrices={matrices}
+          prefill={startA ? { a: startA } : undefined}
+          onDraft={onDraft}
+          onDone={(outcome) => applied(outcome.changed)}
+          onShow={(_, input) => void created(doorsMade(input))}
+          onStep={(id, _, input) => step(id, doorsMade(input))}
+          onCancel={close}
+          onError={onError}
+        />
+      );
+    }
+    case "new_trainer_here": {
+      const trainerMade = (input: { header: number; name: string }) => recipeMade(input.header, `Trainer „${input.name}“ in ${placeName(input.header)} aufgestellt`);
+      return (
+        <NewTrainerHereWizard
+          depth={depth}
+          headers={headers}
+          matrices={matrices}
+          project={props.project ?? null}
+          prefill={startAt(request.prefill)}
+          onDraft={onDraft}
+          onDone={(outcome) => applied(outcome.changed)}
+          onShow={(_, input) => void created(trainerMade(input))}
+          onStep={(id, _, input) => step(id, trainerMade(input))}
+          onCancel={close}
+          onError={onError}
+        />
+      );
+    }
   }
 }
 

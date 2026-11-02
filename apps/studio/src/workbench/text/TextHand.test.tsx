@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { editTextArchive, getTextArchive, planReset, validateText } from "../../api";
+import { editTextArchive, getTextArchive, planReset, refs, validateText } from "../../api";
 import { readCss, ruleBody } from "../../ui/cssSource";
 import type { Depth } from "../../ui/frame/shellState";
 import { archive, flush, header, textHarness } from "./textTesting";
@@ -14,6 +14,7 @@ vi.mock("../../api", async (importOriginal) => ({
   editTextArchive: vi.fn(),
   validateText: vi.fn(),
   planReset: vi.fn(),
+  refs: vi.fn(),
   getMatrix: vi.fn(async (index: number) => ({ index, name: "m", width: 1, height: 1, maps: [7] })),
 }));
 vi.mock("../../world/thumbnailStore", () => ({
@@ -31,6 +32,7 @@ describe("TextHand", () => {
     vi.mocked(getTextArchive).mockReset().mockResolvedValue(archive(433, ["Hallo {PLAYER}!\\nWie geht es?", "x".repeat(45)]));
     vi.mocked(editTextArchive).mockReset().mockResolvedValue(1);
     vi.mocked(validateText).mockReset().mockResolvedValue([]);
+    vi.mocked(refs).mockReset().mockResolvedValue([]);
     Element.prototype.scrollIntoView = () => {};
   });
   afterEach(() => h.unmount());
@@ -43,6 +45,29 @@ describe("TextHand", () => {
     // The column of the selected message: its title, the field and where the archive is used.
     expect(h.container.querySelector('[aria-label="Nachricht bearbeiten"] h2')?.textContent).toBe("Nachricht 000");
     expect(h.container.textContent).toContain("Verwendet in");
+  });
+
+  it("a_message_lists_where_it_is_used", async () => {
+    vi.mocked(refs).mockImplementation(async (target) =>
+      target.kind === "message" && target.index === 1
+        ? [{ source: { kind: "Script", index: 12 }, field: "Message", slot: 9, label: "Scriptdatei 0012, Zeile 9 · Message", source_name: "Scriptdatei 0012", nav: { kind: "script", file: 12, line: 9 } }]
+        : [],
+    );
+    await h.open433();
+    expect(refs).toHaveBeenLastCalledWith({ kind: "message", archive: 433, index: 0 });
+    const usedBy = () => h.container.querySelector<HTMLElement>("[data-message-refs]");
+    expect(usedBy()?.textContent).toBe("Nachricht verwendet inkeinem Script");
+    // Two rows, two names: the message's script lines and the archive's places.
+    const labels = [...h.container.querySelectorAll('[aria-label="Nachricht bearbeiten"] span')].map((e) => e.textContent).filter((t) => t?.includes("erwendet in"));
+    expect(labels).toEqual(["Nachricht verwendet in", "Verwendet in"]);
+    h.click(h.messageRow(1));
+    await flush();
+    expect(refs).toHaveBeenLastCalledWith({ kind: "message", archive: 433, index: 1 });
+    const chip = usedBy()?.querySelector<HTMLButtonElement>('button[data-script-line="12:9"]');
+    expect(chip?.textContent).toContain("Scriptdatei 0012");
+    expect(chip?.textContent).toContain("Zeile 9");
+    h.click(chip);
+    expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "script", file: 12, line: 9 });
   });
 
   it("has_no_head_title_that_repeats_the_tab", async () => {

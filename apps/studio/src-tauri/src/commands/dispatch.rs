@@ -205,6 +205,8 @@ pub const COMMANDS: &[&str] = &[
     "flag_usage",
     "free_flag",
     "name_flag",
+    "dialog_of",
+    "split_message",
     "list_threads",
     "thread_graph",
     "story_list",
@@ -472,8 +474,8 @@ pub fn dispatch(
         }),
         "edit_text_archive" => run!(
             json, "edit_text_archive", args,
-            { index: u16, edit: TextEdit },
-            |a| edit_text_archive_impl(state, a.index, a.edit)
+            { index: u16, edit: TextEdit, label: Option<String> },
+            |a| edit_text_archive_impl(state, a.index, a.edit, a.label)
         ),
         "create_text_archive" => run!(json, "create_text_archive", args, {}, |_a| {
             create_text_archive_impl(state)
@@ -1084,6 +1086,16 @@ pub fn dispatch(
                 }
             )
         ),
+        "dialog_of" => run!(
+            json, "dialog_of", args,
+            { header: u16, event_file: u16, kind: g4_kernel::dialog::DialogKind, index: u16 },
+            |a| dialog_of_impl(state, a.header, a.event_file, a.kind, a.index)
+        ),
+        "split_message" => run!(
+            json, "split_message", args,
+            { header: u16, event_file: u16, index: u16, archive: u16, message: u16 },
+            |a| split_message_impl(state, a.header, a.event_file, a.index, a.archive, a.message)
+        ),
         "list_threads" => run!(json, "list_threads", args, {}, |_a| list_threads_impl(
             state
         )),
@@ -1271,7 +1283,7 @@ mod tests {
             ("get_text_archive", json!({ "index": 433 })),
             (
                 "edit_text_archive",
-                json!({ "index": 433, "edit": { "Set": { "index": 0, "text": "x" } } }),
+                json!({ "index": 433, "edit": { "Set": { "index": 0, "text": "x" } }, "label": null }),
             ),
             ("create_text_archive", Value::Null),
             ("search_text", json!({ "query": "a", "limit": 5 })),
@@ -1514,6 +1526,14 @@ mod tests {
                 "name_flag",
                 json!({"kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null}),
             ),
+            (
+                "dialog_of",
+                json!({"header": 1, "eventFile": 0, "kind": "object", "index": 0}),
+            ),
+            (
+                "split_message",
+                json!({"header": 1, "eventFile": 0, "index": 0, "archive": 3, "message": 5}),
+            ),
             ("list_threads", json!({})),
             ("thread_graph", json!({"var": 16432, "story": null})),
             ("story_list", json!({})),
@@ -1563,7 +1583,15 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["create_area", "create_room", "extend_area", "empty_region"]
+            [
+                "create_area",
+                "create_room",
+                "extend_area",
+                "empty_region",
+                "new_figure",
+                "connect_doors",
+                "new_trainer_here"
+            ]
         );
         let args = json!({ "recipe": "extend_area", "input": {
             "matrix": 0, "x": 2, "y": 0, "source_map": 2,

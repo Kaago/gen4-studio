@@ -438,6 +438,8 @@ export function InspectorPanel() {
   // The trainer field of an object event: the rows are read when the field needs them (a trainer script, or its picker opens).
   const { dataStore, info } = d;
   const trainers = useTrainerRows(dataStore, info);
+  // The field „Dialog“ of a figure reads again when a text archive moved (a dialog edit, undo, redo) or a script was saved.
+  const dialogRevision = useBusRevision(d.bus, "textData") + d.scripts.revision;
   const needTrainers = useCallback(() => {
     if (namesTrainers(info)) dataStore.need(info, "trainer");
   }, [dataStore, info]);
@@ -500,6 +502,9 @@ export function InspectorPanel() {
         needTrainers,
         onError: d.onError,
         project: d.info,
+        openDialogEditor: d.onOpenDialog,
+        openWizard: d.onOpenWizard,
+        dialogRevision,
       }}
       matrixEditor={{
         dirty: d.dirtyAssets,

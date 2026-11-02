@@ -106,3 +106,70 @@ HeartGold `0x4015C`, Koreanisch HeartGold `0x403FC`, SoulSilver `0x403F4`) und i
 ab `0x02000000`. Die Platin-Tabellen der anderen Sprachen und die westliche Diamant/Perl-Tabelle
 stehen in uxie `global_script_table.rs`; der Editor löst für Diamant/Perl kein gemeinsames Script
 auf.
+
+## Dialog einer Figur
+
+`dialog::dialog_of(store, header, file, kind, index)` (`crates/g4-kernel/src/dialog.rs`) sagt, welche
+Nachrichten ein Objekt oder Schild (`kind`: `object`, `bg`) der Eventdatei `file` zeigt, gelesen auf
+Header `header`. Der Weg:
+
+1. **Script-Nummer** des Events: `0` und `65535` sind `none` (die Figur sagt nichts; 65535 erreicht
+   kein Bereich der Tabelle gemeinsamer Scripts, `resolve_script` findet nichts, Platin
+   Zweiblattdorf Objekt 7; UI-Test 3d.5, U5), `3000` bis `4999` und `5000`
+   bis `6999` sind `trainer` (Trainer `n − 3000 + 1` bzw. `n − 5000 + 1` als Doppelkampf-Partner, seine
+   Texte stehen im Bereich Pokémon), ab `2000` sonst `common` (ein gemeinsames Script, in Bauen zu
+   lesen). Diese drei haben keine Nachrichten.
+2. **Slot:** unter `2000` ist es Script `#n` der Scriptdatei des Headers (`local` mit Datei, Slot und
+   Zeile des Kopfes wie `resolve_script`). Ohne übernommene Scripts, ohne rotom-Quelle (binär, Level-
+   Script) oder ohne den Slot in der Datei ist der Dialog `unreadable` mit dem Grund.
+3. **Nachrichten:** der Rumpf des Scripts wird gelaufen. Jedes nummerierte Argument eines
+   Nachrichtenbefehls (`script.message_params` in `check_limits.yaml`) ist eine Nachricht des
+   Textarchivs des Headers, mit Befehl, Zeile und Spalte der Zahl. Steht sie in einem `if`, trägt
+   sie die Bedingung wie geschrieben (`else` im Else-Zweig, `else if` seine eigene). Dekompiliertes
+   Vanilla verzweigt aber nicht mit `if`, sondern mit bedingten Sprungbefehlen (Platin: 4 283
+   Nachrichten, keine in einem `if`; UI-Test 3d.5, U4). Eine Nachricht in einem Label, das ein
+   bedingter Sprung erreicht, trägt darum dessen Bedingung als `branch`: der Befehl mit seinen
+   Argumenten ohne das Sprungziel, wie geschrieben (`GoToIfSet FLAG_X`, `CallIf EQUAL`). Ist das
+   einzige übrige Argument ein Vergleich (`LESS`, `EQUAL`, `GREATER`, `LESS_EQUAL`, `GREATER_EQUAL`,
+   `DIFFERENT` oder seine Zahl 0 bis 5, `GoToIf`/`CallIf`/`JumpIf`), steht der Befehl davor, dessen
+   Ergebnis verglichen wird, mit Semikolon vorn: `CheckFlag FLAG_X; GoToIf EQUAL`,
+   `CompareVarValue VAR_X, 5; CallIf 1` (der Befehl direkt vor dem Sprung oder vor einer Reihe von
+   Sprüngen, kein Nachrichtenbefehl). Ein Label, das ein unbedingter Sprung (`GoTo`, `Call`, das
+   Sprungwort) erreicht, und Code, in den ein Label weiterläuft, behalten die Bedingung, unter der
+   sie erreicht wurden; im Label gilt ein eigenes `if` vor. Der Weg ohne Sprung (nach einem
+   bedingten Sprung, der nicht springt) bleibt ohne Bedingung. Der Dialog-Editor zeigt das als
+   „· wenn CheckFlag FLAG_X; GoToIf EQUAL“.
+4. **Sprünge:** rotoms Sprungwort (`GoTo`/`Jump`, auch klein) und die Befehle aus
+   `script.jump_params` (Pt `GoTo`, `Call`, `GoToIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; HGSS
+   `Jump`, `Call`, `JumpIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; über rotoms Datenbank aufgelöst,
+   Legacy- und kanonischer Name gelten gleich) springen zu dem Script oder Label derselben Datei,
+   das ein Bezeichner-Argument nennt (`Call hilfe`, `GoToIf EQUAL, label_00A3`). Ein Label ist für
+   rotom eine Funktion ohne Nummer (`hilfe:`). Jedes Ziel wird **einmal** gelaufen (Schleifen
+   brechen ab), und zwar nach dem Rumpf, der springt: erst die eigenen Nachrichten des Scripts, dann
+   die der Sprungziele in der Reihenfolge der Sprünge. Vanilla springt mit `GoToIf … label` weg,
+   bevor der Standardtext kommt; der steht so vorn. Endet ein Rumpf nicht mit `End`, `Return`, dem
+   Sprungwort oder einem `if … else`, das auf beiden Seiten so endet, läuft der Code in die
+   nächste Funktion der Datei weiter; sie kommt vor den Sprungzielen dran. rotoms Decompiler
+   schreibt so ein Label, das der Code auch von oben erreicht, mitten ins Script (`label_XXXX:`),
+   und der Parser macht daraus eine eigene Funktion. `followed` nennt die gelaufenen Labels. Nicht
+   verfolgt: gemeinsame Scripts (`CallCommonScript`), Menü-Ziele und Befehle außerhalb der Liste
+   (etwa `GoToIfEq`).
+5. **Geteilt:** `shared_with` einer Nachricht zählt die **anderen** Objekte, deren Dialog dieselbe
+   (Archiv, Index) zeigt: alle Objekte der Eventdateien aller Header, die das Archiv nutzen (jede
+   Eventdatei einmal, mit der Scriptdatei des ersten solchen Headers), jedes mit seinem Script wie
+   oben. Schilder zählen nicht mit. Gleicher Text an einem anderen Index ist eine andere Nachricht
+   (rotom legt ein Literal mit schon vorhandenem Text auf dessen Index, Vanilla hat Dubletten).
+6. **Abspaltbar:** `split_refusal` ist der Satz, mit dem `split_message` die Nachricht für diese
+   Figur ablehnen würde (Reihenfolge und Regeln dieselben, `SplitScope::check` in `dialog.rs`,
+   Tabelle in [text_archive.md](text_archive.md) „Abspalten“), `null`, wenn sie sich abspalten
+   lässt; bei einem Schild `NOT_AN_OBJECT` „Nur eine Figur bekommt eine eigene Kopie; ein Schild
+   teilt seinen Text, wo er steht.“ Gefunden im UI-Test von 3d.5 (U2): ohne die Angabe bot der
+   Dialog-Editor das Abspalten an fast jeder geteilten Nachricht an, und der Kern lehnte ab (Platin
+   10 der ersten 11 Kandidaten, HeartGold 306 von 307, meist `SHARED_SCRIPT`). Die Prüfung läuft
+   nur, wenn eine Nachricht des Dialogs geteilt ist.
+
+Gemessen auf Platin DE: 3 555 Objekte, keines `unreadable`, 125 Figuren zeigen mindestens eine
+geteilte Nachricht (329 Paare aus Archiv und Index); HeartGold DE: 2 667 Objekte, 140 Figuren, 240
+Paare. Gutachten A zählte ohne Sprünge 66 bzw. 100 Nachrichten, wohl weil eine Nachricht in einem
+Label dort keinem Script gehört (`checks::scripts::walk` gibt ihr keinen Slot). Der Startort Zweiblattdorf (Header 411) hat keine geteilte Nachricht, Neuborkia
+(Header 60) zwei.

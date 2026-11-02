@@ -1443,13 +1443,16 @@ static TOOLS: &[ToolDef] = &[
         name: "recipe_apply",
         title: "Apply a recipe",
         description: "Applies a recipe as one undo step and answers its outcome: report (as \
-                      create_area, create_room or extend_area answer it), created (the new \
-                      members, created first; they stay after undo), change, changed (every \
-                      asset to load again) and next (the recipes that make sense now, \
-                      available or with a reason). create_area/create_room with \
-                      header.allow_patch and empty_region cannot be undone completely (new \
-                      members stay); headless they need --allow-irreversible, without it the \
-                      call answers needs_confirmation. Not in g4_batch.",
+                      create_area, create_room or extend_area answer it; new_figure the new \
+                      object, its script slot and message, connect_doors both doors, \
+                      new_trainer_here the trainer, its object and battle script, see \
+                      g4://docs/mcp), created (the new members, created first; they stay after \
+                      undo), change, changed (every asset to load again) and next (the recipes \
+                      that make sense now, available or with a reason). create_area/create_room \
+                      with header.allow_patch, empty_region and new_trainer_here cannot be \
+                      undone completely (new members stay); headless they need \
+                      --allow-irreversible, without it the call answers needs_confirmation. \
+                      Not in g4_batch.",
         input_schema: recipe_args,
         output_schema: answers_object,
         route: command("recipe_apply"),
@@ -1534,6 +1537,64 @@ static TOOLS: &[ToolDef] = &[
         },
         output_schema: answers_object,
         route: command("name_flag"),
+    },
+    // Figure, dialog, door (3d.5).
+    ToolDef {
+        name: "dialog_of",
+        title: "The dialog of a figure or sign",
+        description: concat!(
+            "The messages the script of object or sign index of event file event_file shows on \
+             header header, in order, jumps inside the script file followed: archive, index, \
+             text, command, line, the branch condition, how many other figures show the \
+             same message (shared_with) and why split_message would refuse it (split_refusal, \
+             null when it can split). source says whether it is a local script, a common \
+             script (2000 and up, read only here), a trainer's battle (its texts are trainer \
+             texts) or nothing. ",
+            data_note!()
+        ),
+        input_schema: || {
+            object(
+                json!({
+                    "header": dialog_header(),
+                    "event_file": event_file(),
+                    "kind": {
+                        "type": "string",
+                        "enum": ["object", "bg"],
+                        "description": "event class: object (a person, a trainer) or bg (a \
+                                        sign)",
+                    },
+                    "index": event_index(),
+                }),
+                &["header", "event_file", "kind", "index"],
+            )
+        },
+        output_schema: answers_object,
+        route: renamed("dialog_of", EVENT_FILE),
+    },
+    ToolDef {
+        name: "split_message",
+        title: "Give a figure its own copy of a shared message",
+        description: "Appends a copy of message (archive, message) to the archive and rewrites \
+                      every use in this figure's dialog to the new index, as one undo step \
+                      (script file written and compiled, a file step). Refused when the message \
+                      is not shared or sits in a label other scripts of the file reach. Not in \
+                      g4_batch.",
+        input_schema: || {
+            object(
+                json!({
+                    "header": dialog_header(),
+                    "event_file": event_file(),
+                    "index": uint("index of the object within its class, as get_events lists \
+                                   it"),
+                    "archive": uint("the message's text archive, as dialog_of returns it"),
+                    "message": uint("the message's index in the archive, as dialog_of returns \
+                                     it"),
+                }),
+                &["header", "event_file", "index", "archive", "message"],
+            )
+        },
+        output_schema: answers_object,
+        route: renamed("split_message", EVENT_FILE),
     },
     // Stories (3d.6).
     ToolDef {
@@ -1716,6 +1777,14 @@ fn story_flags() -> Value {
     })
 }
 
+/// The header a figure's dialog is looked up on (`dialog_of`, `split_message`).
+fn dialog_header() -> Value {
+    uint(
+        "map header id whose script file and text archive the figure's script uses, as \
+         list_places returns in id",
+    )
+}
+
 /// The arguments of `recipe_plan` and `recipe_apply`: the recipe and its input.
 fn recipe_args() -> Value {
     let ids: Vec<Value> = g4_kernel::recipes::list()
@@ -1731,7 +1800,12 @@ fn recipe_args() -> Value {
             },
             "input": nested(
                 "the recipe's input: for create_area, create_room and extend_area the spec \
-                 their tools take; for empty_region nothing (absent or {})"
+                 their tools take; for empty_region nothing (absent or {}); for new_figure \
+                 {header, x, z, movement_type, dir, text, graphics_id?, hidden_flag?}; for \
+                 connect_doors {a, b, back?, door_tiles?}, each end {header, warp} or {header, \
+                 tile: {x, z}}; for new_trainer_here {header, x, z, dir, sight?, class, name, \
+                 party: [{species, level}], texts: {before, lose, after}, graphics_id?} \
+                 (details in g4://docs/mcp)"
             ),
         }),
         &["recipe"],
@@ -1981,8 +2055,9 @@ mod tests {
     #[test]
     fn the_curated_tool_count_stays_within_what_an_agent_reads_at_once() {
         // Every description goes into the agent's context with tools/list: a catalog that grows
-        // past this asks for a new curation, not a higher bound.
-        // Raised from 70 to 80 with the six story tools of 3d.6.
+        // past this asks for a new curation, not a higher bound. Raised from 70 to 71 for 3d.5's
+        // dialog_of and split_message (the dialog editor's two commands have no tool to fold
+        // into) and to 80 with the six story tools of 3d.6; 77 with both.
         assert!((30..=80).contains(&catalog().len()), "{}", catalog().len());
     }
 
@@ -2036,6 +2111,7 @@ mod tests {
                 "list_flags",
                 "flag_usage",
                 "free_flag",
+                "dialog_of",
                 "list_threads",
                 "thread_graph",
                 "story_list",
@@ -2093,6 +2169,7 @@ mod tests {
             "git_commit_all",
             "recipe_apply",
             "name_flag",
+            "split_message",
             "story_create",
             "story_update",
         ]
@@ -2228,6 +2305,7 @@ mod tests {
             "plan_reset",
             "diff_entity",
             "flag_usage",
+            "dialog_of",
             "thread_graph",
             "story_list",
             "story_get",
@@ -2263,6 +2341,15 @@ mod tests {
                     && description.contains("needs_confirmation"),
                 "{name}: {description}"
             );
+        }
+        // Every recipe that may not be undone completely is named.
+        let recipe = tool("recipe_apply").description;
+        for id in g4_kernel::recipes::list()
+            .iter()
+            .filter(|r| r.irreversible)
+            .map(|r| serde_json::to_value(r.id).unwrap())
+        {
+            assert!(recipe.contains(id.as_str().unwrap()), "{id}: {recipe}");
         }
         // Both fixes that cannot be undone are named.
         let fix = tool("apply_fix").description;
@@ -2309,6 +2396,13 @@ mod tests {
         for name in ["recipe_plan", "recipe_apply"] {
             let schema = (tool(name).input_schema)();
             assert_eq!(schema["properties"]["recipe"]["enum"], json!(ids), "{name}");
+            // The input says what each recipe takes.
+            let input = schema["properties"]["input"]["description"]
+                .as_str()
+                .unwrap();
+            for id in &ids {
+                assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
+            }
             assert_eq!(schema["required"], json!(["recipe"]), "{name}");
         }
         assert_eq!((tool("recipe_list").input_schema)(), no_args());
@@ -2514,6 +2608,14 @@ mod tests {
             (
                 "name_flag",
                 json!({ "kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null }),
+            ),
+            (
+                "dialog_of",
+                json!({ "header": 1, "event_file": 0, "kind": "object", "index": 0 }),
+            ),
+            (
+                "split_message",
+                json!({ "header": 1, "event_file": 0, "index": 0, "archive": 3, "message": 5 }),
             ),
             ("list_threads", json!({})),
             ("thread_graph", json!({ "var": 16432 })),

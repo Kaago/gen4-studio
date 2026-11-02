@@ -89,6 +89,8 @@ pub struct ScriptLimits {
     pub decoration: Limit<u16>,
     /// The commands whose argument is a message of the script's text archive.
     pub message_params: MessageParams,
+    /// The commands that jump to a label of the same file.
+    pub jump_params: JumpParams,
 }
 
 /// A script command and the position (0-based) of its message argument.
@@ -119,6 +121,17 @@ impl MessageParams {
             Family::Hgss => &self.hgss,
         }
     }
+}
+
+/// The jump commands per family (`dialog_of`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JumpParams {
+    pub dp: Vec<String>,
+    pub pt: Vec<String>,
+    pub hgss: Vec<String>,
+    pub verified: bool,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -216,6 +229,11 @@ impl Limits {
                 source: &self.script.message_params.source,
             },
             LimitEntry {
+                key: "script.jump_params",
+                verified: self.script.jump_params.verified,
+                source: &self.script.jump_params.source,
+            },
+            LimitEntry {
                 key: "encounter.none",
                 verified: self.encounter.none.verified,
                 source: &self.encounter.none.source,
@@ -225,6 +243,18 @@ impl Limits {
             row("bdhc.max_bytes", &self.bdhc.max_bytes),
             row("permissions.bytes", &self.permissions.bytes),
         ]
+    }
+
+    /// The commands whose label argument (an identifier naming a script or label of the same
+    /// file) is a jump there (`script.jump_params`), as written in the file: a name is matched
+    /// through rotom's database, so legacy and canonical names count alike.
+    pub fn jump_commands(&self, family: Family) -> &[String] {
+        let jumps = &self.script.jump_params;
+        match family {
+            Family::Dp => &jumps.dp,
+            Family::Pt => &jumps.pt,
+            Family::Hgss => &jumps.hgss,
+        }
     }
 }
 
@@ -280,7 +310,7 @@ mod tests {
 
         // Every entry names its source.
         let entries = l.entries();
-        assert_eq!(entries.len(), 13);
+        assert_eq!(entries.len(), 14);
         // The message commands per family (task0 section 4: Pt 15).
         let params = &l.script.message_params;
         assert_eq!(params.of(Family::Pt).len(), 15);
@@ -292,5 +322,30 @@ mod tests {
         }
         // The cached copy is the same.
         assert_eq!(Project::limits(), &l);
+    }
+
+    #[test]
+    fn jump_params_name_existing_commands() {
+        let l: Limits = serde_yaml::from_str(CHECK_LIMITS_YAML).unwrap();
+        assert!(l.script.jump_params.source.contains("legacy_name"));
+        for family in [Family::Dp, Family::Pt, Family::Hgss] {
+            let db = crate::checks::scripts::database(family).unwrap();
+            let names = l.jump_commands(family);
+            assert!(names.iter().any(|n| n == "Call"), "{family:?}");
+            for name in names {
+                // rotom v0.7.0: src/database.rs DatabaseV2::get_command (canonical, legacy, alias)
+                let command = db
+                    .get_command(name)
+                    .unwrap_or_else(|_| panic!("{family:?}: {name} is not in the database"));
+                // A jump: one parameter is a label or the relative jump of the binary command.
+                assert!(
+                    command.params.iter().any(|p| {
+                        p.param_type == rotom::database::ParamType::Label
+                            || p.name == "relative_jump"
+                    }),
+                    "{family:?}: {name} names no label"
+                );
+            }
+        }
     }
 }

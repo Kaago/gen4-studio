@@ -510,6 +510,7 @@ mod tests {
                 index: 0,
                 text: "Ungespeichert".into(),
             },
+            None,
         )
         .unwrap();
         let refusals = [
@@ -598,6 +599,7 @@ mod tests {
                 index: 0,
                 text: "Anders".into(),
             },
+            None,
         )
         .unwrap();
         let text_only = save_impl(&state).unwrap();

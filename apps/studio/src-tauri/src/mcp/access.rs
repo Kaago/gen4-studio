@@ -224,6 +224,9 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("free_flag", Kind::Read),
     // One undo step, like rename_id.
     ("name_flag", Kind::Write),
+    ("dialog_of", Kind::Read),
+    // One undo step: the archive's copy and the script file's step, squashed.
+    ("split_message", Kind::Write),
     ("list_threads", Kind::Read),
     ("thread_graph", Kind::Read),
     ("story_list", Kind::Read),
@@ -271,12 +274,12 @@ impl From<Kind> for Class {
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
 /// patch; `recipe_apply` is irreversible when its recipe says so (`recipes::is_irreversible`:
-/// the empty region, an area or room with `header.allow_patch`), arguments that are no recipe
-/// call it can read are a write (the command refuses them). The project preview commands with
-/// a `path` (another project folder) are unavailable, also when it names the bound project.
-/// `publish_patch` with `overwrite` replaces files (irreversible), with a `dir` outside
-/// `build/` writes there (irreversible), else it is a write. A name the table does not have is
-/// unavailable.
+/// the empty region, a new trainer, an area or room with `header.allow_patch`), arguments
+/// that are no recipe call it can read are a write (the command refuses them). The project
+/// preview commands with a `path` (another project folder) are unavailable, also when it names
+/// the bound project. `publish_patch` with `overwrite` replaces files (irreversible), with a
+/// `dir` outside `build/` writes there (irreversible), else it is a write. A name the table
+/// does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -679,7 +682,8 @@ mod tests {
     }
 
     /// `recipe_apply` asks as its recipe says: „Header-Patch einspielen“ for an area or room
-    /// with `header.allow_patch`, „Welt leeren“ always for the empty region, else a write;
+    /// with `header.allow_patch`, „Welt leeren“ always for the empty region, „Trainer anlegen“
+    /// always for a new trainer, else a write;
     /// input the recipe cannot read is a write (the command fails on it, writing nothing).
     #[test]
     fn recipe_apply_is_irreversible_only_with_allow_patch_or_empty_region() {
@@ -725,9 +729,21 @@ mod tests {
         for args in [area(false), room(false), extend] {
             assert_eq!(classify(args.clone()), Class::Write, "{args}");
         }
+        // A new trainer is always created behind an undo barrier.
+        let trainer = json!({ "recipe": "new_trainer_here", "input": {
+            "header": 0, "x": 40, "z": 7, "dir": 0, "class": 9, "name": "Jens",
+            "party": [{ "species": 25, "level": 12 }],
+            "texts": { "before": "Halt!\\r", "lose": "Du bist stark!", "after": "Gut." },
+            "graphics_id": null,
+        } });
+        assert_eq!(
+            classify(trainer),
+            Class::Irreversible("Trainer anlegen".to_owned())
+        );
         // Arguments that are no recipe call, or input the recipe cannot read.
         for args in [
             json!({ "recipe": "create_area", "input": { "header": header(true) } }),
+            json!({ "recipe": "new_trainer_here", "input": { "header": 0 } }),
             json!({ "recipe": "no_such_recipe" }),
             json!({}),
         ] {
@@ -985,6 +1001,14 @@ mod tests {
         }
         // One undo step, like rename_id.
         assert_eq!(kind("name_flag"), Kind::Write);
+    }
+
+    #[test]
+    fn dialog_commands_have_their_access() {
+        let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
+        assert_eq!(kind("dialog_of"), Kind::Read);
+        // One undo step (the archive's copy and the script file's step, squashed).
+        assert_eq!(kind("split_message"), Kind::Write);
     }
 
     #[test]

@@ -883,6 +883,7 @@ mod tests {
                 index: 0,
                 text: "Im Editor".into(),
             },
+            None,
         )
         .unwrap();
         let err = save_impl(&state).unwrap_err();
@@ -931,6 +932,7 @@ mod tests {
                 index: 0,
                 text: "Meine Änderung".into(),
             },
+            None,
         )
         .unwrap();
         change_both_sides_of_433(&project, "JSON zwei", "Member zwei");
@@ -1116,6 +1118,7 @@ mod tests {
                 index: 0,
                 text: "Meine Änderung".into(),
             },
+            None,
         )
         .unwrap();
         append_message_to_archive_json(&fixture, &project);
@@ -1165,6 +1168,7 @@ mod tests {
                 index: 0,
                 text: "B bearbeitet".into(),
             },
+            None,
         )
         .unwrap();
         crate::commands::save_impl(&state).unwrap();
@@ -1175,6 +1179,7 @@ mod tests {
                 index: 1,
                 text: "B ungespeichert".into(),
             },
+            None,
         )
         .unwrap();
         let dto = build_dto(

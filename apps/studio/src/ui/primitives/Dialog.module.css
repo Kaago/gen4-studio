@@ -40,6 +40,11 @@
   transform: translate(-50%, -48%);
 }
 
+/* Wide: two columns of work side by side (the dialog editor); a narrow window keeps the 16 px margin. */
+.wide {
+  width: min(960px, calc(100vw - 2 * var(--g4-raum-16)));
+}
+
 /* Palette: anchored 96px below the top edge, 640 wide; it grows downwards only. */
 .palette {
   top: calc(var(--g4-raum-64) + var(--g4-raum-32));

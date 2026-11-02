@@ -168,14 +168,18 @@ describe("FramePage", () => {
       ["Gebiet anlegen", null, false],
       ["Raum anlegen", null, false],
       ["Raum anlegen", "true", false],
-      ["Neue Figur", null, true],
+      ["Zu einer Geschichte", null, true],
     ]);
     // A locked key as only its symbol, the way the bar shows it.
-    expect(keys[4]?.getAttribute("aria-label")).toBe("Tür verbinden");
+    expect(keys[4]?.getAttribute("aria-label")).toBe("Hier spielen");
     expect(keys[4]?.textContent).toBe("");
-    // The bar upright at the left and flat at the top, one row: two named keys, three as symbols.
+    // The bar upright at the left and flat at the top, one row: since 3d.5 every recipe is free; upright named, flat only its symbol
+    // with the name as the accessible name (U3).
+    const names = ["Gebiet anlegen", "Raum anlegen", "Neue Figur", "Tür verbinden", "Neuer Trainer hier"];
     const bars = [...container.querySelectorAll<HTMLElement>('[role="toolbar"][aria-label="Rezepte"]')];
     expect(bars.map((b) => b.getAttribute("aria-orientation"))).toEqual(["vertical", "horizontal"]);
-    for (const bar of bars) expect([...bar.querySelectorAll("button[data-recipe]")].map((b) => b.textContent)).toEqual(["Gebiet anlegen", "Raum anlegen", "", "", ""]);
+    const recipes = (bar: HTMLElement) => [...bar.querySelectorAll("button[data-recipe]")];
+    expect(recipes(bars[0]!).map((b) => b.textContent)).toEqual(names);
+    expect(recipes(bars[1]!).map((b) => b.getAttribute("aria-label"))).toEqual(names);
   });
 });

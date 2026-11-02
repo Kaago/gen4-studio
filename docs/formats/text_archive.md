@@ -160,6 +160,19 @@ Prüfungen (`checks::Snapshot`) einmal je Lauf.
 gibt `KernelError::TextConflict` zurück, bevor irgendetwas geschrieben ist. Nach dem Auflösen gilt
 die übliche Regel: Weicht die geltende Datei von dem ab, was der Store geladen hat, ist es `Stale`.
 
+**Nicht entpackte Archive (DSPRE):** Ein DSPRE-Projekt hat für die meisten Archive keine JSON; das
+erste Speichern schreibt sie (`write_archive`: JSON und Member). Liest der Store ein Archiv, solange
+es keine JSON hat, merkt er sich die Bytes des Members (`Store::note_unexpanded`, auch nach
+`reload_from_disk` und `accept_disk_as_base` neu). Soll er später genau die Texte speichern, die
+dieser Member hielt (eine Änderung, ihr Undo, Speichern), und hält die JSON auf der Platte, falls
+es eine gibt, das zuletzt Gespeicherte oder die Texte des Members, schreibt er die gemerkten Bytes
+zurück und löscht die JSON (`Store::unexpanded_member`): Das Projekt steht wieder wie DSPRE es
+ließ, `git status` ist leer. Eine JSON mit anderen Texten (von DSPRE oder von Hand) bleibt und wird
+wie sonst geschrieben. Nur in einem DSPRE-Ordner: in einem Textprojekt ist die JSON die Quelle,
+die sein Abgleich aufzeichnet; dort merkt sich der Store nichts, und auch `remove_materialized_json`
+(„Neue Figur“, Abspalten) lässt sie stehen. Gefunden im UI-Test von 3d.5 (U1); das Verhalten davor (die JSON blieb mit
+den Texten des Members liegen) galt schon auf main für jede Textbearbeitung.
+
 **Bauen (`chatot`):** kodiert die Archive mit `OnlyJson`, `JsonNewer` und `Unknown`, deren
 Member die Texte der JSON noch nicht hält; hält er sie schon, wird nur aufgezeichnet. Hat ein
 Archiv `Conflict`, bricht der Schritt mit `KernelError::TextConflict` ab, bevor etwas
@@ -182,6 +195,43 @@ eine veraltete Fassung an. Im Build fragt schon der Schritt `rotom`: Hat ein Arc
 scheitert er mit `KernelError::TextConflict`, bevor rotom etwas schreibt. Außerhalb des Builds
 (Übersetzen nach dem Speichern der Header-Tabelle) wird ein Archiv mit `Conflict` nach rotoms
 Anhängen nicht kodiert; der nächste Build fragt.
+
+## Abspalten
+
+Zeigen zwei Figuren dieselbe Nachricht (`shared_with > 0` im Dialog, siehe
+[script_file.md](script_file.md) „Dialog einer Figur“), gibt
+`dialog::split_message(store, header, file, index, archive, message)` (`crates/g4-kernel/src/dialog.rs`)
+dem Objekt `index` der Eventdatei `file` eine eigene Kopie: Die Nachricht wird ans Ende des Archivs
+kopiert (Text und Fremdsprachen gleich, ID `msg_<n>`, neuer Index = bisherige Zahl der Nachrichten),
+und jede Stelle **dieses Dialogs**, die `(archive, message)` nennt (der eigene Slot und die Labels,
+die nur er erreicht), bekommt in der Quelle die neue Nummer; die Zahl wird an Zeile und Spalte des
+Dialogs ersetzt, von hinten nach vorn. Die Quelle wird ganz geschrieben und übersetzt
+(`scripts::write_and_compile`). Kopie, Quelle, Member, berührte Archive und rotoms
+`compile-state.json` (als ganze Datei) sind **ein** Undo-Schritt „Dialog von Figur {local_id}
+abgespalten“. Die Kopie liegt im Store (gespeichert mit dem nächsten Speichern), die Quelle steht
+sofort auf der Platte. Die JSON, die das Übersetzen für ein nicht entpacktes Archiv aus dem Member
+schreibt, löscht das Abspalten wieder (`scripts::remove_materialized_json`, wie „Neue Figur“).
+
+Abgelehnt (`KernelError::Refused`, nichts geschrieben):
+
+| Fall | Satz |
+|---|---|
+| keine andere Figur zeigt die Nachricht | `NOT_SHARED` „Die Nachricht gehört nur dieser Figur.“ |
+| eine Stelle steht in einer Funktion, die der Lauf eines anderen Slots der Datei erreicht (Sprung oder weiterlaufender Code), auch im Rumpf des eigenen Slots (springt ein anderes Script dorthin, zeigte es die Kopie mit) | `SHARED_LABEL` „Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.“ |
+| ein anderes Objekt oder Schild (Eventdateien der Header mit dieser Scriptdatei) führt einen Slot desselben Rumpfs aus | `SHARED_SCRIPT` „Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.“ |
+| die Nummer der Kopie passt nicht in den Nachrichtenparameter eines umzuschreibenden Befehls (rotoms Datenbank: Platin `Message`/`MessageInstant`, HeartGold `NPCMsg`/`NonNPCMsg` nehmen ein u8, also bis 255; sonst bis 0x3FFF, ab 0x4000 wäre es eine Variable) | `NUMBER_TOO_HIGH` „Die Kopie bekäme eine Nummer, die der Nachrichtenbefehl nicht fasst“ mit Befehl, Höchstnummer und Nummer der Kopie |
+| die Nachricht steht nicht im Dialog, das Archiv ist gesperrt | mit Archiv und Nummer |
+| das Archiv hat die Nachricht nicht (der Dialog nennt sie ohne Text) | `missing_message` „Textarchiv {archive} hat keine Nachricht {message}.“ |
+| rotom hängt beim Übersetzen ein Text-Literal der Datei an dasselbe Archiv | der ganze Schritt wird zurückgenommen |
+
+Ein Übersetzungsfehler in der Datei (auch in einem anderen Script) schreibt die alte Quelle und
+rotoms `compile-state.json` zurück (der gescheiterte Lauf schreibt sie: die Quelle als `Dirty`, jeder
+andere Eintrag neu gestempelt; den Member des Scripts schreibt er nicht) und nimmt die Kopie zurück
+(`Store::rollback_to`): kein halber Schritt, nichts zum Wiederholen.
+
+Das Studio schreibt die Texte des Dialog-Editors über `edit_text_archive` mit dem optionalen
+Argument `label` („Dialog geändert“); ohne heißt der Schritt wie bisher `edit text`, `add message`,
+`remove message`.
 
 ## Prüfungen
 

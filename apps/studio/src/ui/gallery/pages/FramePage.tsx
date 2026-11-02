@@ -545,8 +545,8 @@ export function FramePage() {
           <RecipeButton id="create_area" label="Gebiet anlegen" icon="matrix" area="welt" hint="Kopiert Karten zu einem neuen Gebiet mit eigenem Ort." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" hint="Zeiger darauf zeigt den Hover." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" pressed onClick={noop} />
-          <RecipeButton id="new_figure" label="Neue Figur" icon="figure" area="welt" reason="Kommt mit 3d.5" onClick={noop} />
-          <RecipeButton id="connect_doors" label="Tür verbinden" icon="door" area="welt" reason="Kommt mit 3d.5" iconOnly onClick={noop} />
+          <RecipeButton id="story_join" label="Zu einer Geschichte" icon="stories" area="geschichten" reason="Kommt mit 3d.7" onClick={noop} />
+          <RecipeButton id="play_here" label="Hier spielen" icon="play" area="welt" reason="Kommt mit 3d.9" iconOnly onClick={noop} />
         </div>
         <div className={styles.row}>
           <RecipeButton id="new_trainer_here" label="Neuer Trainer hier" icon="pokemon" area="pokemon" onClick={noop} size="s" />
@@ -559,8 +559,9 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Rezept-Leiste</h2>
         <p className={styles.note}>
-          In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker und wie sie in einer Reihe (oder Spalte), nie umgebrochen. Gebiet und Raum öffnen ihre Assistenten und zeigen
-          Symbol und Namen; die anderen Rezepte kommen mit 3d.5 und zeigen nur ihr Symbol mit dem Schloss, Name und Grund im Tooltip.
+          In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker und wie sie in einer Reihe (oder Spalte). Seit 3d.5 öffnet jedes Rezept seinen Assistenten; senkrecht
+          zeigt es Symbol und Namen, waagerecht nur sein Symbol (Name im Tooltip), damit die Leiste neben der Szenenleiste in die Schau passt. Ein gesperrtes Rezept zeigte nur sein
+          Symbol mit dem Schloss, Name und Grund im Tooltip.
         </p>
         <div className={styles.toolbarViews}>
           <div className={styles.toolbarView}>

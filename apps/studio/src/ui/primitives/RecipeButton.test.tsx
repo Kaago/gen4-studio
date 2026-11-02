@@ -41,13 +41,13 @@ describe("RecipeButton", () => {
   });
 
   it("locked_with_a_reason_is_disabled_and_says_why", () => {
-    show({ id: "new_figure", label: "Neue Figur", icon: "figure", reason: "Kommt mit 3d.5" });
+    show({ id: "new_figure", label: "Neue Figur", icon: "figure", reason: "Kommt mit 3d.7" });
     expect(key().disabled).toBe(true);
     expect(key().getAttribute("data-locked")).toBe("");
     // Never colour alone: a second symbol, the lock, stands after the name.
     expect(key().querySelectorAll("svg")).toHaveLength(2);
     const described = key().getAttribute("aria-describedby")!;
-    expect(document.getElementById(described)?.textContent).toBe("Kommt mit 3d.5");
+    expect(document.getElementById(described)?.textContent).toBe("Kommt mit 3d.7");
     act(() => key().click());
     expect(onClick).not.toHaveBeenCalled();
     // A null reason is a recipe that runs.
@@ -64,13 +64,13 @@ describe("RecipeButton", () => {
   });
 
   it("icon_only_shows_the_symbol_and_keeps_the_name_as_accessible_name", () => {
-    show({ id: "new_figure", label: "Neue Figur", icon: "figure", reason: "Kommt mit 3d.5", iconOnly: true });
+    show({ id: "new_figure", label: "Neue Figur", icon: "figure", reason: "Kommt mit 3d.7", iconOnly: true });
     expect(key().getAttribute("data-icon-only")).toBe("");
     expect(key().textContent).toBe("");
     expect(key().getAttribute("aria-label")).toBe("Neue Figur");
     // The symbol and the lock stay; the reason is still the description.
     expect(key().querySelectorAll("svg")).toHaveLength(2);
-    expect(document.getElementById(key().getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
+    expect(document.getElementById(key().getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.7");
     // Without it the name is visible and no aria-label doubles it.
     show();
     expect(key().hasAttribute("data-icon-only")).toBe(false);

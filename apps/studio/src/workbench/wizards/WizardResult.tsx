@@ -18,10 +18,18 @@ interface DoneProps {
   onStep?: (id: string) => void;
 }
 
-/** A step's symbol and area: the bar's for its recipe, else the world's with the terrain's symbol (`adjust_terrain`) or a plus. */
+/** The symbol and area of a step that is no recipe of the bar (3d.5): the dialog editor, a story, playing. */
+const OTHER_STEPS: Record<string, { icon: IconName; area: Area }> = {
+  adjust_terrain: { icon: "paint", area: "welt" },
+  edit_dialog: { icon: "texts", area: "texte" },
+  story_join: { icon: "stories", area: "geschichten" },
+  play_here: { icon: "play", area: "welt" },
+};
+
+/** A step's symbol and area: the bar's for its recipe, else its own (`OTHER_STEPS`), else the world's with a plus. */
 function stepLook(id: string): { icon: IconName; area: Area } {
   const entry = RECIPE_BAR.find((r) => r.id === id);
-  return entry ?? { icon: id === "adjust_terrain" ? "paint" : "plus", area: "welt" };
+  return entry ?? OTHER_STEPS[id] ?? { icon: "plus", area: "welt" };
 }
 
 /**

@@ -38,6 +38,10 @@ const PLACEHOLDER_NAME: &str = "-";
 /// Battle text kind "before the battle"; its text should end with `\r` (the box waits for a
 /// button press), trainer-mechanics-3b3b.md §3.
 pub const TEXT_BEFORE_BATTLE: u16 = 0;
+/// Battle text kind "the trainer lost" (shown in the battle).
+pub const KIND_LOSE: u16 = 1;
+/// Battle text kind "after the battle" (talked to again).
+pub const KIND_AFTER: u16 = 2;
 
 /// AI flags of a new trainer: 1, the basic AI, as the trainers measured in the spike.
 const NEW_TRAINER_AI: u32 = 1;
@@ -91,10 +95,71 @@ pub fn create_trainer(
         return Err(refused(ADOPT_FIRST));
     }
     let meta = scripts::project_trainer_script_meta(project)?;
-    let capacity = arm9_layout(&project.game_code)
-        .and_then(|l| l.trainer_flag_capacity)
-        .unwrap_or(TRAINER_FLAG_CAPACITY);
+    let capacity = trainer_flag_capacity(project);
     create_trainer_with(project, store, names, &meta, capacity, class, name)
+}
+
+/// The trainer IDs with a "defeated" flag of their own: `trainer_flag_capacity` of
+/// `arm9_tables.yaml`, else [`TRAINER_FLAG_CAPACITY`].
+pub fn trainer_flag_capacity(project: &Project) -> u16 {
+    arm9_layout(&project.game_code)
+        .and_then(|l| l.trainer_flag_capacity)
+        .unwrap_or(TRAINER_FLAG_CAPACITY)
+}
+
+/// The refusal for a trainer name longer than [`NAME_MAX_CHARS`] characters (UTF-16 units),
+/// `None` for one that fits.
+pub fn name_too_long(name: &str) -> Option<String> {
+    let units = name_units(name);
+    (units > NAME_MAX_CHARS + 1).then(|| {
+        format!(
+            "Der Name hat {} Zeichen, höchstens {NAME_MAX_CHARS} passen. Kürze ihn; längere Namen \
+             brauchen einen arm9-Patch.",
+            units - 1
+        )
+    })
+}
+
+/// The id a new trainer gets, as [`create_trainer_with`] gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextTrainer {
+    /// The new trainer.
+    pub id: u16,
+    /// The sight slot before it, which gets a locked placeholder first.
+    pub placeholder: Option<u16>,
+    /// The battle script needs new slots for it.
+    pub extend: bool,
+}
+
+/// The next trainer id after `count` trainers: `count`, or `count + 1` behind a placeholder when
+/// `count` is the sight slot of `meta`. Refused when it does not fit 16 bits, has no defeat flag
+/// (`id >= flag_capacity`) or the battle script cannot be read ([`scripts::battle_slots`]); a
+/// plan and the create itself share this rule.
+pub fn next_trainer(
+    project: &Project,
+    count: usize,
+    meta: &TrainerScriptMeta,
+    flag_capacity: u16,
+) -> Result<NextTrainer, KernelError> {
+    let mut id = u16::try_from(count)
+        .map_err(|_| refused(format!("{count} Trainer: es ist keine Nummer mehr frei.")))?;
+    let placeholder = (id == meta.seen_id()).then_some(id);
+    if placeholder.is_some() {
+        id += 1;
+    }
+    if id >= flag_capacity {
+        return Err(refused(format!(
+            "Trainer {id} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis {}. \
+             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
+            flag_capacity.saturating_sub(1)
+        )));
+    }
+    let extend = u32::from(id) > scripts::battle_slots(project, meta)?.max();
+    Ok(NextTrainer {
+        id,
+        placeholder,
+        extend,
+    })
 }
 
 /// Creates a trainer at the next ID (the trainer count). Refused, with nothing written,
@@ -122,13 +187,8 @@ pub fn create_trainer_with(
     if !scripts::is_adopted(project) {
         return Err(refused(ADOPT_FIRST));
     }
-    let units = name_units(name);
-    if units > NAME_MAX_CHARS + 1 {
-        return Err(refused(format!(
-            "Der Name hat {} Zeichen, höchstens {NAME_MAX_CHARS} passen. Kürze ihn; längere Namen \
-             brauchen einen arm9-Patch.",
-            units - 1
-        )));
+    if let Some(why) = name_too_long(name) {
+        return Err(refused(why));
     }
     store.set_placeholder_trainer(Some(meta.seen_id()))?;
     let props_count = store.member_count(AssetKind::TrainerProperties)?;
@@ -180,24 +240,11 @@ pub fn create_trainer_with(
              keinen Platz. Entferne ungenutzte Kampftexte, dann lässt sich ein Trainer anlegen."
         ))
     })?;
-    let mut id = u16::try_from(props_count).map_err(|_| {
-        refused(format!(
-            "{props_count} Trainer: es ist keine Nummer mehr frei."
-        ))
-    })?;
-    let placeholder = (id == meta.seen_id()).then_some(id);
-    if placeholder.is_some() {
-        id += 1;
-    }
-    if id >= flag_capacity {
-        return Err(refused(format!(
-            "Trainer {id} hätte kein Besiegt-Flag: das Spiel hat Flags für die Trainer 0 bis {}. \
-             Mehr Trainer gehen erst mit einem Patch, der Flags hinzufügt.",
-            flag_capacity.saturating_sub(1)
-        )));
-    }
-    let slots = scripts::battle_slots(project, meta)?;
-    let extend = u32::from(id) > slots.max();
+    let NextTrainer {
+        id,
+        placeholder,
+        extend,
+    } = next_trainer(project, props_count, meta, flag_capacity)?;
     // The extension compiles the scripts and reloads the text archives the compile touched
     // (the text archives of the headers whose scripts it compiled) from disk: an unsaved
     // edit there would be lost, so it is refused as `save_script` refuses it. The trainer name

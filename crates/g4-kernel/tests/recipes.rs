@@ -190,7 +190,7 @@ fn list_names_the_four_recipes_with_titles() {
     assert_eq!(ids, RecipeId::all());
     let titles: Vec<&str> = list.iter().map(|r| r.title).collect();
     assert_eq!(
-        titles,
+        &titles[..4],
         [
             "Gebiet anlegen",
             "Raum anlegen",
@@ -199,8 +199,8 @@ fn list_names_the_four_recipes_with_titles() {
         ]
     );
     let irreversible: Vec<bool> = list.iter().map(|r| r.irreversible).collect();
-    assert_eq!(irreversible, [false, false, false, true]);
-    let ids = serde_json::to_value(RecipeId::all()).unwrap();
+    assert_eq!(&irreversible[..4], [false, false, false, true]);
+    let ids = serde_json::to_value(&RecipeId::all()[..4]).unwrap();
     assert_eq!(
         ids,
         json!(["create_area", "create_room", "extend_area", "empty_region"])
@@ -373,12 +373,18 @@ fn apply_of_an_area_is_one_undo_step() {
             outcome.changed
         );
     }
-    assert!(locked_step(
-        &outcome.next,
-        "connect_doors",
-        "Kommt mit 3d.5"
-    ));
-    assert!(locked_step(&outcome.next, "new_figure", "Kommt mit 3d.5"));
+    assert!(
+        outcome
+            .next
+            .iter()
+            .any(|s| s.id == "connect_doors" && s.available)
+    );
+    assert!(
+        outcome
+            .next
+            .iter()
+            .any(|s| s.id == "new_figure" && s.available)
+    );
 
     // One undo: the new matrix is empty again and the header table is as it was after the
     // header was created (the new header stays, pointing at its template's matrix).
@@ -432,8 +438,8 @@ fn apply_of_a_room_with_an_entrance_is_one_undo_step() {
         vec![NextStep {
             id: "new_figure".into(),
             label: "Neue Figur hier".into(),
-            available: false,
-            reason: Some("Kommt mit 3d.5".into()),
+            available: true,
+            reason: None,
         }]
     );
     assert_eq!(store.event(0).unwrap().warp_events.len(), 1);

@@ -4,13 +4,25 @@ import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { releases } from "../api";
+import { recipeApply, releases, validateText } from "../api";
+import type { HeaderSummary, NewFigureReport, RecipeOutcome } from "../api";
 import { releasesOf } from "../publish/publishTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import type { WizardRequest } from "../workbench/WorkbenchContext";
 import { WizardHost } from "./WizardHost";
 
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), releases: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api")>()),
+  releases: vi.fn(),
+  recipePlan: vi.fn(async () => ({ cells: [], tiles: [], events: [], messages: [], notes: [], irreversible: [] })),
+  recipeApply: vi.fn(),
+  validateText: vi.fn(async () => []),
+  getObjectSprite: vi.fn(async () => null),
+}));
+// The place picker asks the app-wide cache for map pictures; there is no renderer here.
+vi.mock("../world/thumbnailStore", () => ({
+  thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -58,17 +70,64 @@ describe("WizardHost", () => {
       onDraft: vi.fn(),
     };
   }
-  const show = async (request: WizardRequest | null) => {
+  const show = async (request: WizardRequest | null, over: Partial<ComponentProps<typeof WizardHost>> = {}) => {
     await act(async () =>
       root.render(
         <ShellProvider>
-          <WizardHost {...props(request)} />
+          <WizardHost {...props(request)} {...over} />
         </ShellProvider>,
       ),
     );
     await flush();
   };
   const field = (label: string) => container.querySelector<HTMLInputElement>(`[aria-label="${label}"]`);
+
+  it("new_figure_saves_the_open_script_of_the_place_before_it_applies", async () => {
+    const town: HeaderSummary = { id: 0, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 5, text_archive_id: 554, script_file_id: 7, level_script_id: 0 };
+    const outcome: RecipeOutcome<NewFigureReport> = {
+      report: { event_file: 5, object: 3, local_id: 4, script_file: 7, slot: 12, archive: 554, message: 40 },
+      created: [],
+      change: 17,
+      changed: [{ kind: "Script", index: 7 }],
+      next: [],
+    };
+    const order: string[] = [];
+    const scriptFiles = { saveIfDirty: vi.fn(async (file: number) => void order.push(`save ${file}`)), reload: vi.fn(async () => {}) };
+    vi.mocked(recipeApply).mockReset().mockImplementation(async () => (order.push("apply"), outcome) as never);
+    vi.mocked(validateText).mockClear();
+    const onRecipeApplied = vi.fn(async () => {});
+    const onError = vi.fn();
+    const request: WizardRequest = { kind: "new_figure", prefill: { header: 0, tile: { x: 12, z: 7 } } };
+    const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+    const click = (name: string) => act(async () => void button(name)?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const area = () => container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Was sie sagt"]')!;
+    async function figure() {
+      await show(request, { headers: [town], scriptFiles, onRecipeApplied, onError });
+      await click("Weiter");
+      await act(async () => area().focus());
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(area(), "Hallo!");
+        area().dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await click("Weiter");
+      await click("Aufstellen");
+      await flush();
+    }
+    await figure();
+    // Typing in the place's script file goes to disk first: the recipe appends the figure's slot to that file.
+    expect(order).toEqual(["save 7", "apply"]);
+    expect(onRecipeApplied).toHaveBeenCalledExactlyOnceWith(outcome.changed);
+
+    // A save that fails stops the figure: nothing applied, the failure goes to the app.
+    await show(null);
+    order.length = 0;
+    const failure = { code: "io", message: "Scriptdatei 0007 nicht schreibbar", asset: null };
+    scriptFiles.saveIfDirty.mockRejectedValueOnce(failure);
+    await figure();
+    expect(order).toEqual([]);
+    expect(recipeApply).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(failure);
+  });
 
   it("publish_request_renders_the_publish_wizard", async () => {
     vi.mocked(releases).mockResolvedValue(releasesOf({ next_version: "0.2.0" }));

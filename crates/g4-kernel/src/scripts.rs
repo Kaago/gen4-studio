@@ -33,7 +33,7 @@ const CACHE_DIR: &str = ".rotom/cache";
 const STATUS_DIR: &str = ".rotom/status";
 pub(crate) const SOURCE_ROOT: &str = "expanded/scripts";
 /// Script numbers from here on are common scripts, shared by all maps.
-const FIRST_COMMON_SCRIPT: u16 = 2000;
+pub(crate) const FIRST_COMMON_SCRIPT: u16 = 2000;
 /// Longest excerpt a search hit carries, in characters.
 const EXCERPT_CHARS: usize = 160;
 
@@ -1345,10 +1345,31 @@ pub(crate) fn append_source(
     text: String,
     addition: &str,
 ) -> Result<Vec<u16>, KernelError> {
-    let appended = format!("{text}\n{addition}");
-    write_source(project, file, &ScriptSource::Rotom(appended))?;
+    write_and_compile_over(project, file, &format!("{text}\n{addition}"), text)
+}
+
+/// Writes `text` as the whole rotom source of `file` and compiles; returns the text archives
+/// the compile changed. A compile error in the file puts the text that was there back.
+pub(crate) fn write_and_compile(
+    project: &Project,
+    file: u16,
+    text: &str,
+) -> Result<Vec<u16>, KernelError> {
+    let old = rotom_source(project, file)?;
+    write_and_compile_over(project, file, text, old)
+}
+
+/// Writes `text` as the source of `file` and compiles; a compile error in the file writes
+/// `old` back.
+fn write_and_compile_over(
+    project: &Project,
+    file: u16,
+    text: &str,
+    old: String,
+) -> Result<Vec<u16>, KernelError> {
+    write_source(project, file, &ScriptSource::Rotom(text.to_owned()))?;
     let restore = |project: &Project| {
-        let _ = write_source(project, file, &ScriptSource::Rotom(text.clone()));
+        let _ = write_source(project, file, &ScriptSource::Rotom(old.clone()));
     };
     let report = compile(project).inspect_err(|_| restore(project))?;
     let errors = problems_in(project, &report, file, SourceKind::Script);
@@ -1878,6 +1899,23 @@ pub fn snapshot_compile_state(project: &Project) -> Result<Option<Vec<u8>>, Kern
     read_if_present(&state_path(project)?)
 }
 
+/// Puts rotom's compile state file back to `before` (from [`snapshot_compile_state`]; `None`
+/// removes it). A failed compile writes it too (the failed source dirty, every other entry
+/// stamped anew), so a write that is taken back takes it back as well.
+pub(crate) fn restore_compile_state(
+    project: &Project,
+    before: Option<&[u8]>,
+) -> Result<(), KernelError> {
+    let path = state_path(project)?;
+    match before {
+        Some(bytes) => std::fs::write(&path, bytes).map_err(io_at(&path)),
+        None => match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_at(&path)(e)),
+            _ => Ok(()),
+        },
+    }
+}
+
 /// The step of rotom's compile state file from `before` to the bytes on disk now, as one file
 /// (kind `CompileState`, asset `asset`, no rotom entry). A compile writes the whole file anew,
 /// its entries in the order of rotom's `HashMap`, and marks every source it compiled again (a
@@ -1961,6 +1999,31 @@ pub fn snapshot_archive(project: &Project, archive: u16) -> Result<ArchiveSnapsh
     })
 }
 
+/// Removes the JSON of every archive of `saved` that had none before and that the compile did
+/// not touch: the compile wrote it from the member where DSPRE has not expanded the archive
+/// (same content), so the disk is as before the change and no file step is needed
+/// (`recipes::new_figure`, `dialog::split_message`). A step for it would hold the JSON
+/// without the store's new message as its `after`; once „Speichern“ wrote the archive with
+/// the message, undo would find the file changed and refuse. The archive's text sync record
+/// follows the removal. Only in a DSPRE folder: in a text project the JSON is the source.
+pub(crate) fn remove_materialized_json(
+    project: &Project,
+    saved: &BTreeMap<u16, ArchiveSnapshot>,
+    touched: &[u16],
+) -> Result<(), KernelError> {
+    if *project.source_mode() != crate::project::SourceMode::Dspre {
+        return Ok(());
+    }
+    for (&a, snapshot) in saved {
+        let json = crate::text::json_path(project, a);
+        if snapshot.json.is_none() && !touched.contains(&a) && json.is_file() {
+            std::fs::remove_file(&json).map_err(io_at(&json))?;
+            crate::text::record_text_sync(project, &[a])?;
+        }
+    }
+    Ok(())
+}
+
 /// The step of a text archive from `before` to the files on disk now (kind `Recipe`, asset the
 /// archive): its JSON and its member, those that differ.
 pub fn archive_file_step(
@@ -2008,7 +2071,7 @@ pub fn archive_file_step(
 
 /// The first trainer battle script number: script `3000 + k` is jump table entry `k` of the
 /// battle script file, rotom slot `k + 1`, the battle of trainer `k + 1`.
-const FIRST_TRAINER_SCRIPT: u16 = 3000;
+pub const FIRST_TRAINER_SCRIPT: u16 = 3000;
 
 /// Where the trainers' battle script lives and which script the game starts for a trainer
 /// that sees the player (one entry of `metadata/trainer_scripts.yaml`).

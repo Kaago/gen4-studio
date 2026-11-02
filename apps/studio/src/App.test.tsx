@@ -16,11 +16,13 @@ import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
 import { flagUsage, listFlags, listThreads, storyGet, storyList, threadGraph } from "./api";
+import { dialogOf, editTextArchive, getObjectSprite, recipeApply, recipePlan, validateText } from "./api";
 import { FLAGS, flagUsageOf } from "./flags/flagTesting";
 import { THREADS, graphOf, storiesOf, storyDto, storyRow } from "./stories/storiesTesting";
 import { invalidateFlagLists, useFlagList } from "./flags/useFlagList";
 import type { AgentEvent, AgentStatus, AreaDataDto, AssetId, HeaderSummary, MatrixDto, ResetResult, ResetTarget, SyncOutcome, TextProjectStatus } from "./api";
 import App from "./App";
+import { recipeRequest } from "./workbench/recipes";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts, toast } from "./ui/frame/toasts";
@@ -248,6 +250,12 @@ vi.mock("./api", async (importOriginal) => ({
   gitCommitPrepare: vi.fn(),
   listFlags: vi.fn(),
   flagUsage: vi.fn(),
+  dialogOf: vi.fn(),
+  editTextArchive: vi.fn(),
+  validateText: vi.fn(),
+  recipePlan: vi.fn(),
+  recipeApply: vi.fn(),
+  getObjectSprite: vi.fn(),
   listThreads: vi.fn(),
   threadGraph: vi.fn(),
   storyList: vi.fn(),
@@ -601,6 +609,97 @@ describe("App wiring", () => {
     expect(data().onOpenWizard).toBe(opener);
     await click("Abbrechen");
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("edit_dialog_opens_the_editor_for_the_selected_figure", async () => {
+    vi.mocked(validateText).mockResolvedValue([]);
+    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 1, line: 1 }, messages: [{ archive: 0, index: 3, text: "Hallo!", command: "Message", line: 2, col: 13, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
+    vi.mocked(editTextArchive).mockResolvedValue(4);
+    await select(listed[1]);
+    const opener = data().onOpenDialog;
+    await act(async () => opener({ header: 1, eventFile: 1, kind: "object", index: 3, title: "Objekt 3" }));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    const editor = () => document.querySelector<HTMLElement>("[data-dialog-editor]");
+    expect(editor()?.querySelector("h2")?.textContent).toBe("Dialog von Objekt 3");
+    expect(dialogOf).toHaveBeenLastCalledWith(1, 1, "object", 3);
+    // A text written in the editor counts as an edit and is announced to the text panel; the editor reads its dialog again.
+    const texts = vi.fn();
+    data().bus.subscribe("textData", texts);
+    vi.mocked(dirty).mockClear();
+    const field = editor()!.querySelector<HTMLTextAreaElement>("textarea")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(field, "Servus!");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => void field.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    expect(editTextArchive).toHaveBeenCalledWith(0, { Set: { index: 3, text: "Servus!" } }, "Dialog geändert");
+    expect(texts).toHaveBeenCalled();
+    expect(dirty).toHaveBeenCalled();
+    // Opening it leaves the workbench's data alone; „Schließen“ closes it.
+    expect(data().onOpenDialog).toBe(opener);
+    const close = [...editor()!.querySelectorAll("button")].find((b) => b.textContent === "Schließen")!;
+    await act(async () => close.click());
+    expect(document.querySelector("[data-dialog-editor]:not([data-closed])")).toBeNull();
+  });
+
+  /** The figure wizard of 3d.5 as the recipe bar opens it (`recipeRequest` with the selected header), with the tile last hovered. */
+  async function openFigureWizard() {
+    vi.mocked(getObjectSprite).mockResolvedValue(null);
+    vi.mocked(validateText).mockResolvedValue([]);
+    vi.mocked(recipePlan).mockResolvedValue({ cells: [], tiles: [], events: [{ kind: "object", matrix: 1, x: 4, z: 0, look: 317, target: null }], messages: [], notes: [], irreversible: [] });
+    await select(listed[1]);
+    await act(async () => data().onInspect(tile(4)));
+    await act(async () => data().onOpenWizard(recipeRequest("new_figure", data().selected)!));
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  }
+
+  it("recipe_bar_opens_the_figure_wizard_with_the_selected_header", async () => {
+    await openFigureWizard();
+    const wizard = container.querySelector<HTMLElement>('[data-wizard="new_figure"]');
+    expect(wizard).not.toBeNull();
+    // The place is the selected one, the tile the one last hovered in the scene (it shows that header's matrix).
+    expect(wizard!.querySelector("[data-figure-place]")?.textContent).toContain("Ort 1");
+    expect(wizard!.querySelector<HTMLInputElement>('input[aria-label="Kachel x"]')?.value).toBe("4");
+    expect(wizard!.querySelector<HTMLInputElement>('input[aria-label="Kachel z"]')?.value).toBe("0");
+    await click("Abbrechen");
+    expect(container.querySelector("[data-wizard]")).toBeNull();
+  });
+
+  it("edit_dialog_after_a_figure_opens_the_editor", async () => {
+    vi.mocked(recipeApply).mockResolvedValue({
+      report: { event_file: 1, object: 3, local_id: 4, script_file: 0, slot: 12, archive: 0, message: 40 },
+      created: [],
+      change: 17,
+      changed: [{ kind: "Event", index: 1 }],
+      next: [
+        { id: "edit_dialog", label: "Dialog bearbeiten", available: true, reason: null },
+        { id: "story_join", label: "Zu einer Geschichte", available: false, reason: "Kommt mit 3d.7" },
+      ],
+    });
+    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 12, line: 1 }, messages: [{ archive: 0, index: 40, text: "Hallo!", command: "NPCMsg", line: 4, col: 9, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
+    await openFigureWizard();
+    await click("Weiter");
+    const text = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Was sie sagt"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(text, "Hallo!");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Weiter");
+    const refetched = vi.fn();
+    data().bus.subscribe("eventsRefetch", refetched);
+    await click("Aufstellen");
+    expect(recipeApply).toHaveBeenCalledWith("new_figure", expect.objectContaining({ header: 1, x: 4, z: 0, text: "Hallo!" }));
+    // The app reads what the recipe changed again: the event file of the figure.
+    expect(refetched).toHaveBeenCalledWith(expect.objectContaining({ file: 1 }));
+    const step = container.querySelector<HTMLButtonElement>('[data-next-steps] button[data-recipe="edit_dialog"]')!;
+    await act(async () => step.click());
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    // The wizard goes; the dialog editor of the new figure opens over the place.
+    expect(container.querySelector("[data-wizard]")).toBeNull();
+    const editor = document.querySelector<HTMLElement>("[data-dialog-editor]");
+    expect(editor?.querySelector("h2")?.textContent).toBe("Dialog von Objekt 3");
+    expect(dialogOf).toHaveBeenLastCalledWith(1, 1, "object", 3);
   });
 
   describe("browser mode", () => {

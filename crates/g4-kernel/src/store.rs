@@ -27,7 +27,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::fsutil::{Journal, Notes};
-use crate::project::{AssetKind, Location, Project};
+use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
@@ -968,6 +968,11 @@ pub struct Store {
     /// While set, every write is refused with [`KernelError::Busy`] and this reason
     /// ([`Store::set_busy`]).
     busy: Option<String>,
+    /// The member bytes of every text archive the store read while it had no JSON (DSPRE had
+    /// not expanded it), as read; taken again when the asset is reloaded or its disk accepted
+    /// as base. A save of the texts the member held puts these bytes back and removes the
+    /// JSON a save wrote ([`Store::unexpanded_member`]).
+    unexpanded_texts: HashMap<u16, Vec<u8>>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1047,6 +1052,7 @@ impl Store {
             text_sync: Mutex::new(None),
             source: None,
             busy: None,
+            unexpanded_texts: HashMap::new(),
             project,
         }
     }
@@ -1166,6 +1172,61 @@ impl Store {
         let _ = text::record_text_sync(&self.project, &texts);
     }
 
+    /// Takes the member bytes of text archive `id` as the store reads it now when the archive
+    /// has no JSON (DSPRE has not expanded it), else forgets them; nothing for other kinds and
+    /// nothing outside a DSPRE folder (in a text project the JSON is the source its sync
+    /// records: removing it would break the unit).
+    fn note_unexpanded(&mut self, id: AssetId) -> Result<(), KernelError> {
+        if id.kind != AssetKind::TextArchive {
+            return Ok(());
+        }
+        if *self.project.source_mode() != SourceMode::Dspre {
+            self.unexpanded_texts.remove(&id.index);
+            return Ok(());
+        }
+        let member = match self.project.asset_location(id.kind, id.index)? {
+            Location::TextSource { json, member } if !json.exists() => read_file(&member)?,
+            _ => None,
+        };
+        match member {
+            Some(bytes) => self.unexpanded_texts.insert(id.index, bytes),
+            None => self.unexpanded_texts.remove(&id.index),
+        };
+        Ok(())
+    }
+
+    /// The member bytes to put back instead of saving text archive `id` (its JSON at `json`):
+    /// the store read the archive while it had no JSON, the texts to save are the ones that
+    /// member held, and the JSON on disk, if any, holds what the store saved last or the
+    /// member's texts (a JSON from elsewhere is kept and written as usual). A DSPRE project so
+    /// gets its files back after a change, its undo and a save (UI test 3d.5, U1).
+    fn unexpanded_member(&self, id: AssetId, json: &Path) -> Result<Option<Vec<u8>>, KernelError> {
+        let (Some(original), Some(asset)) =
+            (self.unexpanded_texts.get(&id.index), self.assets.get(&id))
+        else {
+            return Ok(None);
+        };
+        let Loaded::TextArchive(doc) = &asset.current else {
+            return Ok(None);
+        };
+        let lang = self.lang();
+        let Ok(loaded) = TextArchiveDoc::from_member(original, lang) else {
+            return Ok(None);
+        };
+        let texts = loaded.to_json();
+        if doc.to_json() != texts {
+            return Ok(None);
+        }
+        let ours = match read_file(json)? {
+            None => true,
+            Some(bytes) => TextArchiveDoc::from_json(&bytes, lang).is_ok_and(|on_disk| {
+                let on_disk = on_disk.to_json();
+                on_disk == texts || asset.saved_bytes.as_deref() == Some(on_disk.as_slice())
+            }),
+        };
+        Ok(ours.then(|| original.clone()))
+    }
+
     /// Unpacks the archive of `kind` on first use per kind.
     fn ensure_unpacked(&mut self, kind: AssetKind) -> Result<(), KernelError> {
         if !self.unpacked.contains(&kind) {
@@ -1283,6 +1344,7 @@ impl Store {
                     locked,
                 },
             );
+            self.note_unexpanded(id)?;
         }
         self.assets.get_mut(&id).ok_or_else(|| mismatch(id))
     }
@@ -2543,6 +2605,7 @@ impl Store {
                 locked,
             },
         );
+        self.note_unexpanded(id)?;
         self.forget_history(id);
         self.drop_text_index(id);
         self.note_change(id);
@@ -2585,6 +2648,7 @@ impl Store {
         if let Some(asset) = self.assets.get_mut(&id) {
             asset.saved_bytes = base;
         }
+        self.note_unexpanded(id)?;
         self.forget_history(id);
         self.drop_text_index(id);
         self.note_change(id);
@@ -3003,12 +3067,17 @@ impl Store {
                     self.write_members(id, at, now.as_deref(), &bytes)?;
                 }
                 Location::TextSource { json, member } => {
-                    let Some(Loaded::TextArchive(doc)) = self.assets.get(&id).map(|a| &a.current)
-                    else {
-                        return Err(mismatch(id));
-                    };
-                    let problems = text::write_archive(&self.project.root, json, member, doc)?;
-                    report.problems.extend(problems);
+                    if let Some(original) = self.unexpanded_member(id, json)? {
+                        restore_unexpanded(&self.project.root, json, member, &original)?;
+                    } else {
+                        let Some(Loaded::TextArchive(doc)) =
+                            self.assets.get(&id).map(|a| &a.current)
+                        else {
+                            return Err(mismatch(id));
+                        };
+                        let problems = text::write_archive(&self.project.root, json, member, doc)?;
+                        report.problems.extend(problems);
+                    }
                 }
                 location => {
                     let base = self.assets.get(&id).and_then(|a| a.saved_bytes.as_deref());
@@ -3701,6 +3770,24 @@ fn read_text_doc(
         TextArchiveDoc::from_member(&bytes, lang)
     };
     doc.map(Some).map_err(|e| text_error_at(path, e))
+}
+
+/// Puts the `original` bytes of a text archive's member back at `member` (when it holds others)
+/// and removes its JSON at `json`: the archive as DSPRE left it, unexpanded
+/// ([`Store::unexpanded_member`]).
+fn restore_unexpanded(
+    root: &Path,
+    json: &Path,
+    member: &Path,
+    original: &[u8],
+) -> Result<(), KernelError> {
+    if read_file(member)?.as_deref() != Some(original) {
+        write_atomic(root, member, original)?;
+    }
+    if json.exists() {
+        std::fs::remove_file(json).map_err(io_at(json))?;
+    }
+    Ok(())
 }
 
 /// Byte range of a slice inside a file of `file_len` bytes, `None` if it does not fit.

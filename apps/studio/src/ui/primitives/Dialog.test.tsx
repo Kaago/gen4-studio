@@ -69,6 +69,14 @@ describe("Dialog", () => {
     expect(dialog()?.getAttribute("data-probe")).toBe("ja");
   });
 
+  it("wide_widens_the_popup_and_standard_stays", () => {
+    act(() => root.render(<Dialog open onOpenChange={() => {}} title="Breit" size="wide" />));
+    const wide = dialog()!.className;
+    act(() => root.render(<Dialog open onOpenChange={() => {}} title="Schmal" />));
+    expect(dialog()!.className).not.toBe(wide);
+    expect(wide).toMatch(/wide/);
+  });
+
   it("escape_asks_the_owner_to_close", () => {
     const onOpenChange = vi.fn();
     act(() =>
