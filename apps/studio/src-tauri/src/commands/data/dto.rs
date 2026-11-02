@@ -581,8 +581,7 @@ pub enum NavTargetDto {
     Area {
         id: u16,
     },
-    // Mirrors `NavTarget`; no backend answer leads to a building yet.
-    #[allow(dead_code)]
+    /// A building of a map (a reference of the map to its model).
     Building {
         map: u16,
         index: u16,

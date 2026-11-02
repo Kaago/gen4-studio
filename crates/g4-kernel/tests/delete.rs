@@ -1243,3 +1243,172 @@ fn delete_of_a_flag_name_waits_while_the_store_is_busy() {
     assert_eq!(fx.read(FLAG_REGISTER), register);
     assert!(exists(&fx, FLAG_FILE));
 }
+
+// --- delete_warp: incoming warps shift, a warp or a script by index locks (task 6) ---
+
+use g4_kernel::delete::warps::{WarpDelete, delete_warp};
+
+const EVENT_1: AssetId = AssetId {
+    kind: AssetKind::Event,
+    index: 1,
+};
+
+fn warp(x: u16, dest_header_id: u16, dest_warp_id: u16) -> WarpEvent {
+    WarpEvent {
+        x,
+        z: 0,
+        dest_header_id,
+        dest_warp_id,
+        height: 0,
+    }
+}
+
+/// The fixture's two headers on their own event files (header 0 → event file 0, header 1 →
+/// event file 1), event file 0 with three doors at x 10, 11 and 12 (each leading to door 0 of
+/// header 1) and event file 1 with one warp per `incoming` (destination header, door), saved.
+fn doors(incoming: &[(u16, u16)]) -> (TextFixture, Store) {
+    let (fx, mut st) = fixture();
+    st.edit_header(1, "Eventdatei", |h| {
+        if let MapHeader::Pt(h) = h {
+            h.event_file_id = 1;
+        }
+        Ok(())
+    })
+    .unwrap();
+    st.edit_event(0, "Türen", |e| {
+        e.warp_events = vec![warp(10, 1, 0), warp(11, 1, 0), warp(12, 1, 0)];
+        Ok(())
+    })
+    .unwrap();
+    st.edit_event(1, "Eingänge", |e| {
+        e.warp_events = incoming.iter().map(|&(h, w)| warp(0, h, w)).collect();
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    (fx, st)
+}
+
+/// The destinations (header, door) of the warps of event file `file`.
+fn destinations(st: &mut Store, file: u16) -> Vec<(u16, u16)> {
+    st.event(file)
+        .unwrap()
+        .warp_events
+        .iter()
+        .map(|w| (w.dest_header_id, w.dest_warp_id))
+        .collect()
+}
+
+fn referenced<T: std::fmt::Debug>(result: Result<T, KernelError>) -> (String, Vec<Ref>) {
+    match result {
+        Err(KernelError::Referenced { label, references }) => (label, references),
+        other => panic!("expected Referenced, got {other:?}"),
+    }
+}
+
+#[test]
+fn deleting_a_door_nobody_targets_shifts_later_doors() {
+    let (_fx, mut st) = doors(&[(0, 1), (0, 2)]);
+    let file0 = bytes(&st, EVENT_0);
+    let file1 = bytes(&st, EVENT_1);
+    let depth = st.undo_depth();
+
+    let result: WarpDelete = delete_warp(&mut st, &mut RefIndex::new(), 0, 0).unwrap();
+    assert!(result.change.is_some());
+    assert_eq!(result.shifted, [(1, 0), (1, 1)]);
+    assert_eq!(destinations(&mut st, 0).len(), 2);
+    // The doors the warps of event file 1 led to moved up by one: they are 0 and 1 now.
+    assert_eq!(destinations(&mut st, 1), [(0, 0), (0, 1)]);
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert_eq!(last_label(&st), "delete warp");
+
+    // ⌘Z restores both files.
+    st.undo().unwrap();
+    assert_eq!(bytes(&st, EVENT_0), file0);
+    assert_eq!(bytes(&st, EVENT_1), file1);
+    assert_eq!(destinations(&mut st, 1), [(0, 1), (0, 2)]);
+}
+
+/// The bytes of loaded asset `id` as the store holds it now.
+fn bytes(st: &Store, id: AssetId) -> Vec<u8> {
+    st.current_bytes(id).unwrap().unwrap()
+}
+
+#[test]
+fn incoming_warps_on_later_doors_are_shifted() {
+    // Event file 1: a warp to door 0 (before the deleted one), one to door 2 (after it) and one
+    // to door 2 of header 1, which is not event file 0.
+    let (_fx, mut st) = doors(&[(0, 0), (0, 2), (1, 2)]);
+    let result = delete_warp(&mut st, &mut RefIndex::new(), 0, 1).unwrap();
+    assert_eq!(result.shifted, [(1, 1)]);
+    assert_eq!(destinations(&mut st, 1), [(0, 0), (0, 1), (1, 2)]);
+    // The door that was 2 (at x 12) is door 1 now: the warp still leads through the same door.
+    let doors: Vec<u16> = st
+        .event(0)
+        .unwrap()
+        .warp_events
+        .iter()
+        .map(|w| w.x)
+        .collect();
+    assert_eq!(doors, [10, 12]);
+}
+
+#[test]
+fn deleting_a_targeted_door_is_refused_with_the_list() {
+    let (_fx, mut st) = doors(&[(0, 1), (0, 2)]);
+    let depth = st.undo_depth();
+    let (label, references) = referenced(delete_warp(&mut st, &mut RefIndex::new(), 0, 1));
+    assert_eq!(label, "Eventdatei 0000, Tür 1");
+    assert_eq!(references.len(), 1, "{references:?}");
+    assert_eq!(
+        references[0].target,
+        Target::Warp {
+            header: 0,
+            index: 1
+        }
+    );
+    assert_eq!(
+        (references[0].source, references[0].slot),
+        (EVENT_1, Some(0))
+    );
+    // Nothing changed, no step.
+    assert_eq!(st.undo_depth(), depth);
+    assert_eq!(destinations(&mut st, 0).len(), 3);
+    assert_eq!(destinations(&mut st, 1), [(0, 1), (0, 2)]);
+}
+
+#[test]
+fn a_script_moving_a_later_warp_blocks_the_delete() {
+    let (fx, mut st) = doors(&[]);
+    let mut refs = RefIndex::new();
+    // The index is built before the script is written: the delete stats the sources anew.
+    refs.refs(&st, Target::Header(0)).unwrap();
+    fx.write(
+        SOURCE_0,
+        b"script Main #1:\n    SetWarpEventPos 2, 10, 12\n    End\nscript Second #2:\n    End\n",
+    );
+    let (label, references) = referenced(delete_warp(&mut st, &mut refs, 0, 0));
+    assert_eq!(label, "Eventdatei 0000, Tür 0");
+    let found: Vec<(AssetKind, &str, Target)> = references
+        .iter()
+        .map(|r| (r.source.kind, r.field, r.target))
+        .collect();
+    assert_eq!(
+        found,
+        [(AssetKind::Script, "SetWarpEventPos", Target::WarpIndex(2))]
+    );
+    assert_eq!(destinations(&mut st, 0).len(), 3);
+}
+
+#[test]
+fn a_script_moving_an_earlier_warp_does_not_block() {
+    let (fx, mut st) = doors(&[]);
+    fx.write(
+        SOURCE_0,
+        b"script Main #1:\n    SetWarpEventPos 0, 10, 12\n    End\nscript Second #2:\n    End\n",
+    );
+    let result = delete_warp(&mut st, &mut RefIndex::new(), 0, 1).unwrap();
+    assert!(result.change.is_some());
+    assert!(result.shifted.is_empty());
+    assert_eq!(destinations(&mut st, 0).len(), 2);
+}

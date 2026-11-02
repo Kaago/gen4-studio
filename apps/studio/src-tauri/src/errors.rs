@@ -8,7 +8,9 @@ use g4_kernel::project::AssetId;
 use g4_kernel::text::Severity;
 use serde::Serialize;
 
-use crate::commands::ProblemDto;
+use crate::commands::refs::ref_dtos;
+use crate::commands::{ProblemDto, RefDto};
+use crate::state::Session;
 
 /// Error returned to the frontend. `code` is `"stale"`, `"read_only"`, `"tool_missing"`,
 /// `"partial"` (a wizard or creating command failed after it had created members, which
@@ -40,16 +42,22 @@ use crate::commands::ProblemDto;
 /// against the base ROM, a script against the saved state, a path or member folder outside
 /// the project or in `.git`, a project file that is no regular file inside the project) and `"restore_needed"`
 /// (`open_project` of a text project without its game files, a fresh Git clone;
-/// `restore_text_project` completes it), or `"error"`;
+/// `restore_text_project` completes it), `"referenced"` (3d.4: the entity cannot be deleted
+/// while other entities point at it; `references` lists them, nothing was changed), or
+/// `"error"`;
 /// `asset` is set for `"stale"`, `"read_only"` and an `"error"` of an undo or redo that
 /// could not restore that asset, and serializes as `null` otherwise.
-/// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`.
+/// `problems` is `[]` unless `code` is `"compile"` or `"text_conflict"`; `references` is
+/// left out unless `code` is `"referenced"` and the command knew the session to name them
+/// ([`CmdError::in_session`]).
 #[derive(Debug, Clone, Serialize)]
 pub struct CmdError {
     pub code: &'static str,
     pub message: String,
     pub asset: Option<AssetId>,
     pub problems: Vec<ProblemDto>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<RefDto>,
 }
 
 impl From<KernelError> for CmdError {
@@ -69,6 +77,7 @@ impl From<KernelError> for CmdError {
                         .iter()
                         .map(|p| ProblemDto::by_origin(p, Path::new("")))
                         .collect(),
+                    references: Vec::new(),
                 };
             }
             // Kernel problem files are project-relative already.
@@ -86,6 +95,7 @@ impl From<KernelError> for CmdError {
                 message: compile_message(errors - hidden, hidden),
                 asset: None,
                 problems,
+                references: Vec::new(),
             };
         }
         if let KernelError::TextConflict(archives) = &e {
@@ -101,6 +111,8 @@ impl From<KernelError> for CmdError {
             KernelError::Busy(_) => ("busy", None),
             // Something was written before the failure and stays; the text names it.
             KernelError::Partial(_) => ("partial", None),
+            // The reference lock of 3d.4; `in_session` adds the references.
+            KernelError::Referenced { .. } => ("referenced", None),
             _ => ("error", None),
         };
         CmdError {
@@ -108,6 +120,7 @@ impl From<KernelError> for CmdError {
             message: e.to_string(),
             asset,
             problems: Vec::new(),
+            references: Vec::new(),
         }
     }
 }
@@ -138,6 +151,7 @@ impl From<String> for CmdError {
             message,
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         }
     }
 }
@@ -177,6 +191,20 @@ impl CmdError {
                     check: None,
                 })
                 .collect(),
+            references: Vec::new(),
+        }
+    }
+
+    /// `e` as a [`CmdError`]; a [`KernelError::Referenced`] with its references as the app
+    /// shows them (label, source name, where a click leads).
+    pub(crate) fn in_session(session: &mut Session, e: KernelError) -> Self {
+        let references = match &e {
+            KernelError::Referenced { references, .. } => ref_dtos(session, references),
+            _ => Vec::new(),
+        };
+        CmdError {
+            references,
+            ..CmdError::from(e)
         }
     }
 
@@ -187,6 +215,7 @@ impl CmdError {
             message: message.into(),
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         }
     }
 
@@ -197,6 +226,7 @@ impl CmdError {
             message,
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         }
     }
 }

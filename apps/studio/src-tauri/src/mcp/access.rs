@@ -342,6 +342,7 @@ fn refusal(code: &'static str, message: String) -> CmdError {
         message,
         asset: None,
         problems: Vec::new(),
+        references: Vec::new(),
     }
 }
 

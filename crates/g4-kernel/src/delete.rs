@@ -9,13 +9,15 @@
 //! against new references to a tombstone ([`guard_reference`]); `tombstone.rs` sets the
 //! tombstone and takes it back ([`delete`], [`restore`]), `files.rs` removes an own flag or
 //! variable name and the last own place, and `free.rs` frees the number of a new entity at the
-//! end ([`free_number`]).
+//! end ([`free_number`]). `warps.rs` deletes a warp of an event file and shifts the warps that
+//! lead to the doors after it ([`warps::delete_warp`]).
 
 mod files;
 mod free;
 mod plan;
 mod tombstone;
 mod types;
+pub mod warps;
 
 pub use free::{IRREVERSIBLE, free_number};
 pub use plan::{

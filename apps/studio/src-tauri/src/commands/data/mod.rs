@@ -67,6 +67,7 @@ fn unlocked_family(project: &Project) -> Result<(), CmdError> {
             message: DP_LOCKED.to_owned(),
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         });
     }
     Ok(())

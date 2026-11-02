@@ -27,6 +27,7 @@ describe("historyLabel", () => {
     ["add message", "Nachricht hinzugefügt"],
     ["remove message", "Nachricht gelöscht"],
     ["set permission", "Begehbarkeit geändert"],
+    ["delete warp", "Tür gelöscht"],
     ["assign header 0414 to matrix 0003", "Header 0414 Matrix 0003 zuweisen"],
     ["connect warp to header 0411", "Warp mit Header 0411 verbinden"],
   ];

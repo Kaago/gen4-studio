@@ -69,6 +69,7 @@ impl ToolError {
             message: message.into(),
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         }
         .into()
     }

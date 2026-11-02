@@ -74,6 +74,7 @@ fn reset_error(e: KernelError) -> CmdError {
             message: why,
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         },
         other => other.into(),
     }

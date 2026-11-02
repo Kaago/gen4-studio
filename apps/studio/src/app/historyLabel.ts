@@ -27,6 +27,7 @@ const KNOWN: Readonly<Record<string, string>> = {
   "add message": "Nachricht hinzugefügt",
   "remove message": "Nachricht gelöscht",
   "set permission": "Begehbarkeit geändert",
+  "delete warp": "Tür gelöscht",
 };
 
 /** Bauen speaks of world maps and places: the kernel labels that would name a matrix or a header. */

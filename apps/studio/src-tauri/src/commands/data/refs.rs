@@ -8,7 +8,7 @@ use g4_kernel::project::AssetKind;
 
 use super::dto::{NavTargetDto, RefDto, TargetDto};
 use super::labels;
-use super::{display, encounter_users};
+use super::{display, encounter_users, place_names};
 use crate::errors::CmdError;
 use crate::state::Session;
 
@@ -84,23 +84,72 @@ pub(crate) fn script_place(
 /// Every reference to `target`, in the index's order, with label, source name and navigation
 /// target.
 pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, CmdError> {
-    let Session {
-        store, names, refs, ..
-    } = session;
-    let found = refs.refs(store, target.into())?;
+    let found = session.refs.refs(&session.store, target.into())?;
+    Ok(ref_dtos(session, &found))
+}
+
+/// Whether `field` of an event file is one of a warp's (its destination header or door).
+fn warp_field(field: &str) -> bool {
+    field.starts_with("warp_events.")
+}
+
+/// Event file → the first header (by id) that shows it, with the header's name
+/// ([`place_names`], else „Header NNNN“).
+fn event_users(session: &mut Session) -> HashMap<u16, (u16, String)> {
+    let names = place_names(session);
+    let Ok(headers) = session.store.header_table() else {
+        return HashMap::new();
+    };
+    let mut out = HashMap::new();
+    for (id, header) in headers.iter().enumerate() {
+        let Ok(id) = u16::try_from(id) else { break };
+        let name = names
+            .get(usize::from(id))
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| format!("Header {id:04}"));
+        out.entry(header.event_file_id()).or_insert((id, name));
+    }
+    out
+}
+
+/// The German name of a field of area data (its texture sets).
+fn area_field(field: &str) -> &str {
+    match field {
+        "map_tileset" => "Kartentextur",
+        "building_tileset" => "Gebäudetextur",
+        other => other,
+    }
+}
+
+/// The references `found` as the app shows them, in their order: label, source name and where a
+/// click leads (also the list of a `referenced` error, [`crate::errors::CmdError::in_session`]).
+pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
+    // Event file → its first header and that header's name, read once when a warp is among them.
+    let events = if found
+        .iter()
+        .any(|r| r.source.kind == AssetKind::Event && warp_field(r.field))
+    {
+        event_users(session)
+    } else {
+        HashMap::new()
+    };
+    let Session { store, names, .. } = session;
     // Encounter file → the headers that use it (a click on an encounter leads to the first),
     // read in one pass over the header table when the first encounter source comes up.
     let mut users: Option<HashMap<u16, Vec<u16>>> = None;
     let mut out = Vec::with_capacity(found.len());
-    for Ref {
+    for &Ref {
         source,
         field,
         slot,
+        target,
         access,
-        ..
     } in found
     {
         let index = source.index;
+        // The whole label where the reference says it in one sentence.
+        let mut sentence: Option<String> = None;
         // The source's name, what of it refers (empty: the source as a whole), the target.
         let (source_name, what, nav) = match source.kind {
             AssetKind::HeaderTable => {
@@ -124,6 +173,27 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                     format!("Begegnungen {index:04}"),
                     format!("{}{}", encounter_field(field), place(slot)),
                     nav,
+                )
+            }
+            // A warp: „Tür 2 von Zweiblattdorf springt hierher“ (the place of the first header
+            // that shows the event file), to the warp.
+            AssetKind::Event if warp_field(field) => {
+                let door = slot.unwrap_or(0);
+                let user = events.get(&index);
+                let place = user.map_or_else(
+                    || format!("Eventdatei {index:04}"),
+                    |(_, name)| name.clone(),
+                );
+                sentence = Some(format!("Tür {door} von {place} springt hierher"));
+                (
+                    format!("Eventdatei {index:04}"),
+                    String::new(),
+                    NavTargetDto::Event {
+                        event_file: index,
+                        event_kind: "warp",
+                        index: door,
+                        header: user.map(|&(id, _)| id),
+                    },
                 )
             }
             AssetKind::Event => (
@@ -185,14 +255,66 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
                 format!("Team{}", place(slot)),
                 NavTargetDto::Trainer { index },
             ),
-            AssetKind::Script => script_place(index, field, slot, None),
+            AssetKind::Script => {
+                if let Target::WarpIndex(door) = target {
+                    sentence = Some(format!("Script {index:04} setzt Tür {door} per Index um"));
+                }
+                script_place(index, field, slot, None)
+            }
+            // A cell of a matrix: its map or its header layer („Matrix 0003, Zelle 1, 0 · Karte“).
+            AssetKind::Matrix => {
+                let cell = slot.unwrap_or(0);
+                let width = store
+                    .matrix(index)
+                    .map(|m| u16::from(m.width).max(1))
+                    .unwrap_or(u16::MAX);
+                let (x, y) = (cell % width, cell / width);
+                let layer = if field == "headers" {
+                    "Header"
+                } else {
+                    "Karte"
+                };
+                (
+                    format!("Matrix {index:04}"),
+                    format!("Zelle {x}, {y} · {layer}"),
+                    NavTargetDto::MatrixCell {
+                        matrix: index,
+                        x: u8::try_from(x).unwrap_or(u8::MAX),
+                        y: u8::try_from(y).unwrap_or(u8::MAX),
+                        header: None,
+                    },
+                )
+            }
+            AssetKind::AreaData => (
+                format!("Gebietsdaten {index:04}"),
+                area_field(field).to_owned(),
+                NavTargetDto::Area { id: index },
+            ),
+            // A building of a map („Karte 0012, Gebäude 3“; HeartGold/SoulSilver inside: „innen“).
+            AssetKind::Map => {
+                let building = slot.unwrap_or(0);
+                let inside = if field.starts_with("interior_") {
+                    " (innen)"
+                } else {
+                    ""
+                };
+                (
+                    format!("Karte {index:04}"),
+                    format!("Gebäude {building}{inside}"),
+                    NavTargetDto::Building {
+                        map: index,
+                        index: building,
+                        header: None,
+                    },
+                )
+            }
             // The index has no other sources; one added later needs a label and a target here.
             _ => continue,
         };
-        let label = if what.is_empty() {
-            source_name.clone()
-        } else {
-            format!("{source_name}, {what}")
+        let label = match sentence {
+            Some(sentence) => sentence,
+            None if what.is_empty() => source_name.clone(),
+            None => format!("{source_name}, {what}"),
         };
         out.push(RefDto {
             source,
@@ -204,5 +326,80 @@ pub fn refs(session: &mut Session, target: TargetDto) -> Result<Vec<RefDto>, Cmd
             access,
         });
     }
-    Ok(out)
+    out
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use g4_kernel::data::refs::Target;
+    use g4_kernel::project::AssetKind;
+    use g4_kernel::store::WarpEvent;
+
+    use super::{NavTargetDto, ref_dtos};
+    use crate::commands::{lock, open_synthetic, session};
+
+    #[test]
+    fn world_references_have_a_label_and_a_way() {
+        let (_s, state) = open_synthetic();
+        let mut guard = lock(&state).unwrap();
+        let session = session(&mut guard).unwrap();
+        session
+            .store
+            .edit_event(1, "Warp", |e| {
+                e.warp_events.push(WarpEvent {
+                    x: 3,
+                    z: 4,
+                    dest_header_id: 0,
+                    dest_warp_id: 2,
+                    height: 0,
+                });
+                Ok(())
+            })
+            .unwrap();
+
+        // Matrix 0 (2 × 1) places map 1 in its cell (1, 0).
+        let found = session.refs.refs(&session.store, Target::Map(1)).unwrap();
+        let matrix = found
+            .iter()
+            .find(|r| r.source.kind == AssetKind::Matrix)
+            .unwrap();
+        let dto = ref_dtos(session, std::slice::from_ref(matrix)).remove(0);
+        assert_eq!(dto.label, "Matrix 0000, Zelle 1, 0 · Karte");
+        assert_eq!(dto.source_name, "Matrix 0000");
+        assert_eq!(
+            dto.nav,
+            NavTargetDto::MatrixCell {
+                matrix: 0,
+                x: 1,
+                y: 0,
+                header: None,
+            }
+        );
+
+        // Warp 0 of event file 1 leads to door 2 of header 0; no header shows event file 1.
+        let found = session
+            .refs
+            .refs(
+                &session.store,
+                Target::Warp {
+                    header: 0,
+                    index: 2,
+                },
+            )
+            .unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        let dto = ref_dtos(session, &found).remove(0);
+        assert_eq!(dto.label, "Tür 0 von Eventdatei 0001 springt hierher");
+        assert_eq!(dto.source_name, "Eventdatei 0001");
+        assert_eq!(
+            dto.nav,
+            NavTargetDto::Event {
+                event_file: 1,
+                event_kind: "warp",
+                index: 0,
+                header: None,
+            }
+        );
+    }
 }

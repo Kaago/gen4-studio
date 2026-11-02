@@ -528,6 +528,7 @@ pub fn dispatch(
                 message: crate::lsp::MISSING.to_owned(),
                 asset: None,
                 problems: Vec::new(),
+                references: Vec::new(),
             })
         }),
         "lsp_send" => run!(json, "lsp_send", args, { body: String }, |a| {
