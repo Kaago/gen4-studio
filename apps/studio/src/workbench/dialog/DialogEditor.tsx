@@ -134,7 +134,7 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
               <li key={key} className={styles.message} data-dialog-message={key} data-selected={selected ? "" : undefined} onFocus={() => choose(key)}>
                 <div className={styles.head}>
                   <Button kind="quiet" size="s" aria-pressed={selected} onClick={() => choose(key)}>
-                    {messageHead(m, others)}
+                    <span className={styles.headText}>{messageHead(m, others)}</span>
                   </Button>
                   {m.shared_with > 0 && (
                     <Badge kind="warning" icon="shared">

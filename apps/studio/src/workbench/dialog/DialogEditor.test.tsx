@@ -117,6 +117,21 @@ describe("DialogEditor", () => {
     expect(document.querySelectorAll("[data-dialog-message][data-selected]")).toHaveLength(1);
   });
 
+  it("a_long_head_is_text_in_its_own_wrapping_element_inside_the_key", async () => {
+    // UI test 3d.5 (C1): the head ran out of its column on both sides. jsdom cannot measure; the structure that lets it wrap is the text
+    // in its own element (`headText`: `overflow-wrap: anywhere`) inside the key, which stays one pressable button with the whole text.
+    const branch = "CompareVarToValue VAR_VISITED_LAKE_VERITY_WITH_RIVAL, 1; GoToIf GREATER_EQUAL";
+    vi.mocked(dialogOf).mockResolvedValue(dialog([message(9, "Hallo!", { line: 3, branch })]));
+    await show();
+    const head = block("554:9")!.querySelector("button")!;
+    expect(head.textContent).toBe(`Nachricht 9 · Archiv 554 · wenn ${branch}`);
+    const text = head.querySelector("span");
+    expect(text?.textContent).toBe(head.textContent);
+    expect(text?.className).toMatch(/headText/);
+    expect(head.parentElement?.className).toMatch(/head/);
+    expect(head.getAttribute("aria-pressed")).not.toBeNull();
+  });
+
   it("a_message_the_kernel_would_refuse_keeps_the_key_disabled_with_the_reason", async () => {
     // UI test 3d.5 (U2): the kernel refused almost every split the editor offered; `dialog_of` now says why per message.
     const refusal = "Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.";
