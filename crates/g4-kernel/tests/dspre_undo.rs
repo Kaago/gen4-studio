@@ -8,7 +8,15 @@
 //! `a_saved_figure_in_a_dspre_project_is_undone_and_redone`).
 //!
 //! Synthetic: `test_support::TextFixture::dspre()` (header 0: script file 0, event file 0,
-//! text archive 433 with three messages in its member and no JSON).
+//! text archive 433 with three messages in its member and no JSON). Gated (`G4_TEST_PROJECT`,
+//! Platinum DE or HeartGold DE): the UI test's flows on a copy, a message of the start town's
+//! archive edited and the split the UI test found (Pt header 75 object 0 message 95:4, HG header
+//! 22 object 12 message 351:7), each saved, undone and saved:
+//!
+//! ```sh
+//! G4_TEST_PROJECT=".../_testkopien/3d-5-fix-pt_DSPRE_contents" \
+//!   cargo test -p g4-kernel --all-features --test dspre_undo -- vanilla --nocapture
+//! ```
 #![cfg(feature = "test-support")]
 #![allow(clippy::unwrap_used)]
 mod common;
@@ -17,7 +25,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use g4_formats::game::Family;
 use g4_kernel::dialog::split_message;
+use g4_kernel::project::Project;
 use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::store::{ObjectEvent, Store};
 
@@ -209,4 +219,67 @@ fn a_store_json_is_kept_where_the_texts_differ_from_the_member_loaded() {
     let json = fx.root().join(json_of(ARCHIVE));
     assert!(json.is_file());
     assert!(String::from_utf8_lossy(&std::fs::read(json).unwrap()).contains("Eins"));
+}
+
+/// The files of text archive `archive` and script file `script`, and rotom's compile state.
+fn watched(project: &Project, archive: u16, script: u16) -> impl PartialEq + std::fmt::Debug {
+    (
+        scripts::snapshot_archive(project, archive).unwrap(),
+        scripts::snapshot_script(project, script).unwrap(),
+        scripts::snapshot_compile_state(project).unwrap(),
+    )
+}
+
+#[test]
+fn vanilla_edit_and_split_saved_then_undone_and_saved_leave_the_files_as_before() {
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let project = Arc::new(Project::open(&root).unwrap());
+    // (start town, its archive), (header, event file, object, archive, message) of a split.
+    let ((town, town_archive), (header, file, object, archive, message)) = match project.family {
+        Family::Pt => ((411, 554), (75, 74, 0, 95, 4)),
+        Family::Hgss => ((60, 542), (22, 19, 12, 351, 7)),
+        Family::Dp => {
+            eprintln!("skipped: no Diamond/Pearl expectations");
+            return;
+        }
+    };
+    scripts::adopt(&project, &mut |_| {}).unwrap();
+    let mut store = Store::new(project.clone());
+    let script =
+        |store: &mut Store, h: u16| store.header_table().unwrap()[usize::from(h)].script_file_id();
+
+    // A dialog edit in the start town: saved, undone, saved.
+    let town_script = script(&mut store, town);
+    let before = watched(&project, town_archive, town_script);
+    assert!(!root.join(json_of(town_archive)).exists());
+    store
+        .edit_text_archive(town_archive, "Dialog geändert", |doc| {
+            doc.messages[0].text.push_str(" Gate-Test.");
+        })
+        .unwrap();
+    store.save().unwrap();
+    assert!(root.join(json_of(town_archive)).exists());
+    store.undo().unwrap();
+    store.save().unwrap();
+    assert_eq!(watched(&project, town_archive, town_script), before);
+    assert!(!root.join(json_of(town_archive)).exists());
+
+    // The split: right after it, and saved, undone, saved.
+    let split_script = script(&mut store, header);
+    let before = watched(&project, archive, split_script);
+    let report = split_message(&mut store, header, file, object, archive, message).unwrap();
+    assert!(
+        !root.join(json_of(archive)).exists(),
+        "the compile's JSON stays"
+    );
+    store.save().unwrap();
+    store.undo().unwrap();
+    store.save().unwrap();
+    assert_eq!(watched(&project, archive, split_script), before);
+    eprintln!(
+        "dspre-undo {} town archive {town_archive}, split {archive}:{message} -> {}",
+        project.game_code, report.new_index
+    );
 }
