@@ -274,8 +274,11 @@ impl From<Kind> for Class {
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
 /// patch; `recipe_apply` is irreversible when its recipe says so (`recipes::is_irreversible`:
-/// the empty region, a new trainer, an area or room with `header.allow_patch`), arguments
-/// that are no recipe call it can read are a write (the command refuses them). The project
+/// the empty region, a new trainer, an area or room with `header.allow_patch`, and always
+/// „Figur erscheint/verschwindet ab Schritt“ and „Szene beim Betreten“: they may create a level
+/// script file, which only the project tells, and this check has no store, so it answers
+/// conservatively), arguments that are no recipe call it can read are a write (the command
+/// refuses them). The project
 /// preview commands with a `path` (another project folder) are unavailable, also when it names
 /// the bound project. `publish_patch` with `overwrite` replaces files (irreversible), with a
 /// `dir` outside `build/` writes there (irreversible), else it is a write. A name the table

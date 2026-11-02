@@ -2203,6 +2203,100 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
     assert!(!stderr.contains("rückgängig"), "{stderr}");
 }
 
+/// `g4k recipe apply` asks the project whether a visibility creates a level script file: a
+/// figure on header 0, which owns its level script file, goes through without
+/// `--allow-irreversible`; one on header 1, which has none (a new file would stay after undo),
+/// needs the flag.
+#[test]
+fn cli_recipe_apply_figure_appears_asks_only_when_a_level_script_file_is_created() {
+    use std::sync::Arc;
+
+    use g4_kernel::recipes::new_story::{self, NewStoryInput};
+    use g4_kernel::store::{ObjectEvent, Store};
+
+    let fx = common::TextFixture::exported();
+    let root = fx.root();
+    {
+        let mut store = Store::new(Arc::new(fx.project()));
+        new_story::apply(
+            &mut store,
+            &NewStoryInput {
+                name: "Testfaden".to_owned(),
+                var: 0x4030,
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let object = |local_id: u16| ObjectEvent {
+            local_id,
+            graphics_id: 3,
+            movement_type: 15,
+            trainer_type: 0,
+            hidden_flag: 0,
+            script: 0,
+            dir: 0,
+            data: [0; 3],
+            movement_range_x: 0,
+            movement_range_z: 0,
+            x: 30 + local_id,
+            z: 7,
+            y: 0,
+        };
+        store
+            .transaction("Figuren", |tx| {
+                tx.edit_event(0, |f| {
+                    f.object_events.extend([object(4), object(5)]);
+                    Ok(())
+                })
+            })
+            .unwrap();
+        store.save().unwrap();
+    }
+    let input = |header: u16, local_id: u16, flag: u16| {
+        serde_json::json!({
+            "story": "STORY_TESTFADEN",
+            "figure": { "header": header, "local_id": local_id },
+            "step": 0, "appears": true, "flag": flag,
+        })
+        .to_string()
+    };
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["figure_appears", "--input", &input(0, 4, 0x0100)])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(
+        outcome["report"]["level_script_created"], false,
+        "{outcome}"
+    );
+    // Header 1 (same event and script file) has level script 0: a new file is created.
+    g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["figure_appears", "--input", &input(1, 5, 0x0101)])
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "error: Level-Script-Datei anlegen lässt sich nicht rückgängig machen; mit \
+             --allow-irreversible",
+        ));
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args([
+            "figure_appears",
+            "--input",
+            &input(1, 5, 0x0101),
+            "--allow-irreversible",
+        ])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(outcome["report"]["level_script_created"], true, "{outcome}");
+}
+
 /// `script Main #1:` with `lines`, then `End`.
 fn rotom_script(lines: &[&str]) -> Vec<u8> {
     let mut out = String::from("script Main #1:\n");

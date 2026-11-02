@@ -192,16 +192,37 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
         ])
     );
     // Without the project only a visibility and a scene may create a level script file
-    // (`is_irreversible_in` decides from their plan); the others never ask.
+    // (`is_irreversible_in` decides from their plan); the others never ask. A visibility reads
+    // its input first: other input is refused.
     for id in &RecipeId::all()[7..] {
         let call = RecipeCall {
             recipe: *id,
             input: serde_json::json!({ "name": "Testfaden", "var": POOL_VAR }),
         };
-        let expected = matches!(id, RecipeId::FigureAppears | RecipeId::SceneOnEnter)
-            .then_some("Level-Script-Datei anlegen");
-        assert_eq!(recipes::is_irreversible(&call).unwrap(), expected, "{id:?}");
+        match id {
+            RecipeId::FigureAppears => {
+                assert!(refused(recipes::is_irreversible(&call)).starts_with(
+                    "Die Eingabe für „Figur erscheint/verschwindet ab Schritt“ passt nicht"
+                ),)
+            }
+            RecipeId::SceneOnEnter => assert_eq!(
+                recipes::is_irreversible(&call).unwrap(),
+                Some("Level-Script-Datei anlegen")
+            ),
+            _ => assert_eq!(recipes::is_irreversible(&call).unwrap(), None, "{id:?}"),
+        }
     }
+    let visibility = RecipeCall {
+        recipe: RecipeId::FigureAppears,
+        input: serde_json::json!({
+            "story": "STORY_X", "figure": { "header": 0, "local_id": 4 },
+            "step": 1, "appears": true, "flag": 256,
+        }),
+    };
+    assert_eq!(
+        recipes::is_irreversible(&visibility).unwrap(),
+        Some("Level-Script-Datei anlegen")
+    );
 }
 
 #[test]

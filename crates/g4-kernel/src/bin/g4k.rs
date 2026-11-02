@@ -2547,14 +2547,16 @@ fn recipe(command: RecipeCommand) -> Result<(), Failure> {
             allow_irreversible,
         } => {
             let call = recipe_call(&recipe, input.as_deref())?;
-            if let Some(why) = recipes::is_irreversible(&call)?
+            // With the project open, a recipe that only sometimes does something undo does not
+            // take back (a level script file of its own) is asked exactly.
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            if let Some(why) = recipes::is_irreversible_in(&mut store, &call)?
                 && !allow_irreversible
             {
                 return Err(Failure::Message(format!(
                     "{why} lässt sich nicht rückgängig machen; mit --allow-irreversible"
                 )));
             }
-            let mut store = Store::new(Arc::new(Project::open(&project)?));
             let outcome = recipes::apply(&mut store, &call)?;
             let saved = store.save()?;
             print_problems(&saved.problems);

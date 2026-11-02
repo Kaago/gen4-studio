@@ -84,9 +84,14 @@ fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
 /// Whether applying `call` does something undo does not take back (the access check of
 /// `recipe_apply`): „Header-Patch einspielen“ for an area or room whose header may apply the
 /// patch (`header.allow_patch`), „Welt leeren“ always, „Trainer anlegen“ always for a new
-/// trainer (it is created behind an undo barrier), [`LEVEL_SCRIPT_FILE`] for a visibility or a
-/// scene (they may create a level script file; [`is_irreversible_in`] knows), else `None` (a
-/// new figure is one undo step, so is a door pair). Input the recipe cannot read is refused.
+/// trainer (it is created behind an undo barrier), else `None` (a new figure is one undo step,
+/// so is a door pair). Input the recipe cannot read is refused.
+///
+/// A visibility or a scene answers [`LEVEL_SCRIPT_FILE`] whatever the project: they create a
+/// level script file only when the place shares its file with another header or has none,
+/// and without the store this function cannot tell, so it answers conservatively (the MCP
+/// access check, which has no store, asks for confirmation every time). With the store at
+/// hand, [`is_irreversible_in`] answers exactly; `g4k recipe apply` uses it.
 pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, KernelError> {
     const PATCH: &str = "Header-Patch einspielen";
     Ok(match call.recipe {
@@ -123,7 +128,12 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
         RecipeId::TalkAdvances | RecipeId::RewardOnce => None,
         // They may need a level script file of their own for the place, which stays after
         // undo; whether they do, only the project tells ([`is_irreversible_in`]).
-        RecipeId::FigureAppears | RecipeId::SceneOnEnter => Some(LEVEL_SCRIPT_FILE),
+        RecipeId::FigureAppears => {
+            input::<figure_appears::FigureAppearsInput>(call)?;
+            Some(LEVEL_SCRIPT_FILE)
+        }
+        // Task 6 of 3d.7 brings its input (and reads it here); until then the recipe refuses.
+        RecipeId::SceneOnEnter => Some(LEVEL_SCRIPT_FILE),
     })
 }
 
