@@ -121,6 +121,7 @@ fn reward_script_checks_var_then_flag() {
 
 #[test]
 fn scene_script_switches_to_next() {
+    assert_eq!(scene_name(4), "szene_4");
     assert_eq!(
         scene_script(Family::Pt, 4, "VAR_STORY_TESTFADEN", 3, 6),
         "script szene_4 #4:\n\

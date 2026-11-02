@@ -29,6 +29,7 @@ use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::recipes::figure_appears::{self, FigureAppearsInput};
 use g4_kernel::recipes::new_story::{self, NewStoryInput};
 use g4_kernel::recipes::reward_once::{self, RewardOnceInput};
+use g4_kernel::recipes::scene_on_enter::{self, SceneOnEnterInput};
 use g4_kernel::recipes::story_common::FigureRef;
 use g4_kernel::recipes::talk_advances::{self, TalkAdvancesInput};
 use g4_kernel::recipes::{self, Draft, DraftMessage, RecipeCall, RecipeId, next_steps};
@@ -205,10 +206,12 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
                     "Die Eingabe für „Figur erscheint/verschwindet ab Schritt“ passt nicht"
                 ),)
             }
-            RecipeId::SceneOnEnter => assert_eq!(
-                recipes::is_irreversible(&call).unwrap(),
-                Some("Level-Script-Datei anlegen")
-            ),
+            RecipeId::SceneOnEnter => {
+                assert!(
+                    refused(recipes::is_irreversible(&call))
+                        .starts_with("Die Eingabe für „Szene beim Betreten“ passt nicht"),
+                )
+            }
             _ => assert_eq!(recipes::is_irreversible(&call).unwrap(), None, "{id:?}"),
         }
     }
@@ -221,6 +224,16 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
     };
     assert_eq!(
         recipes::is_irreversible(&visibility).unwrap(),
+        Some("Level-Script-Datei anlegen")
+    );
+    let scene = RecipeCall {
+        recipe: RecipeId::SceneOnEnter,
+        input: serde_json::json!({
+            "story": "STORY_X", "header": 0, "step": 1, "text": "Hallo",
+        }),
+    };
+    assert_eq!(
+        recipes::is_irreversible(&scene).unwrap(),
         Some("Level-Script-Datei anlegen")
     );
 }
@@ -2210,5 +2223,442 @@ fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
     assert_eq!(store.history(), history);
     assert_eq!(store.event(0).unwrap().object_events[5].hidden_flag, 0);
     figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG)).unwrap();
+    assert_eq!(store.undo_depth(), mark + 1);
+}
+
+// ---------------------------------------------------------------------------------------
+// „Szene beim Betreten“
+// ---------------------------------------------------------------------------------------
+
+/// The text of the scenes of the tests.
+const SCENE_TEXT: &str = "Ein Brief liegt auf dem Tisch.";
+
+fn scene(header: u16, step: u16, text: &str) -> SceneOnEnterInput {
+    SceneOnEnterInput {
+        story: "STORY_TESTFADEN".to_owned(),
+        header,
+        step,
+        text: text.to_owned(),
+        step_name: None,
+    }
+}
+
+fn scene_call(input: &SceneOnEnterInput) -> RecipeCall {
+    RecipeCall {
+        recipe: RecipeId::SceneOnEnter,
+        input: serde_json::json!({
+            "story": input.story,
+            "header": input.header,
+            "step": input.step,
+            "text": input.text,
+        }),
+    }
+}
+
+/// The scene `szene_<n> #n` (Platinum) as the recipe appends it: message `message`, then
+/// `VAR_STORY_TESTFADEN` to `next`.
+fn scene_source(n: u16, message: usize, next: u16) -> String {
+    format!(
+        "script szene_{n} #{n}:\n    LockAll\n    Message {message}\n    WaitButton\n    \
+         CloseMessage\n    SetVarFromValue VAR_STORY_TESTFADEN, {next}\n    ReleaseAll\n    End\n"
+    )
+}
+
+/// A level script JSON with `entries` and `conditions` (var, value, script).
+fn level_with(entries: serde_json::Value, conditions: &[(u16, u16, u16)]) -> serde_json::Value {
+    let conditions: Vec<serde_json::Value> = conditions
+        .iter()
+        .map(|&(var, value, script_id)| {
+            serde_json::json!({ "var": var, "value": value, "script_id": script_id })
+        })
+        .collect();
+    serde_json::json!({ "header_entries": entries, "var_conditions": conditions })
+}
+
+#[test]
+fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
+    let (_fx, mut store) = talk_fixture();
+    assert_eq!(level_json(&store, LEVEL), entries(serde_json::json!([])));
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let message = u16::try_from(messages).unwrap();
+    let before = appear_state(&store);
+    let old_source = source_of(&store, 0);
+    let mark = store.undo_depth();
+    let call = scene_call(&scene(0, 0, SCENE_TEXT));
+
+    // The plan writes nothing; the header's own level script is changed in place.
+    let draft = recipes::plan(&mut store, &call).unwrap();
+    assert_eq!(
+        draft,
+        Draft {
+            messages: vec![DraftMessage {
+                archive: Some(ARCHIVE),
+                text: SCENE_TEXT.to_owned(),
+            }],
+            notes: vec![
+                "Beim Betreten von Header 0 mit Schritt 0 läuft die Szene und schaltet auf 1."
+                    .to_owned()
+            ],
+            ..Draft::default()
+        }
+    );
+    assert_eq!(
+        recipes::is_irreversible_in(&mut store, &call).unwrap(),
+        None
+    );
+    assert_eq!(
+        recipes::is_irreversible(&call).unwrap(),
+        Some(recipes::LEVEL_SCRIPT_FILE)
+    );
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+
+    let outcome = recipes::apply(&mut store, &call).unwrap();
+    assert_eq!(
+        outcome.report,
+        serde_json::json!({
+            "step": "s1",
+            "value": 1,
+            "level_script": LEVEL,
+            "level_script_created": false,
+            "condition": 0,
+            "script_file": 0,
+            "slot": 3,
+            "archive": ARCHIVE,
+            "message": message,
+        })
+    );
+    assert!(outcome.created.is_empty());
+    assert!(outcome.change.is_some());
+    let next: Vec<(&str, bool)> = outcome
+        .next
+        .iter()
+        .map(|s| (s.id.as_str(), s.available))
+        .collect();
+    assert_eq!(next, [("play_here", false)]);
+
+    // The scene is appended as a new slot, its text is the archive's new message.
+    assert_eq!(
+        source_of(&store, 0),
+        format!("{old_source}\n{}", scene_source(3, messages, 1))
+    );
+    let doc = store.text_archive(ARCHIVE).unwrap();
+    assert_eq!(doc.messages.len(), messages + 1);
+    assert_eq!(doc.messages[messages].text, SCENE_TEXT);
+    // The level script runs it while the variable is 0; the compile wrote its member.
+    assert_eq!(
+        level_json(&store, LEVEL),
+        level_with(
+            serde_json::json!([{ "type": "on_var_condition" }]),
+            &[(POOL_VAR, 0, 3)]
+        )
+    );
+    assert_ne!(
+        scripts::snapshot_script(store.project(), LEVEL)
+            .unwrap()
+            .member,
+        before.1.member
+    );
+    // No figure changes.
+    assert_eq!(state(&store).events_store, before.0.events_store);
+
+    // The story has the step, made by this recipe, with what it uses.
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    let keys: Vec<&str> = story.steps.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["s0", "s1"]);
+    assert_eq!(
+        story.steps[1],
+        Step {
+            made: Some(Made {
+                recipe: "scene_on_enter".to_owned(),
+                studio: env!("CARGO_PKG_VERSION").to_owned(),
+            }),
+            uses: vec![
+                Use::LevelScript {
+                    file: LEVEL,
+                    condition: 0
+                },
+                Use::Script { file: 0, slot: 3 },
+                Use::Message {
+                    archive: ARCHIVE,
+                    index: message
+                },
+                Use::Var("VAR_STORY_TESTFADEN".to_owned()),
+            ],
+            ..step("s1", 1, StepKind::Dialog, "Szene beim Betreten")
+        }
+    );
+    assert!(story.flags.is_empty());
+    assert_eq!(store.undo_depth(), mark + 1);
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Szene beim Betreten von Header 0 in „Testfaden“")
+    );
+}
+
+#[test]
+fn a_scene_on_a_shared_level_script_copies_it() {
+    let (_fx, mut store) = talk_fixture();
+    set_level(
+        &store,
+        LEVEL,
+        entries(serde_json::json!([{ "type": "on_load", "script_id": 2 }])),
+    );
+    // Header 1 uses the same level script file.
+    set_header_level_script(&mut store, 1, LEVEL);
+    let shared = level_json(&store, LEVEL);
+    let source = source_of(&store, 0);
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let call = scene_call(&scene(0, 0, SCENE_TEXT));
+
+    let draft = recipes::plan(&mut store, &call).unwrap();
+    assert_eq!(
+        draft.irreversible,
+        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+    );
+    assert_eq!(
+        recipes::is_irreversible_in(&mut store, &call).unwrap(),
+        Some("Level-Script-Datei anlegen")
+    );
+
+    let mark = store.undo_depth();
+    let outcome = recipes::apply(&mut store, &call).unwrap();
+    let created: Vec<(AssetKind, u16)> =
+        outcome.created.iter().map(|c| (c.kind, c.index)).collect();
+    assert_eq!(created, [(AssetKind::Script, n)]);
+    assert_eq!(outcome.report["level_script"], serde_json::json!(n));
+    assert_eq!(
+        outcome.report["level_script_created"],
+        serde_json::json!(true)
+    );
+    let levels = |store: &mut Store| -> Vec<u16> {
+        store.header_table().unwrap()[..2]
+            .iter()
+            .map(MapHeader::level_script_id)
+            .collect()
+    };
+    // This header gets the copy with the condition, header 1 keeps the old file as it was.
+    let copy = level_with(
+        serde_json::json!([
+            { "type": "on_load", "script_id": 2 },
+            { "type": "on_var_condition" },
+        ]),
+        &[(POOL_VAR, 0, 3)],
+    );
+    assert_eq!(levels(&mut store), [n, LEVEL]);
+    assert_eq!(level_json(&store, LEVEL), shared);
+    assert_eq!(level_json(&store, n), copy);
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(
+        story.steps[1].uses[0],
+        Use::LevelScript {
+            file: n,
+            condition: 0
+        }
+    );
+    assert_eq!(store.undo_depth(), mark + 1);
+
+    // Undo: the header points at the shared file again, the copy stays as it was created.
+    store.undo().unwrap();
+    assert_eq!(levels(&mut store), [LEVEL, LEVEL]);
+    assert_eq!(source_of(&store, 0), source);
+    assert_eq!(level_json(&store, n), shared);
+    store.redo().unwrap();
+    assert_eq!(levels(&mut store), [n, LEVEL]);
+    assert_eq!(level_json(&store, n), copy);
+
+    // A header without a level script gets a new one, which is announced too (header 1 takes
+    // header 0's text archive: the fixture's archive 0 has no messages to read).
+    let (_fx, mut store) = talk_fixture();
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
+    store
+        .transaction("Textarchiv", |tx| {
+            tx.edit_header(1, |h| {
+                match h {
+                    MapHeader::DP(h) => h.text_archive_id = ARCHIVE,
+                    MapHeader::Pt(h) => h.text_archive_id = ARCHIVE,
+                    MapHeader::HGSS(h) => h.text_archive_id = ARCHIVE,
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let draft = scene_on_enter::plan(&mut store, &scene(1, 0, SCENE_TEXT)).unwrap();
+    assert_eq!(
+        draft.irreversible,
+        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+    );
+    let outcome = scene_on_enter::apply(&mut store, &scene(1, 0, SCENE_TEXT)).unwrap();
+    assert_eq!(
+        (
+            outcome.report.level_script,
+            outcome.report.level_script_created
+        ),
+        (n, true)
+    );
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), n);
+    assert_eq!(
+        level_json(&store, n),
+        level_with(
+            serde_json::json!([{ "type": "on_var_condition" }]),
+            &[(POOL_VAR, 0, 3)]
+        )
+    );
+    store.undo().unwrap();
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
+    assert_eq!(level_json(&store, n), entries(serde_json::json!([])));
+}
+
+#[test]
+fn a_second_scene_for_the_same_step_and_a_taken_value_are_refused() {
+    let (_fx, mut store) = talk_fixture();
+    let refuse = |store: &mut Store, input: &SceneOnEnterInput| -> String {
+        let before = appear_state(store);
+        let mark = store.undo_depth();
+        let why = refused(scene_on_enter::plan(store, input));
+        assert_eq!(refused(scene_on_enter::apply(store, input)), why);
+        assert_eq!(appear_state(store), before, "{why}");
+        assert_eq!(store.undo_depth(), mark, "{why}");
+        why
+    };
+
+    // The place has a condition for the story's variable at that value already (made by
+    // hand, without a step in the story).
+    set_level(
+        &store,
+        LEVEL,
+        level_with(
+            serde_json::json!([{ "type": "on_var_condition" }]),
+            &[(POOL_VAR, 0, 2)],
+        ),
+    );
+    assert_eq!(
+        refuse(&mut store, &scene(0, 0, SCENE_TEXT)),
+        "Der Ort hat schon eine Szene für Schritt 0."
+    );
+    // A condition for another value or another variable is no obstacle.
+    set_level(
+        &store,
+        LEVEL,
+        level_with(
+            serde_json::json!([{ "type": "on_var_condition" }]),
+            &[(POOL_VAR, 5, 2), (POOL_VAR + 1, 0, 2)],
+        ),
+    );
+    scene_on_enter::plan(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
+
+    // A missing step, an empty text, a missing header.
+    assert_eq!(
+        refuse(&mut store, &scene(0, 4, SCENE_TEXT)),
+        "Schritt 4 gibt es in „Testfaden“ nicht."
+    );
+    assert_eq!(
+        refuse(&mut store, &scene(0, 0, "  ")),
+        "Die Szene braucht einen Text."
+    );
+    assert!(refuse(&mut store, &scene(9999, 0, SCENE_TEXT)).contains("9999"));
+
+    // The first scene goes through; a second one for the same step is refused by its step.
+    scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
+    assert_eq!(
+        refuse(&mut store, &scene(0, 0, "Noch einmal")),
+        "Schritt 1 gibt es schon: „Szene beim Betreten“."
+    );
+    // A value a talk takes already.
+    let (_fx, mut store) = talk_fixture();
+    talk_advances::apply(&mut store, &talk(5, 0, "Hallo!")).unwrap();
+    assert_eq!(
+        refuse(&mut store, &scene(0, 0, SCENE_TEXT)),
+        "Schritt 1 gibt es schon: „Gespräch mit Figur 5“."
+    );
+}
+
+#[test]
+fn undo_of_a_scene_restores_level_script_source_and_story() {
+    let (_fx, mut store) = talk_fixture();
+    // The place has an entry script and a condition of its own already.
+    let level_before = level_with(
+        serde_json::json!([
+            { "type": "on_transition", "script_id": 2 },
+            { "type": "on_var_condition" },
+        ]),
+        &[(POOL_VAR + 1, 5, 2)],
+    );
+    set_level(&store, LEVEL, level_before.clone());
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let before = appear_state(&store);
+    let old_source = source_of(&store, 0);
+    let story_before = read_story(store.project(), 0).unwrap().unwrap();
+    let mark = store.undo_depth();
+    let input = SceneOnEnterInput {
+        step_name: Some("Szene beim Betreten von Zweiblattdorf".to_owned()),
+        ..scene(0, 0, SCENE_TEXT)
+    };
+    let outcome = scene_on_enter::apply(&mut store, &input).unwrap();
+    assert_eq!((outcome.report.condition, outcome.report.slot), (1, 3));
+    // The condition is appended, the `on_var_condition` entry is not doubled.
+    assert_eq!(
+        level_json(&store, LEVEL),
+        level_with(
+            serde_json::json!([
+                { "type": "on_transition", "script_id": 2 },
+                { "type": "on_var_condition" },
+            ]),
+            &[(POOL_VAR + 1, 5, 2), (POOL_VAR, 0, 3)],
+        )
+    );
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(story.steps[1].name, "Szene beim Betreten von Zweiblattdorf");
+    assert_eq!(
+        story.steps[1].uses[0],
+        Use::LevelScript {
+            file: LEVEL,
+            condition: 1
+        }
+    );
+    assert_eq!(store.undo_depth(), mark + 1);
+
+    // One undo step takes back the level script (JSON and member), the source, the message
+    // and the step; redo makes it all again.
+    let after = appear_state(&store);
+    store.undo().unwrap();
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(level_json(&store, LEVEL), level_before);
+    assert_eq!(source_of(&store, 0), old_source);
+    assert_eq!(
+        store.text_archive(ARCHIVE).unwrap().messages.len(),
+        messages
+    );
+    assert_eq!(
+        read_story(store.project(), 0).unwrap().unwrap(),
+        story_before
+    );
+    store.redo().unwrap();
+    assert_eq!(appear_state(&store), after);
+    assert_eq!(
+        source_of(&store, 0),
+        format!("{old_source}\n{}", scene_source(3, messages, 1))
+    );
+}
+
+#[test]
+fn a_failed_scene_takes_back_the_script_and_the_level_script() {
+    let (_fx, mut store) = talk_fixture();
+    let before = appear_state(&store);
+    let mark = store.undo_depth();
+    let history = store.history();
+    // `append_step` fails after both compiles.
+    story_files_readonly(&store, true);
+    let result = scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT));
+    story_files_readonly(&store, false);
+    assert!(
+        result.is_err() && !matches!(result, Err(KernelError::Refused(_))),
+        "{result:?}"
+    );
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(store.history(), history);
+    scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
     assert_eq!(store.undo_depth(), mark + 1);
 }

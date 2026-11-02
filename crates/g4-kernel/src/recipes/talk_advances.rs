@@ -6,7 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::story_common::{FigureRef, LoadedStory, dialog_step_taken, load_story, made, step_of};
+use super::story_common::{
+    FigureRef, LoadedStory, dialog_step_taken, load_story, made, require_step, step_name,
+};
 use super::story_scripts::{talk_name, talk_script};
 use super::story_wrap::{Hull, HullRequest, HullStep, apply_hull, check_hull, require_adopted};
 use super::types::{Draft, DraftMessage, Outcome, RecipeId, next_steps, refused};
@@ -74,10 +76,7 @@ fn notes(local_id: u16, from: u16, hull: (u16, u16, u16, u16)) -> Vec<String> {
 /// {local_id}“, made by this recipe, using the object, the hull, the message and the variable.
 fn talk_step(name: Option<&str>, value: u16, hull: &Hull, var_id: &str) -> Step {
     let local_id = hull.figure.local_id;
-    let name = name
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map_or_else(|| format!("Gespräch mit Figur {local_id}"), str::to_owned);
+    let name = step_name(name, || format!("Gespräch mit Figur {local_id}"));
     Step {
         key: step_key(value),
         value,
@@ -118,12 +117,7 @@ fn check(store: &mut Store, input: &TalkAdvancesInput) -> Result<Checked, Kernel
     require_adopted(store)?;
     let story = load_story(store, &input.story)?;
     let from = input.from_step;
-    if step_of(&story.story, from).is_none() {
-        return Err(refused(format!(
-            "Schritt {from} gibt es in „{}“ nicht.",
-            story.story.name
-        )));
-    }
+    require_step(&story.story, from)?;
     let value = from.checked_add(1).ok_or_else(|| {
         refused(format!(
             "Schritt {from} ist der höchste Wert einer Variable; das Gespräch kann nicht \

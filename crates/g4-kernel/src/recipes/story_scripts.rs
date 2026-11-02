@@ -7,12 +7,6 @@
 //! story, `sichtbarkeit_<story>_<header>`, closed by a marker line ([`visibility_end_marker`])
 //! the next rule is inserted above, so no source is parsed ([`insert_rule`]).
 
-#![allow(
-    dead_code,
-    reason = "the step recipes of 3d.7 (talk_advances, figure_appears, scene_on_enter, \
-              reward_once) are the callers"
-)]
-
 use g4_formats::game::Family;
 
 use super::story_common::{fill, template};
@@ -109,7 +103,12 @@ pub(crate) fn reward_script(
     )
 }
 
-/// The scene `szene_<n> #n`: it shows message `message` and sets `var_id` to `next`.
+/// The name of the scene in slot `#n`: `szene_<n>`, unique in its script file by the slot.
+pub(crate) fn scene_name(n: u16) -> String {
+    format!("szene_{n}")
+}
+
+/// The scene [`scene_name`] `#n`: it shows message `message` and sets `var_id` to `next`.
 pub(crate) fn scene_script(
     family: Family,
     n: u16,
@@ -120,6 +119,7 @@ pub(crate) fn scene_script(
     fill(
         template("story_scene", family),
         &[
+            ("name", scene_name(n)),
             ("n", n.to_string()),
             ("var", var_id.to_owned()),
             ("value", next.to_string()),

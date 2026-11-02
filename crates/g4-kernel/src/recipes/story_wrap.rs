@@ -16,8 +16,9 @@
 //!
 //! The taking back ([`rolled_back`] with [`DiskBefore`]), the archives a compile may write
 //! ([`compile_archives`]) and the end of the step ([`finish_step`]) serve the other story
-//! recipes too („Figur erscheint/verschwindet ab Schritt“ writes a script file and a level
-//! script file).
+//! recipes too („Figur erscheint/verschwindet ab Schritt“ and „Szene beim Betreten“ write a
+//! script file and a level script file), and so do the checks of a recipe's new message
+//! ([`check_message_number`], [`check_no_literal`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -363,6 +364,41 @@ pub(crate) fn finish_step(
     Ok(story.change)
 }
 
+/// Refuses a message the store numbered `got` in text archive `archive` when the recipe
+/// checked it as `expected` (its script shows `expected`).
+pub(crate) fn check_message_number(
+    got: u16,
+    expected: u16,
+    archive: u16,
+) -> Result<(), KernelError> {
+    if got == expected {
+        Ok(())
+    } else {
+        Err(refused(format!(
+            "Die Nachricht bekam Nummer {got} statt {expected} in Textarchiv {archive}."
+        )))
+    }
+}
+
+/// Refuses a compile of script file `script_file` that wrote text archive `archive` (in
+/// `touched`): rotom appended a text literal of the file where the recipe's new message goes,
+/// so its number would collide with the store's message.
+pub(crate) fn check_no_literal(
+    touched: &[u16],
+    script_file: u16,
+    archive: u16,
+) -> Result<(), KernelError> {
+    if touched.contains(&archive) {
+        Err(refused(format!(
+            "Der Compile der Scriptdatei {script_file:04} schrieb ein Text-Literal in Textarchiv \
+             {archive}, in das die neue Nachricht kommt; erst die Scriptdatei in Bauen \
+             kompilieren und speichern."
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 /// Writes `before` to `path` (removes it for `None`) when the file differs from it.
 fn put_back(path: &Path, before: Option<&[u8]>) -> Result<(), KernelError> {
     let now = match std::fs::read(path) {
@@ -426,12 +462,7 @@ fn write_hull(
         }
         Ok(message)
     })?;
-    if message != hull.message {
-        return Err(refused(format!(
-            "Die Nachricht bekam Nummer {message} statt {} in Textarchiv {archive}.",
-            hull.message
-        )));
-    }
+    check_message_number(message, hull.message, archive)?;
 
     // From here on the compile's files are on disk until their file steps are recorded.
     let before = disk.insert(DiskBefore {
@@ -443,14 +474,7 @@ fn write_hull(
     before.record(store, label, &touched, script_file)?;
     let saved = disk.take().map(|d| d.archives).unwrap_or_default();
 
-    if touched.contains(&archive) {
-        // rotom appended a text literal of the file where the hull's message goes.
-        return Err(refused(format!(
-            "Der Compile der Scriptdatei {script_file:04} schrieb ein Text-Literal in Textarchiv \
-             {archive}, in das die neue Nachricht kommt; erst die Scriptdatei in Bauen \
-             kompilieren und speichern."
-        )));
-    }
+    check_no_literal(&touched, script_file, archive)?;
     finish_step(
         store,
         mark,

@@ -7,12 +7,6 @@
 //! takes them from the pool, `free_flag`), the recipe checks that the save holds them, that
 //! they lie in the general area and have no own name yet ([`check_pool_number`]).
 
-#![allow(
-    dead_code,
-    reason = "the step recipes of 3d.7 (talk_advances, figure_appears, scene_on_enter, \
-              reward_once) use the helpers new_story does not"
-)]
-
 use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 
@@ -117,6 +111,27 @@ pub(crate) fn load_story(store: &mut Store, id: &str) -> Result<LoadedStory, Ker
 /// The first step of `story` with value `value`.
 pub(crate) fn step_of(story: &Story, value: u16) -> Option<&Step> {
     story.steps.iter().find(|s| s.value == value)
+}
+
+/// Refuses `value` when `story` has no step with it („Schritt {value} gibt es in „X“ nicht.“):
+/// a step recipe starts from a step the story has.
+pub(crate) fn require_step(story: &Story, value: u16) -> Result<(), KernelError> {
+    match step_of(story, value) {
+        Some(_) => Ok(()),
+        None => Err(refused(format!(
+            "Schritt {value} gibt es in „{}“ nicht.",
+            story.name
+        ))),
+    }
+}
+
+/// The name of a step a recipe adds: `given` without its outer blanks, else (none or blank)
+/// `default`.
+pub(crate) fn step_name(given: Option<&str>, default: impl FnOnce() -> String) -> String {
+    given
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map_or_else(default, str::to_owned)
 }
 
 /// Refuses `value` when a dialog step of `story` has it („Schritt {value} gibt es schon:

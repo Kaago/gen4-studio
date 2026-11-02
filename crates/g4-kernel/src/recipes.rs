@@ -14,9 +14,10 @@
 //! The story recipes of 3d.7 (Erzählen): [`new_story`] names a variable of the pool and makes a
 //! story with the step „Anfang“; „Gespräch schaltet weiter“, „Figur erscheint/verschwindet ab
 //! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it ([`talk_advances`],
-//! [`figure_appears`], [`reward_once`]). `story_common` holds what they share, `story_wrap` the
-//! hull script a talk or a reward puts in front of a figure and the taking back of a story
-//! recipe's writes, `level_script` the level script of a place they change.
+//! [`figure_appears`], [`scene_on_enter`], [`reward_once`]). `story_common` holds what they
+//! share, `story_wrap` the hull script a talk or a reward puts in front of a figure and the
+//! taking back of a story recipe's writes, `level_script` the level script of a place they
+//! change.
 
 pub mod area;
 pub mod connect_doors;
@@ -31,6 +32,7 @@ pub mod new_story;
 pub mod new_trainer_here;
 pub mod reward_once;
 pub mod room;
+pub mod scene_on_enter;
 pub mod story_common;
 pub mod story_scripts;
 pub(crate) mod story_wrap;
@@ -132,8 +134,10 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             input::<figure_appears::FigureAppearsInput>(call)?;
             Some(LEVEL_SCRIPT_FILE)
         }
-        // Task 6 of 3d.7 brings its input (and reads it here); until then the recipe refuses.
-        RecipeId::SceneOnEnter => Some(LEVEL_SCRIPT_FILE),
+        RecipeId::SceneOnEnter => {
+            input::<scene_on_enter::SceneOnEnterInput>(call)?;
+            Some(LEVEL_SCRIPT_FILE)
+        }
     })
 }
 
@@ -169,7 +173,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::NewStory => new_story::plan(store, &input(call)?),
         RecipeId::TalkAdvances => talk_advances::plan(store, &input(call)?),
         RecipeId::FigureAppears => figure_appears::plan(store, &input(call)?),
-        RecipeId::SceneOnEnter => Err(not_yet(6)),
+        RecipeId::SceneOnEnter => scene_on_enter::plan(store, &input(call)?),
         RecipeId::RewardOnce => reward_once::plan(store, &input(call)?),
     }
 }
@@ -187,12 +191,7 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::NewStory => new_story::apply(store, &input(call)?)?.into_dto(),
         RecipeId::TalkAdvances => talk_advances::apply(store, &input(call)?)?.into_dto(),
         RecipeId::FigureAppears => figure_appears::apply(store, &input(call)?)?.into_dto(),
-        RecipeId::SceneOnEnter => Err(not_yet(6)),
+        RecipeId::SceneOnEnter => scene_on_enter::apply(store, &input(call)?)?.into_dto(),
         RecipeId::RewardOnce => reward_once::apply(store, &input(call)?)?.into_dto(),
     }
-}
-
-/// The refusal of a story step recipe whose task of phase 3d.7 has not filled it yet.
-fn not_yet(task: u8) -> KernelError {
-    KernelError::Refused(format!("Kommt mit Task {task}"))
 }

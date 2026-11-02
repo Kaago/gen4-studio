@@ -12,7 +12,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::story_common::{
-    FigureRef, LoadedStory, check_pool_number, load_story, made, step_of, story_flag_id,
+    FigureRef, LoadedStory, check_pool_number, load_story, made, require_step, step_name,
+    story_flag_id,
 };
 use super::story_scripts::{reward_name, reward_script};
 use super::story_wrap::{Hull, HullRequest, HullStep, apply_hull, check_hull, require_adopted};
@@ -103,10 +104,7 @@ fn item_count(store: &Store) -> Result<usize, KernelError> {
 /// message and the flag.
 fn reward_step(name: Option<&str>, from: u16, flag: (u16, &str), hull: &Hull) -> Step {
     let local_id = hull.figure.local_id;
-    let name = name
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map_or_else(|| format!("Belohnung von Figur {local_id}"), str::to_owned);
+    let name = step_name(name, || format!("Belohnung von Figur {local_id}"));
     Step {
         key: step_key(flag.0),
         value: from,
@@ -149,12 +147,7 @@ fn check(store: &mut Store, input: &RewardOnceInput) -> Result<Checked, KernelEr
     require_adopted(store)?;
     let story = load_story(store, &input.story)?;
     let from = input.from_step;
-    if step_of(&story.story, from).is_none() {
-        return Err(refused(format!(
-            "Schritt {from} gibt es in „{}“ nicht.",
-            story.story.name
-        )));
-    }
+    require_step(&story.story, from)?;
     let project = store.project_arc();
     check_pool_number(&project, FlagKind::Flag, input.flag)?;
     let item = input.item;

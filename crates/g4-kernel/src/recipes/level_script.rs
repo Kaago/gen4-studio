@@ -9,11 +9,6 @@
 //! undo, like the level script of `empty_region`), and the recipe points the header at it in
 //! its transaction ([`set_level_script`]).
 
-#![allow(
-    dead_code,
-    reason = "scene_on_enter (Task 6 of 3d.7) is the caller of push_condition"
-)]
-
 use g4_formats::error::FormatError;
 use rotom::{LevelScriptHeaderEntry, LevelScriptVarConditionEntry};
 
@@ -100,6 +95,12 @@ pub(crate) fn plan_level_script(
         doc,
         transition,
     })
+}
+
+/// The sentence of the dialog (`Draft::irreversible`) for level script file `file` a recipe
+/// creates: it stays after undo.
+pub(crate) fn created_text(file: u16) -> String {
+    format!("Level-Script-Datei {file} wird angelegt und bleibt")
 }
 
 /// The file of `plan`: created when the plan says so, as a new level script file with the

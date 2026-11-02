@@ -1,4 +1,4 @@
-script szene_{n} #{n}:
+script {name} #{n}:
     LockAll
     NPCMsg {message}
     WaitButton

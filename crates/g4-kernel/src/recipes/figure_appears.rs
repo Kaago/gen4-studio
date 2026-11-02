@@ -21,12 +21,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::level_script::{
-    LevelScriptPlan, ensure_level_script, plan_level_script, set_level_script, set_transition,
-    write_level_script,
+    LevelScriptPlan, created_text, ensure_level_script, plan_level_script, set_level_script,
+    set_transition, write_level_script,
 };
 use super::story_common::{
     Figure, FigureRef, HeaderFiles, LoadedStory, check_pool_number, figure, header_files,
-    load_story, made, next_slot, slot_name, slot_named, step_of, story_flag_id,
+    load_story, made, next_slot, require_step, slot_name, slot_named, step_name, story_flag_id,
 };
 use super::story_scripts::{
     Tail, VisibilityRule, insert_rule, visibility_block, visibility_end_marker, visibility_name,
@@ -201,12 +201,7 @@ fn check(store: &mut Store, input: &FigureAppearsInput) -> Result<Checked, Kerne
     require_adopted(store)?;
     let story = load_story(store, &input.story)?;
     let value = input.step;
-    if step_of(&story.story, value).is_none() {
-        return Err(refused(format!(
-            "Schritt {value} gibt es in „{}“ nicht.",
-            story.story.name
-        )));
-    }
+    require_step(&story.story, value)?;
     let found = figure(store, &input.figure)?;
     let project = store.project_arc();
     if found.hidden_flag != 0 {
@@ -308,11 +303,6 @@ fn notes(checked: &Checked, input: &FigureAppearsInput) -> Vec<String> {
     ]
 }
 
-/// The sentence of a level script file the recipe creates (it stays after undo).
-fn created_text(file: u16) -> String {
-    format!("Level-Script-Datei {file} wird angelegt und bleibt")
-}
-
 /// What [`apply`] would do, found with the same checks and without writing: the two sentences
 /// of the dialog and, when the place needs its own level script file, that it is created and
 /// stays.
@@ -335,21 +325,13 @@ pub fn plan(store: &mut Store, input: &FigureAppearsInput) -> Result<Draft, Kern
 /// using the object, the flag and the block.
 fn appearance_step(input: &FigureAppearsInput, checked: &Checked) -> Step {
     let local_id = checked.figure.local_id;
-    let name = input
-        .step_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map_or_else(
-            || {
-                format!(
-                    "Figur {local_id} {} ab Schritt {}",
-                    verb(input.appears),
-                    input.step
-                )
-            },
-            str::to_owned,
-        );
+    let name = step_name(input.step_name.as_deref(), || {
+        format!(
+            "Figur {local_id} {} ab Schritt {}",
+            verb(input.appears),
+            input.step
+        )
+    });
     Step {
         key: step_key(input.flag),
         value: input.step,
