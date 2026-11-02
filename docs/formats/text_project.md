@@ -624,6 +624,22 @@ wird er als Datei geschrieben. Der nächste volle Export mit Basisschicht normal
 (ein auf die Basis zurückgesetzter Teil wird wieder `base_sha1`, eine der Basis gleiche Datei
 geht).
 
+**Grabstein: Zurücksetzen und Diff.** „Auf Original zurücksetzen“ nimmt den Grabstein (siehe
+„Arten“) zurück: Der Plan (`original::plan_reset`) nennt bei einer gelöschten Karte, Eventdatei,
+Begegnungsdatei, einem Trainer oder Header zuerst die Zeile `Grabstein`: `gelöscht` → `vorhanden`
+und ist dann nie „schon wie in der Basis“, auch wenn die Member der Basis gleichen; `reset` setzt
+die Member und nimmt den Grabstein in **derselben** Transaktion zurück
+(`Auf Original zurückgesetzt: …`, ein Schritt). Eine neue Entität hat kein Original und bleibt
+abgelehnt („Kein Original: …“); sie kommt mit ⌘Z oder „Wiederherstellen“ zurück. Die Liste
+„geändert gegenüber Original“ (`changed_from_original`) liest die Umschläge der gespeicherten
+Dateien: eine gelöschte Entität ist `deleted` („Gelöscht“), ob ihre Member der Basis gleichen
+oder nicht, mit Rücksetzziel, wenn sie ein Original ist, ohne, wenn sie neu ist. Der Diff einer
+Entität (`diff_entity`) liest den Umschlag je Seite (die Basis-ROM hat keinen, `HEAD` den seiner
+Datei, die Platte den ihren, der ungespeicherte Stand das Flag des Stores) und meldet ihn als
+`tombstone: {old, new}` (nur bei Arten mit Umschlag), nie als Feld `deleted`; eine Seite, die
+nur ihren Umschlag änderte, ist `changed`. Die Liste gegen `HEAD` nennt eine Datei, deren
+Umschlag sich änderte, wie jede geänderte Datei als `changed`.
+
 ## DSPRE parallel
 
 DSPRE bleibt neben dem Studio nutzbar: Es liest und schreibt die Member, das Studio die JSON.

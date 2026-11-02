@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::error::KernelError;
 use crate::textproject::canon::unhex;
 use crate::textproject::part::sha1_hex;
+use crate::textproject::tombstone::DELETED_KEY;
 
 use super::FieldChange;
 
@@ -92,7 +93,8 @@ pub(crate) fn shown(value: &Value) -> String {
 /// The differing fields of `old` and `new` (`None`: the side has no such entity), at most
 /// `cap` of them and the number of the rest: objects by key in the new side's order, then the
 /// keys only the old side has; arrays by index; a subtree only one side has unfolded to its
-/// leaves.
+/// leaves. The tombstone envelope (the top-level `deleted`) is no field: the report names it
+/// as [`super::TombstoneDiff`].
 pub fn json_changes(
     old: Option<&Value>,
     new: Option<&Value>,
@@ -101,6 +103,9 @@ pub fn json_changes(
     let mut changes = Vec::new();
     let mut more = 0u32;
     walk("", new, old, true, &mut |path, new, old| {
+        if path == DELETED_KEY {
+            return;
+        }
         if changes.len() < cap {
             changes.push(FieldChange {
                 path: path.to_owned(),

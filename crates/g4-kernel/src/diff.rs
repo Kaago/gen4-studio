@@ -12,6 +12,11 @@
 //! The new side is the **saved** state (the files) against the base and against `HEAD`, and
 //! the store's **unsaved** value against the saved one. [`side`] reads the sides,
 //! [`subject`] names the entities, [`json`] and [`text`] compare.
+//!
+//! A tombstone (3d.4) is the envelope `"deleted": true` of an entity's JSON: each side carries
+//! its own (the base none, `HEAD` its blob's, the disk its file's, the unsaved side the store's
+//! flag), so a side that only changed its envelope is `Changed`; the report names it as
+//! [`TombstoneDiff`], never as the field `deleted`.
 
 use std::time::Instant;
 
@@ -36,7 +41,7 @@ pub use lists::{head_entries, unsaved_entries};
 pub use subject::DiffSubject;
 pub use text::{line_hunks, word_spans};
 
-use side::{Side, Sides};
+use side::{Side, Sides, tombstone_of};
 
 use crate::textproject::part::sha1_hex;
 
@@ -188,6 +193,13 @@ pub enum EntityDiff {
     },
 }
 
+/// Whether each side of a diff is a tombstone (the envelope `"deleted": true` of its JSON).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TombstoneDiff {
+    pub old: bool,
+    pub new: bool,
+}
+
 /// The diff of one entity with what the user sees around it: the entity's name, the names
 /// of both sides (`old_label`: „Basis-ROM …“, „Commit abc1234 „…““, „Gespeichert“;
 /// `new_label`: „Projekt (gespeichert)“ or „Ungespeichert“), the state, the reset target of
@@ -202,6 +214,9 @@ pub struct EntityDiffReport {
     pub state: DiffState,
     pub diff: EntityDiff,
     pub reset: Option<ResetTarget>,
+    /// For an art with envelope: whether each side is a tombstone; `None` for scripts,
+    /// archives, members, files.
+    pub tombstone: Option<TombstoneDiff>,
     pub ms: u64,
 }
 
@@ -283,6 +298,10 @@ pub fn diff_entity(
         DiffSubject::Script { .. } => sides.same_form(old, new),
         _ => (old, new),
     };
+    let tombstone = tombstone_of(subject).map(|_| TombstoneDiff {
+        old: old.is_tombstone(),
+        new: new.is_tombstone(),
+    });
     // A text project keeps no file for a member equal to the base's.
     let base_is_old = against == Against::Base;
     let (state, diff) = shape(subject, old, new, base_is_old);
@@ -295,6 +314,7 @@ pub fn diff_entity(
         state,
         diff,
         reset: subject.reset_target(),
+        tombstone,
         ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     })
 }

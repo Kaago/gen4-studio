@@ -4,7 +4,9 @@
 //! fingerprints the build graph (4.2) records in `.g4/build/state.json`, so after a build a
 //! comparison reads no member file. Hashes those fingerprints lack are filled in once, under
 //! the rule of [`changed_from_original`] (`docs/formats/build_state.md`, „Nachgetragene
-//! Hashes (4.1b)“). Map headers are compared through the codec.
+//! Hashes (4.1b)“). Map headers are compared through the codec. In a text project the
+//! envelopes of the entity files name the tombstones (3d.4): such an entity is
+//! [`ChangeState::Deleted`], whether its members equal the base's or not.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -20,12 +22,14 @@ use crate::build::fingerprint::{self, Fp};
 use crate::build::pack_entries;
 use crate::build::state::BuildState;
 use crate::build::step::key;
+use crate::delete::DeleteTarget;
 use crate::diff::DiffSubject;
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
-use crate::project::{AssetId, AssetKind, Project};
+use crate::project::{AssetId, AssetKind, Project, SourceMode};
 use crate::scripts::numbered_files;
 use crate::store::HEADER_TABLE;
+use crate::textproject::source::read_tombstones;
 
 /// How an entry differs from the base.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -37,6 +41,8 @@ pub enum ChangeState {
     New,
     /// Only in the base.
     Missing,
+    /// A tombstone in the project (the member may equal the base or not).
+    Deleted,
 }
 
 /// One entity that differs from the base. A trainer (properties and party) and a Pokémon
@@ -50,7 +56,8 @@ pub struct ChangedEntry {
     pub label: String,
     pub state: ChangeState,
     /// What „Auf Original zurücksetzen“ resets; `None` for a new or missing entry and for a
-    /// kind without reset ([`super::NOT_RESETTABLE`]).
+    /// kind without reset ([`super::NOT_RESETTABLE`]). A `Deleted` entry carries it when the
+    /// entity is an original (the reset takes the tombstone back), `None` when it is new.
     pub target: Option<ResetTarget>,
     /// The store assets of the entry, so the app can mark the unsaved ones.
     pub assets: Vec<AssetId>,
@@ -392,6 +399,7 @@ pub fn changed_from_original(
 
     let mut listed = entities(project, &folders, &base.archives);
     headers(project, original, &mut listed)?;
+    tombstones(project, &mut listed)?;
     Ok(ChangedReport {
         entries: listed.into_values().collect(),
         files,
@@ -536,6 +544,41 @@ fn headers(
                 subject: DiffSubject::Header { index: id },
             },
         );
+    }
+    Ok(())
+}
+
+/// The tombstones of the saved state (the envelopes of the entity files; a text project
+/// only), as [`ChangeState::Deleted`]: an entry listed already keeps its target (an original
+/// whose members differ, or none for a new one); an entity whose members equal the base's is
+/// an original and gets its reset target.
+fn tombstones(
+    project: &Project,
+    listed: &mut BTreeMap<(usize, u16), ChangedEntry>,
+) -> Result<(), KernelError> {
+    if *project.source_mode() != SourceMode::TextProject {
+        return Ok(());
+    }
+    for target in read_tombstones(&project.root)? {
+        let subject = match target {
+            DeleteTarget::Header { id } => Some(DiffSubject::Header { index: id }),
+            _ => target
+                .assets()
+                .first()
+                .and_then(|&id| DiffSubject::from_asset(project, id)),
+        };
+        let Some(subject) = subject else { continue };
+        let Some(group) = GROUPS.iter().position(|&g| g == subject.group()) else {
+            continue;
+        };
+        let at = (group, target.number());
+        if let Some(entry) = listed.get_mut(&at) {
+            entry.state = ChangeState::Deleted;
+            continue;
+        }
+        let mut entry = ChangedEntry::of_subject(project, subject, ChangeState::Deleted);
+        entry.target = target.reset_target();
+        listed.insert(at, entry);
     }
     Ok(())
 }
