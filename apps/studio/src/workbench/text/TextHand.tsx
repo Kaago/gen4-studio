@@ -1,12 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
-import type { TextHit } from "../../api";
+import type { FigureDialog, HeaderDialogs, TextHit } from "../../api";
 import { useProjectRefs } from "../../data/useRefs";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { Badge, Button, EmptyState, Icon, Notice, PanelHead, Reference, Segmented, TextField } from "../../ui/primitives";
 import { id4, termFor } from "../terms";
+import { distinctMessages, figureSummary, figureTarget } from "../dialog/dialogModel";
+import { DialogMessages, messageKey, useDialogWrites } from "../dialog/DialogMessages";
+import { useDialog } from "../dialog/useDialog";
 import { MessageEditor } from "./MessageEditor";
 import { draftKey, useTextArea } from "./TextAreaContext";
 import type { TextScope } from "./TextAreaContext";
@@ -61,8 +64,13 @@ function LongestLine({ width }: { width: number }) {
   );
 }
 
-/** The hand of the texts: the search, the messages (or the hits) as a table and the field of the selected message. */
+/** The hand of the texts: in Erzählen the messages of the chosen figure (`DialogHand`), from Bauen on the archive's messages. */
 export function TextHand() {
+  return useTextArea().narrating ? <DialogHand /> : <ArchiveHand />;
+}
+
+/** The search, the messages (or the hits) as a table and the field of the selected message. */
+function ArchiveHand() {
   const t = useTextArea();
   const reset = useReset();
   const { project, archive, message, loaded, error, loading, widths, query, effectiveScope, hits, searchError, select, setQuery, setScope, append } = t;
@@ -297,5 +305,66 @@ function MessageRefs({ archive, message }: { archive: number; message: number })
       <span className={styles.label}>Nachricht verwendet in</span>
       {chips}
     </div>
+  );
+}
+
+/**
+ * The hand of the texts in Erzählen (`[data-dialog-hand]`): the messages of the chosen figure as the dialog editor shows them (`DialogMessages`:
+ * a field per message, „Geteilt mit N Figuren“, „Für diese Figur abspalten“) and the way into the editor. A trainer's texts are the trainer's
+ * (Pokémon); a common script, a figure without a script and one that cannot be read say so.
+ */
+function DialogHand() {
+  const { project, dialogs, dialogFigure, figureTitle, openDialogEditor, goTo } = useTextArea();
+  let body: ReactNode;
+  let actions: ReactNode = undefined;
+  if (project === null) {
+    body = <EmptyState what="Kein Projekt geöffnet." why="Öffne ein Projekt, dann stehen hier die Nachrichten seiner Figuren." />;
+  } else if (dialogFigure === null || dialogs.dialogs === null) {
+    body = <EmptyState what="Wähle eine Figur." why="Dann stehen hier ihre Nachrichten; ein Doppelklick auf die Karte öffnet den Dialog-Editor." />;
+  } else if (dialogFigure.source.kind === "local") {
+    const figure = dialogFigure;
+    actions = (
+      <Button kind="quiet" size="s" onClick={() => openDialogEditor(figure)}>
+        Dialog bearbeiten…
+      </Button>
+    );
+    body = <FigureMessages key={`${dialogs.dialogs.header}:${figure.kind}:${figure.index}`} dialogs={dialogs.dialogs} figure={figure} />;
+  } else {
+    const source = dialogFigure.source;
+    if (source.kind === "trainer")
+      actions = (
+        <Button kind="quiet" size="s" icon="forward" onClick={() => goTo({ kind: "trainer", index: source.id })}>
+          Trainer öffnen
+        </Button>
+      );
+    body = <p className={styles.note}>{figureSummary(dialogFigure)}</p>;
+  }
+  return (
+    <div className={styles.hand} data-dialog-hand="">
+      {dialogFigure !== null && <PanelHead title={figureTitle(dialogFigure)} actions={actions} />}
+      <div className={styles.dialogBody}>{body}</div>
+    </div>
+  );
+}
+
+/** The messages of a figure with a script of its own, read with `dialogOf` and written like in the dialog editor. */
+function FigureMessages({ dialogs, figure }: { dialogs: HeaderDialogs; figure: FigureDialog }) {
+  const { dialogRevision, dialogChanged, onError, scriptFiles } = useTextArea();
+  const target = useMemo(() => figureTarget(dialogs, figure), [dialogs, figure]);
+  const { dialog, error, reload } = useDialog(target, dialogRevision);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const source = dialog?.source ?? null;
+  const writes = useDialogWrites(target, source, { reload, onChanged: dialogChanged, onError, scriptFiles, onSplit: setChosen });
+  const distinct = useMemo(() => (dialog !== null && source?.kind === "local" ? distinctMessages(dialog.messages) : []), [dialog, source?.kind]);
+  if (error !== null) return <Notice kind="error">{error}</Notice>;
+  if (dialog === null) return <p className={styles.note}>Lade …</p>;
+  if (source?.kind !== "local") return <p className={styles.note}>{figureSummary(figure)}</p>;
+  if (distinct.length === 0) return <p className={styles.note}>Das Script dieser Figur zeigt keine Nachricht.</p>;
+  const currentKey = distinct.some((d) => messageKey(d.message) === chosen) ? chosen : messageKey(distinct[0]!.message);
+  return (
+    <>
+      {writes.notice !== null && <Notice kind={writes.notice.kind}>{writes.notice.text}</Notice>}
+      <DialogMessages kind={figure.kind} distinct={distinct} currentKey={currentKey} onChoose={setChosen} writes={writes} />
+    </>
   );
 }

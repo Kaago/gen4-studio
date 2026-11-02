@@ -7,6 +7,7 @@ import { useThumbnail } from "../../world/useThumbnail";
 import { mapOfHeader } from "../headers";
 import { id4 } from "../terms";
 import { useMatrix } from "../useMatrix";
+import { DialogCards } from "./DialogCards";
 import { draftKey, useTextArea } from "./TextAreaContext";
 import { LINE_LIMIT, lineWidth, messageLabel, pages, visibleLine } from "./textModel";
 import type { Segment } from "./textModel";
@@ -124,8 +125,13 @@ function MessagePreview({ archive, message, stored }: { archive: number; message
   );
 }
 
-/** The view of the texts (Schau): the selected message on the DS screen; what is missing otherwise. */
+/** The view of the texts (Schau): in Erzählen the figures of the chosen place (`DialogCards`), from Bauen on the selected message. */
 export function TextView() {
+  return useTextArea().narrating ? <DialogCards /> : <MessageView />;
+}
+
+/** The selected message on the DS screen; what is missing otherwise. */
+function MessageView() {
   const { project, archive, message, loaded, loading, error } = useTextArea();
   let empty: { what: string; why: string } | null = null;
   if (project === null) empty = { what: "Kein Projekt geöffnet.", why: "Öffne ein Projekt, dann zeigt die Vorschau seine Texte." };

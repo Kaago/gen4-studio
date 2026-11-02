@@ -534,12 +534,45 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
   // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, matrices, onOpenDialog, dataStore, scripts } = d;
   // The depth of the texts, not of the area in front: a Texte deck kept behind Technik in Erzählen still narrates.
-  const depth = viewDepth("texte", useShell().state.depth);
+  const { state, setDepth } = useShell();
+  const depth = viewDepth("texte", state.depth);
+  // The figures of the places and their dialogs (Erzählen) are read again when a text, an event or a script moved.
+  const dialogRevision = textRevision + useBusRevision(d.bus, ["eventData", "eventsRefetch"]) + scripts.revision;
+  // A trainer figure is named by class and name: the rows are read once a place with a trainer shows.
+  const trainers = useTrainerRows(dataStore, info);
+  const needTrainers = useCallback(() => {
+    if (namesTrainers(info)) dataStore.need(info, "trainer");
+  }, [dataStore, info]);
+  // The script documents for a split in the hand: stable callbacks, so the area does not render with every script revision.
+  const saveIfDirty = useStableCallback((file: number) => scripts.saveIfDirty(file));
+  const reloadScript = useStableCallback((file: number) => scripts.reload(file));
+  const scriptFiles = useMemo(() => ({ saveIfDirty, reload: reloadScript }), [saveIfDirty, reloadScript]);
   const context = useMemo<TextAreaProps>(
-    () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth],
+    () => ({
+      project: info,
+      headers,
+      counts: memberCounts,
+      target: textTarget,
+      revision: textRevision,
+      problems,
+      goTo,
+      onEdited,
+      bus,
+      onCountsChanged,
+      onError,
+      onShown,
+      depth,
+      matrices,
+      dialogRevision,
+      onOpenDialog,
+      onDepth: setDepth,
+      trainers,
+      needTrainers,
+      scriptFiles,
+    }),
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth, matrices, dialogRevision, onOpenDialog, setDepth, trainers, needTrainers, scriptFiles],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }

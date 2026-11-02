@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { vi } from "vitest";
-import type { HeaderSummary, ProjectInfo, TextArchiveDto } from "../../api";
+import type { FigureDialog, HeaderDialogs, HeaderSummary, ProjectInfo, TextArchiveDto } from "../../api";
 import { createEditBus } from "../../bus/editBus";
 import type { EditEvent } from "../../bus/editBus";
 import { resetSpy, withReset } from "../../original/resetTesting";
@@ -36,6 +36,24 @@ export const archive = (index: number, texts: string[]): TextArchiveDto => ({
   users: [],
 });
 
+/** A figure of a place as `dialogsOfHeader` lists it: by default an object with its own script that says one message ("Hallo!"). */
+export const figure = (kind: "object" | "bg", index: number, over: Partial<FigureDialog> = {}): FigureDialog => ({
+  kind,
+  index,
+  local_id: kind === "object" ? index : null,
+  graphics_id: kind === "object" ? 3 : null,
+  trainer: null,
+  source: { kind: "local", file: 40, slot: index + 1, line: 1 },
+  first_text: "Hallo!",
+  messages: 1,
+  pages: 1,
+  message_ids: [0],
+  ...over,
+});
+
+/** What `dialogsOfHeader` answers for header `header` (its event file is `header + 100`). */
+export const headerDialogs = (header: number, figures: FigureDialog[], archive = 433): HeaderDialogs => ({ header, event_file: header + 100, archive, figures, ms: 2 });
+
 export const projectA: ProjectInfo = { root: "/a", game_code: "CPUE", family: "Pt", language: "en", header_count: 3 };
 
 export const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
@@ -46,7 +64,7 @@ export function textHarness() {
   document.body.append(container);
   const root: Root = createRoot(container);
   const problems = new ProblemsStore();
-  const calls = { onEdited: vi.fn(), onCountsChanged: vi.fn(), onError: vi.fn(), goTo: vi.fn(), onShown: vi.fn() };
+  const calls = { onEdited: vi.fn(), onCountsChanged: vi.fn(), onError: vi.fn(), goTo: vi.fn(), onShown: vi.fn(), onOpenDialog: vi.fn(), onDepth: vi.fn(), needTrainers: vi.fn() };
   // What the area tells the rest of the app.
   const bus = createEditBus();
   const events: EditEvent[] = [];

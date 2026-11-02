@@ -168,3 +168,14 @@
   display: flex;
   justify-content: flex-start;
 }
+
+/* Erzählen: the messages of the chosen figure, scrolling under its head. */
+.dialogBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding: var(--g4-raum-8) var(--g4-dichte-panel-innen);
+  overflow-y: auto;
+}

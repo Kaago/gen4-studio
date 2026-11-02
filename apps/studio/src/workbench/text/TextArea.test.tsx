@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTextArchive, editTextArchive, getTextArchive, searchText, validateText } from "../../api";
+import { createTextArchive, dialogOf, dialogsOfHeader, editTextArchive, getTextArchive, searchText, validateText } from "../../api";
+import type { Dialog } from "../../api";
+import { TRAINER_ROWS } from "../../data/trainer/trainerTesting";
+import { listToasts, resetToasts } from "../../ui/frame/toasts";
 import { TextArea } from "./TextArea";
 import { useTextArea } from "./TextAreaContext";
-import { archive, flush, projectA, textHarness } from "./textTesting";
+import { archive, figure, flush, headerDialogs, projectA, textHarness } from "./textTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -13,6 +16,8 @@ vi.mock("../../api", async (importOriginal) => ({
   createTextArchive: vi.fn(),
   searchText: vi.fn(),
   validateText: vi.fn(),
+  dialogsOfHeader: vi.fn(),
+  dialogOf: vi.fn(),
   getMatrix: vi.fn(async (index: number) => ({ index, name: "m", width: 1, height: 1, maps: [7] })),
 }));
 vi.mock("../../world/thumbnailStore", () => ({
@@ -415,14 +420,7 @@ describe("TextArea", () => {
     expect(h.textarea()).toBeNull();
   });
 
-  it("narrates while it shows Erzählen and keeps its parts as they are", async () => {
-    // The parts render as in Bauen: the archives in the list, the messages of a clicked one.
-    h.show(h.base({ depth: "erzaehlen" }));
-    await flush();
-    h.click(h.archiveRow(433));
-    await flush();
-    expect(h.messageRow(1)?.textContent).toContain("Twinleaf Town");
-    // The flag the dialogs by place and figure will follow.
+  it("narrates while it shows Erzählen", () => {
     let narrating: boolean | undefined;
     function Probe() {
       narrating = useTextArea().narrating;
@@ -441,5 +439,167 @@ describe("TextArea", () => {
     expect(narratingIn("erzaehlen")).toBe(true);
     expect(narratingIn("bauen")).toBe(false);
     expect(narratingIn("tuefteln")).toBe(false);
+  });
+
+  describe("dialogs by place and figure (Erzählen)", () => {
+    const said = (texts: string[]): Dialog => ({
+      source: { kind: "local", file: 40, slot: 2, line: 1 },
+      messages: texts.map((text, i) => ({ archive: 433, index: 4 + i, text, command: "Message", line: 3 + i, col: 13, branch: null, shared_with: i === 1 ? 2 : 0, split_refusal: null })),
+      followed: [],
+    });
+    const FIGURES = [
+      figure("object", 3, { first_text: "Schönes Wetter!", messages: 2, pages: 2, message_ids: [4, 5] }),
+      figure("object", 5, { source: { kind: "trainer", id: 12 }, trainer: 12, first_text: null, messages: 0, pages: 0, message_ids: [] }),
+      figure("bg", 0, { first_text: "Zweiblattdorf", message_ids: [1] }),
+    ];
+    const card = (key: string) => h.container.querySelector<HTMLElement>(`[data-dialog-figure="${key}"]`);
+    const place = (name: string) => h.container.querySelector<HTMLElement>(`[data-dialog-place="${name}"]`);
+    const headerRow = (id: number) => h.container.querySelector<HTMLElement>(`[data-dialog-header="${id}"]`);
+    const within = (el: Element | null, name: string) => [...(el?.querySelectorAll("button") ?? [])].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+    const hand = () => h.container.querySelector<HTMLElement>("[data-dialog-hand]");
+    async function openHeader(id: number, placeName = "Zweiblattdorf") {
+      h.click(place(placeName));
+      await flush();
+      h.click(headerRow(id));
+      await flush();
+    }
+
+    beforeEach(() => {
+      resetToasts();
+      vi.mocked(dialogsOfHeader).mockReset().mockImplementation(async (id) => headerDialogs(id, id === 12 ? FIGURES : id === 13 ? [figure("object", 0, { message_ids: [2] })] : []));
+      vi.mocked(dialogOf).mockReset().mockResolvedValue(said(["Schönes Wetter!", "Tschüss."]));
+    });
+
+    it("in erzaehlen the list shows places and the view the figures", async () => {
+      h.show(h.base({ depth: "erzaehlen", trainers: TRAINER_ROWS }));
+      await flush();
+      expect(h.container.querySelector("[data-dialog-list]")).not.toBeNull();
+      expect(h.container.querySelector("[data-archive]")).toBeNull();
+      expect(place("Zweiblattdorf")).not.toBeNull();
+      await openHeader(12);
+      // The object with its own script, the trainer and the sign: all three speak.
+      expect(headerRow(12)?.textContent).toContain("3 Figuren sprechen");
+      const view = h.container.querySelector("[data-dialog-cards]");
+      expect([...view!.querySelectorAll("[data-dialog-figure]")].map((e) => e.getAttribute("data-dialog-figure"))).toEqual(["object:3", "object:5", "bg:0"]);
+      expect(card("object:3")?.textContent).toContain("2 Nachrichten · 2 Seiten");
+      // The archives' table is gone from the hand: it asks for a figure.
+      expect(h.messageRow(0)).toBeNull();
+      expect(hand()?.textContent).toContain("Wähle eine Figur.");
+      // Bauen shows the archives again.
+      h.show(h.base({ depth: "bauen" }));
+      await flush();
+      expect(h.container.querySelector("[data-dialog-list]")).toBeNull();
+      expect(h.archiveRow(433)).not.toBeNull();
+    });
+
+    it("a click selects the figure and the hand shows its messages", async () => {
+      h.show(h.base({ depth: "erzaehlen" }));
+      await flush();
+      await openHeader(12);
+      h.click(within(card("object:3"), "Objekt 3"));
+      await flush();
+      expect(card("object:3")?.hasAttribute("data-selected")).toBe(true);
+      expect(card("bg:0")?.hasAttribute("data-selected")).toBe(false);
+      expect(h.container.querySelector("[data-status]")?.textContent).toBe("Zweiblattdorf, 3 Figuren sprechen, Objekt 3");
+      expect(dialogOf).toHaveBeenCalledWith(12, 112, "object", 3);
+      // The messages of the dialog editor: a field per message, the shared one with its badge and the split.
+      const blocks = hand()!.querySelectorAll("[data-dialog-message]");
+      expect([...blocks].map((b) => b.getAttribute("data-dialog-message"))).toEqual(["433:4", "433:5"]);
+      expect(blocks[0]!.querySelector("textarea")?.value).toBe("Schönes Wetter!");
+      expect(blocks[1]!.textContent).toContain("Geteilt mit 2 Figuren");
+      expect(within(blocks[1]!, "Für diese Figur abspalten")).toBeDefined();
+      // A text written in the hand goes to the store as one step „Dialog geändert“ and tells the app.
+      const field = blocks[0]!.querySelector("textarea")!;
+      h.type(field, "Regen!");
+      h.blur(field);
+      await flush();
+      expect(editTextArchive).toHaveBeenCalledWith(433, { Set: { index: 4, text: "Regen!" } }, "Dialog geändert");
+      expect(h.calls.onEdited).toHaveBeenCalled();
+      expect(h.events).toContainEqual({ topic: "textData", archive: null });
+    });
+
+    it("the edit button opens the dialog editor", async () => {
+      h.show(h.base({ depth: "erzaehlen" }));
+      await flush();
+      await openHeader(12);
+      h.click(within(card("object:3"), "Dialog bearbeiten…"));
+      expect(h.calls.onOpenDialog).toHaveBeenLastCalledWith({ header: 12, eventFile: 112, kind: "object", index: 3, title: "Objekt 3" });
+      // A double click on a card does the same.
+      act(() => void within(card("bg:0"), "Schild 0")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(h.calls.onOpenDialog).toHaveBeenLastCalledWith({ header: 12, eventFile: 112, kind: "bg", index: 0, title: "Schild 0" });
+      // The hand of a chosen figure has the way in too.
+      h.click(within(card("object:3"), "Objekt 3"));
+      await flush();
+      h.calls.onOpenDialog.mockClear();
+      h.click(within(hand(), "Dialog bearbeiten…"));
+      expect(h.calls.onOpenDialog).toHaveBeenCalledWith({ header: 12, eventFile: 112, kind: "object", index: 3, title: "Objekt 3" });
+    });
+
+    it("a trainer card opens the trainer, not the editor", async () => {
+      h.show(h.base({ depth: "erzaehlen", trainers: TRAINER_ROWS }));
+      await flush();
+      await openHeader(12);
+      const trainer = card("object:5")!;
+      expect(trainer.textContent).toContain("Trainer Wanderer Jens");
+      expect(trainer.textContent).toContain("Kampftexte des Trainers: im Bereich Pokémon");
+      expect(within(trainer, "Dialog bearbeiten…")).toBeUndefined();
+      h.click(within(trainer, "Trainer öffnen"));
+      expect(h.calls.goTo).toHaveBeenLastCalledWith({ kind: "trainer", index: 12 });
+      act(() => void within(trainer, "Trainer Wanderer Jens")!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      expect(h.calls.goTo).toHaveBeenCalledTimes(2);
+      // Chosen, the hand says where its texts are and leads there; nothing reads its dialog.
+      h.click(within(trainer, "Trainer Wanderer Jens"));
+      await flush();
+      expect(hand()?.textContent).toContain("Kampftexte des Trainers: im Bereich Pokémon");
+      expect(hand()?.querySelector("[data-dialog-message]")).toBeNull();
+      h.click(within(hand(), "Trainer öffnen"));
+      expect(h.calls.goTo).toHaveBeenCalledTimes(3);
+      expect(h.calls.onOpenDialog).not.toHaveBeenCalled();
+      expect(dialogOf).not.toHaveBeenCalled();
+    });
+
+    it("a place without figures says so", async () => {
+      h.show(h.base({ depth: "erzaehlen" }));
+      await flush();
+      await openHeader(14, "Sandgemme");
+      expect(headerRow(14)?.textContent).toContain("Keine Figuren");
+      expect(h.container.querySelector("[data-dialog-cards]")?.textContent).toContain("Keine Figuren an diesem Ort");
+      expect(h.container.querySelector("[data-dialog-figure]")).toBeNull();
+    });
+
+    it("a link to a message selects the place and the figure that says it", async () => {
+      h.show(h.base({ depth: "erzaehlen" }));
+      await flush();
+      h.show(h.base({ depth: "erzaehlen", target: { index: 433, message: 2 } }));
+      await flush();
+      await flush();
+      // Header 12 (first of the archive) has no figure that says message 2; header 13's object 0 does.
+      expect(dialogsOfHeader).toHaveBeenCalledWith(12);
+      expect(dialogsOfHeader).toHaveBeenCalledWith(13);
+      expect(place("Zweiblattdorf")?.getAttribute("aria-expanded")).toBe("true");
+      expect(headerRow(13)?.getAttribute("aria-selected")).toBe("true");
+      expect(card("object:0")?.hasAttribute("data-selected")).toBe(true);
+      expect(h.calls.onDepth).not.toHaveBeenCalled();
+    });
+
+    it("a link without a message selects the first place of the archive", async () => {
+      h.show(h.base({ depth: "erzaehlen", target: { index: 433, message: null } }));
+      await flush();
+      expect(headerRow(12)?.getAttribute("aria-selected")).toBe("true");
+      expect(h.container.querySelector("[data-dialog-figure][data-selected]")).toBeNull();
+      expect(h.calls.onDepth).not.toHaveBeenCalled();
+    });
+
+    it("a link to a message no figure says opens Bauen and says why", async () => {
+      h.show(h.base({ depth: "erzaehlen", target: { index: 433, message: 7 } }));
+      await flush();
+      await flush();
+      expect(h.calls.onDepth).toHaveBeenCalledWith("bauen");
+      expect(listToasts().map((t) => [t.kind, t.text])).toContainEqual(["info", "Keine Figur spricht diese Nachricht – in Bauen geöffnet"]);
+      // Bauen then shows the archive and message the link asked for.
+      h.show(h.base({ depth: "bauen", target: { index: 433, message: 7 } }));
+      await flush();
+      expect(h.calls.onShown).toHaveBeenLastCalledWith({ archive: 433, message: 2 });
+    });
   });
 });

@@ -1,17 +1,24 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createTextArchive, editTextArchive, errorText, searchText } from "../../api";
-import type { HeaderSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
+import type { DataRowDto, FigureDialog, HeaderSummary, MatrixSummary, MemberCounts, ProjectInfo, TextEdit, TextHit } from "../../api";
 import type { EditBus } from "../../bus/editBus";
+import type { ScriptFiles } from "../../data/useDataArea";
+import { toast } from "../../ui/frame/toasts";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
+import { dialogTitle, figureKey, figureTarget, speakersText } from "../dialog/dialogModel";
+import type { DialogTarget } from "../dialog/dialogModel";
 import type { NavTarget } from "../navigation";
+import { buildPlaces, placeOf } from "../places";
 import type { ProblemsStore } from "../problems/problems";
 import { TERMS, id4 } from "../terms";
+import { trainerLabel } from "../trainerScript";
 import { TextAreaContext, TextDraft, useTextArea } from "./TextAreaContext";
 import type { TextAreaModel, TextScope } from "./TextAreaContext";
 import { LINE_LIMIT, SEARCH_LIMIT, archivePlaces, archiveRows, longestLine, usersByArchive } from "./textModel";
 import type { TextTarget } from "./textModel";
+import { HeaderDialogsCache, HeaderDialogsCacheContext, useCachedHeaderDialogs } from "./useHeaderDialogs";
 import { useTextArchive } from "./useTextArchive";
 
 /** What the text area is shown: the archive and message it has open (`message` null: none yet). */
@@ -50,6 +57,29 @@ export interface TextAreaProps {
   onShown?: (shown: TextShown) => void;
   /** The depth the area shows (Erzählen, Bauen or Tüfteln): Bauen names the users of an archive places ("Ort"), Tüfteln headers. */
   depth: Depth;
+  /** The matrices of the world, for the order of the headers in a place (outside first); omitted: by id. */
+  matrices?: MatrixSummary[];
+  /** Changes when the figures of a place or their dialogs may have moved (texts, scripts, events); omitted: `revision`. */
+  dialogRevision?: number;
+  /** Opens the dialog editor of a figure (Erzählen). */
+  onOpenDialog?: (target: DialogTarget) => void;
+  /** Switches the depth (a link to a message no figure says opens Bauen). */
+  onDepth?: (depth: Depth) => void;
+  /** The trainer rows, which name a trainer figure by class and name (null while they are not read). */
+  trainers?: readonly DataRowDto[] | null;
+  /** Asks for the trainer rows (a place with a trainer figure shows). */
+  needTrainers?: () => void;
+  /** The script panel's documents: a split in the hand saves and reloads the figure's script file. */
+  scriptFiles?: ScriptFiles;
+}
+
+/** What a link to a message tells when no figure of the places that use its archive says it. */
+const NO_FIGURE_SAYS = "Keine Figur spricht diese Nachricht – in Bauen geöffnet";
+
+/** „Trainer Wanderer Jens“; a trainer the rows do not (yet) have is „Trainer 0012“. */
+function trainerTitle(rows: readonly DataRowDto[] | null | undefined, id: number): string {
+  const label = trainerLabel(rows ?? null, id);
+  return label === `Trainer ${id4(id)}` ? label : `Trainer ${label}`;
 }
 
 /** Quiet time before the search over all archives asks the backend. */
@@ -71,6 +101,12 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
   const [editorFocused, setEditorFocused] = useState(false);
   const [draft] = useState(() => new TextDraft());
   const { archive: loaded, error, loading, reload } = useTextArchive(archiveIndex, revision);
+  const narrating = !depthAtLeast(depth, "bauen");
+  const dialogRevision = context.dialogRevision ?? revision;
+  // The figures of the places, per header and revision (a new cache per project), and the place and figure the dialogs show.
+  const [cache, setCache] = useState(() => new HeaderDialogsCache());
+  const [dialogHeader, setDialogHeader] = useState<number | null>(null);
+  const [figureChosen, setFigureChosen] = useState<string | null>(null);
 
   // Another project: nothing of the old one stays open, typed or found. Reset while rendering, so no render shows the old
   // archive with the new project; commits of the old project are dropped by `run` (see `project` there).
@@ -83,6 +119,9 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     setQuery("");
     setHits(null);
     setSearchError(null);
+    setCache(new HeaderDialogsCache());
+    setDialogHeader(null);
+    setFigureChosen(null);
   }
 
   // Nothing typed in the old project shows in the preview of the new one (the store tells its readers, hence not during the render).
@@ -117,6 +156,14 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
   const places = useMemo(() => archivePlaces(headers, users), [headers, users]);
   const archiveCount = counts.TextArchive;
   const rows = useMemo(() => archiveRows(archiveCount, users, places), [archiveCount, users, places]);
+  const matrices = context.matrices;
+  const worldPlaces = useMemo(() => buildPlaces(headers, matrices ?? []), [headers, matrices]);
+  const { dialogs, error: dialogsError, loading: dialogsLoading } = useCachedHeaderDialogs(cache, dialogHeader, dialogRevision);
+  const dialogFigure = useMemo(() => dialogs?.figures.find((f) => figureKey(f) === figureChosen) ?? null, [dialogs, figureChosen]);
+  const dialogPlace = useMemo(() => (dialogHeader === null ? null : (placeOf(worldPlaces, dialogHeader) ?? null)), [worldPlaces, dialogHeader]);
+  // For the link below, which reads the places and figures after it started.
+  const dialogsNow = useRef({ narrating, places: worldPlaces, dialogRevision, cache });
+  dialogsNow.current = { narrating, places: worldPlaces, dialogRevision, cache };
 
   const select = useCallback((index: number, messageIndex = 0) => {
     setArchiveIndex(index);
@@ -124,12 +171,49 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     setPage(0);
   }, []);
 
-  // A link to a text archive opens it (and clears a search that would hide its messages).
+  const selectDialogHeader = useCallback((header: number) => {
+    setDialogHeader(header);
+    setFigureChosen(null);
+  }, []);
+
+  // A link to a text archive opens it (and clears a search that would hide its messages). In Erzählen it shows the place and the figure
+  // that says the message: among the headers that use the archive (in the order of the places) the first whose figures name it; without a
+  // message the first of those headers. When no figure says it, the link opens Bauen (with an info why).
   useEffect(() => {
     if (target === null) return;
     select(target.index, target.message ?? 0);
     setQuery("");
-  }, [target, select]);
+    const { narrating: narratingNow, places: placesNow, dialogRevision: revisionNow, cache: cacheNow } = dialogsNow.current;
+    if (!narratingNow) return;
+    const users = placesNow.flatMap((p) => p.headers.map((h) => h.header)).filter((h) => h.text_archive_id === target.index);
+    const message = target.message;
+    const toBauen = (why: string | null) => {
+      latest.current.onDepth?.("bauen");
+      if (why !== null) toast.info(why);
+    };
+    if (message === null) {
+      if (users[0] !== undefined) selectDialogHeader(users[0].id);
+      else toBauen(null);
+      return;
+    }
+    let current = true;
+    void (async () => {
+      for (const h of users) {
+        const found = await cacheNow.load(h.id, revisionNow);
+        if (!current) return;
+        const figure = found?.figures.find((f) => f.message_ids.includes(message));
+        if (figure !== undefined) {
+          setDialogHeader(h.id);
+          setFigureChosen(figureKey(figure));
+          return;
+        }
+      }
+      toBauen(NO_FIGURE_SAYS);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [target, select, selectDialogHeader]);
 
   const effectiveScope: TextScope = scope === "archive" && archiveIndex !== null ? "archive" : "all";
   useEffect(() => {
@@ -202,6 +286,27 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     }
   }, [select]);
 
+  const selectFigure = useCallback((figure: FigureDialog | null) => setFigureChosen(figure === null ? null : figureKey(figure)), []);
+  const openDialogEditor = useCallback(
+    (figure: FigureDialog) => {
+      if (dialogs !== null) latest.current.onOpenDialog?.(figureTarget(dialogs, figure));
+    },
+    [dialogs],
+  );
+  const trainers = context.trainers;
+  const figureTitle = useCallback(
+    (figure: FigureDialog) => (figure.source.kind === "trainer" ? trainerTitle(trainers, figure.source.id) : dialogTitle(figure.kind, figure.index)),
+    [trainers],
+  );
+  const needTrainers = useCallback(() => latest.current.needTrainers?.(), []);
+  const dialogChanged = useCallback(() => {
+    latest.current.onEdited();
+    latest.current.bus.emit({ topic: "textData", archive: null });
+  }, []);
+  const onError = useCallback((e: unknown) => latest.current.onError(e), []);
+  const scriptFiles = context.scriptFiles;
+  const dialogsFound = useMemo(() => ({ dialogs, error: dialogsError, loading: dialogsLoading }), [dialogs, dialogsError, dialogsLoading]);
+
   const model = useMemo<TextAreaModel>(
     () => ({
       archive: archiveIndex,
@@ -235,19 +340,51 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       createArchive: () => void createArchive(),
       goTo,
       depth,
-      narrating: !depthAtLeast(depth, "bauen"),
+      narrating,
+      places: worldPlaces,
+      dialogHeader,
+      dialogPlace,
+      dialogs: dialogsFound,
+      dialogFigure,
+      dialogRevision,
+      selectDialogHeader,
+      selectFigure,
+      openDialogEditor,
+      figureTitle,
+      needTrainers,
+      dialogChanged,
+      onError,
+      scriptFiles,
     }),
-    [archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append, removeLast, createArchive, goTo, depth],
+    [
+      archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append,
+      removeLast, createArchive, goTo, depth, narrating, worldPlaces, dialogHeader, dialogPlace, dialogsFound, dialogFigure, dialogRevision, selectDialogHeader, selectFigure, openDialogEditor, figureTitle, needTrainers,
+      dialogChanged, onError, scriptFiles,
+    ],
   );
-  return <TextAreaContext.Provider value={model}>{children}</TextAreaContext.Provider>;
+  return (
+    <TextAreaContext.Provider value={model}>
+      <HeaderDialogsCacheContext.Provider value={cache}>{children}</HeaderDialogsCacheContext.Provider>
+    </TextAreaContext.Provider>
+  );
 });
 
 /** How many messages of the open archive have a line over the limit. */
 export const overlongCount = (widths: readonly number[]) => widths.filter((w) => w > LINE_LIMIT).length;
 
-/** The middle of the status line while the texts show: "Archiv 0412, 34 Nachrichten, 1 zu lang"; empty without an open archive. */
+/**
+ * The middle of the status line while the texts show: "Archiv 0412, 34 Nachrichten, 1 zu lang"; empty without an open archive. In Erzählen
+ * the place, how many figures speak there and the chosen figure ("Zweiblattdorf, 2 Figuren sprechen, Objekt 3").
+ */
 export function TextStatus() {
-  const { archive, loaded, widths } = useTextArea();
+  const { archive, loaded, widths, narrating, dialogPlace, dialogs, dialogFigure, figureTitle } = useTextArea();
+  if (narrating) {
+    if (dialogPlace === null) return null;
+    const parts = [dialogPlace.name];
+    if (dialogs.dialogs !== null) parts.push(speakersText(dialogs.dialogs.figures));
+    if (dialogFigure !== null) parts.push(figureTitle(dialogFigure));
+    return <>{parts.join(", ")}</>;
+  }
   if (archive === null) return null;
   const parts = [`Archiv ${id4(archive)}`];
   if (loaded) {

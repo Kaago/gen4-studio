@@ -1,4 +1,4 @@
-import type { Dialog, DialogMessage, EventKind } from "../../api";
+import type { Dialog, DialogMessage, EventKind, FigureDialog, HeaderDialogs } from "../../api";
 import { pages } from "../text/textModel";
 
 /** The figure whose dialog the inspector shows and the dialog editor edits: an object or a sign of `eventFile`, looked up on `header`. */
@@ -63,6 +63,64 @@ export function dialogSummary(d: Dialog): string {
       const n = distinct.length;
       if (n === 0) return "Sagt nichts";
       const m = pageCount(distinct);
+      return `${n} ${n === 1 ? "Nachricht" : "Nachrichten"} · ${m} ${m === 1 ? "Seite" : "Seiten"}`;
+    }
+  }
+}
+
+/** A figure of a place by class and index: „object:3“, „bg:0“ (the cards' `data-dialog-figure`). */
+export const figureKey = (f: Pick<FigureDialog, "kind" | "index">) => `${f.kind}:${f.index}`;
+
+/** The dialog editor's target for figure `f` of the place `dialogs` lists. */
+export const figureTarget = (dialogs: Pick<HeaderDialogs, "header" | "event_file">, f: Pick<FigureDialog, "kind" | "index">): DialogTarget => ({
+  header: dialogs.header,
+  eventFile: dialogs.event_file,
+  kind: f.kind,
+  index: f.index,
+  title: dialogTitle(f.kind, f.index),
+});
+
+/** Whether a figure says something: its own script shows a message, or a common script or a trainer's battle speaks for it. */
+export function speaks(f: FigureDialog): boolean {
+  switch (f.source.kind) {
+    case "local":
+      return f.messages > 0;
+    case "common":
+    case "trainer":
+      return true;
+    case "none":
+    case "unreadable":
+      return false;
+  }
+}
+
+/** The line of a place in the list of dialogs: „2 Figuren sprechen“, „1 Figur spricht“, „Keine Figur spricht“, „Keine Figuren“. */
+export function speakersText(figures: readonly FigureDialog[]): string {
+  if (figures.length === 0) return "Keine Figuren";
+  const n = figures.filter(speaks).length;
+  if (n === 0) return "Keine Figur spricht";
+  return n === 1 ? "1 Figur spricht" : `${n} Figuren sprechen`;
+}
+
+/**
+ * The line of a figure's card, like `dialogSummary` from what `dialogsOfHeader` counted: „2 Nachrichten · 3 Seiten“, „Sagt nichts“, and for
+ * a source the dialog editor does not edit where it is edited.
+ */
+export function figureSummary(f: FigureDialog): string {
+  const source = f.source;
+  switch (source.kind) {
+    case "common":
+      return `Gemeinsames Script ${source.script}: in Bauen bearbeiten.`;
+    case "trainer":
+      return "Kampftexte des Trainers: im Bereich Pokémon";
+    case "unreadable":
+      return `Script nicht lesbar: ${source.reason}`;
+    case "none":
+      return "Sagt nichts";
+    case "local": {
+      const n = f.messages;
+      if (n === 0) return "Sagt nichts";
+      const m = f.pages;
       return `${n} ${n === 1 ? "Nachricht" : "Nachrichten"} · ${m} ${m === 1 ? "Seite" : "Seiten"}`;
     }
   }
