@@ -1,4 +1,4 @@
-script gespraech_{local_id}_{value} #{n}:
+script {name} #{n}:
     LockAll
     FacePlayer
     if {var} == {from} then

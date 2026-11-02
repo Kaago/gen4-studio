@@ -37,9 +37,16 @@ impl Tail {
     }
 }
 
-/// The talk branch `gespraech_<local_id>_<from + 1> #n` of figure `local_id`: when `var_id`
-/// is `from`, it shows message `message` and sets the variable to `from + 1`; otherwise the
-/// script goes on with `tail`.
+/// The name of the talk hull of figure `local_id` in slot `#n`: `gespraech_<local_id>_<n>`,
+/// unique in its script file by the slot (two stories may advance through the same figure
+/// from the same value).
+pub(crate) fn talk_name(local_id: u16, n: u16) -> String {
+    format!("gespraech_{local_id}_{n}")
+}
+
+/// The talk branch [`talk_name`] `#n` of figure `local_id`: when `var_id` is `from`, it shows
+/// message `message` and sets the variable to `from + 1`; otherwise the script goes on with
+/// `tail`.
 pub(crate) fn talk_script(
     family: Family,
     n: u16,
@@ -52,8 +59,8 @@ pub(crate) fn talk_script(
     fill(
         template("story_talk", family),
         &[
+            ("name", talk_name(local_id, n)),
             ("n", n.to_string()),
-            ("local_id", local_id.to_string()),
             ("value", (u32::from(from) + 1).to_string()),
             ("var", var_id.to_owned()),
             ("from", from.to_string()),

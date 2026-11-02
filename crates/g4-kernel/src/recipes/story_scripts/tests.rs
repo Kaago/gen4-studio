@@ -28,7 +28,7 @@ fn talk_pt_matches_the_template() {
     );
     assert_eq!(
         text,
-        "script gespraech_3_2 #5:\n\
+        "script gespraech_3_5 #5:\n\
          \x20   LockAll\n\
          \x20   FacePlayer\n\
          \x20   if VAR_STORY_TESTFADEN == 1 then\n\
@@ -42,6 +42,9 @@ fn talk_pt_matches_the_template() {
          \x20   ReleaseAll\n\
          \x20   Jump figur_3\n"
     );
+    // The hull is named after its slot, the name from one place.
+    assert_eq!(talk_name(3, 5), "gespraech_3_5");
+    assert!(text.starts_with(&format!("script {} #5:\n", talk_name(3, 5))));
     // Diamond and Pearl take Platinum's text; a figure without a script so far just ends.
     assert_eq!(
         talk_script(Family::Dp, 5, 3, "VAR_STORY_TESTFADEN", 1, 12, &Tail::End),

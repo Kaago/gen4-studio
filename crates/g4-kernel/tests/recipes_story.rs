@@ -635,7 +635,7 @@ fn apply_of_a_talk_wraps_the_old_script_and_is_one_undo_step() {
     assert_eq!(store.event(0).unwrap().object_events[0].script, 3);
     let source = source_of(&store, 0);
     assert!(source.starts_with(&old_source), "{source}");
-    assert!(source.contains("script gespraech_5_1 #3:"), "{source}");
+    assert!(source.contains("script gespraech_5_3 #3:"), "{source}");
     assert!(
         source.contains("    if VAR_STORY_TESTFADEN == 0 then\n"),
         "{source}"
@@ -714,7 +714,7 @@ fn a_figure_without_a_script_gets_a_tail_end() {
     assert_eq!(outcome.report.previous_slot, 0);
     assert_eq!(store.event(0).unwrap().object_events[2].script, 3);
     let source = source_of(&store, 0);
-    assert!(source.contains("script gespraech_7_1 #3:"), "{source}");
+    assert!(source.contains("script gespraech_7_3 #3:"), "{source}");
     assert!(
         source.ends_with("    endif\n    ReleaseAll\n    End\n"),
         "{source}"
@@ -743,12 +743,12 @@ fn a_second_talk_wraps_the_first_hull() {
     );
     // The latest branch checks first and goes on with the first hull, that with `zwei`.
     let source = source_of(&store, 0);
-    let hull = &source[source.find("script gespraech_5_2 #4:").unwrap()..];
+    let hull = &source[source.find("script gespraech_5_4 #4:").unwrap()..];
     assert!(
         hull.contains("    if VAR_STORY_TESTFADEN == 1 then\n"),
         "{hull}"
     );
-    assert!(hull.ends_with("    Jump gespraech_5_1\n"), "{hull}");
+    assert!(hull.ends_with("    Jump gespraech_5_3\n"), "{hull}");
     let shown: Vec<u16> = dialog_of(&mut store, 0, 0, DialogKind::Object, 0)
         .unwrap()
         .messages
@@ -759,6 +759,87 @@ fn a_second_talk_wraps_the_first_hull() {
     let story = read_story(store.project(), 0).unwrap().unwrap();
     let keys: Vec<&str> = story.steps.iter().map(|s| s.key.as_str()).collect();
     assert_eq!(keys, ["s0", "s1", "s2"]);
+}
+
+#[test]
+fn two_stories_advance_through_the_same_figure() {
+    let (_fx, mut store) = talk_fixture();
+    new_story::apply(&mut store, &new_story_input("Nebenfaden", POOL_VAR + 1)).unwrap();
+    let first = talk_advances::apply(&mut store, &talk(5, 0, "Erste")).unwrap();
+    let second = talk_advances::apply(
+        &mut store,
+        &TalkAdvancesInput {
+            story: "STORY_NEBENFADEN".to_owned(),
+            ..talk(5, 0, "Zweite")
+        },
+    )
+    .unwrap();
+    // Both switch from 0 to 1, each in its own story; the hulls are named after their slots.
+    assert_eq!((first.report.slot, second.report.slot), (3, 4));
+    assert_eq!(second.report.previous_slot, 3);
+    let source = source_of(&store, 0);
+    let hull = &source[source.find("script gespraech_5_4 #4:").unwrap()..];
+    assert!(
+        hull.contains("    if VAR_STORY_NEBENFADEN == 0 then\n"),
+        "{hull}"
+    );
+    assert!(hull.ends_with("    Jump gespraech_5_3\n"), "{hull}");
+    assert!(source.contains("script gespraech_5_3 #3:"), "{source}");
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 4);
+    for (number, var) in [(0, "VAR_STORY_TESTFADEN"), (1, "VAR_STORY_NEBENFADEN")] {
+        let story = read_story(store.project(), number).unwrap().unwrap();
+        assert_eq!(story.steps[1].key, "s1");
+        assert!(
+            story.steps[1].uses.contains(&Use::Var(var.to_owned())),
+            "{story:?}"
+        );
+    }
+}
+
+/// Sets the story folder and its files read-only (`readonly`) or writable again.
+fn story_files_readonly(store: &Store, readonly: bool) {
+    let dir = store.project().root.join("data/stories");
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    paths.push(dir);
+    for path in paths {
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(readonly);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+}
+
+#[test]
+fn a_failure_after_the_compile_takes_everything_back() {
+    let (_fx, mut store) = talk_fixture();
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let before = state(&store);
+    let source = source_of(&store, 0);
+    let mark = store.undo_depth();
+    let history = store.history();
+    // The story can be read but not written: `append_step` fails after the hull compiled.
+    story_files_readonly(&store, true);
+    let result = talk_advances::apply(&mut store, &talk(5, 0, "Hallo!"));
+    story_files_readonly(&store, false);
+    assert!(result.is_err(), "{result:?}");
+    assert!(
+        !matches!(result, Err(KernelError::Refused(_))),
+        "{result:?}"
+    );
+    assert_eq!(state(&store), before);
+    assert_eq!(source_of(&store, 0), source);
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(store.history(), history);
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 2);
+    assert_eq!(
+        store.text_archive(ARCHIVE).unwrap().messages.len(),
+        messages
+    );
+    // Applied again, it goes through.
+    talk_advances::apply(&mut store, &talk(5, 0, "Hallo!")).unwrap();
+    assert_eq!(store.undo_depth(), mark + 1);
 }
 
 #[test]
@@ -1018,7 +1099,10 @@ fn vanilla_talk(family: Family) -> Option<String> {
          setup_ms={setup_ms} apply_ms={apply_ms} undo_ms={undo_ms}",
         project.game_code, report.slot, report.previous_slot, report.message
     );
-    let start = source.find(&format!("script gespraech_{local_id}_1 #{}:", report.slot))?;
+    let start = source.find(&format!(
+        "script gespraech_{local_id}_{0} #{0}:",
+        report.slot
+    ))?;
     Some(source[start..].to_owned())
 }
 

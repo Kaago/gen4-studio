@@ -1,9 +1,8 @@
 use super::*;
 
 #[test]
-fn key_name_and_label_name_the_value_the_talk_switches_to() {
+fn key_and_label_name_the_value_the_talk_switches_to() {
     assert_eq!(step_key(1), "s1");
-    assert_eq!(script_name(5, 1), "gespraech_5_1");
     assert_eq!(
         label(5, "Testfaden", 1),
         "Gespräch von Figur 5 schaltet „Testfaden“ auf 1"

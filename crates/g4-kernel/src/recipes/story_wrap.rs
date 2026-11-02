@@ -11,10 +11,11 @@
 //! store transaction appends the message to the header's text archive and points the object at
 //! the hull, the hull is appended to the source and compiled, the compile's files are recorded
 //! as file steps, the step goes into the story ([`append_step`]), and everything since the
-//! recipe's mark is squashed into one step. An error after the first write rolls back to the
-//! mark.
+//! recipe's mark is squashed into one step. Any error rolls back to the mark, and files the
+//! compile wrote before their file steps were recorded are put back first.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use g4_formats::game::Family;
 
@@ -26,12 +27,13 @@ use super::story_scripts::Tail;
 use super::types::{check_writable, id, refused};
 use crate::data::trainer_create::ADOPT_FIRST;
 use crate::dialog::{DialogKind, DialogSource, dialog_of};
-use crate::error::KernelError;
-use crate::project::AssetKind;
-use crate::scripts::{self, ArchiveSnapshot, SourceKind};
+use crate::error::{KernelError, io_at};
+use crate::project::{AssetKind, Project};
+use crate::scripts::{self, ArchiveSnapshot, ScriptSnapshot, SourceKind};
 use crate::store::{ChangeId, MapHeader, Store};
 use crate::stories::Step;
 use crate::stories::entities::append_step;
+use crate::text::json_path;
 
 /// The refusal for a trainer: its texts are its battle texts.
 pub(crate) const TRAINER_TEXT: &str = "Trainer sprechen über ihre Kampftexte (Bereich Pokémon).";
@@ -55,7 +57,7 @@ pub(crate) fn require_adopted(store: &Store) -> Result<(), KernelError> {
 
 /// What a recipe asks of [`check_hull`]: the figure, the text of its message, the refusal for
 /// an empty text and the name the hull script gets from the figure's `local_id` and the new
-/// slot (`gespraech_<local_id>_<value>`, `belohnung_<local_id>_<n>`).
+/// slot (`gespraech_<local_id>_<n>`, `belohnung_<local_id>_<n>`).
 pub(crate) struct HullRequest<'a> {
     pub figure: &'a FigureRef,
     pub text: &'a str,
@@ -182,14 +184,98 @@ pub(crate) struct HullStep<'a> {
 /// whole file, the text archives of the headers with that script file it touched) are recorded
 /// as file steps from their state before; the step goes into the story. The JSON a compile
 /// writes from the member of an archive DSPRE has not expanded is removed again. A compile
-/// error puts the source and the compile state back; any error rolls back to `mark`. A compile
-/// that wrote a text literal into the hull's archive is rolled back and refused (its number
-/// would collide with the store's new message). Answers the change of the step.
+/// that wrote a text literal into the hull's archive is refused (its number would collide with
+/// the store's new message). Answers the change of the step.
+///
+/// Any error rolls everything back: files the compile wrote before their file steps are
+/// recorded are put back from their state before ([`DiskBefore`]), then the store rolls back
+/// to `mark` (which takes back the recorded file steps, the transaction and what the recipe
+/// did before). Should taking back fail too, the error names both.
 pub(crate) fn apply_hull(
     store: &mut Store,
     mark: usize,
     hull: Hull,
     step: HullStep<'_>,
+) -> Result<Option<ChangeId>, KernelError> {
+    let mut disk = None;
+    match write_hull(store, mark, hull, step, &mut disk) {
+        Ok(change) => Ok(change),
+        Err(e) => {
+            let project = store.project_arc();
+            let restored = disk.as_ref().map_or(Ok(()), |d| d.restore(&project));
+            let rolled = store.rollback_to(mark).map(|_| ());
+            match restored.and(rolled) {
+                Ok(()) => Err(e),
+                Err(back) => Err(KernelError::InvalidProject(format!(
+                    "{e}; das Zurücknehmen scheiterte: {back}"
+                ))),
+            }
+        }
+    }
+}
+
+/// The files a compile of script file `file` may write, as they were before: the script file,
+/// rotom's compile state and the text archives of the headers with that script file.
+struct DiskBefore {
+    file: u16,
+    script: ScriptSnapshot,
+    state: Option<Vec<u8>>,
+    archives: BTreeMap<u16, ArchiveSnapshot>,
+}
+
+impl DiskBefore {
+    /// Puts every file back that differs from its state before (a file that was not there is
+    /// removed).
+    fn restore(&self, project: &Project) -> Result<(), KernelError> {
+        let file = self.file;
+        put_back(
+            &scripts::source_path(project, file, SourceKind::Script),
+            self.script.rotom.as_deref(),
+        )?;
+        put_back(
+            &scripts::source_path(project, file, SourceKind::LevelScript),
+            self.script.json.as_deref(),
+        )?;
+        put_back(
+            &scripts::source_path(project, file, SourceKind::Binary),
+            self.script.member.as_deref(),
+        )?;
+        scripts::restore_compile_state(project, self.state.as_deref())?;
+        for (&a, snapshot) in &self.archives {
+            put_back(&json_path(project, a), snapshot.json.as_deref())?;
+            put_back(
+                &project.member_path(AssetKind::TextArchive, a),
+                snapshot.member.as_deref(),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Writes `before` to `path` (removes it for `None`) when the file differs from it.
+fn put_back(path: &Path, before: Option<&[u8]>) -> Result<(), KernelError> {
+    let now = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(io_at(path)(e)),
+    };
+    if now.as_deref() == before {
+        return Ok(());
+    }
+    match before {
+        Some(bytes) => std::fs::write(path, bytes).map_err(io_at(path)),
+        None => std::fs::remove_file(path).map_err(io_at(path)),
+    }
+}
+
+/// [`apply_hull`] without taking back: `disk` holds the files before the compile from the
+/// compile on until their file steps are recorded (then `rollback_to` takes them back).
+fn write_hull(
+    store: &mut Store,
+    mark: usize,
+    hull: Hull,
+    step: HullStep<'_>,
+    disk: &mut Option<DiskBefore>,
 ) -> Result<Option<ChangeId>, KernelError> {
     let project = store.project_arc();
     let HeaderFiles {
@@ -216,7 +302,7 @@ pub(crate) fn apply_hull(
         .collect::<Result<BTreeMap<u16, ArchiveSnapshot>, KernelError>>()?;
 
     let (index, local_id, slot) = (hull.figure.index, hull.figure.local_id, hull.slot);
-    let pushed = store.transaction(label, |tx| {
+    let (message, _) = store.transaction(label, |tx| {
         let message = push_message(tx, hull.family, archive, &hull.text)?;
         let mut pointed = false;
         tx.edit_event(event_file, |f| {
@@ -237,34 +323,25 @@ pub(crate) fn apply_hull(
             )));
         }
         Ok(message)
-    });
-    let message = match pushed {
-        Ok((message, _)) => message,
-        Err(e) => {
-            store.rollback_to(mark)?;
-            return Err(e);
-        }
-    };
+    })?;
     if message != hull.message {
-        store.rollback_to(mark)?;
         return Err(refused(format!(
             "Die Nachricht bekam Nummer {message} statt {} in Textarchiv {archive}.",
             hull.message
         )));
     }
 
-    let touched = match scripts::append_source(&project, script_file, hull.source, step.script) {
-        Ok(touched) => touched,
-        Err(e) => {
-            // The source is back; the compile state the failed compile wrote goes back too.
-            scripts::restore_compile_state(&project, before_state.as_deref())?;
-            store.rollback_to(mark)?;
-            return Err(e);
-        }
-    };
+    // From here on the compile's files are on disk until their file steps are recorded.
+    *disk = Some(DiskBefore {
+        file: script_file,
+        script: before_script.clone(),
+        state: before_state.clone(),
+        archives: saved.clone(),
+    });
+    let touched = scripts::append_source(&project, script_file, hull.source, step.script)?;
 
-    // The file steps. The compile state goes back as a whole file (last step): the compile
-    // wrote all of it anew.
+    // The file steps, all worked out before the first is recorded. The compile state goes
+    // back as a whole file (last step): the compile wrote all of it anew.
     let mut steps = vec![scripts::script_file_step(
         &project,
         script_file,
@@ -286,9 +363,10 @@ pub(crate) fn apply_hull(
             store.record_file_step(label, file_step);
         }
     }
+    *disk = None;
+
     if touched.contains(&archive) {
         // rotom appended a text literal of the file where the hull's message goes.
-        store.rollback_to(mark)?;
         return Err(refused(format!(
             "Der Compile der Scriptdatei {script_file:04} schrieb ein Text-Literal in Textarchiv \
              {archive}, in das die neue Nachricht kommt; erst die Scriptdatei in Bauen \
@@ -301,15 +379,11 @@ pub(crate) fn apply_hull(
             store.reload_from_disk(touched_id)?;
         }
     }
-
-    let story = match append_step(store, step.story, step.step, step.flags) {
-        Ok(story) => story,
-        Err(e) => {
-            store.rollback_to(mark)?;
-            return Err(e);
-        }
-    };
+    let story = append_step(store, step.story, step.step, step.flags)?;
     store.squash_since(mark, label);
     scripts::remove_materialized_json(&project, &saved, &touched)?;
     Ok(story.change)
 }
+
+#[cfg(all(test, feature = "test-support"))]
+mod tests;

@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::story_common::{FigureRef, LoadedStory, dialog_step_taken, load_story, made, step_of};
-use super::story_scripts::talk_script;
+use super::story_scripts::{talk_name, talk_script};
 use super::story_wrap::{Hull, HullRequest, HullStep, apply_hull, check_hull, require_adopted};
 use super::types::{Draft, DraftMessage, Outcome, RecipeId, next_steps, refused};
 use crate::error::KernelError;
@@ -49,11 +49,6 @@ pub struct TalkAdvancesReport {
 /// The key of the step a talk to `value` makes.
 fn step_key(value: u16) -> String {
     format!("s{value}")
-}
-
-/// The name of the hull script of figure `local_id` switching to `value`.
-fn script_name(local_id: u16, value: u16) -> String {
-    format!("gespraech_{local_id}_{value}")
 }
 
 /// The undo label.
@@ -118,7 +113,7 @@ struct Checked {
 /// Every check before the first write, in this order: adopted scripts, the story with a
 /// progress variable, its step `from_step`, no dialog step with value k+1 and no step with key
 /// `s{k+1}`, then the hull's checks (figure, its script local or none, the files, the text, the
-/// slot, the script name, the message number).
+/// slot, the hull's name ([`talk_name`]), the message number).
 fn check(store: &mut Store, input: &TalkAdvancesInput) -> Result<Checked, KernelError> {
     require_adopted(store)?;
     let story = load_story(store, &input.story)?;
@@ -146,7 +141,7 @@ fn check(store: &mut Store, input: &TalkAdvancesInput) -> Result<Checked, Kernel
             figure: &input.figure,
             text: &input.text,
             no_text: NO_TEXT,
-            name: &|local_id, _| script_name(local_id, value),
+            name: &talk_name,
         },
     )?;
     Ok(Checked { story, value, hull })
