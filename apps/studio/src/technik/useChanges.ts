@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { changedFromOriginal, errorText } from "../api";
-import type { ChangedProgress, ChangedReport } from "../api";
+import type { ChangedProgress, ChangedReport, ChangeState, DiffSubject } from "../api";
+import type { EntityState } from "../ui/primitives";
 import { FOCUS_DELAY_MS } from "../app/useExternalSync";
 import { subscribeWindowFocus } from "../platform/windowFocus";
 
@@ -154,4 +155,39 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
   // React renders again at once after the reset above; this pass already shows nothing of the state before.
   if (stale) return { report: null, progress: null, error: null, busy: false, compare };
   return { report, progress, error, busy, compare };
+}
+
+/** The key of the entity `subject` names (the same in all three lists of Technik › Änderungen). */
+function subjectKey(subject: DiffSubject): string {
+  switch (subject.kind) {
+    case "file":
+      return `file\u0000${subject.path}`;
+    case "member":
+      return `member\u0000${subject.folder}\u0000${subject.index}`;
+    default:
+      return `${subject.kind}\u0000${subject.index}`;
+  }
+}
+
+/** The states of a report by subject, made once per report. */
+const statesOf = new WeakMap<ChangedReport, Map<string, EntityState>>();
+
+/**
+ * How the entity `subject` stands in the saved project against the base ROM by `report` (`changed_from_original`): „changed“, „new“, or
+ * „deleted“ (a tombstone, 3d.4); null when the report does not list it (as in the base), when it is missing from the project, and without
+ * a report.
+ */
+export function stateOf(report: ChangedReport | null, subject: DiffSubject): EntityState | null {
+  if (report === null) return null;
+  let states = statesOf.get(report);
+  if (states === undefined) {
+    states = new Map();
+    for (const entry of report.entries) {
+      // The kernel names a tombstone „deleted“ since 3d.4; `ChangeState` names it with the lists that show it.
+      const state: ChangeState | "deleted" = entry.state;
+      if (state !== "missing") states.set(subjectKey(entry.subject), state);
+    }
+    statesOf.set(report, states);
+  }
+  return states.get(subjectKey(subject)) ?? null;
 }

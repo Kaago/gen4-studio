@@ -305,7 +305,10 @@ function SplitterDemo({ orientation }: { orientation: "horizontal" | "vertical" 
   );
 }
 
-/** The heads of the inspector in the states it has: a figure with unsaved changes, an area in Bauen, the same header in Tüfteln, a door of a locked event file. */
+/**
+ * The heads of the inspector in the states it has: a figure with unsaved changes, an area in Bauen, the same header in Tüfteln (changed against
+ * the base), a door of a locked event file, a new map, a deleted room.
+ */
 const HEADS: { name: string; head: InspectorHeadProps }[] = [
   {
     name: "Figur, ungespeichert",
@@ -316,23 +319,28 @@ const HEADS: { name: string; head: InspectorHeadProps }[] = [
     head: { kind: "area", title: "Zweiblattdorf", ident: "Zweiblattdorf · T01", actions: [{ label: "Raum hier anbinden…", onSelect: noop }], depth: "bauen" },
   },
   {
-    name: "Header in Tüfteln",
-    head: { kind: "area", title: "Zweiblattdorf", ident: "Header 0411 · T01", actions: [{ label: "Raum hier anbinden…", onSelect: noop }], depth: "tuefteln" },
+    name: "Header in Tüfteln, geändert",
+    head: { kind: "area", title: "Zweiblattdorf", ident: "Header 0411 · T01", state: "changed", actions: [{ label: "Raum hier anbinden…", onSelect: noop }], depth: "tuefteln" },
   },
   {
     name: "Tür, Eventdatei gesperrt",
     head: { kind: "door", title: "Warp 1 → Haus 1", ident: "Warp 1 · Eventdatei 0390", locked: true, actions: [{ label: "Löschen", detail: <Kbd keys="Entf" />, disabled: true, onSelect: noop }], depth: "bauen" },
   },
   {
-    name: "Karte mit Menü",
+    name: "Neue Karte mit Menü",
     head: {
       kind: "map",
-      title: "Karte 0411",
+      title: "Karte 0650",
       ident: "Sinnoh · Zelle 3, 4",
+      state: "new",
       irreversible: true,
-      actions: [{ label: "Teile importieren…", onSelect: noop }, { label: "Teile exportieren…", onSelect: noop }, { label: "Duplizieren", onSelect: noop }],
+      actions: [{ label: "Teile importieren…", onSelect: noop }, { label: "Teile exportieren…", onSelect: noop }, { label: "Duplizieren", onSelect: noop }, { label: "Löschen…", onSelect: noop }],
       depth: "bauen",
     },
+  },
+  {
+    name: "Raum, gelöscht",
+    head: { kind: "room", title: "Haus 1", ident: "Zweiblattdorf · T01R0101", state: "deleted", unsaved: true, actions: [{ label: "Löschen…", onSelect: noop }], depth: "bauen" },
   },
 ];
 
@@ -503,7 +511,8 @@ export function FramePage() {
         <h2 className={styles.blockTitle}>Inspector-Kopf</h2>
         <p className={styles.note}>
           Das Typ-Wort steht als Augenbraue mit Symbol (in Tüfteln „Header“ statt „Gebiet“), darunter der Titel in Zen Maru Gothic und grau in Mono die Kennung. Rechts stehen die Zustände (Ungespeichert,
-          Gesperrt, Nicht rückgängig) und das Menü „Aktionen“ mit dem, was sich mit dem Datensatz tun lässt.
+          Gesperrt, Nicht rückgängig) und das Menü „Aktionen“ mit dem, was sich mit dem Datensatz tun lässt. Vor ihnen steht, wie der Datensatz zur Basis-ROM steht:
+          „geändert“, „neu“ oder als Grabstein „gelöscht“.
         </p>
         <InspectorHeads />
       </section>

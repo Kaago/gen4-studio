@@ -1,0 +1,119 @@
+import type { AssetId } from "./api";
+import type { RefDto } from "./api.data";
+import { invoke } from "./platform/transport";
+
+/**
+ * „Löschen…“ (3d.4), mirroring `apps/studio/src-tauri/src/commands/delete.rs` and `g4_kernel::delete`. `api.ts` re-exports everything.
+ * Field names are the Rust ones (snake_case). Without a found base ROM `planDelete` and `deleteEntity` reject with code `base_missing`
+ * (but for an own flag or variable name); a delete the references lock rejects with code `referenced` and the `references`; a refused
+ * one with `error` and the kernel's German reason.
+ */
+
+/** What can be deleted: `kind` is the tag, `index` the entry (a header names its id, a script its file, a flag or variable its number). */
+export type DeleteTarget =
+  | {
+      kind:
+        | "trainer"
+        | "encounter"
+        | "event_file"
+        | "matrix"
+        | "map"
+        | "text_archive"
+        | "area_data"
+        | "map_texture"
+        | "building_texture"
+        | "building_model"
+        | "interior_building_model"
+        | "place";
+      index: number;
+    }
+  | { kind: "header"; id: number }
+  | { kind: "script"; file: number }
+  | { kind: "flag" | "var"; number: number };
+
+export type DeleteKind = DeleteTarget["kind"];
+
+/** What „Nummer freigeben“ removes: `count` entities (the target and the tombstones of new entities behind it) and their files. */
+export interface FreeInfo {
+  count: number;
+  /** Relative to the project root. */
+  files: string[];
+}
+
+/** What deleting `target` would do. */
+export interface DeletePlan {
+  target: DeleteTarget;
+  label: string;
+  /** Why a tombstone is refused; null: „Löschen“ is possible (unless `references` lock it). */
+  refusal: string | null;
+  /** The references that lock the delete. */
+  references: RefDto[];
+  /** The references that only warn (soft sources; none in 3d.4). */
+  warnings: RefDto[];
+  /** An entity of the base ROM: deleting it warns (the entry stays in the ROM). */
+  original: boolean;
+  /** The entity is a tombstone now. */
+  deleted: boolean;
+  /** What „Nummer freigeben“ would remove; null when it cannot (`cannot_free` says why). */
+  can_free: FreeInfo | null;
+  cannot_free: string | null;
+}
+
+export interface DeleteResult {
+  /** The undo step; null for „Nummer freigeben“ (an undo barrier). */
+  change: string | null;
+  changed: AssetId[];
+  /** What „Nummer freigeben“ removed. */
+  freed: FreeInfo | null;
+  ms: number;
+}
+
+/** What deleting `target` would do; changes nothing. */
+export const planDelete = (target: DeleteTarget) => invoke<DeletePlan>("plan_delete", { target });
+/** Deletes `target` as one undo step, or with `freeNumber` frees its number for good; rejects with code `referenced` and `references`. */
+export const deleteEntity = (target: DeleteTarget, freeNumber: boolean) => invoke<DeleteResult>("delete_entity", { target, freeNumber });
+/** Takes the tombstone of `target` back as one undo step. */
+export const restoreEntity = (target: DeleteTarget) => invoke<DeleteResult>("restore_entity", { target });
+
+const WORDS: Record<Exclude<DeleteKind, "header" | "script" | "place" | "flag" | "var">, string> = {
+  trainer: "Trainer",
+  encounter: "Begegnungsdatei",
+  event_file: "Eventdatei",
+  matrix: "Matrix",
+  map: "Karte",
+  text_archive: "Textarchiv",
+  area_data: "Gebietsdaten",
+  map_texture: "Kartentextur",
+  building_texture: "Gebäudetextur",
+  building_model: "Gebäudemodell",
+  interior_building_model: "Innenraum-Gebäudemodell",
+};
+
+const id4 = (n: number) => String(n).padStart(4, "0");
+const hex4 = (n: number) => `0x${n.toString(16).toUpperCase().padStart(4, "0")}`;
+
+/** The German name of the entity as the kernel gives it (`DeleteTarget::label`): „Trainer 0901“, „Ort 120“, „Flag 0x0094“. */
+export function deleteTargetLabel(target: DeleteTarget): string {
+  switch (target.kind) {
+    case "header":
+      return `Header ${id4(target.id)}`;
+    case "script":
+      return `Scriptdatei ${id4(target.file)}`;
+    case "place":
+      return `Ort ${target.index}`;
+    case "flag":
+      return `Flag ${hex4(target.number)}`;
+    case "var":
+      return `Variable ${hex4(target.number)}`;
+    default:
+      return `${WORDS[target.kind]} ${id4(target.index)}`;
+  }
+}
+
+/**
+ * Whether a DTO of the live state is a tombstone: `HeaderSummary`, `DataRowDto`, `EventsDto` and `MatrixDto` carry `deleted` since 3d.4
+ * (the types name it where they are read; data of older tests leaves it out, which reads as not deleted).
+ */
+export function isDeleted(dto: object | null | undefined): boolean {
+  return dto != null && (dto as { deleted?: unknown }).deleted === true;
+}

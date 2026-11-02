@@ -1,0 +1,47 @@
+/* The body of „{label} löschen“: notices, the references, the option to free the number. */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* „Prüfe Verweise …“, „Lösche …“. */
+.wait {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The references, one row each (a click leads there). */
+.refs {
+  display: flex;
+  flex-direction: column;
+}
+
+/* „Nummer freigeben (nicht rückgängig)“ with its badge, what goes below it. */
+.free {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.freeHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.files {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-code-s);
+  overflow-wrap: anywhere;
+}
+
+/* Why the number stays taken. */
+.quiet {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}

@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
 import type { CheckFieldsDto } from "./api.checks";
+import type { RefDto } from "./api.data";
 import type { TextProjectStatus } from "./api.textproject";
 
 export interface ProjectInfo {
@@ -509,11 +510,14 @@ export interface CmdError {
     | "pool_empty"
     | "invalid_id"
     | "taken"
-    | "refused";
+    | "refused"
+    | "referenced";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
   problems?: ProblemDto[];
+  /** The references that lock a delete („referenced“, 3d.4); left out for every other code. */
+  references?: RefDto[];
 }
 
 export function isCmdError(e: unknown): e is CmdError {
@@ -556,10 +560,12 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "pool_empty" ||
       o.code === "invalid_id" ||
       o.code === "taken" ||
-      o.code === "refused") &&
+      o.code === "refused" ||
+      o.code === "referenced") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
-    (o.problems === undefined || Array.isArray(o.problems))
+    (o.problems === undefined || Array.isArray(o.problems)) &&
+    (o.references === undefined || Array.isArray(o.references))
   );
 }
 
@@ -1082,3 +1088,4 @@ export * from "./project/api.templates";
 export * from "./api.publish";
 export * from "./recipes/api";
 export * from "./api.flags";
+export * from "./api.delete";

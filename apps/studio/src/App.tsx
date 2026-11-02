@@ -31,7 +31,7 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { publishLocked as publishLockOf } from "./publish/publishWords";
-import { useChanges } from "./technik/useChanges";
+import { stateOf, useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
 import { focusChangesSurface, focusCommitAll } from "./technik/ChangesSurface";
@@ -39,6 +39,7 @@ import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
+import { DeleteProvider } from "./delete/DeleteContext";
 import { AdoptDialog } from "./textproject/AdoptDialog";
 import { MigrateDialog } from "./textproject/MigrateDialog";
 import { RevertDialog } from "./textproject/RevertDialog";
@@ -70,7 +71,7 @@ import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectSta
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
-import type { FlagKind } from "./api";
+import type { DeleteResult, FlagKind } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -956,6 +957,22 @@ function AppBody() {
     // A window focus compares (quietly) only while „Gegen Basis“ is on screen.
     listed: area === "technik" && technikEntry === "aenderungen" && against === "base",
   });
+  // The state badges of the heads („geändert“, „neu“, „gelöscht“): the saved project against the base, from the report of Änderungen.
+  const entityStateOf = useCallback((subject: DiffSubject) => stateOf(changes.report, subject), [changes.report]);
+  // „Löschen…“ went in (one undo step; „Nummer freigeben“ removed files behind an undo barrier): the message names the entity, the changed
+  // assets are read again as after a reset (the checks run on the edit), and Technik › Änderungen compares again.
+  const onDeleted = useStableCallback(async (result: DeleteResult, freed: boolean, label: string) => {
+    session.setMessage({ kind: "info", text: freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}` });
+    bumpChanged();
+    try {
+      // Freeing shrinks an archive: the counts (pickers, the next number) follow.
+      if (freed) await session.onCountsChanged();
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true, { discardScripts: freed });
+    } catch (e) {
+      session.fail(e);
+    }
+  });
   // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
   // detail of Änderungen reads its diff again on the same moves.
   const shownRevision = session.savedRevision + changedRevision + session.dirtyRevision;
@@ -1413,7 +1430,7 @@ function AppBody() {
     />
   );
 
-  return (
+  const app = (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
         <Workbench data={data} live={live}>
@@ -1612,5 +1629,11 @@ function AppBody() {
         {!inTauri() && <WebDialogHost />}
       </TextProjectProvider>
     </OriginalProvider>
+  );
+  // „Löschen…“ around everything (the dialog and the state badges of the heads).
+  return (
+    <DeleteProvider stateOf={entityStateOf} goTo={data.goTo} onDeleted={onDeleted}>
+      {app}
+    </DeleteProvider>
   );
 }

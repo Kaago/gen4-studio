@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MATRIX_EMPTY, duplicateMap, setMatrixCell } from "../../api";
 import type { AssetId, HeaderSummary, MemberCounts } from "../../api";
 import type { ChecksApi } from "../../checks/useChecks";
+import { useDelete } from "../../delete/DeleteContext";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { depthAtLeast } from "../../ui/frame/shellState";
@@ -161,6 +162,7 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
   const matrix = useMatrix(index, revision, onError);
   const { world } = useWorld();
   const reset = useReset();
+  const remove = useDelete();
   const [working, setWorking] = useState(false);
   const [partsDialog, setPartsDialog] = useState<"import" | "export" | null>(null);
 
@@ -231,8 +233,8 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
       await setMatrixCell(index, x, y, copy, null, null);
     }, true);
 
-  // The map's actions: its parts in and out (only when the cell has a map), a copy of it in this cell, and the map as in the base ROM (maps
-  // have no list: this head is the one place to reset one).
+  // The map's actions: its parts in and out (only when the cell has a map), a copy of it in this cell, the map as a tombstone, and the map as
+  // in the base ROM (maps have no list: this head is the one place to delete or reset one).
   const actions: MenuEntry[] = [
     ...(map === null
       ? []
@@ -241,12 +243,15 @@ export function MatrixCellEditor({ matrix: index, x, y, context, depth }: { matr
           { label: "Teile exportieren…", onSelect: () => setPartsDialog("export") },
         ]),
     { label: "Duplizieren", disabled: map === null || working, onSelect: () => map !== null && void duplicate(map) },
+    ...(map === null ? [] : [{ label: "Löschen…", onSelect: () => remove.open({ kind: "map", index: map }) }]),
     ...(map === null ? [] : ["separator" as const, resetEntry({ kind: "map", index: map }, reset.status, reset.open)]),
   ];
+  // How the cell's map stands in the saved project against the base.
+  const state = map === null ? null : remove.stateOf({ kind: "map", index: map });
 
   return (
     <div className={styles.panel}>
-      <InspectorHead kind="map" title={title} ident={ident} unsaved={unsaved} actions={actions} depth={depth} />
+      <InspectorHead kind="map" title={title} ident={ident} state={state} unsaved={unsaved} actions={actions} depth={depth} />
       <div className={styles.body}>
         <InspectorRow label="Karte" hint={`0 bis ${mapMax}, leer = keine Karte`}>
           <MapField map={map} max={mapMax} onCommit={commitMap} />

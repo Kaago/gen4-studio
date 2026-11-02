@@ -7,6 +7,7 @@ import type { Root } from "react-dom/client";
 import { vi } from "vitest";
 import type { DataRowDto, ItemEntryDto, NameArchivesDto, NameTablesDto, ProjectInfo } from "../api";
 import { createEditBus } from "../bus/editBus";
+import { deleteSpy, withDelete } from "../delete/deleteTesting";
 import { resetSpy, withReset } from "../original/resetTesting";
 import { textProjectSpy, withTextProject } from "../textproject/textProjectTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
@@ -73,7 +74,10 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
   const reset = resetSpy();
   // The text project („ID umbenennen…“, the ids in the heads): a DSPRE folder unless a test sets `text.active` before `show`.
   const text = textProjectSpy();
-  const show = (props: DataAreaProps) => act(() => root.render(<ShellProvider initialArea="pokemon">{withReset(reset, withTextProject(text, tree(props)))}</ShellProvider>));
+  // „Löschen…“ and the state badges of the heads: a spy whose states a test may set before `show`.
+  const del = deleteSpy();
+  const show = (props: DataAreaProps) =>
+    act(() => root.render(<ShellProvider initialArea="pokemon">{withReset(reset, withDelete(del, withTextProject(text, tree(props))))}</ShellProvider>));
   const q = <E extends Element = HTMLElement>(selector: string) => container.querySelector<E>(selector);
   const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("button")];
   const button = (text: string) => buttons().find((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === text);
@@ -83,5 +87,5 @@ export function dataHarness(tree: (props: DataAreaProps) => ReactNode) {
     act(() => root.unmount());
     container.remove();
   };
-  return { container, store, bus, calls, reset, text, base, show, q, button, buttons, trail, lastTrail, unmount };
+  return { container, store, bus, calls, reset, text, del, base, show, q, button, buttons, trail, lastTrail, unmount };
 }

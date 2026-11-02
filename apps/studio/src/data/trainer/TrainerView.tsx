@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getEvents } from "../../api";
 import type { BattleSpriteRequest, HeaderSummary, RefDto } from "../../api";
+import { useDelete, useEntityState } from "../../delete/DeleteContext";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -160,6 +161,8 @@ export function TrainerView() {
   // The opponent's side of the preview belongs to the view for the session, so the loading gap between two trainers does not reset it.
   const [foe, setFoe] = useState<Foe>("trainer");
   const reset = useReset();
+  const remove = useDelete();
+  const state = useEntityState(selected === null ? null : { kind: "trainer", index: selected }, row);
   // In a text project the head names the trainer's id and offers to rename it.
   const text = useTextProject();
   const ids = useEntityIds("Trainer", text.active);
@@ -178,8 +181,16 @@ export function TrainerView() {
             {entityId !== null && <EntityIdLine id={entityId} />}
             {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
           </div>
-          {/* Properties and team; the name and the texts stay (they are text archives). The placeholder is refused with its reason. */}
-          <HeadActions items={[resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open), ...(entityId !== null ? [renameEntry(entityId, text.renameId)] : [])]} />
+          {/* Deleting leaves a tombstone. Resetting: properties and team; the name and the texts stay (they are text archives). The
+              placeholder is refused with its reason. */}
+          <HeadActions
+            state={state}
+            items={[
+              { label: "Löschen…", onSelect: () => remove.open({ kind: "trainer", index: selected }) },
+              resetEntry({ kind: "trainer", index: selected }, reset.status, reset.open),
+              ...(entityId !== null ? [renameEntry(entityId, text.renameId)] : []),
+            ]}
+          />
         </header>
         {error !== null && <Notice kind="error">{`Dieser Trainer ist nicht lesbar: ${error}`}</Notice>}
         {doc?.placeholder && <Notice kind="info">{`${PLACEHOLDER_TEXT}: hält die Nummer frei, die das Kampf-Script für „gesehen“ nutzt. Er wird nie bearbeitet.`}</Notice>}

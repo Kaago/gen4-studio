@@ -128,7 +128,7 @@ describe("EncounterView", () => {
   it("offers_reset_in_head_and_list", async () => {
     await h.open(140);
     // The head of the view: the whole encounter file.
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…"]);
     chooseItem(h.view(), "Auf Original zurücksetzen…");
     expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "encounter", index: 140 });
     const row = h.list().querySelector<HTMLElement>('[data-encounter="141"]')!;
@@ -140,7 +140,28 @@ describe("EncounterView", () => {
   it("without_a_base_the_entry_says_basis_rom_fehlt", async () => {
     h.reset.status = MISSING;
     await h.open(140);
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…Basis-ROM fehlt"]);
     expect(contextTexts(h.list().querySelector<HTMLElement>('[data-encounter="140"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+  });
+
+  it("the_head_has_loeschen_and_the_state_badge", async () => {
+    h.del.states["encounter:140"] = "new";
+    // File 141 is a tombstone in the store (not saved yet): the live row says so.
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "encounter" ? FILE_ROWS.map((r) => (r.index === 141 ? Object.assign({}, r, { deleted: true }) : r)) : []));
+    await h.open(140);
+    chooseItem(h.view(), "Löschen…");
+    expect(h.del.open).toHaveBeenLastCalledWith({ kind: "encounter", index: 140 });
+    // Beside the menu „Aktionen“: how the file stands against the base.
+    const state = h.view().querySelector<HTMLElement>("header [data-entity-state]");
+    expect(state?.textContent).toBe("neu");
+    expect(state?.parentElement?.querySelector("button[aria-label='Aktionen']")).not.toBeNull();
+    h.unmount();
+    h = encounterHarness();
+    await h.open(141);
+    expect(h.view().querySelector("header [data-entity-state]")?.textContent).toBe("gelöscht");
+    h.unmount();
+    h = encounterHarness();
+    await h.open(182);
+    expect(h.view().querySelector("[data-entity-state]")).toBeNull();
   });
 });

@@ -7,8 +7,8 @@ import { changedFromOriginal } from "../api";
 import { FOCUS_DELAY_MS } from "../app/useExternalSync";
 import { subscribeWindowFocus } from "../platform/windowFocus";
 import type { ChangedProgress, ChangedReport } from "../api";
-import { report } from "./changesTesting";
-import { useChanges } from "./useChanges";
+import { entry, report } from "./changesTesting";
+import { stateOf, useChanges } from "./useChanges";
 import type { ChangesApi, UseChangesOptions } from "./useChanges";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -345,5 +345,30 @@ describe("useChanges", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("stateOf", () => {
+  it("names_the_state_of_an_entity_in_the_report", () => {
+    const changed = report({
+      entries: [
+        entry({ subject: { kind: "map", index: 3 }, state: "changed" }),
+        entry({ group: "Trainer", label: "Trainer 0901", subject: { kind: "trainer", index: 901 }, state: "new" }),
+        // The kernel names a tombstone „deleted“ since 3d.4.
+        entry({ group: "Trainer", label: "Trainer 0012", subject: { kind: "trainer", index: 12 }, state: "deleted" as never }),
+        entry({ group: "Header", label: "Header 0500", subject: { kind: "header", index: 500 }, state: "missing" }),
+        entry({ group: "Dateien", label: "a.txt", subject: { kind: "file", path: "a.txt" } }),
+      ],
+    });
+    expect(stateOf(changed, { kind: "map", index: 3 })).toBe("changed");
+    expect(stateOf(changed, { kind: "trainer", index: 901 })).toBe("new");
+    expect(stateOf(changed, { kind: "trainer", index: 12 })).toBe("deleted");
+    // Missing in the project: no badge (there is no head for it).
+    expect(stateOf(changed, { kind: "header", index: 500 })).toBeNull();
+    expect(stateOf(changed, { kind: "file", path: "a.txt" })).toBe("changed");
+    // Not listed: as in the base; no report yet: nothing known.
+    expect(stateOf(changed, { kind: "map", index: 4 })).toBeNull();
+    expect(stateOf(changed, { kind: "trainer", index: 3 })).toBeNull();
+    expect(stateOf(null, { kind: "map", index: 3 })).toBeNull();
   });
 });
