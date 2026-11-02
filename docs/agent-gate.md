@@ -1427,7 +1427,8 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 
 ```sh
 export PATH="$HOME/.cargo/bin:/opt/homebrew/opt/rustup/bin:$PATH"
-G4_ROMS_DIR=<absolut> G4K_BIN=$PWD/target/debug/g4k \
+export G4_ROMS_DIR=<absolut>; K=$G4_ROMS_DIR/_testkopien
+G4K_BIN=$PWD/target/debug/g4k \
   G4_LIVE_ROM_CPUD=$K/3d-9-pt.nds G4_LIVE_ROM_IPKD=$K/3d-9-hgde.nds G4_LIVE_ROM_IPKE=$K/3d-9-hgus.nds \
   bash -c 'cd scripts/g4emu && uv run pytest -m integration -k live -q -s'
 ```
