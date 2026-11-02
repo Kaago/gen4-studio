@@ -4,6 +4,7 @@
 #[doc(hidden)]
 pub mod fake_stub;
 pub mod gdb;
+pub mod melonds;
 pub mod save;
 pub mod session;
 
