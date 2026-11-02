@@ -9,6 +9,22 @@
 //! Every socket read and write has a timeout: [`REPLY_TIMEOUT`] per reply, the `timeout` of
 //! [`GdbClient::connect`] during the handshake. After [`LiveError::NoReply`] the connection is in
 //! an unknown state (a late reply may still arrive); callers drop the client and reconnect.
+//!
+//! The receive buffer of melonDS 1.1 (`GdbProto.cpp`, measured in phase 3d.9, finding B2) needs
+//! three more rules:
+//! - melonDS reads what has arrived into one buffer but handles only its first item; the rest
+//!   waits until new bytes arrive on the socket. `c` has no reply, so the packet sent right after
+//!   it (`\x03`, `D`) can sit there unanswered. While waiting for a reply the client therefore
+//!   sends a lone `+` every [`NUDGE`]: melonDS skips it, but its arrival makes it handle what it
+//!   holds.
+//! - The buffer outlives the connection: what one client left is handled when the next one
+//!   sends its first bytes, and its replies come first. [`GdbClient::connect`] skips every reply
+//!   up to the one of `qSupported:` (a reply nothing else gives).
+//! - Until `QStartNoAckMode` melonDS waits after each reply for a `+` and takes any byte as the
+//!   answer; a byte of the next packet taken so leaves a stray rest in its buffer, after which
+//!   melonDS closes every client until it restarts. The handshake sends spare `+` for replies
+//!   left over by another client, and `qSupported:` (with the colon melonDS needs, or it answers
+//!   empty) turns no-ack mode on, which lasts until melonDS ends.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -21,6 +37,13 @@ use crate::flags::FlagKind;
 pub const CHUNK: usize = 512;
 /// How long a reply may take before the stub counts as not answering.
 pub const REPLY_TIMEOUT: Duration = Duration::from_millis(1000);
+/// While waiting for a reply, a lone `+` goes out this often (see the module notes).
+pub const NUDGE: Duration = Duration::from_millis(25);
+/// The `qSupported` packet; melonDS answers it only with the colon.
+const SUPPORTED: &str = "qSupported:swbreak+;hwbreak+";
+/// Acks sent after the handshake `+`, one for each reply another client may have left in the
+/// stub's buffer while it still waits for acks (see the module notes).
+const SPARE_ACKS: &[u8] = b"+++";
 
 /// Errors of the live connection; the German texts are shown in the studio as they are.
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +57,10 @@ pub enum LiveError {
     NoReply,
     #[error("stub closed the connection")]
     Closed,
+    /// The stub accepted and closed the connection during the handshake: melonDS 1.1 does that
+    /// to every client once its receive buffer starts with a stray byte.
+    #[error("Der GDB-Stub auf Port {port} schließt jede Verbindung sofort: melonDS neu starten")]
+    Hangup { port: u16 },
     #[error("stub answered {reply} to {packet}")]
     Rejected { packet: String, reply: String },
     #[error("melonDS spielt {found}, das Projekt ist {expected}")]
@@ -89,6 +116,19 @@ fn is_stop_reply(reply: &str) -> bool {
         && reply.as_bytes()[1..3].iter().all(u8::is_ascii_hexdigit)
 }
 
+/// `W`/`X` plus two hex digits: "no target" (melonDS sends `W00` after a `D`).
+fn is_exit_reply(reply: &str) -> bool {
+    reply.len() == 3
+        && (reply.starts_with('W') || reply.starts_with('X'))
+        && reply.as_bytes()[1..3].iter().all(u8::is_ascii_hexdigit)
+}
+
+/// A setting on a connected socket failed: macOS answers `EINVAL` once the peer has reset the
+/// connection, so this is a closed connection.
+fn closed_on_setting(_: std::io::Error) -> LiveError {
+    LiveError::Closed
+}
+
 fn decode_hex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {
         return None;
@@ -136,9 +176,24 @@ pub struct GdbClient {
 }
 
 impl GdbClient {
-    /// Connects, sends `+`, `qSupported` and `QStartNoAckMode`. The stub is halted afterwards
-    /// (no `c` is sent). `timeout` bounds the TCP connect and every handshake reply.
+    /// Connects, sends `+` (and [`SPARE_ACKS`]), `qSupported:` and `QStartNoAckMode`; replies
+    /// before the one to `qSupported:` were left by an earlier client and are skipped. The stub
+    /// is halted afterwards (no `c` is sent). `timeout` bounds the TCP connect and every
+    /// handshake reply. A stub that closes the connection during the handshake is
+    /// [`LiveError::Hangup`].
     pub fn connect(addr: &str, timeout: Duration) -> Result<GdbClient, LiveError> {
+        GdbClient::open(addr, timeout).map_err(|e| match e {
+            LiveError::Closed => LiveError::Hangup {
+                port: addr
+                    .rsplit_once(':')
+                    .and_then(|(_, port)| port.parse().ok())
+                    .unwrap_or(0),
+            },
+            e => e,
+        })
+    }
+
+    fn open(addr: &str, timeout: Duration) -> Result<GdbClient, LiveError> {
         let timeout = timeout.max(Duration::from_millis(1));
         let connect_error = |source| LiveError::Connect {
             addr: addr.to_string(),
@@ -157,10 +212,10 @@ impl GdbClient {
             }
         }
         let stream = stream.ok_or_else(|| connect_error(last))?;
-        stream.set_nodelay(true).map_err(connect_error)?;
+        stream.set_nodelay(true).map_err(closed_on_setting)?;
         stream
             .set_write_timeout(Some(timeout))
-            .map_err(connect_error)?;
+            .map_err(closed_on_setting)?;
         let mut client = GdbClient {
             stream,
             buf: Vec::new(),
@@ -169,9 +224,16 @@ impl GdbClient {
             features: String::new(),
             reply_timeout: timeout,
         };
-        // The stub closes the connection without a `+` within 1 s.
+        // The stub closes the connection without a `+` within 1 s; it reads just that byte.
         client.send_raw(b"+")?;
-        client.features = client.command("qSupported")?;
+        client.send_raw(SPARE_ACKS)?;
+        client.send_packet(SUPPORTED.as_bytes())?;
+        client.features = loop {
+            let reply = client.read_packet()?;
+            if reply.contains("PacketSize=") {
+                break reply;
+            }
+        };
         if client.features.contains("QStartNoAckMode+") {
             let reply = client.command("QStartNoAckMode")?;
             if reply != "OK" {
@@ -186,7 +248,7 @@ impl GdbClient {
         client
             .stream
             .set_write_timeout(Some(REPLY_TIMEOUT))
-            .map_err(LiveError::Io)?;
+            .map_err(closed_on_setting)?;
         Ok(client)
     }
 
@@ -285,15 +347,18 @@ impl GdbClient {
         self.send_raw(&frame(payload))
     }
 
-    /// Sends a packet and returns its reply. A stop reply that arrives while the client thinks
-    /// the stub runs (it stopped on its own) marks it halted and is skipped; replies to `m`, `M`
-    /// and the handshake never start with `S`/`T`.
+    /// Sends a packet and returns its reply. Stop and exit notices are skipped (replies to `m`,
+    /// `M`, `D` and the handshake never start with `S`, `T`, `W` or `X`); a stop notice that
+    /// arrives while the client thinks the stub runs (it stopped on its own) marks it halted.
     fn command(&mut self, payload: &str) -> Result<String, LiveError> {
         self.send_packet(payload.as_bytes())?;
         loop {
             let reply = self.read_packet()?;
-            if is_stop_reply(&reply) && !self.halted {
+            if is_stop_reply(&reply) {
                 self.halted = true;
+                continue;
+            }
+            if is_exit_reply(&reply) {
                 continue;
             }
             return Ok(reply);
@@ -301,7 +366,8 @@ impl GdbClient {
     }
 
     /// Reads the next packet within the reply timeout, verifies its checksum and acks it unless
-    /// in no-ack mode. Acks of the stub are skipped.
+    /// in no-ack mode. Acks of the stub are skipped. Every [`NUDGE`] without a packet a lone `+`
+    /// goes out, so melonDS handles a packet it holds in its buffer.
     fn read_packet(&mut self) -> Result<String, LiveError> {
         let deadline = Instant::now() + self.reply_timeout;
         loop {
@@ -312,7 +378,9 @@ impl GdbClient {
             if left.is_zero() {
                 return Err(LiveError::NoReply);
             }
-            self.fill(left)?;
+            if !self.fill(left.min(NUDGE))? && deadline > Instant::now() {
+                self.send_raw(b"+")?;
+            }
         }
     }
 
@@ -347,18 +415,23 @@ impl GdbClient {
         }
     }
 
-    fn fill(&mut self, timeout: Duration) -> Result<(), LiveError> {
+    /// Reads what arrives within `timeout` into `buf`: `true` when bytes came, `false` when the
+    /// time ran out.
+    fn fill(&mut self, timeout: Duration) -> Result<bool, LiveError> {
         self.stream
             .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))
-            .map_err(socket_error)?;
+            .map_err(closed_on_setting)?;
         let mut chunk = [0u8; 4096];
         match self.stream.read(&mut chunk) {
             Ok(0) => Err(LiveError::Closed),
             Ok(n) => {
                 self.buf.extend_from_slice(&chunk[..n]);
-                Ok(())
+                Ok(true)
             }
-            Err(e) if e.kind() == ErrorKind::Interrupted => Ok(()),
+            Err(e) if e.kind() == ErrorKind::Interrupted => Ok(true),
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                Ok(false)
+            }
             Err(e) => Err(socket_error(e)),
         }
     }
@@ -367,7 +440,7 @@ impl GdbClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::live::fake_stub::{FakeStub, Quirks};
+    use crate::live::fake_stub::{FEATURES, FakeStub, Quirks};
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
@@ -560,6 +633,121 @@ mod tests {
         );
     }
 
+    /// melonDS 1.1 under load (B2): the stub reads its socket only every 5 ms, so what the
+    /// client sends in quick succession arrives together.
+    fn slow() -> Quirks {
+        Quirks {
+            read_pause: Duration::from_millis(5),
+            ..Quirks::melonds_1_1()
+        }
+    }
+
+    #[test]
+    fn connect_asks_with_the_colon_and_turns_no_ack_mode_on() {
+        let (stub, _client) = connected(Quirks::melonds_1_1());
+        let log = stub.log_lines();
+        assert_eq!(log[1], "qSupported:swbreak+;hwbreak+", "{log:?}");
+        assert_eq!(log[2], "QStartNoAckMode", "{log:?}");
+    }
+
+    #[test]
+    fn a_halt_right_after_resume_is_answered() {
+        let (stub, mut client) = connected(slow());
+        client.resume().unwrap();
+        // `c` and `\x03` arrive together: the stub handles `c` and holds the interrupt.
+        let started = Instant::now();
+        client.halt().unwrap();
+        println!("halt after resume took {:?}", started.elapsed());
+        assert!(stub.halted.load(Ordering::SeqCst));
+        let log = stub.log_lines();
+        assert_eq!(log[log.len() - 2..], ["c", "\x03"], "{log:?}");
+        if strict() {
+            assert!(started.elapsed() < Duration::from_millis(200));
+        }
+    }
+
+    #[test]
+    fn a_detach_right_after_resume_is_answered() {
+        let (stub, mut client) = connected(slow());
+        client.resume().unwrap();
+        client.detach().unwrap();
+        wait_until("the stub to run", || !stub.halted.load(Ordering::SeqCst));
+    }
+
+    /// Like an old client (B2): handshake in ack mode, then `c` and `tail` in one write, gone.
+    /// The stub handles `c` and keeps `tail` in its buffer for the next client.
+    fn leave_behind(stub: &FakeStub, tail: &[u8]) {
+        let mut stream = raw(stub);
+        send(&mut stream, b"+");
+        send(&mut stream, &frame(b"qSupported:swbreak+"));
+        let features = drain(&mut stream).unwrap();
+        assert!(features.ends_with(&frame(FEATURES.as_bytes())), "{features:?}");
+        send(&mut stream, b"+");
+        send(&mut stream, &[frame(b"c").as_slice(), tail].concat());
+        wait_until("the stub to take `c`", || {
+            stub.log_lines().last().is_some_and(|l| l == "c")
+        });
+        drop(stream);
+        wait_until("the stub to be free", || stub.open_connections() == 0);
+    }
+
+    fn assert_served_twice(stub: &FakeStub) {
+        stub.poke(0x023F_FE0C, b"CPUD");
+        let mut client = GdbClient::connect(&stub.addr(), REPLY_TIMEOUT).expect("connect");
+        assert!(client.features().contains("PacketSize=47F"), "{}", client.features());
+        assert_eq!(client.read(0x023F_FE0C, 4).unwrap(), b"CPUD");
+        client.resume().unwrap();
+        client.detach().unwrap();
+        let log = stub.log_lines();
+        assert!(!log.iter().any(|l| l.starts_with("<stray")), "{log:?}");
+        let again = GdbClient::connect(&stub.addr(), REPLY_TIMEOUT).expect("the next connect");
+        again.detach().unwrap();
+    }
+
+    #[test]
+    fn a_stop_reply_left_by_an_earlier_client_is_skipped_and_never_wedges_the_stub() {
+        let stub = FakeStub::start(Quirks::melonds_1_1());
+        leave_behind(&stub, b"\x03");
+        // The next client gets `S02` first, while the stub still waits for acks.
+        assert_served_twice(&stub);
+    }
+
+    #[test]
+    fn a_detach_left_by_an_earlier_client_is_skipped() {
+        let stub = FakeStub::start(Quirks::melonds_1_1());
+        leave_behind(&stub, &frame(b"D"));
+        // The next client gets `OK` and `W00` first.
+        assert_served_twice(&stub);
+    }
+
+    #[test]
+    fn a_stub_that_closes_every_client_at_once_is_a_hangup_with_a_sentence() {
+        let stub = FakeStub::start(Quirks::melonds_1_1());
+        // A stray byte at the start of melonDS's buffer: it closes every client from then on.
+        let mut stream = raw(&stub);
+        send(&mut stream, b"+x");
+        wait_until("the stub to be free", || stub.open_connections() == 0);
+        drop(stream);
+        for _ in 0..2 {
+            let result = GdbClient::connect(&stub.addr(), Duration::from_millis(500));
+            match &result {
+                Err(e @ LiveError::Hangup { port }) => {
+                    assert_eq!(*port, stub.port);
+                    assert_eq!(
+                        e.to_string(),
+                        format!(
+                            "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: \
+                             melonDS neu starten",
+                            stub.port
+                        )
+                    );
+                }
+                other => panic!("expected Hangup, got {other:?}"),
+            }
+        }
+        assert!(stub.log_lines().contains(&"<stray 0x78>".to_string()));
+    }
+
     #[test]
     fn empty_reads_and_writes_send_nothing() {
         let (stub, mut client) = connected(Quirks::melonds_1_1());
@@ -599,6 +787,15 @@ mod tests {
         stream.write_all(bytes).unwrap();
     }
 
+    /// A raw client past the handshake and in no-ack mode (the stub no longer waits for acks).
+    fn raw_no_ack(stub: &FakeStub) -> std::net::TcpStream {
+        let mut stream = raw(stub);
+        send(&mut stream, b"+");
+        send(&mut stream, &frame(b"QStartNoAckMode"));
+        assert_eq!(drain(&mut stream).unwrap(), b"+$OK#9a".to_vec());
+        stream
+    }
+
     #[test]
     fn fake_drops_a_client_without_the_initial_ack() {
         let stub = FakeStub::start(Quirks {
@@ -613,22 +810,20 @@ mod tests {
     #[test]
     fn fake_reads_up_to_575_bytes_ignores_576_and_rejects_577() {
         let stub = FakeStub::start(Quirks::melonds_1_1());
-        let mut stream = raw(&stub);
-        send(&mut stream, b"+");
+        let mut stream = raw_no_ack(&stub);
         send(&mut stream, &frame(b"m02000000,23f"));
         let reply = drain(&mut stream).unwrap();
-        assert_eq!(reply.len(), 1 + 1 + 575 * 2 + 3, "ack + $hex#xx");
+        assert_eq!(reply.len(), 1 + 575 * 2 + 3, "$hex#xx");
         send(&mut stream, &frame(b"m02000000,240"));
-        assert_eq!(drain(&mut stream).unwrap(), b"+".to_vec(), "576: no reply");
+        assert_eq!(drain(&mut stream).unwrap(), b"".to_vec(), "576: no reply");
         send(&mut stream, &frame(b"m02000000,241"));
-        assert_eq!(drain(&mut stream).unwrap(), b"+$E02#a7".to_vec());
+        assert_eq!(drain(&mut stream).unwrap(), b"$E02#a7".to_vec());
     }
 
     #[test]
     fn fake_wedges_for_good_on_a_too_long_packet() {
         let stub = FakeStub::start(Quirks::melonds_1_1());
-        let mut stream = raw(&stub);
-        send(&mut stream, b"+");
+        let mut stream = raw_no_ack(&stub);
         let mut packet = b"M02000000,23f:".to_vec();
         packet.extend(std::iter::repeat_n(b'0', 575 * 2));
         send(&mut stream, &frame(&packet));

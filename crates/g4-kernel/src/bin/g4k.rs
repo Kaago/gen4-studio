@@ -196,9 +196,9 @@ enum Command {
     /// Play mode live: read and write flags and variables of the running game through the GDB
     /// stub of melonDS. Every command prints one JSON line on stdout and exits 0; a failure
     /// prints `{"error": {"code", "message"}}` on stdout and exits 1. Codes: `connect`,
-    /// `no_reply`, `wrong_game`, `outside_save`, `no_save`, `timeout`, `invalid_value`,
-    /// `unsupported_game` (no save layout for the game code), `rejected` (the stub answered an
-    /// error) and `io`.
+    /// `no_reply`, `closed` (the stub closes every connection at once: restart melonDS),
+    /// `wrong_game`, `outside_save`, `no_save`, `timeout`, `invalid_value`, `unsupported_game`
+    /// (no save layout for the game code), `rejected` (the stub answered an error) and `io`.
     #[command(subcommand)]
     Live(LiveCommand),
 }
@@ -2684,6 +2684,7 @@ fn live_failure(e: g4_kernel::live::LiveError) -> Failure {
     let code = match &e {
         LiveError::Connect { .. } => "connect",
         LiveError::NoReply | LiveError::Closed => "no_reply",
+        LiveError::Hangup { .. } => "closed",
         LiveError::Rejected { .. } => "rejected",
         LiveError::WrongGame { .. } => "wrong_game",
         LiveError::OutsideSave { .. } => "outside_save",

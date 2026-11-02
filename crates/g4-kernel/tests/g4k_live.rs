@@ -306,6 +306,52 @@ fn errors_carry_their_codes() {
     );
 }
 
+/// B2: `g4k live status` twenty times in a row against a stub that reads its socket only every
+/// 5 ms (melonDS 1.1 under load: `c` and the packet after it arrive together, and melonDS keeps
+/// what it did not handle for the next client).
+#[test]
+fn twenty_status_calls_in_a_row_all_answer() {
+    let stub = FakeStub::start(Quirks {
+        read_pause: Duration::from_millis(5),
+        ..Quirks::melonds_1_1()
+    });
+    stub.poke(GAME_CODE, b"CPUD");
+    stub.poke(POINTER, &BLOCK.to_le_bytes());
+    stub.poke(VAR_40A5, &[1, 0]);
+    for call in 0..20 {
+        let (code, out) = run(&stub, &["status"]);
+        assert_eq!(code, 0, "call {call}: {out}");
+        assert_eq!(out["vars"]["0x40A5"], 1, "call {call}: {out}");
+    }
+    wait_until("the game to run", || !stub.halted.load(Ordering::SeqCst));
+    assert_eq!(
+        stub.log_lines().iter().filter(|l| *l == "D").count(),
+        20,
+        "every call detaches"
+    );
+}
+
+/// B3: a stub that closes every connection at once (melonDS 1.1 after a stray byte in its
+/// buffer) is code `closed` with a sentence, not `io` „Invalid argument (os error 22)“.
+#[test]
+fn a_stub_that_closes_every_connection_is_closed_with_a_sentence() {
+    let stub = platinum(b"CPUD");
+    let mut stray = std::net::TcpStream::connect(stub.addr()).unwrap();
+    stray.write_all(b"+x").unwrap();
+    wait_until("the stub to close it", || stub.open_connections() == 0);
+    drop(stray);
+    let (code, out) = run(&stub, &["status"]);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(out["error"]["code"], "closed", "{out}");
+    assert_eq!(
+        out["error"]["message"],
+        format!(
+            "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: melonDS neu starten",
+            stub.port
+        )
+    );
+}
+
 #[test]
 fn a_silent_stub_is_no_reply() {
     let stub = FakeStub::start(Quirks {

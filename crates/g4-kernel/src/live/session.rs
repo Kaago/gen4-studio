@@ -817,6 +817,57 @@ mod tests {
         }
     }
 
+    /// melonDS 1.1 under load (B2): the stub reads its socket only every 5 ms, so `c` and the
+    /// packet after it arrive together and the second waits in its buffer.
+    fn slow_platinum() -> FakeStub {
+        platinum(Quirks {
+            read_pause: Duration::from_millis(5),
+            ..Quirks::melonds_1_1()
+        })
+    }
+
+    #[test]
+    fn twenty_connect_refresh_detach_cycles_all_answer() {
+        // What `g4k live status` does, twenty times in a row.
+        let stub = slow_platinum();
+        stub.poke(VAR_40A5, &[7, 0]);
+        for cycle in 0..20 {
+            let (mut session, check) = LiveSession::connect(&stub.addr(), "CPUD", REPLY_TIMEOUT)
+                .unwrap_or_else(|e| panic!("cycle {cycle}: connect: {e}"));
+            assert_eq!(check, GameCheck::Verified);
+            let snapshot = session
+                .refresh()
+                .unwrap_or_else(|e| panic!("cycle {cycle}: refresh: {e}"));
+            assert_eq!(snapshot.var(0x40A5), Some(7));
+            session
+                .detach()
+                .unwrap_or_else(|e| panic!("cycle {cycle}: detach: {e}"));
+        }
+        runs(&stub);
+        assert!(!stub.log_lines().iter().any(|l| l.starts_with('<')));
+    }
+
+    #[test]
+    fn a_polling_session_dropped_and_reconnected_keeps_answering() {
+        // What the hub does: refresh at once after connecting, then in a row; a `lost` session
+        // is dropped without `D` and the next one connects.
+        let stub = slow_platinum();
+        for round in 0..4 {
+            let mut session = session(&stub);
+            for _ in 0..5 {
+                session
+                    .refresh()
+                    .unwrap_or_else(|e| panic!("round {round}: refresh: {e}"));
+            }
+            session.set(VAR_A5, round).unwrap();
+            let snapshot = session.refresh().unwrap();
+            assert_eq!(snapshot.var(0x40A5), Some(round));
+            drop(session);
+            runs(&stub);
+        }
+        assert!(!stub.log_lines().iter().any(|l| l.starts_with('<')));
+    }
+
     #[test]
     fn detach_lets_the_game_run_even_when_halted() {
         let stub = platinum(Quirks::melonds_1_1());

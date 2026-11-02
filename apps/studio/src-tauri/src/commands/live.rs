@@ -688,6 +688,64 @@ mod tests {
     }
 
     #[test]
+    fn a_slow_stub_keeps_answering_the_poll_and_a_reconnect() {
+        // B2: melonDS 1.1 under load reads its socket late, so `c` and the next packet arrive
+        // together; the hub refreshes at once after connecting and then in a row.
+        let (_fixture, state) = open_cpud();
+        let stub = FakeStub::start(Quirks {
+            read_pause: Duration::from_millis(5),
+            ..Quirks::melonds_1_1()
+        });
+        stub.poke(GAME_CODE, b"CPUD");
+        stub.poke(POINTER, &BLOCK.to_le_bytes());
+        state.live.set_timings(Timings {
+            refresh: Duration::from_millis(10),
+            ..Timings::default()
+        });
+        connected(&state, &stub);
+        let revision = |state: &AppState| state.live.status().snapshot.map_or(0, |s| s.revision);
+        within(5000, "twenty refreshes", || revision(&state) >= 20);
+        assert_eq!(state_of(&state), LiveState::Live);
+        // Stop and connect again: the stub serves the next connection as well.
+        live_stop_impl(&state).unwrap();
+        connected(&state, &stub);
+        within(5000, "twenty more refreshes", || revision(&state) >= 20);
+        assert_eq!(state_of(&state), LiveState::Live);
+        live_stop_impl(&state).unwrap();
+        assert!(!stub.log_lines().iter().any(|l| l.starts_with('<')));
+    }
+
+    #[test]
+    fn a_stub_that_closes_every_connection_is_unavailable_with_its_sentence() {
+        // B3: melonDS 1.1 with a stray byte in its buffer closes every client at once.
+        let (_fixture, state) = open_cpud();
+        state.live.set_timings(Timings {
+            connect_deadline: Duration::from_millis(600),
+            connect_retry: Duration::from_millis(50),
+            connect_timeout: Duration::from_millis(200),
+            ..Timings::default()
+        });
+        let stub = platinum_stub();
+        let mut stray = std::net::TcpStream::connect(stub.addr()).unwrap();
+        std::io::Write::write_all(&mut stray, b"+x").unwrap();
+        within(1000, "the stub to close it", || {
+            stub.open_connections() == 0
+        });
+        drop(stray);
+        live_connect_impl(&state, None, stub.port).unwrap();
+        within(3000, "unavailable", || {
+            state_of(&state) == LiveState::Unavailable
+        });
+        assert_eq!(
+            state.live.status().reason,
+            Some(format!(
+                "Der GDB-Stub auf Port {} schließt jede Verbindung sofort: melonDS neu starten",
+                stub.port
+            ))
+        );
+    }
+
+    #[test]
     fn a_game_without_a_save_layout_is_unavailable_not_a_reconnect_loop() {
         // The plain synthetic project is Platinum US (CPUE): no measured layout.
         let (_fixture, state) = crate::commands::open_synthetic();

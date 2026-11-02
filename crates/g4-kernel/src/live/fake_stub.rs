@@ -13,8 +13,17 @@
 //!   any client again;
 //! - with [`Quirks::one_client`] a second client is accepted but stays unanswered until the
 //!   first one disconnects;
-//! - `QStartNoAckMode` is not reset by a disconnect;
-//! - stop replies are `S02` (`?`) and `S05` (`\x03`).
+//! - `QStartNoAckMode` is not reset by a disconnect; until then the stub waits after each reply
+//!   for the client's `+` ([`Quirks::ack_wait`]) and sends the reply again on anything else;
+//! - `qSupported` needs its colon (`qSupported:…`); a bare `qSupported` gets the empty reply;
+//! - the receive buffer behaves like melonDS's (`GdbProto.cpp`, `MsgRecv`): bytes that arrive
+//!   together land in one buffer, but only its first item (a packet or the interrupt byte) is
+//!   handled; the rest waits until new bytes arrive on the socket. The buffer outlives the
+//!   connection (the next client's first bytes make the stub handle what the last one left),
+//!   and a stray byte at its start (not `$`, `+`, `-` or `\x03`) closes the connection without
+//!   being dropped, so every later client is closed as soon as it sends something;
+//! - `D` answers `OK`, keeps the connection and sends `W00` at the stub's next look;
+//! - stop replies are `S02` (`?`, `\x03` while halted) and `S05` (`\x03` while running).
 //!
 //! [`Quirks::answer_after`] plays "melonDS stops answering" (it sits in the user's debugger, or a
 //! frame never ends): after the handshake the stub answers that many packets, then nothing.
@@ -63,6 +72,14 @@ pub struct Quirks {
     /// stub handles `n` more packets as usual (a `c` counts, an interrupt byte does not), then it
     /// keeps reading and logging but never sends a byte again. `None`: answers for good.
     pub answer_after: Option<usize>,
+    /// Until `QStartNoAckMode`, after each reply the stub reads single bytes from the socket for
+    /// this long, waiting for the client's `+`; anything else (or nothing) sends the reply again,
+    /// three sends in all. The bytes read here are gone (they may be the client's next packet).
+    pub ack_wait: Duration,
+    /// A pause before every read of the socket. melonDS looks at the socket once per frame while
+    /// the game runs and its thread can be descheduled under load, so what a client sends in
+    /// quick succession arrives together; tests set this to make that certain.
+    pub read_pause: Duration,
 }
 
 impl Quirks {
@@ -75,6 +92,8 @@ impl Quirks {
             answer: true,
             one_client: true,
             answer_after: None,
+            ack_wait: Duration::from_secs(2),
+            read_pause: Duration::ZERO,
         }
     }
 }
@@ -114,6 +133,8 @@ struct Shared {
     serving: Arc<AtomicBool>,
     /// `QStartNoAckMode` was accepted; like 1.1 it survives disconnects.
     no_ack: Arc<AtomicBool>,
+    /// The receive buffer between connections.
+    leftover: Arc<Mutex<Vec<u8>>>,
     /// Connection threads alive (served or queued).
     connections: Arc<AtomicUsize>,
 }
@@ -135,6 +156,7 @@ impl FakeStub {
             stop: Arc::new(AtomicBool::new(false)),
             serving: Arc::new(AtomicBool::new(false)),
             no_ack: Arc::new(AtomicBool::new(false)),
+            leftover: Arc::new(Mutex::new(Vec::new())),
             connections: Arc::new(AtomicUsize::new(0)),
         };
         let mut stub = FakeStub {
@@ -221,14 +243,18 @@ fn serve(stream: TcpStream, shared: &Shared) {
     let mut conn = Conn {
         stream,
         shared: shared.clone(),
+        socket: Vec::new(),
         buf: Vec::new(),
         after_handshake: 0,
+        status: None,
     };
     if shared.quirks.one_client && !conn.wait_for_turn() {
         return;
     }
+    conn.buf = std::mem::take(&mut *shared.leftover.lock().unwrap());
     shared.halted.store(true, Ordering::SeqCst);
     conn.run();
+    *shared.leftover.lock().unwrap() = std::mem::take(&mut conn.buf);
     // Like melonDS: without a client the emulation runs.
     shared.halted.store(false, Ordering::SeqCst);
     if shared.quirks.one_client {
@@ -281,9 +307,22 @@ enum Step {
 struct Conn {
     stream: TcpStream,
     shared: Shared,
+    /// Bytes read from the socket that the stub has not taken yet (for melonDS they still wait in
+    /// the socket: they make it readable).
+    socket: Vec<u8>,
+    /// The stub's receive buffer (melonDS `RecvBuffer`).
     buf: Vec<u8>,
     /// Packets received after the handshake (for [`Quirks::answer_after`]).
     after_handshake: usize,
+    /// A stop status the stub sends at its next look at the socket (`W00` after `D`).
+    status: Option<&'static str>,
+}
+
+/// What the stub read while waiting for an ack.
+enum Ack {
+    Byte(u8),
+    Timeout,
+    Gone,
 }
 
 impl Conn {
@@ -306,8 +345,8 @@ impl Conn {
     }
 
     /// Waits until no other client is served; `false` if this client left or the stub stops
-    /// first. What the client sends meanwhile is read into `buf` (and answered once served), so
-    /// its disconnect is seen even behind unread bytes.
+    /// first. What the client sends meanwhile waits in `socket` (handled once served), so its
+    /// disconnect is seen even behind unread bytes.
     fn wait_for_turn(&mut self) -> bool {
         loop {
             if self.stopping() {
@@ -327,13 +366,18 @@ impl Conn {
         }
     }
 
-    /// Reads what is there into `buf`; `false` on disconnect, error or stop.
+    /// Reads what is there into `socket` (after [`Quirks::read_pause`]); `false` on disconnect,
+    /// error or stop.
     fn fill(&mut self) -> bool {
+        let pause = self.shared.quirks.read_pause;
+        if !pause.is_zero() {
+            std::thread::sleep(pause);
+        }
         let mut chunk = [0u8; 4096];
         match self.stream.read(&mut chunk) {
             Ok(0) => false,
             Ok(n) => {
-                self.buf.extend_from_slice(&chunk[..n]);
+                self.socket.extend_from_slice(&chunk[..n]);
                 true
             }
             Err(e) if is_timeout(&e) => !self.stopping(),
@@ -361,32 +405,58 @@ impl Conn {
             return;
         }
         while !self.stopping() {
-            match self.process() {
-                Some(Step::Disconnect) => return,
-                Some(Step::Continue) => continue,
-                None => {
-                    if !self.fill() {
-                        return;
-                    }
+            if let Some(status) = self.status.take()
+                && let Step::Disconnect = self.answer(status)
+            {
+                return;
+            }
+            // melonDS looks at its buffer only when the socket has new bytes, and then handles
+            // one item: a buffered one first, else the first of what it reads.
+            if self.socket.is_empty() {
+                if !self.fill() {
+                    return;
                 }
+                continue;
+            }
+            if !self.buffered_item() {
+                self.buf.append(&mut self.socket);
+            }
+            if let Some(Step::Disconnect) = self.process() {
+                return;
             }
         }
     }
 
-    /// The first byte must be `+` within the ack deadline.
+    /// The first byte must be `+` within the ack deadline; like melonDS the stub reads just that
+    /// byte, the rest stays in the socket.
     fn handshake(&mut self) -> bool {
         let deadline = Instant::now() + self.shared.quirks.ack_deadline;
-        while self.buf.is_empty() {
+        while self.socket.is_empty() {
             if Instant::now() >= deadline || !self.fill() {
                 return false;
             }
         }
-        if self.buf[0] != b'+' {
+        if self.socket[0] != b'+' {
             return false;
         }
-        self.buf.remove(0);
+        self.socket.remove(0);
         self.log("+");
         true
+    }
+
+    /// Whether `buf` holds an item the stub handles without reading the socket: a complete
+    /// packet, the interrupt byte or a stray byte (acks and naks are skipped).
+    fn buffered_item(&self) -> bool {
+        let Some(start) = self.buf.iter().position(|b| !matches!(*b, b'+' | b'-')) else {
+            return false;
+        };
+        if self.buf[start] != b'$' {
+            return true;
+        }
+        self.buf[start..]
+            .iter()
+            .position(|b| *b == b'#')
+            .is_some_and(|hash| self.buf.len() >= start + hash + 3)
     }
 
     /// Handles one item from `buf`; `None` if more bytes are needed.
@@ -402,13 +472,13 @@ impl Conn {
         if first == 0x03 {
             self.buf.remove(0);
             self.log("\x03");
-            self.shared.halted.store(true, Ordering::SeqCst);
-            return Some(self.answer("S05"));
+            let was_halted = self.shared.halted.swap(true, Ordering::SeqCst);
+            return Some(self.answer(if was_halted { "S02" } else { "S05" }));
         }
         if first != b'$' {
-            // Garbage before a packet: drop it.
-            self.buf.remove(0);
-            return Some(Step::Continue);
+            // melonDS: "unknown character", the connection ends and the byte stays.
+            self.log(format!("<stray {first:#04x}>"));
+            return Some(Step::Disconnect);
         }
         let wedge_above = self.shared.quirks.wedge_above;
         let Some(hash) = self.buf.iter().position(|b| *b == b'#') else {
@@ -453,24 +523,53 @@ impl Conn {
         self.buf.clear();
     }
 
+    /// Sends a reply; until no-ack mode it waits for the client's `+` like melonDS (`Resp`):
+    /// anything else, or nothing within [`Quirks::ack_wait`], sends it again, three sends in all.
     fn answer(&mut self, payload: &str) -> Step {
-        if self.reply(payload) {
-            Step::Continue
-        } else {
-            Step::Disconnect
+        if self.silent() {
+            return Step::Continue;
         }
+        for _ in 0..3 {
+            if !self.reply(payload) {
+                return Step::Disconnect;
+            }
+            if self.shared.no_ack.load(Ordering::SeqCst) {
+                return Step::Continue;
+            }
+            match self.wait_ack() {
+                Ack::Byte(b'+') => return Step::Continue,
+                Ack::Byte(_) | Ack::Timeout => {}
+                Ack::Gone => return Step::Disconnect,
+            }
+        }
+        Step::Continue
+    }
+
+    /// One byte straight from the socket (melonDS `WaitAckBlocking`).
+    fn wait_ack(&mut self) -> Ack {
+        let deadline = Instant::now() + self.shared.quirks.ack_wait;
+        while self.socket.is_empty() {
+            if Instant::now() >= deadline {
+                return Ack::Timeout;
+            }
+            if !self.fill() {
+                return Ack::Gone;
+            }
+        }
+        Ack::Byte(self.socket.remove(0))
     }
 
     fn command(&mut self, packet: &str) -> Step {
-        if packet.starts_with("qSupported") {
+        // melonDS matches `Supported:`: without the colon it is an unknown query.
+        if packet.starts_with("qSupported:") {
             return self.answer(FEATURES);
         }
         if packet == "QStartNoAckMode" {
-            let step = self.answer("OK");
+            // melonDS switches before it answers, so the `OK` waits for no ack.
             if !self.silent() {
                 self.shared.no_ack.store(true, Ordering::SeqCst);
             }
-            return step;
+            return self.answer("OK");
         }
         if packet == "?" {
             return self.answer("S02");
@@ -483,8 +582,11 @@ impl Conn {
             return Step::Continue;
         }
         if packet == "D" {
-            self.answer("OK");
-            return Step::Disconnect;
+            // melonDS keeps the connection until the client closes and reports "no target".
+            let step = self.answer("OK");
+            self.shared.halted.store(false, Ordering::SeqCst);
+            self.status = Some("W00");
+            return step;
         }
         if let Some(range) = packet.strip_prefix('m') {
             return self.read_memory(range);

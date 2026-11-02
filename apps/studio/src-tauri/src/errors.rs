@@ -145,6 +145,7 @@ impl From<g4_kernel::live::LiveError> for CmdError {
             LiveError::NoReply => "no_reply",
             LiveError::Connect { .. }
             | LiveError::Closed
+            | LiveError::Hangup { .. }
             | LiveError::Rejected { .. }
             | LiveError::Io(_) => "unavailable",
         };

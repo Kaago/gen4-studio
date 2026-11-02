@@ -507,7 +507,11 @@ fn work_until_end(shared: &Shared, stop: &AtomicBool, addr: &str, port: u16, gam
                         if lost {
                             timings.reconnect
                         } else if Instant::now() >= deadline {
-                            let reason = no_stub(port, accepted);
+                            // A stub that closes every connection at once has its own sentence.
+                            let reason = match e {
+                                LiveError::Hangup { .. } => e.to_string(),
+                                _ => no_stub(port, accepted),
+                            };
                             shared
                                 .inner()
                                 .disconnected(LiveState::Unavailable, Some(&reason));
