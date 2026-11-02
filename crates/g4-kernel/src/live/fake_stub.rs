@@ -16,6 +16,9 @@
 //! - `QStartNoAckMode` is not reset by a disconnect;
 //! - stop replies are `S02` (`?`) and `S05` (`\x03`).
 //!
+//! [`Quirks::answer_after`] plays "melonDS stops answering" (it sits in the user's debugger, or a
+//! frame never ends): after the handshake the stub answers that many packets, then nothing.
+//!
 //! RAM is the 4 MiB main RAM at `0x02000000`; `m`/`M` outside `[0x02000000, 0x02400000)` get `E01`.
 //!
 //! The log records the handshake `+`, every received packet payload verbatim and the interrupt
@@ -56,6 +59,10 @@ pub struct Quirks {
     pub answer: bool,
     /// Serve one client at a time; further clients are accepted but stay unanswered.
     pub one_client: bool,
+    /// `Some(n)`: per connection, after the handshake (`+`, `qSupported`, `QStartNoAckMode`) the
+    /// stub handles `n` more packets as usual (a `c` counts, an interrupt byte does not), then it
+    /// keeps reading and logging but never sends a byte again. `None`: answers for good.
+    pub answer_after: Option<usize>,
 }
 
 impl Quirks {
@@ -67,6 +74,7 @@ impl Quirks {
             wedge_above: 1150,
             answer: true,
             one_client: true,
+            answer_after: None,
         }
     }
 }
@@ -214,6 +222,7 @@ fn serve(stream: TcpStream, shared: &Shared) {
         stream,
         shared: shared.clone(),
         buf: Vec::new(),
+        after_handshake: 0,
     };
     if shared.quirks.one_client && !conn.wait_for_turn() {
         return;
@@ -273,6 +282,8 @@ struct Conn {
     stream: TcpStream,
     shared: Shared,
     buf: Vec<u8>,
+    /// Packets received after the handshake (for [`Quirks::answer_after`]).
+    after_handshake: usize,
 }
 
 impl Conn {
@@ -281,7 +292,13 @@ impl Conn {
     }
 
     fn silent(&self) -> bool {
-        !self.shared.quirks.answer || self.shared.wedged.load(Ordering::SeqCst)
+        !self.shared.quirks.answer
+            || self.shared.wedged.load(Ordering::SeqCst)
+            || self
+                .shared
+                .quirks
+                .answer_after
+                .is_some_and(|n| self.after_handshake > n)
     }
 
     fn log(&self, line: impl Into<String>) {
@@ -414,6 +431,9 @@ impl Conn {
             .and_then(|s| u8::from_str_radix(s, 16).ok());
         let text = String::from_utf8_lossy(payload).into_owned();
         self.log(text.clone());
+        if !text.starts_with("qSupported") && text != "QStartNoAckMode" {
+            self.after_handshake += 1;
+        }
         let no_ack = self.shared.no_ack.load(Ordering::SeqCst);
         if sum != Some(checksum(payload)) {
             if !no_ack && !self.send_raw(b"-") {

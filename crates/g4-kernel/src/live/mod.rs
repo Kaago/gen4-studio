@@ -4,5 +4,9 @@
 #[doc(hidden)]
 pub mod fake_stub;
 pub mod gdb;
+pub mod save;
+pub mod session;
 
 pub use gdb::{CHUNK, GdbClient, LiveError, REPLY_TIMEOUT};
+pub use save::{GAME_CODE_ADDR, RAM_END, RAM_START, SaveView, Snapshot, Target};
+pub use session::{GameCheck, Halt, LiveSession, Watch};
