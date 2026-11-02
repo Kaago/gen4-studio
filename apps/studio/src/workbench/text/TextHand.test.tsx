@@ -56,7 +56,10 @@ describe("TextHand", () => {
     await h.open433();
     expect(refs).toHaveBeenLastCalledWith({ kind: "message", archive: 433, index: 0 });
     const usedBy = () => h.container.querySelector<HTMLElement>("[data-message-refs]");
-    expect(usedBy()?.textContent).toBe("Verwendet inkeinem Script");
+    expect(usedBy()?.textContent).toBe("Nachricht verwendet inkeinem Script");
+    // Two rows, two names: the message's script lines and the archive's places.
+    const labels = [...h.container.querySelectorAll('[aria-label="Nachricht bearbeiten"] span')].map((e) => e.textContent).filter((t) => t?.includes("erwendet in"));
+    expect(labels).toEqual(["Nachricht verwendet in", "Verwendet in"]);
     h.click(h.messageRow(1));
     await flush();
     expect(refs).toHaveBeenLastCalledWith({ kind: "message", archive: 433, index: 1 });

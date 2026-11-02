@@ -267,7 +267,7 @@ function EditorColumn({ archive, message, field }: { archive: number; message: n
 }
 
 /**
- * Where the selected message is used: a chip per line of a script source that shows it (`refs` of the message, 3d.5), which opens the
+ * Where the selected message is used („Nachricht verwendet in“, apart from the archive's „Verwendet in“ below): a chip per line of a script source that shows it (`refs` of the message, 3d.5), which opens the
  * script panel at that line. Read when another message is chosen.
  */
 function MessageRefs({ archive, message }: { archive: number; message: number }) {
@@ -294,7 +294,7 @@ function MessageRefs({ archive, message }: { archive: number; message: number })
     });
   return (
     <div className={styles.usedIn} data-message-refs="">
-      <span className={styles.label}>Verwendet in</span>
+      <span className={styles.label}>Nachricht verwendet in</span>
       {chips}
     </div>
   );

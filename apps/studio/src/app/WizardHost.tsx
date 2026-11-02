@@ -16,6 +16,7 @@ import { NewFigureWizard } from "../workbench/wizards/NewFigureWizard";
 import { NewTrainerHereWizard } from "../workbench/wizards/NewTrainerHereWizard";
 import { dialogTitle } from "../workbench/dialog/dialogModel";
 import type { DialogTarget } from "../workbench/dialog/dialogModel";
+import type { ScriptFiles } from "../data/useDataArea";
 import { headerLabel } from "../workbench/headers";
 import { areaResult, roomResult } from "../workbench/wizards/wizardSpecs";
 import type { Created, Wizards } from "./useWizards";
@@ -64,6 +65,8 @@ interface Props {
   onRecipeApplied?: (changed: AssetId[]) => Promise<void>;
   /** „Dialog bearbeiten“ after „Neue Figur“: the app opens the dialog editor of the new figure. */
   onOpenDialog?: (target: DialogTarget) => void;
+  /** The script panel's documents: „Neue Figur“ appends to the place's script file, so typing there is saved first (as before a split). */
+  scriptFiles?: ScriptFiles;
 }
 
 type PublishHostProps = Omit<PublishWizardProps, "defaults" | "defaultsError">;
@@ -203,6 +206,11 @@ export function WizardHost(props: Props) {
           }}
           onCancel={close}
           onError={onError}
+          beforeApply={async (input) => {
+            // The recipe appends the figure's slot to the place's script file: typing there would overwrite it on the next save.
+            const file = headerOf(input.header)?.script_file_id;
+            if (file !== undefined) await props.scriptFiles?.saveIfDirty(file);
+          }}
         />
       );
     }

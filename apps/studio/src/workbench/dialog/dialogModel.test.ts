@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Dialog, DialogMessage } from "../../api";
-import { dialogSummary, pageCount, sharedText } from "./dialogModel";
+import { dialogSummary, distinctMessages, pageCount, sharedText } from "./dialogModel";
 
 const message = (index: number, text: string | null, over: Partial<DialogMessage> = {}): DialogMessage => ({ archive: 554, index, text, command: "Message", line: 3, col: 13, branch: null, shared_with: 0, ...over });
 const local = (messages: DialogMessage[]): Dialog => ({ source: { kind: "local", file: 12, slot: 2, line: 3 }, messages, followed: [] });
@@ -19,6 +19,17 @@ describe("dialogModel", () => {
     expect(dialogSummary({ source: { kind: "common", script: 2004 }, messages: [], followed: [] })).toBe("Gemeinsames Script 2004: in Bauen bearbeiten.");
     expect(dialogSummary({ source: { kind: "trainer", id: 12 }, messages: [], followed: [] })).toBe("Kampftexte des Trainers: im Bereich Pokémon.");
     expect(dialogSummary({ source: { kind: "unreadable", reason: "Scripts nicht übernommen" }, messages: [], followed: [] })).toBe("Script nicht lesbar: Scripts nicht übernommen");
+  });
+
+  it("a_message_the_dialog_shows_twice_counts_once", () => {
+    // `dialog_of` lists every use: message 5 on line 3 and again on line 9 (in a branch).
+    const twice = [message(5, String.raw`Hallo!\rWie geht's?`), message(6, "Tschüss."), message(5, String.raw`Hallo!\rWie geht's?`, { line: 9, branch: "CheckFlag 100" })];
+    const distinct = distinctMessages(twice);
+    expect(distinct.map((d) => [d.message.index, d.message.line, d.others.map((o) => o.line)])).toEqual([
+      [5, 3, [9]],
+      [6, 3, []],
+    ]);
+    expect(dialogSummary(local(twice))).toBe("2 Nachrichten · 3 Seiten");
   });
 
   it("shared_text_singular_and_plural", () => {

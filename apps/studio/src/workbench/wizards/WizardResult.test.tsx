@@ -25,7 +25,7 @@ describe("DoneResult", () => {
 
   const STEPS: NextStep[] = [
     { id: "create_area", label: "Gebiet anlegen", available: true, reason: null },
-    { id: "new_figure", label: "Neue Figur hier", available: false, reason: "Kommt mit 3d.5" },
+    { id: "play_here", label: "Hier spielen", available: false, reason: "Kommt mit 3d.9" },
   ];
   const keys = () => [...container.querySelectorAll<HTMLButtonElement>("button[data-recipe]")];
 
@@ -33,9 +33,9 @@ describe("DoneResult", () => {
     act(() => root.render(<DoneResult title="Welt geleert" lines={["Randkarte 0666"]} next={["Mit „Hier spielen“ ausprobieren."]} steps={STEPS} onStep={onStep} />));
     expect(keys().map((b) => [b.getAttribute("data-recipe"), b.textContent, b.disabled])).toEqual([
       ["create_area", "Gebiet anlegen", false],
-      ["new_figure", "Neue Figur hier", true],
+      ["play_here", "Hier spielen", true],
     ]);
-    expect(document.getElementById(keys()[1]!.getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.5");
+    expect(document.getElementById(keys()[1]!.getAttribute("aria-describedby")!)?.textContent).toBe("Kommt mit 3d.9");
     // Under „Als Nächstes“ the buttons come first, the lines of text after them.
     const next = container.querySelector("[data-next-steps]")!;
     expect(next.previousElementSibling?.textContent).toBe("Als Nächstes");

@@ -108,6 +108,23 @@ describe("DialogEditor", () => {
     expect(block("554:40")?.textContent).not.toContain("Geteilt");
   });
 
+  it("a_message_shown_twice_is_one_entry_with_its_other_uses_in_the_head", async () => {
+    vi.mocked(dialogOf).mockResolvedValue(dialog([message(5, "Hallo!", { line: 3 }), message(6, "Tschüss."), message(5, "Hallo!", { line: 9, branch: "CheckFlag 100" })]));
+    await show();
+    expect(document.querySelectorAll('[data-dialog-message="554:5"]')).toHaveLength(1);
+    expect(document.querySelectorAll("[data-dialog-message]")).toHaveLength(2);
+    expect(block("554:5")?.textContent).toContain("Nachricht 5 · Archiv 554 · auch Zeile 9 (wenn CheckFlag 100)");
+    expect(document.querySelectorAll("[data-dialog-message][data-selected]")).toHaveLength(1);
+  });
+
+  it("a_message_the_archive_does_not_have_offers_no_split", async () => {
+    vi.mocked(dialogOf).mockResolvedValue(dialog([message(12, "", { text: null, shared_with: 1 })]));
+    await show();
+    expect(block("554:12")?.textContent).toContain("Archiv 554 hat keine Nachricht 12.");
+    expect(block("554:12")?.textContent).toContain("Geteilt mit 1 Figur");
+    expect(button("Für diese Figur abspalten", block("554:12")!)).toBeUndefined();
+  });
+
   it("a_refused_text_shows_the_notice", async () => {
     await show();
     vi.mocked(editTextArchive).mockRejectedValue({ code: "error", message: "Archiv 554 ist gesperrt.", asset: null });

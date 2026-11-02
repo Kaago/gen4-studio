@@ -182,6 +182,44 @@ describe("NewFigureWizard", () => {
     expect(onDraft).toHaveBeenLastCalledWith(null);
   });
 
+  it("before_apply_runs_first_and_a_failure_stops_the_apply", async () => {
+    const order: string[] = [];
+    const beforeApply = vi.fn(async () => void order.push("before"));
+    vi.mocked(recipeApply).mockImplementation(async () => (order.push("apply"), outcome) as never);
+    await act(async () =>
+      root.render(
+        <NewFigureWizard depth="erzaehlen" headers={headers} matrices={matrices} project={project} prefill={{ header: 0, tile: { x: 12, z: 7 } }} onDraft={onDraft} onDone={onDone} onCancel={onCancel} onError={onError} beforeApply={beforeApply} />,
+      ),
+    );
+    await flush();
+    await next();
+    await write("Hallo!");
+    await next();
+    await click(button("Aufstellen"));
+    expect(beforeApply).toHaveBeenCalledExactlyOnceWith(input);
+    expect(order).toEqual(["before", "apply"]);
+
+    // The open script document cannot be saved: nothing is applied, the app hears of the failure, the wizard stays.
+    act(() => root.render(null));
+    vi.mocked(recipeApply).mockClear();
+    const failure = { code: "io", message: "Scriptdatei 0007 nicht schreibbar", asset: null };
+    beforeApply.mockReset().mockRejectedValue(failure);
+    await act(async () =>
+      root.render(
+        <NewFigureWizard depth="erzaehlen" headers={headers} matrices={matrices} project={project} prefill={{ header: 0, tile: { x: 12, z: 7 } }} onDraft={onDraft} onDone={onDone} onCancel={onCancel} onError={onError} beforeApply={beforeApply} />,
+      ),
+    );
+    await flush();
+    await next();
+    await write("Hallo!");
+    await next();
+    await click(button("Aufstellen"));
+    expect(recipeApply).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(current()).toBe("3. Zusammenfassung");
+    expect(button("Aufstellen")?.disabled).toBe(false);
+  });
+
   it("a_text_with_a_page_break_previews_two_pages", async () => {
     await show();
     await next();

@@ -5,7 +5,7 @@ import type { ScriptFiles } from "../../data/useDataArea";
 import { Badge, Button, DSScreen, Dialog, Notice } from "../../ui/primitives";
 import { MessageEditor } from "../text/MessageEditor";
 import { pages } from "../text/textModel";
-import { dialogSummary, sharedText } from "./dialogModel";
+import { dialogSummary, distinctMessages, sharedText } from "./dialogModel";
 import type { DialogTarget } from "./dialogModel";
 import { useDialog } from "./useDialog";
 import styles from "./DialogEditor.module.css";
@@ -15,11 +15,19 @@ const EDIT_LABEL = "Dialog geändert";
 
 const keyOf = (m: Pick<DialogMessage, "archive" | "index">) => `${m.archive}:${m.index}`;
 
-/** „Nachricht 4 · Archiv 554“, with „wenn …“ (or „sonst“) for a message in a branch of the script. */
-function messageHead(m: DialogMessage): string {
-  const head = `Nachricht ${m.index} · Archiv ${m.archive}`;
-  if (m.branch === null) return head;
-  return `${head} · ${m.branch === "else" ? "sonst" : `wenn ${m.branch}`}`;
+/** „wenn …“ (or „sonst“) for a message in a branch of the script. */
+const branchText = (branch: string) => (branch === "else" ? "sonst" : `wenn ${branch}`);
+
+/**
+ * „Nachricht 4 · Archiv 554“, with „wenn …“ (or „sonst“) for a message in a branch of the script and „auch Zeile 9 (wenn …)“ for the
+ * other places the script shows the same message.
+ */
+function messageHead(m: DialogMessage, others: readonly DialogMessage[]): string {
+  let head = `Nachricht ${m.index} · Archiv ${m.archive}`;
+  if (m.branch !== null) head += ` · ${branchText(m.branch)}`;
+  if (others.length === 0) return head;
+  const uses = others.map((o) => (o.branch === null ? `Zeile ${o.line}` : `Zeile ${o.line} (${branchText(o.branch)})`));
+  return `${head} · auch ${uses.join(", ")}`;
 }
 
 export interface DialogEditorProps {
@@ -51,7 +59,9 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
   const [splitting, setSplitting] = useState(false);
 
   const source = dialog?.source ?? null;
-  const messages = source?.kind === "local" ? dialog!.messages : [];
+  // Each message once (its first use): a message the script shows twice is one field.
+  const distinct = useMemo(() => (source?.kind === "local" ? distinctMessages(dialog!.messages) : []), [dialog, source?.kind]);
+  const messages = distinct.map((d) => d.message);
   const current = messages.find((m) => keyOf(m) === chosen) ?? messages[0] ?? null;
   const currentKey = current === null ? null : keyOf(current);
   const text = current === null ? null : draft !== null && draft.key === currentKey ? draft.text : current.text;
@@ -117,14 +127,14 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
     body = (
       <div className={styles.columns}>
         <ol className={styles.messages} aria-label="Nachrichten">
-          {messages.map((m) => {
+          {distinct.map(({ message: m, others }) => {
             const key = keyOf(m);
             const selected = key === currentKey;
             return (
               <li key={key} className={styles.message} data-dialog-message={key} data-selected={selected ? "" : undefined} onFocus={() => choose(key)}>
                 <div className={styles.head}>
                   <Button kind="quiet" size="s" aria-pressed={selected} onClick={() => choose(key)}>
-                    {messageHead(m)}
+                    {messageHead(m, others)}
                   </Button>
                   {m.shared_with > 0 && (
                     <Badge kind="warning" icon="shared">
@@ -137,8 +147,8 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
                 ) : (
                   <MessageEditor key={key} value={m.text} onCommit={(written) => commit(m, written)} onDraft={(typed) => setDraft({ key, text: typed })} />
                 )}
-                {/* Only an object's script can be given its own copy; a sign shares its text where it is written. */}
-                {m.shared_with > 0 && target.kind === "object" && (
+                {/* Only an object's script can be given its own copy (a sign shares its text where it is written), and only of a message the archive has. */}
+                {m.shared_with > 0 && target.kind === "object" && m.text !== null && (
                   <div className={styles.split}>
                     <Button kind="secondary" size="s" disabled={splitting} onClick={() => void split(m)}>
                       Für diese Figur abspalten

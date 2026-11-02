@@ -40,6 +40,11 @@ export interface NewFigureWizardProps {
   /** The wizard is left; `written` says it changed the project without the app having read it again (a partial failure). */
   onCancel: (written: boolean) => void;
   onError: (e: unknown) => void;
+  /**
+   * Runs before „Aufstellen“ writes (the app saves typing in the place's script file, which the recipe appends to); a failure goes to
+   * `onError` and nothing is applied.
+   */
+  beforeApply?: (input: NewFigureInput) => Promise<void>;
 }
 
 /** What the wizard asks for; a tile, a place or a text not given yet is null or empty. */
@@ -80,7 +85,7 @@ const wordOf = (list: readonly { value: number; label: string }[], value: number
  * the text with Shift+Enter for a new page, the DS box beside it, the flag that hides it) and the summary; „Aufstellen“ applies the
  * recipe `new_figure` (one undo step). The scene draws the planned figure while the wizard is open.
  */
-export function NewFigureWizard({ depth, headers, matrices, project, prefill, onDraft, onDone, onShow, onStep, onCancel, onError }: NewFigureWizardProps) {
+export function NewFigureWizard({ depth, headers, matrices, project, prefill, onDraft, onDone, onShow, onStep, onCancel, onError, beforeApply }: NewFigureWizardProps) {
   const [form, setForm] = useState<FigureForm>(() => ({ header: prefill?.header ?? null, x: prefill?.tile?.x ?? null, z: prefill?.tile?.z ?? null, look: null, movement: 0, dir: 1, text: "", flag: 0 }));
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -101,6 +106,13 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
     if (input === null) return;
     setBusy(true);
     setRefusal(null);
+    try {
+      await beforeApply?.(input);
+    } catch (e) {
+      onError(e);
+      setBusy(false);
+      return;
+    }
     try {
       const result = await recipeApply<NewFigureReport>("new_figure", input);
       setOutcome({ kind: "done", outcome: result, input });

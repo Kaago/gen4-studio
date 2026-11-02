@@ -1543,6 +1543,7 @@ function AppBody() {
           project={info}
           onRecipeApplied={onRecipeApplied}
           onOpenDialog={setDialogEditor}
+          scriptFiles={scripts.api}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />
