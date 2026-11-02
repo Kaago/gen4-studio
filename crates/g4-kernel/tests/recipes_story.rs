@@ -2275,6 +2275,48 @@ fn level_with(entries: serde_json::Value, conditions: &[(u16, u16, u16)]) -> ser
     serde_json::json!({ "header_entries": entries, "var_conditions": conditions })
 }
 
+/// The id the register `data/ids/maps.json` gives header `header`, if any.
+fn map_id(store: &Store, header: u16) -> Option<String> {
+    let maps: BTreeMap<String, u32> =
+        serde_json::from_value(json(store, "data/ids/maps.json")).unwrap();
+    maps.into_iter()
+        .find(|&(_, n)| n == u32::from(header))
+        .map(|(id, _)| id)
+}
+
+#[test]
+fn a_scene_names_the_place_only_when_the_register_does() {
+    let is_map = |u: &Use| matches!(u, Use::Map(_));
+    // Named: the step uses the header's id from the register.
+    let (_fx, mut store) = talk_fixture();
+    let id = map_id(&store, 0).expect("the export names header 0");
+    scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    let maps: Vec<&Use> = story.steps[1].uses.iter().filter(|u| is_map(u)).collect();
+    assert_eq!(maps, [&Use::Map(id.clone())]);
+
+    // Unnamed: without a register entry for header 0 (its file then carries the fallback id)
+    // the step names no place.
+    let (_fx, mut store) = talk_fixture();
+    let root = store.project().root.clone();
+    let path = root.join("data/ids/maps.json");
+    let mut maps: BTreeMap<String, u32> =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    maps.retain(|_, n| *n != 0);
+    std::fs::write(&path, serde_json::to_vec_pretty(&maps).unwrap()).unwrap();
+    let header = root.join("data/headers/0000.json");
+    let text = std::fs::read_to_string(&header).unwrap();
+    std::fs::write(&header, text.replacen(&id, "MAP_0000", 1)).unwrap();
+    assert_eq!(map_id(&store, 0), None);
+    scene_on_enter::apply(&mut store, &scene(0, 0, SCENE_TEXT)).unwrap();
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert!(
+        !story.steps[1].uses.iter().any(is_map),
+        "{:?}",
+        story.steps[1].uses
+    );
+}
+
 #[test]
 fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
     let (_fx, mut store) = talk_fixture();
@@ -2383,6 +2425,7 @@ fn apply_of_a_scene_adds_a_condition_and_a_script_and_a_step() {
                     archive: ARCHIVE,
                     index: message
                 },
+                Use::Map(map_id(&store, 0).unwrap()),
                 Use::Var("VAR_STORY_TESTFADEN".to_owned()),
             ],
             ..step("s1", 1, StepKind::Dialog, "Szene beim Betreten")

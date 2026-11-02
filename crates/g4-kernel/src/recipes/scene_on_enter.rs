@@ -35,6 +35,8 @@ use crate::project::AssetKind;
 use crate::scripts::{self, LevelScriptDoc};
 use crate::store::{ChangeId, Store};
 use crate::stories::{Step, StepKind, Use, duplicate_key_text};
+use crate::textproject::registry::Registry;
+use crate::textproject::symbols::SymbolKind;
 
 /// The refusal for an empty text.
 const NO_TEXT: &str = "Die Szene braucht einen Text.";
@@ -94,6 +96,8 @@ struct Checked {
     value: u16,
     family: Family,
     files: HeaderFiles,
+    /// The header's id in the register `data/ids/maps.json`, if it has one.
+    map: Option<String>,
     level: LevelScriptPlan,
     /// The scene's slot `#n`.
     slot: u16,
@@ -129,6 +133,9 @@ fn check(store: &mut Store, input: &SceneOnEnterInput) -> Result<Checked, Kernel
     let project = store.project_arc();
     let script_file = files.script_file;
     require_rotom(&project, header, script_file)?;
+    let map = Registry::load(&project.root, SymbolKind::Map)?
+        .id_of(u32::from(header))
+        .map(str::to_owned);
     let messages = store.text_archive(files.text_archive)?.messages.len();
     check_writable(store, id(AssetKind::TextArchive, files.text_archive))?;
     let level = plan_level_script(store, header)?;
@@ -157,6 +164,7 @@ fn check(store: &mut Store, input: &SceneOnEnterInput) -> Result<Checked, Kernel
         value,
         family,
         files,
+        map,
         level,
         slot,
         message,
@@ -190,7 +198,7 @@ pub fn plan(store: &mut Store, input: &SceneOnEnterInput) -> Result<Draft, Kerne
 
 /// The step the scene adds: key `s{value}`, kind `dialog`, the given name or „Szene beim
 /// Betreten“, made by this recipe, using the level script's condition, the scene's slot, the
-/// message and the variable.
+/// message, the place (its id, when the register names the header) and the variable.
 fn scene_step(input: &SceneOnEnterInput, checked: &Checked, level: (u16, u16)) -> Step {
     let (file, condition) = level;
     Step {
@@ -200,7 +208,7 @@ fn scene_step(input: &SceneOnEnterInput, checked: &Checked, level: (u16, u16)) -
         name: step_name(input.step_name.as_deref(), || DEFAULT_NAME.to_owned()),
         notes: String::new(),
         made: Some(made(RecipeId::SceneOnEnter)),
-        uses: vec![
+        uses: [
             Use::LevelScript { file, condition },
             Use::Script {
                 file: checked.files.script_file,
@@ -210,8 +218,11 @@ fn scene_step(input: &SceneOnEnterInput, checked: &Checked, level: (u16, u16)) -
                 archive: checked.files.text_archive,
                 index: checked.message,
             },
-            Use::Var(checked.story.var_id.clone()),
-        ],
+        ]
+        .into_iter()
+        .chain(checked.map.clone().map(Use::Map))
+        .chain([Use::Var(checked.story.var_id.clone())])
+        .collect(),
     }
 }
 
@@ -290,6 +301,7 @@ fn write_scene(
         value,
         family,
         files,
+        map: _,
         level,
         slot,
         message: expected,
