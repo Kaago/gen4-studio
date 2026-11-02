@@ -58,6 +58,9 @@
 
 .split {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
 }
 
 .preview {

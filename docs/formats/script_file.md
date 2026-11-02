@@ -144,6 +144,14 @@ Header `header`. Der Weg:
    Eventdatei einmal, mit der Scriptdatei des ersten solchen Headers), jedes mit seinem Script wie
    oben. Schilder zählen nicht mit. Gleicher Text an einem anderen Index ist eine andere Nachricht
    (rotom legt ein Literal mit schon vorhandenem Text auf dessen Index, Vanilla hat Dubletten).
+6. **Abspaltbar:** `split_refusal` ist der Satz, mit dem `split_message` die Nachricht für diese
+   Figur ablehnen würde (Reihenfolge und Regeln dieselben, `SplitScope::check` in `dialog.rs`,
+   Tabelle in [text_archive.md](text_archive.md) „Abspalten“), `null`, wenn sie sich abspalten
+   lässt; bei einem Schild `NOT_AN_OBJECT` „Nur eine Figur bekommt eine eigene Kopie; ein Schild
+   teilt seinen Text, wo er steht.“ Gefunden im UI-Test von 3d.5 (U2): ohne die Angabe bot der
+   Dialog-Editor das Abspalten an fast jeder geteilten Nachricht an, und der Kern lehnte ab (Platin
+   10 der ersten 11 Kandidaten, HeartGold 306 von 307, meist `SHARED_SCRIPT`). Die Prüfung läuft
+   nur, wenn eine Nachricht des Dialogs geteilt ist.
 
 Gemessen auf Platin DE: 3 555 Objekte, keines `unreadable`, 125 Figuren zeigen mindestens eine
 geteilte Nachricht (329 Paare aus Archiv und Index); HeartGold DE: 2 667 Objekte, 140 Figuren, 240

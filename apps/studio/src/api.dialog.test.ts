@@ -15,7 +15,7 @@ describe("dialog commands", () => {
   it("dialog_commands_send_the_documented_arguments", async () => {
     const dialog: Dialog = {
       source: { kind: "local", file: 0, slot: 3, line: 1 },
-      messages: [{ archive: 433, index: 5, text: "Hallo", command: "Message", line: 2, col: 13, branch: null, shared_with: 1 }],
+      messages: [{ archive: 433, index: 5, text: "Hallo", command: "Message", line: 2, col: 13, branch: null, shared_with: 1, split_refusal: null }],
       followed: [],
     };
     invoke.mockResolvedValueOnce(dialog);

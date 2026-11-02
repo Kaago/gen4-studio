@@ -229,7 +229,7 @@ mod tests {
             answer["messages"],
             json!([{ "archive": ARCHIVE, "index": 5, "text": "Nachricht 5",
                      "command": "Message", "line": 7, "col": 13, "branch": null,
-                     "shared_with": 1 }]),
+                     "shared_with": 1, "split_refusal": null }]),
             "{answer}"
         );
         assert_eq!(answer["followed"], json!([]));

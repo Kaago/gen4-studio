@@ -12,7 +12,7 @@ vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeo
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const said = (text: string): Dialog => ({ source: { kind: "local", file: 1, slot: 1, line: 1 }, messages: [{ archive: 9, index: 0, text, command: "Message", line: 2, col: 13, branch: null, shared_with: 0 }], followed: [] });
+const said = (text: string): Dialog => ({ source: { kind: "local", file: 1, slot: 1, line: 1 }, messages: [{ archive: 9, index: 0, text, command: "Message", line: 2, col: 13, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
 const figure = (index: number): DialogTarget => ({ header: 3, eventFile: 8, kind: "object", index, title: `Objekt ${index}` });
 
 describe("useDialog", () => {

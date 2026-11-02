@@ -21,8 +21,9 @@ export type DialogSource =
 
 /**
  * One message a figure's script shows: message `index` of text archive `archive` (`text` null when the archive has none there),
- * the command as written, the 1-based line and column of its number in the source, the condition of the `if` it stands in (null
- * outside) and how many other figures show the same message.
+ * the command as written, the 1-based line and column of its number in the source, the condition it is shown under (null outside:
+ * the `if` it stands in, or the conditional jump that reached it, `GoToIfSet FLAG_X` / `CheckFlag FLAG_X; GoToIf EQUAL`), how many
+ * other figures show the same message and why `splitMessage` would refuse it (null: it can be split; the kernel's sentence else).
  */
 export interface DialogMessage {
   archive: number;
@@ -33,6 +34,7 @@ export interface DialogMessage {
   col: number;
   branch: string | null;
   shared_with: number;
+  split_refusal: string | null;
 }
 
 /** The dialog of a figure: its messages in reading order and the labels the walk followed (`GoTo`, `Call`). */

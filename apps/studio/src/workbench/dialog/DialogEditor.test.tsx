@@ -21,7 +21,7 @@ vi.mock("../../api", async (importOriginal) => ({
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 const figure: DialogTarget = { header: 3, eventFile: 8, kind: "object", index: 2, title: "Objekt 2" };
-const message = (index: number, text: string, over: Partial<DialogMessage> = {}): DialogMessage => ({ archive: 554, index, text, command: "Message", line: 8, col: 13, branch: null, shared_with: 0, ...over });
+const message = (index: number, text: string, over: Partial<DialogMessage> = {}): DialogMessage => ({ archive: 554, index, text, command: "Message", line: 8, col: 13, branch: null, shared_with: 0, split_refusal: null, ...over });
 const dialog = (messages: DialogMessage[]): Dialog => ({ source: { kind: "local", file: 12, slot: 4, line: 7 }, messages, followed: [] });
 
 describe("DialogEditor", () => {
@@ -117,8 +117,26 @@ describe("DialogEditor", () => {
     expect(document.querySelectorAll("[data-dialog-message][data-selected]")).toHaveLength(1);
   });
 
+  it("a_message_the_kernel_would_refuse_keeps_the_key_disabled_with_the_reason", async () => {
+    // UI test 3d.5 (U2): the kernel refused almost every split the editor offered; `dialog_of` now says why per message.
+    const refusal = "Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.";
+    vi.mocked(dialogOf).mockResolvedValue(dialog([message(10, "Hallo!", { shared_with: 3, split_refusal: refusal }), message(11, "Tschüss.", { shared_with: 1 })]));
+    await show();
+    const refused = button("Für diese Figur abspalten", block("554:10")!)!;
+    expect(refused.disabled).toBe(true);
+    expect(block("554:10")?.textContent).toContain("Geteilt mit 3 Figuren");
+    expect(document.getElementById(refused.getAttribute("aria-describedby")!)?.textContent).toBe(refusal);
+    await act(async () => refused.click());
+    expect(splitMessage).not.toHaveBeenCalled();
+    // A message that can be split keeps the key free and no reason.
+    const free = button("Für diese Figur abspalten", block("554:11")!)!;
+    expect(free.disabled).toBe(false);
+    expect(free.hasAttribute("aria-describedby")).toBe(false);
+    expect(block("554:11")?.querySelector("[data-split-refusal]")).toBeNull();
+  });
+
   it("a_message_the_archive_does_not_have_offers_no_split", async () => {
-    vi.mocked(dialogOf).mockResolvedValue(dialog([message(12, "", { text: null, shared_with: 1 })]));
+    vi.mocked(dialogOf).mockResolvedValue(dialog([message(12, "", { text: null, shared_with: 1, split_refusal: null })]));
     await show();
     expect(block("554:12")?.textContent).toContain("Archiv 554 hat keine Nachricht 12.");
     expect(block("554:12")?.textContent).toContain("Geteilt mit 1 Figur");

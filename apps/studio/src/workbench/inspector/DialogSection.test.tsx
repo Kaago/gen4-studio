@@ -18,7 +18,7 @@ const sign: DialogTarget = { header: 3, eventFile: 8, kind: "bg", index: 0, titl
 const local: DialogSource = { kind: "local", file: 12, slot: 4, line: 7 };
 const dialog = (source: DialogSource, texts: string[] = []): Dialog => ({
   source,
-  messages: texts.map((text, i) => ({ archive: 554, index: 10 + i, text, command: "Message", line: 8 + i, col: 13, branch: null, shared_with: 0 })),
+  messages: texts.map((text, i) => ({ archive: 554, index: 10 + i, text, command: "Message", line: 8 + i, col: 13, branch: null, shared_with: 0, split_refusal: null })),
   followed: [],
 });
 

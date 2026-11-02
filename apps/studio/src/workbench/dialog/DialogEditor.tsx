@@ -147,12 +147,19 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
                 ) : (
                   <MessageEditor key={key} value={m.text} onCommit={(written) => commit(m, written)} onDraft={(typed) => setDraft({ key, text: typed })} />
                 )}
-                {/* Only an object's script can be given its own copy (a sign shares its text where it is written), and only of a message the archive has. */}
+                {/* Only an object's script can be given its own copy (a sign shares its text where it is written), and only of a message the archive has.
+                    A message the kernel would refuse (`split_refusal`: another figure runs the script, a shared jump target) keeps the key
+                    disabled with the reason under it. */}
                 {m.shared_with > 0 && target.kind === "object" && m.text !== null && (
-                  <div className={styles.split}>
-                    <Button kind="secondary" size="s" disabled={splitting} onClick={() => void split(m)}>
+                  <div className={styles.split} data-split-refusal={m.split_refusal === null ? undefined : ""}>
+                    <Button kind="secondary" size="s" disabled={splitting || m.split_refusal !== null} aria-describedby={m.split_refusal === null ? undefined : `${key}-split`} onClick={() => void split(m)}>
                       Für diese Figur abspalten
                     </Button>
+                    {m.split_refusal !== null && (
+                      <p id={`${key}-split`} className={styles.note}>
+                        {m.split_refusal}
+                      </p>
+                    )}
                   </div>
                 )}
               </li>

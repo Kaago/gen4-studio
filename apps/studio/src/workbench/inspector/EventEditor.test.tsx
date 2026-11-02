@@ -566,7 +566,7 @@ describe("EventEditor scripts", () => {
 
     it("erzaehlen_renders_the_dialog_section_for_object_and_bg", async () => {
       vi.mocked(getEvents).mockImplementation(async () => ({ ...events(), bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }] }));
-      vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 77, slot: 4, line: 3 }, messages: [{ archive: 9, index: 2, text: "Hallo!", command: "Message", line: 5, col: 13, branch: null, shared_with: 0 }], followed: [] });
+      vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 77, slot: 4, line: 3 }, messages: [{ archive: 9, index: 2, text: "Hallo!", command: "Message", line: 5, col: 13, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
       await show(context(), "object", 2, "erzaehlen");
       // The selected header 9 of the two that share event file 8.
       expect(dialogOf).toHaveBeenLastCalledWith(9, 8, "object", 2);

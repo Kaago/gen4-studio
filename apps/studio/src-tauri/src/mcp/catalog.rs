@@ -1545,8 +1545,9 @@ static TOOLS: &[ToolDef] = &[
         description: concat!(
             "The messages the script of object or sign index of event file event_file shows on \
              header header, in order, jumps inside the script file followed: archive, index, \
-             text, command, line, the branch condition, and how many other figures show the \
-             same message (shared_with). source says whether it is a local script, a common \
+             text, command, line, the branch condition, how many other figures show the \
+             same message (shared_with) and why split_message would refuse it (split_refusal, \
+             null when it can split). source says whether it is a local script, a common \
              script (2000 and up, read only here), a trainer's battle (its texts are trainer \
              texts) or nothing. ",
             data_note!()

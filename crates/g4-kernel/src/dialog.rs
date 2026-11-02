@@ -69,6 +69,11 @@ pub struct DialogMessage {
     pub branch: Option<String>,
     /// How many other figures (objects of every header using the archive) show the same message.
     pub shared_with: u32,
+    /// Why [`split_message`] would refuse to give this figure its own copy, its sentence as it
+    /// would say it (`NOT_SHARED`, `SHARED_SCRIPT`, `SHARED_LABEL`, [`missing_message`],
+    /// `NUMBER_TOO_HIGH`, a locked or full archive; [`NOT_AN_OBJECT`] for a sign); `None`: the
+    /// split would go ahead. Worked out by the same rules (`check_split`).
+    pub split_refusal: Option<String>,
 }
 
 /// The dialog of a figure.
@@ -108,6 +113,19 @@ pub fn dialog_of(
     kind: DialogKind,
     index: u16,
 ) -> Result<Dialog, KernelError> {
+    dialog_with(store, header, file, kind, index, true)
+}
+
+/// [`dialog_of`]; with `refusals` false every [`DialogMessage::split_refusal`] stays `None`
+/// ([`split_message`] checks its one message itself).
+fn dialog_with(
+    store: &mut Store,
+    header: u16,
+    file: u16,
+    kind: DialogKind,
+    index: u16,
+    refusals: bool,
+) -> Result<Dialog, KernelError> {
     let script = event_script(store, file, kind, index)?;
     let source = match script {
         0 => DialogSource::None,
@@ -118,7 +136,7 @@ pub fn dialog_of(
             id: s - PARTNER_SCRIPTS.start() + 1,
         },
         s if s >= FIRST_COMMON => DialogSource::Common { script: s },
-        _ => return local_dialog(store, header, (file, kind, index), script),
+        _ => return local_dialog(store, header, (file, kind, index), script, refusals),
     };
     Ok(Dialog::without_messages(source))
 }
@@ -149,6 +167,10 @@ pub const NUMBER_TOO_HIGH: &str =
 /// change its dialog too.
 pub const SHARED_SCRIPT: &str =
     "Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.";
+/// Why the dialog of a sign offers no split ([`DialogMessage::split_refusal`]): only an object
+/// gets its own copy ([`split_message`] takes objects).
+pub const NOT_AN_OBJECT: &str =
+    "Nur eine Figur bekommt eine eigene Kopie; ein Schild teilt seinen Text, wo er steht.";
 
 /// Gives figure (`file`, `index`) its own copy of message (`archive`, `message`): the copy
 /// appended to the archive and every use of the message in this figure's dialog (its slot and
@@ -175,18 +197,15 @@ pub fn split_message(
     archive: u16,
     message: u16,
 ) -> Result<SplitReport, KernelError> {
-    let dialog = dialog_of(store, header, file, DialogKind::Object, index)?;
+    let dialog = dialog_with(store, header, file, DialogKind::Object, index, false)?;
     let shown: Vec<&DialogMessage> = dialog
         .messages
         .iter()
         .filter(|m| (m.archive, m.index) == (archive, message))
         .collect();
-    let (script_file, slot) = match (&dialog.source, shown.first()) {
+    let (script_file, slot, shared_with) = match (&dialog.source, shown.first()) {
         (DialogSource::Local { file, slot, .. }, Some(first)) => {
-            if first.shared_with == 0 {
-                return Err(KernelError::Refused(NOT_SHARED.into()));
-            }
-            (*file, u32::from(*slot))
+            (*file, u32::from(*slot), first.shared_with)
         }
         (DialogSource::Unreadable { reason }, _) => {
             return Err(KernelError::Refused(reason.clone()));
@@ -195,78 +214,18 @@ pub fn split_message(
             return Err(KernelError::Refused(not_in_dialog(archive, message, index)));
         }
     };
+    if shared_with == 0 {
+        return Err(KernelError::Refused(NOT_SHARED.into()));
+    }
     let local_id = store.event(file)?.object_events[usize::from(index)].local_id;
 
-    // The uses to rewrite, each with the function it stands in.
+    // The uses to rewrite and the copy's number, by the rules `dialog_of` tells per message.
     let project = store.project_arc();
-    let family = project.family;
     let parsed = parse(&project, script_file).map_err(KernelError::Refused)?;
-    let graph = Graph::of(&parsed);
-    let own = graph
-        .walk(&parsed, family, slot)
-        .ok_or_else(|| KernelError::Refused(no_slot(script_file, slot)))?;
-    let start = graph.slots[&slot];
-    let uses: Vec<&MessageUse> = own
-        .uses
-        .iter()
-        .filter(|u| message_index(&u.message) == message)
-        .map(|u| &u.message)
-        .collect();
-    // A slot of the same body another figure runs: the rewrite would be its rewrite too.
-    let own_slots: BTreeSet<u16> = graph
-        .slots
-        .iter()
-        .filter(|&(_, &at)| at == start)
-        .filter_map(|(&id, _)| u16::try_from(id).ok())
-        .collect();
-    if runs_elsewhere(store, script_file, &own_slots, (file, index))? {
-        return Err(KernelError::Refused(SHARED_SCRIPT.into()));
-    }
-    // A label (or the code another script runs on into) that another slot reaches.
-    let reached: BTreeSet<usize> = graph
-        .slots
-        .keys()
-        .filter(|id| !own_slots.contains(&u16::try_from(**id).unwrap_or(u16::MAX)))
-        .filter_map(|&id| graph.walk(&parsed, family, id))
-        .flat_map(|shown| shown.visited)
-        .collect();
-    // Also the slot's own body: another slot that jumps or runs on into it shows it too.
-    let shared_label = |u: &Use| reached.contains(&u.function);
-    if own
-        .uses
-        .iter()
-        .any(|u| message_index(&u.message) == message && shared_label(u))
-    {
-        return Err(KernelError::Refused(SHARED_LABEL.into()));
-    }
-
-    let id = AssetId {
-        kind: AssetKind::TextArchive,
-        index: archive,
-    };
-    let len = store.text_archive(archive)?.messages.len();
-    if usize::from(message) >= len {
-        return Err(KernelError::Refused(missing_message(archive, message)));
-    }
-    if let Some(reason) = store.locked(id) {
-        return Err(KernelError::Refused(format!(
-            "Textarchiv {archive} ist gesperrt: {reason}"
-        )));
-    }
-    let new_index = u16::try_from(len)
-        .ok()
-        .filter(|&n| n < u16::MAX)
-        .ok_or_else(|| KernelError::Refused(format!("Textarchiv {archive} ist voll.")))?;
-    // The copy's number must fit every command that will name it.
-    for u in &uses {
-        let highest = highest_message(family, &u.command);
-        if u32::from(new_index) > highest {
-            return Err(KernelError::Refused(format!(
-                "{NUMBER_TOO_HIGH}: {} nimmt Nummern bis {highest}, die Kopie bekäme {new_index}.",
-                u.command
-            )));
-        }
-    }
+    let scope = SplitScope::of(store, &parsed, script_file, slot, (file, index))?;
+    let SplitCheck { uses, new_index } = scope.check(store, archive, message, shared_with)?;
+    let uses: Vec<&MessageUse> = uses.iter().collect();
+    let len = usize::from(new_index);
     let text = rewrite(&parsed.text, &uses, message, new_index)?;
     let mut lines: Vec<u32> = uses.iter().map(|u| u.line).collect();
     lines.sort_unstable();
@@ -349,6 +308,173 @@ pub fn split_message(
         change,
         lines,
     })
+}
+
+/// What a split of one message passed: the uses to rewrite (this dialog's, in walk order) and
+/// the copy's index.
+struct SplitCheck {
+    uses: Vec<MessageUse>,
+    new_index: u16,
+}
+
+/// What the split rules read of a figure's script, worked out once per dialog: the walk of its
+/// slot, whether another figure runs the same body, and the functions other slots reach.
+struct SplitScope {
+    family: Family,
+    own: Shown,
+    /// Another object or sign runs a slot of the same body ([`SHARED_SCRIPT`]).
+    runs_elsewhere: bool,
+    /// The functions the walks of the file's other slots go through ([`SHARED_LABEL`]); empty
+    /// when `runs_elsewhere` refuses anyway.
+    reached: BTreeSet<usize>,
+}
+
+impl SplitScope {
+    /// The scope of script `#slot` of `script_file` (parsed), run by object `own` (event file,
+    /// object index).
+    fn of(
+        store: &mut Store,
+        parsed: &Parsed,
+        script_file: u16,
+        slot: u32,
+        own: (u16, u16),
+    ) -> Result<SplitScope, KernelError> {
+        let family = store.project().family;
+        let graph = Graph::of(parsed);
+        let walked = graph
+            .walk(parsed, family, slot)
+            .ok_or_else(|| KernelError::Refused(no_slot(script_file, slot)))?;
+        let start = graph.slots[&slot];
+        // The slots of the same body: a figure running one of them shows the same dialog.
+        let own_slots: BTreeSet<u16> = graph
+            .slots
+            .iter()
+            .filter(|&(_, &at)| at == start)
+            .filter_map(|(&id, _)| u16::try_from(id).ok())
+            .collect();
+        let runs_elsewhere = runs_elsewhere(store, script_file, &own_slots, own)?;
+        // A label (or the code another script runs on into) that another slot reaches.
+        let reached = if runs_elsewhere {
+            BTreeSet::new()
+        } else {
+            graph
+                .slots
+                .keys()
+                .filter(|id| !own_slots.contains(&u16::try_from(**id).unwrap_or(u16::MAX)))
+                .filter_map(|&id| graph.walk(parsed, family, id))
+                .flat_map(|shown| shown.visited)
+                .collect()
+        };
+        Ok(SplitScope {
+            family,
+            own: walked,
+            runs_elsewhere,
+            reached,
+        })
+    }
+
+    /// Whether message (`archive`, `message`), which `shared_with` other figures show, may get
+    /// its own copy: the refusal of [`split_message`] else, in its order.
+    fn check(
+        &self,
+        store: &mut Store,
+        archive: u16,
+        message: u16,
+        shared_with: u32,
+    ) -> Result<SplitCheck, KernelError> {
+        if shared_with == 0 {
+            return Err(KernelError::Refused(NOT_SHARED.into()));
+        }
+        if self.runs_elsewhere {
+            return Err(KernelError::Refused(SHARED_SCRIPT.into()));
+        }
+        let mine = || {
+            self.own
+                .uses
+                .iter()
+                .filter(|u| message_index(&u.message) == message)
+        };
+        // Also the slot's own body: another slot that jumps or runs on into it shows it too.
+        if mine().any(|u| self.reached.contains(&u.function)) {
+            return Err(KernelError::Refused(SHARED_LABEL.into()));
+        }
+        let id = AssetId {
+            kind: AssetKind::TextArchive,
+            index: archive,
+        };
+        let len = store.text_archive(archive)?.messages.len();
+        if usize::from(message) >= len {
+            return Err(KernelError::Refused(missing_message(archive, message)));
+        }
+        if let Some(reason) = store.locked(id) {
+            return Err(KernelError::Refused(format!(
+                "Textarchiv {archive} ist gesperrt: {reason}"
+            )));
+        }
+        let new_index = u16::try_from(len)
+            .ok()
+            .filter(|&n| n < u16::MAX)
+            .ok_or_else(|| KernelError::Refused(format!("Textarchiv {archive} ist voll.")))?;
+        let uses: Vec<MessageUse> = mine().map(|u| u.message.clone()).collect();
+        // The copy's number must fit every command that will name it.
+        for u in &uses {
+            let highest = highest_message(self.family, &u.command);
+            if u32::from(new_index) > highest {
+                return Err(KernelError::Refused(format!(
+                    "{NUMBER_TOO_HIGH}: {} nimmt Nummern bis {highest}, die Kopie bekäme {new_index}.",
+                    u.command
+                )));
+            }
+        }
+        Ok(SplitCheck { uses, new_index })
+    }
+}
+
+/// [`DialogMessage::split_refusal`] for each message of `messages` (a local dialog of object or
+/// sign `own`, script `#slot` of `file`): what [`SplitScope::check`] refuses. The scope is only
+/// worked out when a message is shared at all.
+fn split_refusals(
+    store: &mut Store,
+    sources: &mut Sources,
+    (file, slot): (u16, u32),
+    own: (u16, DialogKind, u16),
+    messages: &mut [DialogMessage],
+) -> Result<(), KernelError> {
+    let (event_file, kind, index) = own;
+    if kind == DialogKind::Bg {
+        for m in messages.iter_mut() {
+            m.split_refusal = Some(NOT_AN_OBJECT.into());
+        }
+        return Ok(());
+    }
+    let scope = if messages.iter().any(|m| m.shared_with > 0) {
+        let parsed = sources.parsed(file).map_err(KernelError::Refused);
+        Some(
+            parsed
+                .and_then(|parsed| SplitScope::of(store, parsed, file, slot, (event_file, index))),
+        )
+    } else {
+        None
+    };
+    for m in messages.iter_mut() {
+        let checked = match &scope {
+            None => Err(KernelError::Refused(NOT_SHARED.into())),
+            Some(Ok(scope)) => scope
+                .check(store, m.archive, m.index, m.shared_with)
+                .map(|_| ()),
+            Some(Err(e)) => Err(KernelError::Refused(refusal_text(e))),
+        };
+        m.split_refusal = checked.err().map(|e| refusal_text(&e));
+    }
+    Ok(())
+}
+
+/// The sentence of a refusal; another error as its message.
+fn refusal_text(error: &KernelError) -> String {
+    match error {
+        KernelError::Refused(why) => why.clone(),
+        other => other.to_string(),
+    }
 }
 
 /// The highest message number command `written` (a message command of `family`) takes: its
@@ -555,6 +681,7 @@ fn local_dialog(
     header: u16,
     own: (u16, DialogKind, u16),
     script: u16,
+    refusals: bool,
 ) -> Result<Dialog, KernelError> {
     let project = store.project_arc();
     if !scripts::is_adopted(&project) {
@@ -610,6 +737,9 @@ fn local_dialog(
     let counts = shared_counts(store, &mut sources, archive, own, &wanted)?;
     for m in &mut messages {
         m.shared_with = counts.get(&m.index).copied().unwrap_or(0);
+    }
+    if refusals {
+        split_refusals(store, &mut sources, (file, slot), own, &mut messages)?;
     }
     Ok(Dialog {
         source: DialogSource::Local {
@@ -778,6 +908,7 @@ impl Shown {
                 col: u.message.col,
                 branch: u.branch.clone(),
                 shared_with: 0,
+                split_refusal: None,
             })
             .collect()
     }
@@ -1123,6 +1254,7 @@ mod tests {
                     col: 13,
                     branch: None,
                     shared_with: 0,
+                    split_refusal: Some(NOT_SHARED.into()),
                 }],
                 followed: vec![],
             }
@@ -1517,6 +1649,93 @@ mod tests {
             refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 7)),
             SHARED_LABEL
         );
+    }
+
+    /// The refusal `dialog_of` names for message `index` of `dialog` (its first use).
+    fn refusal_of(dialog: &Dialog, index: u16) -> Option<String> {
+        dialog
+            .messages
+            .iter()
+            .find(|m| m.index == index)
+            .unwrap()
+            .split_refusal
+            .clone()
+    }
+
+    #[test]
+    fn the_dialog_says_why_a_split_would_be_refused() {
+        // UI test 3d.5 (U2): the editor offered a split the kernel refused; each message now
+        // carries the refusal `split_message` gives, found by the same rules.
+        let fx = TextFixture::exported();
+        let source = "script drei #3:\n    Message 1\n    Message 5\n    Message 12\n    \
+                      Call hilfe\n    End\n\
+                      script sieben #7:\n    Message 5\n    Message 12\n    Call hilfe\n    End\n\
+                      hilfe:\n    Message 2\n    Return\n";
+        let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let three = of(&mut st, 3);
+        assert_eq!(refusal_of(&three, 1), Some(NOT_SHARED.to_owned()));
+        assert_eq!(refusal_of(&three, 12), Some(missing_message(ARCHIVE, 12)));
+        assert_eq!(refusal_of(&three, 2), Some(SHARED_LABEL.to_owned()));
+        assert_eq!(refusal_of(&three, 5), None);
+        for message in [1, 12, 2] {
+            assert_eq!(
+                Some(refused(split_message(&mut st, 0, 0, 3, ARCHIVE, message))),
+                refusal_of(&three, message)
+            );
+        }
+        assert!(split_message(&mut st, 0, 0, 3, ARCHIVE, 5).is_ok());
+
+        // Two figures run the same script.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script drei #3:\n    Message 5\n    End\n",
+            &TEN,
+            &[0, 0, 0, 3, 3],
+        );
+        let three = of(&mut st, 3);
+        assert_eq!(refusal_of(&three, 5), Some(SHARED_SCRIPT.to_owned()));
+        assert_eq!(
+            Some(refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5))),
+            refusal_of(&three, 5)
+        );
+
+        // The copy would not fit the command's u8.
+        let fx = TextFixture::exported();
+        let texts: Vec<String> = (0..256).map(|i| format!("Text {i}")).collect();
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let source = "script drei #3:\n    Message 5\n    End\n\
+                      script sieben #7:\n    Message 5\n    End\n";
+        let mut st = store_with(&fx, source, &texts, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let three = of(&mut st, 3);
+        let reason = refusal_of(&three, 5).unwrap();
+        assert!(reason.starts_with(NUMBER_TOO_HIGH), "{reason}");
+        assert_eq!(refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)), reason);
+
+        // A sign gets no copy.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script schild #1:\n    Message 4\n    End\n",
+            &TEN,
+            &[1],
+        );
+        st.transaction("bg", |tx| {
+            tx.edit_event(0, |e| {
+                e.bg_events = vec![BgEvent {
+                    script: 1,
+                    event_type: 0,
+                    x: 0,
+                    z: 0,
+                    y: 0,
+                    player_facing_dir: 0,
+                }];
+                Ok(())
+            })
+        })
+        .unwrap();
+        let sign = dialog_of(&mut st, 0, 0, DialogKind::Bg, 0).unwrap();
+        assert_eq!(refusal_of(&sign, 4), Some(NOT_AN_OBJECT.to_owned()));
     }
 
     #[test]

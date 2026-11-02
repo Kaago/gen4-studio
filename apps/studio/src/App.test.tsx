@@ -604,7 +604,7 @@ describe("App wiring", () => {
 
   it("edit_dialog_opens_the_editor_for_the_selected_figure", async () => {
     vi.mocked(validateText).mockResolvedValue([]);
-    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 1, line: 1 }, messages: [{ archive: 0, index: 3, text: "Hallo!", command: "Message", line: 2, col: 13, branch: null, shared_with: 0 }], followed: [] });
+    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 1, line: 1 }, messages: [{ archive: 0, index: 3, text: "Hallo!", command: "Message", line: 2, col: 13, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
     vi.mocked(editTextArchive).mockResolvedValue(4);
     await select(listed[1]);
     const opener = data().onOpenDialog;
@@ -668,7 +668,7 @@ describe("App wiring", () => {
         { id: "story_join", label: "Zu einer Geschichte", available: false, reason: "Kommt mit 3d.7" },
       ],
     });
-    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 12, line: 1 }, messages: [{ archive: 0, index: 40, text: "Hallo!", command: "NPCMsg", line: 4, col: 9, branch: null, shared_with: 0 }], followed: [] });
+    vi.mocked(dialogOf).mockResolvedValue({ source: { kind: "local", file: 0, slot: 12, line: 1 }, messages: [{ archive: 0, index: 40, text: "Hallo!", command: "NPCMsg", line: 4, col: 9, branch: null, shared_with: 0, split_refusal: null }], followed: [] });
     await openFigureWizard();
     await click("Weiter");
     const text = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Was sie sagt"]')!;

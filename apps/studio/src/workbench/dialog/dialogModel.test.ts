@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Dialog, DialogMessage } from "../../api";
 import { dialogSummary, distinctMessages, pageCount, sharedText } from "./dialogModel";
 
-const message = (index: number, text: string | null, over: Partial<DialogMessage> = {}): DialogMessage => ({ archive: 554, index, text, command: "Message", line: 3, col: 13, branch: null, shared_with: 0, ...over });
+const message = (index: number, text: string | null, over: Partial<DialogMessage> = {}): DialogMessage => ({ archive: 554, index, text, command: "Message", line: 3, col: 13, branch: null, shared_with: 0, split_refusal: null, ...over });
 const local = (messages: DialogMessage[]): Dialog => ({ source: { kind: "local", file: 12, slot: 2, line: 3 }, messages, followed: [] });
 
 describe("dialogModel", () => {
