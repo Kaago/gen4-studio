@@ -2005,12 +2005,15 @@ pub fn snapshot_archive(project: &Project, archive: u16) -> Result<ArchiveSnapsh
 /// (`recipes::new_figure`, `dialog::split_message`). A step for it would hold the JSON
 /// without the store's new message as its `after`; once „Speichern“ wrote the archive with
 /// the message, undo would find the file changed and refuse. The archive's text sync record
-/// follows the removal.
+/// follows the removal. Only in a DSPRE folder: in a text project the JSON is the source.
 pub(crate) fn remove_materialized_json(
     project: &Project,
     saved: &BTreeMap<u16, ArchiveSnapshot>,
     touched: &[u16],
 ) -> Result<(), KernelError> {
+    if *project.source_mode() != crate::project::SourceMode::Dspre {
+        return Ok(());
+    }
     for (&a, snapshot) in saved {
         let json = crate::text::json_path(project, a);
         if snapshot.json.is_none() && !touched.contains(&a) && json.is_file() {

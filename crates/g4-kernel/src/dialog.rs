@@ -82,7 +82,7 @@ pub struct DialogMessage {
     /// Why [`split_message`] would refuse to give this figure its own copy, its sentence as it
     /// would say it (`NOT_SHARED`, `SHARED_SCRIPT`, `SHARED_LABEL`, [`missing_message`],
     /// `NUMBER_TOO_HIGH`, a locked or full archive; [`NOT_AN_OBJECT`] for a sign); `None`: the
-    /// split would go ahead. Worked out by the same rules (`check_split`).
+    /// split would go ahead. Worked out by the same rules (`SplitScope::check`).
     pub split_refusal: Option<String>,
 }
 

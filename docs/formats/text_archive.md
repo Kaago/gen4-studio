@@ -168,7 +168,9 @@ dieser Member hielt (eine Änderung, ihr Undo, Speichern), und hält die JSON au
 es eine gibt, das zuletzt Gespeicherte oder die Texte des Members, schreibt er die gemerkten Bytes
 zurück und löscht die JSON (`Store::unexpanded_member`): Das Projekt steht wieder wie DSPRE es
 ließ, `git status` ist leer. Eine JSON mit anderen Texten (von DSPRE oder von Hand) bleibt und wird
-wie sonst geschrieben. Gefunden im UI-Test von 3d.5 (U1); das Verhalten davor (die JSON blieb mit
+wie sonst geschrieben. Nur in einem DSPRE-Ordner: in einem Textprojekt ist die JSON die Quelle,
+die sein Abgleich aufzeichnet; dort merkt sich der Store nichts, und auch `remove_materialized_json`
+(„Neue Figur“, Abspalten) lässt sie stehen. Gefunden im UI-Test von 3d.5 (U1); das Verhalten davor (die JSON blieb mit
 den Texten des Members liegen) galt schon auf main für jede Textbearbeitung.
 
 **Bauen (`chatot`):** kodiert die Archive mit `OnlyJson`, `JsonNewer` und `Unknown`, deren

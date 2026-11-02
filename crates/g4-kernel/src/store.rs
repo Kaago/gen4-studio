@@ -26,7 +26,7 @@ use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::fsutil::{Journal, Notes};
-use crate::project::{AssetKind, Location, Project};
+use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
@@ -1117,9 +1117,15 @@ impl Store {
     }
 
     /// Takes the member bytes of text archive `id` as the store reads it now when the archive
-    /// has no JSON (DSPRE has not expanded it), else forgets them; nothing for other kinds.
+    /// has no JSON (DSPRE has not expanded it), else forgets them; nothing for other kinds and
+    /// nothing outside a DSPRE folder (in a text project the JSON is the source its sync
+    /// records: removing it would break the unit).
     fn note_unexpanded(&mut self, id: AssetId) -> Result<(), KernelError> {
         if id.kind != AssetKind::TextArchive {
+            return Ok(());
+        }
+        if *self.project.source_mode() != SourceMode::Dspre {
+            self.unexpanded_texts.remove(&id.index);
             return Ok(());
         }
         let member = match self.project.asset_location(id.kind, id.index)? {

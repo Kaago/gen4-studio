@@ -221,6 +221,74 @@ fn a_store_json_is_kept_where_the_texts_differ_from_the_member_loaded() {
     assert!(String::from_utf8_lossy(&std::fs::read(json).unwrap()).contains("Eins"));
 }
 
+#[test]
+fn an_archive_loaded_with_a_json_keeps_it_through_save_undo_save() {
+    // The rule touches only archives the store read without a JSON: one DSPRE expanded keeps
+    // its JSON after a change, its undo and a save.
+    let (fx, mut store, _before) = dspre("script main #1:\n    End\n", &[]);
+    let json = fx.root().join(json_of(ARCHIVE));
+    // Expand the archive as DSPRE does (the member's texts as JSON), then a store that reads it.
+    let doc = store.text_archive(ARCHIVE).unwrap().clone();
+    std::fs::create_dir_all(json.parent().unwrap()).unwrap();
+    std::fs::write(&json, doc.to_json()).unwrap();
+    let mut store = Store::new(Arc::new(fx.project()));
+    store.text_archive(ARCHIVE).unwrap();
+    let before = files(fx.root());
+    store
+        .edit_text_archive(ARCHIVE, "eins", |doc| doc.messages[1].text = "Eins".into())
+        .unwrap();
+    store.save().unwrap();
+    store.undo().unwrap();
+    store.save().unwrap();
+    assert!(json.is_file());
+    let after = files(fx.root());
+    assert_eq!(after.get(&json_of(ARCHIVE)), before.get(&json_of(ARCHIVE)));
+}
+
+#[test]
+fn a_text_project_keeps_its_archive_json_through_save_undo_save() {
+    // In a text project the JSON is the source the project's sync records: the rule stays out,
+    // also for an archive the store read without a JSON.
+    let fx = common::TextFixture::exported();
+    let project = fx.project();
+    assert_eq!(
+        project.source_mode(),
+        &g4_kernel::project::SourceMode::TextProject
+    );
+    let json = fx.root().join(json_of(ARCHIVE));
+    let _ = std::fs::remove_file(&json);
+    let mut store = Store::new(Arc::new(project));
+    store
+        .edit_text_archive(ARCHIVE, "eins", |doc| doc.messages[1].text = "Eins".into())
+        .unwrap();
+    store.save().unwrap();
+    assert!(json.is_file());
+    store.undo().unwrap();
+    store.save().unwrap();
+    assert!(json.is_file(), "the text project's JSON was removed");
+}
+
+#[test]
+fn a_split_in_a_text_project_leaves_the_json_its_compile_writes() {
+    // R22's removal is for a DSPRE folder only; in a text project the JSON is the source.
+    let fx = common::TextFixture::exported();
+    let project = fx.project();
+    scripts::write_source(&project, 0, &ScriptSource::Rotom(SHARED.into())).unwrap();
+    let json = fx.root().join(json_of(ARCHIVE));
+    let _ = std::fs::remove_file(&json);
+    let mut store = Store::new(Arc::new(project));
+    store
+        .transaction("objects", |tx| {
+            tx.edit_event(0, |e| {
+                e.object_events = vec![object(0, 3), object(1, 7)];
+                Ok(())
+            })
+        })
+        .unwrap();
+    split_message(&mut store, 0, 0, 0, ARCHIVE, 1).unwrap();
+    assert!(json.is_file(), "the split removed the text project's JSON");
+}
+
 /// The files of text archive `archive` and script file `script`, and rotom's compile state.
 fn watched(project: &Project, archive: u16, script: u16) -> impl PartialEq + std::fmt::Debug {
     (
