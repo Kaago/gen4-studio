@@ -101,6 +101,12 @@ impl DeleteTarget {
         }
     }
 
+    /// Whether [`crate::delete::plan_delete`] and [`crate::delete::delete`] ask the base ROM
+    /// for the target: every kind but flags and variables (an own name is never original).
+    pub fn needs_base(self) -> bool {
+        !matches!(self, DeleteTarget::Flag { .. } | DeleteTarget::Var { .. })
+    }
+
     /// The German name of the entity: „Trainer 0928“, „Header 0593“, „Scriptdatei 1124“,
     /// „Ort 125“, „Flag 0x0094“ (the words of [`asset_label`]).
     pub fn label(self) -> String {

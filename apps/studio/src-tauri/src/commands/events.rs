@@ -1,8 +1,10 @@
 //! Editing of event records: warps, objects, coordinate triggers and background events.
 
 use g4_formats::error::FormatError;
+use g4_kernel::data::refs::{PARTNER_SCRIPTS, TRAINER_SCRIPTS, Target};
+use g4_kernel::delete::guard_reference;
 use g4_kernel::delete::warps::delete_warp;
-use g4_kernel::store::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
+use g4_kernel::store::{BgEvent, CoordEvent, EventFile, ObjectEvent, Store, WarpEvent};
 use serde::Deserialize;
 use tauri::State;
 
@@ -244,6 +246,53 @@ impl EventPatch {
     }
 }
 
+/// The trainer an object's `script` starts the battle of (`3000 + n - 1`, as a partner
+/// `5000 + n - 1`), as the reference index reads it.
+fn trainer_of_script(script: u16) -> Option<u16> {
+    [&TRAINER_SCRIPTS, &PARTNER_SCRIPTS]
+        .into_iter()
+        .find(|range| range.contains(&script))
+        .map(|range| script - range.start() + 1)
+}
+
+/// Refuses `patch` of event `index` of class `kind` in `event_file` (`None`: a new event) when
+/// a field it changes names a tombstone ([`guard_reference`], „{Ziel} ist gelöscht.“): a
+/// warp's destination header, an object's trainer. A field left as it was is not checked.
+fn guard_patch(
+    store: &mut Store,
+    event_file: u16,
+    kind: EventKind,
+    index: Option<u16>,
+    patch: &EventPatch,
+) -> Result<(), CmdError> {
+    let file = store.event(event_file)?;
+    let at = index.map(usize::from);
+    let target = match kind {
+        EventKind::Warp => {
+            let now = at
+                .and_then(|i| file.warp_events.get(i))
+                .map(|w| w.dest_header_id);
+            patch
+                .dest_header_id
+                .filter(|&header| now != Some(header))
+                .map(Target::Header)
+        }
+        EventKind::Object => {
+            let now = at.and_then(|i| file.object_events.get(i)).map(|o| o.script);
+            patch
+                .script
+                .filter(|&script| now != Some(script))
+                .and_then(trainer_of_script)
+                .map(Target::Trainer)
+        }
+        EventKind::Bg | EventKind::Coord => None,
+    };
+    match target {
+        Some(target) => Ok(guard_reference(store, target)?),
+        None => Ok(()),
+    }
+}
+
 fn missing_event(file: u16, kind: EventKind, index: u16) -> CmdError {
     format!(
         "{} event {index} does not exist in event file {file:04}",
@@ -264,7 +313,9 @@ fn next_free_local_id(objects: &[ObjectEvent]) -> Result<u16, FormatError> {
 }
 
 /// Changes the given fields of event `index` of class `kind` in event file `event_file`. One
-/// undoable change. A locked (read-only) file is refused with the `read_only` code.
+/// undoable change. A locked (read-only) file is refused with the `read_only` code; a warp to a
+/// deleted header or an object starting a deleted trainer's battle with „{Ziel} ist gelöscht.“
+/// (a field left as it was is not checked).
 pub fn update_event_impl(
     state: &AppState,
     event_file: u16,
@@ -277,6 +328,7 @@ pub fn update_event_impl(
     if usize::from(index) >= kind.count(session.store.event(event_file)?) {
         return Err(missing_event(event_file, kind, index));
     }
+    guard_patch(&mut session.store, event_file, kind, Some(index), &patch)?;
     let label = if patch.only_moves() {
         "move event"
     } else {
@@ -308,6 +360,9 @@ pub fn add_event_impl(
     let count = kind.count(session.store.event(event_file)?);
     let index = u16::try_from(count)
         .map_err(|_| CmdError::from(format!("event file {event_file:04} has too many events")))?;
+    if let Some(patch) = &patch {
+        guard_patch(&mut session.store, event_file, kind, None, patch)?;
+    }
     let label = label.unwrap_or("add event");
     session.store.edit_event(event_file, label, |file| {
         match kind {

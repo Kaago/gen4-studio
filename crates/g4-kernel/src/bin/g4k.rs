@@ -189,6 +189,10 @@ enum Command {
     /// plan one without writing, apply one as one undo step and save.
     #[command(subcommand)]
     Recipe(RecipeCommand),
+    /// Delete an entity (Löschen, 3d.4): plan it without writing, delete it as one undo step
+    /// and save, or take its tombstone back and save.
+    #[command(subcommand)]
+    Delete(DeleteCommand),
 }
 
 #[derive(Subcommand)]
@@ -486,6 +490,7 @@ fn run(cli: Cli) -> Result<(), Failure> {
             publish(&project, &opts, base_rom.as_deref(), json)
         }
         Command::Recipe(command) => recipe(command),
+        Command::Delete(command) => delete(command),
     }
 }
 
@@ -2460,6 +2465,136 @@ fn recipe(command: RecipeCommand) -> Result<(), Failure> {
             let saved = store.save()?;
             print_problems(&saved.problems);
             print_json(&outcome)
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum DeleteCommand {
+    /// Print what deleting would do as JSON (refusal, references, original, can_free, …);
+    /// writes nothing. Needs the base ROM (`--base-rom`, else the sibling `.nds`, else
+    /// `G4_BASE_ROM_DIR`), but for an own flag or variable name. A refused plan exits 1.
+    Plan {
+        project: PathBuf,
+        /// `trainer`, `encounter`, `event_file`, `matrix`, `map`, `header`, `script`,
+        /// `text_archive`, `area_data`, `map_texture`, `building_texture`, `building_model`,
+        /// `interior_building_model`, `place`, `flag` or `var`.
+        kind: String,
+        /// The index (a header's id, a script file, a flag or variable number).
+        index: u16,
+        /// The base ROM; another SHA-1 than the mark's is refused.
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+    },
+    /// Delete as one undo step, save and print the result as JSON (change, changed, freed,
+    /// ms). A refused delete (refusal, references, no base ROM) writes nothing and exits 1.
+    Apply {
+        project: PathBuf,
+        kind: String,
+        index: u16,
+        /// Free the number („Nummer freigeben“): a new entity at the end leaves the project
+        /// for good. Needs `--allow-irreversible`.
+        #[arg(long)]
+        free_number: bool,
+        /// Free a number although undo does not bring it back.
+        #[arg(long)]
+        allow_irreversible: bool,
+        #[arg(long)]
+        base_rom: Option<PathBuf>,
+    },
+    /// Take a tombstone back as one undo step, save and print the result as JSON; refused
+    /// (exit 1) when the entity is not deleted. Needs no base ROM.
+    Restore {
+        project: PathBuf,
+        kind: String,
+        index: u16,
+    },
+}
+
+/// The target of `g4k delete`: `kind` and its number under the field the kind takes.
+fn delete_target(kind: &str, index: u16) -> Result<g4_kernel::delete::DeleteTarget, Failure> {
+    let field = match kind {
+        "header" => "id",
+        "script" => "file",
+        "flag" | "var" => "number",
+        _ => "index",
+    };
+    serde_json::from_value(serde_json::json!({ "kind": kind, field: index }))
+        .map_err(|e| Failure::Message(format!("unknown kind {kind:?}: {e}")))
+}
+
+/// The base ROM `g4k delete` plans `target` against: found like `g4k publish` finds it; an
+/// own flag or variable name needs none.
+fn delete_base(
+    root: &Path,
+    target: g4_kernel::delete::DeleteTarget,
+    explicit: Option<&Path>,
+) -> Result<Box<dyn g4_kernel::original::Original>, Failure> {
+    if !target.needs_base() {
+        return Ok(Box::new(g4_kernel::original::MissingBase(
+            "Ein eigener Name braucht keine Basis-ROM.".to_owned(),
+        )));
+    }
+    let mark = required_mark(root)?;
+    Ok(Box::new(required_base(root, &mark, explicit)?))
+}
+
+fn delete(command: DeleteCommand) -> Result<(), Failure> {
+    use g4_kernel::data::refs::RefIndex;
+    use g4_kernel::delete;
+    match command {
+        DeleteCommand::Plan {
+            project,
+            kind,
+            index,
+            base_rom,
+        } => {
+            let target = delete_target(&kind, index)?;
+            let base = delete_base(&project, target, base_rom.as_deref())?;
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            let plan =
+                delete::plan_delete(&mut store, &mut RefIndex::new(), base.as_ref(), target)?;
+            print_json(&plan)
+        }
+        DeleteCommand::Apply {
+            project,
+            kind,
+            index,
+            free_number,
+            allow_irreversible,
+            base_rom,
+        } => {
+            let target = delete_target(&kind, index)?;
+            if free_number && !allow_irreversible {
+                return Err(Failure::Message(
+                    "delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
+                     kopflos nur mit --allow-irreversible"
+                        .to_owned(),
+                ));
+            }
+            let base = delete_base(&project, target, base_rom.as_deref())?;
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            let mut refs = RefIndex::new();
+            let result = if free_number {
+                delete::free_number(&mut store, &mut refs, base.as_ref(), target)?
+            } else {
+                delete::delete(&mut store, &mut refs, base.as_ref(), target)?
+            };
+            let saved = store.save()?;
+            print_problems(&saved.problems);
+            print_json(&result)
+        }
+        DeleteCommand::Restore {
+            project,
+            kind,
+            index,
+        } => {
+            let target = delete_target(&kind, index)?;
+            let mut store = Store::new(Arc::new(Project::open(&project)?));
+            let result = delete::restore(&mut store, target)?;
+            let saved = store.save()?;
+            print_problems(&saved.problems);
+            print_json(&result)
         }
     }
 }

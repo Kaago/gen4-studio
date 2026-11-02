@@ -275,6 +275,28 @@ pub trait Original {
     fn narc_at(&self, packed: &Path) -> Result<Option<Narc>, KernelError>;
 }
 
+/// No base ROM found: every question answers `.0`, why ([`KernelError::Refused`]). For a call
+/// that may not need the base (`plan_delete` and `delete` of an own flag or variable name).
+pub struct MissingBase(pub String);
+
+impl Original for MissingBase {
+    fn sha1(&self) -> &str {
+        ""
+    }
+    fn member(&self, _: AssetKind, _: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn count(&self, _: AssetKind) -> Result<Option<usize>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn header_table(&self) -> Result<Vec<MapHeader>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn narc_at(&self, _: &Path) -> Result<Option<Narc>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+}
+
 /// One asset of a plan whose bytes differ from the base: German lines of both sides.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ResetChange {

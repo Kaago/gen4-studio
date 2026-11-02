@@ -205,6 +205,9 @@ pub const COMMANDS: &[&str] = &[
     "flag_usage",
     "free_flag",
     "name_flag",
+    "plan_delete",
+    "delete_entity",
+    "restore_entity",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1079,6 +1082,21 @@ pub fn dispatch(
                 }
             )
         ),
+        "plan_delete" => run!(
+            json, "plan_delete", args,
+            { target: g4_kernel::delete::DeleteTarget },
+            |a| plan_delete_impl(state, a.target)
+        ),
+        "delete_entity" => run!(
+            json, "delete_entity", args,
+            { target: g4_kernel::delete::DeleteTarget, free_number: Option<bool> },
+            |a| delete_entity_impl(state, a.target, a.free_number.unwrap_or(false))
+        ),
+        "restore_entity" => run!(
+            json, "restore_entity", args,
+            { target: g4_kernel::delete::DeleteTarget },
+            |a| restore_entity_impl(state, a.target)
+        ),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1487,6 +1505,19 @@ mod tests {
             (
                 "name_flag",
                 json!({"kind": "flag", "number": 148, "id": "FLAG_TEST", "description": null}),
+            ),
+            // No base ROM: refused before anything is planned or deleted.
+            (
+                "plan_delete",
+                json!({ "target": { "kind": "trainer", "index": 1 } }),
+            ),
+            (
+                "delete_entity",
+                json!({ "target": { "kind": "flag", "number": 148 }, "freeNumber": false }),
+            ),
+            (
+                "restore_entity",
+                json!({ "target": { "kind": "header", "id": 0 } }),
             ),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),

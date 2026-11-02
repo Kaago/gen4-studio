@@ -98,10 +98,16 @@ impl ToolError {
 }
 
 impl From<CmdError> for ToolError {
+    /// The details carry `asset` and `problems`, and the `references` of a `referenced`
+    /// refusal (3d.4) when it names any.
     fn from(e: CmdError) -> Self {
+        let mut details = json!({ "asset": e.asset, "problems": e.problems });
+        if !e.references.is_empty() {
+            details["references"] = json!(e.references);
+        }
         ToolError::Failed {
             code: e.code.to_owned(),
-            details: json!({ "asset": e.asset, "problems": e.problems }),
+            details,
             message: e.message,
         }
     }
@@ -305,7 +311,9 @@ const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init", "publish_patch"]
 /// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch,
 /// and `reset_to_original` of a script, texture or model, which writes its files at once
 /// (the batch's squash and rollback carry file steps, as for `name_flag`; a reset of a file
-/// target stays out of a batch like the saves and compiles).
+/// target stays out of a batch like the saves and compiles), and `delete_entity` with
+/// `freeNumber`, which removes files past the store behind an undo barrier (a tombstone is an
+/// edit like any other).
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
@@ -326,6 +334,7 @@ fn not_in_batch(command: &str, args: &Value) -> bool {
                         | "interior_building_model"
                 )
             ))
+        || (command == "delete_entity" && args.get("freeNumber") == Some(&Value::Bool(true)))
 }
 
 /// Runs call `index` of a batch (the call's own `run`; tests wrap it).
@@ -4655,5 +4664,145 @@ mod tests {
         let mut guard = toolbox.state().lock_session();
         let session = guard.as_mut().unwrap();
         assert_eq!(session.id_files_changed(), Vec::<std::path::PathBuf>::new());
+    }
+
+    #[test]
+    fn referenced_reaches_the_agent_with_the_references() {
+        // Without references the details stay as they were.
+        let plain = ToolError::from(CmdError::from("kaputt"));
+        let ToolError::Failed { details, .. } = plain else {
+            unreachable!()
+        };
+        assert!(details.get("references").is_none(), "{details}");
+
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let warp = |x: u16| {
+            toolbox
+                .call(
+                    "add_event",
+                    json!({ "event_file": 0, "kind": "warp", "x": x, "z": 4 }),
+                    AGENT,
+                )
+                .unwrap()
+        };
+        let (door, incoming) = (warp(8), warp(9));
+        let lead = |index: &Value, header: u16| {
+            toolbox
+                .call(
+                    "update_event",
+                    json!({ "event_file": 0, "kind": "warp", "index": index,
+                            "patch": { "dest_header_id": header, "dest_warp_id": door } }),
+                    AGENT,
+                )
+                .unwrap();
+        };
+        // Header 1 shows event file 0 too: the door leads to itself, which never locks it.
+        lead(&door, 1);
+        lead(&incoming, 0);
+        let (code, message, details) = failed(toolbox.call(
+            "delete_event",
+            json!({ "event_file": 0, "kind": "warp", "index": door }),
+            AGENT,
+        ));
+        assert_eq!(code, "referenced", "{message}");
+        let references = details["references"].as_array().unwrap();
+        assert_eq!(references.len(), 1, "{details}");
+        assert_eq!(references[0]["nav"]["kind"], "event");
+        assert_eq!(references[0]["nav"]["index"], incoming);
+        assert!(
+            references[0]["label"]
+                .as_str()
+                .unwrap()
+                .ends_with(" springt hierher"),
+            "{details}"
+        );
+    }
+
+    #[test]
+    fn free_number_is_refused_in_a_batch() {
+        let target = json!({ "kind": "trainer", "index": 2 });
+        assert!(not_in_batch(
+            "delete_entity",
+            &json!({ "target": target, "freeNumber": true })
+        ));
+        for args in [
+            json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target }),
+        ] {
+            assert!(!not_in_batch("delete_entity", &args), "{args}");
+        }
+        assert!(!not_in_batch(
+            "restore_entity",
+            &json!({ "target": target })
+        ));
+
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        let mut calls = three_edits();
+        calls.push(json!({ "tool": "delete_entity",
+                           "arguments": { "target": target, "free_number": true } }));
+        let (code, message, details) =
+            failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+        assert_eq!(code, "error", "{message}");
+        assert_eq!(details["index"], 3);
+        assert!(
+            message.ends_with("delete_entity geht nicht in g4_batch"),
+            "{message}"
+        );
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+    }
+
+    #[test]
+    fn a_tombstone_in_a_batch_rolls_back_with_it() {
+        use g4_kernel::delete::DeleteTarget;
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, ALL, Some(fx.rom().to_path_buf())).unwrap();
+        // The header-only ROM of the fixture holds no archives: the runner deletes against the
+        // fixture's packed archives (the command's own variant for tests); the batch around it
+        // is the real one.
+        let base = g4_kernel::test_support::ProjectOriginal::new(fx.root());
+        let target = DeleteTarget::Trainer { index: 1 };
+        let deleted = |toolbox: &Toolbox| {
+            toolbox
+                .call("data_list", json!({ "kind": "trainer" }), AGENT)
+                .unwrap()[1]["deleted"]
+                .clone()
+        };
+        let calls = json!({ "calls": [
+            { "tool": "delete_entity", "arguments": { "target": { "kind": "trainer", "index": 1 } } },
+            { "tool": "get_header", "arguments": { "id": 60000 } },
+        ] });
+        let (code, message, details) = failed(toolbox.own_call(AGENT).batch_with(
+            batch_tool(),
+            calls.clone(),
+            &mut |toolbox, index, prepared| {
+                if index == 0 {
+                    let result =
+                        crate::commands::delete_with_original(toolbox.state, &base, target, false)?;
+                    return Ok(serde_json::to_value(result).unwrap());
+                }
+                toolbox.run(prepared)
+            },
+        ));
+        assert_eq!(code, "batch_failed", "{message}");
+        assert_eq!(details["rolled_back"], 1, "{details}");
+        assert_eq!(deleted(&toolbox), false);
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+
+        // Without the failing call the tombstone stays, as the batch's one step.
+        let calls = json!({ "calls": [calls["calls"][0].clone()], "label": "Agent: löschen" });
+        toolbox
+            .own_call(AGENT)
+            .batch_with(batch_tool(), calls, &mut |toolbox, _, _| {
+                let result =
+                    crate::commands::delete_with_original(toolbox.state, &base, target, false)?;
+                Ok(serde_json::to_value(result).unwrap())
+            })
+            .unwrap();
+        assert_eq!(deleted(&toolbox), true);
+        assert_eq!(history(&toolbox)["undo"], json!(["Agent: löschen"]));
     }
 }

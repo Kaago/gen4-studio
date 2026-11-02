@@ -482,6 +482,9 @@ pub struct HeaderSummary {
     pub script_file_id: u16,
     /// Member of the script archive with this header's level script (0: none).
     pub level_script_id: u16,
+    /// The header is a tombstone (3d.4, a text project): the listing leaves it `false`, the
+    /// app's `list_headers` sets it from the store.
+    pub deleted: bool,
 }
 
 /// The header list plus the reason why location names are missing, if they are.
@@ -1227,6 +1230,7 @@ impl Project {
                     text_archive_id: header.text_archive_id(),
                     script_file_id: header.script_file_id(),
                     level_script_id: header.level_script_id(),
+                    deleted: false,
                 }
             })
             .collect();

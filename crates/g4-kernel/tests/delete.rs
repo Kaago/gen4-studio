@@ -2,6 +2,7 @@
 //! Deleting entities (3d.4): the kinds of target, their rule, their words.
 mod common;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,7 +10,8 @@ use g4_formats::narc::Narc;
 use g4_kernel::data::refs::{Access, Ref, RefIndex, Target};
 use g4_kernel::delete::{
     CANNOT_FREE_ORIGINAL, DeletePlan, DeleteTarget, FreeInfo, NO_TOMBSTONE_FOR_BINARIES,
-    NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule, guard_reference, plan_delete,
+    NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule, guard_header, guard_reference,
+    plan_delete,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag_files};
@@ -17,6 +19,7 @@ use g4_kernel::original::{Original, ResetTarget, plan_reset};
 use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::{HEADER_TABLE, MapHeader, ObjectEvent, Store, WarpEvent};
 use g4_kernel::test_support::{ProjectOriginal, TextFixture};
+use g4_kernel::textproject::Art;
 
 /// One target of every kind, with its rule from the table „Tabelle der Arten“.
 const TABLE: [(DeleteTarget, Rule); 16] = [
@@ -1411,4 +1414,64 @@ fn a_script_moving_an_earlier_warp_does_not_block() {
     assert!(result.change.is_some());
     assert!(result.shifted.is_empty());
     assert_eq!(destinations(&mut st, 0).len(), 2);
+}
+
+// --- the commands' helpers (task 8) ---
+
+/// `header` with its event file set to `file`.
+fn with_event_file(header: &MapHeader, file: u16) -> MapHeader {
+    let mut header = header.clone();
+    match &mut header {
+        MapHeader::DP(h) => h.event_file_id = file,
+        MapHeader::Pt(h) => h.event_file_id = file,
+        MapHeader::HGSS(h) => h.event_file_id = file,
+    }
+    header
+}
+
+#[test]
+fn guard_header_refuses_only_a_new_reference_to_a_tombstone() {
+    let (_fx, mut st) = fixture();
+    let before = st.header_table().unwrap()[0].clone();
+    let other = if before.event_file_id() == 0 { 1 } else { 0 };
+    let after = with_event_file(&before, other);
+    assert!(guard_header(&st, &before, &after).is_ok());
+    tombstone(&mut st, DeleteTarget::EventFile { index: other });
+    match guard_header(&st, &before, &after) {
+        Err(KernelError::Refused(why)) => {
+            assert_eq!(why, format!("Eventdatei {other:04} ist gelöscht."));
+        }
+        other => panic!("{other:?}"),
+    }
+    // A field left as it was is never refused, also when its entity is a tombstone now.
+    tombstone(
+        &mut st,
+        DeleteTarget::EventFile {
+            index: before.event_file_id(),
+        },
+    );
+    assert!(guard_header(&st, &before, &before).is_ok());
+}
+
+#[test]
+fn deleted_in_reads_the_envelopes_with_the_own_flags_over_them() {
+    let (fx, mut st) = fixture();
+    assert!(st.deleted_in(Art::Trainers).is_empty());
+    tombstone(&mut st, DeleteTarget::Trainer { index: 1 });
+    st.save().unwrap();
+    // A fresh store reads the envelope from disk.
+    let mut fresh = Store::new(Arc::new(fx.project()));
+    assert_eq!(fresh.deleted_in(Art::Trainers), BTreeSet::from([1]));
+    tombstone(&mut fresh, DeleteTarget::Trainer { index: 2 });
+    fresh
+        .transaction("Wiederhergestellt", |tx| {
+            tx.set_deleted(DeleteTarget::Trainer { index: 1 }, false)
+        })
+        .unwrap();
+    assert_eq!(fresh.deleted_in(Art::Trainers), BTreeSet::from([2]));
+    assert!(fresh.deleted_in(Art::Encounters).is_empty());
+    // Outside a text project nothing is deleted.
+    let dspre = TextFixture::dspre();
+    let st = Store::new(Arc::new(dspre.project()));
+    assert!(st.deleted_in(Art::Trainers).is_empty());
 }

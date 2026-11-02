@@ -45,7 +45,8 @@ pub struct DataFilter {
 /// One row of a data list. `name` is the kernel's name (English fallback such as
 /// "species 0520" when the text archive has none; empty for an item without the arm9 item
 /// table and for encounter files), `tech` the four-digit index, `locked` the reason a member
-/// cannot be edited (then `extra` is null).
+/// cannot be edited (then `extra` is null), `deleted` whether the entry is a tombstone (3d.4:
+/// trainers and encounter files of a text project; never for the other kinds).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DataRowDto {
     pub index: u16,
@@ -53,6 +54,7 @@ pub struct DataRowDto {
     pub tech: String,
     pub locked: Option<String>,
     pub extra: serde_json::Value,
+    pub deleted: bool,
 }
 
 /// The personal data of one species or form, field by field (the names of `Personal::FIELDS`;

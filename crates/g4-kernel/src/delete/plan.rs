@@ -12,14 +12,16 @@ use super::types::{
     DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
     ORIGINAL_KIND, Rule,
 };
-use crate::data::refs::{Access, Ref, RefIndex, Strength, Target, script_id, strength};
+use crate::data::refs::{
+    Access, Ref, RefIndex, Strength, Target, encounter_file, script_id, strength,
+};
 use crate::error::{KernelError, io_at};
 use crate::flags::{FlagKind, own_names};
 use crate::original::Original;
 use crate::places::{location_bank, location_names};
 use crate::project::{AssetKind, Project, SourceMode};
 use crate::scripts::{self, SourceKind};
-use crate::store::Store;
+use crate::store::{MapHeader, Store};
 use crate::text::TextArchiveDoc;
 use crate::textproject::rename::sources_naming;
 
@@ -165,6 +167,27 @@ pub fn guard_reference(store: &Store, target: Target) -> Result<(), KernelError>
         ))),
         _ => Ok(()),
     }
+}
+
+/// [`guard_reference`] for every entity header `after` names that `before` does not: its
+/// matrix, event file, area data and encounter file (the entities a header names that can be
+/// tombstones; script files and text archives have none). A field left as it was is never
+/// refused. Used by `set_header`.
+pub fn guard_header(store: &Store, before: &MapHeader, after: &MapHeader) -> Result<(), KernelError> {
+    let named = |header: &MapHeader| {
+        let mut targets = vec![
+            Target::Matrix(header.matrix_id()),
+            Target::EventFile(header.event_file_id()),
+            Target::AreaData(u16::from(header.area_data_id())),
+        ];
+        targets.extend(encounter_file(header).map(Target::Encounter));
+        targets
+    };
+    let old = named(before);
+    named(after)
+        .into_iter()
+        .filter(|target| !old.contains(target))
+        .try_for_each(|target| guard_reference(store, target))
 }
 
 /// Entries of the base and of the project now for the kind of `target`: headers in the header

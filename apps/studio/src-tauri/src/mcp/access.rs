@@ -224,6 +224,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("free_flag", Kind::Read),
     // One undo step, like rename_id.
     ("name_flag", Kind::Write),
+    ("plan_delete", Kind::Read),
+    // Irreversible with `freeNumber` („Nummer freigeben“), see [`classify`].
+    ("delete_entity", Kind::Depends),
+    // One undo step, like any edit.
+    ("restore_entity", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -268,8 +273,9 @@ impl From<Kind> for Class {
 /// call it can read are a write (the command refuses them). The project preview commands with
 /// a `path` (another project folder) are unavailable, also when it names the bound project.
 /// `publish_patch` with `overwrite` replaces files (irreversible), with a `dir` outside
-/// `build/` writes there (irreversible), else it is a write. A name the table does not have is
-/// unavailable.
+/// `build/` writes there (irreversible), else it is a write. `delete_entity` with `freeNumber`
+/// frees a number for good (irreversible), without it is one undo step. A name the table does
+/// not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -323,6 +329,9 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
             .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
+        "delete_entity" if args.get("freeNumber") == Some(&Value::Bool(true)) => {
+            Kind::Irreversible("Nummer freigeben").into()
+        }
         _ => Class::Write,
     }
 }
@@ -489,6 +498,7 @@ mod tests {
                 "build_rom",
                 "create_area",
                 "create_room",
+                "delete_entity",
                 "export_map_part",
                 "publish_patch",
                 "recipe_apply"
@@ -968,6 +978,60 @@ mod tests {
         assert_eq!(
             classify(json!({ "dir": null, "overwrite": false })),
             Class::Write
+        );
+    }
+
+    #[test]
+    fn delete_entity_with_free_number_is_irreversible() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let target = json!({ "kind": "trainer", "index": 2 });
+        assert_eq!(
+            classify(
+                "delete_entity",
+                &json!({ "target": target, "freeNumber": true }),
+                &policy
+            ),
+            Class::Irreversible("Nummer freigeben".to_owned())
+        );
+        // A tombstone is one undo step.
+        for args in [
+            json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target }),
+        ] {
+            assert_eq!(
+                classify("delete_entity", &args, &policy),
+                Class::Write,
+                "{args}"
+            );
+        }
+        // Planning frees nothing, whatever the arguments; restoring is one undo step.
+        assert_eq!(
+            classify(
+                "plan_delete",
+                &json!({ "target": target, "freeNumber": true }),
+                &policy
+            ),
+            Class::Read
+        );
+        assert_eq!(kind_of("restore_entity"), Some(Kind::Write));
+        // Without the confirmation an agent hears needs_confirmation.
+        let writer = Access {
+            write: true,
+            irreversible: false,
+            expert: false,
+        };
+        let class = classify(
+            "delete_entity",
+            &json!({ "target": target, "freeNumber": true }),
+            &policy,
+        );
+        let e = admit("delete_entity", &class, &writer).unwrap_err();
+        assert_eq!(e.code, "needs_confirmation");
+        assert_eq!(
+            e.message,
+            "delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
+             kopflos nur mit --allow-irreversible"
         );
     }
 
