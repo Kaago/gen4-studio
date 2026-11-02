@@ -28,7 +28,7 @@
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -88,6 +88,8 @@ pub struct FakeStub {
     /// Set once a too long packet arrived: the stub never answers again.
     pub wedged: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    /// Connection threads alive (served or queued).
+    connections: Arc<AtomicUsize>,
     accept_thread: Option<JoinHandle<()>>,
 }
 
@@ -104,6 +106,8 @@ struct Shared {
     serving: Arc<AtomicBool>,
     /// `QStartNoAckMode` was accepted; like 1.1 it survives disconnects.
     no_ack: Arc<AtomicBool>,
+    /// Connection threads alive (served or queued).
+    connections: Arc<AtomicUsize>,
 }
 
 impl FakeStub {
@@ -123,6 +127,7 @@ impl FakeStub {
             stop: Arc::new(AtomicBool::new(false)),
             serving: Arc::new(AtomicBool::new(false)),
             no_ack: Arc::new(AtomicBool::new(false)),
+            connections: Arc::new(AtomicUsize::new(0)),
         };
         let mut stub = FakeStub {
             port,
@@ -131,6 +136,7 @@ impl FakeStub {
             log: shared.log.clone(),
             wedged: shared.wedged.clone(),
             stop: shared.stop.clone(),
+            connections: shared.connections.clone(),
             accept_thread: None,
         };
         stub.accept_thread = Some(std::thread::spawn(move || accept_loop(listener, shared)));
@@ -154,6 +160,11 @@ impl FakeStub {
         self.ram.lock().unwrap()[start..start + len].to_vec()
     }
 
+    /// Connection threads still alive, served or queued (`0` once every client has left).
+    pub fn open_connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+
     /// A copy of the log.
     pub fn log_lines(&self) -> Vec<String> {
         self.log.lock().unwrap().clone()
@@ -175,7 +186,11 @@ fn accept_loop(listener: TcpListener, shared: Shared) {
         match listener.accept() {
             Ok((stream, _)) => {
                 let shared = shared.clone();
-                connections.push(std::thread::spawn(move || serve(stream, shared)));
+                shared.connections.fetch_add(1, Ordering::SeqCst);
+                connections.push(std::thread::spawn(move || {
+                    serve(stream, &shared);
+                    shared.connections.fetch_sub(1, Ordering::SeqCst);
+                }));
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock => std::thread::sleep(POLL),
             Err(_) => std::thread::sleep(POLL),
@@ -188,51 +203,27 @@ fn accept_loop(listener: TcpListener, shared: Shared) {
 }
 
 /// One connection, from accept to disconnect.
-fn serve(stream: TcpStream, shared: Shared) {
+fn serve(stream: TcpStream, shared: &Shared) {
     if stream.set_nonblocking(false).is_err() || stream.set_read_timeout(Some(POLL)).is_err() {
         return;
     }
     let _ = stream.set_nodelay(true);
     // A client that stops reading must not block the stub's threads (and its drop) for good.
     let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-    if shared.quirks.one_client && !wait_for_turn(&stream, &shared) {
-        return;
-    }
-    shared.halted.store(true, Ordering::SeqCst);
     let mut conn = Conn {
         stream,
         shared: shared.clone(),
         buf: Vec::new(),
     };
+    if shared.quirks.one_client && !conn.wait_for_turn() {
+        return;
+    }
+    shared.halted.store(true, Ordering::SeqCst);
     conn.run();
     // Like melonDS: without a client the emulation runs.
     shared.halted.store(false, Ordering::SeqCst);
     if shared.quirks.one_client {
         shared.serving.store(false, Ordering::SeqCst);
-    }
-}
-
-/// Waits until no other client is served; `false` if this client left or the stub stops first.
-fn wait_for_turn(stream: &TcpStream, shared: &Shared) -> bool {
-    let mut probe = [0u8; 1];
-    loop {
-        if shared.stop.load(Ordering::SeqCst) {
-            return false;
-        }
-        if shared
-            .serving
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
-            return true;
-        }
-        // Leave the bytes in the socket (served later), only notice a disconnect.
-        match stream.peek(&mut probe) {
-            Ok(0) => return false,
-            Ok(_) => std::thread::sleep(POLL),
-            Err(e) if is_timeout(&e) => {}
-            Err(_) => return false,
-        }
     }
 }
 
@@ -295,6 +286,28 @@ impl Conn {
 
     fn log(&self, line: impl Into<String>) {
         self.shared.log.lock().unwrap().push(line.into());
+    }
+
+    /// Waits until no other client is served; `false` if this client left or the stub stops
+    /// first. What the client sends meanwhile is read into `buf` (and answered once served), so
+    /// its disconnect is seen even behind unread bytes.
+    fn wait_for_turn(&mut self) -> bool {
+        loop {
+            if self.stopping() {
+                return false;
+            }
+            if self
+                .shared
+                .serving
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return true;
+            }
+            if !self.fill() {
+                return false;
+            }
+        }
     }
 
     /// Reads what is there into `buf`; `false` on disconnect, error or stop.

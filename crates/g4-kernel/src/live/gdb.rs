@@ -653,4 +653,27 @@ mod tests {
         let third = GdbClient::connect(&stub.addr(), REPLY_TIMEOUT).unwrap();
         assert!(third.features().contains("QStartNoAckMode+"));
     }
+
+    #[test]
+    fn fake_forgets_a_queued_client_that_left_before_its_turn() {
+        let stub = FakeStub::start(Quirks::melonds_1_1());
+        let first = GdbClient::connect(&stub.addr(), REPLY_TIMEOUT).unwrap();
+        // The queued client sends `+` and `qSupported`, gets no reply and leaves.
+        let queued = GdbClient::connect(&stub.addr(), Duration::from_millis(200));
+        assert!(matches!(queued, Err(LiveError::NoReply)), "{queued:?}");
+        drop(queued);
+        // Its thread ends although its bytes still sit unread ahead of the FIN.
+        wait_until("the queued client's thread to end", || {
+            stub.open_connections() == 1
+        });
+        first.detach().unwrap();
+        let third = GdbClient::connect(&stub.addr(), REPLY_TIMEOUT).unwrap();
+        third.detach().unwrap();
+        wait_until("all threads to end", || stub.open_connections() == 0);
+        let log = stub.log_lines();
+        let handshakes = log.iter().filter(|l| l.starts_with("qSupported")).count();
+        assert_eq!(handshakes, 2, "only the first and the third client: {log:?}");
+        assert_eq!(log.iter().filter(|l| *l == "+").count(), 2, "{log:?}");
+        assert!(!stub.halted.load(Ordering::SeqCst));
+    }
 }
