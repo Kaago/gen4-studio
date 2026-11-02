@@ -31,8 +31,7 @@ fn disk_before_puts_back_what_a_compile_wrote() {
     };
     let before = snapshot(store.project());
     let disk = DiskBefore {
-        file: 0,
-        script: before.0.clone(),
+        scripts: [(0, before.0.clone())].into(),
         state: before.1.clone(),
         archives: [(ARCHIVE, before.2.clone())].into(),
     };

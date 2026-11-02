@@ -14,8 +14,9 @@
 //! The story recipes of 3d.7 (Erzählen): [`new_story`] names a variable of the pool and makes a
 //! story with the step „Anfang“; „Gespräch schaltet weiter“, „Figur erscheint/verschwindet ab
 //! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it ([`talk_advances`],
-//! [`reward_once`]). `story_common` holds what they share, `story_wrap` the hull script a talk
-//! or a reward puts in front of a figure.
+//! [`figure_appears`], [`reward_once`]). `story_common` holds what they share, `story_wrap` the
+//! hull script a talk or a reward puts in front of a figure and the taking back of a story
+//! recipe's writes, `level_script` the level script of a place they change.
 
 pub mod area;
 pub mod connect_doors;
@@ -23,6 +24,8 @@ pub(crate) mod doors;
 pub mod empty_region;
 pub mod events;
 pub mod extend;
+pub mod figure_appears;
+pub(crate) mod level_script;
 pub mod new_figure;
 pub mod new_story;
 pub mod new_trainer_here;
@@ -81,8 +84,9 @@ fn input<T: DeserializeOwned>(call: &RecipeCall) -> Result<T, KernelError> {
 /// Whether applying `call` does something undo does not take back (the access check of
 /// `recipe_apply`): „Header-Patch einspielen“ for an area or room whose header may apply the
 /// patch (`header.allow_patch`), „Welt leeren“ always, „Trainer anlegen“ always for a new
-/// trainer (it is created behind an undo barrier), else `None` (a new figure is one undo step,
-/// so is a door pair). Input the recipe cannot read is refused.
+/// trainer (it is created behind an undo barrier), [`LEVEL_SCRIPT_FILE`] for a visibility or a
+/// scene (they may create a level script file; [`is_irreversible_in`] knows), else `None` (a
+/// new figure is one undo step, so is a door pair). Input the recipe cannot read is refused.
 pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, KernelError> {
     const PATCH: &str = "Header-Patch einspielen";
     Ok(match call.recipe {
@@ -116,11 +120,30 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             None
         }
         // A talk and a reward are one undo step each, whatever their input.
-        RecipeId::TalkAdvances
-        | RecipeId::FigureAppears
-        | RecipeId::SceneOnEnter
-        | RecipeId::RewardOnce => None,
+        RecipeId::TalkAdvances | RecipeId::RewardOnce => None,
+        // They may need a level script file of their own for the place, which stays after
+        // undo; whether they do, only the project tells ([`is_irreversible_in`]).
+        RecipeId::FigureAppears | RecipeId::SceneOnEnter => Some(LEVEL_SCRIPT_FILE),
     })
+}
+
+/// What [`is_irreversible`] answers for a recipe that may create a level script file.
+pub const LEVEL_SCRIPT_FILE: &str = "Level-Script-Datei anlegen";
+
+/// [`is_irreversible`] with the project at hand: „Figur erscheint/verschwindet ab Schritt“ and
+/// „Szene beim Betreten“ answer [`LEVEL_SCRIPT_FILE`] only when their plan creates a level
+/// script file (one another header shares is copied, a missing one created); a refusal of the
+/// plan is the answer then. The other recipes as [`is_irreversible`].
+pub fn is_irreversible_in(
+    store: &mut Store,
+    call: &RecipeCall,
+) -> Result<Option<&'static str>, KernelError> {
+    match call.recipe {
+        RecipeId::FigureAppears | RecipeId::SceneOnEnter => {
+            Ok((!plan(store, call)?.irreversible.is_empty()).then_some(LEVEL_SCRIPT_FILE))
+        }
+        _ => is_irreversible(call),
+    }
 }
 
 /// What applying `call` would do, without writing anything.
@@ -135,7 +158,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::NewTrainerHere => new_trainer_here::plan(store, &input(call)?),
         RecipeId::NewStory => new_story::plan(store, &input(call)?),
         RecipeId::TalkAdvances => talk_advances::plan(store, &input(call)?),
-        RecipeId::FigureAppears => Err(not_yet(5)),
+        RecipeId::FigureAppears => figure_appears::plan(store, &input(call)?),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
         RecipeId::RewardOnce => reward_once::plan(store, &input(call)?),
     }
@@ -153,7 +176,7 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::NewTrainerHere => new_trainer_here::apply(store, &input(call)?)?.into_dto(),
         RecipeId::NewStory => new_story::apply(store, &input(call)?)?.into_dto(),
         RecipeId::TalkAdvances => talk_advances::apply(store, &input(call)?)?.into_dto(),
-        RecipeId::FigureAppears => Err(not_yet(5)),
+        RecipeId::FigureAppears => figure_appears::apply(store, &input(call)?)?.into_dto(),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
         RecipeId::RewardOnce => reward_once::apply(store, &input(call)?)?.into_dto(),
     }

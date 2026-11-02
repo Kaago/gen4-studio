@@ -13,6 +13,11 @@
 //! as file steps, the step goes into the story ([`append_step`]), and everything since the
 //! recipe's mark is squashed into one step. Any error rolls back to the mark, and files the
 //! compile wrote before their file steps were recorded are put back first.
+//!
+//! The taking back ([`rolled_back`] with [`DiskBefore`]), the archives a compile may write
+//! ([`compile_archives`]) and the end of the step ([`finish_step`]) serve the other story
+//! recipes too („Figur erscheint/verschwindet ab Schritt“ writes a script file and a level
+//! script file).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -52,6 +57,19 @@ pub(crate) fn require_adopted(store: &Store) -> Result<(), KernelError> {
         Ok(())
     } else {
         Err(refused(ADOPT_FIRST))
+    }
+}
+
+/// Refuses script file `file` of header `header` when it has no rotom source (a recipe appends
+/// to it).
+pub(crate) fn require_rotom(project: &Project, header: u16, file: u16) -> Result<(), KernelError> {
+    if scripts::source_kind(project, file) == SourceKind::Script {
+        Ok(())
+    } else {
+        Err(refused(format!(
+            "Die Scriptdatei {file:04} von Header {header} ist keine rotom-Quelle; in Bauen eine \
+             Scriptdatei zuweisen."
+        )))
     }
 }
 
@@ -120,13 +138,7 @@ pub(crate) fn check_hull(
     };
     let project = store.project_arc();
     let script_file = files.script_file;
-    if scripts::source_kind(&project, script_file) != SourceKind::Script {
-        return Err(refused(format!(
-            "Die Scriptdatei {script_file:04} von Header {} ist keine rotom-Quelle; in Bauen \
-             eine Scriptdatei zuweisen.",
-            at.header
-        )));
-    }
+    require_rotom(&project, at.header, script_file)?;
     check_writable(store, id(AssetKind::Event, found.event_file))?;
     let messages = store.text_archive(files.text_archive)?.messages.len();
     check_writable(store, id(AssetKind::TextArchive, files.text_archive))?;
@@ -197,9 +209,25 @@ pub(crate) fn apply_hull(
     hull: Hull,
     step: HullStep<'_>,
 ) -> Result<Option<ChangeId>, KernelError> {
+    rolled_back(store, mark, |store, disk| {
+        write_hull(store, mark, hull, step, disk)
+    })
+}
+
+/// Runs `write` (a recipe's writes after `mark`, the undo depth before its first write) and
+/// takes everything back on any error: files a compile wrote before their file steps were
+/// recorded are put back from `disk` (the writer sets it right before its first compile and
+/// clears it once the file steps are recorded), then the store rolls back to `mark` (which
+/// takes back the recorded file steps, the transaction and what the recipe did before). Should
+/// taking back fail too, the error names both.
+pub(crate) fn rolled_back<T>(
+    store: &mut Store,
+    mark: usize,
+    write: impl FnOnce(&mut Store, &mut Option<DiskBefore>) -> Result<T, KernelError>,
+) -> Result<T, KernelError> {
     let mut disk = None;
-    match write_hull(store, mark, hull, step, &mut disk) {
-        Ok(change) => Ok(change),
+    match write(store, &mut disk) {
+        Ok(done) => Ok(done),
         Err(e) => {
             let project = store.project_arc();
             let restored = disk.as_ref().map_or(Ok(()), |d| d.restore(&project));
@@ -214,32 +242,33 @@ pub(crate) fn apply_hull(
     }
 }
 
-/// The files a compile of script file `file` may write, as they were before: the script file,
-/// rotom's compile state and the text archives of the headers with that script file.
-struct DiskBefore {
-    file: u16,
-    script: ScriptSnapshot,
-    state: Option<Vec<u8>>,
-    archives: BTreeMap<u16, ArchiveSnapshot>,
+/// The files a compile may write, as they were before: the script files the recipe writes
+/// (a rotom source, a level script), rotom's compile state and the text archives of the
+/// headers with the written script file ([`compile_archives`]).
+pub(crate) struct DiskBefore {
+    pub scripts: BTreeMap<u16, ScriptSnapshot>,
+    pub state: Option<Vec<u8>>,
+    pub archives: BTreeMap<u16, ArchiveSnapshot>,
 }
 
 impl DiskBefore {
     /// Puts every file back that differs from its state before (a file that was not there is
     /// removed).
     fn restore(&self, project: &Project) -> Result<(), KernelError> {
-        let file = self.file;
-        put_back(
-            &scripts::source_path(project, file, SourceKind::Script),
-            self.script.rotom.as_deref(),
-        )?;
-        put_back(
-            &scripts::source_path(project, file, SourceKind::LevelScript),
-            self.script.json.as_deref(),
-        )?;
-        put_back(
-            &scripts::source_path(project, file, SourceKind::Binary),
-            self.script.member.as_deref(),
-        )?;
+        for (&file, script) in &self.scripts {
+            put_back(
+                &scripts::source_path(project, file, SourceKind::Script),
+                script.rotom.as_deref(),
+            )?;
+            put_back(
+                &scripts::source_path(project, file, SourceKind::LevelScript),
+                script.json.as_deref(),
+            )?;
+            put_back(
+                &scripts::source_path(project, file, SourceKind::Binary),
+                script.member.as_deref(),
+            )?;
+        }
         scripts::restore_compile_state(project, self.state.as_deref())?;
         for (&a, snapshot) in &self.archives {
             put_back(&json_path(project, a), snapshot.json.as_deref())?;
@@ -250,6 +279,88 @@ impl DiskBefore {
         }
         Ok(())
     }
+
+    /// Records the file steps from these files to what is on disk now under `label`: one per
+    /// script file (without its compile-state entry), one per archive of `touched`, last the
+    /// compile state as a whole file (asset: script file `asset`; the compile wrote all of
+    /// it anew). All are worked out before the first is recorded, so either none or all are
+    /// recorded; empty steps are left out.
+    pub(crate) fn record(
+        &self,
+        store: &mut Store,
+        label: &str,
+        touched: &[u16],
+        asset: u16,
+    ) -> Result<(), KernelError> {
+        let project = store.project_arc();
+        let mut steps = Vec::new();
+        for (&file, before) in &self.scripts {
+            let mut step = scripts::script_file_step(&project, file, before)?;
+            step.rotom_entry = None;
+            steps.push(step);
+        }
+        for (&a, snapshot) in &self.archives {
+            if touched.contains(&a) {
+                steps.push(scripts::archive_file_step(&project, a, snapshot)?);
+            }
+        }
+        steps.push(scripts::compile_state_step(
+            &project,
+            id(AssetKind::Script, asset),
+            self.state.clone(),
+        )?);
+        for file_step in steps {
+            if !file_step.files.is_empty() || file_step.rotom_entry.is_some() {
+                store.record_file_step(label, file_step);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The text archives a compile of script file `script_file` may write, as they are on disk
+/// now: those of the headers with that script file, and `archive` (the recipe's).
+pub(crate) fn compile_archives(
+    store: &mut Store,
+    script_file: u16,
+    archive: u16,
+) -> Result<BTreeMap<u16, ArchiveSnapshot>, KernelError> {
+    let project = store.project_arc();
+    store
+        .header_table()?
+        .iter()
+        .filter(|h| h.script_file_id() == script_file)
+        .map(MapHeader::text_archive_id)
+        .chain([archive])
+        .collect::<BTreeSet<u16>>()
+        .into_iter()
+        .map(|a| Ok((a, scripts::snapshot_archive(&project, a)?)))
+        .collect()
+}
+
+/// The end of a story recipe's writes, once its file steps are recorded: the store loads the
+/// touched archives again, the step goes into the story ([`append_step`]), everything since
+/// `mark` is squashed into one undo step `label`, and the JSON a compile wrote from the member
+/// of an archive DSPRE has not expanded is removed again. Answers the change of the step.
+pub(crate) fn finish_step(
+    store: &mut Store,
+    mark: usize,
+    label: &str,
+    step: (&str, Step, &[String]),
+    saved: &BTreeMap<u16, ArchiveSnapshot>,
+    touched: &[u16],
+) -> Result<Option<ChangeId>, KernelError> {
+    for &a in touched {
+        let touched_id = id(AssetKind::TextArchive, a);
+        if store.is_loaded(touched_id) {
+            store.reload_from_disk(touched_id)?;
+        }
+    }
+    let (story, step, flags) = step;
+    let story = append_step(store, story, step, flags)?;
+    store.squash_since(mark, label);
+    scripts::remove_materialized_json(&store.project_arc(), saved, touched)?;
+    Ok(story.change)
 }
 
 /// Writes `before` to `path` (removes it for `None`) when the file differs from it.
@@ -290,16 +401,7 @@ fn write_hull(
     // the archives a compile of the file may write (its headers').
     let before_script = scripts::snapshot_script(&project, script_file)?;
     let before_state = scripts::snapshot_compile_state(&project)?;
-    let saved = store
-        .header_table()?
-        .iter()
-        .filter(|h| h.script_file_id() == script_file)
-        .map(MapHeader::text_archive_id)
-        .chain([archive])
-        .collect::<BTreeSet<u16>>()
-        .into_iter()
-        .map(|a| Ok((a, scripts::snapshot_archive(&project, a)?)))
-        .collect::<Result<BTreeMap<u16, ArchiveSnapshot>, KernelError>>()?;
+    let saved = compile_archives(store, script_file, archive)?;
 
     let (index, local_id, slot) = (hull.figure.index, hull.figure.local_id, hull.slot);
     let (message, _) = store.transaction(label, |tx| {
@@ -332,38 +434,14 @@ fn write_hull(
     }
 
     // From here on the compile's files are on disk until their file steps are recorded.
-    *disk = Some(DiskBefore {
-        file: script_file,
-        script: before_script.clone(),
-        state: before_state.clone(),
-        archives: saved.clone(),
+    let before = disk.insert(DiskBefore {
+        scripts: [(script_file, before_script)].into(),
+        state: before_state,
+        archives: saved,
     });
     let touched = scripts::append_source(&project, script_file, hull.source, step.script)?;
-
-    // The file steps, all worked out before the first is recorded. The compile state goes
-    // back as a whole file (last step): the compile wrote all of it anew.
-    let mut steps = vec![scripts::script_file_step(
-        &project,
-        script_file,
-        &before_script,
-    )?];
-    steps[0].rotom_entry = None;
-    for (&a, snapshot) in &saved {
-        if touched.contains(&a) {
-            steps.push(scripts::archive_file_step(&project, a, snapshot)?);
-        }
-    }
-    steps.push(scripts::compile_state_step(
-        &project,
-        id(AssetKind::Script, script_file),
-        before_state,
-    )?);
-    for file_step in steps {
-        if !file_step.files.is_empty() || file_step.rotom_entry.is_some() {
-            store.record_file_step(label, file_step);
-        }
-    }
-    *disk = None;
+    before.record(store, label, &touched, script_file)?;
+    let saved = disk.take().map(|d| d.archives).unwrap_or_default();
 
     if touched.contains(&archive) {
         // rotom appended a text literal of the file where the hull's message goes.
@@ -373,16 +451,14 @@ fn write_hull(
              kompilieren und speichern."
         )));
     }
-    for &a in &touched {
-        let touched_id = id(AssetKind::TextArchive, a);
-        if store.is_loaded(touched_id) {
-            store.reload_from_disk(touched_id)?;
-        }
-    }
-    let story = append_step(store, step.story, step.step, step.flags)?;
-    store.squash_since(mark, label);
-    scripts::remove_materialized_json(&project, &saved, &touched)?;
-    Ok(story.change)
+    finish_step(
+        store,
+        mark,
+        label,
+        (step.story, step.step, step.flags),
+        &saved,
+        &touched,
+    )
 }
 
 #[cfg(all(test, feature = "test-support"))]

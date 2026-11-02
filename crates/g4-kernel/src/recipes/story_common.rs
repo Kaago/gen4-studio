@@ -309,6 +309,21 @@ pub(crate) fn slot_name(source: &str, slot: u16) -> Option<String> {
     })
 }
 
+/// The slot `#n` of the script `source` declares as `name` (parsed fault-tolerantly, as
+/// [`slot_name`]); `None` when none does.
+pub(crate) fn slot_named(source: &str, name: &str) -> Option<u16> {
+    use rotom::compiler::ast::StatementKind;
+    let file = scripts::parse_source(source).ok()??;
+    file.items.iter().find_map(|item| match &item.node {
+        StatementKind::Function { headers, .. } => headers
+            .iter()
+            .find(|h| h.name == name)
+            .and_then(|h| h.id)
+            .and_then(|id| u16::try_from(id).ok()),
+        _ => None,
+    })
+}
+
 /// The message command of `family` a recipe's script shows a numbered message with.
 pub(crate) fn message_command(family: Family) -> &'static str {
     match family {

@@ -26,6 +26,7 @@ use g4_kernel::dialog::{Dialog, DialogKind, DialogSource, dialog_of};
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag, taken_text};
 use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::recipes::figure_appears::{self, FigureAppearsInput};
 use g4_kernel::recipes::new_story::{self, NewStoryInput};
 use g4_kernel::recipes::reward_once::{self, RewardOnceInput};
 use g4_kernel::recipes::story_common::FigureRef;
@@ -33,7 +34,7 @@ use g4_kernel::recipes::talk_advances::{self, TalkAdvancesInput};
 use g4_kernel::recipes::{self, Draft, DraftMessage, RecipeCall, RecipeId, next_steps};
 use g4_kernel::scripts::{self, ScriptSource};
 use g4_kernel::start::assign_base;
-use g4_kernel::store::{ObjectEvent, Store};
+use g4_kernel::store::{MapHeader, ObjectEvent, Store};
 use g4_kernel::stories::entities::append_step;
 use g4_kernel::stories::{Made, Progress, Step, StepKind, Use, duplicate_key_text, read_story};
 use g4_kernel::textproject::adopt::adopt;
@@ -190,13 +191,16 @@ fn list_names_twelve_recipes_with_the_story_recipes_last() {
             "reward_once"
         ])
     );
-    // None of them asks for confirmation before its input is known.
+    // Without the project only a visibility and a scene may create a level script file
+    // (`is_irreversible_in` decides from their plan); the others never ask.
     for id in &RecipeId::all()[7..] {
         let call = RecipeCall {
             recipe: *id,
             input: serde_json::json!({ "name": "Testfaden", "var": POOL_VAR }),
         };
-        assert_eq!(recipes::is_irreversible(&call).unwrap(), None, "{id:?}");
+        let expected = matches!(id, RecipeId::FigureAppears | RecipeId::SceneOnEnter)
+            .then_some("Level-Script-Datei anlegen");
+        assert_eq!(recipes::is_irreversible(&call).unwrap(), expected, "{id:?}");
     }
 }
 
@@ -1560,4 +1564,630 @@ fn hgss_talk_uses_npcmsg_and_setvar() {
         "{hull}"
     );
     assert!(hull.contains("    Jump "), "{hull}");
+}
+
+// ---------------------------------------------------------------------------------------
+// „Figur erscheint/verschwindet ab Schritt“
+// ---------------------------------------------------------------------------------------
+
+/// The level script file of header 0 of the fixture.
+const LEVEL: u16 = 1;
+
+/// A second flag of the general area (Platinum).
+const POOL_FLAG_2: u16 = 0x0101;
+
+/// The id the visibility flag of figure 4 in „Testfaden“ gets.
+const FLAG_4: &str = "FLAG_STORY_TESTFADEN_SICHTBAR_4";
+
+/// [`talk_fixture`] with figure 4 without a script (object 5) and the dialog step `s1` (value
+/// 1) in „Testfaden“.
+fn appear_fixture() -> (common::TextFixture, Store) {
+    let (fx, mut store) = talk_fixture();
+    store
+        .transaction("Figur 4", |tx| {
+            tx.edit_event(0, |f| {
+                f.object_events.push(object(4, 0, 0));
+                Ok(())
+            })
+        })
+        .unwrap();
+    append_step(
+        &mut store,
+        "STORY_TESTFADEN",
+        step("s1", 1, StepKind::Dialog, "Gespräch"),
+        &[],
+    )
+    .unwrap();
+    (fx, store)
+}
+
+fn appear(local_id: u16, step: u16, appears: bool, flag: u16) -> FigureAppearsInput {
+    FigureAppearsInput {
+        story: "STORY_TESTFADEN".to_owned(),
+        figure: FigureRef {
+            header: 0,
+            local_id,
+        },
+        step,
+        appears,
+        flag,
+        step_name: None,
+    }
+}
+
+fn appear_call(input: &FigureAppearsInput) -> RecipeCall {
+    RecipeCall {
+        recipe: RecipeId::FigureAppears,
+        input: serde_json::json!({
+            "story": input.story,
+            "figure": { "header": input.figure.header, "local_id": input.figure.local_id },
+            "step": input.step,
+            "appears": input.appears,
+            "flag": input.flag,
+        }),
+    }
+}
+
+/// Level script file `file` as JSON.
+fn level_json(store: &Store, file: u16) -> serde_json::Value {
+    match scripts::read_source(store.project(), file).unwrap() {
+        ScriptSource::LevelScript(doc) => serde_json::to_value(&doc).unwrap(),
+        other => panic!("script file {file} is no level script: {other:?}"),
+    }
+}
+
+/// Writes `json` as level script file `file` and compiles.
+fn set_level(store: &Store, file: u16, json: serde_json::Value) {
+    let doc = scripts::LevelScriptDoc::from_json(&json.to_string()).unwrap();
+    scripts::write_source(store.project(), file, &ScriptSource::LevelScript(doc)).unwrap();
+    scripts::compile(store.project()).unwrap();
+}
+
+/// The level script JSON with `entries` and no conditions.
+fn entries(entries: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "header_entries": entries, "var_conditions": [] })
+}
+
+/// [`state`] and the level script file of header 0.
+fn appear_state(store: &Store) -> (State, scripts::ScriptSnapshot) {
+    (
+        state(store),
+        scripts::snapshot_script(store.project(), LEVEL).unwrap(),
+    )
+}
+
+/// The block of story 0 at header `header` as the recipe writes it: slot `#n`, the rules, the
+/// tail line.
+fn block(header: u16, n: u16, rules: &str, tail: &str) -> String {
+    format!(
+        "script sichtbarkeit_0_{header} #{n}:\n{rules}    {tail}\n// ende sichtbarkeit_0_{header}\n"
+    )
+}
+
+fn appear_rule(step: u16, flag: &str) -> String {
+    format!(
+        "    if VAR_STORY_TESTFADEN >= {step} then\n        ClearFlag {flag}\n    else\n        \
+         SetFlag {flag}\n    endif\n"
+    )
+}
+
+fn vanish_rule(step: u16, flag: &str) -> String {
+    format!(
+        "    if VAR_STORY_TESTFADEN >= {step} then\n        SetFlag {flag}\n    else\n        \
+         ClearFlag {flag}\n    endif\n"
+    )
+}
+
+fn set_header_level_script(store: &mut Store, header: u16, file: u16) {
+    store
+        .transaction("Level-Script", |tx| {
+            tx.edit_header(header, |h| {
+                match h {
+                    MapHeader::DP(h) => h.level_script_id = file,
+                    MapHeader::Pt(h) => h.level_script_id = file,
+                    MapHeader::HGSS(h) => h.level_script_id = file,
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
+}
+
+#[test]
+fn apply_of_an_appearance_sets_hidden_flag_names_the_flag_and_adds_the_block() {
+    let (_fx, mut store) = appear_fixture();
+    assert_eq!(level_json(&store, LEVEL), entries(serde_json::json!([])));
+    let before = appear_state(&store);
+    let old_source = source_of(&store, 0);
+    let mark = store.undo_depth();
+    let call = appear_call(&appear(4, 1, true, POOL_FLAG));
+
+    // The plan writes nothing; the header's own level script is changed in place.
+    let draft = recipes::plan(&mut store, &call).unwrap();
+    assert_eq!(
+        draft,
+        Draft {
+            notes: vec![
+                format!(
+                    "Figur 4 bekommt das Sichtbarkeits-Flag {FLAG_4} und erscheint ab Schritt 1."
+                ),
+                "Block sichtbarkeit_0_0 in Scriptdatei 0.".to_owned(),
+            ],
+            ..Draft::default()
+        }
+    );
+    assert_eq!(
+        recipes::is_irreversible_in(&mut store, &call).unwrap(),
+        None
+    );
+    // Without the project it may create a level script file.
+    assert_eq!(
+        recipes::is_irreversible(&call).unwrap(),
+        Some(recipes::LEVEL_SCRIPT_FILE)
+    );
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+
+    let outcome = recipes::apply(&mut store, &call).unwrap();
+    assert_eq!(
+        outcome.report,
+        serde_json::json!({
+            "step": "a256",
+            "flag": POOL_FLAG,
+            "flag_id": FLAG_4,
+            "event_file": 0,
+            "object": 5,
+            "level_script": LEVEL,
+            "level_script_created": false,
+            "script_file": 0,
+            "slot": 3,
+            "rules": 1,
+        })
+    );
+    assert!(outcome.created.is_empty());
+    assert!(outcome.change.is_some());
+    let next: Vec<(&str, bool)> = outcome
+        .next
+        .iter()
+        .map(|s| (s.id.as_str(), s.available))
+        .collect();
+    assert_eq!(next, [("play_here", false)]);
+
+    // The figure hides behind the flag, which has its own name.
+    assert_eq!(
+        store.event(0).unwrap().object_events[5].hidden_flag,
+        POOL_FLAG
+    );
+    assert_eq!(
+        json(&store, "data/ids/flags.json")[FLAG_4],
+        serde_json::json!(POOL_FLAG)
+    );
+    assert_eq!(
+        json(&store, "data/flags/0256.json"),
+        serde_json::json!({
+            "id": FLAG_4,
+            "description": "Sichtbarkeit von Figur 4 in „Testfaden“",
+        })
+    );
+    // The block is appended; without an on_transition entry before it ends.
+    let source = source_of(&store, 0);
+    assert_eq!(
+        source,
+        format!(
+            "{old_source}\n{}",
+            block(0, 3, &appear_rule(1, FLAG_4), "End")
+        )
+    );
+    // The level script starts it on entering; the compile wrote its member.
+    assert_eq!(
+        level_json(&store, LEVEL),
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 3 }]))
+    );
+    let level_after = scripts::snapshot_script(store.project(), LEVEL).unwrap();
+    assert_ne!(level_after.member, before.1.member);
+
+    // The story has the step and names the flag.
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    let keys: Vec<&str> = story.steps.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["s0", "s1", "a256"]);
+    assert_eq!(
+        story.steps[2],
+        Step {
+            made: Some(Made {
+                recipe: "figure_appears".to_owned(),
+                studio: env!("CARGO_PKG_VERSION").to_owned(),
+            }),
+            uses: vec![
+                Use::Object {
+                    file: 0,
+                    local_id: 4
+                },
+                Use::Flag(FLAG_4.to_owned()),
+                Use::Script { file: 0, slot: 3 },
+            ],
+            ..step(
+                "a256",
+                1,
+                StepKind::Appearance,
+                "Figur 4 erscheint ab Schritt 1"
+            )
+        }
+    );
+    assert_eq!(story.flags, [FLAG_4]);
+    assert_eq!(
+        json(&store, "data/stories/0000.json")["steps"][2]["kind"],
+        "appearance"
+    );
+
+    // One undo step: undo puts everything back, the level script too; redo makes it again.
+    assert_eq!(store.undo_depth(), mark + 1);
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Figur 4 erscheint ab Schritt 1 in „Testfaden“")
+    );
+    let after = appear_state(&store);
+    store.undo().unwrap();
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(store.event(0).unwrap().object_events[5].hidden_flag, 0);
+    store.redo().unwrap();
+    assert_eq!(appear_state(&store), after);
+}
+
+#[test]
+fn a_previous_transition_script_becomes_the_jump_target() {
+    let (_fx, mut store) = appear_fixture();
+    set_level(
+        &store,
+        LEVEL,
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 2 }])),
+    );
+    let before = appear_state(&store);
+    let outcome = figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG)).unwrap();
+    assert_eq!((outcome.report.slot, outcome.report.rules), (3, 1));
+    let source = source_of(&store, 0);
+    assert!(
+        source.ends_with(&block(0, 3, &appear_rule(1, FLAG_4), "Jump zwei")),
+        "{source}"
+    );
+    // The entry now starts the block, which goes on with the old script.
+    assert_eq!(
+        level_json(&store, LEVEL),
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 3 }]))
+    );
+    store.undo().unwrap();
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(
+        level_json(&store, LEVEL),
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 2 }]))
+    );
+}
+
+#[test]
+fn a_second_rule_grows_the_block_and_undo_removes_it() {
+    let (_fx, mut store) = appear_fixture();
+    set_level(
+        &store,
+        LEVEL,
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 2 }])),
+    );
+    let mark = store.undo_depth();
+    figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG)).unwrap();
+    let first = appear_state(&store);
+    let first_source = source_of(&store, 0);
+    let first_hidden: Vec<u16> = store
+        .event(0)
+        .unwrap()
+        .object_events
+        .iter()
+        .map(|o| o.hidden_flag)
+        .collect();
+
+    // Figure 7 vanishes from step 1 on: a second rule of the same block.
+    let flag_7 = "FLAG_STORY_TESTFADEN_SICHTBAR_7";
+    let draft = figure_appears::plan(&mut store, &appear(7, 1, false, POOL_FLAG_2)).unwrap();
+    assert_eq!(
+        draft.notes,
+        [
+            format!(
+                "Figur 7 bekommt das Sichtbarkeits-Flag {flag_7} und verschwindet ab Schritt 1."
+            ),
+            "Block sichtbarkeit_0_0 in Scriptdatei 0.".to_owned(),
+        ]
+    );
+    assert!(draft.irreversible.is_empty());
+    let outcome = figure_appears::apply(&mut store, &appear(7, 1, false, POOL_FLAG_2)).unwrap();
+    assert_eq!(
+        serde_json::to_value(&outcome.report).unwrap(),
+        serde_json::json!({
+            "step": "a257",
+            "flag": POOL_FLAG_2,
+            "flag_id": flag_7,
+            "event_file": 0,
+            "object": 2,
+            "level_script": LEVEL,
+            "level_script_created": false,
+            "script_file": 0,
+            "slot": 3,
+            "rules": 2,
+        })
+    );
+    // The block grows by the rule above its `Jump` line, nothing else of the source changes.
+    let source = source_of(&store, 0);
+    let tail = "    Jump zwei\n// ende sichtbarkeit_0_0\n";
+    assert_eq!(
+        source,
+        first_source.replace(tail, &format!("{}{tail}", vanish_rule(1, flag_7)))
+    );
+    assert_eq!(source.lines().count(), first_source.lines().count() + 5);
+    assert!(
+        source.ends_with(&block(
+            0,
+            3,
+            &format!("{}{}", appear_rule(1, FLAG_4), vanish_rule(1, flag_7)),
+            "Jump zwei"
+        )),
+        "{source}"
+    );
+    // The level script stays as it is (its compile-state entry only gets a new time); the
+    // compile ran (the script file's member changed).
+    let level = appear_state(&store).1;
+    assert_eq!(
+        (&level.json, &level.member),
+        (&first.1.json, &first.1.member)
+    );
+    assert_ne!(appear_state(&store).0.script.member, first.0.script.member);
+    assert_eq!(
+        store.event(0).unwrap().object_events[2].hidden_flag,
+        POOL_FLAG_2
+    );
+    assert_eq!(store.undo_depth(), mark + 2);
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Figur 7 verschwindet ab Schritt 1 in „Testfaden“")
+    );
+
+    // Undo takes back only the second rule, its flag's name and its step.
+    let second = appear_state(&store);
+    store.undo().unwrap();
+    assert_eq!(appear_state(&store), first);
+    assert_eq!(source_of(&store, 0), first_source);
+    let hidden: Vec<u16> = store
+        .event(0)
+        .unwrap()
+        .object_events
+        .iter()
+        .map(|o| o.hidden_flag)
+        .collect();
+    assert_eq!(hidden, first_hidden);
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(story.flags, [FLAG_4]);
+    assert!(json(&store, "data/ids/flags.json").get(flag_7).is_none());
+    store.redo().unwrap();
+    assert_eq!(appear_state(&store), second);
+}
+
+#[test]
+fn vanish_swaps_set_and_clear() {
+    let (_fx, mut store) = appear_fixture();
+    let input = FigureAppearsInput {
+        step_name: Some("Figur 4 geht".to_owned()),
+        ..appear(4, 1, false, POOL_FLAG)
+    };
+    figure_appears::apply(&mut store, &input).unwrap();
+    let source = source_of(&store, 0);
+    assert!(
+        source.ends_with(&block(0, 3, &vanish_rule(1, FLAG_4), "End")),
+        "{source}"
+    );
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(story.steps[2].name, "Figur 4 geht");
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Figur 4 verschwindet ab Schritt 1 in „Testfaden“")
+    );
+    // Without a step name: „… verschwindet ab Schritt …“.
+    let (_fx, mut store) = appear_fixture();
+    figure_appears::apply(&mut store, &appear(4, 0, false, POOL_FLAG)).unwrap();
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(story.steps[2].name, "Figur 4 verschwindet ab Schritt 0");
+}
+
+#[test]
+fn a_figure_with_a_flag_and_a_common_transition_script_are_refused() {
+    let (_fx, mut store) = appear_fixture();
+    let refuse = |store: &mut Store, input: &FigureAppearsInput| -> String {
+        let before = appear_state(store);
+        let mark = store.undo_depth();
+        let why = refused(figure_appears::plan(store, input));
+        assert_eq!(refused(figure_appears::apply(store, input)), why);
+        assert_eq!(appear_state(store), before, "{why}");
+        assert_eq!(store.undo_depth(), mark, "{why}");
+        why
+    };
+
+    // The place's transition script is a common script, or no slot of the file.
+    for target in [2000, 9] {
+        set_level(
+            &store,
+            LEVEL,
+            entries(serde_json::json!([{ "type": "on_transition", "script_id": target }])),
+        );
+        assert_eq!(
+            refuse(&mut store, &appear(4, 1, true, POOL_FLAG)),
+            "Das Übergangs-Script des Orts ist kein eigener Slot."
+        );
+    }
+    set_level(&store, LEVEL, entries(serde_json::json!([])));
+
+    // A figure that has a visibility flag already.
+    name_flag(
+        &mut store,
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: POOL_FLAG_2,
+            id: Some("FLAG_GESEHEN".to_owned()),
+            description: None,
+        },
+    )
+    .unwrap();
+    store
+        .transaction("Flag", |tx| {
+            tx.edit_event(0, |f| {
+                f.object_events[5].hidden_flag = POOL_FLAG_2;
+                Ok(())
+            })
+        })
+        .unwrap();
+    assert_eq!(
+        refuse(&mut store, &appear(4, 1, true, POOL_FLAG)),
+        "Figur 4 hat schon das Sichtbarkeits-Flag FLAG_GESEHEN."
+    );
+    // A missing step, a missing figure, a flag with a name, a taken key.
+    assert_eq!(
+        refuse(&mut store, &appear(7, 4, true, POOL_FLAG)),
+        "Schritt 4 gibt es in „Testfaden“ nicht."
+    );
+    assert_eq!(
+        refuse(&mut store, &appear(42, 1, true, POOL_FLAG)),
+        "Auf Header 0 gibt es keine Figur 42."
+    );
+    assert!(refuse(&mut store, &appear(7, 1, true, POOL_FLAG_2)).contains("FLAG_GESEHEN"));
+    append_step(
+        &mut store,
+        "STORY_TESTFADEN",
+        step("a256", 1, StepKind::Appearance, "Schon da"),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(
+        refuse(&mut store, &appear(7, 1, true, POOL_FLAG)),
+        duplicate_key_text("a256")
+    );
+}
+
+#[test]
+fn a_shared_level_script_is_copied_for_this_header() {
+    let (_fx, mut store) = appear_fixture();
+    set_level(
+        &store,
+        LEVEL,
+        entries(serde_json::json!([{ "type": "on_load", "script_id": 2 }])),
+    );
+    // Header 1 uses the same level script file.
+    set_header_level_script(&mut store, 1, LEVEL);
+    let shared = level_json(&store, LEVEL);
+    let source = source_of(&store, 0);
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let call = appear_call(&appear(4, 1, true, POOL_FLAG));
+
+    let draft = recipes::plan(&mut store, &call).unwrap();
+    assert_eq!(
+        draft.irreversible,
+        [format!("Level-Script-Datei {n} wird angelegt und bleibt")]
+    );
+    assert_eq!(
+        recipes::is_irreversible_in(&mut store, &call).unwrap(),
+        Some("Level-Script-Datei anlegen")
+    );
+
+    let mark = store.undo_depth();
+    let outcome = recipes::apply(&mut store, &call).unwrap();
+    let created: Vec<(AssetKind, u16)> =
+        outcome.created.iter().map(|c| (c.kind, c.index)).collect();
+    assert_eq!(created, [(AssetKind::Script, n)]);
+    assert_eq!(outcome.report["level_script"], serde_json::json!(n));
+    assert_eq!(
+        outcome.report["level_script_created"],
+        serde_json::json!(true)
+    );
+    let levels = |store: &mut Store| -> Vec<u16> {
+        store.header_table().unwrap()[..2]
+            .iter()
+            .map(MapHeader::level_script_id)
+            .collect()
+    };
+    // This header gets the copy with the entry, header 1 keeps the old file as it was.
+    assert_eq!(levels(&mut store), [n, LEVEL]);
+    assert_eq!(level_json(&store, LEVEL), shared);
+    assert_eq!(
+        level_json(&store, n),
+        entries(serde_json::json!([
+            { "type": "on_load", "script_id": 2 },
+            { "type": "on_transition", "script_id": 3 },
+        ]))
+    );
+    assert_eq!(store.undo_depth(), mark + 1);
+
+    // Undo: the header points at the shared file again, the copy stays as it was created.
+    store.undo().unwrap();
+    assert_eq!(levels(&mut store), [LEVEL, LEVEL]);
+    assert_eq!(source_of(&store, 0), source);
+    assert_eq!(level_json(&store, n), shared);
+    store.redo().unwrap();
+    assert_eq!(levels(&mut store), [n, LEVEL]);
+    assert_eq!(
+        level_json(&store, n),
+        entries(serde_json::json!([
+            { "type": "on_load", "script_id": 2 },
+            { "type": "on_transition", "script_id": 3 },
+        ]))
+    );
+}
+
+#[test]
+fn a_header_without_a_level_script_gets_a_new_one() {
+    let (_fx, mut store) = appear_fixture();
+    // Header 1 (script file 0, event file 0) has level script 0.
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let input = FigureAppearsInput {
+        figure: FigureRef {
+            header: 1,
+            local_id: 4,
+        },
+        ..appear(4, 1, true, POOL_FLAG)
+    };
+    let outcome = figure_appears::apply(&mut store, &input).unwrap();
+    assert_eq!(
+        (
+            outcome.report.level_script,
+            outcome.report.level_script_created
+        ),
+        (n, true)
+    );
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), n);
+    assert_eq!(
+        level_json(&store, n),
+        entries(serde_json::json!([{ "type": "on_transition", "script_id": 3 }]))
+    );
+    assert!(
+        source_of(&store, 0).ends_with(&block(1, 3, &appear_rule(1, FLAG_4), "End")),
+        "{}",
+        source_of(&store, 0)
+    );
+    store.undo().unwrap();
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
+    assert_eq!(level_json(&store, n), entries(serde_json::json!([])));
+}
+
+#[test]
+fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
+    let (_fx, mut store) = appear_fixture();
+    let before = appear_state(&store);
+    let mark = store.undo_depth();
+    let history = store.history();
+    // `append_step` fails after both compiles.
+    story_files_readonly(&store, true);
+    let result = figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG));
+    story_files_readonly(&store, false);
+    assert!(
+        result.is_err() && !matches!(result, Err(KernelError::Refused(_))),
+        "{result:?}"
+    );
+    assert_eq!(appear_state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(store.history(), history);
+    assert_eq!(store.event(0).unwrap().object_events[5].hidden_flag, 0);
+    figure_appears::apply(&mut store, &appear(4, 1, true, POOL_FLAG)).unwrap();
+    assert_eq!(store.undo_depth(), mark + 1);
 }
