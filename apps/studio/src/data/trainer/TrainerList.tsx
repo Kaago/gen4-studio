@@ -1,12 +1,15 @@
 import { Fragment, memo, useMemo, useRef, useState } from "react";
 import { createTrainer, errorText, isCmdError } from "../../api";
-import type { CreateTrainerReport, DataRowDto } from "../../api";
+import type { CreateTrainerReport, DataRowDto, TrainerRowExtra } from "../../api";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import type { MarkSeverity } from "../../checks/FindingMark";
-import { Badge, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
+import { useShell } from "../../ui/frame/ShellContext";
+import { depthAtLeast, viewDepth } from "../../ui/frame/shellState";
+import { Badge, Button, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
+import { recipeRequest } from "../../workbench/recipes";
 import { lockReason } from "../dataModel";
 import { useDataArea, useDataSearch } from "../useDataArea";
 import { GROUP_OPTIONS, PLACEHOLDER_TEXT, TRAINER_SCRIPTS, classOptions, groupRows, nameCount, nameError, nextTrainer, partialTrainer, rowLevel, trainerNameArchive } from "./trainerModel";
@@ -124,10 +127,14 @@ function CreateDialog({
 /**
  * The trainers as a tree (Spec §10): by the places whose object events start their battle ("Ohne Ort" last) or by class. A place opens
  * when it holds the selection, every place with a hit while searching (name, class or number). `+` asks for class and name and makes a
- * trainer at the next number, which is then selected. The placeholder of the sight script slot is listed locked.
+ * trainer at the next number, which is then selected. The placeholder of the sight script slot is listed locked. In Erzählen „Neuer
+ * Trainer…“ takes the place of `+`: the recipe „Neuer Trainer hier“ (in the world), at the place of the chosen trainer's first figure, else
+ * at the place the world shows or showed last.
  */
 export function TrainerList() {
-  const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles, problems } = useDataArea("pokemon");
+  const { rows, selected, select, labelOf, project, bus, onEdited, dirty, scriptFiles, problems, openWizard, worldHeader } = useDataArea("pokemon");
+  // The depth of this area, not of the one in front (the list of a deck kept behind keeps its head).
+  const narrating = !depthAtLeast(viewDepth("pokemon", useShell().state.depth), "bauen");
   const marks = useFindingMarks(problems, "trainer");
   const { shown, query, setQuery } = useDataSearch("pokemon");
   const [mode, setMode] = useState<GroupMode>("place");
@@ -149,6 +156,12 @@ export function TrainerList() {
   const battleFile = TRAINER_SCRIPTS[family]?.battleFile ?? null;
   const selectedRow = rows.find((r) => r.index === selected);
   const defaultClass = (selectedRow?.extra as { class?: number } | null)?.class ?? 0;
+  /** „Neuer Trainer…“: the recipe where the chosen trainer stands (its first figure's place), else where the world is. */
+  const newTrainerHere = () => {
+    const place = (selectedRow?.extra as TrainerRowExtra | null)?.places?.[0]?.header ?? worldHeader();
+    const request = recipeRequest("new_trainer_here", place);
+    if (request !== null) openWizard?.(request);
+  };
   /** What a create that wrote something leaves to catch up on, whether it went through or failed late. */
   const written = (id: number | null, extended: boolean, notice: { kind: "success" | "warning"; text: string }) => {
     setCreating(false);
@@ -183,8 +196,16 @@ export function TrainerList() {
         <TextField type="search" label="Trainer durchsuchen" placeholder="Name, Klasse oder Nummer" value={query} onChange={setQuery} onCommit={setQuery} />
         <div className={styles.topRow}>
           <Segmented ariaLabel="Trainer gruppieren" size="s" options={GROUP_OPTIONS} value={mode} onChange={setMode} />
-          <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />
+          {!narrating && <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />}
         </div>
+        {narrating && (
+          // A row of its own: next to „Nach Ort · Nach Klasse“ the labelled key does not fit the default list width.
+          <div className={styles.recipeRow} data-new-trainer-row="">
+            <Button kind="secondary" size="s" icon="plus" disabled={openWizard === null} onClick={newTrainerHere} data-new-trainer-recipe="">
+              Neuer Trainer…
+            </Button>
+          </div>
+        )}
         {created !== null && <Notice kind={created.kind}>{created.text}</Notice>}
       </div>
       {groups.length === 0 && searching ? (

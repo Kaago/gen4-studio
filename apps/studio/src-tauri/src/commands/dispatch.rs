@@ -222,6 +222,7 @@ pub const COMMANDS: &[&str] = &[
     "live_breakpoints",
     "live_breakpoint_set",
     "live_breakpoint_clear",
+    "dialogs_of_header",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1167,6 +1168,9 @@ pub fn dispatch(
         "live_breakpoint_clear" => run!(json, "live_breakpoint_clear", args, { id: u32 }, |a| {
             live_breakpoint_clear_impl(state, a.id)
         }),
+        "dialogs_of_header" => run!(json, "dialogs_of_header", args, { header: u16 }, |a| {
+            dialogs_of_header_impl(state, a.header)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1611,6 +1615,7 @@ mod tests {
                 json!({ "eventFile": 0, "kind": "warp", "index": 0 }),
             ),
             ("live_breakpoint_clear", json!({ "id": 1 })),
+            ("dialogs_of_header", json!({"header": 1})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

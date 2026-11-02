@@ -1,34 +1,12 @@
 import { useMemo, useState } from "react";
-import { editTextArchive, errorText, splitMessage } from "../../api";
-import type { DialogMessage } from "../../api";
 import type { ScriptFiles } from "../../data/useDataArea";
-import { Badge, Button, DSScreen, Dialog, Notice } from "../../ui/primitives";
-import { MessageEditor } from "../text/MessageEditor";
+import { Button, DSScreen, Dialog, Notice } from "../../ui/primitives";
 import { pages } from "../text/textModel";
-import { dialogSummary, distinctMessages, sharedText } from "./dialogModel";
+import { dialogSummary, distinctMessages } from "./dialogModel";
 import type { DialogTarget } from "./dialogModel";
+import { DialogMessages, messageKey, useDialogWrites } from "./DialogMessages";
 import { useDialog } from "./useDialog";
 import styles from "./DialogEditor.module.css";
-
-/** The store label of a text written here (one undo step per commit, „Dialog geändert“ in the history). */
-const EDIT_LABEL = "Dialog geändert";
-
-const keyOf = (m: Pick<DialogMessage, "archive" | "index">) => `${m.archive}:${m.index}`;
-
-/** „wenn …“ (or „sonst“) for a message in a branch of the script. */
-const branchText = (branch: string) => (branch === "else" ? "sonst" : `wenn ${branch}`);
-
-/**
- * „Nachricht 4 · Archiv 554“, with „wenn …“ (or „sonst“) for a message in a branch of the script and „auch Zeile 9 (wenn …)“ for the
- * other places the script shows the same message.
- */
-function messageHead(m: DialogMessage, others: readonly DialogMessage[]): string {
-  let head = `Nachricht ${m.index} · Archiv ${m.archive}`;
-  if (m.branch !== null) head += ` · ${branchText(m.branch)}`;
-  if (others.length === 0) return head;
-  const uses = others.map((o) => (o.branch === null ? `Zeile ${o.line}` : `Zeile ${o.line} (${branchText(o.branch)})`));
-  return `${head} · auch ${uses.join(", ")}`;
-}
 
 export interface DialogEditorProps {
   target: DialogTarget;
@@ -55,15 +33,13 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
   const [page, setPage] = useState(0);
   // What is typed into a field before it is committed: the screen follows it.
   const [draft, setDraft] = useState<{ key: string; text: string } | null>(null);
-  const [notice, setNotice] = useState<{ kind: "error" | "success"; text: string } | null>(null);
-  const [splitting, setSplitting] = useState(false);
 
   const source = dialog?.source ?? null;
   // Each message once (its first use): a message the script shows twice is one field.
   const distinct = useMemo(() => (source?.kind === "local" ? distinctMessages(dialog!.messages) : []), [dialog, source?.kind]);
   const messages = distinct.map((d) => d.message);
-  const current = messages.find((m) => keyOf(m) === chosen) ?? messages[0] ?? null;
-  const currentKey = current === null ? null : keyOf(current);
+  const current = messages.find((m) => messageKey(m) === chosen) ?? messages[0] ?? null;
+  const currentKey = current === null ? null : messageKey(current);
   const text = current === null ? null : draft !== null && draft.key === currentKey ? draft.text : current.text;
   const shown = useMemo(() => (text === null ? [] : pages(text)), [text]);
   const total = Math.max(1, shown.length);
@@ -76,43 +52,17 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
     setPage(0);
   };
 
-  const commit = async (m: DialogMessage, written: string): Promise<boolean> => {
-    try {
-      await editTextArchive(m.archive, { Set: { index: m.index, text: written } }, EDIT_LABEL);
-    } catch (e) {
-      setNotice({ kind: "error", text: errorText(e) });
-      return false;
-    }
-    setNotice(null);
-    onChanged();
-    reload();
-    return true;
-  };
-
-  const split = async (m: DialogMessage) => {
-    if (source?.kind !== "local") return;
-    const file = source.file;
-    setSplitting(true);
-    try {
-      try {
-        await scriptFiles?.saveIfDirty(file);
-      } catch (e) {
-        onError(e);
-        return;
-      }
-      const report = await splitMessage(target.header, target.eventFile, target.index, m.archive, m.index);
-      onChanged();
-      void scriptFiles?.reload(file);
-      setChosen(keyOf({ archive: report.archive, index: report.new_index }));
+  const writes = useDialogWrites(target, source, {
+    reload,
+    onChanged,
+    onError,
+    scriptFiles,
+    onSplit: (key) => {
+      setChosen(key);
       setPage(0);
-      setNotice({ kind: "success", text: `Nachricht ${report.new_index} ist jetzt nur diese Figur.` });
-      reload();
-    } catch (e) {
-      setNotice({ kind: "error", text: errorText(e) });
-    } finally {
-      setSplitting(false);
-    }
-  };
+    },
+  });
+  const notice = writes.notice;
 
   let body;
   if (error !== null) {
@@ -126,46 +76,7 @@ export function DialogEditor({ target, revision, onClose, onChanged, onError, sc
   } else {
     body = (
       <div className={styles.columns}>
-        <ol className={styles.messages} aria-label="Nachrichten">
-          {distinct.map(({ message: m, others }) => {
-            const key = keyOf(m);
-            const selected = key === currentKey;
-            return (
-              <li key={key} className={styles.message} data-dialog-message={key} data-selected={selected ? "" : undefined} onFocus={() => choose(key)}>
-                <div className={styles.head}>
-                  <Button kind="quiet" size="s" aria-pressed={selected} onClick={() => choose(key)}>
-                    <span className={styles.headText}>{messageHead(m, others)}</span>
-                  </Button>
-                  {m.shared_with > 0 && (
-                    <Badge kind="warning" icon="shared">
-                      {sharedText(m.shared_with)}
-                    </Badge>
-                  )}
-                </div>
-                {m.text === null ? (
-                  <p className={styles.note}>{`Archiv ${m.archive} hat keine Nachricht ${m.index}.`}</p>
-                ) : (
-                  <MessageEditor key={key} value={m.text} onCommit={(written) => commit(m, written)} onDraft={(typed) => setDraft({ key, text: typed })} />
-                )}
-                {/* Only an object's script can be given its own copy (a sign shares its text where it is written), and only of a message the archive has.
-                    A message the kernel would refuse (`split_refusal`: another figure runs the script, a shared jump target) keeps the key
-                    disabled with the reason under it. */}
-                {m.shared_with > 0 && target.kind === "object" && m.text !== null && (
-                  <div className={styles.split} data-split-refusal={m.split_refusal === null ? undefined : ""}>
-                    <Button kind="secondary" size="s" disabled={splitting || m.split_refusal !== null} aria-describedby={m.split_refusal === null ? undefined : `${key}-split`} onClick={() => void split(m)}>
-                      Für diese Figur abspalten
-                    </Button>
-                    {m.split_refusal !== null && (
-                      <p id={`${key}-split`} className={styles.note}>
-                        {m.split_refusal}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ol>
+        <DialogMessages kind={target.kind} distinct={distinct} currentKey={currentKey} onChoose={choose} onDraft={(key, text) => setDraft({ key, text })} writes={writes} />
         <div className={styles.preview}>
           <span className={styles.caption}>{current === null ? "" : `Nachricht ${current.index}`}</span>
           <DSScreen variant={variant} pages={shown} page={pageIndex} scale={1} />

@@ -2,9 +2,11 @@
 //! classes, read from the text archives of the project (`metadata/text_banks.yaml` says which
 //! archive holds which bank). They are read through [`Store::text_archive`], so an unsaved
 //! rename shows at once and the loader rule applies (`text::TextSync`: the JSON, or the
-//! member when only it changed since the last recorded sync).
+//! member when only it changed since the last recorded sync). The names of the music pieces
+//! are no text bank: [`sound_names`] reads them from the bundled command database.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 use g4_formats::game::{Family, Language};
 use serde::Deserialize;
@@ -214,5 +216,73 @@ impl NameTables {
     /// does not exist or the archive does not decode (see [`NameTables::names`] for the error).
     pub fn description(&mut self, store: &mut Store, bank: Bank, index: u16) -> Option<String> {
         self.message(store, bank, index)
+    }
+}
+
+/// One entry of `sounds` in the command database.
+#[derive(Debug, Deserialize)]
+struct RawSound {
+    name: String,
+    #[serde(default)]
+    used_in: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSounds {
+    #[serde(default)]
+    sounds: HashMap<u16, RawSound>,
+}
+
+/// One music piece: id, constant name, where the game plays it.
+pub type SoundName = (u16, String, Option<String>);
+
+/// The music pieces of `family` from `sounds` of the bundled command database
+/// (`scripts::scrcmd_database`), sorted by id: id, constant name (`SEQ_TOWN01`) and where the
+/// game plays it when the database says so. Empty when the database does not parse (a test
+/// parses each).
+pub fn sound_names(family: Family) -> Vec<SoundName> {
+    static TABLES: [OnceLock<Vec<SoundName>>; 3] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    let slot = match family {
+        Family::Dp => 0,
+        Family::Pt => 1,
+        Family::Hgss => 2,
+    };
+    TABLES[slot]
+        .get_or_init(|| {
+            let json = crate::scripts::scrcmd_database(family).1;
+            let mut sounds: Vec<_> = serde_json::from_str::<RawSounds>(json)
+                .map(|db| db.sounds)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(id, s)| (id, s.name, s.used_in))
+                .collect();
+            sounds.sort_by_key(|s| s.0);
+            sounds
+        })
+        .clone()
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_names_come_from_the_command_database_sorted_by_id() {
+        let pt = sound_names(Family::Pt);
+        assert_eq!(pt.len(), 1013);
+        assert!(pt.windows(2).all(|w| w[0].0 < w[1].0));
+        assert_eq!(pt[0], (1, "SEQ_PV001".to_owned(), None));
+        let dummy = pt.iter().find(|s| s.0 == 1000).unwrap();
+        assert_eq!(dummy.1, "SEQ_DUMMY");
+        assert_eq!(
+            dummy.2.as_deref(),
+            Some("Beta version of Rt. 206 (Plays in mystery zone)")
+        );
+        let hgss = sound_names(Family::Hgss);
+        assert_eq!(hgss.len(), 1372);
+        assert_eq!(hgss.last().unwrap().0, 2378);
+        assert_eq!(sound_names(Family::Dp).len(), 828);
     }
 }

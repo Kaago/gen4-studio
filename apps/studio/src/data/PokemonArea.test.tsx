@@ -2,12 +2,17 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataGet, dataList, getBattleSprite, getMonIcon, itemTable, nameTables, refs } from "../api";
+import { useShell } from "../ui/frame/ShellContext";
+import type { ShellApi } from "../ui/frame/ShellContext";
 import { readShellState, writeShellState } from "../ui/frame/shellState";
 import { pressKey, typeInto } from "../ui/primitives/testUtils";
 import { MOVES, NAMES, SPECIES, dataHarness, flush, move, openMenu, projectDp, species } from "./dataTesting";
+import { DataPanel } from "./DataParts";
+import type { DataPart } from "./DataParts";
 import { resetIcons } from "./icons";
+import { PokedexList } from "./pokedex/PokedexList";
 import { staraviaDoc } from "./pokedex/pokedexTesting";
-import { PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "./PokemonArea";
+import { POKEMON_PARTS, PokemonArea, PokemonHand, PokemonList, PokemonStatus, PokemonView } from "./PokemonArea";
 import { useDataArea } from "./useDataArea";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -314,6 +319,71 @@ describe("PokemonArea", () => {
     const staravia = rowOf("data-species", 397)!;
     expect(staravia.getAttribute("aria-setsize")).toBe("4");
     expect(staravia.getAttribute("aria-posinset")).toBe("3");
+  });
+
+  describe("in Erzählen", () => {
+    let shell: ShellApi | null = null;
+    /** Hands the test the shell around the area (its depth and what the area shows of it). */
+    function ShellProbe() {
+      shell = useShell();
+      return null;
+    }
+    /** The area with `parts` in its view and hand, in Erzählen, with Staravia chosen in the Pokédex. */
+    const narrated = async (parts?: Partial<Record<"pokedex", DataPart>>) => {
+      const g = dataHarness((props) => (
+        <PokemonArea context={props}>
+          <ShellProbe />
+          <section data-view="">{parts ? <DataPanel area="pokemon" parts={parts} place="View" /> : <PokemonView />}</section>
+          <section data-hand="">{parts ? <DataPanel area="pokemon" parts={parts} place="Hand" /> : <PokemonHand />}</section>
+        </PokemonArea>
+      ));
+      writeShellState({ ...readShellState(), depth: "erzaehlen", sub: { pokemon: "pokedex" }, selected: { pokedex: 397 } });
+      g.show(g.base());
+      await flush();
+      return g;
+    };
+    const setDepth = (depth: "erzaehlen" | "bauen" | "tuefteln") => act(() => shell!.setDepth(depth));
+
+    it("a_part_without_a_narrate_component_shows_the_build_view_in_erzaehlen", async () => {
+      // Pokédex and Attacken bring nothing of their own for Erzählen (Trainer and Begegnungen do).
+      expect([POKEMON_PARTS.pokedex, POKEMON_PARTS.moves].map((p) => [p?.ViewNarrate, p?.HandNarrate])).toEqual([
+        [undefined, undefined],
+        [undefined, undefined],
+      ]);
+      const g = await narrated();
+      try {
+        // Pokémon shows Erzählen, and the Pokédex its build view and editor there.
+        expect(shell!.viewDepth).toBe("erzaehlen");
+        expect(g.q("[data-view]")?.textContent).toContain("Staravia");
+        expect(g.q("[data-hand] [role=tablist]")?.getAttribute("aria-label")).toBe("Staravia bearbeiten");
+      } finally {
+        g.unmount();
+      }
+    });
+
+    it("the_data_panel_swaps_to_the_narrate_hand_in_erzaehlen", async () => {
+      const build = (what: string) => () => <p>{what}</p>;
+      const g = await narrated({ pokedex: { List: PokedexList, View: build("Schau Bauen"), Hand: build("Hand Bauen"), ViewNarrate: build("Schau Erzählen"), HandNarrate: build("Hand Erzählen") } });
+      try {
+        const shown = () => [g.q("[data-view]")?.textContent, g.q("[data-hand]")?.textContent];
+        expect(shown()).toEqual(["Schau Erzählen", "Hand Erzählen"]);
+        setDepth("bauen");
+        expect(shown()).toEqual(["Schau Bauen", "Hand Bauen"]);
+        setDepth("tuefteln");
+        expect(shown()).toEqual(["Schau Bauen", "Hand Bauen"]);
+        setDepth("erzaehlen");
+        expect(shown()).toEqual(["Schau Erzählen", "Hand Erzählen"]);
+      } finally {
+        g.unmount();
+      }
+      // A part with only a hand of its own for Erzählen keeps its build view.
+      const half = await narrated({ pokedex: { List: PokedexList, View: build("Schau Bauen"), Hand: build("Hand Bauen"), HandNarrate: build("Hand Erzählen") } });
+      try {
+        expect([half.q("[data-view]")?.textContent, half.q("[data-hand]")?.textContent]).toEqual(["Schau Bauen", "Hand Erzählen"]);
+      } finally {
+        half.unmount();
+      }
+    });
   });
 
   it("reads_the_moves_again_when_one_changed", async () => {

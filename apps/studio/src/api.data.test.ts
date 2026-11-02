@@ -22,6 +22,7 @@ import {
   setTrainerTexts,
   splitEncounterFile,
 } from "./api";
+import type { DataPatch, NameTablesDto, SoundNameDto } from "./api";
 
 describe("data commands", () => {
   beforeEach(() => {
@@ -104,6 +105,27 @@ describe("data commands", () => {
       patch: { EncounterExtra: { field: "unown_table", value: 2 } },
       label: "Route 201: Icognito-Tabelle 0 → 2",
     });
+  });
+
+  it("sends a slot swap as one patch and reads the sound names", async () => {
+    const swap: DataPatch = { EncounterSwap: { method: "grass", a: 2, b: 7 } };
+    await dataEdit("encounter", 12, swap);
+    expect(invoke).toHaveBeenLastCalledWith("data_edit", {
+      kind: "encounter",
+      index: 12,
+      patch: { EncounterSwap: { method: "grass", a: 2, b: 7 } },
+      label: null,
+    });
+    const sounds: SoundNameDto[] = [
+      { id: 1000, name: "SEQ_DUMMY", used_in: "Beta version of Rt. 206 (Plays in mystery zone)" },
+      { id: 1001, name: "SEQ_TOWN01", used_in: null },
+    ];
+    invoke.mockResolvedValueOnce({ sounds } satisfies Partial<NameTablesDto>);
+    const tables = await nameTables();
+    expect(tables.sounds.map((s) => [s.id, s.name])).toEqual([
+      [1000, "SEQ_DUMMY"],
+      [1001, "SEQ_TOWN01"],
+    ]);
   });
 
   it("reads icons as bytes and treats an empty body as no icon", async () => {

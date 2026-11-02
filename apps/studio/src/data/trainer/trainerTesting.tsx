@@ -38,6 +38,7 @@ export const TRAINER_NAMES: NameTablesDto = {
   classes: named(105, { 0: "Pkmn-Trainer", 6: "Wanderer", 7: "Göre" }, "Klasse"),
   forms: [],
   archives: PT_ARCHIVES,
+  sounds: [],
 };
 
 export const TRAINER_MOVES: DataRowDto[] = [move(17, "Flügelschlag", 2), move(33, "Tackle"), move(45, "Heuler"), move(98, "Ruckzuckhieb")];

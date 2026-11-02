@@ -193,6 +193,7 @@ export function syncDepthPanels(api: DockviewApi, area: DeckArea, depth: Depth):
 /** `syncDepthPanels` without its quiet. */
 function syncPanels(api: DockviewApi, area: DeckArea, depth: Depth) {
   // The plan of every panel says where a panel only for Tüfteln goes (a tab of 3D); both arrangements agree on it.
+  // Read without a sub-area: Pokémon (the only area with sub-areas) has one plan whatever the arrangement, so its sub-area's does not matter.
   const steps = arrangementSteps(area, loadArrangement(area), "tuefteln");
   for (const spec of AREA_PANELS[area]) {
     if (spec.tinkerOnly !== true) continue;

@@ -1,5 +1,6 @@
-import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssetKind, AssignHeader, ConnectDoorsInput, ConnectDoorsReport, DoorReport, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NewFigureReport, NewTrainerHereReport, NextStep, PlaceChoice, RecipeOutcome, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
+import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssetKind, AssignHeader, ConnectDoorsInput, ConnectDoorsReport, DoorReport, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NameTablesDto, NewFigureReport, NewTrainerHereInput, NewTrainerHereReport, NextStep, PlaceChoice, RecipeOutcome, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
+import { className, speciesName, trainerTitle } from "../../data/trainer/trainerModel";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
@@ -891,14 +892,23 @@ export function doorsResult(outcome: RecipeOutcome<ConnectDoorsReport>): WizardO
   };
 }
 
-/** What „Neuer Trainer hier“ did: the trainer it created (it stays after undo), where it stands, and what the kernel says about its texts. */
-export function trainerResult(outcome: RecipeOutcome<NewTrainerHereReport>): WizardOutcome {
+/**
+ * What „Neuer Trainer hier“ did: the trainer it created (it stays after undo), where it stands, the battle of the preview („Kampfvorschau:
+ * Wanderer Jens gegen Glumanda Lv. 12“, from what the wizard sent) and what the kernel says about its texts.
+ */
+export function trainerResult(outcome: RecipeOutcome<NewTrainerHereReport>, input: NewTrainerHereInput, names: Pick<NameTablesDto, "classes" | "species"> | null): WizardOutcome {
   const r = outcome.report;
   const created = outcome.created.length > 0 ? outcome.created.map(createdLine) : [createdLine({ kind: "Trainer", index: r.trainer })];
+  const first = input.party[0];
+  // The battle as the preview showed it: the trainer against its first Pokémon (a team the kernel took is never empty; no line without one).
+  const battle = first
+    ? [`Kampfvorschau: ${trainerTitle(className(names?.classes ?? [], input.class), input.name, r.trainer)} gegen ${speciesName(names?.species ?? [], first.species)} Lv. ${first.level}`]
+    : [];
   return {
     lines: [
       ...created,
       `Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}, Kampf-Script ${r.script}`,
+      ...battle,
       ...r.text_problems.map((p) => `Text: ${p.message}`),
     ],
     steps: outcome.next,

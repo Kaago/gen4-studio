@@ -10,6 +10,7 @@ import { dataCrumbs } from "../workbench/breadcrumb";
 import type { Crumb } from "../workbench/breadcrumb";
 import type { DataNav, NavTarget } from "../workbench/navigation";
 import type { ProblemsStore } from "../workbench/problems/problems";
+import type { WizardRequest } from "../workbench/WorkbenchContext";
 import { NO_FILTER, SELECT_KEY, SUB_KIND, SUB_LABEL, SUB_LOCKED, SUB_SHORTCUT, areaOfSub, filterRows, isSubLocked, itemPocket, pocketLabel, rowLabel } from "./dataModel";
 import type { DataArea, DataSub, ListFilter, ListKind } from "./dataModel";
 import { useDataSnapshot } from "./dataStore";
@@ -45,6 +46,10 @@ export interface DataAreaProps {
   onPlaceTrainer?: (id: number) => void;
   /** The open script documents, for a command that writes a script file itself (`create_trainer` extends the battle script). */
   scriptFiles?: ScriptFiles;
+  /** Opens a wizard of the world (`useWizards.open`, stable): „Neuer Trainer…“ of the trainer list in Erzählen. Without, it is disabled. */
+  openWizard?: (request: WizardRequest) => void;
+  /** The header the world shows, or showed last (null: none), read when asked (stable): where „Neuer Trainer…“ starts by default. */
+  worldHeader?: () => number | null;
 }
 
 /** What a data editor needs of the script panel's documents around a backend write of a script file (`ScriptsApi`). */
@@ -100,6 +105,10 @@ export interface DataAreaModel {
   placeTrainer: ((id: number) => void) | null;
   /** The script documents (`DataAreaProps.scriptFiles`); null without (tests). */
   scriptFiles: ScriptFiles | null;
+  /** Opens a wizard of the world (`DataAreaProps.openWizard`); null while nobody takes it. */
+  openWizard: ((request: WizardRequest) => void) | null;
+  /** The header the world shows or showed last (`DataAreaProps.worldHeader`); null when there is none or nobody tells. */
+  worldHeader(): number | null;
 }
 
 /**
@@ -132,8 +141,10 @@ const NO_NAMES: NameTablesDto = {
   classes: [],
   forms: [],
   archives: { species: null, moves: null, items: null, abilities: null, types: null, classes: null, forms: null },
+  sounds: [],
 };
 const NO_ROWS: readonly DataRowDto[] = [];
+const noHeader = (): number | null => null;
 const NO_HEADERS: readonly HeaderSummary[] = [];
 const NO_DATA: DataSnapshot = { project: null, names: null, rows: {}, itemTable: undefined, locked: null, errors: {} };
 
@@ -149,6 +160,8 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
   const problems = props.problems ?? null;
   const placeTrainer = props.onPlaceTrainer ?? null;
   const scriptFiles = props.scriptFiles ?? null;
+  const openWizard = props.openWizard ?? null;
+  const worldHeader = props.worldHeader ?? noHeader;
   const shell = useShell();
   const { setPokemonSub, setSelected } = shell;
   const stored = shell.state.sub.pokemon;
@@ -267,8 +280,10 @@ export function useDataAreaModel(area: DataArea, props: DataAreaProps): DataArea
       problems,
       placeTrainer,
       scriptFiles,
+      openWizard,
+      worldHeader,
     }),
-    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer, scriptFiles],
+    [area, project, sub, setSub, switcher, kind, selected, select, row, rows, labelOf, data.names, data.itemTable, loading, error, data.locked, goTo, store, target, dirty, onEdited, bus, headers, problems, placeTrainer, scriptFiles, openWizard, worldHeader],
   );
   const searchModel = useMemo<DataSearchModel>(
     () => ({ shown, query: search.query, setQuery, filter: search.filter, setFilter, clearFilter }),

@@ -1,9 +1,12 @@
 import { createContext, useContext } from "react";
-import type { HeaderSummary, ProjectInfo, TextArchiveDto, TextHit } from "../../api";
+import type { FigureDialog, HeaderSummary, ProjectInfo, TextArchiveDto, TextHit } from "../../api";
+import type { ScriptFiles } from "../../data/useDataArea";
 import type { Depth } from "../../ui/frame/shellState";
 import type { NavTarget } from "../navigation";
+import type { Place } from "../places";
 import type { ProblemsStore } from "../problems/problems";
 import type { ArchiveRow } from "./textModel";
+import type { FoundHeaderDialogs } from "./useHeaderDialogs";
 
 /** Where the hand's search looks: the open archive (filtered here) or all archives (the backend's search). */
 export type TextScope = "archive" | "all";
@@ -101,6 +104,37 @@ export interface TextAreaModel extends TextAreaState {
   goTo(target: NavTarget): void;
   /** The words of the depth: Bauen names the users of an archive places, Tüfteln headers. */
   depth: Depth;
+  /** The area shows Erzählen (its depth is below Bauen): dialogs by place and figure instead of archives and numbers. */
+  narrating: boolean;
+  /** The places of the world (`buildPlaces`), for the dialogs by place. */
+  places: Place[];
+  /** The header whose figures the view shows (Erzählen); null: none chosen. */
+  dialogHeader: number | null;
+  /** The place of `dialogHeader`. */
+  dialogPlace: Place | null;
+  /** The figures of `dialogHeader` as read (`useHeaderDialogs`). */
+  dialogs: FoundHeaderDialogs;
+  /** The chosen figure of `dialogHeader`; null: none. */
+  dialogFigure: FigureDialog | null;
+  /** Changes when the figures or their dialogs may have moved (texts, scripts, events): they are read again. */
+  dialogRevision: number;
+  /** The revision the list's rows read at: `dialogRevision` while the area is in front, behind another area the last one it had there. */
+  dialogListRevision: number;
+  /** Shows the figures of `header` (no figure chosen). */
+  selectDialogHeader(header: number): void;
+  /** Chooses a figure of `dialogHeader` (null: none); the hand shows its messages. */
+  selectFigure(figure: FigureDialog | null): void;
+  /** Opens the dialog editor of a figure of `dialogHeader`. */
+  openDialogEditor(figure: FigureDialog): void;
+  /** The title of a figure's card: „Objekt 3“, „Schild 0“, „Trainer Wanderer Jens“. */
+  figureTitle(figure: FigureDialog): string;
+  /** Asks for the trainer rows (a trainer figure is named by class and name). */
+  needTrainers(): void;
+  /** A text or a split of a figure's dialog was written in the hand: the app counts the edit, the texts read again. */
+  dialogChanged(): void;
+  onError(e: unknown): void;
+  /** The script panel's documents, for a split in the hand. */
+  scriptFiles: ScriptFiles | undefined;
 }
 
 export const TextAreaContext = createContext<TextAreaModel | null>(null);

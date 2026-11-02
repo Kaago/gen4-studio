@@ -1,7 +1,7 @@
 //! Encounter files for the data commands: the methods, replacement lists, extras, warnings
-//! and grass shares as DTOs (the rules from `g4_kernel::data::encounter_rules`), and one
-//! field change with every index and value checked first (the codec's accessors panic on an
-//! index outside their list).
+//! and grass shares as DTOs (the rules from `g4_kernel::data::encounter_rules`), one field
+//! change and the swap of two slots, with every index and value checked first (the codec's
+//! accessors panic on an index outside their list).
 
 use std::path::PathBuf;
 
@@ -217,6 +217,156 @@ const DUAL_LISTS: [(&str, DualSlot); 5] = [
     ("dual_leafgreen", DualSlot::LeafGreen),
 ];
 
+type PtRate = (fn(&PtEncounters) -> u32, fn(&mut PtEncounters, u32));
+type PtWater = (
+    fn(&PtEncounters, usize) -> WaterSlot,
+    fn(&mut PtEncounters, usize, WaterSlot),
+);
+type HgssRate = (fn(&HgssEncounters) -> u8, fn(&mut HgssEncounters, u8));
+type HgssWater = (
+    fn(&HgssEncounters, usize) -> WaterSlot,
+    fn(&mut HgssEncounters, usize, WaterSlot),
+);
+
+/// The rate and slot accessors of a Platinum water method (five slots each).
+fn pt_water(method: &str) -> Option<(PtRate, PtWater)> {
+    match method {
+        "surf" => Some((
+            (PtEncounters::surf_rate, PtEncounters::set_surf_rate),
+            (PtEncounters::surf, PtEncounters::set_surf),
+        )),
+        "old_rod" => Some((
+            (PtEncounters::old_rod_rate, PtEncounters::set_old_rod_rate),
+            (PtEncounters::old_rod, PtEncounters::set_old_rod),
+        )),
+        "good_rod" => Some((
+            (PtEncounters::good_rod_rate, PtEncounters::set_good_rod_rate),
+            (PtEncounters::good_rod, PtEncounters::set_good_rod),
+        )),
+        "super_rod" => Some((
+            (
+                PtEncounters::super_rod_rate,
+                PtEncounters::set_super_rod_rate,
+            ),
+            (PtEncounters::super_rod, PtEncounters::set_super_rod),
+        )),
+        _ => None,
+    }
+}
+
+/// The rate and slot accessors of a HeartGold water or rock method, with its slot count.
+fn hgss_water(method: &str) -> Option<(HgssRate, HgssWater, usize)> {
+    match method {
+        "surf" => Some((
+            (HgssEncounters::surf_rate, HgssEncounters::set_surf_rate),
+            (HgssEncounters::surf, HgssEncounters::set_surf),
+            5,
+        )),
+        "rock_smash" => Some((
+            (HgssEncounters::rock_rate, HgssEncounters::set_rock_rate),
+            (HgssEncounters::rock, HgssEncounters::set_rock),
+            2,
+        )),
+        "old_rod" => Some((
+            (
+                HgssEncounters::old_rod_rate,
+                HgssEncounters::set_old_rod_rate,
+            ),
+            (HgssEncounters::old_rod, HgssEncounters::set_old_rod),
+            5,
+        )),
+        "good_rod" => Some((
+            (
+                HgssEncounters::good_rod_rate,
+                HgssEncounters::set_good_rod_rate,
+            ),
+            (HgssEncounters::good_rod, HgssEncounters::set_good_rod),
+            5,
+        )),
+        "super_rod" => Some((
+            (
+                HgssEncounters::super_rod_rate,
+                HgssEncounters::set_super_rod_rate,
+            ),
+            (HgssEncounters::super_rod, HgssEncounters::set_super_rod),
+            5,
+        )),
+        _ => None,
+    }
+}
+
+/// Exchanges the values `get` reads at `a` and `b` of `record`.
+fn exchange<R, T>(
+    record: &mut R,
+    a: usize,
+    b: usize,
+    get: impl Fn(&R, usize) -> T,
+    set: impl Fn(&mut R, usize, T),
+) {
+    let (at_a, at_b) = (get(record, a), get(record, b));
+    set(record, a, at_b);
+    set(record, b, at_a);
+}
+
+/// Slots `a` and `b` of `method` (a method of the file, see [`method_key`]) trade places:
+/// species and levels, a HeartGold grass slot with all three times of day. The bytes the
+/// views do not show (Platinum padding, the high species word) stay with their place. Refused,
+/// leaving `e` as it was, when `a == b`, a slot lies outside the method or `method` is no
+/// method of the file (a replacement list: its entries take the place of slots, they have none
+/// of their own). An empty slot (species 0) swaps like any other.
+pub fn swap(e: &mut Encounters, method: &str, a: u16, b: u16) -> Result<(), String> {
+    let methods = e.methods();
+    let Some(view) = methods.iter().find(|m| method_key(m.method) == method) else {
+        let keys: Vec<&str> = methods.iter().map(|m| method_key(m.method)).collect();
+        return Err(format!(
+            "{method} is no method of this file; slots swap within {}",
+            keys.join(", ")
+        ));
+    };
+    if a == b {
+        return Err(format!("{method} slot {a} cannot swap with itself"));
+    }
+    let count = view.slots.len();
+    if let Some(bad) = [a, b].into_iter().find(|&s| usize::from(s) >= count) {
+        return Err(format!("{method} has {count} slots, none at {bad}"));
+    }
+    let (a, b) = (usize::from(a), usize::from(b));
+    match e {
+        Encounters::Pt(p) => match pt_water(method) {
+            Some((_, (get, set))) => exchange(p, a, b, get, set),
+            None => exchange(p, a, b, PtEncounters::grass, PtEncounters::set_grass),
+        },
+        Encounters::Hgss(h) => match hgss_water(method) {
+            Some((_, (get, set), _)) => exchange(h, a, b, get, set),
+            None => {
+                type Column = (
+                    fn(&HgssEncounters, usize) -> u16,
+                    fn(&mut HgssEncounters, usize, u16),
+                );
+                let columns: [Column; 3] = [
+                    (
+                        HgssEncounters::grass_morning,
+                        HgssEncounters::set_grass_morning,
+                    ),
+                    (HgssEncounters::grass_day, HgssEncounters::set_grass_day),
+                    (HgssEncounters::grass_night, HgssEncounters::set_grass_night),
+                ];
+                for (get, set) in columns {
+                    exchange(h, a, b, get, set);
+                }
+                exchange(
+                    h,
+                    a,
+                    b,
+                    HgssEncounters::grass_level,
+                    HgssEncounters::set_grass_level,
+                );
+            }
+        },
+    }
+    Ok(())
+}
+
 /// One encounter change as `DataPatch::Encounter` names it.
 pub struct EncounterEdit<'a> {
     pub method: &'a str,
@@ -315,34 +465,7 @@ impl EncounterEdit<'_> {
     }
 
     fn apply_pt(&self, p: &mut PtEncounters) -> Result<i64, String> {
-        type Rate = (fn(&PtEncounters) -> u32, fn(&mut PtEncounters, u32));
-        type Water = (
-            fn(&PtEncounters, usize) -> WaterSlot,
-            fn(&mut PtEncounters, usize, WaterSlot),
-        );
-        let water: Option<(Rate, Water)> = match self.method {
-            "surf" => Some((
-                (PtEncounters::surf_rate, PtEncounters::set_surf_rate),
-                (PtEncounters::surf, PtEncounters::set_surf),
-            )),
-            "old_rod" => Some((
-                (PtEncounters::old_rod_rate, PtEncounters::set_old_rod_rate),
-                (PtEncounters::old_rod, PtEncounters::set_old_rod),
-            )),
-            "good_rod" => Some((
-                (PtEncounters::good_rod_rate, PtEncounters::set_good_rod_rate),
-                (PtEncounters::good_rod, PtEncounters::set_good_rod),
-            )),
-            "super_rod" => Some((
-                (
-                    PtEncounters::super_rod_rate,
-                    PtEncounters::set_super_rod_rate,
-                ),
-                (PtEncounters::super_rod, PtEncounters::set_super_rod),
-            )),
-            _ => None,
-        };
-        if let Some(((rate, set_rate), (get, set))) = water {
+        if let Some(((rate, set_rate), (get, set))) = pt_water(self.method) {
             if self.field == "rate" {
                 let old = rate(p);
                 set_rate(p, narrow(self.value, self.field)?);
@@ -395,49 +518,7 @@ impl EncounterEdit<'_> {
     }
 
     fn apply_hgss(&self, h: &mut HgssEncounters) -> Result<i64, String> {
-        type Rate = (fn(&HgssEncounters) -> u8, fn(&mut HgssEncounters, u8));
-        type Water = (
-            fn(&HgssEncounters, usize) -> WaterSlot,
-            fn(&mut HgssEncounters, usize, WaterSlot),
-        );
-        let water: Option<(Rate, Water, usize)> = match self.method {
-            "surf" => Some((
-                (HgssEncounters::surf_rate, HgssEncounters::set_surf_rate),
-                (HgssEncounters::surf, HgssEncounters::set_surf),
-                5,
-            )),
-            "rock_smash" => Some((
-                (HgssEncounters::rock_rate, HgssEncounters::set_rock_rate),
-                (HgssEncounters::rock, HgssEncounters::set_rock),
-                2,
-            )),
-            "old_rod" => Some((
-                (
-                    HgssEncounters::old_rod_rate,
-                    HgssEncounters::set_old_rod_rate,
-                ),
-                (HgssEncounters::old_rod, HgssEncounters::set_old_rod),
-                5,
-            )),
-            "good_rod" => Some((
-                (
-                    HgssEncounters::good_rod_rate,
-                    HgssEncounters::set_good_rod_rate,
-                ),
-                (HgssEncounters::good_rod, HgssEncounters::set_good_rod),
-                5,
-            )),
-            "super_rod" => Some((
-                (
-                    HgssEncounters::super_rod_rate,
-                    HgssEncounters::set_super_rod_rate,
-                ),
-                (HgssEncounters::super_rod, HgssEncounters::set_super_rod),
-                5,
-            )),
-            _ => None,
-        };
-        if let Some(((rate, set_rate), (get, set), count)) = water {
+        if let Some(((rate, set_rate), (get, set), count)) = hgss_water(self.method) {
             if self.field == "rate" {
                 let old = rate(h);
                 set_rate(h, narrow(self.value, self.field)?);
@@ -700,5 +781,111 @@ mod tests {
         let mut hg = Encounters::read(&[0; 196], Family::Hgss).unwrap();
         assert!(apply_extra(&mut hg, "unown_table", 1).is_err());
         assert_eq!(extras(&hg), EncounterExtrasDto::default());
+    }
+
+    #[test]
+    fn swap_with_itself_is_refused_before_writing() {
+        let mut pt = Encounters::read(&[0; 424], Family::Pt).unwrap();
+        edit("grass", Some(2), "species", 396)
+            .apply(&mut pt)
+            .unwrap();
+        let before = pt.clone();
+        for (method, a, b) in [
+            ("grass", 2, 2),
+            ("grass", 2, 12),
+            ("surf", 5, 0),
+            ("rock_smash", 0, 1),
+            ("day", 0, 1),
+            ("swarm", 0, 1),
+            ("radar", 0, 3),
+            ("dual_ruby", 0, 1),
+        ] {
+            assert!(swap(&mut pt, method, a, b).is_err(), "{method} {a} {b}");
+        }
+        assert_eq!(pt, before);
+        let err = swap(&mut pt, "grass", 2, 2).unwrap_err();
+        assert!(err.contains("itself"), "{err}");
+        let err = swap(&mut pt, "swarm", 0, 1).unwrap_err();
+        assert!(
+            err.contains("grass, surf, old_rod, good_rod, super_rod"),
+            "{err}"
+        );
+        let mut hg = Encounters::read(&[0; 196], Family::Hgss).unwrap();
+        let before = hg.clone();
+        for (method, a, b) in [
+            ("rock_smash", 0, 2),
+            ("radio", 0, 1),
+            ("radio_hoenn", 0, 1),
+            ("land_swarm", 0, 1),
+            ("night_fish", 0, 1),
+        ] {
+            assert!(swap(&mut hg, method, a, b).is_err(), "{method} {a} {b}");
+        }
+        assert_eq!(hg, before);
+    }
+
+    #[test]
+    fn swap_of_slot_2_and_7_moves_species_and_levels_hgss_keeps_three_columns() {
+        let mut pt = Encounters::read(&[0; 424], Family::Pt).unwrap();
+        for (slot, species, level) in [(2, 396, 3), (7, 399, 12)] {
+            edit("grass", Some(slot), "species", species)
+                .apply(&mut pt)
+                .unwrap();
+            edit("grass", Some(slot), "level", level)
+                .apply(&mut pt)
+                .unwrap();
+        }
+        swap(&mut pt, "grass", 2, 7).unwrap();
+        let grass = |e: &Encounters, slot: usize| {
+            let s = methods(e, family_of(e))[0].slots[slot].clone();
+            (s.species, s.min, s.max, s.species_morning, s.species_night)
+        };
+        assert_eq!(grass(&pt, 2), (399, 12, 12, None, None));
+        assert_eq!(grass(&pt, 7), (396, 3, 3, None, None));
+        // An empty target slot is allowed: the species moves, the empty place takes its spot.
+        swap(&mut pt, "grass", 7, 11).unwrap();
+        assert_eq!(grass(&pt, 11), (396, 3, 3, None, None));
+        assert_eq!(grass(&pt, 7), (0, 0, 0, None, None));
+        // Water: species, min and max move together.
+        edit("surf", Some(0), "max", 20).apply(&mut pt).unwrap();
+        edit("surf", Some(0), "min", 10).apply(&mut pt).unwrap();
+        edit("surf", Some(0), "species", 54).apply(&mut pt).unwrap();
+        swap(&mut pt, "surf", 4, 0).unwrap();
+        let surf = |e: &Encounters, slot: usize| {
+            let s = &methods(e, Family::Pt)[1].slots[slot];
+            (s.species, s.min, s.max)
+        };
+        assert_eq!((surf(&pt, 0), surf(&pt, 4)), ((0, 0, 0), (54, 10, 20)));
+
+        let mut hg = Encounters::read(&[0; 196], Family::Hgss).unwrap();
+        for (slot, base, level) in [(2, 10, 5), (7, 20, 9)] {
+            for (i, field) in ["species_morning", "species", "species_night"]
+                .into_iter()
+                .enumerate()
+            {
+                edit("grass", Some(slot), field, base + i as i64)
+                    .apply(&mut hg)
+                    .unwrap();
+            }
+            edit("grass", Some(slot), "level", level)
+                .apply(&mut hg)
+                .unwrap();
+        }
+        swap(&mut hg, "grass", 2, 7).unwrap();
+        assert_eq!(grass(&hg, 2), (21, 9, 9, Some(20), Some(22)));
+        assert_eq!(grass(&hg, 7), (11, 5, 5, Some(10), Some(12)));
+        edit("rock_smash", Some(1), "species", 74)
+            .apply(&mut hg)
+            .unwrap();
+        swap(&mut hg, "rock_smash", 0, 1).unwrap();
+        let rock = &methods(&hg, Family::Hgss)[2];
+        assert_eq!((rock.slots[0].species, rock.slots[1].species), (74, 0));
+    }
+
+    fn family_of(e: &Encounters) -> Family {
+        match e {
+            Encounters::Pt(_) => Family::Pt,
+            Encounters::Hgss(_) => Family::Hgss,
+        }
     }
 }

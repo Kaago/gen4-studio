@@ -6,6 +6,7 @@ import { Badge, EmptyState, Icon, IconButton, TextField, TreeRow, useRovingList 
 import type { ProblemRow } from "../problems/problems";
 import { textArchiveOf } from "../problems/problems";
 import { TERMS, id4 } from "../terms";
+import { DialogList } from "./DialogList";
 import { useTextArea } from "./TextAreaContext";
 import { filterArchives } from "./textModel";
 import type { ArchiveRow } from "./textModel";
@@ -75,11 +76,16 @@ const ArchiveItem = memo(function ArchiveItem({ row, selected, count, overlong, 
   );
 });
 
+/** The list of the texts: in Erzählen the dialogs by place (`DialogList`), from Bauen on the text archives. */
+export function TextList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return useTextArea().narrating ? <DialogList open={open} onToggle={onToggle} /> : <ArchiveList open={open} onToggle={onToggle} />;
+}
+
 /**
- * The list of the texts: the archives in two groups, *Orte* (an archive a header uses, named after the place of its first header)
+ * The list of the archives (Bauen, Tüfteln): the archives in two groups, *Orte* (an archive a header uses, named after the place of its first header)
  * and *Spielweit* (all others), a filter by place or number, `+` for a new archive, and the overlong texts the problems know of.
  */
-export function TextList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+function ArchiveList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { project, rows, archive, loaded, archiveCount, problems, select, createArchive } = useTextArea();
   const [filter, setFilter] = useState("");
   const [closed, setClosed] = useState<ReadonlySet<Group>>(() => new Set());

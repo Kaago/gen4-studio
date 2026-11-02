@@ -162,7 +162,7 @@ function SplitDialog({ place, onClose }: { place: PlaceDto; onClose: () => void 
 }
 
 /** „Verwendet von N Orten“: each place as a reference into the world; with more than one, each can get a file of its own. */
-function Users({ doc }: { doc: EncounterDoc }) {
+export function Users({ doc }: { doc: EncounterDoc }) {
   const { goTo } = useDataArea("pokemon");
   const [splitting, setSplitting] = useState<PlaceDto | null>(null);
   const n = doc.users.length;
@@ -195,7 +195,7 @@ function Users({ doc }: { doc: EncounterDoc }) {
  * use the file (with „Für diesen Ort abspalten“ when several do), and the rules it breaks.
  */
 export function EncounterView() {
-  const { row, labelOf, names, selected, project } = useDataArea("pokemon");
+  const { row, labelOf, selected, project } = useDataArea("pokemon");
   const { doc, error } = useEncounter(selected);
   const reset = useReset();
   // A split that wrote its copy but failed later: said at the copy (or, without one named, at the file it was split from).
@@ -220,20 +220,27 @@ export function EncounterView() {
         {doc && doc.locked !== null && <Notice kind="warning">{`${lockReason(doc.locked)}. Diese Datei ist gesperrt.`}</Notice>}
         {doc && doc.locked === null && <WhoWaits doc={doc} />}
         {doc && <Users doc={doc} />}
-        {doc && doc.warnings.length > 0 && (
-          <section className={styles.section} aria-label="Warnungen">
-            <h3 className={styles.sectionTitle}>
-              Warnungen <span className={styles.count}>{doc.warnings.length}</span>
-            </h3>
-            {doc.warnings.map((w, i) => (
-              <div key={i} data-warning={i}>
-                <Notice kind="warning">{warningText(w.text, (id) => speciesName(names.species, id))}</Notice>
-              </div>
-            ))}
-          </section>
-        )}
+        {doc && <FileWarnings doc={doc} />}
         {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
       </div>
+    </section>
+  );
+}
+
+/** The rules the file breaks, in German; nothing when it breaks none. */
+export function FileWarnings({ doc }: { doc: EncounterDoc }) {
+  const { names } = useDataArea("pokemon");
+  if (doc.warnings.length === 0) return null;
+  return (
+    <section className={styles.section} aria-label="Warnungen">
+      <h3 className={styles.sectionTitle}>
+        Warnungen <span className={styles.count}>{doc.warnings.length}</span>
+      </h3>
+      {doc.warnings.map((w, i) => (
+        <div key={i} data-warning={i}>
+          <Notice kind="warning">{warningText(w.text, (id) => speciesName(names.species, id))}</Notice>
+        </div>
+      ))}
     </section>
   );
 }

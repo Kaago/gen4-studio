@@ -827,7 +827,9 @@ static TOOLS: &[ToolDef] = &[
                          \"EncounterExtra\": {field, value}}, {\"Encounter\": {method, slot, \
                          field, value}}, {\"TrainerName\": {name}}, {\"TrainerFormat\": {moves, \
                          items}}, {\"TrainerParty\": {party}}, {\"TrainerTexts\": {texts}}, \
-                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}"
+                         {\"CopyMoves\": {from}}, {\"EggMoves\": {moves: [move numbers]}}, \
+                         {\"EncounterSwap\": {method, a, b}} (slots a and b of a method trade \
+                         species and levels in one step)"
                     ),
                     "label": label("a label made from the change, such as \"<name>: <field> old → new\""),
                 }),
@@ -1774,6 +1776,24 @@ static TOOLS: &[ToolDef] = &[
         output_schema: answers_object,
         route: command("live_set"),
     },
+    // Erzählen layouts (3d.8).
+    ToolDef {
+        name: "dialogs_of_header",
+        title: "The figures of a place with their dialogs",
+        description: concat!(
+            "Every object (by index), then every sign of the header's event file with its \
+             dialog in one call: kind, index, local_id and graphics_id (objects), source as \
+             dialog_of names it, trainer (the id for a trainer's battle), first_text, messages \
+             (each once), pages (the boxes the game shows) and message_ids (indices into the \
+             header's text archive, archive). An event file that does not load has no figures, \
+             an unreadable dialog is a figure with source unreadable; branches, shared_with \
+             and splits come from dialog_of. ",
+            data_note!()
+        ),
+        input_schema: || object(json!({ "header": dialog_header() }), &["header"]),
+        output_schema: answers_object,
+        route: command("dialogs_of_header"),
+    },
 ];
 
 /// [`object`] with a description (a nested argument).
@@ -2104,7 +2124,7 @@ mod tests {
         // past this asks for a new curation, not a higher bound. Raised from 70 to 71 for 3d.5's
         // dialog_of and split_message (the dialog editor's two commands have no tool to fold
         // into) and to 80 with the six story tools of 3d.6; 77 with both, 79 with 3d.9's
-        // live_status and live_set.
+        // live_status and live_set, 80 with 3d.8's dialogs_of_header.
         assert!((30..=80).contains(&catalog().len()), "{}", catalog().len());
     }
 
@@ -2164,6 +2184,7 @@ mod tests {
                 "story_list",
                 "story_get",
                 "live_status",
+                "dialogs_of_header",
             ]
         );
         let command = |name: &str| routes.iter().find(|(n, _)| *n == name).unwrap().1;
@@ -2389,6 +2410,7 @@ mod tests {
             "thread_graph",
             "story_list",
             "story_get",
+            "dialogs_of_header",
         ] {
             assert!(
                 tool(name).description.contains(DATA_NOT_INSTRUCTIONS),
@@ -2715,6 +2737,7 @@ mod tests {
                 "live_set",
                 json!({ "kind": "flag", "number": 148, "value": 1 }),
             ),
+            ("dialogs_of_header", json!({ "header": 1 })),
         ]
     }
 

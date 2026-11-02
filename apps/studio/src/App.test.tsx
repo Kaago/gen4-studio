@@ -371,7 +371,7 @@ describe("App wiring", () => {
     vi.mocked(dataList).mockImplementation(async (kind) =>
       kind === "species" ? [{ index: 397, name: "Staravia", tech: "0397", locked: null, extra: { types: [0, 2], number: 397, stats: [55, 75, 50, 80, 40, 40] } }] : [],
     );
-    vi.mocked(nameTables).mockResolvedValue({ species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: { species: 412, moves: 647, items: 392, abilities: 610, types: 624, classes: 619, forms: 697 } });
+    vi.mocked(nameTables).mockResolvedValue({ species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: { species: 412, moves: 647, items: 392, abilities: 610, types: 624, classes: 619, forms: 697 }, sounds: [] });
     vi.mocked(itemTable).mockResolvedValue(null);
     vi.mocked(runChecks).mockResolvedValue(report());
     vi.mocked(checksStatus).mockResolvedValue(report({ groups: [] }));
@@ -1266,10 +1266,13 @@ describe("App wiring", () => {
       });
 
       it("keeps_the_figure_tool_of_a_waiting_trainer_on_the_way_into_erzaehlen", async () => {
-        // Erzählen chosen in Pokémon (which shows Bauen): placing the trainer shows the world, and so Erzählen, with the binding.
-        const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
-        await act(async () => tinker.click());
+        // Erzählen chosen in Gegenstände (which shows Bauen): placing the trainer shows the world, and so Erzählen, with the binding.
+        await act(async () => atlasEntry("Gegenstände")!.click());
+        const narrate = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
+        await act(async () => narrate.click());
+        expect(data().depth).toBe("bauen");
         await place(928);
+        expect(data().depth).toBe("erzaehlen");
         expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
         expect(data().tool).toBe("figure");
         expect(statusLine()).toContain("Klick setzt Wanderer Jens");
@@ -1864,6 +1867,20 @@ describe("App wiring", () => {
       expect(readShellState().depth).toBe("tuefteln");
       await pressHinge("Bauen");
       expect(readShellState().depth).toBe("bauen");
+    });
+
+    it("keeps_erzaehlen_in_pokemon_and_texte_and_shows_bauen_in_gegenstaende", async () => {
+      // The depth the areas work with (`depth` of the workbench): Pokémon and Texte narrate, Gegenstände show Bauen; the chosen depth stays Erzählen.
+      await act(async () => atlasEntry("Pokémon")!.click());
+      await pressHinge("Erzählen");
+      expect(data().depth).toBe("erzaehlen");
+      await act(async () => atlasEntry("Gegenstände")!.click());
+      expect(data().depth).toBe("bauen");
+      await act(async () => atlasEntry("Texte")!.click());
+      expect(data().depth).toBe("erzaehlen");
+      await act(async () => atlasEntry("Pokémon")!.click());
+      expect(data().depth).toBe("erzaehlen");
+      expect(readShellState().depth).toBe("erzaehlen");
     });
 
     it("plays_in_the_browser_by_building_only_and_says_so", async () => {

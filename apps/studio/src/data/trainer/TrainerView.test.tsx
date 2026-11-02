@@ -61,6 +61,22 @@ describe("TrainerView", () => {
     expect(h.calls.goTo).toHaveBeenCalledWith({ kind: "event", eventFile: 8, eventKind: "object", index: 3, header: 5 });
   });
 
+  it("names_no_numbers_in_erzaehlen_and_keeps_them_in_bauen", async () => {
+    await h.open(12, "erzaehlen");
+    const view = h.view();
+    expect(view.querySelector("h2")?.textContent).toBe("Wanderer Jens");
+    // Neither the trainer's number in the head nor the event file of where it stands.
+    expect(view.textContent).not.toContain("0012");
+    const place = view.querySelector<HTMLButtonElement>("[data-event]")!;
+    expect(place.textContent).toContain("Route 201");
+    expect(place.textContent).not.toContain("Eventdatei");
+    h.unmount();
+    h = trainerHarness();
+    await h.open(12, "bauen");
+    expect(h.view().textContent).toContain("0012");
+    expect(h.view().querySelector("[data-event]")?.textContent).toContain("Eventdatei 0008");
+  });
+
   it("warns_of_an_empty_team_offers_to_place_an_unplaced_trainer_and_marks_a_double_battle", async () => {
     const onPlace = vi.fn();
     wireApi(() => trainerDoc({ party: [], events: [], battle_type: 2 }));

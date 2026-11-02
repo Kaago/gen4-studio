@@ -48,7 +48,7 @@ export const MOVE_ROWS: DataRowDto[] = [
   { index: 470, name: "move 0470", tech: "0470", locked: "move 0470: 18 bytes, expected 16", extra: null },
 ];
 
-export const MOVE_NAMES: NameTablesDto = { species: [], moves: MOVE_ROWS.map((r) => r.name), items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES };
+export const MOVE_NAMES: NameTablesDto = { species: [], moves: MOVE_ROWS.map((r) => r.name), items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES, sounds: [] };
 
 /** Wing Attack: Starly and Staravia learn it, trainer 44 uses it twice, nobody evolves by it. */
 export const MOVE_REFS: RefDto[] = [

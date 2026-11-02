@@ -39,7 +39,7 @@ export const MOVES = [move(17, "Flügelschlag", 2), move(33, "Tackle")];
 export const ITEMS = [item(1, "Meisterball", 2), item(4, "Pokéball", 2), item(17, "Trank", 1)];
 /** The text archives of the name tables of Platinum (the move and item descriptions are 646 and 391). */
 export const PT_ARCHIVES: NameArchivesDto = { species: 412, moves: 647, items: 392, abilities: 610, types: 624, classes: 619, forms: 697 };
-export const NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES };
+export const NAMES: NameTablesDto = { species: [], moves: [], items: [], abilities: [], types: [], classes: [], forms: [], archives: PT_ARCHIVES, sounds: [] };
 /** Item ids 1 and 4 share icon and palette; 17 has its own. */
 export const ITEM_TABLE: ItemEntryDto[] = Array.from({ length: 18 }, (_, id) => ({ data: id, icon: id === 17 ? 30 : 5, palette: id === 17 ? 31 : 6, gba: 0 }));
 

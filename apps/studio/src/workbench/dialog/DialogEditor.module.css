@@ -25,61 +25,6 @@
   }
 }
 
-.messages {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--g4-raum-8);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.message {
-  display: flex;
-  flex-direction: column;
-  gap: var(--g4-raum-6);
-  padding: var(--g4-raum-8);
-  border: var(--g4-strich-standard) solid var(--g4-linie-leise);
-  border-radius: var(--g4-radius-feld);
-}
-
-.message[data-selected] {
-  border-color: var(--g4-linie-stark);
-}
-
-.head {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--g4-raum-8);
-}
-
-/* The head's key is the primitive Button, which keeps its text on one line and centred: a long head ("· wenn CompareVarToValue …",
-   "· auch Zeile 213 (wenn …)") would run out of the column on both sides. Here it wraps inside the column, left-aligned. */
-.head > button {
-  min-width: 0;
-  max-width: 100%;
-  height: auto;
-  padding-block: var(--g4-raum-4);
-  justify-content: flex-start;
-  text-align: left;
-  white-space: normal;
-}
-
-.headText {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.split {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--g4-raum-4);
-}
-
 .preview {
   display: flex;
   flex-direction: column;

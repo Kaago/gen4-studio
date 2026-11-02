@@ -134,6 +134,7 @@ export const ENCOUNTER_NAMES: NameTablesDto = {
   classes: [],
   forms: [],
   archives: PT_ARCHIVES,
+  sounds: [],
 };
 
 export const ENCOUNTER_SPECIES: DataRowDto[] = [

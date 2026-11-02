@@ -1,9 +1,10 @@
 //! The dialog of a figure (phase 3d.5): the messages an object's or a sign's script shows, and
 //! giving a figure its own copy of a message it shares with others. The kernel does the work
 //! ([`g4_kernel::dialog`]); `split_message` writes and compiles the script file (a file step),
-//! so the reference index and the checks' last report are refreshed after it.
+//! so the reference index and the checks' last report are refreshed after it. Since 3d.8 the
+//! figures of a place with their dialogs in one call (`dialogs_of_header`).
 
-use g4_kernel::dialog::{self, Dialog, DialogKind, SplitReport};
+use g4_kernel::dialog::{self, Dialog, DialogKind, HeaderDialogs, SplitReport};
 use tauri::Manager;
 
 use super::{lock, session};
@@ -61,6 +62,15 @@ pub fn split_message_impl(
     Ok(report?)
 }
 
+/// Every figure (objects, then signs) of header `header`'s event file with its dialog's
+/// source, first text and counts, under the session lock. Reads only; a header that does not
+/// exist is refused.
+pub fn dialogs_of_header_impl(state: &AppState, header: u16) -> Result<HeaderDialogs, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    Ok(dialog::dialogs_of_header(&mut session.store, header)?)
+}
+
 /// Parses the figure's script (and every event file of the headers using the archive, for
 /// `shared_with`), so it runs on a blocking worker.
 #[tauri::command]
@@ -97,6 +107,20 @@ pub async fn split_message(
             archive,
             message,
         )
+    })
+    .await
+    .map_err(|e| CmdError::from(e.to_string()))?
+}
+
+/// Parses the header's script file and reads its event file and text archive, so it runs on
+/// a blocking worker.
+#[tauri::command]
+pub async fn dialogs_of_header(
+    app: tauri::AppHandle,
+    header: u16,
+) -> Result<HeaderDialogs, CmdError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        dialogs_of_header_impl(&app.state::<AppState>(), header)
     })
     .await
     .map_err(|e| CmdError::from(e.to_string()))?
@@ -234,6 +258,35 @@ mod tests {
         );
         assert_eq!(answer["followed"], json!([]));
         // Reading changed nothing.
+        assert_eq!(history_impl(&state).unwrap().undo.len(), 2);
+    }
+
+    #[test]
+    fn dialogs_of_header_over_the_command_path() {
+        let (fx, state) = open_with_figures();
+        let place = dialogs_of_header_impl(&state, 0).unwrap();
+        assert_eq!(place.figures.len(), 8);
+        // The dispatcher takes the key `api.dialog.ts` sends and answers the documented JSON.
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let answer = json_of(
+            dispatch(&state, &policy, "dialogs_of_header", json!({ "header": 0 })).unwrap(),
+        );
+        assert_eq!(
+            (&answer["header"], &answer["event_file"], &answer["archive"]),
+            (&json!(0), &json!(0), &json!(ARCHIVE)),
+            "{answer}"
+        );
+        assert!(answer["ms"].is_u64(), "{answer}");
+        assert_eq!(
+            answer["figures"][3],
+            json!({ "kind": "object", "index": 3, "local_id": 3, "graphics_id": 0,
+                    "trainer": null, "source": { "kind": "local", "file": 0, "slot": 3, "line": 1 },
+                    "first_text": "Nachricht 5", "messages": 1, "pages": 1, "message_ids": [5] }),
+            "{answer}"
+        );
+        assert_eq!(answer["figures"][0]["source"], json!({ "kind": "none" }));
+        // A header that does not exist is refused; reading changed nothing.
+        assert!(dialogs_of_header_impl(&state, 99).is_err());
         assert_eq!(history_impl(&state).unwrap().undo.len(), 2);
     }
 

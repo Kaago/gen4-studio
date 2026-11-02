@@ -27,6 +27,11 @@ export type DeckProps = {
   area: DeckArea;
   /** The depth of the shell: the dock has the panels of that depth (the Raster only in Tüfteln) and follows a change of it. */
   depth: Depth;
+  /**
+   * The sub-area the deck shows (Pokémon: Pokédex, Trainer, Begegnungen, Attacken): the dock keeps a layout per sub-area and swaps it when
+   * this changes, without being built anew. Undefined: one layout for the area.
+   */
+  sub?: string;
   components: DockComponents;
   /** Where the dock hands out its dockview api (a link focuses the panel that shows its target). */
   dockRef: MutableRefObject<DockviewApi | null>;
@@ -122,63 +127,66 @@ function markGroup(group: DockviewGroupPanel) {
   else group.element.removeAttribute("data-dock-group-kind");
 }
 
-/** Builds `arrangement` of `depth` in the dock and remembers it as the area's arrangement and layout. */
-function arrange(api: DockviewApi, area: DeckArea, arrangement: Arrangement, depth: Depth) {
+/** Builds `arrangement` of `depth` in the dock and remembers it as the arrangement and layout of the area (its sub-area `sub`). */
+function arrange(api: DockviewApi, area: DeckArea, arrangement: Arrangement, depth: Depth, sub: string | undefined) {
   applyArrangement(api, area, arrangement, depth);
   api.groups.forEach(markGroup);
-  saveArrangement(area, arrangement);
-  saveLayout(layoutKey(area), api.toJSON());
+  saveArrangement(area, arrangement, sub);
+  saveLayout(layoutKey(area, sub), api.toJSON());
 }
 
 /**
- * Builds `arrangement` (undefined: the area's default) of `depth` in the dock of `area` and remembers it. A dock that is not built yet (the
- * world's, reset from an area without a deck before the world was shown) forgets its stored layout and arrangement, so it starts from them
- * when it is built.
+ * Builds `arrangement` (undefined: the area's default) of `depth` in the dock of `area` and remembers it for the sub-area `sub` the dock
+ * shows (undefined: an area without sub-areas). A dock that is not built yet (the world's, reset from an area without a deck before the
+ * world was shown) forgets its stored layout and arrangement, so it starts from them when it is built.
  */
-export function resetLayout(area: DeckArea, dockRef: MutableRefObject<DockviewApi | null>, arrangement: Arrangement | undefined, depth: Depth): void {
+export function resetLayout(area: DeckArea, dockRef: MutableRefObject<DockviewApi | null>, arrangement: Arrangement | undefined, depth: Depth, sub?: string): void {
   const chosen = arrangement ?? DEFAULT_ARRANGEMENT[area];
   const api = dockRef.current;
   if (!api) {
-    dropLayout(layoutKey(area));
-    saveArrangement(area, chosen);
+    dropLayout(layoutKey(area, sub));
+    saveArrangement(area, chosen, sub);
     return;
   }
-  arrange(api, area, chosen, depth);
+  arrange(api, area, chosen, depth, sub);
 }
 
 /**
- * Restores the stored layout of the dock when it is complete (and no view panel floats in it), otherwise builds the area's arrangement of
- * `depth`. A restored layout (stored in either depth) gets the panels of `depth` afterwards (`syncDepthPanels`). The width limits of a
- * group are not stored: a panel whose step has them gets them again when it sits alone in a docked group (`restoreLimits`).
+ * Restores the stored layout of the dock (of its sub-area `sub`) when it is complete (and no view panel floats in it), otherwise builds the
+ * arrangement of `depth`. A restored layout (stored in either depth) gets the panels of `depth` afterwards (`syncDepthPanels`). The width
+ * limits of a group are not stored: a panel whose step has them gets them again when it sits alone in a docked group (`restoreLimits`).
+ * Also swaps the layout of a dock that is built (another sub-area): `fromJSON` and the arrangement replace what the dock holds.
  */
-function initLayout(api: DockviewApi, area: DeckArea, depth: Depth) {
-  const saved = loadLayout(layoutKey(area));
+function initLayout(api: DockviewApi, area: DeckArea, depth: Depth, sub: string | undefined) {
+  const saved = loadLayout(layoutKey(area, sub));
   if (saved && isSaneLayout(saved, AREA_PANELS[area])) {
     try {
       api.fromJSON(saved as SerializedDockview);
       syncDepthPanels(api, area, depth);
-      restoreLimits(api, area);
+      restoreLimits(api, area, loadArrangement(area, sub));
       return;
     } catch {
       /* damaged layout: fall through to the arrangement */
     }
   }
   // The first build (or one after an unusable layout) remembers its arrangement, as a chosen one is.
-  const arrangement = loadArrangement(area);
+  const arrangement = loadArrangement(area, sub);
   applyArrangement(api, area, arrangement, depth);
-  saveArrangement(area, arrangement);
+  saveArrangement(area, arrangement, sub);
 }
 
 /** The dock, memoised: the providers above it change with every hover, the dock itself must not. */
 const DeckDock = memo(function DeckDock({
   area,
   depth,
+  sub,
   components,
   apiRef,
   previewRef,
 }: {
   area: DeckArea;
   depth: Depth;
+  sub: string | undefined;
   components: DockComponents;
   apiRef: MutableRefObject<DockviewApi | null>;
   /** The deck's `preview`, read when the menu opens (a ref, so the memoised dock does not render for it). */
@@ -188,11 +196,27 @@ const DeckDock = memo(function DeckDock({
   // The depth when the dock gets ready (dockview calls `onReady` once, from its first render) and when its tab menu resets it.
   const depthRef = useRef(depth);
   depthRef.current = depth;
+  // The sub-area whose layout the dock holds: what it restores when it gets ready, and where it stores its changes.
+  const subRef = useRef(sub);
   // A change of depth adds or removes the panels only for Tüfteln (the Raster); the dock is not built anew.
   useEffect(() => {
     const api = apiRef.current;
     if (api) syncDepthPanels(api, area, depth);
   }, [apiRef, area, depth]);
+  // Another sub-area: the layout of the one shown so far is stored first (with its floating groups, before dockview announces its last
+  // change), then the new one's is restored in the same dock. A dock that is not ready restores the new one when it gets ready.
+  useEffect(() => {
+    const api = apiRef.current;
+    if (subRef.current === sub) return;
+    if (api) {
+      const json = api.toJSON();
+      if (isSaneLayout(json, AREA_PANELS[area])) saveLayout(layoutKey(area, subRef.current), json);
+    }
+    subRef.current = sub;
+    if (!api) return;
+    initLayout(api, area, depthRef.current, sub);
+    api.groups.forEach(markGroup);
+  }, [apiRef, area, sub]);
   // The tab menu works on this dock; it is asked for its items on every right click.
   const menuItems = useMemo(
     () => (params: GetTabContextMenuItemsParams) => {
@@ -200,8 +224,8 @@ const DeckDock = memo(function DeckDock({
       return dockviewItems(
         tabMenuItems(params, {
           float: (id) => void floatPanel(params.api, id),
-          dock: (id) => void dockPanel(params.api, area, id),
-          reset: () => resetLayout(area, apiRef, loadArrangement(area), depthRef.current),
+          dock: (id) => void dockPanel(params.api, area, id, loadArrangement(area, subRef.current)),
+          reset: () => resetLayout(area, apiRef, loadArrangement(area, subRef.current), depthRef.current, subRef.current),
           ...(preview === undefined ? {} : { setPreview: preview.set, previewLocked: preview.locked }),
         }),
       );
@@ -211,12 +235,12 @@ const DeckDock = memo(function DeckDock({
   function onReady(event: DockviewReadyEvent) {
     const api = event.api;
     apiRef.current = api;
-    initLayout(api, area, depthRef.current);
+    initLayout(api, area, depthRef.current, subRef.current);
     api.groups.forEach(markGroup);
-    // Intermediate states (clear, half-built arrangement) must not overwrite the user's layout.
+    // Intermediate states (clear, half-built arrangement) must not overwrite the user's layout. Stored under the sub-area shown now.
     const remember = () => {
       const json = api.toJSON();
-      if (isSaneLayout(json, AREA_PANELS[area])) saveLayout(layoutKey(area), json);
+      if (isSaneLayout(json, AREA_PANELS[area])) saveLayout(layoutKey(area, subRef.current), json);
     };
     remember();
     // The subscriptions end with the api when dockview unmounts, so they need no cleanup of their own.
@@ -281,14 +305,14 @@ function keepViewDocked(event: PointerEvent<HTMLElement>) {
  * Every area with a deck has its own `Deck` (the shell keeps them all mounted). While a wizard is open (world only), its step shows in a
  * strip under the dock (as high as the old hand, `HAND_DEFAULT`), which stays mounted and shrinks.
  */
-export function Deck({ area, depth, components, dockRef, hinge, wizard, preview }: DeckProps) {
+export function Deck({ area, depth, sub, components, dockRef, hinge, wizard, preview }: DeckProps) {
   const previewRef = useRef(preview);
   previewRef.current = preview;
   return (
     <div className={styles.deck}>
       {hinge}
       <div className={styles.dock} id={`dock-${area}`} data-dock={area} onKeyDown={openTabMenu} onPointerDownCapture={keepViewDocked}>
-        <DeckDock key={area} area={area} depth={depth} components={components} apiRef={dockRef} previewRef={previewRef} />
+        <DeckDock key={area} area={area} depth={depth} sub={sub} components={components} apiRef={dockRef} previewRef={previewRef} />
       </div>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-hand="" hidden={!wizard} />}
     </div>
