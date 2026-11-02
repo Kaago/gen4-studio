@@ -1264,10 +1264,13 @@ describe("App wiring", () => {
       });
 
       it("keeps_the_figure_tool_of_a_waiting_trainer_on_the_way_into_erzaehlen", async () => {
-        // Erzählen chosen in Pokémon: placing the trainer shows the world, in Erzählen too, with the binding.
-        const tinker = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
-        await act(async () => tinker.click());
+        // Erzählen chosen in Gegenstände (which shows Bauen): placing the trainer shows the world, and so Erzählen, with the binding.
+        await act(async () => atlasEntry("Gegenstände")!.click());
+        const narrate = [...container.querySelectorAll<HTMLButtonElement>('[role="toolbar"][aria-label="Scharnier"] button')].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === "Erzählen")!;
+        await act(async () => narrate.click());
+        expect(data().depth).toBe("bauen");
         await place(928);
+        expect(data().depth).toBe("erzaehlen");
         expect(atlasEntry("Welt")?.getAttribute("aria-current")).toBe("page");
         expect(data().tool).toBe("figure");
         expect(statusLine()).toContain("Klick setzt Wanderer Jens");

@@ -15,6 +15,9 @@ import { ProblemsStore } from "../workbench/problems/problems";
 import { ScriptDocuments } from "../workbench/script/documents";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import { ShellProvider } from "../ui/frame/ShellContext";
+import { readShellState, writeShellState } from "../ui/frame/shellState";
+import type { AreaId, Depth } from "../ui/frame/shellState";
+import { useTextArea } from "../workbench/text/TextAreaContext";
 import { WorkbenchProviders } from "../workbench/WorkbenchContext";
 import type { WorkbenchData, WorkbenchLive } from "../workbench/WorkbenchContext";
 import { useWorkbenchModel } from "./useWorkbenchModel";
@@ -353,5 +356,38 @@ describe("workbench model", () => {
     expect(reads.selection).toBe(2);
     expect(bodies.matrix).toBe(0);
     expect(selectedCells()).toEqual([expect.stringContaining("x 0, y 1")]);
+  });
+
+  it("gives the text area the depth of the texts, also while another area is in front", async () => {
+    let seen: { depth: Depth; narrating: boolean } | null = null;
+    function Probe() {
+      const { depth, narrating } = useTextArea();
+      seen = { depth, narrating };
+      return null;
+    }
+    // The workbench works in the depth of the area in front (`Model`: Bauen, as for Technik in Erzählen); the texts in their own.
+    const shownIn = async (area: AreaId, depth: Depth) => {
+      writeShellState({ ...readShellState(), area, depth });
+      await act(async () =>
+        root.render(
+          <Model hover={null} message={null} onModel={noop}>
+            <ShellProvider key={`${area} ${depth}`}>
+              <TextAreaHost>
+                <Probe />
+              </TextAreaHost>
+            </ShellProvider>
+          </Model>,
+        ),
+      );
+      return seen;
+    };
+    try {
+      expect(await shownIn("technik", "erzaehlen")).toEqual({ depth: "erzaehlen", narrating: true });
+      expect(await shownIn("texte", "erzaehlen")).toEqual({ depth: "erzaehlen", narrating: true });
+      expect(await shownIn("texte", "bauen")).toEqual({ depth: "bauen", narrating: false });
+      expect(await shownIn("technik", "tuefteln")).toEqual({ depth: "tuefteln", narrating: false });
+    } finally {
+      localStorage.removeItem("g4.shell.v1");
+    }
   });
 });

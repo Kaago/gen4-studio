@@ -345,10 +345,8 @@ describe("PokemonArea", () => {
     const setDepth = (depth: "erzaehlen" | "bauen" | "tuefteln") => act(() => shell!.setDepth(depth));
 
     it("a_part_without_a_narrate_component_shows_the_build_view_in_erzaehlen", async () => {
-      // Pokédex and Attacken bring nothing of their own for Erzählen (nor, until their tasks, Trainer and Begegnungen).
-      expect(Object.values(POKEMON_PARTS).map((p) => [p?.ViewNarrate, p?.HandNarrate])).toEqual([
-        [undefined, undefined],
-        [undefined, undefined],
+      // Pokédex and Attacken bring nothing of their own for Erzählen (Trainer and Begegnungen do).
+      expect([POKEMON_PARTS.pokedex, POKEMON_PARTS.moves].map((p) => [p?.ViewNarrate, p?.HandNarrate])).toEqual([
         [undefined, undefined],
         [undefined, undefined],
       ]);

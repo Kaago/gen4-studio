@@ -13,6 +13,7 @@ import type { DataStore } from "../data/dataStore";
 import type { DataAreaProps } from "../data/useDataArea";
 import type { DockComponents } from "../ui/frame/Deck";
 import { useShell } from "../ui/frame/ShellContext";
+import { viewDepth } from "../ui/frame/shellState";
 import { EmptyState } from "../ui/primitives";
 import type { EventRef } from "../world/events";
 import MatrixScene from "../world/MatrixScene";
@@ -533,7 +534,9 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // Changes whenever a text archive may have moved behind the area (undo, redo, reload), and after the area's own edits (it tells the
   // data areas through the bus too).
   const textRevision = useBusRevision(d.bus, "textData");
-  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus, depth } = d;
+  const { info, headers, memberCounts, textTarget, problems, goTo, onEdited, onCountsChanged, onError, bus } = d;
+  // The depth of the texts, not of the area in front: a Texte deck kept behind Technik in Erzählen still narrates.
+  const depth = viewDepth("texte", useShell().state.depth);
   const context = useMemo<TextAreaProps>(
     () => ({ project: info, headers, counts: memberCounts, target: textTarget, revision: textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth }),
     [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth],
