@@ -50,6 +50,7 @@ import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
 import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
+import type { WizardRequest } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
 import { NewPlaceDialog } from "./places/NewPlaceDialog";
 import { DP_PLACES } from "./places/placeChoices";
@@ -620,7 +621,7 @@ export function DataAreaHost({
   onPlaceTrainer?: (id: number) => void;
   children?: ReactNode;
 }) {
-  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts, onOpenWizard: openWizard, selected } = useWorkbench();
+  const { info, goTo, dirtyAssets: dirty, onEdited, bus, headers, problems, scripts, onOpenWizard, selected, onSelect } = useWorkbench();
   const shown = useShell().state.area;
   const pokemonTrail = useCallback((crumbs: Crumb[]) => onTrail("pokemon", crumbs), [onTrail]);
   const itemsTrail = useCallback((crumbs: Crumb[]) => onTrail("gegenstaende", crumbs), [onTrail]);
@@ -633,6 +634,15 @@ export function DataAreaHost({
   // „Neuer Trainer…“ (Pokémon › Trainer in Erzählen) opens the recipe of the world at the header the world shows or showed last; read
   // when asked, so choosing another place does not render the area.
   const worldHeader = useStableCallback(() => selected);
+  // The recipe opens in the world: a place it starts at that the world does not show is selected there (as a click in the list), so the
+  // scene shows the place with the draft, as when the recipe is opened in the world. The wizard opens first: it remembers Pokémon as the
+  // area to go back to.
+  const openWizard = useStableCallback((request: WizardRequest) => {
+    onOpenWizard(request);
+    const at = request.kind === "new_trainer_here" ? request.prefill?.header : undefined;
+    const place = at === undefined || at === selected ? undefined : headers.find((h) => h.id === at);
+    if (place !== undefined) onSelect(place);
+  });
   const pokemon = useMemo<DataAreaProps>(
     () => ({ project: info, store, active: pokemonActive, target, goTo, onTrail: pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader }),
     [info, store, pokemonActive, target, goTo, pokemonTrail, dirty, onEdited, bus, headers, problems, scriptFiles, onPlaceTrainer, openWizard, worldHeader],

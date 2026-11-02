@@ -196,14 +196,16 @@ export function TrainerList() {
         <TextField type="search" label="Trainer durchsuchen" placeholder="Name, Klasse oder Nummer" value={query} onChange={setQuery} onCommit={setQuery} />
         <div className={styles.topRow}>
           <Segmented ariaLabel="Trainer gruppieren" size="s" options={GROUP_OPTIONS} value={mode} onChange={setMode} />
-          {narrating ? (
+          {!narrating && <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />}
+        </div>
+        {narrating && (
+          // A row of its own: next to „Nach Ort · Nach Klasse“ the labelled key does not fit the default list width.
+          <div className={styles.recipeRow} data-new-trainer-row="">
             <Button kind="secondary" size="s" icon="plus" disabled={openWizard === null} onClick={newTrainerHere} data-new-trainer-recipe="">
               Neuer Trainer…
             </Button>
-          ) : (
-            <IconButton label="Trainer anlegen…" icon="plus" onClick={() => setCreating(true)} />
-          )}
-        </div>
+          </div>
+        )}
         {created !== null && <Notice kind={created.kind}>{created.text}</Notice>}
       </div>
       {groups.length === 0 && searching ? (

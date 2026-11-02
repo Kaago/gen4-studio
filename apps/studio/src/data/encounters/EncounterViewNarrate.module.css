@@ -83,7 +83,7 @@
   flex-direction: column;
   gap: var(--g4-raum-6);
   padding: var(--g4-raum-6) var(--g4-raum-8);
-  border-radius: var(--g4-radius-plakette);
+  border-radius: var(--g4-radius-feld);
   background: var(--g4-flaeche-blatt);
 }
 
@@ -138,6 +138,11 @@
   gap: var(--g4-raum-12);
   padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
   overflow-y: auto;
+}
+
+/* A low hand scrolls instead of squeezing its rows into each other. */
+.hand > * {
+  flex-shrink: 0;
 }
 
 .handEmpty {

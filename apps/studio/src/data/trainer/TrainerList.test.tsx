@@ -252,6 +252,16 @@ describe("TrainerList", () => {
       expect(document.querySelector("[role=dialog]")).toBeNull();
     });
 
+    it("puts_neuer_trainer_on_its_own_row_under_the_grouping_so_both_fit_a_narrow_list", async () => {
+      await h.open(12, "erzaehlen", { openWizard: vi.fn() });
+      const grouping = h.list().querySelector<HTMLElement>('[aria-label="Trainer gruppieren"]')!;
+      const row = recipe()!.parentElement!;
+      // At the default list width (272 px) the key next to „Nach Ort · Nach Klasse“ was squeezed over it: it has a row of its own.
+      expect(row.contains(grouping)).toBe(false);
+      expect(row.children).toHaveLength(1);
+      expect(row.hasAttribute("data-new-trainer-row")).toBe(true);
+    });
+
     it("takes_the_place_the_world_showed_last_for_a_trainer_that_stands_nowhere", async () => {
       const openWizard = vi.fn();
       await h.open(40, "erzaehlen", { openWizard, worldHeader: () => 9 });

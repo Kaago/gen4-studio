@@ -34,6 +34,11 @@
   gap: var(--g4-raum-8);
 }
 
+/* „Neuer Trainer…“ in Erzählen, under the grouping. */
+.recipeRow {
+  display: flex;
+}
+
 .host {
   min-height: 0;
   flex: 1;
