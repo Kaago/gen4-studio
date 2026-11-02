@@ -368,8 +368,14 @@ describe("Hinge", () => {
       expect(play).toMatch(/--g4-scharnier-grund:\s*var\(--g4-live-grund\)/);
       expect(play).toMatch(/--g4-scharnier-text:\s*var\(--g4-live-auf\)/);
       expect(play).toMatch(/--g4-scharnier-leise:\s*var\(--g4-live-auf\)/);
-      expect(play).toMatch(/--g4-scharnier-taste:\s*var\(--g4-live-flaeche\)/);
+      // R17: the controls stand on `--g4-live-taste` (readable in both themes), the selection is dark with light text, the lines dark.
+      expect(play).toMatch(/--g4-scharnier-taste:\s*var\(--g4-live-taste\)/);
       expect(play).toMatch(/--g4-scharnier-kante:\s*var\(--g4-live-text\)/);
+      expect(play).toMatch(/--g4-flaeche-blatt:\s*var\(--g4-live-auf\)/);
+      expect(play).toMatch(/--g4-auswahl-flaeche:\s*var\(--g4-live-auf\)/);
+      expect(play).toMatch(/--g4-akzent-text:\s*var\(--g4-live-taste\)/);
+      expect(play).toMatch(/--g4-linie-standard:\s*var\(--g4-live-auf\)/);
+      expect(play).not.toMatch(/#[0-9a-f]{3,8}\b/i);
       expect(ruleBody(css, ".hinge")).toMatch(/transition:\s*background var\(--g4-dauer-scharnier\)/);
     });
 

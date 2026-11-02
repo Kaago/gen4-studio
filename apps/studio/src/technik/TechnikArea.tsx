@@ -259,7 +259,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
         <Surface entry="emulator" title="Emulator">
           <p className={styles.text}>Das Studio startet gebaute ROMs in diesem Emulator. Die Wahl gilt für alle Projekte.</p>
           <EmulatorRow path={emulatorPath} onPick={props.onPickEmulator} />
-          <LiveRow melonds={props.live?.melonds} />
+          <LiveRow melonds={props.live?.melonds} emulator={emulatorPath} />
         </Surface>
       ) : entry === "flags" ? (
         <FlagsSurface

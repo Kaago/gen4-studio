@@ -22,9 +22,17 @@ function sameJson(a: unknown, b: unknown): boolean {
   return ka.length === kb.length && ka.every((k) => k in ob && sameJson((a as Record<string, unknown>)[k], ob[k]));
 }
 
+/** Whether `a` shows what `b` shows: every field but the snapshot's revision and timing, which move with every refresh (as `same_view` in `live_hub.rs`). */
+function sameView(a: LiveStatusDto, b: LiveStatusDto): boolean {
+  if (a === b) return true;
+  const strip = (s: LiveStatusDto): LiveStatusDto => (s.snapshot === null ? s : { ...s, snapshot: { ...s.snapshot, revision: 0, taken_ms: 0 } });
+  return sameJson(strip(a), strip(b));
+}
+
 /**
- * A store whose methods work taken off the object. A status equal to the current one in every field changes nothing (the browser mode's
- * poll answers a fresh object every 500 or 1 000 ms; the app would render again each time).
+ * A store whose methods work taken off the object. A status that shows the same as the current one changes nothing (`sameView`: the
+ * browser mode's poll answers a fresh object every 500 or 1 000 ms, and each refresh moves the snapshot's revision; the app would render
+ * again each time).
  */
 export function createLiveStore(): LiveStore {
   let status = OFF_STATUS;
@@ -32,7 +40,7 @@ export function createLiveStore(): LiveStore {
   return {
     get: () => status,
     set(next) {
-      if (sameJson(next, status)) return;
+      if (sameView(next, status)) return;
       status = next;
       for (const listener of [...listeners]) listener();
     },
@@ -53,7 +61,7 @@ export function useLiveStatus(): LiveStatusDto {
 
 /** The live values for the list and the detail: `null` outside the snapshot (unknown, not 0). */
 export interface LiveValues {
-  /** The snapshot's revision: changes with every new reading. */
+  /** The snapshot's revision when the shown status last changed (a refresh with the same values keeps the earlier status, `sameView`). */
   revision: number;
   /** Whether flag `n` is set. */
   flag(n: number): boolean | null;

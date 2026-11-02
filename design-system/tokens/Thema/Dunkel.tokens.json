@@ -119,6 +119,10 @@
   "text": {
    "$type": "color",
    "$value": "{bernstein.400}"
+  },
+  "taste": {
+   "$type": "color",
+   "$value": "{bernstein.200}"
   }
  },
  "scharnier": {

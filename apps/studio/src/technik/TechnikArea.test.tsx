@@ -728,6 +728,10 @@ describe("TechnikArea", () => {
       ...OFF_STATUS,
       melonds: { bundle: "/Applications/melonDS.app", binary: "/b", version: "1.1", config_path: "/c/melonDS.toml", config: { enabled: true, break_on_startup: false, port: 3333, jit: false } },
     };
+    // An emulator is chosen, melonDS not read yet (the hub reads it at „Hier spielen“).
+    await render({ start: "emulator", emulatorPath: "/Applications/melonDS.app" });
+    expect(surface()?.textContent).toContain("Noch nicht geprüft: wird beim nächsten „Hier spielen“ gelesen");
+    expect(surface()?.textContent).not.toContain("Kein melonDS gewählt");
     await render({ start: "emulator", live });
     const text = surface()!.textContent!;
     expect(text).toContain("melonDS 1.1 · GDB-Stub an · Port 3333 · JIT aus");

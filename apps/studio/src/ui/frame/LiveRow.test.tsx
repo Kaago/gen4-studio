@@ -51,9 +51,22 @@ describe("LiveRow", () => {
     expect(container.textContent).toContain("melonDS 1.1");
     expect(container.textContent).toContain("Einstellungen nicht lesbar");
 
+  });
+
+  it("says_not_yet_checked_while_an_emulator_is_chosen_and_no_melonds_only_without_one", () => {
+    // The hub reads melonDS at „Hier spielen“: before that, a chosen emulator is not „none“.
     for (const none of [null, undefined]) {
-      show(none);
-      expect(container.textContent).toContain("Kein melonDS gewählt");
+      act(() => root.render(<LiveRow melonds={none} emulator="/Applications/melonDS.app" />));
+      expect(container.textContent).toContain("Noch nicht geprüft: wird beim nächsten „Hier spielen“ gelesen");
+      expect(container.textContent).not.toContain("Kein melonDS gewählt");
     }
+    for (const emulator of [null, undefined, ""]) {
+      act(() => root.render(<LiveRow melonds={null} emulator={emulator} />));
+      expect(container.textContent).toContain("Kein melonDS gewählt");
+      expect(container.textContent).not.toContain("Noch nicht geprüft");
+    }
+    // Once read, melonDS's own state wins.
+    act(() => root.render(<LiveRow melonds={melonds(ready)} emulator={null} />));
+    expect(container.textContent).toContain("melonDS 1.1 · GDB-Stub an · Port 3333 · JIT aus");
   });
 });

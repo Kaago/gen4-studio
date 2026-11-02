@@ -4,6 +4,8 @@ import styles from "./LiveRow.module.css";
 export type LiveRowProps = {
   /** The melonDS of the last „Hier spielen“ (`live_status.melonds`); null or undefined while none is known. */
   melonds: MelonDsDto | null | undefined;
+  /** The chosen emulator (as the emulator row above shows it): while melonDS is not read yet, one chosen is „not checked yet“, not „none“. */
+  emulator?: string | null;
 };
 
 /** How the next „Hier spielen“ fixes a setting that keeps melonDS from opening a usable GDB stub. */
@@ -28,14 +30,17 @@ function summary(m: MelonDsDto): string {
 
 /**
  * „Spielmodus live“ (Technik › Emulator): whether the melonDS of the last „Hier spielen“ opens the GDB stub the studio connects to — its
- * version, the stub, its port and the JIT, or what is missing and that the next „Hier spielen“ sets it — and where its settings live.
+ * version, the stub, its port and the JIT, or what is missing and that the next „Hier spielen“ sets it — and where its settings live. Before
+ * the first „Hier spielen“ it says that the next one reads them (with an emulator chosen) or that there is no melonDS.
  */
-export function LiveRow({ melonds }: LiveRowProps) {
+export function LiveRow({ melonds, emulator }: LiveRowProps) {
+  const chosen = emulator !== null && emulator !== undefined && emulator !== "";
   return (
     <div className={styles.row} data-live-row="">
       <span className={styles.label}>Spielmodus live</span>
       {melonds === null || melonds === undefined ? (
-        <span className={styles.quiet}>Kein melonDS gewählt</span>
+        // The hub reads melonDS at „Hier spielen“.
+        <span className={styles.quiet}>{chosen ? `Noch nicht geprüft: wird ${WHEN} gelesen` : "Kein melonDS gewählt"}</span>
       ) : (
         <>
           <span className={styles.state}>{summary(melonds)}</span>

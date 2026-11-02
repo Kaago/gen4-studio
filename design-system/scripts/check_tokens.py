@@ -60,7 +60,7 @@ for name, src in [('Primitiv', prim), ('Szene', szene)] + [(k, {kk: res(vv) for 
 TEXT = ['text/primaer', 'text/sekundaer', 'akzent/text', 'status/fehler', 'status/warnung', 'status/erfolg', 'status/info']
 SURF = ['flaeche/gehaeuse', 'flaeche/deck', 'flaeche/taste', 'flaeche/blatt']
 PAIRS = [(t, s, 4.5) for t in TEXT for s in SURF]
-PAIRS += [('akzent/auf', 'akzent/grund', 4.5), ('live/auf', 'live/grund', 4.5), ('scharnier/text', 'scharnier/grund', 4.5), ('scharnier/leise', 'scharnier/grund', 4.5), ('text/primaer', 'auswahl/flaeche', 4.5), ('linie/stark', 'flaeche/taste', 3.0), ('linie/stark', 'flaeche/blatt', 3.0), ('fokus/ring', 'flaeche/gehaeuse', 3.0)]
+PAIRS += [('akzent/auf', 'akzent/grund', 4.5), ('live/auf', 'live/grund', 4.5), ('live/auf', 'live/taste', 4.5), ('scharnier/text', 'scharnier/grund', 4.5), ('scharnier/leise', 'scharnier/grund', 4.5), ('text/primaer', 'auswahl/flaeche', 4.5), ('linie/stark', 'flaeche/taste', 3.0), ('linie/stark', 'flaeche/blatt', 3.0), ('fokus/ring', 'flaeche/gehaeuse', 3.0)]
 for b in ['welt', 'geschichten', 'pokemon', 'gegenstaende', 'texte', 'technik']:
     PAIRS.append((f'bereich/{b}', f'bereich/{b}-flaeche', 4.5))
 for s in ['fehler', 'warnung', 'erfolg', 'info']:

@@ -30,13 +30,23 @@
   cursor: pointer;
 }
 
-/* Play mode: the bar turns amber (Bernstein belongs to playing alone); the primitives follow through the hinge tokens, the transition stays. */
+/*
+ * Play mode: the bar turns amber (Bernstein belongs to playing alone); the primitives follow through the hinge tokens, the transition stays.
+ * Deviation from the plan's mapping (R17): the controls' surface is `--g4-live-taste`, not `--g4-live-flaeche` (Bernstein 800 in Dunkel
+ * left their text at 1.45:1), and the selection (the depth chosen, a pressed button) turns dark with light text instead of `--g4-live-text`
+ * (Bernstein 700 in Hell: 2.98:1); the lines of the controls take the text colour (Bernstein 400/700 on the amber was under 3:1).
+ */
 .playMode {
   --g4-scharnier-grund: var(--g4-live-grund);
   --g4-scharnier-text: var(--g4-live-auf);
   --g4-scharnier-leise: var(--g4-live-auf);
-  --g4-scharnier-taste: var(--g4-live-flaeche);
+  --g4-scharnier-taste: var(--g4-live-taste);
   --g4-scharnier-kante: var(--g4-live-text);
+  --g4-flaeche-blatt: var(--g4-live-auf);
+  --g4-auswahl-flaeche: var(--g4-live-auf);
+  --g4-akzent-text: var(--g4-live-taste);
+  --g4-linie-leise: var(--g4-live-auf);
+  --g4-linie-standard: var(--g4-live-auf);
 }
 
 .crumbs {
