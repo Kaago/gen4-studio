@@ -1364,7 +1364,7 @@ git -C <Kopie> remote -v; git -C <Kopie> status --porcelain                  # b
 
 3d.4 bringt das Löschen mit Referenzsperre: den Grabstein (`deleted: true`, ein Undo-Schritt), den deklarativen Index der Welt-Kanten, `plan_delete`/`delete_entity`/`restore_entity` (MCP) und `g4k delete`, „Nummer freigeben“ mit Undo-Grenze, den Import, der über Git hinweg kürzt, Warp löschen ohne stille Umlenkung, `schemaVersion` 2 mit Migration, den Dialog „Löschen…“, die Plakette im Inspector-Kopf, „Gelöschte zeigen“ und Technik › Änderungen „Gelöscht“. Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie. **`scripts/gate.sh` läuft in 3d.4 nicht aus dem Worktree:** die Hauptsitzung führt es einmal auf main nach dem Merge der Welle aus; bis dahin laufen seine Schritte einzeln (Gate-Datei, (1) 2).
 
-**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher `g4k git init`), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke (je `g4k git init`), `tuer-pt` und `tuer-hg` für die Szenarien, `git-pt` und `git-hgde` für den Branch-Test in `tests/git.rs`. `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`). Alle `3d-4-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+**Kopien:** frisch unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), Ordner `3d-4-<zweck>_DSPRE_contents` und `.nds` `3d-4-<zweck>.nds` direkt nebeneinander: `pt`, `hgde`, `hgus` für die gated Tests (nur gelesen, die Tests schreiben auf `vanilla_copy()`), `kpt`, `khgde`, `khgus` für das Szenario kopflos (vorher als Textprojekt mit Basis-ROM einrichten, dann `g4k git init`; siehe „Kopflos (2)“), `web` (Platin DE) und `hgweb` (HeartGold DE) für Browser und MCP über die Brücke (ebenso eingerichtet, vor dem Öffnen), `tuer-pt` und `tuer-hg` für die Szenarien, `git-pt` und `git-hgde` für den Branch-Test in `tests/git.rs`. `G4_ROMS_DIR` absolut (`/Users/POLTEP/Projekte/lab/editor/Roms`). Alle `3d-4-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
 
 **Ports:** `G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741` (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1740 G4_BRIDGE_PORT=1741 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1740/?project=<Roms>/_testkopien/3d-4-web_DSPRE_contents`; andere Ports nie anfassen. Chrome headless 1440 × 900; Hell und Dunkel über `Emulation.setEmulatedMedia` in derselben CDP-Verbindung wie das Bild.
 
@@ -1402,24 +1402,26 @@ G4_TEST_PROJECT="$K/3d-4-<k>_DSPRE_contents" \
 **Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
 
 ```sh
-P=$K/3d-4-k<k>_DSPRE_contents
+N=$K/3d-4-k<k>.nds; P=$K/3d-4-k<k>_DSPRE_contents
+target/release/g4k base assign $P $N                         # Basis-ROM (ohne sie antworten plan_delete und delete_entity base_missing)
+target/release/g4k text adopt $P                             # Textprojekt (ohne es lehnt ein Grabstein „Echtes Löschen gibt es im Textprojekt …“ ab)
 target/release/g4k git init $P                               # Ausgangsstand, damit git status etwas sagt
-target/release/studio mcp --project $P                       # ohne Erlaubnis:
+target/release/studio mcp --project $P --base-rom $N         # ohne Erlaubnis:
 #   plan_delete {"target":{"kind":"trainer","index":<n>}} → references, original, can_free
 #   delete_entity einer verwiesenen Entität → referenced mit details.references (Trainer an einer Figur, Begegnungsdatei an einem Header,
 #     Karte in einer Matrix, Header als Warp-Ziel und in einem Warp-Script, Tür mit eingehendem Warp über delete_event)
 #   delete_entity mit free_number → needs_confirmation
 #   plan_delete / delete_entity eines Original-Headers, einer Original-Scriptdatei, eines Original-Textarchivs → refusal mit ORIGINAL_KIND
-target/release/studio mcp --project $P --allow-irreversible --expert
+target/release/studio mcp --project $P --base-rom $N --allow-irreversible --expert
 #   je Art eine neue Entität anlegen (create_trainer, recipe_apply create_room für Karte/Header/Eventdatei/Matrix, Begegnungsdatei, g4_call für Scriptdatei/Textarchiv/Gebietsdaten),
 #     delete_entity (Grabstein), save; Prüfsumme der Dateien außer .git und .g4 vor und nach undo gleich; g4k build und g4k check 0 Fehler
 #   restore_entity; reset_to_original eines gelöschten Original-Trainers → wieder da
 #   delete_entity mit free_number → freed {count, files}; git status nennt die entfernte Datei; undo hält an der Grenze
-target/release/g4k delete plan  $P trainer <n>               # JSON; ein abgelehnter Plan endet mit Exit 1
-target/release/g4k delete apply $P trainer <n> [--free-number --allow-irreversible]
+target/release/g4k delete plan  $P trainer <n>               # JSON (Basis-ROM: die .nds neben $P oder --base-rom $N); ein abgelehnter Plan endet mit Exit 1
+target/release/g4k delete apply $P trainer <n> [--free-number --allow-irreversible]   # --free-number allein: stderr „error: delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); kopflos nur mit --allow-irreversible“, Exit 1
 target/release/g4k delete restore $P trainer <n>
 # Migration: Kopie mit schemaVersion 1 (aus einem Commit vor 3d.4 exportiert)
-target/release/g4k text migrate $P                           # changed == [g4-project.json]; mit name_flag vorher dazu die eine Eventdatei
+target/release/g4k text migrate $P --json                    # report.changed == [g4-project.json]; mit name_flag vorher dazu die eine Eventdatei (ohne --json nur „migrated 1 -> 2 changed=<n> …“)
 ```
 
 **Szenarien (2)**, aus `scripts/g4emu` mit `G4_ROMS_DIR` absolut (in einem Worktree auch `G4_STUDIO_BIN` und `G4K_BIN`, siehe „Szenarien über MCP“); die Platzhalter stehen im Kopf der Dateien und in der Liste „Szenarien“ oben (`pt-tuer-loeschen.yaml`, `hg-tuer-loeschen.yaml`, `mcp: [--allow-irreversible, --expert]`):
