@@ -395,7 +395,7 @@ describe("TextProjectSurface", () => {
     const kind = section!.querySelector<HTMLElement>("[aria-label='Art']")!;
     expect(kind.textContent).toContain("Matrix");
     openSelect(kind);
-    expect([...document.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.textContent)).toEqual(["Matrix", "Eventdatei", "Gebietsdaten", "Scriptdatei", "Textarchiv"]);
+    expect([...document.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.textContent)).toEqual(["Matrix", "Karte", "Eventdatei", "Gebietsdaten", "Scriptdatei", "Textarchiv"]);
     await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Matrix")!.click());
     const number = section!.querySelector<HTMLInputElement>("input[aria-label='Nummer']")!;
     await act(async () => number.focus());
@@ -409,6 +409,12 @@ describe("TextProjectSurface", () => {
     await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Scriptdatei")!.click());
     await click(button("Löschen…", section!));
     expect(del.open).toHaveBeenLastCalledWith({ kind: "script", file: 3 });
+
+    // A map: its head's entry is locked by the very cell that shows it; here it can be deleted once no cell holds it.
+    openSelect(kind);
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Karte")!.click());
+    await click(button("Löschen…", section!));
+    expect(del.open).toHaveBeenLastCalledWith({ kind: "map", index: 3 });
 
     // The DSPRE layout too: there a new entry at the end can have its number freed.
     await show(textWith({ status: { state: "dspre", adoptable: true, reason: null } }), "tuefteln");

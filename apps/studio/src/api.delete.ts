@@ -75,6 +75,14 @@ export const deleteEntity = (target: DeleteTarget, freeNumber: boolean) => invok
 /** Takes the tombstone of `target` back as one undo step. */
 export const restoreEntity = (target: DeleteTarget) => invoke<DeleteResult>("restore_entity", { target });
 
+/**
+ * Whether a delete of `target` wrote files past the store (the kernel's `delete_entity_impl`): „Nummer freigeben“, an own flag or variable
+ * name, an own place. A tombstone is a store change that waits for „Speichern“.
+ */
+export function deleteWritesFiles(target: DeleteTarget, freed: boolean): boolean {
+  return freed || target.kind === "place" || target.kind === "flag" || target.kind === "var";
+}
+
 const WORDS: Record<Exclude<DeleteKind, "header" | "script" | "place" | "flag" | "var">, string> = {
   trainer: "Trainer",
   encounter: "Begegnungsdatei",

@@ -67,11 +67,11 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
+import { deleteWritesFiles, errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
-import type { DeleteResult, FlagKind } from "./api";
+import type { DeleteResult, DeleteTarget, FlagKind } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
 import { afterMapImport } from "./app/mapImport";
@@ -956,14 +956,19 @@ function AppBody() {
     revision: session.savedRevision + changedRevision,
     // A window focus compares (quietly) only while „Gegen Basis“ is on screen.
     listed: area === "technik" && technikEntry === "aenderungen" && against === "base",
+    // The heads' badges need the report wherever they show: compared quietly after opening and after every save, reset and delete.
+    background: true,
   });
-  // The state badges of the heads („geändert“, „neu“, „gelöscht“): the saved project against the base, from the report of Änderungen.
-  const entityStateOf = useCallback((subject: DiffSubject) => stateOf(changes.report, subject), [changes.report]);
+  // The state badges of the heads („geändert“, „neu“, „gelöscht“): the saved project against the base, from the report of Änderungen; a
+  // report older than the last save gives none until the next one comes (never a stale badge).
+  const freshReport = changes.fresh ? changes.report : null;
+  const entityStateOf = useCallback((subject: DiffSubject) => stateOf(freshReport, subject), [freshReport]);
   // „Löschen…“ went in (one undo step; „Nummer freigeben“ removed files behind an undo barrier): the message names the entity, the changed
-  // assets are read again as after a reset (the checks run on the edit), and Technik › Änderungen compares again.
-  const onDeleted = useStableCallback(async (result: DeleteResult, freed: boolean, label: string) => {
+  // assets are read again as after a reset (the checks run on the edit), and a delete that wrote files compares the saved project again.
+  const onDeleted = useStableCallback(async (result: DeleteResult, freed: boolean, label: string, target: DeleteTarget) => {
     session.setMessage({ kind: "info", text: freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}` });
-    bumpChanged();
+    // A tombstone waits for the save (which compares again).
+    if (deleteWritesFiles(target, freed)) bumpChanged();
     try {
       // Freeing shrinks an archive: the counts (pickers, the next number) follow.
       if (freed) await session.onCountsChanged();

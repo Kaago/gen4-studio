@@ -223,6 +223,43 @@ describe("useChanges", () => {
     expect(shown.busy).toBe(false);
   });
 
+  it("compares_in_the_background_for_the_badges_and_marks_an_older_report_stale", async () => {
+    // The heads' badges need the report without Technik › Änderungen on screen: compared quietly once the project opens.
+    vi.mocked(changedFromOriginal).mockResolvedValue(report({ files: 1 }));
+    await show({ shown: false, background: true });
+    expect(changedFromOriginal).toHaveBeenCalledOnce();
+    expect(shown.report?.files).toBe(1);
+    expect(shown.fresh).toBe(true);
+    expect(shown.busy).toBe(false);
+
+    // A save (the revision moves): compared again; the report before is stale until the new one comes (no badge from it), the surface keeps it.
+    const run = pending();
+    await show({ shown: false, background: true, revision: 1 });
+    expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    expect(shown.fresh).toBe(false);
+    expect(shown.report?.files).toBe(1);
+    expect(shown.busy).toBe(false);
+    // The surface shows while that compare runs: it says so, and no second compare starts.
+    await show({ shown: true, background: true, revision: 1 });
+    expect(shown.busy).toBe(true);
+    expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+    await run.answer(report({ files: 2 }));
+    expect(shown.report?.files).toBe(2);
+    expect(shown.fresh).toBe(true);
+    expect(shown.busy).toBe(false);
+
+    // A compare that fails after a save leaves the report stale.
+    vi.mocked(changedFromOriginal).mockRejectedValueOnce({ code: "base_missing", message: "Die Basis-ROM fehlt.", asset: null });
+    await show({ shown: false, background: true, revision: 2 });
+    expect(shown.error).toBe("Die Basis-ROM fehlt.");
+    expect(shown.fresh).toBe(false);
+
+    // Without `background` (the default) a revision that moves while the surface is away only marks the report stale.
+    await show({ shown: false, revision: 3 });
+    expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+    expect(shown.fresh).toBe(false);
+  });
+
   it("compares_again_on_window_focus_as_the_git_status_reads_again", async () => {
     // A write past the app (a bridge call, another tool) moves no revision; the Git status reads again on focus, and so does this list.
     vi.useFakeTimers();

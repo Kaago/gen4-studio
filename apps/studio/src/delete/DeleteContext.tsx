@@ -44,8 +44,8 @@ export type DeleteProviderProps = {
   stateOf: (subject: DiffSubject) => EntityState | null;
   /** Where a reference of the dialog leads. */
   goTo: (target: NavTarget) => void;
-  /** The delete went in (the dialog has closed): its result, whether the number was freed, and the entity's name („Trainer 0901“). */
-  onDeleted: (result: DeleteResult, freed: boolean, label: string) => void | Promise<void>;
+  /** The delete went in (the dialog has closed): its result, whether the number was freed, the entity's name („Trainer 0901“) and target. */
+  onDeleted: (result: DeleteResult, freed: boolean, label: string, target: DeleteTarget) => void | Promise<void>;
 };
 
 /** One `open`; `serial` tells a dialog's close from that of the one before. */
@@ -69,7 +69,7 @@ export function DeleteProvider({ children, stateOf, goTo, onDeleted }: DeletePro
           target={request.target}
           goTo={goTo}
           onClose={() => setRequest((shown) => (shown?.serial === request.serial ? null : shown))}
-          onDeleted={(result, freed, label) => void onDeleted(result, freed, label)}
+          onDeleted={(result, freed, label) => void onDeleted(result, freed, label, request.target)}
         />
       )}
     </DeleteContext.Provider>

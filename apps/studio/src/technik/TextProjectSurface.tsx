@@ -90,7 +90,7 @@ export type TextProjectSurfaceProps = {
  * reason when it cannot be set up); a text project names its schema and its last sync, offers „Jetzt abgleichen“ and „Zurücknehmen…“, and
  * lists what the sync found: the conflicts with their diff and a choice each („Auf zwei Seiten geändert“), the files that do not read
  * („Fehlerhafte Dateien“) and what the last takeover brought („Zuletzt übernommen“). Tüfteln adds „Löschen“ (a kind and a number) for the
- * entities no head deletes: matrices, event files, area data, script files and text archives.
+ * entities no head deletes (matrices, event files, area data, script files, text archives) and for maps.
  */
 export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: TextProjectSurfaceProps) {
   const tinker = depthAtLeast(depth, "tuefteln");
@@ -464,11 +464,15 @@ function Taken({ taken }: { taken: SyncOutcome | null }) {
   );
 }
 
-/** The kinds „Löschen“ of Tüfteln offers: the entities no head of their own deletes. */
-type DeleteKind = "matrix" | "event_file" | "area_data" | "script" | "text_archive";
+/**
+ * The kinds „Löschen“ of Tüfteln offers: the entities no head deletes, and the map (its head's entry is locked by the cell it shows in;
+ * here it can be deleted once no cell holds it).
+ */
+type TinkerDeleteKind = "matrix" | "map" | "event_file" | "area_data" | "script" | "text_archive";
 
-const DELETE_KINDS: readonly SelectOption<DeleteKind>[] = [
+const DELETE_KINDS: readonly SelectOption<TinkerDeleteKind>[] = [
   { value: "matrix", label: "Matrix" },
+  { value: "map", label: "Karte" },
   { value: "event_file", label: "Eventdatei" },
   { value: "area_data", label: "Gebietsdaten" },
   { value: "script", label: "Scriptdatei" },
@@ -476,12 +480,12 @@ const DELETE_KINDS: readonly SelectOption<DeleteKind>[] = [
 ];
 
 /** The entity of `kind` with the number `n` (a script file names its file). */
-const deleteTarget = (kind: DeleteKind, n: number): DeleteTarget => (kind === "script" ? { kind, file: n } : { kind, index: n });
+const deleteTarget = (kind: TinkerDeleteKind, n: number): DeleteTarget => (kind === "script" ? { kind, file: n } : { kind, index: n });
 
 /** „Löschen“ (Tüfteln): a kind and a number, and „Löschen…“ opens the dialog for that entity (the dialog says what is possible). */
 function DeleteSection() {
   const remove = useDelete();
-  const [kind, setKind] = useState<DeleteKind>("matrix");
+  const [kind, setKind] = useState<TinkerDeleteKind>("matrix");
   const [number, setNumber] = useState<number | null>(null);
   return (
     <Group title="Löschen" data="data-delete-section">

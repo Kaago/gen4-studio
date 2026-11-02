@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { deleteEntity, deleteTargetLabel, isCmdError, isDeleted, planDelete, restoreEntity } from "./api";
+import { deleteEntity, deleteTargetLabel, deleteWritesFiles, isCmdError, isDeleted, planDelete, restoreEntity } from "./api";
 import type { DeletePlan, DeleteResult, DeleteTarget, RefDto } from "./api";
 
 const TRAINER: DeleteTarget = { kind: "trainer", index: 901 };
@@ -76,5 +76,11 @@ describe("delete commands", () => {
     expect(isDeleted({ deleted: false })).toBe(false);
     expect(isDeleted({})).toBe(false);
     expect(isDeleted(null)).toBe(false);
+    // Freeing, names and places write files at once; a tombstone waits for the save.
+    expect(deleteWritesFiles(TRAINER, false)).toBe(false);
+    expect(deleteWritesFiles(TRAINER, true)).toBe(true);
+    expect(deleteWritesFiles({ kind: "place", index: 120 }, false)).toBe(true);
+    expect(deleteWritesFiles({ kind: "flag", number: 0x94 }, false)).toBe(true);
+    expect(deleteWritesFiles({ kind: "var", number: 0x4020 }, false)).toBe(true);
   });
 });

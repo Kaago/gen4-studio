@@ -279,6 +279,21 @@ vi.mock("./original/OriginalContext", async (importOriginal) => {
     },
   };
 });
+// What the app gives the provider of „Löschen…“ (the dialog itself is tested on its own): the heads' state badges and the delete handler.
+const deleteProps = vi.hoisted(() => ({
+  props: null as null | Parameters<typeof import("./delete/DeleteContext").DeleteProvider>[0],
+}));
+vi.mock("./delete/DeleteContext", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./delete/DeleteContext")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    DeleteProvider: (props: Parameters<typeof actual.DeleteProvider>[0]) => {
+      deleteProps.props = props;
+      return createElement(actual.DeleteProvider, props);
+    },
+  };
+});
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 // The handlers listening to Tauri events by name (`agent-event`: the agent hub's events).
 const tauriEvents = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
@@ -3420,7 +3435,7 @@ describe("App wiring", () => {
       expect(data().history.current).toBe(1);
     });
 
-    it("technik_aenderungen_compares_when_shown_and_again_after_a_save_a_reset_and_an_agent_save", async () => {
+    it("technik_aenderungen_compares_in_the_background_and_again_after_a_save_a_reset_and_an_agent_save", async () => {
       vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 600 } });
       vi.mocked(changedFromOriginal).mockClear().mockResolvedValue({
         entries: [{ group: "Karten", label: "Karte 0003", state: "changed", target: { kind: "map", index: 3 }, assets: [{ kind: "Map", index: 3 }], folder: "maps", subject: { kind: "map", index: 3 } }],
@@ -3435,12 +3450,14 @@ describe("App wiring", () => {
       vi.mocked(applyHeaderPatch).mockResolvedValue({ supported: true, applied: true, repairable: false, narc: "unpacked/dynamicHeaders", snapshot: null });
       await inTheApp();
       const technikRow = (label: string) => [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith(label))!;
-      // Nothing is compared until the surface shows (the first compare may hash every member).
+      // Compared once in the background after opening, before Technik shows (the heads' badges need the report).
+      await act(async () => {});
+      expect(changedFromOriginal).toHaveBeenCalledTimes(1);
       await act(async () => atlasEntry("Technik")!.click());
-      expect(changedFromOriginal).not.toHaveBeenCalled();
       const row = [...container.querySelectorAll<HTMLElement>('[role=listbox][aria-label="Technik"] [role=option]')].find((r) => r.textContent?.startsWith("Änderungen"))!;
       await act(async () => row.click());
       await act(async () => {});
+      // The surface shows that report: no second compare.
       expect(changedFromOriginal).toHaveBeenCalledTimes(1);
       expect(container.querySelector("[data-technik=aenderungen] [data-change='Karte 0003']")).not.toBeNull();
       // A save compares again.
@@ -3498,24 +3515,59 @@ describe("App wiring", () => {
       await flush();
       expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
       expect(container.querySelector("[data-technik=aenderungen]")?.textContent).toContain("Gegenüber der Basis-ROM Platin US.");
-      // The Dynamic Headers patch applied in Technik › Patches writes the header table into files: compared when Änderungen shows again.
+      // The Dynamic Headers patch applied in Technik › Patches writes the header table into files: compared at once, not again when
+      // Änderungen shows.
       await act(async () => technikRow("Patches").click());
       await act(async () => {});
       await click("Patch anwenden");
       await act(async () => [...document.querySelectorAll<HTMLButtonElement>("[role=dialog] button")].find((b) => b.textContent === "Patch anwenden")!.click());
       await act(async () => {});
       expect(applyHeaderPatch).toHaveBeenCalledOnce();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
       await act(async () => technikRow("Änderungen").click());
       await act(async () => {});
-      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
-      // Elsewhere a save waits until the surface shows again, then compares once.
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls);
+      // Elsewhere a save compares at once too (in the background), and showing the surface then compares nothing more.
       await act(async () => atlasEntry("Welt")!.click());
       await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
       await act(async () => {});
-      expect(changedFromOriginal).toHaveBeenCalledTimes(calls);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(++calls);
       await act(async () => atlasEntry("Technik")!.click());
       await act(async () => {});
-      expect(changedFromOriginal).toHaveBeenCalledTimes(calls + 1);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(calls);
+    });
+
+    it("the_heads_badges_come_from_a_background_compare_never_from_a_report_older_than_the_last_save", async () => {
+      vi.mocked(originalStatus).mockResolvedValue({ state: "ready", label: "Platin DE (Testprojekt)", sha1: "d40f19ac24d67c721a4ab25e1c013154443d75b4", counts: { map: 600 } });
+      const mapEntry = (state: "changed" | "new") => ({ group: "Karten", label: "Karte 0003", state, target: null, assets: [{ kind: "Map" as const, index: 3 }], folder: "maps", subject: { kind: "map" as const, index: 3 } });
+      vi.mocked(changedFromOriginal).mockClear().mockResolvedValue({ entries: [mapEntry("changed")], files: 4, hashed: 0, recorded: 0, unbuilt: [], ms: 1 });
+      vi.mocked(save).mockResolvedValue({ compiled: [], touched_archives: [], written: [], problems: [] });
+      await inTheApp();
+      await act(async () => {});
+      const stateOf = () => deleteProps.props!.stateOf({ kind: "map", index: 3 });
+      // Technik › Änderungen never shown: the heads still know how the map stands against the base.
+      expect(stateOf()).toBe("changed");
+      expect(deleteProps.props!.stateOf({ kind: "map", index: 4 })).toBeNull();
+      // A save: until the compare after it answers, the report before gives no badge.
+      let answer: (r: Awaited<ReturnType<typeof changedFromOriginal>>) => void = () => {};
+      vi.mocked(changedFromOriginal).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true })));
+      await act(async () => {});
+      expect(save).toHaveBeenCalled();
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      expect(stateOf()).toBeNull();
+      await act(async () => answer({ entries: [mapEntry("new")], files: 4, hashed: 0, recorded: 0, unbuilt: [], ms: 1 }));
+      expect(stateOf()).toBe("new");
+
+      // A tombstone waits for the save (no compare); freeing a number wrote files (compared again). The message names the entity.
+      const target = { kind: "trainer" as const, index: 901 };
+      await act(async () => deleteProps.props!.onDeleted({ change: "c1", changed: [{ kind: "Trainer", index: 901 }], freed: null, ms: 1 }, false, "Trainer 0901", target));
+      expect(live().message).toEqual({ kind: "info", text: "Gelöscht: Trainer 0901" });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(2);
+      await act(async () => deleteProps.props!.onDeleted({ change: null, changed: [{ kind: "Trainer", index: 901 }], freed: { count: 1, files: ["data/trainers/0901.json"] }, ms: 1 }, true, "Trainer 0901", target));
+      await act(async () => {});
+      expect(live().message).toEqual({ kind: "info", text: "Nummer freigegeben: Trainer 0901" });
+      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
     });
 
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {

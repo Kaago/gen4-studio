@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { vi } from "vitest";
 import type { Mock } from "vitest";
 import type { DeletePlan, DeleteResult, DeleteTarget, DiffSubject, RefDto } from "../api";
+import { subjectKey } from "../technik/useChanges";
 import type { EntityState } from "../ui/primitives";
 import { DeleteApiProvider } from "./DeleteContext";
 import type { DeleteApi } from "./DeleteContext";
@@ -35,7 +36,7 @@ export const figureRef = (slot: number): RefDto => ({
 
 export const deleteResult = (over: Partial<DeleteResult> = {}): DeleteResult => ({ change: "c1", changed: [{ kind: "Trainer", index: 901 }], freed: null, ms: 3, ...over });
 
-/** A delete api whose `open` is a spy; `states` gives `stateOf` its answers by subject („trainer:12“). */
+/** A delete api whose `open` is a spy; `states` gives `stateOf` its answers by `subjectKey` („trainer:12“). */
 export function deleteSpy(states: Record<string, EntityState> = {}): DeleteApi & { open: Mock<DeleteApi["open"]>; states: Record<string, EntityState> } {
   const api = {
     states,
@@ -43,17 +44,6 @@ export function deleteSpy(states: Record<string, EntityState> = {}): DeleteApi &
     stateOf: (subject: DiffSubject) => api.states[subjectKey(subject)] ?? null,
   };
   return api;
-}
-
-function subjectKey(subject: DiffSubject): string {
-  switch (subject.kind) {
-    case "file":
-      return `file:${subject.path}`;
-    case "member":
-      return `member:${subject.folder}:${subject.index}`;
-    default:
-      return `${subject.kind}:${subject.index}`;
-  }
 }
 
 /** `node` below `api` (a fresh object each time, so changed states reach every `useDelete`). */
