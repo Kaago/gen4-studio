@@ -1,13 +1,24 @@
 import { Fragment } from "react";
 import type { HistoryDto } from "../../api";
+import type { LiveHingeInfo } from "../../api.live";
 import { inTauri } from "../../platform/transport";
 import type { Crumb } from "../../workbench/breadcrumb";
 import { countsText } from "../../workbench/problems/problems";
 import type { ProblemCounts } from "../../workbench/problems/problems";
-import { Button, Icon, IconButton, Menu, Segmented } from "../primitives";
+import { Badge, Button, Icon, IconButton, Menu, Segmented } from "../primitives";
 import type { MenuEntry } from "../primitives";
 import type { Depth } from "./shellState";
 import styles from "./Hinge.module.css";
+
+/** Play mode in the hinge: what `useLive` shows (`LiveHingeInfo`) and what its buttons do. */
+export interface HingeLive extends LiveHingeInfo {
+  /** „Weiter“ after a halt. */
+  onResume: () => void;
+  /** „Neu laden“: stops, builds and starts again (as „Hier spielen“). */
+  onReload: () => void;
+  /** „Stoppen“: disconnects, ends our melonDS, back to editing. */
+  onStop: () => void;
+}
 
 export type HingeProps = {
   crumbs: Crumb[];
@@ -40,6 +51,11 @@ export type HingeProps = {
    * True while a wizard is open: the slot replaces the content. Undefined: no slot.
    */
   wizard?: boolean;
+  /**
+   * Play mode („Hier spielen“ in melonDS): in any state but `off` the bar turns amber and shows the state and „Weiter“ (while halted),
+   * „Neu laden“ and „Stoppen“ instead of „Hier spielen“. Null or absent: no play mode, the bar stays dark.
+   */
+  live?: HingeLive | null;
 };
 
 /** The menu lists this many of the newest undo steps. */
@@ -63,9 +79,11 @@ const COUNTERS = [
 /**
  * The 44 px bar above the view: where you are (breadcrumb), how deep you work, whether the project is sound
  * (problem light: errors, warnings and infos counted apart, a spinner with the progress while the checks run), what you did (history, redo),
- * „Schau maximieren“ (pressed while the view is maximized; Esc restores it too) and "Hier spielen". It holds no state of its own; everything comes in as props. The sizes of the dock's groups are dockview's (its sashes).
+ * „Schau maximieren“ (pressed while the view is maximized; Esc restores it too) and "Hier spielen". In play mode the bar is amber and says how
+ * the game in melonDS stands, with „Weiter“, „Neu laden“ and „Stoppen“ in place of "Hier spielen". It holds no state of its own; everything
+ * comes in as props. The sizes of the dock's groups are dockview's (its sashes).
  */
-export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, maximized = false, onMaximize, wizard }: HingeProps) {
+export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = false, onProblems, history, onUndoTo, onRedo, onPlay, playing, canPlay, maximized = false, onMaximize, wizard, live }: HingeProps) {
   const undoSteps = history.undo.length;
   const recent = history.undo.slice(-MENU_STEPS).reverse();
   // Who made each of them, aligned with `recent` (ignored unless aligned with `undo`): an agent's step shows its symbol and the client.
@@ -83,9 +101,11 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
   const running = checking !== undefined && checking !== null;
   const calm = unchecked ? "Nicht geprüft" : "Alles stimmig";
   const lightLabel = running ? [checking, counts].filter((part) => part !== "").join(", ") : counts === "" ? calm : unchecked ? `${counts}, nicht geprüft` : counts;
+  const play = live !== undefined && live !== null && live.state !== "off" ? live : null;
+  const classes = [styles.hinge, wizard === true ? styles.wizardMode : null, play ? styles.playMode : null].filter((c) => c !== null).join(" ");
 
   return (
-    <div className={wizard === true ? `${styles.hinge} ${styles.wizardMode}` : styles.hinge} role="toolbar" aria-label="Scharnier">
+    <div className={classes} role="toolbar" aria-label="Scharnier" data-hinge-mode={play ? "play" : undefined}>
       {wizard !== undefined && <div className={styles.wizard} data-wizard-bar="" hidden={!wizard} />}
       {wizard !== true && (
         <>
@@ -162,10 +182,31 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
             />
             <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
             {onMaximize && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
-            {/* Playing blocks with aria-disabled, not `disabled`: the button keeps keyboard focus while it builds (and gets it back from a dialog). */}
-            <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay} aria-disabled={playing || undefined} onClick={() => !playing && onPlay()}>
-              {playing ? "Baut …" : "Hier spielen"}
-            </Button>
+            {play ? (
+              <div className={styles.liveActions}>
+                <Badge kind="live">Spielt in melonDS</Badge>
+                <span className={styles.liveText} data-live-state={play.state} title={play.text} aria-live="polite">
+                  {play.text}
+                </span>
+                {play.state === "halted" ? (
+                  <Button kind="primary" data-live-resume="" onClick={play.onResume}>
+                    Weiter
+                  </Button>
+                ) : null}
+                {/* „Neu laden“ builds again: it waits with aria-disabled (keeps the focus) while a build runs. */}
+                <Button kind="secondary" data-live-reload="" aria-disabled={playing || undefined} onClick={() => !playing && play.onReload()}>
+                  Neu laden
+                </Button>
+                <Button kind="secondary" data-live-stop="" onClick={play.onStop}>
+                  Stoppen
+                </Button>
+              </div>
+            ) : (
+              /* Playing blocks with aria-disabled, not `disabled`: the button keeps keyboard focus while it builds (and gets it back from a dialog). */
+              <Button kind="play" icon="play" shortcut={inTauri() && !playing ? "⌘R" : undefined} disabled={!canPlay} aria-disabled={playing || undefined} onClick={() => !playing && onPlay()}>
+                {playing ? "Baut …" : "Hier spielen"}
+              </Button>
+            )}
           </div>
         </>
       )}

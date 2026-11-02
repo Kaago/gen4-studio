@@ -10,14 +10,29 @@ export interface LiveStore {
   subscribe(l: () => void): () => void;
 }
 
-/** A store whose methods work taken off the object. */
+/** Whether two JSON values (a status and its parts) are equal in every field. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => sameJson(v, b[i]));
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  const ob = b as Record<string, unknown>;
+  return ka.length === kb.length && ka.every((k) => k in ob && sameJson((a as Record<string, unknown>)[k], ob[k]));
+}
+
+/**
+ * A store whose methods work taken off the object. A status equal to the current one in every field changes nothing (the browser mode's
+ * poll answers a fresh object every 500 or 1 000 ms; the app would render again each time).
+ */
 export function createLiveStore(): LiveStore {
   let status = OFF_STATUS;
   const listeners = new Set<() => void>();
   return {
     get: () => status,
     set(next) {
-      if (next === status) return;
+      if (sameJson(next, status)) return;
       status = next;
       for (const listener of [...listeners]) listener();
     },

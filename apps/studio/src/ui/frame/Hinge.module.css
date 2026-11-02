@@ -30,6 +30,15 @@
   cursor: pointer;
 }
 
+/* Play mode: the bar turns amber (Bernstein belongs to playing alone); the primitives follow through the hinge tokens, the transition stays. */
+.playMode {
+  --g4-scharnier-grund: var(--g4-live-grund);
+  --g4-scharnier-text: var(--g4-live-auf);
+  --g4-scharnier-leise: var(--g4-live-auf);
+  --g4-scharnier-taste: var(--g4-live-flaeche);
+  --g4-scharnier-kante: var(--g4-live-text);
+}
+
 .crumbs {
   min-width: 0;
   flex: 1 1 0;
@@ -220,4 +229,23 @@
 
 .zero {
   color: var(--g4-scharnier-leise);
+}
+
+/* Play mode's part of the right cluster: the badge, the state and its buttons. */
+.liveActions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+/* The state („Verbindet …“, „Gehalten: …“) ends in an ellipsis in a narrow bar; its title carries the full text. */
+.liveText {
+  min-width: 0;
+  max-width: calc(var(--g4-raum-16) * 20);
+  overflow: hidden;
+  color: var(--g4-scharnier-text);
+  font: var(--g4-font-text-s-betont);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

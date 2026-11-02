@@ -83,6 +83,34 @@ describe("HingeHost", () => {
     expect(visibleWords(container)).not.toMatch(/Raster|Matrix|Header/);
   });
 
+  it("passes_play_mode_through_to_the_hinge", () => {
+    const onStop = vi.fn();
+    const noop = vi.fn();
+    act(() =>
+      root.render(
+        <HingeHost
+          problems={new ProblemsStore()}
+          history={history}
+          checks={checks}
+          crumbs={[]}
+          depth="bauen"
+          onDepth={noop}
+          onProblems={noop}
+          onUndoTo={noop}
+          onRedo={noop}
+          onPlay={noop}
+          playing={false}
+          canPlay
+          live={{ state: "waiting_for_save", text: "Wartet auf den Spielstand", breakpoints: 0, onResume: noop, onReload: noop, onStop }}
+        />,
+      ),
+    );
+    expect(container.querySelector("[data-hinge-mode]")?.getAttribute("data-hinge-mode")).toBe("play");
+    expect(container.querySelector("[data-live-state]")?.textContent).toBe("Wartet auf den Spielstand");
+    act(() => container.querySelector<HTMLButtonElement>("button[data-live-stop]")!.click());
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
   it("keeps_the_technical_words_in_tinkering", () => {
     show("tuefteln");
     act(() => history.set({ undo: ["edit header", "edit matrix cell"], redo: [] }));
