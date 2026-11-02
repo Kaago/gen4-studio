@@ -90,6 +90,18 @@
     return MitDialog(NAMES.dialog, win, dialog);
   }
 
+  // Inspector-Kopf wie `InspectorHead` aus jsx-lib-app.js, aber mit fertigen Plaketten (die Bibliothek zeichnet `badges` ohne Symbol, die Plakette
+  // „gelöscht“ braucht aber ihr Symbol: nie nur Farbe)
+  const KopfMitPlakette = ({ word, icon, title, ident, plaketten }) => <Frame name="Inspector-Kopf" flex="row" items="start" gap={8} pt={8} pb={8} pl={DI.innen} pr={8} w="fill" strokeWeights={{ top: 0, right: 0, bottom: 1, left: 0 }} stroke={v('linie/leise')}>
+    <Frame flex="col" gap={2} grow={1}>
+      <Frame name="Augenbraue" flex="row" items="center" gap={4}>{I(icon, 12, 's')}{T(word, { s: 12, c: 'text/sekundaer' })}</Frame>
+      {T(title, { f: Z, s: 24, lh: 30, w: 700, one: true })}
+      {ident && Mono(ident, { one: true })}
+    </Frame>
+    <Frame name="Zustände" flex="row" gap={4}>{plaketten}</Frame>
+    <Frame name="Aktionen" flex="row" items="center" justify="center" px={8} h={DI.steuer} rounded={6}>{I('ph:dots-three', DI.symbol, 'p')}</Frame>
+  </Frame>;
+
   // ----- 'kopf': Welt bauen, der Raum „Haus 1“ als Grabstein, Zeile im Baum „Orte“ mit Plakette, Inspector-Kopf mit Plakette -----
   if (MODE === 'kopf') {
     // Baum „Orte“: die Zeile des Raums mit der Plakette „gelöscht“ am Ende (sie steht nur bei eingeschaltetem „Gelöschte zeigen“ da)
@@ -113,7 +125,7 @@
       children: Empty('Kein Script geöffnet.', 'Eine Scriptdatei öffnet sich über den Ort, ein Event oder ein Problem.') });
     // Kopf des Raums: Plaketten der Zustände vor Ungespeichert (gelöscht zuerst), Menü „Aktionen“ offen: Löschen… unter dem Zeiger
     const inspector = DockGroup({ name: 'Gruppe Inspector', tabs: ['Inspector'], active: 'Inspector', focused: true, w: 340, edge: 'left', children: [
-      InspectorHead({ word: 'Raum', icon: 'ph:house', title: 'Haus 1', ident: 'Zweiblattdorf · T01R0101', badges: [['gelöscht', 'fehler'], ['Ungespeichert', 'ungespeichert']] }),
+      KopfMitPlakette({ word: 'Raum', icon: 'ph:house', title: 'Haus 1', ident: 'Zweiblattdorf · T01R0101', plaketten: [Zustand('geloescht'), Ungespeichert] }),
       Section({ title: 'Karten', open: false }), Section({ title: 'Aussehen', open: false }), Section({ title: 'Texte und Scripts', open: false }),
       MenuX({ x: 340 - 8 - 260, y: 44, w: 260, items: [
         { label: 'Raum hier anbinden…' }, { label: 'Ort umbenennen…' }, { label: 'Löschen…', hi: true }, { label: 'Für diesen Raum abspalten…' }, '-',

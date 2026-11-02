@@ -15,7 +15,7 @@ Neue Tokens und neue Symbole gibt es nicht. Die Plakette ist die vorhandene `Bad
 ## Was neu zu zeichnen ist
 
 Zwei Frames je 1440 × 900 und ein Brett, alle aus `beispiele/loeschen.body.js` (`MODE` wählt). Diese Teile gibt es schon:
-- Rahmen, Atlas, Statusleiste, das Dock der Werkbank, die Liste „Welt“ mit Baum „Orte“, der Inspector-Kopf (`InspectorHead` aus `jsx-lib-app.js`, die Plaketten kommen als `badges`),
+- Rahmen, Atlas, Statusleiste, das Dock der Werkbank, die Liste „Welt“ mit Baum „Orte“, der Inspector-Kopf (`InspectorHead` aus `jsx-lib-app.js` zeichnet `badges` ohne Symbol; die Vorlage hat darum einen eigenen Kopf `KopfMitPlakette` mit fertigen Plaketten, damit „gelöscht“ sein Symbol behält),
 - die Trainer-Ansicht aus `textprojekt.body.js` (Liste „Trainer“, Kopf, Team),
 - das Menü (`MenuX`), das Kontextmenü (`ContextMenu`), der Dialog mit Abdunklung (`MitDialog`),
 - die Bausteine Plakette (`Badge`), Meldung, Listenzeile, Kästchen und Schau-Platzhalter (`Welt3D`).
