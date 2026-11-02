@@ -486,6 +486,8 @@ pub struct AppState {
     pub base_roms: BaseRoms,
     /// The `git` CLI as last probed, so a status read does not run `git --version` each time.
     pub git_cli: GitCliCache,
+    /// Play mode live: the connection to melonDS's GDB stub, its worker and the breakpoints.
+    pub live: crate::live_hub::LiveHub,
 }
 
 /// The `git` CLI the Studio found (`git::find_git`), probed once: a found one is kept until
