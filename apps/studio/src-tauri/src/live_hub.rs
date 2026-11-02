@@ -14,13 +14,15 @@
 //! `unavailable` with the reason) → `waiting_for_save` / `live` / `halted` (refresh every
 //! 250 ms, every second while halted). A stub that stops answering is `lost` (the session is
 //! dropped, which lets melonDS run, and a new connection is tried every 2 s); a closed
-//! connection or our melonDS ending is `off` with „melonDS wurde beendet“. Breakpoints survive
-//! all of it; `close_project` ([`LiveHub::close`]) clears them.
+//! connection or our melonDS ending is `off` with „melonDS wurde beendet“. A worker that ends by
+//! itself leaves a reaper for our melonDS, so it never lingers as a zombie. Connect, play, stop
+//! and close run under one lifecycle lock: one worker and one melonDS at a time. Breakpoints
+//! survive all of it; `close_project` ([`LiveHub::close`]) clears them.
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -225,6 +227,14 @@ impl Inner {
         }
     }
 
+    /// melonDS quit (the connection closed or our melonDS ended): `off` with „melonDS wurde
+    /// beendet“, no port, no own process any more.
+    fn quit(&mut self) {
+        self.disconnected(LiveState::Off, Some(QUIT));
+        self.port = None;
+        self.own_process = false;
+    }
+
     /// The session's halt with the breakpoint's id instead of the session's watch id.
     fn halt_of(&self, halt: Option<&Halt>) -> Option<Halt> {
         let mut halt = halt?.clone();
@@ -261,6 +271,8 @@ struct Shared {
     /// The melonDS we launched.
     child: Mutex<Option<Child>>,
     notifier: Mutex<Option<Notifier>>,
+    /// Worker threads alive.
+    workers: AtomicUsize,
 }
 
 /// A poisoned lock (a panic while held) is taken over: the status is plain data.
@@ -303,13 +315,42 @@ impl Shared {
         ended
     }
 
+    /// Reaps our melonDS once it ends, for a worker that ended before it (the stub's socket
+    /// closes before the process exits, or `unavailable` while the game runs on). The child
+    /// stays in its slot, so `stop` can still end it; the reaper leaves when the slot holds
+    /// another process or none.
+    fn reap_later(self: &Arc<Self>) {
+        let Some(pid) = lock(&self.child).as_ref().map(Child::id) else {
+            return;
+        };
+        let shared = Arc::clone(self);
+        std::thread::spawn(move || {
+            loop {
+                {
+                    let mut slot = lock(&shared.child);
+                    let Some(child) = slot.as_mut().filter(|c| c.id() == pid) else {
+                        return;
+                    };
+                    if !matches!(child.try_wait(), Ok(None)) {
+                        *slot = None;
+                        drop(slot);
+                        shared.inner().own_process = false;
+                        shared.publish();
+                        return;
+                    }
+                }
+                std::thread::sleep(REAP_POLL);
+            }
+        });
+    }
+
     /// After an error of an established session: the session is dropped (closing the socket
     /// lets melonDS run). A closed connection is `off`, anything else `lost` (reconnect).
     fn fail(&self, slot: &mut Option<LiveSession>, e: &LiveError) {
         *slot = None;
         let mut inner = self.inner();
         match e {
-            LiveError::Closed => inner.disconnected(LiveState::Off, Some(QUIT)),
+            LiveError::Closed => inner.quit(),
             _ => inner.disconnected(LiveState::Lost, Some(NOT_ANSWERING)),
         }
     }
@@ -365,6 +406,9 @@ fn session_halted(slot: &Option<LiveSession>) -> bool {
     slot.as_ref().is_some_and(|s| s.halt().is_some())
 }
 
+/// How often a reaper looks whether our melonDS has ended.
+const REAP_POLL: Duration = Duration::from_millis(100);
+
 /// The reason after `connecting` ran out of time: nobody listened, or somebody listened but
 /// never answered (another client holds melonDS's single stub).
 fn no_stub(port: u16, accepted: bool) -> String {
@@ -397,8 +441,16 @@ fn sleep_or_stop(stop: &AtomicBool, duration: Duration) -> bool {
 }
 
 /// The worker: connects, refreshes, reconnects; ends with `off` or `unavailable`, or when
-/// told to stop.
+/// told to stop. When it ends by itself, our melonDS (if it still runs) gets a reaper.
 fn work(shared: Arc<Shared>, stop: Arc<AtomicBool>, addr: String, port: u16, game: String) {
+    work_until_end(&shared, &stop, &addr, port, &game);
+    if !stop.load(Ordering::SeqCst) {
+        shared.reap_later();
+    }
+    shared.workers.fetch_sub(1, Ordering::SeqCst);
+}
+
+fn work_until_end(shared: &Shared, stop: &AtomicBool, addr: &str, port: u16, game: &str) {
     let timings = shared.inner().timings;
     let deadline = Instant::now() + timings.connect_deadline;
     let mut accepted = false;
@@ -409,7 +461,7 @@ fn work(shared: Arc<Shared>, stop: Arc<AtomicBool>, addr: String, port: u16, gam
         if shared.own_child_ended() {
             let mut slot = lock(&shared.session);
             *slot = None;
-            shared.inner().disconnected(LiveState::Off, Some(QUIT));
+            shared.inner().quit();
             drop(slot);
             shared.publish();
             return;
@@ -422,7 +474,7 @@ fn work(shared: Arc<Shared>, stop: Arc<AtomicBool>, addr: String, port: u16, gam
                     shared.inner().state = LiveState::Connecting;
                     shared.publish();
                 }
-                match LiveSession::connect(&addr, &game, timings.connect_timeout) {
+                match LiveSession::connect(addr, game, timings.connect_timeout) {
                     Ok((session, check)) => {
                         shared.install(session, check);
                         Duration::ZERO
@@ -431,12 +483,6 @@ fn work(shared: Arc<Shared>, stop: Arc<AtomicBool>, addr: String, port: u16, gam
                         shared
                             .inner()
                             .disconnected(LiveState::Unavailable, Some(&e.to_string()));
-                        shared.publish();
-                        return;
-                    }
-                    // Nobody listens any more: the stub (melonDS) is gone.
-                    Err(LiveError::Connect { .. }) if lost => {
-                        shared.inner().disconnected(LiveState::Off, Some(QUIT));
                         shared.publish();
                         return;
                     }
@@ -473,7 +519,7 @@ fn work(shared: Arc<Shared>, stop: Arc<AtomicBool>, addr: String, port: u16, gam
             LiveState::Off | LiveState::Unavailable => return,
         };
         shared.publish();
-        if sleep_or_stop(&stop, pause) {
+        if sleep_or_stop(stop, pause) {
             return;
         }
     }
@@ -490,6 +536,8 @@ struct Worker {
 pub struct LiveHub {
     shared: Arc<Shared>,
     worker: Mutex<Option<Worker>>,
+    /// Serialises connect, play, stop and close: one worker and one melonDS at a time.
+    lifecycle: Mutex<()>,
 }
 
 impl LiveHub {
@@ -522,7 +570,8 @@ impl LiveHub {
         port: u16,
         game_code: &str,
     ) -> Result<LiveStatusDto, CmdError> {
-        self.stop();
+        let _lifecycle = lock(&self.lifecycle);
+        self.stop_locked();
         self.begin(port, game_code, LiveState::Connecting, false, None);
         Ok(self.start_worker(host, port, game_code))
     }
@@ -551,7 +600,8 @@ impl LiveHub {
         game_code: &str,
         launcher: &dyn Fn(&Path, &Path) -> Result<u32, CmdError>,
     ) -> Result<LivePlayDto, CmdError> {
-        self.stop();
+        let _lifecycle = lock(&self.lifecycle);
+        self.stop_locked();
         let config_path = self.shared.inner().config_path.clone();
         let (melonds, port) = match prepare(bundle, config_path.as_deref()) {
             Ok(ready) => ready,
@@ -589,13 +639,24 @@ impl LiveHub {
     /// Ends play mode: the worker stops, the stub is detached (the game runs on), our
     /// melonDS ends. Breakpoints stay.
     pub fn stop(&self) -> LiveStatusDto {
+        let _lifecycle = lock(&self.lifecycle);
+        self.stop_locked()
+    }
+
+    /// [`LiveHub::stop`] under the lifecycle lock. Our melonDS is killed first, so a worker
+    /// waiting for its stub returns at once.
+    fn stop_locked(&self) -> LiveStatusDto {
+        let child = lock(&self.shared.child).take();
+        let child = child.map(|mut child| {
+            let _ = child.kill();
+            child
+        });
         self.stop_worker();
         if let Some(session) = lock(&self.shared.session).take() {
             // Best effort: closing the socket lets melonDS run as well.
             let _ = session.detach();
         }
-        if let Some(mut child) = lock(&self.shared.child).take() {
-            let _ = child.kill();
+        if let Some(mut child) = child {
             let _ = child.wait();
         }
         {
@@ -611,7 +672,8 @@ impl LiveHub {
 
     /// [`LiveHub::stop`] and the breakpoints go (the project closes).
     pub fn close(&self) {
-        self.stop();
+        let _lifecycle = lock(&self.lifecycle);
+        self.stop_locked();
         self.shared.inner().breakpoints.clear();
         self.shared.publish();
     }
@@ -757,9 +819,18 @@ impl LiveHub {
         let shared = Arc::clone(&self.shared);
         let game = game_code.to_owned();
         let flag = Arc::clone(&stop);
+        // Under the lifecycle lock after `stop_locked` there is none; never leave one behind.
+        self.stop_worker();
+        self.shared.workers.fetch_add(1, Ordering::SeqCst);
         let handle = std::thread::spawn(move || work(shared, flag, addr, port, game));
         *lock(&self.worker) = Some(Worker { stop, handle });
         status
+    }
+
+    /// Worker threads alive (one at most).
+    #[cfg(test)]
+    pub(crate) fn workers_alive(&self) -> usize {
+        self.shared.workers.load(Ordering::SeqCst)
     }
 
     /// Tells the worker to stop and waits for it (at most one exchange with the stub).
@@ -773,11 +844,12 @@ impl LiveHub {
 
 impl Drop for LiveHub {
     fn drop(&mut self) {
-        self.stop_worker();
-        if let Some(mut child) = lock(&self.shared.child).take() {
+        let child = lock(&self.shared.child).take();
+        if let Some(mut child) = child {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.stop_worker();
     }
 }
 
