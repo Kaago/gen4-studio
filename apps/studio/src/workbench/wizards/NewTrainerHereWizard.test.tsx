@@ -3,8 +3,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getObjectSprite, nameTables, recipeApply, recipePlan, validateText } from "../../api";
+import { getBattleSprite, getMonIcon, getObjectSprite, getTrainerSprite, nameTables, recipeApply, recipePlan, validateText } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NameTablesDto, NewTrainerHereReport, ProjectInfo, RecipeOutcome } from "../../api";
+import { resetIcons } from "../../data/icons";
 import { NewTrainerHereWizard } from "./NewTrainerHereWizard";
 import { DRAFT_DEBOUNCE_MS } from "./useDraftPlan";
 
@@ -15,6 +16,9 @@ vi.mock("../../api", async (importOriginal) => ({
   nameTables: vi.fn(),
   validateText: vi.fn(async () => []),
   getObjectSprite: vi.fn(async () => null),
+  getMonIcon: vi.fn(),
+  getBattleSprite: vi.fn(),
+  getTrainerSprite: vi.fn(),
 }));
 vi.mock("../../world/thumbnailStore", () => ({
   thumbnails: { get: () => undefined, request: () => {}, cancel: () => {}, subscribe: () => () => {}, failure: () => null },
@@ -76,6 +80,12 @@ describe("NewTrainerHereWizard", () => {
     vi.mocked(recipeApply).mockReset().mockResolvedValue(outcome);
     vi.mocked(validateText).mockClear();
     vi.mocked(getObjectSprite).mockClear();
+    resetIcons();
+    vi.mocked(getMonIcon).mockReset().mockResolvedValue(new ArrayBuffer(4));
+    vi.mocked(getBattleSprite).mockReset().mockResolvedValue(new ArrayBuffer(4));
+    vi.mocked(getTrainerSprite).mockReset().mockResolvedValue(new ArrayBuffer(4));
+    URL.createObjectURL = vi.fn(() => "blob:icon");
+    URL.revokeObjectURL = vi.fn();
     onDraft.mockReset();
     onDone.mockReset().mockResolvedValue(undefined);
     onCancel.mockReset().mockImplementation(() => root.render(null));
@@ -210,6 +220,7 @@ describe("NewTrainerHereWizard", () => {
     // The created trainer (it stays after undo) and where it stands.
     expect(container.textContent).toContain("Trainer 0042 angelegt (bleibt nach Rückgängig)");
     expect(container.textContent).toContain("Objekt 3 in Eventdatei 0005, Kampf-Script 3041");
+    expect(container.textContent).toContain("Kampfvorschau: Pokémon-Trainer Jens gegen Bisasam Lv. 5");
     const steps = [...container.querySelectorAll<HTMLButtonElement>("[data-next-steps] button[data-recipe]")];
     expect(steps.map((b) => [b.getAttribute("data-recipe"), b.disabled])).toEqual([["play_here", true]]);
   });
@@ -228,5 +239,60 @@ describe("NewTrainerHereWizard", () => {
     // The trainer is there: the app reads the project again when the wizard is left.
     await click(button("Schließen"));
     expect(onCancel).toHaveBeenCalledWith(true);
+  });
+
+  it("the preview follows the form", async () => {
+    await show();
+    const preview = () => container.querySelector<HTMLElement>("[data-trainer-preview]");
+    const foe = () => preview()?.querySelector('[data-ds-status="foe"]')?.textContent ?? "";
+    const foeSide = () => preview()?.querySelector("[data-foe]")?.getAttribute("data-foe");
+    const card = (slot: number) => preview()?.querySelector<HTMLElement>(`[data-preview-slot="${slot}"]`);
+    const segment = (label: string) => [...(preview()?.querySelectorAll<HTMLButtonElement>("[data-foe] button") ?? [])].find((b) => b.textContent === label);
+    // Step „Trainer“: the class picture, the trainer in the battle box, the empty first place.
+    expect(preview()).not.toBeNull();
+    expect(getTrainerSprite).toHaveBeenCalledWith(0);
+    expect(preview()?.querySelector("[data-trainer-sprite] img")).not.toBeNull();
+    expect(foe()).toContain("Pokémon-Trainer");
+    expect(card(0)?.getAttribute("data-state")).toBe("empty");
+    await setValue(container.querySelector<HTMLInputElement>('input[aria-label="Name"]')!, "Jens");
+    expect(foe()).toContain("Pokémon-Trainer Jens");
+    // A card of the preview picks the species of its place, from any step.
+    await click(card(0));
+    await flush();
+    await click(options().find((o) => o.textContent?.includes("Glumanda")));
+    await flush();
+    expect(card(0)?.getAttribute("data-species")).toBe("4");
+    expect(card(0)?.textContent).toContain("Glumanda");
+    await next();
+    expect(current()).toBe("2. Team");
+    expect(preview()).not.toBeNull();
+    // The rows of the team carry the menu icon, like the cards of the preview.
+    expect(getMonIcon).toHaveBeenCalledWith(4);
+    expect(rows()[0]?.querySelector("[data-species] img[data-sprite=picture]")).not.toBeNull();
+    expect(card(0)?.querySelector("img[data-sprite=picture]")).not.toBeNull();
+    await pickSpecies(rows()[0]!, "Bisasam");
+    expect(card(0)?.getAttribute("data-species")).toBe("1");
+    await click(segment("Erstes Pokémon"));
+    await flush();
+    expect(foeSide()).toBe("pokemon");
+    expect(foe()).toContain("Bisasam");
+    expect(getBattleSprite).toHaveBeenLastCalledWith({ species: 1, side: "front" });
+    await setValue(rows()[0]!.querySelector<HTMLInputElement>('input[aria-label="Level"]')!, "12");
+    expect(foe()).toContain("Lv. 12");
+    await click(button("Pokémon hinzufügen"));
+    expect(card(1)?.getAttribute("data-state")).toBe("empty");
+    await click(button("Pokémon 2 entfernen"));
+    expect(card(1)).toBeNull();
+    // The preview stands beside every step and keeps the chosen side.
+    await next();
+    expect(current()).toBe("3. Texte");
+    expect(foeSide()).toBe("pokemon");
+    await next();
+    expect(current()).toBe("4. Wo");
+    expect(foeSide()).toBe("pokemon");
+    await next();
+    expect(current()).toBe("5. Zusammenfassung");
+    expect(foe()).toContain("Bisasam");
+    expect(container.querySelectorAll("[data-trainer-preview]")).toHaveLength(1);
   });
 });

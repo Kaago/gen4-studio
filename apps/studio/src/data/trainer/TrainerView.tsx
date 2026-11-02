@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getEvents } from "../../api";
-import type { BattleSpriteRequest, HeaderSummary, RefDto } from "../../api";
+import type { HeaderSummary, RefDto } from "../../api";
 import { HeadActions } from "../../original/HeadActions";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
@@ -9,15 +9,17 @@ import { EntityIdLine } from "../../textproject/EntityIdLine";
 import { renameEntry } from "../../textproject/renameEntry";
 import { useTextProject } from "../../textproject/TextProjectContext";
 import { useEntityIds } from "../../textproject/useEntityIds";
-import { Badge, Button, DSBattlePreview, Notice, PokemonCard, Reference, Segmented } from "../../ui/primitives";
+import { Badge, Button, Notice, PokemonCard, Reference } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
-import { battleSprite, battleSpriteKey, monIcon, monIconKey, trainerSprite, trainerSpriteKey, useIcon } from "../icons";
+import { monIcon, monIconKey, useIcon } from "../icons";
 import { itemName } from "../pokedex/pokedexModel";
 import { useDataArea } from "../useDataArea";
 import { PLACEHOLDER_TEXT, docTitle, isDouble, speciesName } from "./trainerModel";
 import type { TrainerDoc } from "./trainerModel";
 import { ClassSprite } from "./ClassSprite";
+import { TrainerBattlePreview } from "./TrainerBattlePreview";
+import type { Foe, FirstMon } from "./TrainerBattlePreview";
 import { useTrainer } from "./useTrainer";
 import styles from "./Trainer.module.css";
 
@@ -115,36 +117,21 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
   );
 }
 
-type Foe = "trainer" | "pokemon";
-
 /**
- * "Kampfvorschau": the DS battle screen with the opponent's side: the trainer's class picture (the box names class and trainer, no level) or
- * the first Pokémon of the team (front picture, level from the party). One's own side stays empty: there is no player data to show. Without
- * a team only the trainer is offered.
+ * "Kampfvorschau": the shared battle preview of the trainer (`TrainerBattlePreview`) with the first Pokémon of the party. Only an explicit ♀
+ * asks for the female picture (HeartGold's gender field; Platinum has none, and the low nibble of byte 1 is an IV byte there, so `genderOf`
+ * is not used). The backend falls back to the other gender when a species has no picture of that one.
  */
 function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: string; foe: Foe; onFoe: Dispatch<SetStateAction<Foe>> }) {
   const { names } = useDataArea("pokemon");
-  const first = doc.party[0];
-  const shown: Foe = first ? foe : "trainer";
-  // Only an explicit ♀ asks for the female picture (HeartGold's gender field; Platinum has none, and the low nibble of byte 1 is an IV
-  // byte there, so `genderOf` is not used). The backend falls back to the other gender when a species has no picture of that one.
-  const request: BattleSpriteRequest | null = first ? { species: first.species, ...(first.form > 0 ? { form: first.form } : {}), side: "front", ...(first.gender === 2 ? { female: true } : {}) } : null;
-  const monUrl = useIcon(request && shown === "pokemon" ? battleSpriteKey(request) : null, () => battleSprite(request!), true);
-  const classUrl = useIcon(trainerSpriteKey(doc.class), () => trainerSprite(doc.class), true);
-  const options = first
-    ? [
-        { value: "trainer" as const, label: "Trainer" },
-        { value: "pokemon" as const, label: "Erstes Pokémon" },
-      ]
-    : [{ value: "trainer" as const, label: "Trainer" }];
-  const side = shown === "pokemon" && first ? { name: speciesName(names.species, first.species), level: first.level, spriteUrl: monUrl } : { name: title, level: 0, spriteUrl: classUrl };
+  const mon = doc.party[0];
+  const first: FirstMon | null = mon
+    ? { name: speciesName(names.species, mon.species), level: mon.level, sprite: { species: mon.species, ...(mon.form > 0 ? { form: mon.form } : {}), side: "front", ...(mon.gender === 2 ? { female: true } : {}) } }
+    : null;
   return (
     <section className={styles.section} aria-label="Kampfvorschau" data-ds-battle-section="">
       <h3 className={styles.sectionTitle}>Kampfvorschau</h3>
-      <DSBattlePreview foe={side} own={null} />
-      <div className={styles.previewControls} data-foe={shown}>
-        <Segmented options={options} value={shown} onChange={onFoe} ariaLabel="Gegnerseite" size="s" />
-      </div>
+      <TrainerBattlePreview cls={doc.class} title={title} first={first} foe={foe} onFoe={onFoe} />
     </section>
   );
 }

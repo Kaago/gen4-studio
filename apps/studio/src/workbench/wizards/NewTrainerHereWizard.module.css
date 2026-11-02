@@ -17,3 +17,70 @@
 .level {
   width: 88px;
 }
+
+/*
+ * A step with the live preview: the step's columns (the form) and the preview beside them, the preview below the form when the hand is
+ * narrow. The step is one column of the frame without its padding (two classes: wins over the frame's rule for every column); the form's
+ * columns and the preview take the frame's padding and lines instead.
+ */
+.step.step {
+  display: flex;
+  min-height: 0;
+  padding: 0;
+  container: trainer-step / inline-size;
+  overflow-y: auto;
+}
+
+.layout {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+
+.form {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+.form > *,
+.side {
+  min-width: 0;
+  padding: var(--g4-raum-12) var(--g4-raum-16);
+}
+
+.form > * {
+  flex: 1 1 0;
+}
+
+.form > * + * {
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+/* The preview: as wide as the DS screen at single size, scrolling on its own beside the form. */
+.side {
+  flex: none;
+  width: 288px;
+  box-sizing: border-box;
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+  overflow-y: auto;
+}
+
+@container trainer-step (max-width: 719px) {
+  /* One above the other; the step scrolls as a whole. */
+  .layout {
+    flex-direction: column;
+    align-self: flex-start;
+  }
+
+  .form {
+    flex: none;
+  }
+
+  .side {
+    width: auto;
+    border-top: var(--g4-strich-standard) solid var(--g4-linie-leise);
+    border-left: none;
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, RoomReport, RoomSpec } from "../../api";
-import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, buildingSources, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, planSpec, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection } from "./wizardSpecs";
+import type { AreaReport, AreaSpec, EventsDto, HeaderSummary, MatrixDto, NewTrainerHereInput, NewTrainerHereReport, RecipeOutcome, RoomReport, RoomSpec } from "../../api";
+import { areaLayout, areaPlace, areaResult, areaSpec, areaSummary, buildingSources, emptyAreaForm, internalName, mapUnderTile, partialText, previewArea, emptyRoomForm, isLateFailure, parseMapList, rectSelection, placeForm, planSpec, roomPlace, roomResult, roomSpec, roomSummary, sourceHeader, specialHeader, templateWarp, toggleSelection, trainerResult } from "./wizardSpecs";
 import type { AreaForm, RoomForm } from "./wizardSpecs";
 import type { Area, World } from "../worldModel";
 
@@ -825,5 +825,29 @@ describe("planSpec", () => {
     expect(planSpec(existing, true)).toBe(existing);
     const none = { header: null } as unknown as AreaSpec;
     expect(planSpec(none, true)).toBe(none);
+  });
+});
+
+describe("trainerResult", () => {
+  const outcome: RecipeOutcome<NewTrainerHereReport> = {
+    report: { trainer: 42, placeholder: null, script_extended: false, event_file: 5, object: 3, script: 3041, trainer_flag: 1407, text_problems: [] },
+    created: [{ kind: "Trainer", index: 42 }],
+    change: 30,
+    changed: [],
+    next: [],
+  };
+  const input: NewTrainerHereInput = { header: 0, x: 12, z: 7, dir: 1, sight: 3, class: 1, name: "Jens", party: [{ species: 4, level: 12 }, { species: 1, level: 5 }], texts: { before: "", lose: "", after: "" }, graphics_id: null };
+  const names = { classes: ["Pokémon-Trainer", "Wanderer"], species: ["-----", "Bisasam", "", "", "Glumanda"] };
+
+  it("names the battle against the first Pokémon", () => {
+    expect(trainerResult(outcome, input, names).lines).toEqual(["Trainer 0042 angelegt (bleibt nach Rückgängig)", "Objekt 3 in Eventdatei 0005, Kampf-Script 3041", "Kampfvorschau: Wanderer Jens gegen Glumanda Lv. 12"]);
+  });
+
+  it("without names the class and the species go by number", () => {
+    expect(trainerResult(outcome, { ...input, class: 7 }, null).lines).toContain("Kampfvorschau: Klasse 7 Jens gegen Art 0004 Lv. 12");
+  });
+
+  it("an empty team has no battle line", () => {
+    expect(trainerResult(outcome, { ...input, party: [] }, names).lines.some((line) => line.startsWith("Kampfvorschau"))).toBe(false);
   });
 });
