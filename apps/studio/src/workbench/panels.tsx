@@ -538,8 +538,9 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // The depth of the texts, not of the area in front: a Texte deck kept behind Technik in Erzählen still narrates.
   const { state, setDepth } = useShell();
   const depth = viewDepth("texte", state.depth);
-  // The figures of the places and their dialogs (Erzählen) are read again when a text, an event or a script moved.
-  const dialogRevision = textRevision + useBusRevision(d.bus, ["eventData", "eventsRefetch"]) + scripts.revision;
+  // The figures of the places and their dialogs (Erzählen) are read again when a text, an event or a script file on disk moved (not when a
+  // script document opens, closes or is typed into: every read of a place waits for the session).
+  const dialogRevision = textRevision + useBusRevision(d.bus, ["eventData", "eventsRefetch"]) + scripts.saved;
   // A trainer figure is named by class and name: the rows are read once a place with a trainer shows.
   const trainers = useTrainerRows(dataStore, info);
   const needTrainers = useCallback(() => {

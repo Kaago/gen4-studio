@@ -75,11 +75,13 @@ export interface TextAreaProps {
 
 /** What a link to a message tells when no figure of the places that use its archive says it. */
 const NO_FIGURE_SAYS = "Keine Figur spricht diese Nachricht – in Bauen geöffnet";
+/** What a link to an archive tells when no place uses the archive (a game-wide one). */
+const NO_PLACE_USES = "Kein Ort nutzt dieses Archiv – in Bauen geöffnet";
 
-/** „Trainer Wanderer Jens“; a trainer the rows do not (yet) have is „Trainer 0012“. */
+/** „Trainer Wanderer Jens“; a trainer the rows do not (yet) have, or one without a name, is „Trainer“ (Erzählen names no numbers). */
 function trainerTitle(rows: readonly DataRowDto[] | null | undefined, id: number): string {
   const label = trainerLabel(rows ?? null, id);
-  return label === `Trainer ${id4(id)}` ? label : `Trainer ${label}`;
+  return label === `Trainer ${id4(id)}` ? "Trainer" : `Trainer ${label}`;
 }
 
 /** Quiet time before the search over all archives asks the backend. */
@@ -178,7 +180,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
 
   // A link to a text archive opens it (and clears a search that would hide its messages). In Erzählen it shows the place and the figure
   // that says the message: among the headers that use the archive (in the order of the places) the first whose figures name it; without a
-  // message the first of those headers. When no figure says it, the link opens Bauen (with an info why).
+  // message the first of those headers. When no place uses the archive or no figure says the message, the link opens Bauen (with an info why).
   useEffect(() => {
     if (target === null) return;
     select(target.index, target.message ?? 0);
@@ -187,13 +189,16 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     if (!narratingNow) return;
     const users = placesNow.flatMap((p) => p.headers.map((h) => h.header)).filter((h) => h.text_archive_id === target.index);
     const message = target.message;
-    const toBauen = (why: string | null) => {
+    const toBauen = (why: string) => {
       latest.current.onDepth?.("bauen");
-      if (why !== null) toast.info(why);
+      toast.info(why);
     };
+    if (users[0] === undefined) {
+      toBauen(NO_PLACE_USES);
+      return;
+    }
     if (message === null) {
-      if (users[0] !== undefined) selectDialogHeader(users[0].id);
-      else toBauen(null);
+      selectDialogHeader(users[0].id);
       return;
     }
     let current = true;

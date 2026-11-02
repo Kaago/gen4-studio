@@ -33,18 +33,18 @@ describe("DialogMessages", () => {
   const scriptFiles = { saveIfDirty: vi.fn(async () => {}), reload: vi.fn(async () => {}) };
 
   /** The messages as the hand and the editor use them: the writes of the figure and the chosen message. */
-  function Host({ d, kind = "object" }: { d: Dialog; kind?: "object" | "bg" }) {
+  function Host({ d, kind = "object", narrating = false }: { d: Dialog; kind?: "object" | "bg"; narrating?: boolean }) {
     const [chosen, setChosen] = useState<string | null>(null);
-    const writes = useDialogWrites({ ...target, kind }, d.source, { reload, onChanged, onError, scriptFiles, onSplit: setChosen });
+    const writes = useDialogWrites({ ...target, kind }, d.source, { reload, onChanged, onError, scriptFiles, onSplit: setChosen, narrating });
     const distinct = distinctMessages(d.messages);
     return (
       <>
         {writes.notice !== null && <p data-notice="">{writes.notice.text}</p>}
-        <DialogMessages kind={kind} distinct={distinct} currentKey={chosen ?? "554:10"} onChoose={setChosen} onDraft={onDraft} writes={writes} />
+        <DialogMessages kind={kind} distinct={distinct} currentKey={chosen ?? "554:10"} onChoose={setChosen} onDraft={onDraft} writes={writes} narrating={narrating} />
       </>
     );
   }
-  const show = (d: Dialog, kind: "object" | "bg" = "object") => act(() => root.render(<Host d={d} kind={kind} />));
+  const show = (d: Dialog, kind: "object" | "bg" = "object", narrating = false) => act(() => root.render(<Host d={d} kind={kind} narrating={narrating} />));
   const block = (key: string) => container.querySelector<HTMLElement>(`[data-dialog-message="${key}"]`);
   const button = (text: string, within: ParentNode = container) => [...within.querySelectorAll("button")].find((b) => b.textContent === text);
 
@@ -121,5 +121,17 @@ describe("DialogMessages", () => {
     expect(onChanged).toHaveBeenCalledOnce();
     expect(reload).toHaveBeenCalledOnce();
     expect(container.querySelector("[data-notice]")?.textContent).toBe("Nachricht 40 ist jetzt nur diese Figur.");
+  });
+
+  it("in Erzählen the heads count the messages and nothing names a number", async () => {
+    vi.mocked(splitMessage).mockResolvedValue({ archive: 554, old_index: 11, new_index: 40, change: 5, lines: [9] });
+    show(dialog([message(10, "Hallo!"), message(11, "Tschüss.", { shared_with: 1, branch: "CheckFlag 100" }), message(10, "Hallo!", { line: 12 }), message(30, null)]), "object", true);
+    expect([...container.querySelectorAll("[data-dialog-message] button[aria-pressed]")].map((b) => b.textContent)).toEqual(["Nachricht 1 von 3", "Nachricht 2 von 3", "Nachricht 3 von 3"]);
+    expect(block("554:11")?.textContent).toContain("Geteilt mit 1 Figur");
+    expect(block("554:30")?.textContent).toContain("Diese Nachricht fehlt im Text des Orts.");
+    await act(async () => button("Für diese Figur abspalten", block("554:11")!)!.click());
+    await flush();
+    expect(container.querySelector("[data-notice]")?.textContent).toBe("Die Nachricht gilt jetzt nur für diese Figur.");
+    expect(container.textContent).not.toMatch(/Archiv|554|Zeile|wenn |\b40\b|\b10\b|\b11\b|\b30\b/);
   });
 });

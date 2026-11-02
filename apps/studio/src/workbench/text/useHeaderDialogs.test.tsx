@@ -109,14 +109,15 @@ describe("useHeaderDialogs", () => {
     expect(seen.a?.loading).toBe(false);
   });
 
-  it("a cleared cache reads again and drops the answers of before", async () => {
-    let answer: (d: HeaderDialogs) => void = () => {};
-    vi.mocked(dialogsOfHeader).mockImplementationOnce(() => new Promise<HeaderDialogs>((resolve) => (answer = resolve)));
+  it("another cache (another project) reads for itself", async () => {
     show([{ name: "a", header: 12, revision: 0 }]);
-    cache.clear();
-    await act(async () => answer(headerDialogs(12, [figure("object", 9)])));
-    expect(cache.get(12)).toBeUndefined();
-    const read = await act(() => cache.load(12, 0));
-    expect(read?.figures.map((f) => f.index)).toEqual([0]);
+    await flush();
+    cache = new HeaderDialogsCache();
+    show([{ name: "a", header: 12, revision: 0 }]);
+    expect(seen.a?.dialogs).toBeNull();
+    expect(seen.a?.loading).toBe(true);
+    await flush();
+    expect(dialogsOfHeader).toHaveBeenCalledTimes(2);
+    expect(seen.a?.dialogs?.header).toBe(12);
   });
 });

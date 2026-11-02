@@ -41,6 +41,8 @@ export interface DialogWriteHooks {
   scriptFiles?: ScriptFiles;
   /** A split made message `key` the figure's own copy: the owner chooses it. */
   onSplit: (key: string) => void;
+  /** Erzählen: what the writes say names no message number. */
+  narrating?: boolean;
 }
 
 /** The writes of a figure's dialog: a text, a split, and what the last one said (a refusal, the split done). */
@@ -61,7 +63,7 @@ export interface DialogWrites {
 export function useDialogWrites(target: DialogTarget, source: DialogSource | null, hooks: DialogWriteHooks): DialogWrites {
   const [notice, setNotice] = useState<DialogWrites["notice"]>(null);
   const [splitting, setSplitting] = useState(false);
-  const { reload, onChanged, onError, scriptFiles, onSplit } = hooks;
+  const { reload, onChanged, onError, scriptFiles, onSplit, narrating = false } = hooks;
 
   const commit = async (m: DialogMessage, written: string): Promise<boolean> => {
     try {
@@ -91,7 +93,7 @@ export function useDialogWrites(target: DialogTarget, source: DialogSource | nul
       onChanged();
       void scriptFiles?.reload(file);
       onSplit(messageKey({ archive: report.archive, index: report.new_index }));
-      setNotice({ kind: "success", text: `Nachricht ${report.new_index} ist jetzt nur diese Figur.` });
+      setNotice({ kind: "success", text: narrating ? "Die Nachricht gilt jetzt nur für diese Figur." : `Nachricht ${report.new_index} ist jetzt nur diese Figur.` });
       reload();
     } catch (e) {
       setNotice({ kind: "error", text: errorText(e) });
@@ -114,19 +116,22 @@ export interface DialogMessagesProps {
   /** Hears the typing in a message's field before it is committed (a preview that follows it). */
   onDraft?: (key: string, text: string) => void;
   writes: DialogWrites;
+  /** Erzählen: the heads count the messages („Nachricht 1 von 2“) instead of naming archive, number, condition and lines. */
+  narrating?: boolean;
 }
 
 /**
  * The messages of a figure's dialog in reading order (the left column of the dialog editor, and the hand of the texts in Erzählen): each in
  * the field of the texts with its head, the badge „Geteilt mit N Figuren“ and „Für diese Figur abspalten“ when other figures show it too.
+ * In Erzählen (`narrating`) the head only counts („Nachricht 1 von 2“): archives, numbers and script conditions are Bauen's.
  */
-export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, writes }: DialogMessagesProps) {
+export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, writes, narrating = false }: DialogMessagesProps) {
   const { commit, split, splitting } = writes;
   // The editor and the hand may show the same figure at once: the ids of the refusals are this list's own.
   const id = useId();
   return (
     <ol className={styles.messages} aria-label="Nachrichten">
-      {distinct.map(({ message: m, others }) => {
+      {distinct.map(({ message: m, others }, position) => {
         const key = messageKey(m);
         const selected = key === currentKey;
         const refusalId = `${id}${key}-split`;
@@ -134,7 +139,7 @@ export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, 
           <li key={key} className={styles.message} data-dialog-message={key} data-selected={selected ? "" : undefined} onFocus={() => onChoose(key)}>
             <div className={styles.head}>
               <Button kind="quiet" size="s" aria-pressed={selected} onClick={() => onChoose(key)}>
-                <span className={styles.headText}>{messageHead(m, others)}</span>
+                <span className={styles.headText}>{narrating ? `Nachricht ${position + 1} von ${distinct.length}` : messageHead(m, others)}</span>
               </Button>
               {m.shared_with > 0 && (
                 <Badge kind="warning" icon="shared">
@@ -143,7 +148,7 @@ export function DialogMessages({ kind, distinct, currentKey, onChoose, onDraft, 
               )}
             </div>
             {m.text === null ? (
-              <p className={styles.note}>{`Archiv ${m.archive} hat keine Nachricht ${m.index}.`}</p>
+              <p className={styles.note}>{narrating ? "Diese Nachricht fehlt im Text des Orts." : `Archiv ${m.archive} hat keine Nachricht ${m.index}.`}</p>
             ) : (
               <MessageEditor key={key} value={m.text} onCommit={(written) => commit(m, written)} onDraft={onDraft && ((typed) => onDraft(key, typed))} />
             )}

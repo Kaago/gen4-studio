@@ -103,14 +103,14 @@ export function speakersText(figures: readonly FigureDialog[]): string {
 }
 
 /**
- * The line of a figure's card, like `dialogSummary` from what `dialogsOfHeader` counted: „2 Nachrichten · 3 Seiten“, „Sagt nichts“, and for
- * a source the dialog editor does not edit where it is edited.
+ * The line of a figure's card (Erzählen, hence without numbers), like `dialogSummary` from what `dialogsOfHeader` counted: „2 Nachrichten ·
+ * 3 Seiten“, „Sagt nichts“, and for a source the dialog editor does not edit where it is edited.
  */
 export function figureSummary(f: FigureDialog): string {
   const source = f.source;
   switch (source.kind) {
     case "common":
-      return `Gemeinsames Script ${source.script}: in Bauen bearbeiten.`;
+      return "Gemeinsames Script: in Bauen bearbeiten.";
     case "trainer":
       return "Kampftexte des Trainers: im Bereich Pokémon";
     case "unreadable":

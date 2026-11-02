@@ -354,7 +354,7 @@ function FigureMessages({ dialogs, figure }: { dialogs: HeaderDialogs; figure: F
   const { dialog, error, reload } = useDialog(target, dialogRevision);
   const [chosen, setChosen] = useState<string | null>(null);
   const source = dialog?.source ?? null;
-  const writes = useDialogWrites(target, source, { reload, onChanged: dialogChanged, onError, scriptFiles, onSplit: setChosen });
+  const writes = useDialogWrites(target, source, { reload, onChanged: dialogChanged, onError, scriptFiles, onSplit: setChosen, narrating: true });
   const distinct = useMemo(() => (dialog !== null && source?.kind === "local" ? distinctMessages(dialog.messages) : []), [dialog, source?.kind]);
   if (error !== null) return <Notice kind="error">{error}</Notice>;
   if (dialog === null) return <p className={styles.note}>Lade …</p>;
@@ -364,7 +364,7 @@ function FigureMessages({ dialogs, figure }: { dialogs: HeaderDialogs; figure: F
   return (
     <>
       {writes.notice !== null && <Notice kind={writes.notice.kind}>{writes.notice.text}</Notice>}
-      <DialogMessages kind={figure.kind} distinct={distinct} currentKey={currentKey} onChoose={setChosen} writes={writes} />
+      <DialogMessages kind={figure.kind} distinct={distinct} currentKey={currentKey} onChoose={setChosen} writes={writes} narrating />
     </>
   );
 }

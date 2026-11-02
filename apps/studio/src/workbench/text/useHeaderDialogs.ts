@@ -11,15 +11,14 @@ interface Read {
 
 /**
  * The figures of the headers as `dialogsOfHeader` read them, per header and data revision: each header is read once per revision, however
- * many rows and views ask (the list's rows, the view, a link). A read for a newer revision overtakes an older one; `clear` (another
- * project) forgets everything, and answers still on their way then are dropped.
+ * many rows and views ask (the list's rows, the view, a link). A read for a newer revision overtakes an older one. Another project gets a
+ * new cache (the text area makes one per project).
  */
 export class HeaderDialogsCache {
   private readonly reads = new Map<number, Read>();
   /** The read running per header: its revision and its answer. */
   private readonly running = new Map<number, { revision: number; answer: Promise<HeaderDialogs | null> }>();
   private readonly listeners = new Set<() => void>();
-  private generation = 0;
 
   /** The last read of `header` (at whatever revision); undefined before the first. */
   get(header: number): Read | undefined {
@@ -32,9 +31,8 @@ export class HeaderDialogsCache {
     if (known?.revision === revision) return Promise.resolve(known.dialogs);
     const running = this.running.get(header);
     if (running?.revision === revision) return running.answer;
-    const generation = this.generation;
     const settle = (dialogs: HeaderDialogs | null, error: string | null) => {
-      if (generation !== this.generation || this.running.get(header)?.revision !== revision) return;
+      if (this.running.get(header)?.revision !== revision) return;
       this.running.delete(header);
       this.reads.set(header, { revision, dialogs, error });
       for (const listener of [...this.listeners]) listener();
@@ -51,13 +49,6 @@ export class HeaderDialogsCache {
     );
     this.running.set(header, { revision, answer });
     return answer;
-  }
-
-  clear(): void {
-    this.generation++;
-    this.reads.clear();
-    this.running.clear();
-    for (const listener of [...this.listeners]) listener();
   }
 
   subscribe = (listener: () => void): (() => void) => {

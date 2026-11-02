@@ -506,6 +506,10 @@ describe("TextArea", () => {
       const blocks = hand()!.querySelectorAll("[data-dialog-message]");
       expect([...blocks].map((b) => b.getAttribute("data-dialog-message"))).toEqual(["433:4", "433:5"]);
       expect(blocks[0]!.querySelector("textarea")?.value).toBe("Schönes Wetter!");
+      // Erzählen names no archive, no message number, no line and no script condition: the heads count.
+      expect(blocks[0]!.querySelector("button")?.textContent).toBe("Nachricht 1 von 2");
+      expect(blocks[1]!.querySelector("button")?.textContent).toBe("Nachricht 2 von 2");
+      expect(hand()!.textContent).not.toMatch(/Archiv|433|Zeile|wenn /);
       expect(blocks[1]!.textContent).toContain("Geteilt mit 2 Figuren");
       expect(within(blocks[1]!, "Für diese Figur abspalten")).toBeDefined();
       // A text written in the hand goes to the store as one step „Dialog geändert“ and tells the app.
@@ -588,6 +592,14 @@ describe("TextArea", () => {
       expect(headerRow(12)?.getAttribute("aria-selected")).toBe("true");
       expect(h.container.querySelector("[data-dialog-figure][data-selected]")).toBeNull();
       expect(h.calls.onDepth).not.toHaveBeenCalled();
+    });
+
+    it("a link to an archive no place uses opens Bauen and says why", async () => {
+      h.show(h.base({ depth: "erzaehlen", target: { index: 7, message: null } }));
+      await flush();
+      expect(h.calls.onDepth).toHaveBeenCalledWith("bauen");
+      expect(listToasts().map((t) => [t.kind, t.text])).toContainEqual(["info", "Kein Ort nutzt dieses Archiv – in Bauen geöffnet"]);
+      expect(dialogsOfHeader).not.toHaveBeenCalled();
     });
 
     it("a link to a message no figure says opens Bauen and says why", async () => {

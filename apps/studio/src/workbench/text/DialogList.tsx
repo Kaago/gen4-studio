@@ -11,18 +11,34 @@ import { useHeaderDialogs } from "./useHeaderDialogs";
 import styles from "./TextList.module.css";
 
 /**
- * A header of a place with how many figures speak there („2 Figuren sprechen“). Its figures are read when the row first shows (its place
- * opens) and again when the data moved; the cache answers every later showing.
+ * A header of a place with how many figures speak there („2 Figuren sprechen“). Its figures are read when the row first shows in a place
+ * the user opened (`counted`) and again when the data moved; the cache answers every later showing. A row a filter shows reads nothing:
+ * each read waits for the session, and a filter can show nearly every header.
  */
-const HeaderItem = memo(function HeaderItem({ header, label, selected, revision, onSelect }: { header: HeaderSummary; label: string; selected: boolean; revision: number; onSelect: (id: number) => void }) {
-  const { dialogs, error } = useHeaderDialogs(header.id, revision);
-  const line = dialogs !== null ? speakersText(dialogs.figures) : error !== null ? "Nicht lesbar" : "Lese …";
+const HeaderItem = memo(function HeaderItem({
+  header,
+  label,
+  counted,
+  selected,
+  revision,
+  onSelect,
+}: {
+  header: HeaderSummary;
+  label: string;
+  counted: boolean;
+  selected: boolean;
+  revision: number;
+  onSelect: (id: number) => void;
+}) {
+  const { dialogs, error } = useHeaderDialogs(counted ? header.id : null, revision);
+  const line = !counted ? undefined : dialogs !== null ? speakersText(dialogs.figures) : error !== null ? "Nicht lesbar" : "Lese …";
   return <TreeRow depth={1} label={label} subtitle={line} title={error ?? undefined} selected={selected} onSelect={() => onSelect(header.id)} dataAttrs={{ "data-dialog-header": header.id }} />;
 });
 
 /**
  * The list of the texts in Erzählen (`[data-dialog-list]`): the places of the world, folded, and under an opened place its headers with how
- * many figures speak there; a click on a header shows its figures in the view. No archives and no numbers: those are Bauen's.
+ * many figures speak there; a filter shows the matching places open, their headers without the count. A click on a header shows its
+ * figures in the view. No archives and no numbers: those are Bauen's.
  */
 export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const { project, places, dialogHeader, dialogPlace, dialogRevision, selectDialogHeader } = useTextArea();
@@ -74,7 +90,7 @@ export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => 
           <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
             {shown.length === 0 && filtering && <p className={styles.note}>Kein Ort passt zum Filter.</p>}
             {shown.map((place) => (
-              <PlaceGroup key={place.key} place={place} places={places} expanded={filtering || opened.has(place.key)} onToggle={toggle} selected={dialogHeader} revision={dialogRevision} onSelect={selectDialogHeader} />
+              <PlaceGroup key={place.key} place={place} places={places} expanded={filtering || opened.has(place.key)} counted={opened.has(place.key)} onToggle={toggle} selected={dialogHeader} revision={dialogRevision} onSelect={selectDialogHeader} />
             ))}
           </div>
         </div>
@@ -88,6 +104,7 @@ function PlaceGroup({
   place,
   places,
   expanded,
+  counted,
   onToggle,
   selected,
   revision,
@@ -96,6 +113,8 @@ function PlaceGroup({
   place: Place;
   places: Place[];
   expanded: boolean;
+  /** The user opened the place: its headers read how many figures speak there (a filter only shows them). */
+  counted: boolean;
   onToggle: (key: string) => void;
   selected: number | null;
   revision: number;
@@ -114,7 +133,7 @@ function PlaceGroup({
       />
       {expanded &&
         place.headers.map(({ header }) => (
-          <HeaderItem key={header.id} header={header} label={headerIdentity(places, header).name} selected={header.id === selected} revision={revision} onSelect={onSelect} />
+          <HeaderItem key={header.id} header={header} label={headerIdentity(places, header).name} counted={counted} selected={header.id === selected} revision={revision} onSelect={onSelect} />
         ))}
     </div>
   );

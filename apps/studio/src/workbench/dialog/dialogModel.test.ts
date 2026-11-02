@@ -48,6 +48,7 @@ describe("dialogModel", () => {
     expect(figureSummary(f(local, 1, 1))).toBe("1 Nachricht · 1 Seite");
     expect(figureSummary(f(local, 0, 0))).toBe("Sagt nichts");
     expect(figureSummary(f({ kind: "trainer", id: 2 }))).toBe("Kampftexte des Trainers: im Bereich Pokémon");
+    expect(figureSummary(f({ kind: "common", script: 2001 }))).toBe("Gemeinsames Script: in Bauen bearbeiten.");
     expect(figureKey({ kind: "bg", index: 0 })).toBe("bg:0");
     expect(figureTarget({ header: 12, event_file: 40 }, { kind: "bg", index: 0 })).toEqual({ header: 12, eventFile: 40, kind: "bg", index: 0, title: "Schild 0" });
   });

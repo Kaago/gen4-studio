@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialogOf, dialogsOfHeader, getTextArchive } from "../../api";
 import { TRAINER_ROWS } from "../../data/trainer/trainerTesting";
@@ -72,7 +73,8 @@ describe("DialogCards", () => {
     // The trainer by class and name, and where its texts are.
     expect(card("object:5")?.textContent).toContain("Trainer Wanderer Jens");
     expect(card("object:5")?.textContent).toContain("Kampftexte des Trainers: im Bereich Pokémon");
-    expect(card("object:6")?.textContent).toContain("Gemeinsames Script 2001: in Bauen bearbeiten.");
+    expect(card("object:6")?.textContent).toContain("Gemeinsames Script: in Bauen bearbeiten.");
+    expect(card("object:6")?.textContent).not.toContain("2001");
     expect(card("bg:0")?.textContent).toContain("Schild 0");
     expect(card("bg:0")?.textContent).toContain("1 Nachricht · 1 Seite");
     // Only figures with a script of their own open the editor; the trainer opens the trainer.
@@ -87,9 +89,28 @@ describe("DialogCards", () => {
     expect(cards()!.textContent).not.toMatch(/Archiv|0433/);
   });
 
-  it("reads the trainer names when a trainer stands there, and names it by number until then", async () => {
+  it("reads the trainer names when a trainer stands there, and names it without a number until then", async () => {
     await openHeader12();
     expect(h.calls.needTrainers).toHaveBeenCalled();
-    expect(card("object:5")?.textContent).toContain("Trainer 0012");
+    expect(card("object:5")?.querySelector("button")?.getAttribute("aria-label")).toBe("Trainer");
+    expect(card("object:5")?.textContent).not.toMatch(/0012|\b12\b/);
+  });
+
+  it("one double click on a card's key opens once", async () => {
+    await openHeader12({ trainers: TRAINER_ROWS });
+    const doubleClick = (el: Element) =>
+      act(() => {
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 2 }));
+        el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+      });
+    const key = (card: string, name: string) => [...h.container.querySelectorAll(`[data-dialog-figure="${card}"] button`)].find((b) => b.textContent === name)!;
+    doubleClick(key("object:3", "Dialog bearbeiten…"));
+    expect(h.calls.onOpenDialog).toHaveBeenCalledTimes(1);
+    doubleClick(key("object:5", "Trainer öffnen"));
+    expect(h.calls.goTo).toHaveBeenCalledTimes(1);
+    // A double click elsewhere on the card opens too, once.
+    doubleClick(card("object:3")!.querySelector('[aria-label^="DS-Bildschirm"]')!);
+    expect(h.calls.onOpenDialog).toHaveBeenCalledTimes(2);
   });
 });

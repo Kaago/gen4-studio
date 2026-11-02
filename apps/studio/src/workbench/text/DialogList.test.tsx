@@ -100,4 +100,22 @@ describe("DialogList", () => {
     expect(place("Zweiblattdorf")).toBeNull();
     expect(place("Sandgemme")).not.toBeNull();
   });
+
+  it("a filter shows the matching headers without reading their figures", async () => {
+    h.show(h.base({ depth: "erzaehlen" }));
+    await flush();
+    h.type(h.container.querySelector<HTMLInputElement>('input[aria-label="Orte filtern"]')!, "e");
+    await flush();
+    // Both places match and show their headers, but nothing asks the session.
+    expect(headerRow(12)).not.toBeNull();
+    expect(headerRow(14)).not.toBeNull();
+    expect(headerRow(12)?.textContent).not.toMatch(/Figur|Lese/);
+    expect(dialogsOfHeader).not.toHaveBeenCalled();
+    // A place the user opens counts its figures.
+    h.click(place("Sandgemme"));
+    await flush();
+    expect(dialogsOfHeader).toHaveBeenCalledTimes(1);
+    expect(dialogsOfHeader).toHaveBeenCalledWith(14);
+    expect(headerRow(14)?.textContent).toContain("Keine Figur spricht");
+  });
 });

@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useId, useMemo } from "react";
+import type { MouseEvent } from "react";
 import type { FigureDialog } from "../../api";
 import { Button, DSScreen, EmptyState, Notice, PanelHead } from "../../ui/primitives";
 import { figureKey, figureSummary, speakersText } from "../dialog/dialogModel";
@@ -28,8 +29,15 @@ const FigureCard = memo(function FigureCard({
   const source = figure.source;
   const silent = source.kind === "none" || (source.kind === "local" && figure.messages === 0);
   const variant = first.length === 0 ? "empty" : figure.kind === "bg" ? "sign" : "textbox";
-  // A double click does what the card's key does: the dialog editor of a script of the figure's own, the trainer of a trainer.
-  const open = source.kind === "local" ? () => onEdit(figure) : source.kind === "trainer" ? () => onTrainer(source.id) : undefined;
+  // A double click does what the card's key does: the dialog editor of a script of the figure's own, the trainer of a trainer. A double click
+  // on that key itself opens once: the key takes the first click, neither its second click nor the double click open again.
+  const action = source.kind === "local" ? () => onEdit(figure) : source.kind === "trainer" ? () => onTrainer(source.id) : null;
+  const onDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    if (action !== null && !(event.target instanceof Element && event.target.closest("[data-card-action]"))) action();
+  };
+  const onAction = (event: MouseEvent<HTMLElement>) => {
+    if (action !== null && event.detail <= 1) action();
+  };
   return (
     <li
       className={styles.card}
@@ -37,7 +45,7 @@ const FigureCard = memo(function FigureCard({
       data-selected={selected ? "" : undefined}
       data-muted={silent ? "" : undefined}
       onClick={() => onSelect(figure)}
-      onDoubleClick={open}
+      onDoubleClick={onDoubleClick}
     >
       <div className={styles.screen}>
         <DSScreen variant={variant} pages={first} page={0} scale={1} />
@@ -50,14 +58,14 @@ const FigureCard = memo(function FigureCard({
       </button>
       {source.kind === "local" && (
         <div className={styles.actions}>
-          <Button kind="quiet" size="s" onClick={() => onEdit(figure)}>
+          <Button kind="quiet" size="s" data-card-action="" onClick={onAction}>
             Dialog bearbeiten…
           </Button>
         </div>
       )}
       {source.kind === "trainer" && (
         <div className={styles.actions}>
-          <Button kind="quiet" size="s" icon="forward" onClick={() => onTrainer(source.id)}>
+          <Button kind="quiet" size="s" icon="forward" data-card-action="" onClick={onAction}>
             Trainer öffnen
           </Button>
         </div>
