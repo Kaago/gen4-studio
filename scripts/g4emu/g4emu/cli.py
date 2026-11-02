@@ -1,4 +1,6 @@
-"""Command line: `g4emu run --rom R [--save S | --state ST] --out DIR [--core C] STEP...`.
+"""Command line: `g4emu run --rom R [--save S | --state ST] --out DIR [--core C] STEP...`,
+`g4emu repl --rom R [--save S | --state ST] --out DIR [--core C] [--gdb-port P]` (one step per
+stdin line while the game runs on, with a GDB stub on its RAM), `scenario` and `find-u16`.
 
 Exit codes: 0 all steps ok, 2 a step failed to reach its goal, 1 any other error.
 Every step prints one JSON line on stdout; the core's own console output goes to <out>/core.log.
@@ -13,7 +15,7 @@ import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import IO, Callable, Iterator
 
 from g4emu import emu, find, paths
 from g4emu.games import load_games
@@ -42,6 +44,16 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", required=True, type=Path)
     run.add_argument("--core", type=Path, default=None)
     run.add_argument("steps", nargs="*", help="steps such as: wait 100 press a:6 shot name")
+    repl = sub.add_parser(
+        "repl", help="boot a ROM, run one step per stdin line and serve a GDB stub on its RAM"
+    )
+    repl.add_argument("--rom", required=True, type=Path)
+    repl_source = repl.add_mutually_exclusive_group()
+    repl_source.add_argument("--save", type=Path, help="battery save copied into the cartridge memory")
+    repl_source.add_argument("--state", type=Path, help="savestate to continue from")
+    repl.add_argument("--out", required=True, type=Path)
+    repl.add_argument("--core", type=Path, default=None)
+    repl.add_argument("--gdb-port", type=int, default=0, help="port of the GDB stub (0: any free one)")
     scen = sub.add_parser("scenario", help="edit a project copy, build it and play it")
     scen.add_argument("file", type=Path)
     scen.add_argument("--project", required=True, type=Path, help="project copy under Roms/_testkopien")
@@ -64,6 +76,18 @@ def _core_output_to(log_path: Path) -> Iterator[Callable[[dict], None]]:
     Yields a writer for JSON lines that goes to the saved, real stdout. The libretro core
     prints to stdout and stderr by itself, so both descriptors are redirected.
     """
+    with _real_stdout_beside(log_path) as real_stdout:
+
+        def emit(line: dict) -> None:
+            real_stdout.write(json.dumps(line, ensure_ascii=False) + "\n")
+            real_stdout.flush()
+
+        yield emit
+
+
+@contextmanager
+def _real_stdout_beside(log_path: Path) -> Iterator[IO[str]]:
+    """Like `_core_output_to`, but yields the saved, real stdout as a text stream."""
     sys.stdout.flush()
     sys.stderr.flush()
     saved = os.dup(1)
@@ -73,13 +97,8 @@ def _core_output_to(log_path: Path) -> Iterator[Callable[[dict], None]]:
     os.dup2(log_fd, 2)
     os.close(log_fd)
     real_stdout = os.fdopen(saved, "w", buffering=1, encoding="utf-8")
-
-    def emit(line: dict) -> None:
-        real_stdout.write(json.dumps(line, ensure_ascii=False) + "\n")
-        real_stdout.flush()
-
     try:
-        yield emit
+        yield real_stdout
     finally:
         try:
             ctypes.CDLL(None).fflush(None)  # flush the core's C stdio buffer into core.log
@@ -147,6 +166,35 @@ def _run(args: argparse.Namespace) -> int:
     for message in messages:
         print(message, file=sys.stderr)
     return status
+
+
+def _repl(args: argparse.Namespace) -> int:
+    from g4emu.repl import run_repl
+
+    if not args.rom.is_file():
+        return _fail(f"ROM nicht gefunden: {args.rom}")
+    core = args.core or paths.default_core()
+    if not core.is_file():
+        return _fail(f"Kern nicht gefunden: {core} (bash scripts/g4emu/setup.sh ausführen)")
+    if args.save is not None and not args.save.is_file():
+        return _fail(f"Spielstand nicht gefunden: {args.save}")
+    if args.state is not None and not args.state.is_file():
+        return _fail(f"Savestate nicht gefunden: {args.state}")
+    if not 0 <= args.gdb_port <= 65535:
+        return _fail(f"g4emu repl: --gdb-port {args.gdb_port} ist kein Port")
+    try:
+        out = paths.check_out_dir(args.out, paths.roms_dir())
+        emu.game_code(args.rom)
+    except (ValueError, emu.EmuError) as e:
+        return _fail(str(e))
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        with _real_stdout_beside(out / "core.log") as real_stdout:
+            return run_repl(
+                args.rom, args.save, out, core, args.gdb_port, sys.stdin, real_stdout, args.state
+            )
+    except (emu.EmuError, OSError) as e:
+        return _fail(str(e))
 
 
 def _write_last(instance: emu.Emu, out: Path, save: Path | None) -> list[str]:
@@ -217,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         return _find_u16(args)
     if args.command == "scenario":
         return _scenario(args)
+    if args.command == "repl":
+        return _repl(args)
     return _run(args)
 
 

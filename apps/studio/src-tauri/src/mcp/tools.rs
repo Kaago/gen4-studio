@@ -251,7 +251,9 @@ impl ResourceUri {
 /// and a repository past the store; publishing builds and writes a release past it, „Stand
 /// sichern“ commits, and its checks may write the `.gitignore` block. A recipe (`recipe_apply`)
 /// creates members and writes scripts and archives as file steps of its own; splitting a
-/// message (`split_message`) writes and compiles the figure's script file as one.
+/// message (`split_message`) writes and compiles the figure's script file as one. A live value
+/// (`live_set`) goes into the running game's RAM, past the store: no squash or rollback
+/// reaches it.
 /// `apply_fix` with `create_script` or
 /// `remove_hidden` is refused too (see [`not_in_batch`]).
 const NOT_IN_BATCH: &[&str] = &[
@@ -290,6 +292,7 @@ const NOT_IN_BATCH: &[&str] = &[
     "git_commit_prepare",
     "recipe_apply",
     "split_message",
+    "live_set",
 ];
 
 /// The commands that run long enough for the UI to show them while they run (the hub's `busy`
@@ -298,6 +301,11 @@ const NOT_IN_BATCH: &[&str] = &[
 /// folder, about 10 s), and a release (a whole build, a minute or two). Never in a batch
 /// ([`NOT_IN_BATCH`]).
 const LONG_TOOLS: &[&str] = &["adopt_text_project", "git_init", "publish_patch"];
+
+/// The writing commands that change no project (by command name, so `g4_call` counts too): a
+/// live value goes into the running game's RAM. They need the write grant like every write,
+/// but report no change (the UI would recount and reload the project for it).
+const NO_PROJECT_CHANGE: &[&str] = &["live_set"];
 
 /// Whether a batch refuses `command` with `args` (keyed as `dispatch` takes them): the
 /// commands of [`NOT_IN_BATCH`], `apply_fix` with `create_script`, which writes and
@@ -720,7 +728,10 @@ impl<'a> Call<'a> {
             self.confirm(command, &what)?;
         }
         let _turn = self.begin(admitted.changes)?;
-        if admitted.changes {
+        let project_change = admitted.changes
+            && !matches!(&prepared, Prepared::Command { command, .. }
+                if NO_PROJECT_CHANGE.contains(&command.as_str()));
+        if project_change {
             let written = match &prepared {
                 Prepared::Command { command, args } => (command.clone(), args.clone()),
                 _ => (String::new(), Value::Null),
@@ -3931,6 +3942,59 @@ mod tests {
         ] {
             assert!(not_in_batch(command, &json!({})), "{command}");
         }
+    }
+
+    /// A live value goes into the running game, not into the project: no step of the batch's
+    /// squash or rollback reaches it, so `live_set` never goes into a batch; the status does.
+    #[test]
+    fn live_set_is_not_in_batch() {
+        assert!(not_in_batch(
+            "live_set",
+            &json!({ "kind": "flag", "number": 148, "value": 1 })
+        ));
+        assert!(!not_in_batch("live_status", &json!({})));
+    }
+
+    /// A live value goes into the running game, not into the project: an agent's `live_set`
+    /// needs the write grant but reports no change (the UI would reload and recount for it),
+    /// whether it is written or refused.
+    #[test]
+    fn live_set_reports_no_change() {
+        use g4_kernel::live::fake_stub::{FakeStub, Quirks};
+        let (fixture, state, toolbox) = shared_app();
+        grant(&state, &fixture, GrantLevel::Write);
+        let set = json!({ "kind": "flag", "number": 371, "value": 0 });
+        // Without a connection: refused, nothing reported.
+        match toolbox.call("live_set", set.clone(), AGENT) {
+            Err(ToolError::Failed { code, .. }) => assert_eq!(code, "not_live"),
+            other => panic!("{other:?}"),
+        }
+        assert!(changes(&state).is_empty(), "{:?}", changes(&state));
+        // Connected to a Platinum DE fake (flag 0x173 = 371 is bit 3 of byte 0x2E of the
+        // flags): written, still nothing reported and no step.
+        std::fs::write(
+            fixture.dir.path().join("header.yaml"),
+            "title: \"POKEMON PL\"\ngamecode: CPUD\nmakercode: \"01\"\n",
+        )
+        .unwrap();
+        crate::commands::open_project_impl(&state, fixture.dir.path().to_str().unwrap()).unwrap();
+        let stub = FakeStub::start(Quirks::melonds_1_1());
+        let block: u32 = 0x0227_E354;
+        stub.poke(0x023F_FE0C, b"CPUD");
+        stub.poke(0x0210_1EE0, &block.to_le_bytes());
+        let flag_byte = block + 0x14 + 0xFEC + 0x2E;
+        stub.poke(flag_byte, &[1 << 3]);
+        crate::commands::live_connect_impl(&state, None, stub.port).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while state.live.status().snapshot.is_none() {
+            assert!(Instant::now() < deadline, "never live");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        toolbox.call("live_set", set, AGENT).unwrap();
+        assert_eq!(stub.peek(flag_byte, 1), [0]);
+        assert!(changes(&state).is_empty(), "{:?}", changes(&state));
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+        state.live.stop();
     }
 
     #[test]

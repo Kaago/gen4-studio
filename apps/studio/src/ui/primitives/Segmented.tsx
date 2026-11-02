@@ -35,17 +35,15 @@ export function Segmented<V extends string>({ options, value, onChange, ariaLabe
     >
       {options.map((o) => {
         const icon = o.icon && <Icon name={o.icon} weight={o.value === value ? "fill" : "regular"} />;
-        return iconOnly && o.icon ? (
-          <Tooltip key={o.value} content={o.label}>
-            <Toggle<V> value={o.value} className={styles.option} aria-label={o.label} disabled={o.disabled}>
+        const symbol = iconOnly && o.icon !== undefined;
+        // One element tree in both modes (the tooltip only switches off): an option keeps its button, and its focus, when the mode changes.
+        return (
+          <Tooltip key={o.value} content={o.label} disabled={!symbol}>
+            <Toggle<V> value={o.value} className={styles.option} aria-label={symbol ? o.label : undefined} disabled={o.disabled}>
               {icon}
+              {symbol ? null : o.label}
             </Toggle>
           </Tooltip>
-        ) : (
-          <Toggle<V> key={o.value} value={o.value} className={styles.option} disabled={o.disabled}>
-            {icon}
-            {o.label}
-          </Toggle>
         );
       })}
     </ToggleGroup>

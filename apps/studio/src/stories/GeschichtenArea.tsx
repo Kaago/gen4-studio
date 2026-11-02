@@ -19,8 +19,8 @@ import styles from "./GeschichtenArea.module.css";
 /** The entries of the list, each with its surface. */
 export type GeschichtenEntry = "threads" | "stories" | "flags";
 
-/** What the flags surface needs from the app (3d.1, unchanged since Technik held it): the open project, the chosen number, the reports. */
-export type GeschichtenFlagsProps = Pick<FlagsSurfaceProps, "project" | "revision" | "selected" | "onSelect" | "readOnly" | "onError" | "onNamed">;
+/** What the flags surface needs from the app (3d.1, unchanged since Technik held it): the open project, the chosen number, the reports and play mode (3d.9). */
+export type GeschichtenFlagsProps = Pick<FlagsSurfaceProps, "project" | "revision" | "selected" | "onSelect" | "readOnly" | "onError" | "onNamed" | "live">;
 
 export interface GeschichtenAreaProps {
   /** The open project's folder; null without one. */
@@ -140,6 +140,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           onError={props.flags?.onError ?? noSelect}
           onNamed={props.flags?.onNamed}
           onOpenProject={props.onOpenProject}
+          live={props.flags?.live}
         />
       )}
     </div>

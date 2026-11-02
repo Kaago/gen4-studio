@@ -1,0 +1,32 @@
+.row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.label {
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.state {
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+.quiet {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The path of melonDS's settings: one line, ending in an ellipsis; its title carries the full path. */
+.path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-s);
+  font-family: var(--g4-schrift-familie-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

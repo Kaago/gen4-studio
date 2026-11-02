@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readCss, ruleBody } from "../cssSource";
 import { Hinge } from "./Hinge";
-import type { HingeProps } from "./Hinge";
+import type { HingeLive, HingeProps } from "./Hinge";
 
 const env = vi.hoisted(() => ({ tauri: false }));
 vi.mock("../../platform/transport", () => ({ invoke: vi.fn(), inTauri: () => env.tauri }));
@@ -342,5 +342,263 @@ describe("Hinge", () => {
     Object.defineProperty(down, "pointerId", { value: 1 });
     act(() => void bar().dispatchEvent(down));
     expect(Element.prototype.setPointerCapture).not.toHaveBeenCalled();
+  });
+  describe("in play mode", () => {
+    const live = (over: Partial<HingeLive> = {}): HingeLive => ({ state: "live", text: "Live", breakpoints: 0, onResume: vi.fn(), onReload: vi.fn(), onStop: vi.fn(), ...over });
+    const liveButton = (attr: string) => container.querySelector<HTMLButtonElement>(`button[${attr}]`);
+
+    it("turns_amber_in_play_mode_and_says_spielt_in_melonds", () => {
+      show(base());
+      expect(bar().getAttribute("data-hinge-mode")).toBeNull();
+      show(base({ live: live({ state: "connecting", text: "Verbindet …" }) }));
+      expect(bar().className).toContain("playMode");
+      expect(bar().getAttribute("data-hinge-mode")).toBe("play");
+      expect(bar().textContent).toContain("Spielt in melonDS");
+      expect(container.querySelector("[data-live-state]")?.getAttribute("data-live-state")).toBe("connecting");
+      expect(container.querySelector("[data-live-state]")?.textContent).toBe("Verbindet …");
+      expect(button(/Hier spielen/)).toBeUndefined();
+      // Off is no play mode: the hinge stays dark and offers „Hier spielen“.
+      show(base({ live: live({ state: "off" }) }));
+      expect(bar().className).not.toContain("playMode");
+      expect(bar().getAttribute("data-hinge-mode")).toBeNull();
+      expect(button(/Hier spielen/)).toBeDefined();
+      // The amber comes from the live theme tokens; the hinge keeps its transition.
+      const css = readCss("./Hinge.module.css", import.meta.url);
+      const play = ruleBody(css, ".playMode");
+      expect(play).toMatch(/--g4-scharnier-grund:\s*var\(--g4-live-grund\)/);
+      expect(play).toMatch(/--g4-scharnier-text:\s*var\(--g4-live-auf\)/);
+      expect(play).toMatch(/--g4-scharnier-leise:\s*var\(--g4-live-auf\)/);
+      // R17: the controls stand on `--g4-live-taste` (readable in both themes), the selection is dark with light text, the lines dark.
+      expect(play).toMatch(/--g4-scharnier-taste:\s*var\(--g4-live-taste\)/);
+      expect(play).toMatch(/--g4-scharnier-kante:\s*var\(--g4-live-text\)/);
+      expect(play).toMatch(/--g4-flaeche-blatt:\s*var\(--g4-live-auf\)/);
+      expect(play).toMatch(/--g4-auswahl-flaeche:\s*var\(--g4-live-auf\)/);
+      expect(play).toMatch(/--g4-akzent-text:\s*var\(--g4-live-taste\)/);
+      expect(play).toMatch(/--g4-linie-standard:\s*var\(--g4-live-auf\)/);
+      expect(play).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+      expect(ruleBody(css, ".hinge")).toMatch(/transition:\s*background var\(--g4-dauer-scharnier\)/);
+    });
+
+    it("offers_weiter_only_while_halted_and_calls_resume", () => {
+      show(base({ live: live() }));
+      expect(liveButton("data-live-resume")).toBeNull();
+      const halted = live({ state: "halted", text: "Gehalten: Figur 3: 0 → 1" });
+      show(base({ live: halted }));
+      const resume = liveButton("data-live-resume")!;
+      expect(resume.textContent).toBe("Weiter");
+      expect(resume.getAttribute("data-kind")).toBe("primary");
+      expect(container.querySelector("[data-live-state]")?.textContent).toBe("Gehalten: Figur 3: 0 → 1");
+      // The one primary button of the bar.
+      expect(container.querySelectorAll('button[data-kind="primary"]')).toHaveLength(1);
+      act(() => resume.click());
+      expect(halted.onResume).toHaveBeenCalledOnce();
+    });
+
+    it("neu_laden_and_stoppen_call_their_handlers", () => {
+      const props = live({ state: "lost", text: "Verbindung verloren: Port zu" });
+      show(base({ live: props }));
+      expect(liveButton("data-live-reload")!.textContent).toBe("Neu laden");
+      expect(liveButton("data-live-stop")!.textContent).toBe("Stoppen");
+      expect(liveButton("data-live-reload")!.getAttribute("data-kind")).toBe("secondary");
+      expect(liveButton("data-live-stop")!.getAttribute("data-kind")).toBe("secondary");
+      act(() => liveButton("data-live-reload")!.click());
+      expect(props.onReload).toHaveBeenCalledOnce();
+      act(() => liveButton("data-live-stop")!.click());
+      expect(props.onStop).toHaveBeenCalledOnce();
+      // While it builds again, „Neu laden“ waits (aria-disabled keeps the focus).
+      show(base({ live: props, playing: true }));
+      expect(liveButton("data-live-reload")!.getAttribute("aria-disabled")).toBe("true");
+      act(() => liveButton("data-live-reload")!.click());
+      expect(props.onReload).toHaveBeenCalledOnce();
+    });
+
+    it("keeps_weiter_neu_laden_and_stoppen_whole_and_lets_the_state_text_shrink_first", () => {
+      // B1: in a narrow hinge the state text ends in an ellipsis (its title carries the full text); the badge and the buttons never shrink.
+      const text = "Gehalten: Auslöser 0 · Eventdatei 394: 0 → 1";
+      show(base({ live: live({ state: "halted", text }) }));
+      const state = container.querySelector<HTMLElement>("[data-live-state]")!;
+      expect(state.getAttribute("title")).toBe(text);
+      const group = container.querySelector<HTMLElement>("[data-live-buttons]")!;
+      for (const attr of ["data-live-resume", "data-live-reload", "data-live-stop"]) expect(group.querySelector(`button[${attr}]`)).not.toBeNull();
+      expect(container.querySelector("[data-live-badge]")?.textContent).toBe("Spielt in melonDS");
+      const css = readCss("./Hinge.module.css", import.meta.url);
+      // The right cluster may shrink (it held its full width before, and the buttons fell off the bar's end).
+      expect(ruleBody(css, ".right")).toMatch(/flex:\s*0 1 auto/);
+      expect(ruleBody(css, ".right")).toMatch(/min-width:\s*0/);
+      expect(ruleBody(css, ".liveActions")).toMatch(/flex:\s*0 1 auto/);
+      expect(ruleBody(css, ".liveActions")).toMatch(/min-width:\s*0/);
+      const textRule = ruleBody(css, ".liveText");
+      expect(textRule).toMatch(/flex:\s*0 1 auto/);
+      expect(textRule).toMatch(/min-width:\s*0/);
+      expect(textRule).toMatch(/overflow:\s*hidden/);
+      expect(textRule).toMatch(/text-overflow:\s*ellipsis/);
+      expect(textRule).toMatch(/white-space:\s*nowrap/);
+      expect(textRule).not.toMatch(/max-width/);
+      expect(ruleBody(css, ".liveButtons")).toMatch(/flex:\s*none/);
+      expect(ruleBody(css, ".liveBadge")).toMatch(/flex:\s*none/);
+    });
+
+    describe("in a bar too narrow for everything", () => {
+      /** jsdom lays nothing out: the bar's widths follow the squeeze it shows, the state text's from the table. */
+      let barWidth = 700;
+      let barContent: number[] = [];
+      let textWidth: number[] = [];
+      let observed: (() => void) | null = null;
+      const level = () => Number(bar().getAttribute("data-hinge-squeeze") ?? 0);
+      const saved = {
+        scroll: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth"),
+        client: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
+        observer: globalThis.ResizeObserver,
+      };
+      beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+          configurable: true,
+          get(this: HTMLElement) {
+            if (this.getAttribute("aria-label") === "Scharnier") return barContent[level()] ?? barWidth;
+            if (this.hasAttribute("data-live-state")) return 300;
+            return 0;
+          },
+        });
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+          configurable: true,
+          get(this: HTMLElement) {
+            if (this.getAttribute("aria-label") === "Scharnier") return barWidth;
+            if (this.hasAttribute("data-live-state")) return textWidth[level()] ?? 300;
+            return 0;
+          },
+        });
+        globalThis.ResizeObserver = class {
+          constructor(cb: () => void) {
+            observed = cb;
+          }
+          observe() {}
+          unobserve() {}
+          disconnect() {}
+        } as unknown as typeof ResizeObserver;
+      });
+      afterEach(() => {
+        if (saved.scroll) Object.defineProperty(HTMLElement.prototype, "scrollWidth", saved.scroll);
+        if (saved.client) Object.defineProperty(HTMLElement.prototype, "clientWidth", saved.client);
+        globalThis.ResizeObserver = saved.observer;
+        observed = null;
+        barWidth = 700;
+        barContent = [];
+        textWidth = [];
+      });
+      const narrow = (over: Partial<HingeProps> = {}) =>
+        base({ live: live({ state: "halted", text: "Gehalten: Auslöser 0 · Eventdatei 394: 0 → 1" }), problems: { errors: 1, warnings: 101, infos: 11 }, onMaximize: vi.fn(), ...over });
+      const depthLabels = () => [...container.querySelectorAll('[aria-label="Tiefe"] button')].map((b) => [b.getAttribute("aria-label"), b.textContent]);
+
+      it("turns_the_depth_into_symbols_first_when_the_state_text_alone_cannot_make_room", () => {
+        barContent = [1000, 690];
+        show(narrow());
+        expect(level()).toBe(1);
+        // The names stay as the accessible names (and tooltips); the light and „Schau maximieren“ stay as they are.
+        expect(depthLabels()).toEqual([["Erzählen", ""], ["Bauen", ""], ["Tüfteln", ""]]);
+        expect(container.querySelectorAll("[data-count]")).toHaveLength(3);
+        expect(button("Schau maximieren")).toBeDefined();
+      });
+
+      it("then_shows_the_problem_light_as_its_dot_and_lets_schau_maximieren_yield", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow());
+        expect(level()).toBe(3);
+        const light = container.querySelector<HTMLElement>("[data-light]")!;
+        expect(light.querySelectorAll("[data-count]")).toHaveLength(0);
+        // The counts stay in the light's name and its title; a click still opens the problems.
+        expect(light.getAttribute("aria-label")).toBe("1 Fehler, 101 Warnungen, 11 Hinweise");
+        expect(light.getAttribute("title")).toBe("1 Fehler, 101 Warnungen, 11 Hinweise");
+        expect(button("Schau maximieren")).toBeUndefined();
+        // History, redo, the badge and the three buttons stay.
+        expect(button(/Verlauf/)).toBeDefined();
+        expect(button("Wiederholen")).toBeDefined();
+        expect(container.querySelector("[data-live-badge]")).not.toBeNull();
+        for (const attr of ["data-live-resume", "data-live-reload", "data-live-stop"]) expect(container.querySelector(`button[${attr}]`)).not.toBeNull();
+      });
+
+      it("keeps_a_pressed_schau_maximieren_so_the_view_can_be_restored", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow({ maximized: true }));
+        expect(level()).toBe(3);
+        expect(button("Schau maximieren")?.getAttribute("aria-pressed")).toBe("true");
+      });
+
+      it("steps_when_the_state_text_would_shrink_below_a_few_words_even_without_overflow", () => {
+        // Nothing overflows, but the state text is down to 40 px of its 300: the depth gives way before it.
+        textWidth = [40, 140];
+        show(narrow());
+        expect(level()).toBe(1);
+      });
+
+      it("takes_the_room_back_when_the_bar_grows", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow());
+        expect(level()).toBe(3);
+        barWidth = 1200;
+        act(() => observed?.());
+        expect(level()).toBe(0);
+        expect(depthLabels()).toEqual([[null, "Erzählen"], [null, "Bauen"], [null, "Tüfteln"]]);
+        expect(container.querySelectorAll("[data-count]")).toHaveLength(3);
+      });
+
+      it("keeps_the_focus_on_a_depth_toggle_when_the_depth_or_the_state_text_changes", () => {
+        barContent = [1000, 690];
+        const props = narrow();
+        show(props);
+        expect(level()).toBe(1);
+        const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Tiefe"] button[aria-label="Tüfteln"]')!;
+        const focused = toggle();
+        act(() => focused.focus());
+        // The parent answers onDepth with the new depth: no width changes, the toggles stay where they are.
+        show({ ...props, depth: "tuefteln" });
+        expect(level()).toBe(1);
+        expect(toggle()).toBe(focused);
+        expect(document.activeElement).toBe(focused);
+        // A new state text starts the fit again; the toggles stay mounted through it.
+        show({ ...props, depth: "tuefteln", live: live({ state: "live", text: "Live · 1 Haltepunkt" }) });
+        expect(level()).toBe(1);
+        expect(toggle()).toBe(focused);
+        expect(document.activeElement).toBe(focused);
+      });
+
+      it("hands_the_focus_to_redo_when_schau_maximieren_steps_aside", () => {
+        barContent = [1000, 850, 760, 690];
+        const props = narrow({ maximized: true, history: { undo: labels(1), redo: ["x"] } });
+        show(props);
+        expect(level()).toBe(3);
+        const max = button("Schau maximieren")!;
+        act(() => max.focus());
+        act(() => max.click());
+        expect(props.onMaximize).toHaveBeenCalledOnce();
+        show({ ...props, maximized: false });
+        expect(button("Schau maximieren")).toBeUndefined();
+        expect(document.activeElement).toBe(button("Wiederholen"));
+        // Without anything to redo (a disabled button takes no focus) the history takes it.
+        show({ ...props, maximized: true, history: { undo: labels(1), redo: [] } });
+        act(() => button("Schau maximieren")!.focus());
+        act(() => button("Schau maximieren")!.click());
+        show({ ...props, maximized: false, history: { undo: labels(1), redo: [] } });
+        expect(document.activeElement).toBe(button(/Verlauf/));
+      });
+
+      it("never_squeezes_outside_play_mode", () => {
+        barContent = [1000, 850, 760, 690];
+        show(narrow({ live: null }));
+        expect(level()).toBe(0);
+        expect(bar().hasAttribute("data-hinge-squeeze")).toBe(false);
+      });
+    });
+
+    it("keeps_depth_light_and_history_in_play_mode", () => {
+      const props = base({ live: live({ text: "Live · 2 Haltepunkte", breakpoints: 2 }), history: { undo: labels(2), redo: ["x"] } });
+      show(props);
+      expect(container.querySelector("nav")?.textContent).toContain("Zweiblattdorf");
+      expect(container.querySelector('[role="radiogroup"], [aria-label="Tiefe"]')).not.toBeNull();
+      expect(container.querySelector("[data-light]")).not.toBeNull();
+      expect(button(/Verlauf, 2 Schritte/)).toBeDefined();
+      act(() => button("Wiederholen")!.click());
+      expect(props.onRedo).toHaveBeenCalledOnce();
+      expect(container.querySelector("[data-live-state]")?.textContent).toBe("Live · 2 Haltepunkte");
+    });
   });
 });

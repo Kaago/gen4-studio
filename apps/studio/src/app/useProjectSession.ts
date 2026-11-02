@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
-import { acceptDisk, buildRom, closeProject as closeBackendProject, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, memberCounts, openProject, publishPatch, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
-import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, MemberCounts, ProjectInfo, PublishOptionsDto, PublishPhase, PublishReportDto, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
+import { acceptDisk, buildRom, closeProject as closeBackendProject, dirty, errorText, headerPatchStatus, isCmdError, listHeaders, livePlay, memberCounts, openProject, publishPatch, reloadAsset, repairHeaderPatch, resolveTextConflicts, runRom, save, textConflictArchives, textProjectStatus } from "../api";
+import type { AssetId, BuildReport, BuildStep, CmdError, HeaderListing, HeaderSummary, LivePlayDto, MemberCounts, ProjectInfo, PublishOptionsDto, PublishPhase, PublishReportDto, SyncOutcome, TextKeep, TextProjectStatus } from "../api";
 import { staleText } from "../assets";
 import { formatSeconds } from "../technik/stepWords";
 import { BUILD_CONFLICTS, CONFLICTS_TOAST } from "../technik/syncWords";
@@ -18,6 +18,8 @@ import { listToasts, toast } from "../ui/frame/toasts";
 const BROKEN_PATCH = "Patch „Dynamische Header“ fehlerhaft: das Spiel bleibt nach dem Intro schwarz (falscher Funktionsaufruf, wie ihn DSPRE für Platin DE/FR/IT/ES schreibt).";
 
 const EMULATOR_KEY = "g4.emulatorPath";
+/** A macOS app bundle (melonDS.app): „Hier spielen“ starts play mode with it. */
+const APP_BUNDLE = /\.app\/?$/i;
 
 function storedEmulator(): string | null {
   try {
@@ -652,14 +654,20 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
     }
   }
 
-  /** Starts the emulator on `rom` (default: the last ROM built); asks for an emulator first when none is stored. */
-  async function onRun(rom: string | null = lastRom) {
+  /**
+   * Starts the emulator on `rom` (default: the last ROM built); asks for an emulator first when none is stored. With `live` („Hier spielen“)
+   * inside the app and with a melonDS bundle (`.app`) it starts play mode (`livePlay`): the game runs connected, or without the connection
+   * and the reason as info.
+   */
+  async function onRun(rom: string | null = lastRom, live = false) {
     if (!rom) return;
     try {
       const emulator = storedEmulator() ?? (await pickEmulator());
       if (!emulator) return;
+      let played: LivePlayDto | null = null;
       try {
-        await runRom(emulator, rom);
+        if (live && inTauri() && APP_BUNDLE.test(emulator)) played = await livePlay(emulator, rom);
+        else await runRom(emulator, rom);
       } catch (e) {
         // A wrong choice cannot be undone anywhere else in the UI: forget it, so the next start asks again.
         forgetEmulator();
@@ -668,7 +676,9 @@ export function useProjectSession({ bus, problems, scripts, onShowProblems, sync
         setMessage({ kind: "error", text: `${/[.!?]$/.test(why) ? why : `${why}.`} Beim nächsten Start fragt das Studio erneut nach dem Emulator.` });
         return;
       }
-      setMessage({ kind: "info", text: `Emulator gestartet: ${rom}` });
+      if (played === null) setMessage({ kind: "info", text: `Emulator gestartet: ${rom}` });
+      else if (played.live) setMessage({ kind: "info", text: `Spielt in melonDS: ${rom}` });
+      else setMessage({ kind: "info", text: played.reason ? `Ohne Live-Verbindung: ${played.reason}` : "Ohne Live-Verbindung" });
     } catch (e) {
       fail(e);
     }

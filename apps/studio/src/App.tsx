@@ -78,6 +78,7 @@ import { afterMapImport } from "./app/mapImport";
 import { NO_PLACE, paletteEntries } from "./app/paletteEntries";
 import type { PaletteEntry } from "./app/paletteEntries";
 import { HingeHost } from "./app/HingeHost";
+import { useLive } from "./app/useLive";
 import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { ToolHints } from "./app/ToolHints";
@@ -660,7 +661,7 @@ function AppBody() {
   // It builds to the path of the last build without asking; only the first play asks for one (the title bar's "Bauen" always asks).
   const playing = useRef(false);
   const playRom = useStableCallback(async (rom: string) => {
-    if (inTauri()) await session.onRun(rom);
+    if (inTauri()) await session.onRun(rom, true);
     else toast.info("Im Browser-Modus wird nur gebaut");
   });
   const onPlay = useStableCallback(async () => {
@@ -674,6 +675,17 @@ function AppBody() {
       playing.current = false;
     }
   });
+  // Play mode (3d.9): followed once here; the hinges show it, the message says why it ended by itself. „Neu laden“ stops, then plays
+  // again (build and start); „Stoppen“ ends it.
+  const liveMode = useLive(session.fail, session.setMessage);
+  const onLiveReload = useStableCallback(async () => {
+    await liveMode.stop();
+    await onPlay();
+  });
+  const hingeLive = useMemo(
+    () => (liveMode.hinge ? { ...liveMode.hinge, onResume: () => void liveMode.resume(), onReload: () => void onLiveReload(), onStop: () => void liveMode.stop() } : null),
+    [liveMode.hinge, liveMode.resume, liveMode.stop, onLiveReload],
+  );
   // „Übernehmen und bauen“ of a text conflict: the build goes on as it was asked for; one from „Hier spielen“ then plays.
   const onResolveConflicts = useStableCallback(async (choices: TextConflictChoice[]) => {
     const play = session.textConflicts?.play ?? false;
@@ -1403,6 +1415,7 @@ function AppBody() {
         onOpenProject={openProject}
         emulatorPath={session.emulatorPath}
         onPickEmulator={() => void session.onPickEmulator()}
+        live={liveMode.status}
         tools={toolStatus}
         onHeaderPatch={onHeaderPatch}
         onHeaderPatchRepaired={session.patchRepaired}
@@ -1444,7 +1457,7 @@ function AppBody() {
         onSelectStory={chooseStory}
         flags={
           info
-            ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed }
+            ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed, live: liveMode }
             : undefined
         }
         textProject={isTextProject}
@@ -1494,6 +1507,7 @@ function AppBody() {
           onPlay={onPlay}
           playing={session.busy}
           canPlay={info !== null}
+          live={hingeLive}
           dock={docks[target]}
           wizard={target === "welt" ? showsWizard : undefined}
         />
@@ -1504,7 +1518,7 @@ function AppBody() {
   return (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
-        <Workbench data={data} live={live}>
+        <Workbench data={data} live={live} liveMode={liveMode}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
             <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>

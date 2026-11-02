@@ -38,3 +38,5 @@ pub mod stories;
 // Appended last as well; the blank line above keeps rustfmt from sorting it up (it reorders
 // `mod` declarations only within a group) without skipping the file.
 pub mod dialog;
+
+pub mod live;

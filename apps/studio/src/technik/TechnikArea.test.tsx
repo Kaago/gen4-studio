@@ -3,7 +3,8 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HeaderPatchDto, PreviewDto } from "../api";
+import type { HeaderPatchDto, LiveStatusDto, PreviewDto } from "../api";
+import { OFF_STATUS } from "../api.live";
 import { applyHeaderPatch, baseStatus, diffEntity, dirty, headerPatchStatus, listFlags, projectPreviewGet, projectPreviewSet, releases, repairHeaderPatch } from "../api";
 import { createToolStatus } from "../app/toolStatus";
 import type { ToolStatusStore } from "../app/toolStatus";
@@ -691,6 +692,25 @@ describe("TechnikArea", () => {
     await click(row("Emulator"));
     await click(button("Emulator wählen"));
     expect(handlers.onPickEmulator).toHaveBeenCalledOnce();
+  });
+
+  it("emulator_shows_the_play_mode_row_below_the_emulator", async () => {
+    await render({ start: "emulator" });
+    expect(surface()?.textContent).toContain("Spielmodus live");
+    expect(surface()?.textContent).toContain("Kein melonDS gewählt");
+    const live: LiveStatusDto = {
+      ...OFF_STATUS,
+      melonds: { bundle: "/Applications/melonDS.app", binary: "/b", version: "1.1", config_path: "/c/melonDS.toml", config: { enabled: true, break_on_startup: false, port: 3333, jit: false } },
+    };
+    // An emulator is chosen, melonDS not read yet (the hub reads it at „Hier spielen“).
+    await render({ start: "emulator", emulatorPath: "/Applications/melonDS.app" });
+    expect(surface()?.textContent).toContain("Noch nicht geprüft: wird beim nächsten „Hier spielen“ gelesen");
+    expect(surface()?.textContent).not.toContain("Kein melonDS gewählt");
+    await render({ start: "emulator", live });
+    const text = surface()!.textContent!;
+    expect(text).toContain("melonDS 1.1 · GDB-Stub an · Port 3333 · JIT aus");
+    // Below the emulator's own row.
+    expect(text.indexOf("Emulator wählen")).toBeLessThan(text.indexOf("Spielmodus live"));
   });
 
   it("werkzeuge_shows_apicula_and_rotom_lsp_with_their_state_and_restarts_a_stopped_server", async () => {

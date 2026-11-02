@@ -306,6 +306,8 @@ vi.mock("@tauri-apps/api/webview", () => ({ getCurrentWebview: () => ({ onDragDr
 // `env.tauri`: whether the page pretends to run inside the Tauri window.
 const env = vi.hoisted(() => ({ tauri: false }));
 vi.mock("./platform/transport", () => ({ invoke: vi.fn(), inTauri: () => env.tauri }));
+// Play mode stays off here: its transport answers every command with undefined (useLive has its own tests).
+vi.mock("./platform/liveEvents", async (importOriginal) => ({ ...(await importOriginal<typeof import("./platform/liveEvents")>()), subscribeLive: () => () => {} }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

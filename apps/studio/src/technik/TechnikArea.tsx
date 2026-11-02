@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
-import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto } from "../api";
+import type { Against, AssetId, BuildStep, ChangedEntry, DiffSubject, HeaderPatchDto, LiveStatusDto } from "../api";
 import { toolsText } from "../app/toolStatus";
 import type { ApiculaState, LspTool, LspToolState, ToolStatusStore } from "../app/toolStatus";
 import { CHECK_CODES, CHECK_MESSAGES } from "../checks/messages";
@@ -10,6 +10,7 @@ import { useReset } from "../original/OriginalContext";
 import { useProjectPreview } from "../project/useProjectPreview";
 import type { ProjectPreviewState } from "../project/useProjectPreview";
 import { EmulatorRow } from "../ui/frame/EmulatorRow";
+import { LiveRow } from "../ui/frame/LiveRow";
 import { ListPane } from "../ui/frame/ListPane";
 import { ProjectPreview } from "../ui/frame/ProjectPreview";
 import type { Depth } from "../ui/frame/shellState";
@@ -71,6 +72,8 @@ export type TechnikAreaProps = {
   onOpenProject: () => void;
   emulatorPath: string | null;
   onPickEmulator: () => void;
+  /** Play mode's status (Emulator: the row „Spielmodus live“ reads its melonDS); absent: none known. */
+  live?: LiveStatusDto;
   tools: ToolStatusStore;
   /** After the patch went in: the header table is read again. */
   onHeaderPatch: () => Promise<void>;
@@ -246,6 +249,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
         <Surface entry="emulator" title="Emulator">
           <p className={styles.text}>Das Studio startet gebaute ROMs in diesem Emulator. Die Wahl gilt für alle Projekte.</p>
           <EmulatorRow path={emulatorPath} onPick={props.onPickEmulator} />
+          <LiveRow melonds={props.live?.melonds} emulator={emulatorPath} />
         </Surface>
       ) : (
         <ToolsSurface lsp={status.lsp} apicula={status.apicula} subtitle={subtitles.werkzeuge} hasProject={props.project !== null} onClearWorld={props.onClearWorld} />

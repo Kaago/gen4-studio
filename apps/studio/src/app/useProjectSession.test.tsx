@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BuildReport, BuildStep, CmdError, PublishOptionsDto, ProblemDto } from "../api";
-import { buildRom, dirty, headerPatchStatus, listHeaders, memberCounts, openProject, publishPatch, readScript, resolveTextConflicts, runRom, save, saveScript, scriptsStatus } from "../api";
+import { buildRom, dirty, headerPatchStatus, listHeaders, livePlay, memberCounts, openProject, publishPatch, readScript, resolveTextConflicts, runRom, save, saveScript, scriptsStatus } from "../api";
 import { publishReportOf } from "../publish/publishTesting";
 import { createEditBus } from "../bus/editBus";
 import type { EditBus, EditEvent } from "../bus/editBus";
@@ -31,6 +31,7 @@ vi.mock("../api", async (importOriginal) => ({
   readScript: vi.fn(),
   saveScript: vi.fn(),
   runRom: vi.fn(),
+  livePlay: vi.fn(),
   resolveTextConflicts: vi.fn(),
 }));
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn(), openPath: vi.fn(), savePath: vi.fn() }));
@@ -238,6 +239,49 @@ describe("useProjectSession with open scripts", () => {
     await build();
     await act(async () => session.onRun());
     expect(runRom).toHaveBeenLastCalledWith("/emu", "/out.nds");
+  });
+
+  it("onRun_uses_livePlay_for_an_app_bundle_and_reports_an_unavailable_reason_as_info", async () => {
+    vi.mocked(runRom).mockReset().mockResolvedValue(1);
+    vi.mocked(livePlay).mockReset().mockResolvedValue({ live: true, reason: null, pid: 7 });
+    localStorage.setItem("g4.emulatorPath", "/Applications/melonDS.app");
+    // In the browser mode there is no play mode: the plain start, even when asked for live.
+    await act(async () => session.onRun("/given.nds", true));
+    expect(livePlay).not.toHaveBeenCalled();
+    expect(runRom).toHaveBeenLastCalledWith("/Applications/melonDS.app", "/given.nds");
+    const app = window as unknown as Record<string, unknown>;
+    app.__TAURI_INTERNALS__ = {};
+    try {
+      // „Hier spielen“ in the app with a melonDS bundle: play mode.
+      vi.mocked(runRom).mockClear();
+      await act(async () => session.onRun("/given.nds", true));
+      expect(livePlay).toHaveBeenLastCalledWith("/Applications/melonDS.app", "/given.nds");
+      expect(runRom).not.toHaveBeenCalled();
+      expect(session.message).toEqual({ kind: "info", text: "Spielt in melonDS: /given.nds" });
+      // The game runs without the connection: the reason as info, no error.
+      vi.mocked(livePlay).mockResolvedValueOnce({ live: false, reason: "melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)", pid: null });
+      await act(async () => session.onRun("/given.nds", true));
+      expect(session.message).toEqual({ kind: "info", text: "Ohne Live-Verbindung: melonDS läuft schon; GDB-Stub oder JIT nicht einstellbar (Emu settings › Devtools)" });
+      // Without the wish for play mode (Technik › „Starten“) the plain start.
+      vi.mocked(livePlay).mockClear();
+      await act(async () => session.onRun("/given.nds"));
+      expect(livePlay).not.toHaveBeenCalled();
+      expect(runRom).toHaveBeenLastCalledWith("/Applications/melonDS.app", "/given.nds");
+      // Another emulator than a .app bundle: the plain start as well.
+      localStorage.setItem("g4.emulatorPath", "/usr/local/bin/desmume");
+      vi.mocked(runRom).mockClear();
+      await act(async () => session.onRun("/given.nds", true));
+      expect(livePlay).not.toHaveBeenCalled();
+      expect(runRom).toHaveBeenLastCalledWith("/usr/local/bin/desmume", "/given.nds");
+      // A refused start forgets the emulator, as the plain start does.
+      localStorage.setItem("g4.emulatorPath", "/Applications/melonDS.app");
+      vi.mocked(livePlay).mockRejectedValueOnce({ code: "error", message: "melonDS nicht startbar", asset: null });
+      await act(async () => session.onRun("/given.nds", true));
+      expect(localStorage.getItem("g4.emulatorPath")).toBeNull();
+      expect(session.message?.text).toBe("melonDS nicht startbar. Beim nächsten Start fragt das Studio erneut nach dem Emulator.");
+    } finally {
+      delete app.__TAURI_INTERNALS__;
+    }
   });
 
   it("keeps_the_chosen_emulator_path_and_sets_it_after_pick_emulator", async () => {

@@ -17,6 +17,9 @@ fn missing(reason: impl Into<String>) -> KernelError {
 /// On macOS an `emulator` ending in `.app` (an application bundle) is started through
 /// `open -a <bundle> <rom>`, and the returned PID is that of `open`, which exits right away.
 /// Any other path is executed directly as `<emulator> <rom>`.
+///
+/// Play mode live starts melonDS itself through [`crate::live::melonds::launch`] so it owns the
+/// child process.
 pub fn launch_emulator(emulator: &Path, rom: &Path) -> Result<u32, KernelError> {
     if !emulator.exists() {
         return Err(missing(format!("not found: {}", emulator.display())));

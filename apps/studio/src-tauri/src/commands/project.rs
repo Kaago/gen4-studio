@@ -61,6 +61,10 @@ pub fn open_project_impl(state: &AppState, path: &str) -> Result<ProjectInfo, Cm
     let turn = state.agents.agent_turn();
     let old = lock(state)?.replace(session);
     drop(turn);
+    // The old project's play mode and breakpoints end with it (they name its events).
+    if old.is_some() {
+        state.live.close();
+    }
     // The old project's language server ends with its session, outside the state lock.
     drop(old);
     Ok(info)
@@ -75,6 +79,8 @@ pub fn close_project_impl(state: &AppState) -> Result<(), CmdError> {
     let turn = state.agents.agent_turn();
     let old = lock(state)?.take();
     drop(turn);
+    // Play mode live belongs to the project: it stops and its breakpoints go.
+    state.live.close();
     // The language server ends with its session, outside the state lock.
     drop(old);
     Ok(())
