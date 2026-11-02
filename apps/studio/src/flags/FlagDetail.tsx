@@ -4,7 +4,7 @@ import type { FlagEntryDto, FlagKind, FlagRefDto, FlagUsageDto } from "../api";
 import { useEntityIds } from "../textproject/useEntityIds";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { Button, Notice, Reference, Section, Tooltip } from "../ui/primitives";
+import { Button, Notice, NumberField, Reference, Section, Switch, Tooltip } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { groupRefsByHeader } from "./flagFilter";
 import { NAMING_NEEDS_TEXT_PROJECT, OUTSIDE_THE_SAVE, areaWord, displayName, numberText } from "./flagWords";
@@ -15,6 +15,23 @@ const BUSY = "Erst Speichern oder Bauen abwarten";
 
 /** What a number does when only read: the hint in „Wo gesetzt“. */
 export const READ_NOT_SET = "Gelesen, aber nirgends gesetzt: die Engine oder ein Script über eine Variable setzt es, oder nie.";
+
+/** Why a flag set live shows only later in the game. */
+export const MAP_RELOAD = "Sichtbarkeits-Flags wirken beim nächsten Betreten der Karte.";
+
+/** A live write the game undid before the next snapshot (review focus 4). */
+export const NOT_TAKEN = "Wert nicht übernommen, noch einmal versuchen.";
+
+/** The number in play mode: its value as the game holds it and how to write another one. A live value is never a step in the history. */
+export type FlagLive = {
+  /** The value in the snapshot (a flag 0 or 1); null: the snapshot does not hold the number. */
+  value: number | null;
+  /** A write of this number is under way: the controls wait. */
+  busy: boolean;
+  /** False: the last write of this number did not hold. */
+  readBack: boolean;
+  onSet: (value: number) => void;
+};
 
 export type FlagDetailProps = {
   kind: FlagKind;
@@ -38,6 +55,8 @@ export type FlagDetailProps = {
   onName: () => void;
   /** „Beschreibung…“ of an own name. */
   onDescribe: () => void;
+  /** Play mode with a snapshot: the section „Live“; absent outside it. */
+  live?: FlagLive;
 };
 
 /** A secondary button that may be locked: focusable all the same, its reason the description and the tooltip. */
@@ -56,6 +75,48 @@ function HeadButton({ why, onClick, children }: { why: string | null; onClick: (
         {why}
       </span>
     </>
+  );
+}
+
+/**
+ * The section „Live“: a flag's switch (and that a visibility flag shows on the next visit of the map), a variable's field with „Setzen“
+ * (what is typed is written only then; the field shows the game's value again, never the one asked for). Past the save it says so; a write
+ * the game undid is named with a warning. Render it with `key` per number: what was typed belongs to that number.
+ */
+function LiveSection({ kind, inSave, live }: { kind: FlagKind; inSave: boolean; live: FlagLive }) {
+  const [open, setOpen] = useState(true);
+  // What was typed and not yet written; null: the field shows the game's value.
+  const [typed, setTyped] = useState<number | null>(null);
+  const value = inSave ? live.value : null;
+  return (
+    <div data-flag-section="Live">
+      <Section title="Live" open={open} onToggle={() => setOpen((o) => !o)}>
+        {value === null ? (
+          <p className={styles.note}>{OUTSIDE_THE_SAVE}</p>
+        ) : kind === "flag" ? (
+          <>
+            <Switch label="Im Spiel gesetzt" checked={value !== 0} disabled={live.busy} onChange={(on) => live.onSet(on ? 1 : 0)} />
+            <p className={styles.note}>{MAP_RELOAD}</p>
+          </>
+        ) : (
+          <div className={styles.liveSet}>
+            <NumberField label="Wert im Spiel" value={typed ?? value} min={0} max={65535} disabled={live.busy} onCommit={setTyped} />
+            <Button
+              kind="secondary"
+              size="s"
+              disabled={live.busy}
+              onClick={() => {
+                live.onSet(typed ?? value);
+                setTyped(null);
+              }}
+            >
+              Setzen
+            </Button>
+          </div>
+        )}
+        {!live.readBack && <Notice kind="warning">{NOT_TAKEN}</Notice>}
+      </Section>
+    </div>
   );
 }
 
@@ -110,10 +171,10 @@ function Uses({ title, groups, empty, goTo }: { title: string; groups: Group[]; 
 /**
  * The chosen number: its name (an own one over the pret name), number and area (and the recipe that reserves it), its description, the
  * naming („Umbenennen…“ and „Beschreibung…“ with an own name, else „Als eigenes Flag benennen…“; locked with the reason in the DSPRE layout
- * and past the save), then „Wo gesetzt“, „Wo geprüft“ and „Unklar“ (only when there is something unclear) with a chip per reference that
+ * and past the save), in play mode „Live“ (`LiveSection`), then „Wo gesetzt“, „Wo geprüft“ and „Unklar“ (only when there is something unclear) with a chip per reference that
  * follows its way. A map-local number groups by header (in Tüfteln by the header's id), every other by source.
  */
-export function FlagDetail({ kind, number, entry, usage, busy, error, textProject, readOnly, depth, goTo, onRename, onName, onDescribe }: FlagDetailProps) {
+export function FlagDetail({ kind, number, entry, usage, busy, error, textProject, readOnly, depth, goTo, onRename, onName, onDescribe, live }: FlagDetailProps) {
   const names = usage ?? entry;
   const area = names?.area ?? "general";
   const mapLocal = area === "map_local";
@@ -166,6 +227,7 @@ export function FlagDetail({ kind, number, entry, usage, busy, error, textProjec
         </div>
       </header>
       {error !== null && <Notice kind="error">{error}</Notice>}
+      {live !== undefined && <LiveSection key={`${kind}:${number}`} kind={kind} inSave={inSave} live={live} />}
       {usage === null && busy && error === null && <p className={styles.note}>Wird gelesen …</p>}
       {usage !== null && (
         <>

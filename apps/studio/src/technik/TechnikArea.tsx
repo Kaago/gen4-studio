@@ -121,8 +121,8 @@ export type TechnikAreaProps = {
   /** The entity chosen in Änderungen, held by the app for the session (it survives „Öffnen“ and the way back); without it the surface holds its own. */
   changesChosen?: DiffSubject | null;
   onChangesChosen?: (subject: DiffSubject | null) => void;
-  /** Flags und Variablen (3d.1): the open project, the chosen number (held by the app) and what the surface reports; without it no project. */
-  flags?: Pick<FlagsSurfaceProps, "project" | "revision" | "selected" | "onSelect" | "readOnly" | "onError" | "onNamed">;
+  /** Flags und Variablen (3d.1): the open project, the chosen number (held by the app), what the surface reports and play mode (3d.9); without it no project. */
+  flags?: Pick<FlagsSurfaceProps, "project" | "revision" | "selected" | "onSelect" | "readOnly" | "onError" | "onNamed" | "live">;
 };
 
 const ENTRIES: readonly { id: TechnikEntry; label: string; icon: IconName }[] = [
@@ -273,6 +273,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
           onError={props.flags?.onError ?? noSelect}
           onNamed={props.flags?.onNamed}
           onOpenProject={props.onOpenProject}
+          live={props.flags?.live}
         />
       ) : (
         <ToolsSurface lsp={status.lsp} apicula={status.apicula} subtitle={subtitles.werkzeuge} hasProject={props.project !== null} onClearWorld={props.onClearWorld} />

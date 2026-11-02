@@ -11,6 +11,10 @@ import { FLAGS, flagEntry, flagList, flagUsageOf } from "./flagTesting";
 import { FlagsSurface, flagsSubtitle } from "./FlagsSurface";
 import type { FlagsSurfaceProps } from "./FlagsSurface";
 import { invalidateFlagLists } from "./useFlagList";
+import { OFF_STATUS } from "../api.live";
+import type { LiveStatusDto } from "../api.live";
+import { liveValuesOf } from "../app/liveStore";
+import type { Live } from "../app/useLive";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -212,6 +216,57 @@ describe("FlagsSurface", () => {
     expect(search().value).toBe("");
     expect(row(0x94).getAttribute("aria-selected")).toBe("true");
     expect(detail().querySelector("h2")?.textContent).toBe("FLAG_HAT_MEDAILLE");
+  });
+
+  it("shows_live_values_and_writes_them_through_play_mode", async () => {
+    // Flag 0x94 set (bit 4 of byte 0x12), variable 0x4000 = 42.
+    const flagBytes = Array.from({ length: 364 }, (_, i) => (i === 0x12 ? 1 << 4 : 0));
+    const status = (more: Partial<LiveStatusDto> = {}): LiveStatusDto => ({ ...OFF_STATUS, state: "live", snapshot: { revision: 1, flags: flagBytes, vars: [42], taken_ms: 1 }, ...more });
+    const setFlag = vi.fn(async () => {});
+    const setVar = vi.fn(async () => {});
+    const live = (s: LiveStatusDto): Live => ({
+      status: s,
+      values: liveValuesOf(s),
+      active: s.state !== "off",
+      hinge: null,
+      setFlag,
+      setVar,
+      resume: vi.fn(),
+      stop: vi.fn(),
+      breakpointOf: () => null,
+      toggleBreakpoint: vi.fn(),
+    });
+    const liveSection = () => detail().querySelector<HTMLElement>('[data-flag-section="Live"]');
+    // Without play mode: the column waits, the detail has no section „Live“.
+    await show({ selected: { kind: "flag", number: 0x94 } });
+    expect(surface().querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("");
+    expect(liveSection()).toBeNull();
+    // In play mode: the list toggles a flag (the other value), the detail's switch too; neither is a step in the history.
+    await show({ selected: { kind: "flag", number: 0x94 }, live: live(status()) });
+    expect(surface().querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("on");
+    await click(row(0x94).querySelector<HTMLElement>("[data-flag-live]")!);
+    expect(setFlag).toHaveBeenLastCalledWith(0x94, false);
+    await click(row(0x173).querySelector<HTMLElement>("[data-flag-live]")!);
+    expect(setFlag).toHaveBeenLastCalledWith(0x173, true);
+    expect(row(0x94).getAttribute("aria-selected")).toBe("true");
+    await click(liveSection()!.querySelector<HTMLElement>("[role=switch]")!);
+    expect(setFlag).toHaveBeenLastCalledWith(0x94, false);
+    // The next status says the write did not hold: the detail of that number warns, another one does not.
+    await show({ selected: { kind: "flag", number: 0x94 }, live: live(status({ read_back: false })) });
+    expect(liveSection()!.textContent).toContain("Wert nicht übernommen, noch einmal versuchen.");
+    await click(row(0x20));
+    expect(liveSection()!.textContent).not.toContain("Wert nicht übernommen");
+    // A variable: the value as the game holds it, written with „Setzen“.
+    await show({ selected: { kind: "var", number: 0x4000 }, live: live(status()) });
+    expect(row(0x4000).querySelector("[data-flag-live]")?.textContent).toBe("42");
+    const input = liveSection()!.querySelector<HTMLInputElement>("input")!;
+    expect(input.value).toBe("42");
+    await act(async () => void input.focus());
+    typeInto(input, "7");
+    await act(async () => void input.blur());
+    await click(button("Setzen", liveSection()!));
+    expect(setVar).toHaveBeenLastCalledWith(0x4000, 7);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("names_the_count_in_the_subtitle", () => {

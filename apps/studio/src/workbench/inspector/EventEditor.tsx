@@ -4,7 +4,7 @@ import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import type { AssetId, BgDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
 import { FlagField } from "../../flags/FlagField";
-import { Button, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
+import { Button, Checkbox, InspectorRow, Kbd, Notice, NumberField, Reference, SelectField } from "../../ui/primitives";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import type { EventData } from "../../world/events";
@@ -20,6 +20,8 @@ import { EditSession } from "./headerCommit";
 import { HeaderPicker } from "./HeaderPicker";
 import { FigureLookField } from "./FigureLookField";
 import { EVENT_INSPECTOR_KIND, InspectorHead } from "./InspectorHead";
+import { breakpointLock, hasBreakpoint, toggleBreakpoint } from "./eventBreakpoint";
+import type { EventLive } from "./eventBreakpoint";
 import { destinationSpec, referenceFor } from "./referenceFor";
 import { ADOPT_HINT, headerOfEventFile, openScriptNumber } from "./scriptNav";
 import { TechnicalSection } from "./TechnicalSection";
@@ -80,7 +82,7 @@ const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schri
  * is one undoable change. Render it with `key` per (file, class, index): all reads and writes of an instance belong to
  * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
-export function EventEditor({ file, kind, index, context, depth }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth }) {
+export function EventEditor({ file, kind, index, context, depth, live }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth; live?: EventLive }) {
   const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
@@ -271,6 +273,19 @@ export function EventEditor({ file, kind, index, context, depth }: { file: numbe
             </InspectorRow>
           )}
         </div>
+        {/* Play mode: a breakpoint halts the game when the figure's flag or the trigger's variable changes; not an edit, no undo step. */}
+        {live?.active && (
+          <div data-live-breakpoint={hasBreakpoint(live, { file, kind, index }) ? "on" : ""}>
+            <InspectorRow label="Haltepunkt" hint={breakpointLock(kind, event) ?? undefined}>
+              <Checkbox
+                label={kind === "coord" ? "Anhalten, wenn sich die Variable ändert" : "Anhalten, wenn sich das Flag ändert"}
+                checked={hasBreakpoint(live, { file, kind, index })}
+                disabled={breakpointLock(kind, event) !== null}
+                onChange={() => toggleBreakpoint(live, { file, kind, index }, event)}
+              />
+            </InspectorRow>
+          </div>
+        )}
         {warp && destination && (
           <InspectorRow label="Ziel" hint={destinationTarget === null ? "Die Tür führt ins Leere. Wähle ein Ziel oder lösche die Tür." : undefined}>
             <div className={styles.inline}>

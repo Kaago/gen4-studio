@@ -48,7 +48,7 @@ import { WorldList } from "./WorldList";
 import { WorldMapPanel } from "./WorldMapPanel";
 import { trainerOfScript } from "./trainerScript";
 import type { WorldMapContext } from "./WorldMapPanel";
-import { useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
+import { useEventLiveMode, useInspectorModel, useMatrixSelection, useWorkbench, useWorld } from "./WorkbenchContext";
 import { useWorldActions } from "./RoomActions";
 import { NewPlaceDialog } from "./places/NewPlaceDialog";
 import { DP_PLACES } from "./places/placeChoices";
@@ -415,6 +415,7 @@ const namesTrainers = (info: ProjectInfo | null): info is ProjectInfo => info !=
 export function InspectorPanel() {
   const d = useWorkbench();
   const inspector = useInspectorModel();
+  const eventLive = useEventLiveMode();
   // The section „Prüfungen“: what the checks found at the record shown.
   const rows = useSyncExternalStore(d.problems.subscribe, d.problems.list);
   const findings = useMemo(() => findingsFor(rows, inspector), [rows, inspector]);
@@ -445,6 +446,7 @@ export function InspectorPanel() {
     <Inspector
       model={inspector}
       depth={d.depth}
+      eventLive={eventLive}
       findings={findings}
       checks={d.checks}
       headerEditor={{

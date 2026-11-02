@@ -4,13 +4,14 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents, getObjectSprite, listFlags, resolveScript, updateEvent } from "../../api";
-import type { DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
+import type { BreakpointDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
 import { FLAGS, flagEntry, flagList } from "../../flags/flagTesting";
 import { invalidateFlagLists } from "../../flags/useFlagList";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { EventEditor } from "./EventEditor";
 import type { EventEditorContext } from "./EventEditor";
+import type { EventLive } from "./eventBreakpoint";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
 import type { Depth } from "../../ui/frame/shellState";
@@ -460,6 +461,71 @@ describe("EventEditor scripts", () => {
     await show(context({ project, goTo }), "object", 0, "tuefteln");
     expect(field("Sichtbarkeits-Flag").value).toBe("148");
     expect(container.textContent).not.toContain("Die Figur ist da, solange das Flag 0 ist.");
+  });
+
+  describe("the breakpoint in play mode", () => {
+    const onToggle = vi.fn();
+    beforeEach(() => onToggle.mockReset());
+    const playing = (breakpoints: BreakpointDto[] = []): EventLive => ({ active: true, breakpoints, onToggle });
+    const showLive = async (live: EventLive | undefined, kind: EventKind, index: number) => {
+      await act(async () => root.render(withReset(reset, <EventEditor file={8} kind={kind} index={index} context={context()} depth="bauen" live={live} />)));
+      await flush();
+    };
+    const breakpointRow = () => container.querySelector<HTMLElement>("[data-live-breakpoint]");
+    const box = () => breakpointRow()!.querySelector<HTMLElement>("[role=checkbox]")!;
+    const withEvents = () =>
+      vi.mocked(getEvents).mockImplementation(async () => ({
+        ...events(),
+        objects: [{ ...npc, index: 0, hidden_flag: 0x173 }, { ...npc, index: 1, hidden_flag: 0 }],
+        coords: [{ index: 0, script: 7, x: 1, z: 1, width: 1, length: 1, var: 0x40a5, value: 0 }, { index: 1, script: 7, x: 2, z: 1, width: 1, length: 1, var: 0, value: 0 }],
+        warps: [{ index: 0, x: 8, z: 4, dest_header_id: 1, dest_warp_id: 0, height: 0 }],
+      }));
+
+    it("offers_a_breakpoint_for_figures_and_triggers_and_explains_doors", async () => {
+      withEvents();
+      // A figure with a visibility flag: a free box below the fields; a click asks for the breakpoint at this event.
+      await showLive(playing(), "object", 0);
+      expect(rowLabels()).toContain("Haltepunkt");
+      expect(rowLabels().indexOf("Haltepunkt")).toBeGreaterThan(rowLabels().indexOf("Sichtbarkeits-Flag"));
+      expect(box().getAttribute("aria-checked")).toBe("false");
+      expect(box().hasAttribute("data-disabled")).toBe(false);
+      await click(box());
+      expect(onToggle).toHaveBeenCalledWith({ event_file: 8, kind: "object", index: 0 });
+      // A breakpoint there: the box is ticked; one at another event leaves it free.
+      const at = (index: number, kind: "object" | "coord"): BreakpointDto => ({ id: 1, event: { event_file: 8, kind, index }, target: { kind: "flag", number: 0x173 }, label: "Figur 0" });
+      await showLive(playing([at(0, "object")]), "object", 0);
+      expect(box().getAttribute("aria-checked")).toBe("true");
+      await showLive(playing([at(0, "coord")]), "object", 0);
+      expect(box().getAttribute("aria-checked")).toBe("false");
+      // A trigger with a variable: the same.
+      onToggle.mockReset();
+      await showLive(playing(), "coord", 0);
+      expect(box().hasAttribute("data-disabled")).toBe(false);
+      await click(box());
+      expect(onToggle).toHaveBeenCalledWith({ event_file: 8, kind: "coord", index: 0 });
+      // Locked with the reason: a figure without a flag, a trigger without a variable, a door.
+      onToggle.mockReset();
+      for (const [kind, index, reason] of [
+        ["object", 1, "Die Figur hat kein Sichtbarkeits-Flag"],
+        ["coord", 1, "Der Auslöser hat keine Variable"],
+        ["warp", 0, "Haltepunkte gibt es an Figuren und Auslösern"],
+      ] as const) {
+        await showLive(playing(), kind, index);
+        expect(box().hasAttribute("data-disabled")).toBe(true);
+        expect(breakpointRow()!.textContent).toContain(reason);
+        await click(box());
+      }
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it("has_no_breakpoint_row_outside_play_mode", async () => {
+      withEvents();
+      await showLive(undefined, "object", 0);
+      expect(breakpointRow()).toBeNull();
+      expect(rowLabels()).not.toContain("Haltepunkt");
+      await showLive({ ...playing(), active: false }, "object", 0);
+      expect(breakpointRow()).toBeNull();
+    });
   });
 
   it("shows_the_section_Technisch_and_the_Dez_Hex_switch_only_in_tuefteln", async () => {

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FLAGS, flagEntry, flagList } from "./flagTesting";
-import { NOT_A_TEXT_PROJECT, accessWord, areaWord, displayName, hex4, kindWord, numberText, pickerItems, usageShort, usageText } from "./flagWords";
+import { NOT_A_TEXT_PROJECT, accessWord, areaWord, displayName, hex4, kindWord, liveCellText, liveCellTip, numberText, pickerItems, usageShort, usageText } from "./flagWords";
 
 describe("flag words", () => {
   it("numbers_show_hex_and_decimal", () => {
@@ -20,6 +20,11 @@ describe("flag words", () => {
     expect(displayName({ name: null, own_id: null }, "var", 0x4030)).toBe("Variable 0x4030");
     expect(kindWord("flag")).toBe("Flag");
     expect(kindWord("var")).toBe("Variable");
+  });
+
+  it("live_cells_name_flags_as_1_or_0_and_variables_in_decimal", () => {
+    expect([liveCellText("flag", 1), liveCellText("flag", 0), liveCellText("var", 1234), liveCellText("var", null)]).toEqual(["1", "0", "1234", "–"]);
+    expect([liveCellTip("flag", 1), liveCellTip("flag", 0), liveCellTip("var", 7)]).toEqual(["Live: gesetzt · Klick löscht", "Live: 0 · Klick setzt", "Live 7 · ändern im Detail"]);
   });
 
   it("usage_text_names_set_checked_and_unclear", () => {

@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { AssetId, DraftDto, EventKind, HeaderSummary, MatrixDto, MatrixSummary, MemberCounts, ProjectInfo, WarpLink } from "../api";
 import type { Message } from "../app/message";
+import type { Live } from "../app/useLive";
 import type { Created } from "../app/useWizards";
 import type { EventPlacement } from "../app/useWorldActions";
 import type { Depth, Tool } from "../ui/frame/shellState";
@@ -13,6 +14,8 @@ import type { EventLock, EventRef } from "../world/events";
 import { headerIdentity } from "./headerIdentity";
 import type { HeaderIdentity } from "./headerIdentity";
 import type { InspectorModel } from "./Inspector";
+import { useEventLive } from "./inspector/eventBreakpoint";
+import type { EventLive } from "./inspector/eventBreakpoint";
 import type { NavTarget } from "./navigation";
 import type { ChecksApi } from "../checks/useChecks";
 import type { ProblemsStore } from "./problems/problems";
@@ -201,13 +204,18 @@ const WorkbenchContext = createContext<WorkbenchData | null>(null);
 const InspectorContext = createContext<InspectorModel>({ kind: "none" });
 const MatrixSelectionContext = createContext<MatrixSelection | null>(null);
 const WorldContext = createContext<WorkbenchWorld>(NO_WORLD);
+const EventLiveContext = createContext<EventLive | undefined>(undefined);
 
-export function WorkbenchProviders({ data, live, children }: { data: WorkbenchData; live: WorkbenchLive; children: ReactNode }) {
+/** `liveMode`: play mode (`useLive`); the event inspector reads its breakpoints (`useEventLiveMode`). */
+export function WorkbenchProviders({ data, live, liveMode, children }: { data: WorkbenchData; live: WorkbenchLive; liveMode?: Live; children: ReactNode }) {
+  const eventLive = useEventLive(liveMode);
   return (
     <WorkbenchContext.Provider value={data}>
       <InspectorContext.Provider value={live.inspector}>
         <MatrixSelectionContext.Provider value={live.matrixSelection}>
-          <WorldContext.Provider value={live.world}>{children}</WorldContext.Provider>
+          <WorldContext.Provider value={live.world}>
+            <EventLiveContext.Provider value={eventLive}>{children}</EventLiveContext.Provider>
+          </WorldContext.Provider>
         </MatrixSelectionContext.Provider>
       </InspectorContext.Provider>
     </WorkbenchContext.Provider>
@@ -233,4 +241,9 @@ export function useMatrixSelection(): MatrixSelection | null {
 /** The world model and the names of the headers (see `WorkbenchWorld`). */
 export function useWorld(): WorkbenchWorld {
   return useContext(WorldContext);
+}
+
+/** Play mode as the event inspector reads it (the row „Haltepunkt“); undefined without it. Changes only with its breakpoints and `active`. */
+export function useEventLiveMode(): EventLive | undefined {
+  return useContext(EventLiveContext);
 }

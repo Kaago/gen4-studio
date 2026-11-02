@@ -1374,7 +1374,7 @@ function AppBody() {
         onChangesChosen={chooseChange}
         flags={
           info
-            ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed }
+            ? { project: info, revision: shownRevision + idsRevision, selected: flagSelected, onSelect: chooseFlag, readOnly: session.busy, onError: session.fail, onNamed: text.onFlagNamed, live: liveMode }
             : undefined
         }
       />
@@ -1429,7 +1429,7 @@ function AppBody() {
   return (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
-        <Workbench data={data} live={live}>
+        <Workbench data={data} live={live} liveMode={liveMode}>
           {/* Around the whole frame: the list, deck and status parts of the texts and of the data areas share their area's state. */}
           <TextAreaHost onShown={setTextShown}>
             <DataAreaHost store={dataStore} target={dataTarget} onTrail={onDataTrail} onPlaceTrainer={onPlaceTrainer}>
