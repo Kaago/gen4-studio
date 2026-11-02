@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dataEdit, dataRaw } from "../../api";
 import { openSelect, pressKey, typeInto } from "../../ui/primitives/testUtils";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
 import { namedClassOptions } from "./trainerModel";
-import { JENS, PLACEHOLDER_DOC, TRAINER_NAMES, trainerHarness, wireApi } from "./trainerTesting";
+import { JENS, PLACEHOLDER_DOC, TRAINER_NAMES, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api")>()),
@@ -22,6 +23,7 @@ vi.mock("../../api", async (importOriginal) => ({
   refs: vi.fn(),
   getEvents: vi.fn(),
   createTrainer: vi.fn(),
+  validateText: vi.fn(async () => []),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -46,6 +48,18 @@ describe("TrainerHandNarrate", () => {
     await flush();
   };
   const button = (label: string) => [...h.hand().querySelectorAll<HTMLButtonElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === label);
+  const textArea = (label: string) => h.hand().querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`);
+  /** Types into a message field and leaves it, as a user does: the field commits on blur. */
+  const write = async (el: HTMLTextAreaElement | null, text: string) => {
+    if (!el) throw new Error("no field");
+    await act(async () => {
+      el.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, text);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => el.blur());
+    await flush();
+  };
 
   it("no AI segment, no raw tab, team and texts editable", async () => {
     await h.open(12, "erzaehlen");
@@ -70,7 +84,7 @@ describe("TrainerHandNarrate", () => {
     expect(h.toggle("Eigene Attacken")).toBeNull();
     expect(h.toggle("Items tragen")).toBeNull();
     expect(h.field("Name")?.value).toBe("Jens");
-    expect(h.field("Vor dem Kampf")?.value).toBe("Los geht's!\\r");
+    expect(textArea("Vor dem Kampf")?.value).toBe("Los geht's!\\r");
 
     await enter("Name", "Jensi");
     expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { TrainerName: { name: "Jensi" } }, "Wanderer Jens: Name Jens → Jensi");
@@ -80,8 +94,47 @@ describe("TrainerHandNarrate", () => {
     await flush();
     await h.click(h.selectOptions().find((o) => o.textContent === "Göre"));
     expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { Trainer: { field: "class", value: 7 } }, "Wanderer Jens: Klasse Wanderer → Göre");
-    await enter("Niederlage", "Mist!");
+    await write(textArea("Niederlage"), "Mist!");
     expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { TrainerTexts: { texts: [{ kind: 1, text: "Mist!" }] } }, "Wanderer Jens: Text Niederlage geändert");
+  });
+
+  it("writes_the_battle_texts_in_the_message_editor_without_raw_codes", async () => {
+    const warning = { severity: "warning" as const, file: "trainers/0012", line: 1, col: 1, message: "trainer 12: the text before the battle does not end with \\r, so its box closes at once", source: "trainer" as const };
+    wireApi(() => trainerDoc({ texts: [{ kind: 0, archive: 617, message: 100, text: "Los!" }], problems: [warning] }));
+    await h.open(12, "erzaehlen");
+    await h.showTab("Trainer");
+    const texts = h.hand().querySelector<HTMLElement>('section[aria-label="Kampftexte"]')!;
+    // No plain text field with the raw codes: the message editor, as in the wizard „Neuer Trainer hier“.
+    expect(h.field("Vor dem Kampf")).toBeNull();
+    expect(textArea("Vor dem Kampf")?.value).toBe("Los!");
+    expect(texts.querySelector("h3")?.textContent).not.toContain("\\r");
+    expect(texts.querySelector("h3")?.textContent).toContain("Seitenende (Umschalt+Enter)");
+
+    // A missing kind is made in the message editor too; the write is one step with the label of Bauen.
+    await h.click(button("Text Niederlage anlegen"));
+    await write(textArea("Niederlage"), "Mist!");
+    expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { TrainerTexts: { texts: [{ kind: 1, text: "Mist!" }] } }, "Wanderer Jens: Text Niederlage angelegt");
+    // The warning keeps its action.
+    await h.click(button("⏎ anhängen"));
+    expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { TrainerTexts: { texts: [{ kind: 0, text: "Los!\\r" }] } }, "Wanderer Jens: Text vor dem Kampf geändert");
+  });
+
+  it("drops_a_refused_battle_text_for_the_stored_one", async () => {
+    await h.open(12, "erzaehlen");
+    await h.showTab("Trainer");
+    vi.mocked(dataEdit).mockRejectedValueOnce(new Error("too long"));
+    await write(textArea("Niederlage"), "Viel zu lang");
+    expect(dataEdit).toHaveBeenLastCalledWith("trainer", 12, { TrainerTexts: { texts: [{ kind: 1, text: "Viel zu lang" }] } }, "Wanderer Jens: Text Niederlage geändert");
+    await flush();
+    expect(textArea("Niederlage")?.value).toBe("Verloren!");
+  });
+
+  it("points_the_team_notes_to_bauen", async () => {
+    await h.open(12, "erzaehlen");
+    await h.click(cards()[0]);
+    // The switches for items and own moves live in the Trainer tab of Bauen only.
+    expect(h.hand().textContent).toContain("Items tragen ist aus (in Bauen, Reiter Trainer)");
+    expect(h.hand().textContent).toContain("Eigene Attacken sind aus (in Bauen, Reiter Trainer)");
   });
 
   it("stays_without_raw_data_while_the_hand_of_bauen_has_them_in_tuefteln", async () => {

@@ -20,9 +20,24 @@ export const NO_NAME = "Ohne Namen";
 
 /**
  * A place of the wizard's team as a card with the species' menu icon (from the icon cache, no data context); a place without a species is
- * the dashed free card. The rows of step „Team“ and the cards of the preview are the same card.
+ * the dashed free card. The rows of step „Team“ and the cards of the preview are the same card; `labelPrefix` tells the preview's apart
+ * („Vorschau, Platz 1: …“).
  */
-export function TeamRowCard({ row, slot, names, onClick, dataAttrs }: { row: TeamRow; slot: number; names: NameTablesDto | null; onClick: () => void; dataAttrs?: RowDataAttrs }) {
+export function TeamRowCard({
+  row,
+  slot,
+  names,
+  onClick,
+  dataAttrs,
+  labelPrefix = "",
+}: {
+  row: TeamRow;
+  slot: number;
+  names: NameTablesDto | null;
+  onClick: () => void;
+  dataAttrs?: RowDataAttrs;
+  labelPrefix?: string;
+}) {
   const species = row.species;
   const iconUrl = useIcon(species === null ? null : monIconKey(species), () => monIcon(species ?? 0), true);
   const name = species === null ? undefined : speciesName(names?.species ?? [], species);
@@ -34,7 +49,7 @@ export function TeamRowCard({ row, slot, names, onClick, dataAttrs }: { row: Tea
       level={species === null ? undefined : row.level}
       iconUrl={iconUrl}
       slot={slot + 1}
-      ariaLabel={name === undefined ? `Platz ${slot + 1}: leer` : `Platz ${slot + 1}: ${name}, Level ${row.level}`}
+      ariaLabel={`${labelPrefix}${name === undefined ? `Platz ${slot + 1}: leer` : `Platz ${slot + 1}: ${name}, Level ${row.level}`}`}
       onClick={onClick}
       dataAttrs={dataAttrs}
     />
@@ -79,7 +94,7 @@ export function TrainerPreview({ cls, name, party, names, classes, onSlot }: Tra
       <h3 className={styles.heading}>Team</h3>
       <div className={styles.team}>
         {party.map((row, i) => (
-          <TeamRowCard key={i} row={row} slot={i} names={names} onClick={() => onSlot(i)} dataAttrs={{ "data-preview-slot": i }} />
+          <TeamRowCard key={i} row={row} slot={i} names={names} onClick={() => onSlot(i)} dataAttrs={{ "data-preview-slot": i }} labelPrefix="Vorschau, " />
         ))}
       </div>
     </section>

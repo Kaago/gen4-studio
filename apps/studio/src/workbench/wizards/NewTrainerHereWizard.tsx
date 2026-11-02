@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { errorText, nameTables, recipeApply } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NameTablesDto, NewTrainerHereInput, NewTrainerHereReport, ProjectInfo, RecipeOutcome } from "../../api";
-import { NAME_MAX, PARTY_MAX, className, classOptions, nameCount, nameError, speciesName as speciesLabel } from "../../data/trainer/trainerModel";
+import { NAME_MAX, PARTY_MAX, className, classOptions, nameCount, nameError, namedClassOptions, speciesName as speciesLabel } from "../../data/trainer/trainerModel";
+import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { Badge, Button, Notice, NumberField, Picker, Segmented, SelectField, TextField } from "../../ui/primitives";
 import type { PickerItem } from "../../ui/primitives";
@@ -195,7 +196,7 @@ export function NewTrainerHereWizard({ depth, headers, matrices, project, prefil
         <section className={parts.column}>
           <h3 className={parts.heading}>Wer</h3>
           <div className={parts.field}>
-            <SelectField label="Klasse" showLabel value={form.cls} options={classOptions(classes, form.cls)} onChange={(cls) => set({ cls })} />
+            <SelectField label="Klasse" showLabel value={form.cls} options={(depthAtLeast(depth, "bauen") ? classOptions : namedClassOptions)(classes, form.cls)} onChange={(cls) => set({ cls })} />
           </div>
           <div className={parts.field}>
             <TextField label="Name" showLabel value={form.name} onChange={(name) => set({ name })} onCommit={(name) => set({ name })} error={tooLong ?? undefined} hint={tooLong === null ? `${nameCount(form.name)} (höchstens ${NAME_MAX})` : undefined} />

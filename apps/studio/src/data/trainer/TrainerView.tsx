@@ -76,8 +76,11 @@ function placeOf(file: number, headers: readonly HeaderSummary[]): { name: strin
   return { name: header.location_name || header.internal_name || `Header ${id4(header.id)}`, header: header.id };
 }
 
-/** „Steht in der Welt“: the object events that start the battle, each with its place and tile, opening it in the world. */
-function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
+/**
+ * „Steht in der Welt“: the object events that start the battle, each with its place and tile, opening it in the world; from Bauen on with
+ * its event file.
+ */
+function InWorld({ doc, index, narrating }: { doc: TrainerDoc; index: number; narrating: boolean }) {
   const { headers, goTo, placeTrainer } = useDataArea("pokemon");
   const tiles = useEventTiles(doc.events);
   return (
@@ -105,7 +108,7 @@ function InWorld({ doc, index }: { doc: TrainerDoc; index: number }) {
                 key={`${eventFile}:${object}`}
                 area="welt"
                 label={label}
-                tech={`Eventdatei ${id4(eventFile)}`}
+                tech={narrating ? undefined : `Eventdatei ${id4(eventFile)}`}
                 onOpen={() => goTo({ kind: "event", eventFile, eventKind: "object", index: object, header: place.header })}
                 dataAttrs={{ "data-event": object }}
               />
@@ -139,9 +142,9 @@ function BattlePreview({ doc, title, foe, onFoe }: { doc: TrainerDoc; title: str
 /**
  * The view (Schau) of a trainer: class and name, a double battle, the team as cards (a card opens its species), where the trainer stands
  * in the world or the way to place it, a warning for an empty team (the battle crashes). The placeholder of the sight script says what it
- * is instead.
+ * is instead. `narrating` (Erzählen): without the trainer's number and the event files.
  */
-export function TrainerView() {
+export function TrainerView({ narrating = false }: { narrating?: boolean }) {
   const { row, labelOf, names, selected } = useDataArea("pokemon");
   const { doc, error } = useTrainer(selected);
   // The opponent's side of the preview belongs to the view for the session, so the loading gap between two trainers does not reset it.
@@ -161,7 +164,7 @@ export function TrainerView() {
           <ClassSprite cls={usable ? doc.class : null} name={title} size={80} />
           <div className={styles.headText}>
             <h2 className={styles.name}>{title}</h2>
-            <span className={styles.tech}>{row.tech}</span>
+            {!narrating && <span className={styles.tech}>{row.tech}</span>}
             {entityId !== null && <EntityIdLine id={entityId} />}
             {doc && isDouble(doc.battle_type) && <Badge kind="info">Doppelkampf</Badge>}
           </div>
@@ -187,9 +190,14 @@ export function TrainerView() {
           </section>
         )}
         {usable && <BattlePreview doc={doc} title={title} foe={foe} onFoe={setFoe} />}
-        {doc && !doc.placeholder && <InWorld doc={doc} index={selected} />}
+        {doc && !doc.placeholder && <InWorld doc={doc} index={selected} narrating={narrating} />}
         {doc === null && error === null && <p className={styles.note}>Lädt …</p>}
       </div>
     </section>
   );
+}
+
+/** The view of a trainer in Erzählen (`DataPart.ViewNarrate`): the same view without numbers. */
+export function TrainerViewNarrate() {
+  return <TrainerView narrating />;
 }

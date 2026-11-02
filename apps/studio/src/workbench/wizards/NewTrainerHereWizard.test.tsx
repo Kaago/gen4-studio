@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getBattleSprite, getMonIcon, getObjectSprite, getTrainerSprite, nameTables, recipeApply, recipePlan, validateText } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NameTablesDto, NewTrainerHereReport, ProjectInfo, RecipeOutcome } from "../../api";
 import { resetIcons } from "../../data/icons";
+import type { Depth } from "../../ui/frame/shellState";
+import { openSelect } from "../../ui/primitives/testUtils";
 import { NewTrainerHereWizard } from "./NewTrainerHereWizard";
 import { DRAFT_DEBOUNCE_MS } from "./useDraftPlan";
 
@@ -97,10 +99,10 @@ describe("NewTrainerHereWizard", () => {
     vi.useRealTimers();
   });
 
-  async function show() {
+  async function show(depth: Depth = "erzaehlen") {
     await act(async () =>
       root.render(
-        <NewTrainerHereWizard depth="erzaehlen" headers={headers} matrices={matrices} project={project} prefill={{ header: 0, tile: { x: 12, z: 7 } }} onDraft={onDraft} onDone={onDone} onCancel={onCancel} onError={onError} />,
+        <NewTrainerHereWizard depth={depth} headers={headers} matrices={matrices} project={project} prefill={{ header: 0, tile: { x: 12, z: 7 } }} onDraft={onDraft} onDone={onDone} onCancel={onCancel} onError={onError} />,
       ),
     );
     await flush();
@@ -241,6 +243,23 @@ describe("NewTrainerHereWizard", () => {
     expect(onCancel).toHaveBeenCalledWith(true);
   });
 
+  it("offers the classes by name in Erzählen, every class from Bauen on", async () => {
+    vi.mocked(nameTables).mockResolvedValue({ ...names, classes: ["Pokémon-Trainer", "Wanderer", "", "Käfersammler"] });
+    const offered = async () => {
+      openSelect(container.querySelector<HTMLElement>('[aria-label="Klasse"]')!);
+      await flush();
+      const labels = [...document.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.textContent);
+      act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await flush();
+      return labels;
+    };
+    await show("erzaehlen");
+    expect(await offered()).toEqual(["Pokémon-Trainer", "Wanderer", "Käfersammler"]);
+    act(() => root.render(null));
+    await show("bauen");
+    expect(await offered()).toContain("Klasse 2");
+  });
+
   it("the preview follows the form", async () => {
     await show();
     const preview = () => container.querySelector<HTMLElement>("[data-trainer-preview]");
@@ -254,6 +273,8 @@ describe("NewTrainerHereWizard", () => {
     expect(preview()?.querySelector("[data-trainer-sprite] img")).not.toBeNull();
     expect(foe()).toContain("Pokémon-Trainer");
     expect(card(0)?.getAttribute("data-state")).toBe("empty");
+    // Its cards are told apart from the rows of step „Team“ by their name.
+    expect(card(0)?.getAttribute("aria-label")).toBe("Vorschau, Platz 1: leer");
     await setValue(container.querySelector<HTMLInputElement>('input[aria-label="Name"]')!, "Jens");
     expect(foe()).toContain("Pokémon-Trainer Jens");
     // A card of the preview picks the species of its place, from any step.
@@ -272,6 +293,8 @@ describe("NewTrainerHereWizard", () => {
     expect(card(0)?.querySelector("img[data-sprite=picture]")).not.toBeNull();
     await pickSpecies(rows()[0]!, "Bisasam");
     expect(card(0)?.getAttribute("data-species")).toBe("1");
+    expect(card(0)?.getAttribute("aria-label")).toBe("Vorschau, Platz 1: Bisasam, Level 5");
+    expect(rows()[0]?.querySelector("[data-species]")?.getAttribute("aria-label")).toBe("Platz 1: Bisasam, Level 5");
     await click(segment("Erstes Pokémon"));
     await flush();
     expect(foeSide()).toBe("pokemon");

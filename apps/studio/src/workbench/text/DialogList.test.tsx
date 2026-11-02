@@ -101,6 +101,42 @@ describe("DialogList", () => {
     expect(place("Sandgemme")).not.toBeNull();
   });
 
+  it("an opened place reads its rows again only while the texts are in front; the chosen header always", async () => {
+    h.show(h.base({ depth: "erzaehlen", dialogRevision: 0, inFront: true }));
+    await flush();
+    h.click(place("Zweiblattdorf"));
+    await flush();
+    h.click(headerRow(13));
+    await flush();
+    expect(dialogsOfHeader).toHaveBeenCalledTimes(2);
+    vi.mocked(dialogsOfHeader).mockClear();
+
+    // Another area is in front (the deck stays mounted): an edit there moves the revision, the rows keep their last read and only the
+    // chosen header, whose figures the view shows, is read again.
+    h.show(h.base({ depth: "erzaehlen", dialogRevision: 1, inFront: false }));
+    await flush();
+    h.show(h.base({ depth: "erzaehlen", dialogRevision: 2, inFront: false }));
+    await flush();
+    expect(dialogsOfHeader).not.toHaveBeenCalledWith(12);
+    expect(vi.mocked(dialogsOfHeader).mock.calls.every(([id]) => id === 13)).toBe(true);
+    expect(headerRow(12)?.textContent).toContain("2 Figuren sprechen");
+
+    // Back in front: the rows read the newest revision once.
+    vi.mocked(dialogsOfHeader).mockClear();
+    h.show(h.base({ depth: "erzaehlen", dialogRevision: 2, inFront: true }));
+    await flush();
+    expect(dialogsOfHeader).toHaveBeenCalledTimes(1);
+    expect(dialogsOfHeader).toHaveBeenCalledWith(12);
+
+    // In front, an edit reads the opened place's rows again.
+    vi.mocked(dialogsOfHeader).mockClear();
+    h.show(h.base({ depth: "erzaehlen", dialogRevision: 3, inFront: true }));
+    await flush();
+    expect(dialogsOfHeader).toHaveBeenCalledTimes(2);
+    expect(dialogsOfHeader).toHaveBeenCalledWith(12);
+    expect(dialogsOfHeader).toHaveBeenCalledWith(13);
+  });
+
   it("a filter shows the matching headers without reading their figures", async () => {
     h.show(h.base({ depth: "erzaehlen" }));
     await flush();

@@ -61,6 +61,11 @@ export interface TextAreaProps {
   matrices?: MatrixSummary[];
   /** Changes when the figures of a place or their dialogs may have moved (texts, scripts, events); omitted: `revision`. */
   dialogRevision?: number;
+  /**
+   * The Texte area is in front (omitted: it is). Behind another area (the deck stays mounted) the list's rows keep their last read: every
+   * edit elsewhere moves `dialogRevision`, and an opened place would ask the session for each of its headers again.
+   */
+  inFront?: boolean;
   /** Opens the dialog editor of a figure (Erzählen). */
   onOpenDialog?: (target: DialogTarget) => void;
   /** Switches the depth (a link to a message no figure says opens Bauen). */
@@ -105,6 +110,10 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
   const { archive: loaded, error, loading, reload } = useTextArchive(archiveIndex, revision);
   const narrating = !depthAtLeast(depth, "bauen");
   const dialogRevision = context.dialogRevision ?? revision;
+  // The revision the list's rows read at: `dialogRevision` while the area is in front, the last one it had there while it is behind.
+  const listRevisionRef = useRef(dialogRevision);
+  if (context.inFront ?? true) listRevisionRef.current = dialogRevision;
+  const dialogListRevision = listRevisionRef.current;
   // The figures of the places, per header and revision (a new cache per project), and the place and figure the dialogs show.
   const [cache, setCache] = useState(() => new HeaderDialogsCache());
   const [dialogHeader, setDialogHeader] = useState<number | null>(null);
@@ -352,6 +361,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
       dialogs: dialogsFound,
       dialogFigure,
       dialogRevision,
+      dialogListRevision,
       selectDialogHeader,
       selectFigure,
       openDialogEditor,
@@ -363,7 +373,7 @@ export const TextArea = memo(function TextArea({ context, children }: { context:
     }),
     [
       archiveIndex, selectedMessage, page, query, scope, select, project, headers, archiveCount, rows, users, loaded, error, loading, widths, effectiveScope, hits, searchError, problems, draft, editorFocused, commit, append,
-      removeLast, createArchive, goTo, depth, narrating, worldPlaces, dialogHeader, dialogPlace, dialogsFound, dialogFigure, dialogRevision, selectDialogHeader, selectFigure, openDialogEditor, figureTitle, needTrainers,
+      removeLast, createArchive, goTo, depth, narrating, worldPlaces, dialogHeader, dialogPlace, dialogsFound, dialogFigure, dialogRevision, dialogListRevision, selectDialogHeader, selectFigure, openDialogEditor, figureTitle, needTrainers,
       dialogChanged, onError, scriptFiles,
     ],
   );

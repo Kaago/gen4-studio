@@ -18,7 +18,7 @@ function NarrateTrainerTab({ e }: { e: Editing }) {
         <NameRow e={e} />
         <Switch label="Doppelkampf" checked={isDouble(e.doc.battle_type)} disabled={e.locked} onChange={(on) => setDouble(e, on)} />
       </Column>
-      <Texts e={e} />
+      <Texts e={e} narrating />
     </div>
   );
 }
@@ -47,7 +47,7 @@ export function TrainerHandNarrate() {
       <HandTop e={editing} editError={editError} title={title} />
       <Tabs items={items} value={tab} onChange={(id) => setTab(id as NarrateTab)} ariaLabel={`${title} bearbeiten`}>
         <div className={styles.tabBody}>
-          {tab === "team" && <TeamTab e={editing} />}
+          {tab === "team" && <TeamTab e={editing} narrating />}
           {tab === "trainer" && <NarrateTrainerTab e={editing} />}
         </div>
       </Tabs>

@@ -554,6 +554,16 @@ describe("ScriptPanel", () => {
     expect(events).toContainEqual({ topic: "lspFilesChanged", changes: [{ path: "expanded/scripts/0953.rotom", type: 2 }] });
   });
 
+  it("a_reload_of_a_script_that_is_not_open_still_moves_saved", async () => {
+    // Undo and redo reload the scripts they wrote back: what reads the files on disk (Texte › Erzählen's dialogs) hears of it by `saved`.
+    await render();
+    await settle();
+    const before = api.saved;
+    await act(async () => api.reload(953));
+    expect(readScript).not.toHaveBeenCalled();
+    expect(api.saved).toBeGreaterThan(before);
+  });
+
   it("keeps_text_typed_during_an_outside_write_and_says_that_saving_it_overwrites_the_write", async () => {
     await render();
     await settle();

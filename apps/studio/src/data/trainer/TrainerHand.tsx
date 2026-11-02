@@ -10,6 +10,7 @@ import { lockReason } from "../dataModel";
 import { monIcon, monIconKey, useIcon } from "../icons";
 import { ChoicePicker, PickField, useChoices } from "../pokedex/pickers";
 import { isEvolutionTarget, itemName, moveName } from "../pokedex/pokedexModel";
+import { MessageEditor } from "../../workbench/text/MessageEditor";
 import { useDataArea } from "../useDataArea";
 import type { DocEdit } from "../useDataDoc";
 import {
@@ -67,9 +68,10 @@ export interface Editing {
   showBase: boolean;
   /**
    * Writes one edit as one undo step, built from the trainer as the backend holds it when the edit runs (`useDataDoc`), with its title
-   * ("Wanderer Jens") for the label; `make` returns null for nothing to write. A locked trainer writes nothing.
+   * ("Wanderer Jens") for the label; `make` returns null for nothing to write. A locked trainer writes nothing. Resolves to whether the
+   * edit went through (nothing to write counts as through; a locked trainer's as refused).
    */
-  write(make: (now: TrainerDoc, title: string) => DocEdit | null): void;
+  write(make: (now: TrainerDoc, title: string) => DocEdit | null): Promise<boolean>;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -125,13 +127,15 @@ export function Row({ label, children }: { label: string; children: ReactNode })
  * The details of one place: species (a picker with type badges), level, strength, HeartGold's gender and ability, the form for species with
  * forms, the item with items on, four moves with own moves on, and removing the Pokémon. Each change writes the whole party as one step.
  */
-function SlotDetails({ e, slot, onRemoved }: { e: Editing; slot: number; onRemoved: () => void }) {
+function SlotDetails({ e, slot, narrating, onRemoved }: { e: Editing; slot: number; narrating: boolean; onRemoved: () => void }) {
   const mon = e.doc.party[slot]!;
   const place = `Platz ${slot + 1}`;
   const hgss = e.family === "Hgss";
   const strength = strengthField(e.family);
   const forms = formCount(mon.species);
   const off = e.locked;
+  // The switches for items and own moves are in the Trainer tab of Bauen only.
+  const switches = narrating ? "in Bauen, Reiter Trainer" : "Reiter Trainer";
   /** Writes the Pokémon at this place changed by `change`, labelled "<title>: Platz 1 <rest>". */
   const setMon = (change: (m: PartyMonDto) => PartyMonDto, rest: (old: PartyMonDto, next: PartyMonDto) => string) =>
     e.write((now, title) => {
@@ -228,7 +232,7 @@ function SlotDetails({ e, slot, onRemoved }: { e: Editing; slot: number; onRemov
               />
             </Row>
           ) : (
-            <p className={styles.note}>Items tragen ist aus (Reiter Trainer): dieses Pokémon trägt nichts.</p>
+            <p className={styles.note}>Items tragen ist aus ({switches}): dieses Pokémon trägt nichts.</p>
           )}
           {mon.moves !== null && e.doc.format.moves ? (
             mon.moves.map((id, k) => (
@@ -248,7 +252,7 @@ function SlotDetails({ e, slot, onRemoved }: { e: Editing; slot: number; onRemov
               </Row>
             ))
           ) : (
-            <p className={styles.note}>Eigene Attacken sind aus (Reiter Trainer): das Spiel gibt die Attacken aus dem Lernset bis zu seinem Level.</p>
+            <p className={styles.note}>Eigene Attacken sind aus ({switches}): das Spiel gibt die Attacken aus dem Lernset bis zu seinem Level.</p>
           )}
         </Column>
       </div>
@@ -256,8 +260,11 @@ function SlotDetails({ e, slot, onRemoved }: { e: Editing; slot: number; onRemov
   );
 }
 
-/** Team: six cards (filled places and free ones), the details of the chosen place below; a free card adds a Pokémon through a picker. */
-export function TeamTab({ e }: { e: Editing }) {
+/**
+ * Team: six cards (filled places and free ones), the details of the chosen place below; a free card adds a Pokémon through a picker.
+ * `narrating`: the hand of Erzählen, whose notes point to the switches of Bauen.
+ */
+export function TeamTab({ e, narrating = false }: { e: Editing; narrating?: boolean }) {
   const [chosen, setChosen] = useState(0);
   const [adding, setAdding] = useState(false);
   const species = useChoices("species", adding, isEvolutionTarget);
@@ -296,7 +303,7 @@ export function TeamTab({ e }: { e: Editing }) {
       {party.length === 0 ? (
         <p className={styles.note}>Ohne Pokémon stürzt der Kampf ab: wähle einen freien Platz und eine Art.</p>
       ) : (
-        <SlotDetails e={e} slot={slot} onRemoved={() => setChosen(Math.max(0, slot - 1))} />
+        <SlotDetails e={e} slot={slot} narrating={narrating} onRemoved={() => setChosen(Math.max(0, slot - 1))} />
       )}
       <ChoicePicker open={adding} onOpenChange={setAdding} title={`Pokémon für Platz ${party.length + 1} wählen`} items={species} onPick={(v) => void add(v)} />
     </>
@@ -305,8 +312,11 @@ export function TeamTab({ e }: { e: Editing }) {
 
 // ---------------------------------------------------------------------------------------------------------------------------- trainer
 
-/** The battle texts: the three a single trainer needs (a missing one can be made), any other kind it has, the warning of the first. */
-export function Texts({ e }: { e: Editing }) {
+/**
+ * The battle texts: the three a single trainer needs (a missing one can be made), any other kind it has, the warning of the first.
+ * `narrating`: Erzählen writes them in the message editor (a new page with Shift+Enter, the codes as chips) and names no raw codes.
+ */
+export function Texts({ e, narrating = false }: { e: Editing; narrating?: boolean }) {
   const [making, setMaking] = useState<ReadonlySet<number>>(new Set());
   const { doc } = e;
   const off = e.locked || doc.texts_locked !== null;
@@ -319,7 +329,7 @@ export function Texts({ e }: { e: Editing }) {
     });
   const first = doc.texts.find((t) => t.kind === 0);
   return (
-    <Column title="Kampftexte" note="der Text vor dem Kampf endet auf \r (⏎)">
+    <Column title="Kampftexte" note={narrating ? "der Text vor dem Kampf endet mit einem Seitenende (Umschalt+Enter)" : "der Text vor dem Kampf endet auf \\r (⏎)"}>
       {doc.texts_locked !== null && <Notice kind="warning">{`Kampftexte schreibgeschützt: Trainertexte passen nicht zur Tabelle (${doc.texts_locked}).`}</Notice>}
       {doc.problems.map((p, i) => (
         <Notice
@@ -344,7 +354,11 @@ export function Texts({ e }: { e: Editing }) {
         }
         return (
           <Row key={kind} label={label}>
-            <TextField label={label} value={text?.text ?? ""} disabled={off} onCommit={(v) => setText(kind, v)} />
+            {narrating ? (
+              <MessageEditor label={label} value={text?.text ?? ""} disabled={off} onCommit={(v) => setText(kind, v)} />
+            ) : (
+              <TextField label={label} value={text?.text ?? ""} disabled={off} onCommit={(v) => void setText(kind, v)} />
+            )}
           </Row>
         );
       })}
@@ -556,10 +570,7 @@ export function useTrainerEditing(showBase: boolean) {
       family,
       locked,
       showBase,
-      write: (make) => {
-        if (locked) return;
-        void update(index, (now) => (now.placeholder || now.locked !== null ? null : make(now, docTitle(now, names.classes, index))));
-      },
+      write: (make) => (locked ? Promise.resolve(false) : update(index, (now) => (now.placeholder || now.locked !== null ? null : make(now, docTitle(now, names.classes, index))))),
     };
   }, [doc, index, names, family, showBase, update]);
 

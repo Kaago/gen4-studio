@@ -118,6 +118,8 @@ export interface TextAreaModel extends TextAreaState {
   dialogFigure: FigureDialog | null;
   /** Changes when the figures or their dialogs may have moved (texts, scripts, events): they are read again. */
   dialogRevision: number;
+  /** The revision the list's rows read at: `dialogRevision` while the area is in front, behind another area the last one it had there. */
+  dialogListRevision: number;
   /** Shows the figures of `header` (no figure chosen). */
   selectDialogHeader(header: number): void;
   /** Chooses a figure of `dialogHeader` (null: none); the hand shows its messages. */

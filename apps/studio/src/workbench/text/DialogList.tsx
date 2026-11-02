@@ -12,7 +12,8 @@ import styles from "./TextList.module.css";
 
 /**
  * A header of a place with how many figures speak there („2 Figuren sprechen“). Its figures are read when the row first shows in a place
- * the user opened (`counted`) and again when the data moved; the cache answers every later showing. A row a filter shows reads nothing:
+ * the user opened (`counted`) and again when the data moved (`revision`; behind another area only the chosen header's moves); the cache
+ * answers every later showing. A row a filter shows reads nothing:
  * each read waits for the session, and a filter can show nearly every header.
  */
 const HeaderItem = memo(function HeaderItem({
@@ -41,7 +42,7 @@ const HeaderItem = memo(function HeaderItem({
  * figures in the view. No archives and no numbers: those are Bauen's.
  */
 export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const { project, places, dialogHeader, dialogPlace, dialogRevision, selectDialogHeader } = useTextArea();
+  const { project, places, dialogHeader, dialogPlace, dialogRevision, dialogListRevision, selectDialogHeader } = useTextArea();
   const [filter, setFilter] = useState("");
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const tree = useRef<HTMLDivElement>(null);
@@ -90,7 +91,7 @@ export function DialogList({ open, onToggle }: { open: boolean; onToggle: () => 
           <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
             {shown.length === 0 && filtering && <p className={styles.note}>Kein Ort passt zum Filter.</p>}
             {shown.map((place) => (
-              <PlaceGroup key={place.key} place={place} places={places} expanded={filtering || opened.has(place.key)} counted={opened.has(place.key)} onToggle={toggle} selected={dialogHeader} revision={dialogRevision} onSelect={selectDialogHeader} />
+              <PlaceGroup key={place.key} place={place} places={places} expanded={filtering || opened.has(place.key)} counted={opened.has(place.key)} onToggle={toggle} selected={dialogHeader} revision={dialogListRevision} selectedRevision={dialogRevision} onSelect={selectDialogHeader} />
             ))}
           </div>
         </div>
@@ -108,6 +109,7 @@ function PlaceGroup({
   onToggle,
   selected,
   revision,
+  selectedRevision,
   onSelect,
 }: {
   place: Place;
@@ -117,7 +119,10 @@ function PlaceGroup({
   counted: boolean;
   onToggle: (key: string) => void;
   selected: number | null;
+  /** The revision the rows read at (kept while another area is in front). */
   revision: number;
+  /** The revision of the chosen header: its figures show in the view, so it reads with every change. */
+  selectedRevision: number;
   onSelect: (id: number) => void;
 }) {
   return (
@@ -133,7 +138,7 @@ function PlaceGroup({
       />
       {expanded &&
         place.headers.map(({ header }) => (
-          <HeaderItem key={header.id} header={header} label={headerIdentity(places, header).name} counted={counted} selected={header.id === selected} revision={revision} onSelect={onSelect} />
+          <HeaderItem key={header.id} header={header} label={headerIdentity(places, header).name} counted={counted} selected={header.id === selected} revision={header.id === selected ? selectedRevision : revision} onSelect={onSelect} />
         ))}
     </div>
   );

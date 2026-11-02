@@ -18,7 +18,7 @@ import { speciesCount } from "./pokedex/pokedexModel";
 import { TrainerHand } from "./trainer/TrainerHand";
 import { TrainerHandNarrate } from "./trainer/TrainerHandNarrate";
 import { TrainerList } from "./trainer/TrainerList";
-import { TrainerView } from "./trainer/TrainerView";
+import { TrainerView, TrainerViewNarrate } from "./trainer/TrainerView";
 import { dataAreaProvider, dataSearchProvider, useDataAreaModel, useDataArea } from "./useDataArea";
 import type { DataAreaProps } from "./useDataArea";
 
@@ -41,7 +41,7 @@ export const PokemonArea = memo(function PokemonArea({ context, children }: { co
 /** The parts of the Pokémon area by their switcher entry: the Pokédex, the trainers, the encounter files and the moves. */
 export const POKEMON_PARTS: Partial<Record<DataSub, DataPart>> = {
   pokedex: { List: PokedexList, View: PokedexView, Hand: PokedexHand, count: speciesCount },
-  trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand, ViewNarrate: TrainerView, HandNarrate: TrainerHandNarrate },
+  trainer: { List: TrainerList, View: TrainerView, Hand: TrainerHand, ViewNarrate: TrainerViewNarrate, HandNarrate: TrainerHandNarrate },
   encounters: { List: EncounterList, View: EncounterView, Hand: EncounterHand, ViewNarrate: EncounterViewNarrate, HandNarrate: EncounterHandNarrate },
   moves: { List: MovesList, View: MoveView, Hand: MoveHand },
 };

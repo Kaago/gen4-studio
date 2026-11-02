@@ -58,10 +58,13 @@
   border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
 }
 
-/* The preview: as wide as the DS screen at single size, scrolling on its own beside the form. */
+/*
+ * The preview: as wide as the DS screen at single size (256 px of content beside its padding and line, no horizontal overflow), scrolling
+ * on its own beside the form.
+ */
 .side {
   flex: none;
-  width: 288px;
+  width: calc(256px + 2 * var(--g4-raum-16) + var(--g4-strich-standard));
   box-sizing: border-box;
   border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
   overflow-y: auto;

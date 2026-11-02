@@ -541,6 +541,8 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
   // The figures of the places and their dialogs (Erzählen) are read again when a text, an event or a script file on disk moved (not when a
   // script document opens, closes or is typed into: every read of a place waits for the session).
   const dialogRevision = textRevision + useBusRevision(d.bus, ["eventData", "eventsRefetch"]) + scripts.saved;
+  // Behind another area the list's rows keep their last read (only the chosen place's figures follow every change).
+  const inFront = state.area === "texte";
   // A trainer figure is named by class and name: the rows are read once a place with a trainer shows.
   const trainers = useTrainerRows(dataStore, info);
   const needTrainers = useCallback(() => {
@@ -567,13 +569,14 @@ export function TextAreaHost({ onShown, children }: { onShown?: (shown: TextShow
       depth,
       matrices,
       dialogRevision,
+      inFront,
       onOpenDialog,
       onDepth: setDepth,
       trainers,
       needTrainers,
       scriptFiles,
     }),
-    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth, matrices, dialogRevision, onOpenDialog, setDepth, trainers, needTrainers, scriptFiles],
+    [info, headers, memberCounts, textTarget, textRevision, problems, goTo, onEdited, bus, onCountsChanged, onError, onShown, depth, matrices, dialogRevision, inFront, onOpenDialog, setDepth, trainers, needTrainers, scriptFiles],
   );
   return <TextArea context={context}>{children}</TextArea>;
 }

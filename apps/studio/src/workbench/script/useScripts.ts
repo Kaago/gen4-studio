@@ -31,7 +31,7 @@ export interface ScriptsApi {
   revision: number;
   /**
    * Changes only when a script file's text on disk moved through the app (a save, the level-script form's save, an adoption, text the
-   * backend wrote and a document took from disk): for readers of the compiled scripts, which neither opening nor typing concerns.
+   * backend wrote and a document took from disk, a reload of a file no document has open): for readers of the compiled scripts, which neither opening nor typing concerns.
    */
   saved: number;
   /** Opens the file (or shows it when open) and moves the cursor to the 1-based `line`. Failures are reported through `onError`. */
@@ -363,7 +363,11 @@ export function useScripts({ info, bus, problems, onError, onSaved, reopened }: 
       const doc = docs.get(file);
       const kind = doc?.kind ?? "script";
       bus.emit({ topic: "lspFilesChanged", changes: [{ path: scriptPath(file, kind), type: 2 }] });
-      if (!doc) return;
+      if (!doc) {
+        // The file on disk moved (undo, redo, an outside write) though no editor has it open: what reads the files hears of it.
+        bumpSaved();
+        return;
+      }
       try {
         const source = await readScript(file);
         if (latest.current.documents !== docs || docs.get(file) !== doc) return;
