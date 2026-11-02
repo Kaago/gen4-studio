@@ -125,7 +125,8 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
     observer.observe(el);
     return () => observer.disconnect();
   }, [inPlay]);
-  const fitKey = play ? [barSize, play.state, play.text, lightLabel, running, undoSteps, maximized, onMaximize !== undefined, depth].join("|") : "";
+  // What can change a width (the chosen depth cannot: its toggles keep their size).
+  const fitKey = play ? [barSize, play.state, play.text, lightLabel, running, undoSteps, maximized, onMaximize !== undefined].join("|") : "";
   const fitted = useRef("");
   // After every render in play mode: start from the full bar when what it holds changed, else take one more step while it does not fit.
   // The steps render synchronously before the paint, so the bar never shows overflowing.
@@ -144,6 +145,25 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
     if (el.scrollWidth > el.clientWidth || textCut) setSqueeze(squeeze + 1);
   });
   const squeezed = play ? squeeze : 0;
+  // „Schau maximieren“ steps aside once it is no longer pressed (step 3): the focus it had goes to redo, else to the history.
+  const refocus = useRef(false);
+  const maximizeAside = onMaximize !== undefined && squeezed >= 3 && !maximized;
+  useLayoutEffect(() => {
+    if (!refocus.current) return;
+    const el = barRef.current;
+    if (!maximizeAside) {
+      if (!maximized) refocus.current = false;
+      return;
+    }
+    refocus.current = false;
+    if (el === null || (document.activeElement !== null && document.activeElement !== document.body)) return;
+    const next = el.querySelector<HTMLButtonElement>('button[aria-label="Wiederholen"]:not(:disabled)') ?? el.querySelector<HTMLButtonElement>('button[aria-label^="Verlauf"]');
+    next?.focus();
+  });
+  const toggleMaximize = () => {
+    refocus.current = squeezed >= 3 && maximized;
+    onMaximize?.();
+  };
   const lightCompact = squeezed >= 2;
   const classes = [styles.hinge, wizard === true ? styles.wizardMode : null, play ? styles.playMode : null].filter((c) => c !== null).join(" ");
 
@@ -224,7 +244,7 @@ export function Hinge({ crumbs, depth, onDepth, problems, checking, unchecked = 
               items={historyItems}
             />
             <IconButton label="Wiederholen" icon="redo" shortcut="⇧⌘Z" disabled={history.redo.length === 0} onClick={onRedo} />
-            {onMaximize && (squeezed < 3 || maximized) && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={onMaximize} />}
+            {onMaximize && !maximizeAside && <IconButton label="Schau maximieren" icon="maximize" pressed={maximized} onClick={toggleMaximize} />}
             {play ? (
               <div className={styles.liveActions}>
                 <span className={styles.liveBadge} data-live-badge="">

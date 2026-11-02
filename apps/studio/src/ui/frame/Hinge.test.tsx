@@ -541,6 +541,46 @@ describe("Hinge", () => {
         expect(container.querySelectorAll("[data-count]")).toHaveLength(3);
       });
 
+      it("keeps_the_focus_on_a_depth_toggle_when_the_depth_or_the_state_text_changes", () => {
+        barContent = [1000, 690];
+        const props = narrow();
+        show(props);
+        expect(level()).toBe(1);
+        const toggle = () => container.querySelector<HTMLButtonElement>('[aria-label="Tiefe"] button[aria-label="Tüfteln"]')!;
+        const focused = toggle();
+        act(() => focused.focus());
+        // The parent answers onDepth with the new depth: no width changes, the toggles stay where they are.
+        show({ ...props, depth: "tuefteln" });
+        expect(level()).toBe(1);
+        expect(toggle()).toBe(focused);
+        expect(document.activeElement).toBe(focused);
+        // A new state text starts the fit again; the toggles stay mounted through it.
+        show({ ...props, depth: "tuefteln", live: live({ state: "live", text: "Live · 1 Haltepunkt" }) });
+        expect(level()).toBe(1);
+        expect(toggle()).toBe(focused);
+        expect(document.activeElement).toBe(focused);
+      });
+
+      it("hands_the_focus_to_redo_when_schau_maximieren_steps_aside", () => {
+        barContent = [1000, 850, 760, 690];
+        const props = narrow({ maximized: true, history: { undo: labels(1), redo: ["x"] } });
+        show(props);
+        expect(level()).toBe(3);
+        const max = button("Schau maximieren")!;
+        act(() => max.focus());
+        act(() => max.click());
+        expect(props.onMaximize).toHaveBeenCalledOnce();
+        show({ ...props, maximized: false });
+        expect(button("Schau maximieren")).toBeUndefined();
+        expect(document.activeElement).toBe(button("Wiederholen"));
+        // Without anything to redo (a disabled button takes no focus) the history takes it.
+        show({ ...props, maximized: true, history: { undo: labels(1), redo: [] } });
+        act(() => button("Schau maximieren")!.focus());
+        act(() => button("Schau maximieren")!.click());
+        show({ ...props, maximized: false, history: { undo: labels(1), redo: [] } });
+        expect(document.activeElement).toBe(button(/Verlauf/));
+      });
+
       it("never_squeezes_outside_play_mode", () => {
         barContent = [1000, 850, 760, 690];
         show(narrow({ live: null }));
