@@ -148,11 +148,18 @@ export const isSchauPanel = (id: string): boolean => DECK_AREAS.some((area) => A
 /** The version of the stored layouts; v11: one dock per area (v10 had two, the view and the hand). */
 export const LAYOUT_VERSION = 11;
 
-/** The localStorage key of an area's dock layout: one per area, so one broken layout resets only its own dock. */
-export const layoutKey = (area: AreaId) => `g4.layout.v${LAYOUT_VERSION}.${area}`;
+/**
+ * The localStorage key of an area's dock layout: one per area, so one broken layout resets only its own dock. An area with sub-areas
+ * (Pokémon: Pokédex, Trainer, Begegnungen, Attacken) keeps one per sub-area (`sub`), under `.sub.<sub>`: that suffix matches neither an old
+ * version nor the two-dock keys `dropOldLayouts` removes, nor `.arrangement`.
+ */
+export const layoutKey = (area: AreaId, sub?: string) => `g4.layout.v${LAYOUT_VERSION}.${area}${sub ? `.sub.${sub}` : ""}`;
 
-/** The localStorage key of the arrangement last built in an area's dock (what „Zurück ins Dock“ and „Anordnung zurücksetzen“ follow). */
-export const arrangementKey = (area: AreaId) => `${layoutKey(area)}.arrangement`;
+/**
+ * The localStorage key of the arrangement last built in an area's dock (what „Zurück ins Dock“ and „Anordnung zurücksetzen“ follow); per
+ * sub-area like the layout.
+ */
+export const arrangementKey = (area: AreaId, sub?: string) => `${layoutKey(area, sub)}.arrangement`;
 
 /** A stored layout key of any version, capturing the version. */
 const LAYOUT_KEY = /^g4\.layout\.v(\d+)\./;
@@ -194,20 +201,23 @@ export function dropLayout(key: string): void {
   }
 }
 
-/** The arrangement last built in the dock of `area`; the area's default when none is stored (or what is stored is no arrangement). */
-export function loadArrangement(area: DeckArea): Arrangement {
+/**
+ * The arrangement last built in the dock of `area` (in its sub-area `sub`); the area's default when none is stored (or what is stored is no
+ * arrangement).
+ */
+export function loadArrangement(area: DeckArea, sub?: string): Arrangement {
   try {
-    const stored = localStorage.getItem(arrangementKey(area));
+    const stored = localStorage.getItem(arrangementKey(area, sub));
     return stored === "werkbank" || stored === "doppeldeck" ? stored : DEFAULT_ARRANGEMENT[area];
   } catch {
     return DEFAULT_ARRANGEMENT[area];
   }
 }
 
-/** Remembers the arrangement built in the dock of `area`. */
-export function saveArrangement(area: DeckArea, arrangement: Arrangement): void {
+/** Remembers the arrangement built in the dock of `area` (in its sub-area `sub`). */
+export function saveArrangement(area: DeckArea, arrangement: Arrangement, sub?: string): void {
   try {
-    localStorage.setItem(arrangementKey(area), arrangement);
+    localStorage.setItem(arrangementKey(area, sub), arrangement);
   } catch {
     /* the default is built next time */
   }

@@ -33,6 +33,7 @@ import { LookField } from "./LookField";
 import { PlacePicker } from "../places/PlacePicker";
 import { RenamePlaceDialog } from "../places/RenamePlaceDialog";
 import { LevelScriptSection } from "./LevelScriptSection";
+import { MusicField, soundOf, useSoundNames } from "./MusicField";
 import { SplitRoomDialog } from "./SplitRoomDialog";
 import { SHARED_HINT, sharedText } from "../sharedRooms";
 import { ADOPT_HINT } from "./scriptNav";
@@ -231,6 +232,8 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   const roomMatrix = room ? matrices.find((m) => m.index === room.header.matrix_id) : undefined;
   const canSplit = sharedRoom !== undefined && roomMatrix?.has_headers === false;
   const narrating = !depthAtLeast(depth, "bauen");
+  // The names of the music pieces (the fields with `pick: "music"`).
+  const sounds = useSoundNames(info);
   const fieldRow = (spec: FieldSpec, header: MapHeader) => {
     const script = SCRIPT_FIELDS[spec.key];
     const value = fieldValue(header, spec.key);
@@ -242,6 +245,28 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
     // „Begegnungen“ names an encounter file of the Pokémon area (Diamond and Pearl have no data editors: there it stays a number).
     if (spec.key === "wild_pokemon" && family !== "DP") {
       return <EncounterFileField key={spec.key} spec={spec} value={value} family={family} headers={headers} goTo={goTo} onCommit={commit} />;
+    }
+    // Music: Erzählen picks the piece by its name, Bauen and Tüfteln keep the number with the piece's name beside it.
+    if (spec.pick === "music") {
+      if (narrating) return <MusicField key={spec.key} spec={spec} value={value} sounds={sounds} onCommit={commit} />;
+      const piece = soundOf(sounds, value);
+      return (
+        <Field
+          key={spec.key}
+          spec={spec}
+          value={value}
+          max={undefined}
+          onCommit={commit}
+          showBase={depthAtLeast(depth, "tuefteln")}
+          extra={
+            piece && (
+              <span className={styles.pieceName} data-music-name="">
+                {piece.name}
+              </span>
+            )
+          }
+        />
+      );
     }
     // „Ort“ is chosen by name from the location bank; Diamond and Pearl write the field itself (the kernel has no place commands there).
     if (spec.kind === "place" && summary) {

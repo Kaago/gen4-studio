@@ -1160,6 +1160,8 @@ function AppBody() {
   }, [paletteOpen, session.info, dataStore]);
   const paletteData = useDataLists(dataStore, paletteOpen ? session.info : null);
   const paletteDeck: DeckArea = isDeckArea(area) ? area : "welt";
+  // The sub-area whose layout the palette resets (Pokémon keeps one per sub-area).
+  const paletteSub = paletteDeck === "pokemon" ? shell.state.sub.pokemon : undefined;
   // Whether the world's inspector floats, read when the palette opens: it offers to dock it then, otherwise to float it.
   const inspectorFloats = paletteOpen && docks.welt.current?.getPanel("inspector")?.api.location.type === "floating";
   // The palette's "Teile in die Karte importieren…" works on the pinned matrix cell; its map is read when the command runs
@@ -1278,10 +1280,10 @@ function AppBody() {
         resetLayout("welt", docks.welt, "werkbank", depth);
         break;
       case "arrangeDoppeldeck":
-        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", depth);
+        resetLayout(paletteDeck, docks[paletteDeck], "doppeldeck", depth, paletteSub);
         break;
       case "layout":
-        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck), depth);
+        resetLayout(paletteDeck, docks[paletteDeck], loadArrangement(paletteDeck, paletteSub), depth, paletteSub);
         break;
       case "maximize":
         if (docks[paletteDeck].current) toggleSchauMaximized(docks[paletteDeck].current);
@@ -1476,6 +1478,7 @@ function AppBody() {
     <Deck
       area={target}
       depth={depth}
+      sub={target === "pokemon" ? shell.state.sub.pokemon : undefined}
       wizard={target === "welt" ? showsWizard : undefined}
       preview={target === "welt" ? worldPreview : undefined}
       components={DECK_COMPONENTS[target]}

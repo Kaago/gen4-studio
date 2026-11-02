@@ -60,6 +60,12 @@
   font: var(--g4-font-code-s);
 }
 
+/* A music piece's name beside its number, and where Erzählen's piece plays. */
+.pieceName {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
 /* The control keeps 6 x 16 px at least and asks for 8 x 16 px; below that the buttons wrap to the next line. */
 .grow {
   min-width: calc(var(--g4-raum-16) * 6);

@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assignPlace, dataList, entityIds, getEvents, getHeader, getMatrix, getTextArchive, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
-import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary } from "../../api";
+import { assignPlace, dataList, entityIds, getEvents, getHeader, getMatrix, getTextArchive, nameTables, newScriptFile, placeSlots, readScript, setHeader, splitRoom } from "../../api";
+import type { EventsDto, HeaderSummary, MapHeader, MapHeaderHGSS, MapHeaderPt, MatrixSummary, NameTablesDto, ProjectInfo } from "../../api";
 import { typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
 import { headerIdentity } from "../headerIdentity";
@@ -31,6 +31,7 @@ vi.mock("../../api", async (importOriginal) => ({
   splitRoom: vi.fn(),
   entityIds: vi.fn(),
   getMatrix: vi.fn(),
+  nameTables: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -675,9 +676,10 @@ describe("HeaderEditor scripts", () => {
       expect(container.querySelector("h2")?.textContent).toBe("Zweiblattdorf");
       // The look by its places, chosen with the header itself as the template.
       expect(container.querySelector("button[data-look-picker]")?.textContent).toBe("Aussehen wie Zweiblattdorf");
-      // Music as a number without Dez | Hex.
-      expect(input("Musik (Tag)")?.value).toBe("6");
-      expect(input("Musik (Nacht)")?.value).toBe("7");
+      // Music as a picker of the pieces, without a number field and without Dez | Hex.
+      expect(button("Musik (Tag) wählen…")).toBeDefined();
+      expect(button("Musik (Nacht) wählen…")).toBeDefined();
+      expect(input("Musik (Tag)")).toBeNull();
       expect(button("Hex")).toBeUndefined();
       // No script file, no level script, no matrix.
       expect(input("Weltkarte")).toBeNull();
@@ -685,6 +687,40 @@ describe("HeaderEditor scripts", () => {
       // The name of an area stands in its row without a button: there is no rename for areas.
       expect(container.querySelector("[data-name-row]")?.textContent).toContain("Zweiblattdorf");
       expect(button("Umbenennen…")).toBeUndefined();
+    });
+
+    it("in erzaehlen music is a picker, in bauen a number with the name", async () => {
+      const sounds = [
+        { id: 6, name: "SEQ_TOWN01", used_in: "Zweiblattdorf" },
+        { id: 7, name: "SEQ_TOWN02", used_in: null },
+        { id: 8, name: "SEQ_ROAD_A_D", used_in: "Route 201 (Tag)" },
+      ];
+      vi.mocked(nameTables).mockReset().mockResolvedValue({ sounds } as unknown as NameTablesDto);
+      const info: ProjectInfo = { root: "/projekt-musik", game_code: "CPUD", family: "Pt", language: "de", header_count: 593 };
+      await show(context({ info }), "erzaehlen");
+      // Erzählen: the piece by its name and where it plays, chosen in a picker; no number.
+      const day = container.querySelector<HTMLElement>("[data-music-field='music_day_id']")!;
+      expect(day.textContent).toContain("SEQ_TOWN01");
+      expect(day.textContent).toContain("Zweiblattdorf");
+      expect(container.querySelector("[data-music-field='music_night_id']")?.textContent).toContain("SEQ_TOWN02");
+      expect(input("Musik (Tag)")).toBeNull();
+      await click(button("Musik (Tag) wählen…"));
+      const option = [...document.querySelectorAll<HTMLElement>("[role=dialog] [role=option]")].find((o) => o.textContent?.includes("SEQ_ROAD_A_D"));
+      expect(option?.textContent).toContain("Route 201 (Tag)");
+      await click(option);
+      await flush();
+      expect(setHeader).toHaveBeenCalledWith(411, pt({ music_day_id: 8 }), "Musik (Tag)");
+      // Bauen (a new editor, as for another header): the number field, with the piece's name beside it.
+      act(() => root.unmount());
+      root = createRoot(container);
+      await show(context({ info }), "bauen");
+      expect(input("Musik Tag")?.value).toBe("6");
+      expect(input("Musik Nacht")?.value).toBe("7");
+      const names = [...container.querySelectorAll("[data-music-name]")].map((n) => n.textContent);
+      expect(names).toEqual(["SEQ_TOWN01", "SEQ_TOWN02"]);
+      expect(button("Musik Tag wählen…")).toBeUndefined();
+      // The names are read once per project, not for every header shown.
+      expect(nameTables).toHaveBeenCalledTimes(1);
     });
 
     it("erzaehlen_writes_the_chosen_look_as_one_header_edit", async () => {

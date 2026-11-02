@@ -10,6 +10,7 @@ import { AREA_PANELS, arrangementKey, layoutKey } from "../../workbench/layout";
 import type { PanelId } from "../../workbench/layout";
 import { scriptDirtyStore } from "../../workbench/script/scriptDirtyStore";
 import { Deck, resetLayout } from "./Deck";
+import { floatPanel } from "./dockRules";
 import type { DeckPreview } from "./Deck";
 import { ShellProvider, useShell } from "./ShellContext";
 import type { ShellApi } from "./ShellContext";
@@ -60,6 +61,7 @@ const Empty: FunctionComponent<IDockviewPanelProps> = () => null;
 const components = (ids: PanelId[]) => Object.fromEntries(ids.map((id) => [id, Empty]));
 const WELT = components(["world", "matrix", "worldmap", "inspector", "script", "problems"]);
 const TEXTE = components(["textView", "textEdit", "problems"]);
+const POKEMON = components(["pokemonView", "pokemonEdit"]);
 
 describe("Deck", () => {
   let container: HTMLElement;
@@ -565,6 +567,87 @@ describe("Deck", () => {
     expect(localStorage.getItem(layoutKey("texte"))).toBeNull();
     // Another area's layout stays.
     expect(localStorage.getItem(layoutKey("welt"))).not.toBeNull();
+  });
+
+  describe("per sub-area", () => {
+    /** The Pokémon deck showing `sub`, as App gives it the shell's sub-area. */
+    const pokemonDeck = (sub: string) => (
+      <ShellProvider initialArea="pokemon">
+        <Deck area="pokemon" sub={sub} depth="bauen" components={POKEMON} dockRef={dockRef} hinge={<div role="toolbar" aria-label="Scharnier" />} />
+      </ShellProvider>
+    );
+    /** Renders the Pokémon deck showing `sub` (again: the dock stays). */
+    const renderPokemon = async (sub: string) => act(async () => root.render(pokemonDeck(sub)));
+    const storedOf = (sub: string) => JSON.parse(localStorage.getItem(layoutKey("pokemon", sub)) ?? "null") as { panels: object; grid: { root: GridNode }; floatingGroups?: unknown[] } | null;
+    const floats = (id: string) => api().getPanel(id)!.api.location.type === "floating";
+    const DOPPELDECK = [["pokemonView"], ["pokemonEdit"]];
+
+    it("switching the sub swaps the stored layouts and keeps both", async () => {
+      // The layout stored for „Attacken“ is unusable (a panel of another dock): that sub-area falls back to its arrangement.
+      localStorage.setItem(layoutKey("pokemon", "moves"), JSON.stringify(stored(["pokemonView"], ["pokemonEdit"], ["world"])));
+      act(() => root.unmount());
+      root = createRoot(container);
+      dockRef.current = null;
+      await renderPokemon("pokedex");
+      await settle();
+      const dockview = api();
+      expect(layoutOf(api())).toEqual(DOPPELDECK);
+      expect(storedOf("pokedex")?.floatingGroups ?? []).toHaveLength(0);
+      // „Bearbeiten“ floats in the Pokédex, and the sub-area changes in the same step, before dockview announces the change (its layout
+      // event waits for a microtask): the switch itself stores the layout it leaves.
+      act(() => {
+        floatPanel(api(), "pokemonEdit");
+        root.render(pokemonDeck("trainer"));
+      });
+      // The Pokédex's layout was stored with its floating group first; the trainers start from the arrangement, in the same dock.
+      expect(storedOf("pokedex")?.floatingGroups).toHaveLength(1);
+      expect(dockRef.current).toBe(dockview);
+      expect(floats("pokemonEdit")).toBe(false);
+      expect(layoutOf(api())).toEqual(DOPPELDECK);
+      await settle();
+      expect(storedOf("trainer")?.floatingGroups ?? []).toHaveLength(0);
+      expect(storedOf("pokedex")?.floatingGroups).toHaveLength(1);
+      // The unusable layout of „Attacken“: the arrangement, no foreign panel, and the others keep theirs.
+      await renderPokemon("moves");
+      await settle();
+      expect(layoutOf(api())).toEqual(DOPPELDECK);
+      expect(api().getPanel("world")).toBeUndefined();
+      expect(Object.keys(storedOf("moves")!.panels).sort()).toEqual(["pokemonEdit", "pokemonView"]);
+      expect(storedOf("pokedex")?.floatingGroups).toHaveLength(1);
+      expect(storedOf("trainer")).not.toBeNull();
+      // Back in the Pokédex its floating „Bearbeiten“ comes back; the dock is still the same.
+      await renderPokemon("pokedex");
+      await settle();
+      expect(floats("pokemonEdit")).toBe(true);
+      expect(dockRef.current).toBe(dockview);
+      // The tab menu's reset works on the shown sub-area only.
+      await choose("Bearbeiten", "Anordnung zurücksetzen");
+      expect(floats("pokemonEdit")).toBe(false);
+      expect(storedOf("pokedex")?.floatingGroups ?? []).toHaveLength(0);
+      // Nothing is kept under the area's own key: every layout of the Pokémon dock belongs to a sub-area.
+      expect(localStorage.getItem(layoutKey("pokemon"))).toBeNull();
+      expect(localStorage.getItem(arrangementKey("pokemon"))).toBeNull();
+      expect(localStorage.getItem(arrangementKey("pokemon", "pokedex"))).toBe("doppeldeck");
+    });
+
+    it("resets_the_layout_of_the_given_sub_area_only", async () => {
+      localStorage.setItem(layoutKey("pokemon", "trainer"), JSON.stringify(stored(["pokemonView", "pokemonEdit"])));
+      localStorage.setItem(layoutKey("pokemon", "moves"), JSON.stringify(stored(["pokemonView", "pokemonEdit"])));
+      // A dock that is not built forgets the layout of that sub-area only.
+      resetLayout("pokemon", { current: null }, undefined, "bauen", "trainer");
+      expect(localStorage.getItem(layoutKey("pokemon", "trainer"))).toBeNull();
+      expect(localStorage.getItem(layoutKey("pokemon", "moves"))).not.toBeNull();
+      // A built dock rebuilds the arrangement and stores it under its sub-area.
+      act(() => root.unmount());
+      root = createRoot(container);
+      dockRef.current = null;
+      await renderPokemon("moves");
+      expect(layoutOf(api())).toEqual(["pokemonView", "pokemonEdit"]);
+      act(() => resetLayout("pokemon", dockRef, undefined, "bauen", "moves"));
+      await settle();
+      expect(layoutOf(api())).toEqual(DOPPELDECK);
+      expect(shape(storedOf("moves")!.grid.root)).toEqual(DOPPELDECK);
+    });
   });
 
   it("does_not_rebuild_the_dock_when_the_frame_state_changes", async () => {
