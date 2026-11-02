@@ -46,6 +46,23 @@ describe("RecipeBar", () => {
     expect(bar().getAttribute("data-anchor")).toBe("bottom");
   });
 
+  it("flat_shows_only_the_symbols_with_the_names_as_accessible_names", () => {
+    // UI test 3d.5 (U3): with a wizard open the bar lies flat at the top beside the layer bar; five names ran 24 px past the view in
+    // Komfort at 1440 × 900. Flat, every key is its symbol: the name is the accessible name and heads the tooltip.
+    const names = ["Gebiet anlegen", "Raum anlegen", "Neue Figur", "Tür verbinden", "Neuer Trainer hier"];
+    for (const anchor of ["top", "bottom"] as const) {
+      show(anchor);
+      expect(keys().map((b) => b.hasAttribute("data-icon-only"))).toEqual([true, true, true, true, true]);
+      expect(keys().map((b) => b.textContent)).toEqual(["", "", "", "", ""]);
+      expect(keys().map((b) => b.getAttribute("aria-label"))).toEqual(names);
+      expect(keys().map((b) => b.disabled)).toEqual([false, false, false, false, false]);
+    }
+    // Upright the names are back.
+    show("left");
+    expect(keys().map((b) => b.textContent)).toEqual(names);
+    expect(keys().some((b) => b.hasAttribute("aria-label"))).toBe(false);
+  });
+
   it("a_locked_entry_shows_its_symbol_and_lock_and_is_skipped_by_the_arrows", () => {
     // No recipe of the bar is locked since 3d.5; a locked entry still behaves as before (a later recipe may need it).
     const entries = RECIPE_BAR.map((r) => (r.id === "create_room" ? { ...r, reason: "Kommt später" } : r));

@@ -559,8 +559,9 @@ export function FramePage() {
       <section className={styles.block}>
         <h2 className={styles.blockTitle}>Rezept-Leiste</h2>
         <p className={styles.note}>
-          In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker und wie sie in einer Reihe (oder Spalte), nie umgebrochen. Seit 3d.5 öffnet jedes Rezept seinen Assistenten
-          und zeigt Symbol und Namen; ein gesperrtes Rezept zeigte nur sein Symbol mit dem Schloss, Name und Grund im Tooltip.
+          In Erzählen steht sie, wo Bauen die Werkzeugleiste hat, am selben Anker und wie sie in einer Reihe (oder Spalte). Seit 3d.5 öffnet jedes Rezept seinen Assistenten; senkrecht
+          zeigt es Symbol und Namen, waagerecht nur sein Symbol (Name im Tooltip), damit die Leiste neben der Szenenleiste in die Schau passt. Ein gesperrtes Rezept zeigte nur sein
+          Symbol mit dem Schloss, Name und Grund im Tooltip.
         </p>
         <div className={styles.toolbarViews}>
           <div className={styles.toolbarView}>
