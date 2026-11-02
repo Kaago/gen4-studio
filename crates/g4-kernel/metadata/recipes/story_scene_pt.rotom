@@ -1,0 +1,8 @@
+script szene_{n} #{n}:
+    LockAll
+    Message {message}
+    WaitButton
+    CloseMessage
+    SetVarFromValue {var}, {value}
+    ReleaseAll
+    End

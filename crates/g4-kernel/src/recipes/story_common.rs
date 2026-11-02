@@ -355,7 +355,39 @@ pub(crate) fn push_message(
 /// The script templates of the story recipes (`metadata/recipes/story_*.rotom`): the name, the
 /// text for Platinum (Diamond and Pearl take it) and the text for HeartGold/SoulSilver (the
 /// same file where the commands do not differ).
-const TEMPLATES: &[(&str, &str, &str)] = &[];
+const TEMPLATES: &[(&str, &str, &str)] = &[
+    (
+        "story_talk",
+        include_str!("../../metadata/recipes/story_talk_pt.rotom"),
+        include_str!("../../metadata/recipes/story_talk_hgss.rotom"),
+    ),
+    (
+        "story_reward",
+        include_str!("../../metadata/recipes/story_reward_pt.rotom"),
+        include_str!("../../metadata/recipes/story_reward_hgss.rotom"),
+    ),
+    (
+        "story_scene",
+        include_str!("../../metadata/recipes/story_scene_pt.rotom"),
+        include_str!("../../metadata/recipes/story_scene_hgss.rotom"),
+    ),
+    // The visibility block does not differ between the families (`SetFlag`/`ClearFlag`).
+    (
+        "story_visibility_head",
+        include_str!("../../metadata/recipes/story_visibility_head.rotom"),
+        include_str!("../../metadata/recipes/story_visibility_head.rotom"),
+    ),
+    (
+        "story_visibility_rule_appear",
+        include_str!("../../metadata/recipes/story_visibility_rule_appear.rotom"),
+        include_str!("../../metadata/recipes/story_visibility_rule_appear.rotom"),
+    ),
+    (
+        "story_visibility_rule_vanish",
+        include_str!("../../metadata/recipes/story_visibility_rule_vanish.rotom"),
+        include_str!("../../metadata/recipes/story_visibility_rule_vanish.rotom"),
+    ),
+];
 
 /// The template `name` (the file name without family and extension, e.g. `story_talk`) for
 /// `family`; empty for a name no template has.

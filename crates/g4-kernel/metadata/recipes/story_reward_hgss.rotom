@@ -1,0 +1,16 @@
+script belohnung_{local_id}_{n} #{n}:
+    LockAll
+    FacePlayer
+    if {var} >= {from} then
+        if {flag} == 0 then
+            NPCMsg {message}
+            WaitButton
+            CloseMsg
+            GiveItem {item}, 1, VAR_SPECIAL_RESULT
+            SetFlag {flag}
+            ReleaseAll
+            End
+        endif
+    endif
+    ReleaseAll
+{tail}

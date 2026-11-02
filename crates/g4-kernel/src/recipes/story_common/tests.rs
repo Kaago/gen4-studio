@@ -317,3 +317,38 @@ mod with_fixture {
         );
     }
 }
+
+/// Every row of the template table resolves to a non-empty text, for every family.
+#[test]
+fn every_story_template_resolves() {
+    let names = [
+        "story_talk",
+        "story_reward",
+        "story_scene",
+        "story_visibility_head",
+        "story_visibility_rule_appear",
+        "story_visibility_rule_vanish",
+    ];
+    assert_eq!(TEMPLATES.len(), names.len());
+    for name in names {
+        for family in [Family::Dp, Family::Pt, Family::Hgss] {
+            let text = template(name, family);
+            assert!(!text.trim().is_empty(), "{name} {family:?}");
+        }
+    }
+    for (name, pt, hgss) in TEMPLATES {
+        assert!(!pt.is_empty() && !hgss.is_empty(), "{name}");
+        assert!(names.contains(name), "{name}");
+    }
+    // Dp takes Platinum's text; only the commands of HeartGold/SoulSilver differ.
+    assert_eq!(
+        template("story_talk", Family::Dp),
+        template("story_talk", Family::Pt)
+    );
+    assert!(template("story_talk", Family::Hgss).contains("NPCMsg"));
+    assert!(template("story_talk", Family::Pt).contains("Message"));
+    assert_eq!(
+        template("story_visibility_head", Family::Hgss),
+        template("story_visibility_head", Family::Pt)
+    );
+}

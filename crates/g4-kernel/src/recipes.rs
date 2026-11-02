@@ -27,6 +27,7 @@ pub mod new_story;
 pub mod new_trainer_here;
 pub mod room;
 pub mod story_common;
+pub mod story_scripts;
 pub mod types;
 
 use serde::Serialize;

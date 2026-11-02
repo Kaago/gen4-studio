@@ -1,0 +1,13 @@
+script gespraech_{local_id}_{value} #{n}:
+    LockAll
+    FacePlayer
+    if {var} == {from} then
+        Message {message}
+        WaitButton
+        CloseMessage
+        SetVarFromValue {var}, {value}
+        ReleaseAll
+        End
+    endif
+    ReleaseAll
+{tail}

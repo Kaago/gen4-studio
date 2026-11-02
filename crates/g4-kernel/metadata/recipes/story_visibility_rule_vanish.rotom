@@ -1,0 +1,5 @@
+    if {var} >= {step} then
+        SetFlag {flag}
+    else
+        ClearFlag {flag}
+    endif
