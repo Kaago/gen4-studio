@@ -358,6 +358,12 @@ fn import_units<'a>(
         } else {
             Default::default()
         },
+        // The members at the end the import's rule removes, of the units taken over.
+        removals: plan
+            .removals
+            .into_iter()
+            .filter(|m| ok.iter().any(|u| u.members.contains(m)))
+            .collect(),
         ..ImportPlan::default()
     };
     let applied = apply_import(project, &chosen)?;

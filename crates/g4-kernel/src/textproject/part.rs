@@ -83,6 +83,12 @@ pub(crate) trait BasePart {
     fn has_member(&self, _kind: AssetKind, _index: usize) -> Option<bool> {
         None
     }
+
+    /// Whether the base has map header `id` (its table is longer); `None` when that cannot be
+    /// told.
+    fn has_header(&self, _id: usize) -> Option<bool> {
+        None
+    }
 }
 
 /// A member as its value, or locked as raw bytes with the reason.

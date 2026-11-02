@@ -430,6 +430,11 @@ keines von ihnen, plant der Import sie als Entfernung (`removals`, im Check unte
 entfernt sie (Warnung `textproject.member-removed`); so baut ein zweiter Git-Branch, auf dem
 „Nummer freigeben“ die JSON löschte, nach `git switch` (auch der Build-Schritt `textproject`
 entfernt sie). In der Mitte, seit der Aufzeichnung geändert oder in der Basis bleibt es
+`member-without-json`. Dieselbe Regel gilt für Header am Ende (Patch „Dynamische Header“): fehlen
+die JSON ab einer Nummer, sind ihre Dateien `unpacked/dynamicHeaders/NNNN` und `mapname.bin` seit
+der Aufzeichnung unverändert und hat die Basis die Header nicht, schreibt der Import die Tabelle
+kürzer (`mapname.bin` verliert ihre Einträge, ihre Dateien gehen). Texturen und Modelle (Binärarten
+ohne JSON) deckt die Regel in 3d.4 nicht ab: ein Member ohne Datei und ohne Basis bleibt
 `member-without-json`. Neue Entitäten werden angehängt, nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
 Member, das nur eins der beiden hat (DSPRE ließ ein Archiv länger), dazu: Ab der ersten Nummer, die
 weder eine JSON deckt noch beide Archive haben, meldet der Import `member-without-json`; der Export
@@ -542,9 +547,9 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | Lauf | JSON-Seite geändert | Member-Seite geändert | Wirkung |
 |---|---|---|---|
 | inkrementell | ja | nein | Member schreiben |
-| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.`; ein Member ganz ohne JSON: `textproject.member-newer: <member> hat noch keine <json>; g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht keine Member).` |
+| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.`; ein Member ganz ohne JSON: `textproject.member-newer: <member> hat noch keine <json>; g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung unverändert sind).` |
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
-| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).`; ein Member ganz ohne JSON: `textproject.unsynced: <member> hat keine <json> und fehlt in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der Import löscht keine Member).` |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).`; ein Member ganz ohne JSON: `textproject.unsynced: <member> hat keine <json> und fehlt in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung unverändert sind).` |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
 andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
@@ -552,12 +557,13 @@ behalten hat, also urteilt er über die Basisschicht. Ein Member ohne JSON (von 
 angehängt, oder ein Teil, der in der JSON fehlt) ist inkrementell `member-newer`, wenn sich sein
 Member geändert hat oder schon behalten war, voll `unsynced`, sonst das
 `textproject.member-without-json` des Imports. Die Sätze der Tabelle nennen für ein solches Member den
-richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht keine
-Member). Das überzählige Member einer Art aus zwei Archiven (Trainer) ist davon ausgenommen: Der
+richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht nur
+Member am Ende, die seit der Aufzeichnung unverändert sind; ein Member am Ende, das die Kürz-Regel
+entfernt, ist kein solches, siehe „Export, Import, Check“). Das überzählige Member einer Art aus zwei Archiven (Trainer) ist davon ausgenommen: Der
 Export legt dafür nichts an, der Schritt (inkrementell und voll) und der Abgleich melden den Satz des
 Imports als Fehler, der DSPRE als Ausweg nennt: `die Archive haben verschieden viele Member (…); ab
 NNNN hat ein Member kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in
-DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).` Der Abgleich übernimmt es nicht als
+DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im Studio löschen ließe).` Der Abgleich übernimmt es nicht als
 Trainer aus DSPRE, die Einheit ist fehlerhaft.
 
 Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
@@ -678,7 +684,11 @@ Ohne `sync` (erster Abgleich) gelten beide Seiten als geändert: Gleiche Einheit
 aufgezeichnet, abweichende sind Konflikte. Eine Einheit mit Membern und ganz ohne JSON (ein von
 DSPRE angehängter Member) ist aus DSPRE, eine mit JSON und ohne Member aus Datei. Ein seit der
 Aufzeichnung gelöschter Member oder eine gelöschte JSON, deren Member bleibt, ist fehlerhaft: Der
-Abgleich löscht keine Entität, Löschen kommt mit Phase 3d (Referenzsperre). Ein gelöschter Blob unter
+Abgleich löscht keine Entität, Löschen geht im Studio („Löschen…“, mit Referenzsperre). Ausgenommen
+sind die Member am Ende, die die Kürz-Regel des Imports entfernt (dieselbe Regel, siehe „Export,
+Import, Check“): Ihre Einheit ist aus Datei mit der Warnung `textproject.member-removed`, die
+Übernahme entfernt sie wie der Import; ein Header am Ende ebenso (seine Datei unter
+`unpacked/dynamicHeaders` und sein Eintrag in `mapname.bin`). Ein gelöschter Blob unter
 `data/raw/` setzt die Datei auf die Fassung der Basisschicht zurück (ohne Schicht fehlerhaft).
 
 **Übernahme.** Aus DSPRE: Entitäten, Items, Header (mit den internen Namen aus `mapname.bin`) und
@@ -1085,7 +1095,7 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
 | `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nur Member am Ende ohne JSON, die seit der Aufzeichnung unverändert sind (`textproject.member-removed`). Der Export warnt bei dem überzähligen Member mit demselben Code |
-| `textproject.member-removed` | Warnung | Import und Build-Schritt: Member am Ende einer Art ohne JSON, seit der Aufzeichnung des Abgleichs unverändert und nicht in der Basis (die JSON ging mit „Nummer freigeben“, auch auf einem anderen Git-Branch); sie werden entfernt (Kürz-Regel, siehe „Export, Import, Check“) |
+| `textproject.member-removed` | Warnung | Import, Build-Schritt und Abgleich: Member (oder Header) am Ende einer Art ohne JSON, seit der Aufzeichnung des Abgleichs unverändert und nicht in der Basis (die JSON ging mit „Nummer freigeben“, auch auf einem anderen Git-Branch); sie werden entfernt (Kürz-Regel, siehe „Export, Import, Check“) |
 | `textproject.header-table` | Fehler | die Header-Tabelle ist nicht lesbar oder nicht zu finden |
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |

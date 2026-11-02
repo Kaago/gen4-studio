@@ -176,7 +176,8 @@ pub(crate) fn surplus_problem(
         format!(
             "{ROOT}: die Archive haben verschieden viele Member ({}); ab {from:04} hat ein Member \
              kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in \
-             DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).",
+             DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im Studio löschen \
+             ließe).",
             archives.join(", ")
         ),
     ))

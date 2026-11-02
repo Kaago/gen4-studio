@@ -47,7 +47,7 @@ use super::schema::data::{
     EncounterEntity, ItemEntity, MoveEntity, SpeciesEntity, TrainerTextOffsetsEntity,
     TrainerTextTableEntity, import_items,
 };
-use super::schema::header::{HeaderWrite, NO_DP, import_headers, write_headers};
+use super::schema::header::{HeaderWrite, NO_DP, import_headers_with, write_headers};
 use super::schema::map::MapEntity;
 use super::schema::trainer::TrainerEntity;
 use super::schema::world::{AreaDataEntity, EventEntity, MatrixEntity};
@@ -247,6 +247,10 @@ impl BasePart for LazyBase<'_> {
     fn has_member(&self, kind: AssetKind, index: usize) -> Option<bool> {
         self.layer().ok()?.has_member(kind, index)
     }
+
+    fn has_header(&self, id: usize) -> Option<bool> {
+        self.layer().ok()?.has_header(id)
+    }
 }
 
 fn ms_since(start: Instant) -> u64 {
@@ -416,7 +420,7 @@ pub(crate) fn plan_import(
             ..ArtStats::default()
         };
         match art {
-            Art::Headers => plan_headers(project, &symbols, only, &mut plan, &mut stats)?,
+            Art::Headers => plan_headers(project, &symbols, base, only, &mut plan, &mut stats)?,
             Art::Items => plan_items(project, &symbols, base, only, &mut plan, &mut stats)?,
             Art::Binary(kind) => plan_binary(project, kind, base, only, &mut plan, &mut stats)?,
             Art::Matrices => plan_entities::<MatrixEntity>(
@@ -474,8 +478,119 @@ fn parse<T: DeserializeOwned>(rel: &Path, bytes: &[u8]) -> Result<T, Problem> {
 }
 
 /// What the import says of the members without JSON it does not remove.
-const REMOVES_ONLY: &str = "der Import löscht nur Member am Ende ohne JSON, die seit der \
-                            Aufzeichnung unverändert sind (textproject.member-removed).";
+pub(crate) const REMOVES_ONLY: &str = "der Import löscht nur Member am Ende ohne JSON, die seit \
+                                       der Aufzeichnung unverändert sind \
+                                       (textproject.member-removed).";
+
+/// The rule of 3d.4 for members (or headers) without JSON at the end of an art: the import
+/// removes them when every one of `files` (relative to the root) is `recorded` (holds what the
+/// sync's record says; a file without a record counts as changed) and none of the `numbers`
+/// is `in_base`. The one predicate of the import ([`check_numbering`], the headers) and the
+/// sync's scan ([`trailing_removals`]).
+pub(crate) fn removable(
+    files: &[PathBuf],
+    numbers: std::ops::Range<usize>,
+    recorded: &dyn Fn(&Path) -> bool,
+    in_base: &dyn Fn(usize) -> bool,
+) -> bool {
+    !files.is_empty()
+        && files.iter().all(|f| recorded(f))
+        && numbers.into_iter().all(|n| !in_base(n))
+}
+
+/// Whether file `rel` holds what the sync recorded for it (no record, no sync: `false`).
+fn recorded_in(project: &Project) -> impl Fn(&Path) -> bool + '_ {
+    move |rel| super::sync::in_step(project, &[rel.to_path_buf()]).is_ok_and(|s| !s.is_empty())
+}
+
+/// Whether the base may have entity `n` of an art of `kinds`: it has one of its members, or
+/// cannot tell.
+fn in_base_of<'a>(base: &'a dyn BasePart, kinds: &'a [AssetKind]) -> impl Fn(usize) -> bool + 'a {
+    move |n| kinds.iter().any(|&k| base.has_member(k, n) != Some(false))
+}
+
+/// The headers from `count` on (the table has `current`, by `mapname.bin`) by the rule
+/// [`removable`], the Dynamic Headers patch applied: their files `unpacked/dynamicHeaders/NNNN`
+/// (relative), which the import removes with their records of `mapname.bin`; `mapname.bin`
+/// must be unchanged since the record too, and the base must not have them. Empty when there
+/// are none or they stay an error.
+pub(crate) fn header_removals(
+    project: &Project,
+    base: &dyn BasePart,
+    count: usize,
+    current: usize,
+) -> Vec<PathBuf> {
+    if count >= current || !dynamic_headers::is_applied(project).unwrap_or(false) {
+        return Vec::new();
+    }
+    let rel = |p: &Path| p.strip_prefix(&project.root).unwrap_or(p).to_path_buf();
+    let dir = dynamic_headers::unpacked_dir(project);
+    let files: Vec<PathBuf> = (count..current)
+        .map(|i| rel(&dir.join(format!("{i:04}"))))
+        .collect();
+    let mut checked = files.clone();
+    checked.push(rel(&project.mapname_path()));
+    let in_base = |n: usize| base.has_header(n) != Some(false);
+    if removable(&checked, count..current, &recorded_in(project), &in_base) {
+        files
+    } else {
+        Vec::new()
+    }
+}
+
+/// The members (relative) the import removes at the end of `art` by the rule [`removable`]
+/// (for the headers their files, [`header_removals`]); empty when there are none, when they
+/// stay an error, and for the items and the binary arts, which the rule does not cover.
+pub(crate) fn trailing_removals(
+    project: &Project,
+    base: &dyn BasePart,
+    art: Art,
+) -> Result<Vec<PathBuf>, KernelError> {
+    let dir = project.root.join(art.dir());
+    if art == Art::Headers {
+        let count = numbered(&dir, "json")?.len();
+        let Ok(current) = project.mapname_count() else {
+            return Ok(Vec::new());
+        };
+        return Ok(header_removals(project, base, count, current));
+    }
+    let kinds = art.kinds();
+    if kinds.is_empty()
+        || matches!(art, Art::Binary(_))
+        || !kinds.iter().all(|&k| project.has_archive(k))
+    {
+        return Ok(Vec::new());
+    }
+    let current: Vec<Members> = kinds
+        .iter()
+        .map(|&k| Members::list(project, k))
+        .collect::<Result<_, _>>()?;
+    let lens = current.iter().map(Members::len);
+    let members = if art.is_pair() {
+        lens.min().unwrap_or(0)
+    } else {
+        lens.max().unwrap_or(0)
+    };
+    let next = numbered(&dir, "json")?.last().map_or(0, |n| n + 1);
+    let trailing: Vec<PathBuf> = (next..members)
+        .flat_map(|n| {
+            kinds
+                .iter()
+                .zip(&current)
+                .filter(move |(_, c)| c.has(n))
+                .map(move |(&kind, _)| member_rel(project, kind, n))
+        })
+        .collect();
+    let recorded = recorded_in(project);
+    let in_base = in_base_of(base, kinds);
+    Ok(
+        if removable(&trailing, next..members, &recorded, &in_base) {
+            trailing
+        } else {
+            Vec::new()
+        },
+    )
+}
 
 /// The JSON numbers of `dir` checked for gaps: a missing number below the member count is a
 /// member without JSON (its members on disk from `members_of`), one above it a gap. The
@@ -517,10 +632,7 @@ fn check_numbering(
     if next < members {
         let file = dir.join(format!("{next:04}.json"));
         let trailing: Vec<PathBuf> = (next..members).flat_map(members_of).collect();
-        let removable = !trailing.is_empty()
-            && trailing.iter().all(|m| recorded(m))
-            && (next..members).all(|n| !in_base(n));
-        if removable {
+        if removable(&trailing, next..members, recorded, in_base) {
             plan.problems.push(Problem {
                 severity: Severity::Warning,
                 ..problem(
@@ -597,10 +709,8 @@ fn plan_entities<E: EntitySchema>(
             .collect()
     };
     // Unchanged since the sync's record (none: changed), and the base's members.
-    let recorded = |member: &Path| -> bool {
-        super::sync::in_step(project, &[member.to_path_buf()]).is_ok_and(|s| !s.is_empty())
-    };
-    let in_base = |n: usize| kinds.iter().any(|&k| base.has_member(k, n) != Some(false));
+    let recorded = recorded_in(project);
+    let in_base = in_base_of(base, kinds);
     check_numbering(
         &rel_dir,
         &numbers,
@@ -692,8 +802,7 @@ fn plan_entities<E: EntitySchema>(
                         &file,
                         MEMBER_WITHOUT_JSON_CODE,
                         format!(
-                            "{ROOT}: das Member {n:04} von {} fehlt in der Datei; der Import \
-                             löscht keine Member, Löschen kommt mit Phase 3d.",
+                            "{ROOT}: das Member {n:04} von {} fehlt in der Datei; {REMOVES_ONLY}",
                             project.archives.unpacked_name(kind)
                         ),
                     ),
@@ -879,6 +988,7 @@ fn plan_items(
 fn plan_headers(
     project: &Project,
     symbols: &Symbols,
+    base: &dyn BasePart,
     only: Option<&BTreeSet<PathBuf>>,
     plan: &mut ImportPlan,
     stats: &mut ArtStats,
@@ -903,8 +1013,27 @@ fn plan_headers(
     }
     stats.entities = u32::try_from(files.len()).unwrap_or(u32::MAX);
     stats.json_files = stats.entities;
-    match import_headers(project, &files, symbols) {
+    // Headers at the end without JSON („Nummer freigeben“, maybe on another Git branch): the
+    // rule of the members.
+    let current = project.mapname_count().unwrap_or(0);
+    let removals = header_removals(project, base, files.len(), current);
+    match import_headers_with(project, &files, symbols, !removals.is_empty()) {
         Ok(write) => {
+            if write.remove {
+                let count = files.len();
+                plan.problems.push(Problem {
+                    severity: Severity::Warning,
+                    ..problem(
+                        &rel_dir.join(format!("{count:04}.json")),
+                        MEMBER_REMOVED_CODE,
+                        format!(
+                            "{ROOT}: mapname.bin hat {current} Einträge, data/headers {count} \
+                             Dateien; die Header ab {count:04} sind seit der Aufzeichnung \
+                             unverändert und nicht in der Basis: der Import entfernt sie."
+                        ),
+                    )
+                });
+            }
             let paths = header_changes(project, &write)?;
             if !paths.is_empty() {
                 stats.written = u32::try_from(paths.len()).unwrap_or(u32::MAX);
@@ -933,10 +1062,20 @@ fn header_changes(project: &Project, w: &HeaderWrite) -> Result<Vec<PathBuf>, Ke
     let mut paths = Vec::new();
     if dynamic_headers::is_applied(project)? {
         let dir = dynamic_headers::unpacked_dir(project);
+        let count = w.table.chunks(24).len();
         for (i, chunk) in w.table.chunks(24).enumerate() {
             let file = dir.join(format!("{i:04}"));
             if crate::fsutil::read_noted(&file).ok().as_deref() != Some(chunk) {
                 paths.push(rel(&file));
+            }
+        }
+        // The headers the import removes: their files go.
+        if w.remove {
+            for i in count..project.mapname_count()? {
+                let file = dir.join(format!("{i:04}"));
+                if file.is_file() {
+                    paths.push(rel(&file));
+                }
             }
         }
     } else if project.read_header_table_bytes().ok().as_deref() != Some(w.table.as_slice()) {
@@ -1088,8 +1227,8 @@ fn plan_binary(
                             MEMBER_WITHOUT_JSON_CODE,
                             format!(
                                 "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import löscht keine Member, Löschen \
-                                 kommt mit Phase 3d."
+                                 der Basisschicht; der Import entfernt keine Texturen und \
+                                 Modelle (neue am Ende entfernt „Nummer freigeben“ im Studio)."
                             ),
                         ),
                         file_of(i),
@@ -1125,8 +1264,8 @@ fn plan_binary(
                             MEMBER_WITHOUT_JSON_CODE,
                             format!(
                                 "{ROOT}: das Member {i:04} hat weder eine Datei noch eines in \
-                                 der Basisschicht; der Import löscht keine Member, Löschen \
-                                 kommt mit Phase 3d."
+                                 der Basisschicht; der Import entfernt keine Texturen und \
+                                 Modelle (neue am Ende entfernt „Nummer freigeben“ im Studio)."
                             ),
                         ),
                         file_of(i),

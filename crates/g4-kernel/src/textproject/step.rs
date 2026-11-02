@@ -1232,8 +1232,8 @@ fn judge_orphans(
                 UNSYNCED_CODE,
                 format!(
                     "{} hat keine {json} und fehlt in der Basis; g4k text export legt sie an \
-                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht \
-                     keine Member).",
+                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht nur \
+                     Member am Ende, die seit der Aufzeichnung unverändert sind).",
                     shown(&member)
                 ),
             );
@@ -1245,7 +1245,8 @@ fn judge_orphans(
                     MEMBER_NEWER_CODE,
                     format!(
                         "{} hat noch keine {json}; g4k text export legt sie an, g4k text \
-                         import lehnt das Member ab (der Import löscht keine Member).",
+                         import lehnt das Member ab (der Import löscht nur Member am Ende, die \
+                         seit der Aufzeichnung unverändert sind).",
                         shown(member)
                     ),
                 )

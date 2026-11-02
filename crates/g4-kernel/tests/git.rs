@@ -823,6 +823,14 @@ fn a_branch_without_the_freed_file_builds_after_git_switch() {
     );
     let (paths, _) = changes(&root);
     assert!(paths.is_empty(), "after the build on ohne: {paths:?}");
+
+    // The freed number is free on `ohne`: the next trainer created takes it.
+    let project = Arc::new(Project::open(&root).unwrap());
+    let mut store = Store::new(project.clone());
+    let again = create_trainer(&project, &mut store, &mut NameTables::new(), 2, "Mia")
+        .unwrap()
+        .id;
+    assert_eq!(again, id);
     println!(
         "branch-free {} trainer={id} build_main_ms={main_ms} build_ohne_ms={ohne_ms} removed",
         project.game_code

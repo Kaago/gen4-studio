@@ -252,6 +252,12 @@ impl BasePart for BaseLayer {
                 .is_file(),
         )
     }
+
+    /// Whether the layer's header table has header `id` (one record of its `mapname.bin` per
+    /// header); `None` when the layer does not open as a project or the count does not read.
+    fn has_header(&self, id: usize) -> Option<bool> {
+        Some(id < self.project().ok()?.mapname_count().ok()?)
+    }
 }
 
 /// The bytes of part `which` among the members `member` gives (kind, index) of `project`:

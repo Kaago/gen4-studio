@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::build::fingerprint::{Fp, Seen, hash, is_racy, now_ns, same_stat, stat};
 use crate::build::state::{BuildState, SyncRecord};
+use crate::dynamic_headers;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
@@ -16,13 +17,15 @@ use crate::store::HEADER_TABLE;
 use crate::text::{Problem, Severity, TextArchiveDoc, TextSide, TextSync, json_matches_member};
 
 use super::super::MANIFEST_FILE;
-use super::super::arts::{Art, Members, surplus_problem};
+use super::super::arts::{ARTS, Art, Members, surplus_problem};
 use super::super::base_layer::{
     BaseLayer, arm9_rel, check_raw_blob, header_table_as_recorded, owned_paths, same_blob,
 };
 use super::super::canon::problem;
-use super::super::codes::{MEMBER_WITHOUT_JSON_CODE, RAW_PATH_CODE, SCHEMA_CODE};
-use super::super::import::plan_quirks_alone;
+use super::super::codes::{
+    MEMBER_REMOVED_CODE, MEMBER_WITHOUT_JSON_CODE, RAW_PATH_CODE, SCHEMA_CODE,
+};
+use super::super::import::{LazyBase, plan_quirks_alone, trailing_removals};
 use super::super::manifest::{refusal, schema_state};
 use super::super::registry::Symbols;
 use super::super::source::EntitySource;
@@ -326,6 +329,9 @@ fn what(of: &Of) -> &'static str {
     }
 }
 
+/// How the sync's sentences end for a deletion: it is the Studio's.
+const DELETE_IN_STUDIO: &str = "Löschen geht im Studio („Löschen…“).";
+
 /// Whether `kind` is one of the binary kinds (no JSON, `data/<art>/NNNN.<ext>`).
 pub(super) fn is_binary(kind: AssetKind) -> bool {
     matches!(
@@ -418,14 +424,13 @@ impl Judge<'_> {
             let kept = unit.sources.iter().find(|s| self.exists(s));
             let message = match kept {
                 Some(source) => format!(
-                    "{} fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit \
-                     Phase 3d.",
+                    "{} fehlt, {} ist da; der Abgleich löscht {}; {DELETE_IN_STUDIO}",
                     shown(gone),
                     shown(source),
                     what(&unit.of)
                 ),
                 None => format!(
-                    "{} fehlt; der Abgleich löscht {}, Löschen kommt mit Phase 3d.",
+                    "{} fehlt; der Abgleich löscht {}; {DELETE_IN_STUDIO}",
                     shown(gone),
                     what(&unit.of)
                 ),
@@ -495,7 +500,8 @@ impl Judge<'_> {
     }
 
     /// A JSON source of `unit` deleted since the record while its members stay: deleting is
-    /// not the sync's.
+    /// not the sync's, but for the members at the end the import removes
+    /// ([`Judge::removed_by_import`]).
     fn json_deleted(&self, unit: &Unit) -> Option<Problem> {
         if self.full {
             return None;
@@ -508,12 +514,82 @@ impl Judge<'_> {
             gone,
             MEMBER_WITHOUT_JSON_CODE,
             format!(
-                "die Datei fehlt, {} ist da; der Abgleich löscht {}, Löschen kommt mit \
-                 Phase 3d.",
+                "die Datei fehlt, {} ist da; der Abgleich löscht {}: nur Member am Ende ohne \
+                 JSON, die seit der Aufzeichnung unverändert sind, entfernen Abgleich und Import \
+                 (textproject.member-removed); {DELETE_IN_STUDIO}",
                 shown(member),
                 what(&unit.of)
             ),
         ))
+    }
+
+    /// The warning for `unit` whose JSON (`found`, from [`Judge::json_deleted`]) went while
+    /// its members stay, when the import's rule removes them (`import::trailing_removals`: at
+    /// the end, unchanged since the record, not in the base; a header: its file below
+    /// `unpacked/dynamicHeaders`). The unit is then the files' side: the takeover removes them
+    /// as the import does. `None` when the rule keeps them (the unit is broken).
+    fn removed_by_import(
+        &self,
+        unit: &Unit,
+        id: AssetId,
+        found: &Problem,
+    ) -> Result<Option<Problem>, KernelError> {
+        let art = match id.kind {
+            AssetKind::HeaderTable => Art::Headers,
+            AssetKind::Trainer | AssetKind::TrainerProperties | AssetKind::TrainerParty => {
+                Art::Trainers
+            }
+            kind => match ARTS
+                .iter()
+                .find(|a| !matches!(a, Art::Binary(_)) && a.kinds().contains(&kind))
+            {
+                Some(&art) => art,
+                None => return Ok(None),
+            },
+        };
+        let base = LazyBase::new(self.project, None, false);
+        let removals = trailing_removals(self.project, &base, art)?;
+        if removals.is_empty() {
+            return Ok(None);
+        }
+        let mine: Vec<PathBuf> = if art == Art::Headers {
+            let Some(n) = found
+                .file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse::<u16>().ok())
+            else {
+                return Ok(None);
+            };
+            let file = dynamic_headers::unpacked_dir(self.project).join(format!("{n:04}"));
+            vec![
+                file.strip_prefix(&self.project.root)
+                    .unwrap_or(&file)
+                    .to_path_buf(),
+            ]
+        } else {
+            unit.members
+                .iter()
+                .filter(|m| self.exists(m))
+                .cloned()
+                .collect()
+        };
+        if mine.is_empty() || !mine.iter().all(|m| removals.contains(m)) {
+            return Ok(None);
+        }
+        let listed: Vec<String> = mine.iter().map(|m| shown(m)).collect();
+        Ok(Some(Problem {
+            severity: Severity::Warning,
+            ..problem(
+                &found.file,
+                MEMBER_REMOVED_CODE,
+                format!(
+                    "die Datei fehlt; {} am Ende ist seit der Aufzeichnung unverändert und nicht \
+                     in der Basis: Abgleich und Import entfernen es.",
+                    listed.join(", ")
+                ),
+            )
+        }))
     }
 
     fn asset(
@@ -526,6 +602,9 @@ impl Judge<'_> {
     ) -> Result<Option<Judged>, KernelError> {
         let judged = |side: UnitSide| Ok(Some((side, Vec::new())));
         if let Some(found) = self.json_deleted(unit) {
+            if let Some(removed) = self.removed_by_import(unit, id, &found)? {
+                return Ok(Some((UnitSide::Files, vec![removed])));
+            }
             return Ok(Some((UnitSide::Broken, vec![found])));
         }
         let has_member = unit.members.iter().any(|m| self.exists(m));

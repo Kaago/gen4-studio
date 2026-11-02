@@ -7,6 +7,7 @@ use std::time::Instant;
 use super::plan::plan_delete;
 use super::tombstone::{DeleteResult, delete, ms_since};
 use super::types::DeleteTarget;
+use crate::data::names::{Bank, bank_index};
 use crate::data::refs::RefIndex;
 use crate::error::KernelError;
 use crate::original::Original;
@@ -30,7 +31,8 @@ fn nothing_to_free(label: &str) -> String {
 /// archives, textures and models and the DSPRE layout have none. Then the files of the plan's
 /// [`super::FreeInfo`] go (the trailing tombstones too): a trainer's two members, a script's
 /// sources, member and compile-state entry, a text archive's JSON, member and text sync
-/// record, a header's record in the table and `mapname.bin` and its files; the store forgets
+/// record, a header's record in the table and `mapname.bin` and its files; a trainer's name in
+/// the name bank and its entry of `trtblofs` go in the barrier step itself; the store forgets
 /// the entities (histories, its own tombstone flags), the sync forgets their files, and the
 /// barrier „Nummer freigegeben: {label}“ ([`IRREVERSIBLE`]) is recorded. The reference index
 /// drops their sources at its next refresh.
@@ -94,10 +96,34 @@ pub fn free_number(
     }
     store.remove_member_files(&freed, &info.files)?;
     let label = plan.label;
-    let ((), change) =
-        store.barrier_transaction(&format!("Nummer freigegeben: {label}"), IRREVERSIBLE, |_| {
-            Ok(())
-        })?;
+    let step = format!("Nummer freigegeben: {label}");
+    // Trainers: the name bank and `trtblofs` hold one entry per trainer; they lose the freed
+    // ones, so the next trainer created gets the number again.
+    let names_bank = match target {
+        DeleteTarget::Trainer { .. } => {
+            bank_index(project.family, project.language, Bank::TrainerNames)
+        }
+        _ => None,
+    };
+    let keep = usize::from(first);
+    let shortened = store.barrier_transaction(&step, IRREVERSIBLE, |tx| {
+        if let Some(bank) = names_bank {
+            tx.edit_text_archive(bank, |doc| doc.messages.truncate(keep))?;
+            tx.edit_trainer_text_offsets(0, |o| o.offsets.truncate(keep))?;
+        }
+        Ok(())
+    });
+    let change = match shortened {
+        Ok(((), change)) => change,
+        Err(e) => {
+            // The files are gone: the barrier stands in any case.
+            store.barrier_transaction(&step, IRREVERSIBLE, |_| Ok(()))?;
+            return Err(KernelError::Partial(format!(
+                "{label}: die Nummer ist freigegeben, aber Trainernamen und Kampftext-Offsets \
+                 sind nicht gekürzt ({e})"
+            )));
+        }
+    };
     // The index reads the sources the store reported changed (a removed one has none); a
     // refresh that fails leaves the index as it was, and the next one tries again.
     let _ = refs.refresh_scripts_now(store);

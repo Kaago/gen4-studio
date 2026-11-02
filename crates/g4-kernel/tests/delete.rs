@@ -906,7 +906,15 @@ fn free_number_truncates_a_new_trainer_at_the_end() {
         IRREVERSIBLE,
         "Nummer freigeben lässt sich nicht rückgängig machen"
     );
-    assert!(st.dirty().is_empty(), "{:?}", st.dirty());
+    // Unsaved are only the trainer names and battle text offsets the barrier shortened.
+    assert!(
+        st.dirty().iter().all(|id| matches!(
+            id.kind,
+            AssetKind::TextArchive | AssetKind::TrainerTextOffsets
+        )),
+        "{:?}",
+        st.dirty()
+    );
     st.save().unwrap();
 
     // The import finds JSON and members in step.
@@ -1133,4 +1141,105 @@ fn free_number_works_in_the_dspre_layout() {
     assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 2);
     assert_eq!(st.history().0, ["Nummer freigegeben: Trainer 0002"]);
     assert_eq!(refused(st.undo()), IRREVERSIBLE);
+}
+
+// --- fix round 1: a freed trainer number is taken again ---
+
+/// A battle script for three trainers (slots 1 to 3), slot 4 the sight script.
+const BATTLE: &str = "script script_1 #[1-3]:\n    LockAll\n    FacePlayer\n    \
+                      ReleaseAll\n    End\nscript script_4 #4:\n    LockAll\n    \
+                      ReleaseAll\n    End\n";
+
+/// Creates a trainer with the real `create_trainer_with` (a battle script of its own, the
+/// sight script 3003), adopting the scripts first where they are not.
+fn create_trainer_in(
+    project: &Arc<g4_kernel::project::Project>,
+    st: &mut Store,
+    names: &mut g4_kernel::data::names::NameTables,
+    battle_file: &mut Option<u16>,
+    name: &str,
+) -> u16 {
+    use g4_kernel::data::trainer_create::{TRAINER_FLAG_CAPACITY, create_trainer_with};
+    use g4_kernel::scripts::{self, ScriptSource, SourceKind, TrainerScriptMeta};
+    let file = *battle_file.get_or_insert_with(|| {
+        if !scripts::is_adopted(project) {
+            scripts::adopt(project, &mut |_| {}).unwrap();
+        }
+        let file = scripts::new_script_file(project, SourceKind::Script).unwrap();
+        scripts::write_source(project, file, &ScriptSource::Rotom(BATTLE.into())).unwrap();
+        let report = scripts::compile(project).unwrap();
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        file
+    });
+    let meta = TrainerScriptMeta {
+        battle_file: file,
+        seen_script: 3003,
+    };
+    create_trainer_with(project, st, names, &meta, TRAINER_FLAG_CAPACITY, 1, name)
+        .unwrap()
+        .id
+}
+
+#[test]
+fn a_freed_trainer_number_is_created_again() {
+    for text_project in [true, false] {
+        let fx = if text_project {
+            TextFixture::exported()
+        } else {
+            TextFixture::dspre()
+        };
+        let project = Arc::new(fx.project());
+        let mut st = Store::new(project.clone());
+        let mut names = g4_kernel::data::names::NameTables::new();
+        let mut battle = None;
+        let id = create_trainer_in(&project, &mut st, &mut names, &mut battle, "Jens");
+        assert_eq!(id, 3, "text project: {text_project}");
+        // The base has three trainers: trainer 3 is new.
+        let base = ProjectOriginal::new(fx.root());
+        let mut refs = RefIndex::new();
+        let target = DeleteTarget::Trainer { index: id };
+        if text_project {
+            delete(&mut st, &mut refs, &base, target).unwrap();
+        }
+        free_number(&mut st, &mut refs, &base, target).unwrap();
+        assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 3);
+        assert_eq!(st.trainer_text_offsets(0).unwrap().offsets.len(), 3);
+        assert_eq!(refused(st.undo()), IRREVERSIBLE);
+        st.save().unwrap();
+
+        // The number is free: the next trainer takes it, also in a store opened anew.
+        let again = create_trainer_in(&project, &mut st, &mut names, &mut battle, "Mia");
+        assert_eq!(again, id, "text project: {text_project}");
+        st.save().unwrap();
+        let mut fresh = Store::new(project.clone());
+        assert_eq!(fresh.member_count(AssetKind::Trainer).unwrap(), 4);
+        assert_eq!(fresh.trainer_text_offsets(0).unwrap().offsets.len(), 4);
+    }
+}
+
+#[test]
+fn delete_of_a_flag_name_waits_while_the_store_is_busy() {
+    let (fx, mut st) = fixture();
+    let base = ProjectOriginal::new(fx.root());
+    name_flag_files(
+        &fx.project(),
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: 148,
+            id: Some("FLAG_HAT_MEDAILLE".into()),
+            description: None,
+        },
+    )
+    .unwrap();
+    let register = fx.read(FLAG_REGISTER);
+    st.set_busy(Some("Build läuft".into()));
+    let result = delete(
+        &mut st,
+        &mut RefIndex::new(),
+        &base,
+        DeleteTarget::Flag { number: 148 },
+    );
+    assert!(matches!(result, Err(KernelError::Busy(_))), "{result:?}");
+    assert_eq!(fx.read(FLAG_REGISTER), register);
+    assert!(exists(&fx, FLAG_FILE));
 }

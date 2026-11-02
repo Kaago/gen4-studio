@@ -469,7 +469,8 @@ fn import_refuses_members_without_json() {
 /// The end of the sentence for a surplus member of a pair art: neither tool makes the missing
 /// counterpart, so it names DSPRE and not `g4k text export` or `import`.
 const SURPLUS_WAY_OUT: &str = "Weder Export noch Import legen ein Gegenstück an: das Member in \
-                               DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).";
+                               DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im \
+                               Studio löschen ließe).";
 
 /// A trainer has a properties member and a party member; one that only one archive has (DSPRE
 /// left one archive longer) is no entity, so no JSON names it: the import reports it as
@@ -1234,8 +1235,8 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(
         found[0].message,
         "textproject.member-newer: unpacked/moveData/0004 hat noch keine data/moves/0004.json; \
-         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht \
-         keine Member)."
+         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht nur \
+         Member am Ende, die seit der Aufzeichnung unverändert sind)."
     );
     assert_eq!(fx.read("unpacked/moveData/0004"), appended);
 
@@ -1248,7 +1249,8 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
         problems[0].message,
         "textproject.unsynced: unpacked/moveData/0004 hat keine data/moves/0004.json und fehlt \
          in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das \
-         Member ab (der Import löscht keine Member)."
+         Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung \
+         unverändert sind)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 
@@ -2641,4 +2643,125 @@ fn import_keeps_a_trailing_member_that_changed_since_the_record() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert!(fx.exists("unpacked/trainerProperties/0003"));
     assert!(fx.exists("unpacked/trainerParty/0003"));
+}
+
+/// The text project with the Dynamic Headers patch and header 0002 created through the store
+/// (its JSON, its file and its record of `mapname.bin` written and recorded for the sync); the
+/// base has two headers.
+fn exported_with_a_new_header() -> Fx {
+    let fx = Fx::new();
+    fx.export();
+    let mut st = Store::new(Arc::new(fx.p()));
+    st.apply_dynamic_headers().unwrap();
+    assert_eq!(st.create_header(0, "NEU").unwrap(), 2);
+    assert!(fx.exists("data/headers/0002.json"));
+    fx
+}
+
+#[test]
+fn import_removes_a_trailing_header_without_json_that_the_record_knows() {
+    let fx = exported_with_a_new_header();
+    let names = fx.p().mapname_path();
+    assert_eq!(std::fs::read(&names).unwrap().len(), 48);
+    std::fs::remove_file(fx.root().join("data/headers/0002.json")).unwrap();
+
+    let report = check(&fx.p()).unwrap();
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    assert!(
+        report
+            .differs
+            .contains(&PathBuf::from("unpacked/dynamicHeaders/0002")),
+        "{:?}",
+        report.differs
+    );
+    let removed: Vec<&Problem> = report
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-removed:"))
+        .collect();
+    assert_eq!(removed.len(), 1, "{:?}", report.problems);
+    assert_eq!(removed[0].severity, Severity::Warning);
+    assert_eq!(removed[0].file, Path::new("data/headers/0002.json"));
+
+    import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
+    assert!(!fx.exists("unpacked/dynamicHeaders/0002"));
+    assert_eq!(std::fs::read(&names).unwrap().len(), 32);
+    assert_eq!(fx.p().header_count().unwrap(), 2);
+    let report = check(&fx.p()).unwrap();
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+}
+
+#[test]
+fn import_keeps_a_trailing_header_that_changed_since_the_record() {
+    let fx = exported_with_a_new_header();
+    std::fs::remove_file(fx.root().join("data/headers/0002.json")).unwrap();
+    let mut header = fx.read("unpacked/dynamicHeaders/0002");
+    header[0] ^= 0x01;
+    fx.write("unpacked/dynamicHeaders/0002", &header);
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(
+        codes(
+            &errors(&report.problems)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        ),
+        ["textproject.member-without-json"],
+        "{:?}",
+        report.problems
+    );
+    assert!(fx.exists("unpacked/dynamicHeaders/0002"));
+}
+
+#[test]
+fn the_sync_takes_a_trailing_member_without_json_as_the_files_side() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let unit = found
+        .units
+        .iter()
+        .find(|u| {
+            u.sources
+                .contains(&PathBuf::from("data/trainers/0003.json"))
+        })
+        .expect("the trainer's unit");
+    assert_eq!(unit.side, UnitSide::Files, "{unit:?}");
+    assert_eq!(codes(&unit.problems), ["textproject.member-removed"]);
+    assert_eq!(unit.problems[0].severity, Severity::Warning);
+    apply_one_sided(&fx.p(), &found, &|_| false).unwrap();
+    assert!(!fx.exists("unpacked/trainerProperties/0003"));
+    assert!(!fx.exists("unpacked/trainerParty/0003"));
+    // In step now: the next scan finds nothing to take over.
+    let again = scan(&fx.p(), &mut |_| {}).unwrap();
+    assert!(
+        again.units.iter().all(|u| u.side == UnitSide::InSync),
+        "{:?}",
+        again.units
+    );
+
+    // A member changed since the record stays broken, with the truthful sentence.
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let mut props = fx.read("unpacked/trainerProperties/0003");
+    props[1] ^= 0x01;
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let unit = found
+        .units
+        .iter()
+        .find(|u| {
+            u.sources
+                .contains(&PathBuf::from("data/trainers/0003.json"))
+        })
+        .expect("the trainer's unit");
+    assert_eq!(unit.side, UnitSide::Broken, "{unit:?}");
+    assert!(
+        unit.problems[0]
+            .message
+            .ends_with("Löschen geht im Studio („Löschen…“)."),
+        "{}",
+        unit.problems[0].message
+    );
 }

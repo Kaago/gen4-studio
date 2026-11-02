@@ -294,7 +294,7 @@ fn a_member_deleted_by_dspre_is_broken() {
     assert!(
         unit.problems[0]
             .message
-            .ends_with("löscht keine Entität, Löschen kommt mit Phase 3d."),
+            .ends_with("löscht keine Entität; Löschen geht im Studio („Löschen…“)."),
         "{:?}",
         unit.problems
     );
@@ -332,7 +332,7 @@ fn a_trailing_binary_member_deleted_by_dspre_is_broken_with_the_import_sentence(
             .contains(&format!("unpacked/mapTextures/{last} fehlt"))
             && found
                 .message
-                .ends_with("der Abgleich löscht keine Datei, Löschen kommt mit Phase 3d."),
+                .ends_with("der Abgleich löscht keine Datei; Löschen geht im Studio („Löschen…“)."),
         "{found:?}"
     );
     let before = tree(&fx);
@@ -360,7 +360,7 @@ fn a_surplus_trainer_member_is_broken_not_adopted() {
             .starts_with("textproject.member-without-json: ")
             && found.message.contains("verschieden viele Member")
             && found.message.contains("Weder Export noch Import")
-            && found.message.ends_with("Löschen kommt mit Phase 3d)."),
+            && found.message.ends_with("im Studio löschen ließe)."),
         "{found:?}"
     );
     let before = tree(&fx);

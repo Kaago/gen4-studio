@@ -64,6 +64,10 @@ pub(super) fn remove_own_name(
 ) -> Result<(ChangeId, AssetId), KernelError> {
     let project = store.project_arc();
     project.editable()?;
+    // A busy store (a build runs) takes no write.
+    if let Some(why) = store.busy() {
+        return Err(KernelError::Busy(why.to_owned()));
+    }
     let registry = Registry::load(&project.root, kind.symbol())?;
     let Some(id) = registry.id_of(u32::from(number)).map(str::to_owned) else {
         return Err(KernelError::Refused(format!(
