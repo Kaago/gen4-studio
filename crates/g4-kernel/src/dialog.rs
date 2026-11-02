@@ -11,7 +11,10 @@
 //! command (`script.message_params`) is a message of the header's text archive, and a command
 //! of `script.jump_params` (or rotom's `GoTo`/`Jump` keyword) whose identifier argument names
 //! a script or label of the same file is followed, each label once. A message inside an `if`
-//! carries the condition as written (`else` for the else block).
+//! carries the condition as written (`else` for the else block); a label reached through a
+//! conditional jump command carries that command's condition (`GoToIfSet FLAG_X`, a comparison
+//! jump with the command it compares: `CheckFlag FLAG_X; GoToIf EQUAL`), one reached through a
+//! plain jump the condition it was reached under.
 //!
 //! `shared_with` counts the other figures that show the same (archive, index): the objects of
 //! the event files of every header that uses the archive, each running its script the same way.
@@ -65,7 +68,9 @@ pub struct DialogMessage {
     /// 1-based line and column (UTF-16 units) of the message number in the source.
     pub line: u32,
     pub col: u32,
-    /// The condition of the `if`/`elseif` the message stands in, as written; `None` outside.
+    /// The condition the message is shown under, as written: of the `if`/`elseif` it stands in,
+    /// else of the conditional jump command that reached its label (see [`dialog_of`]); `None`
+    /// on the path without a condition.
     pub branch: Option<String>,
     /// How many other figures (objects of every header using the archive) show the same message.
     pub shared_with: u32,
@@ -1000,9 +1005,9 @@ impl<'a> Graph<'a> {
                 visited: BTreeSet::new(),
             },
         };
-        walk.run(start);
-        while let Some(label) = walk.pending.pop_front() {
-            walk.run(label);
+        walk.run(start, None);
+        while let Some((label, branch)) = walk.pending.pop_front() {
+            walk.run(label, branch.as_deref());
         }
         walk.shown.visited = walk.visited;
         Some(walk.shown)
@@ -1041,19 +1046,20 @@ struct Walk<'g, 'a> {
     visited: BTreeSet<usize>,
     /// Labels jumped to and not walked yet: each is walked after the body that jumps, so the
     /// path without the jump (vanilla's `GoToIf … label` before the default text) comes first.
-    pending: VecDeque<usize>,
+    /// Each with the condition it is reached under (see [`Walk::jump_condition`]).
+    pending: VecDeque<(usize, Option<String>)>,
     slot: u32,
     shown: Shown,
 }
 
 impl<'a> Walk<'_, 'a> {
-    /// Walks function `at` and the functions its code runs on into (each once): the path on
-    /// comes before the jump targets.
-    fn run(&mut self, mut at: usize) {
+    /// Walks function `at` and the functions its code runs on into (each once), all under
+    /// `branch`: the path on comes before the jump targets.
+    fn run(&mut self, mut at: usize, branch: Option<&str>) {
         loop {
             let function = self.graph.functions[at];
             self.at = at;
-            self.block(function.body, None);
+            self.block(function.body, branch);
             let Some(next) = function.next else {
                 return;
             };
@@ -1067,8 +1073,12 @@ impl<'a> Walk<'_, 'a> {
         }
     }
 
-    fn block(&mut self, statements: &'a [Statement], branch: Option<&'a str>) {
+    fn block(&mut self, statements: &'a [Statement], branch: Option<&str>) {
+        // The command right before a jump (or a row of jumps), when it is no message command:
+        // what a comparison jump (`GoToIf EQUAL, label`) compares.
+        let mut compared: Option<&'a Statement> = None;
         for statement in statements {
+            let mut compares = None;
             match &statement.node {
                 StatementKind::IfStatement {
                     condition,
@@ -1091,8 +1101,8 @@ impl<'a> Walk<'_, 'a> {
                         self.block(default, branch);
                     }
                 }
-                // rotom's `GoTo`/`Jump` keyword.
-                StatementKind::Jump(target) => self.follow(target),
+                // rotom's `GoTo`/`Jump` keyword: the target is reached under this branch.
+                StatementKind::Jump(target) => self.follow(target, branch.map(String::from)),
                 StatementKind::ScriptCommand { command, args } => {
                     let uses = message_uses_of(
                         self.family,
@@ -1102,24 +1112,82 @@ impl<'a> Walk<'_, 'a> {
                         self.text,
                     );
                     let function = self.at;
+                    let shows = !uses.is_empty();
                     self.shown.uses.extend(uses.into_iter().map(|message| Use {
                         message,
                         branch: branch.map(String::from),
                         function,
                     }));
                     if self.is_jump(command) {
+                        let reached = self
+                            .jump_condition(command, args, compared)
+                            .or_else(|| branch.map(String::from));
                         for arg in args {
-                            self.follow(arg);
+                            self.follow(arg, reached.clone());
                         }
+                        compares = compared;
+                    } else if !shows {
+                        compares = Some(statement);
                     }
                 }
                 _ => {}
             }
+            compared = compares;
         }
     }
 
-    /// Queues the script or label `target` names, the first time only.
-    fn follow(&mut self, target: &'a Expression) {
+    /// The condition a conditional jump command reaches its target under, as written: the
+    /// command with its arguments but the target (`GoToIfSet FLAG_X`, `CallIf EQUAL`). A
+    /// comparison jump (its one other argument is a comparison: `LESS`, `EQUAL`, `GREATER`,
+    /// `LESS_EQUAL`, `GREATER_EQUAL`, `DIFFERENT` or its number) names the command it compares
+    /// the result of first, the last command before it that is no jump: `CheckFlag FLAG_X;
+    /// GoToIf EQUAL`. `None` for a jump without a condition (`GoTo label`, `Call label`).
+    fn jump_condition(
+        &self,
+        command: &str,
+        args: &'a [Expression],
+        compared: Option<&'a Statement>,
+    ) -> Option<String> {
+        let written = |span: &std::ops::Range<usize>| {
+            self.text
+                .get(span.clone())
+                .map(str::trim)
+                .unwrap_or_default()
+        };
+        let condition: Vec<&str> = args
+            .iter()
+            .filter(|arg| !self.is_target(arg))
+            .map(|arg| written(&arg.span))
+            .collect();
+        if condition.is_empty() {
+            return None;
+        }
+        let jump = format!("{command} {}", condition.join(", "));
+        const COMPARISONS: [&str; 6] = [
+            "LESS",
+            "EQUAL",
+            "GREATER",
+            "LESS_EQUAL",
+            "GREATER_EQUAL",
+            "DIFFERENT",
+        ];
+        let comparison = matches!(condition.as_slice(), [one]
+            if COMPARISONS.contains(one) || matches!(one.parse::<u8>(), Ok(0..=5)));
+        Some(match compared {
+            Some(before) if comparison => format!("{}; {jump}", written(&before.span)),
+            _ => jump,
+        })
+    }
+
+    /// Whether `arg` names a script or label of the file (a jump target).
+    fn is_target(&self, arg: &Expression) -> bool {
+        matches!(&arg.node, ExpressionKind::Identifier(name) | ExpressionKind::Label(name)
+            if self.graph.labels.contains_key(name.as_str()))
+    }
+
+    /// Queues the script or label `target` names, the first time only, to be walked under
+    /// `branch`.
+    fn follow(&mut self, target: &'a Expression, branch: Option<String>) {
         let (ExpressionKind::Identifier(name) | ExpressionKind::Label(name)) = &target.node else {
             return;
         };
@@ -1130,7 +1198,7 @@ impl<'a> Walk<'_, 'a> {
             return;
         }
         self.shown.followed.push(name.clone());
-        self.pending.push_back(at);
+        self.pending.push_back((at, branch));
     }
 
     /// Whether `command` is a jump command of `script.jump_params`, by name or through rotom's
@@ -1410,6 +1478,69 @@ mod tests {
                 Some("else"),
                 None
             ]
+        );
+    }
+
+    #[test]
+    fn a_conditional_jump_names_its_condition() {
+        // UI test 3d.5 (U4): decompiled vanilla scripts branch with jump commands, not `if`.
+        let fx = TextFixture::exported();
+        let mut st = store_with(
+            &fx,
+            "script figur #1:\n    CheckFlag FLAG_UNUSED_0x0094\n    GoToIf EQUAL, gesetzt\n    \
+             GoToIfSet FLAG_UNUSED_0x0095, auch\n    Message 1\n    End\n\
+             gesetzt:\n    Message 2\n    GoTo weiter\n\
+             weiter:\n    Message 3\n    End\n\
+             auch:\n    CompareVarValue VAR_UNUSED_0x4000, 5\n    CallIf 1, hilfe\n    \
+             Message 4\n    End\n\
+             hilfe:\n    Message 5\n    Return\n",
+            &TEN,
+            &[1],
+        );
+        let dialog = of(&mut st, 0);
+        let branches: Vec<(u16, Option<&str>)> = dialog
+            .messages
+            .iter()
+            .map(|m| (m.index, m.branch.as_deref()))
+            .collect();
+        let flag = "CheckFlag FLAG_UNUSED_0x0094; GoToIf EQUAL";
+        let set = "GoToIfSet FLAG_UNUSED_0x0095";
+        assert_eq!(
+            branches,
+            [
+                // The path without the jumps.
+                (1, None),
+                (2, Some(flag)),
+                // The code after a comparison runs on under the jump that reached it.
+                (4, Some(set)),
+                // An unconditional jump keeps the condition it was reached under.
+                (3, Some(flag)),
+                (5, Some("CompareVarValue VAR_UNUSED_0x4000, 5; CallIf 1")),
+            ]
+        );
+    }
+
+    #[test]
+    fn hgss_jump_if_names_its_condition() {
+        let fixture = synthetic_hgss_project(&["Nowhere"], 2);
+        let project = Project::open(fixture.dir.path()).unwrap();
+        let path = scripts::source_path(&project, 0, SourceKind::Script);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "script figur #1:\n    CheckFlag 100\n    JumpIf EQUAL, gesetzt\n    \
+             NPCMsg 2\n    End\n\
+             gesetzt:\n    NPCMsg 3\n    End\n",
+        )
+        .unwrap();
+        let messages = messages_of_slot(&project, Family::Hgss, 0, 1, 9).unwrap();
+        let branches: Vec<(u16, Option<&str>)> = messages
+            .iter()
+            .map(|m| (m.index, m.branch.as_deref()))
+            .collect();
+        assert_eq!(
+            branches,
+            [(2, None), (3, Some("CheckFlag 100; JumpIf EQUAL"))]
         );
     }
 

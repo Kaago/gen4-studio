@@ -79,6 +79,9 @@ fn vanilla_dialogs_of_a_town_resolve() {
     let mut seen = BTreeSet::new();
     let (mut objects, mut unreadable) = (0, Vec::new());
     let (mut shared_pairs, mut shared_figures) = (BTreeSet::new(), 0);
+    // Messages under a condition (an `if` or a conditional jump, U4) and shared messages a
+    // split would take (U2).
+    let (mut branched, mut splittable) = (0, 0);
     let started = Instant::now();
     for (header, file) in files {
         // An event file that does not load (a header pointing past the archive) has no figures.
@@ -102,15 +105,22 @@ fn vanilla_dialogs_of_a_town_resolve() {
                 .collect();
             shared_figures += usize::from(!mine.is_empty());
             shared_pairs.extend(mine);
+            branched += messages.iter().filter(|m| m.branch.is_some()).count();
+            splittable += messages
+                .iter()
+                .filter(|m| m.shared_with >= 1 && m.split_refusal.is_none())
+                .count();
         }
     }
     let ms = started.elapsed().as_millis();
     let (bad, pairs) = (unreadable.len(), shared_pairs.len());
     eprintln!(
         "dialog-all {game} objects={objects} unreadable={bad} shared_pairs={pairs} \
-         shared_figures={shared_figures} ms={ms}"
+         shared_figures={shared_figures} branched={branched} splittable={splittable} ms={ms}"
     );
     assert!(unreadable.is_empty(), "{unreadable:#?}");
+    // Vanilla branches with conditional jumps: some messages carry a condition.
+    assert!(branched > 0, "no message carries a condition");
     if project.family == Family::Pt {
         assert!(shared_figures >= 1, "no figure shares a message");
     }

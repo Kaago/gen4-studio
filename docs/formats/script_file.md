@@ -123,7 +123,20 @@ Header `header`. Der Weg:
 3. **Nachrichten:** der Rumpf des Scripts wird gelaufen. Jedes nummerierte Argument eines
    Nachrichtenbefehls (`script.message_params` in `check_limits.yaml`) ist eine Nachricht des
    Textarchivs des Headers, mit Befehl, Zeile und Spalte der Zahl. Steht sie in einem `if`, trägt
-   sie die Bedingung wie geschrieben (`else` im Else-Zweig, `else if` seine eigene).
+   sie die Bedingung wie geschrieben (`else` im Else-Zweig, `else if` seine eigene). Dekompiliertes
+   Vanilla verzweigt aber nicht mit `if`, sondern mit bedingten Sprungbefehlen (Platin: 4 283
+   Nachrichten, keine in einem `if`; UI-Test 3d.5, U4). Eine Nachricht in einem Label, das ein
+   bedingter Sprung erreicht, trägt darum dessen Bedingung als `branch`: der Befehl mit seinen
+   Argumenten ohne das Sprungziel, wie geschrieben (`GoToIfSet FLAG_X`, `CallIf EQUAL`). Ist das
+   einzige übrige Argument ein Vergleich (`LESS`, `EQUAL`, `GREATER`, `LESS_EQUAL`, `GREATER_EQUAL`,
+   `DIFFERENT` oder seine Zahl 0 bis 5, `GoToIf`/`CallIf`/`JumpIf`), steht der Befehl davor, dessen
+   Ergebnis verglichen wird, mit Semikolon vorn: `CheckFlag FLAG_X; GoToIf EQUAL`,
+   `CompareVarValue VAR_X, 5; CallIf 1` (der Befehl direkt vor dem Sprung oder vor einer Reihe von
+   Sprüngen, kein Nachrichtenbefehl). Ein Label, das ein unbedingter Sprung (`GoTo`, `Call`, das
+   Sprungwort) erreicht, und Code, in den ein Label weiterläuft, behalten die Bedingung, unter der
+   sie erreicht wurden; im Label gilt ein eigenes `if` vor. Der Weg ohne Sprung (nach einem
+   bedingten Sprung, der nicht springt) bleibt ohne Bedingung. Der Dialog-Editor zeigt das als
+   „· wenn CheckFlag FLAG_X; GoToIf EQUAL“.
 4. **Sprünge:** rotoms Sprungwort (`GoTo`/`Jump`, auch klein) und die Befehle aus
    `script.jump_params` (Pt `GoTo`, `Call`, `GoToIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; HGSS
    `Jump`, `Call`, `JumpIf`, `CallIf`, `GoToIfSet`, `GoToIfUnset`; über rotoms Datenbank aufgelöst,
