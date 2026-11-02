@@ -14,6 +14,7 @@ import { invalidateFlagLists } from "./useFlagList";
 import { OFF_STATUS } from "../api.live";
 import type { LiveStatusDto } from "../api.live";
 import { liveValuesOf } from "../app/liveStore";
+import { liveHingeOf } from "../app/useLive";
 import type { Live } from "../app/useLive";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -228,7 +229,7 @@ describe("FlagsSurface", () => {
       status: s,
       values: liveValuesOf(s),
       active: s.state !== "off",
-      hinge: null,
+      hinge: liveHingeOf(s),
       setFlag,
       setVar,
       resume: vi.fn(),
@@ -237,13 +238,23 @@ describe("FlagsSurface", () => {
       toggleBreakpoint: vi.fn(),
     });
     const liveSection = () => detail().querySelector<HTMLElement>('[data-flag-section="Live"]');
+    const head = () => surface().querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head");
+    const surfaceWarning = () => surface().querySelector<HTMLElement>("[data-flag-live-warning]");
     // Without play mode: the column waits, the detail has no section „Live“.
     await show({ selected: { kind: "flag", number: 0x94 } });
-    expect(surface().querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("");
+    expect(head()).toBe("");
+    expect(liveSection()).toBeNull();
+    // melonDS unavailable is no play mode (the hinge stays dark): the column waits as without it.
+    await show({ selected: { kind: "flag", number: 0x94 }, live: live({ ...OFF_STATUS, state: "unavailable", reason: "melonDS 1.1 oder neuer" }) });
+    expect(head()).toBe("");
+    // Play mode before the first snapshot: the head is on, the cells „–“ (their tooltip the hinge's text), no section „Live“ yet.
+    await show({ selected: { kind: "flag", number: 0x94 }, live: live({ ...OFF_STATUS, state: "waiting_for_save" }) });
+    expect(head()).toBe("on");
+    expect(row(0x94).querySelector("[data-flag-live]")?.textContent).toBe("–");
     expect(liveSection()).toBeNull();
     // In play mode: the list toggles a flag (the other value), the detail's switch too; neither is a step in the history.
     await show({ selected: { kind: "flag", number: 0x94 }, live: live(status()) });
-    expect(surface().querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("on");
+    expect(head()).toBe("on");
     await click(row(0x94).querySelector<HTMLElement>("[data-flag-live]")!);
     expect(setFlag).toHaveBeenLastCalledWith(0x94, false);
     await click(row(0x173).querySelector<HTMLElement>("[data-flag-live]")!);
@@ -254,8 +265,18 @@ describe("FlagsSurface", () => {
     // The next status says the write did not hold: the detail of that number warns, another one does not.
     await show({ selected: { kind: "flag", number: 0x94 }, live: live(status({ read_back: false })) });
     expect(liveSection()!.textContent).toContain("Wert nicht übernommen, noch einmal versuchen.");
+    expect(surfaceWarning()).toBeNull();
+    // Another number chosen: the detail is quiet, the surface names the number that did not take its value.
     await click(row(0x20));
     expect(liveSection()!.textContent).not.toContain("Wert nicht übernommen");
+    expect(surfaceWarning()?.textContent).toBe("FLAG_HAT_MEDAILLE: Wert nicht übernommen, noch einmal versuchen.");
+    // A toggle in the list of a row not chosen: the surface names it too.
+    await click(row(0x173).querySelector<HTMLElement>("[data-flag-live]")!);
+    expect(surfaceWarning()?.textContent).toBe("Flag 0x0173: Wert nicht übernommen, noch einmal versuchen.");
+    expect(row(0x20).getAttribute("aria-selected")).toBe("true");
+    // Held after all: no warning.
+    await show({ selected: { kind: "flag", number: 0x20 }, live: live(status({ read_back: true })) });
+    expect(surfaceWarning()).toBeNull();
     // A variable: the value as the game holds it, written with „Setzen“.
     await show({ selected: { kind: "var", number: 0x4000 }, live: live(status()) });
     expect(row(0x4000).querySelector("[data-flag-live]")?.textContent).toBe("42");

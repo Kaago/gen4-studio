@@ -8,12 +8,12 @@ import type { Depth } from "../ui/frame/shellState";
 import { Checkbox, EmptyState, FilterChips, Notice, TextField } from "../ui/primitives";
 import type { FilterChipOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { FlagDetail } from "./FlagDetail";
+import { FlagDetail, NOT_TAKEN } from "./FlagDetail";
 import type { FlagLive } from "./FlagDetail";
 import { DEFAULT_FILTER, areasOf, filterEntries } from "./flagFilter";
 import type { FlagFilter } from "./flagFilter";
 import { FlagList } from "./FlagList";
-import { areaWord } from "./flagWords";
+import { areaWord, displayName } from "./flagWords";
 import { NameFlagDialog, namedText } from "./NameFlagDialog";
 import { invalidateFlagLists, useFlagList } from "./useFlagList";
 import { useFlagUsage } from "./useFlagUsage";
@@ -115,8 +115,11 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
   const entry = number === null ? null : (list?.entries.find((e) => e.number === number) ?? null);
   const names = usage ?? entry;
 
-  // Play mode: the values are the snapshot's (never what was asked for), a write goes straight to the game and is no step in the history.
-  const values = live?.values ?? null;
+  // Play mode as the hinge shows it (ruling R19: not while melonDS is unavailable): the values are the snapshot's (never what was asked
+  // for), a write goes straight to the game and is no step in the history. Before the first snapshot the cells wait with the hinge's text.
+  const hinge = live?.hinge ?? null;
+  const values = hinge !== null ? (live?.values ?? null) : null;
+  const livePending = hinge !== null && values === null ? hinge.text : undefined;
   // The number last written (its read-back is the status's) and how many writes are under way.
   const [written, setWritten] = useState<{ kind: FlagKind; number: number } | null>(null);
   const [writing, setWriting] = useState(0);
@@ -134,13 +137,18 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
     const set = values?.flag(n) ?? null;
     if (set !== null) void writeLive("flag", n, set ? 0 : 1);
   });
+  // A write the game undid (ruling R20): the detail warns for the chosen number, the surface names any other one.
+  const notTaken = hinge !== null && written !== null && live?.status.read_back === false;
+  const notTakenElsewhere = notTaken && !(written.kind === kind && written.number === number);
+  const writtenEntry = written !== null && list !== null && list.kind === written.kind ? list.entries.find((e) => e.number === written.number) : undefined;
+  const writtenName = written === null ? "" : displayName(writtenEntry ?? { name: null, own_id: null }, written.kind, written.number);
   let flagLive: FlagLive | undefined;
   if (values !== null && live !== undefined && number !== null) {
     const set = kind === "flag" ? values.flag(number) : null;
     flagLive = {
       value: kind === "flag" ? (set === null ? null : set ? 1 : 0) : values.var(number),
       busy: writing > 0,
-      readBack: !(written !== null && written.kind === kind && written.number === number && live.status.read_back === false),
+      readBack: !(notTaken && written.kind === kind && written.number === number),
       onSet: (value) => void writeLive(kind, number, value),
     };
   }
@@ -207,12 +215,17 @@ export function FlagsSurface({ project, revision, selected, onSelect, goTo, dept
             </div>
           </div>
           {error !== null && <Notice kind="error">{error}</Notice>}
+          {notTakenElsewhere && (
+            <div data-flag-live-warning="">
+              <Notice kind="warning">{`${writtenName}: ${NOT_TAKEN}`}</Notice>
+            </div>
+          )}
           {list === null ? (
             error === null && <p className={styles.note}>Wird gelesen …</p>
           ) : (
             <div className={styles.split} data-flag-split="">
               <div className={styles.columns}>
-                <FlagList list={list} entries={entries} selected={number} onSelect={select} live={values} onLiveToggle={onLiveToggle} />
+                <FlagList list={list} entries={entries} selected={number} onSelect={select} live={values} livePending={livePending} onLiveToggle={onLiveToggle} />
                 <FlagDetail
                   kind={kind}
                   number={number}

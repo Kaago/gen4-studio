@@ -5,6 +5,7 @@ import type { EventData, EventRef } from "../../world/events";
 
 /** What the event inspector needs of play mode: the row „Haltepunkt“ shows while `active`. */
 export interface EventLive {
+  /** Play mode as the hinge shows it (not while off or unavailable: then the hinge stays dark and nothing could stop it). */
   active: boolean;
   breakpoints: readonly BreakpointDto[];
   /** Sets a breakpoint at the event, or clears the one there. */
@@ -53,7 +54,8 @@ const sameBreakpoints = (a: readonly BreakpointDto[], b: readonly BreakpointDto[
  * snapshot brings a new status (and a new breakpoint list), and the inspector need not render for a moved value.
  */
 export function useEventLive(liveMode: Live | undefined): EventLive | undefined {
-  const active = liveMode?.active ?? false;
+  // The hinge's condition (ruling R19): `Live.active` also holds while melonDS is unavailable.
+  const active = (liveMode?.hinge ?? null) !== null;
   const next = liveMode?.status.breakpoints ?? NONE;
   const kept = useRef(next);
   if (!sameBreakpoints(kept.current, next)) kept.current = next;

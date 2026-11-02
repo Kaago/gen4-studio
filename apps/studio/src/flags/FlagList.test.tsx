@@ -112,6 +112,16 @@ describe("FlagList", () => {
     expect(container.querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("on");
   });
 
+  it("before_the_first_snapshot_the_head_is_on_and_the_cells_say_why_they_wait", async () => {
+    await act(async () =>
+      root.render(<FlagList list={FLAGS} entries={FLAGS.entries} selected={null} onSelect={onSelect} live={null} livePending="Wartet auf den Spielstand" onLiveToggle={vi.fn()} />),
+    );
+    expect(container.querySelector("[data-flag-live-head]")?.getAttribute("data-flag-live-head")).toBe("on");
+    const cells = [...container.querySelectorAll<HTMLElement>("[data-flag-live]")];
+    expect(cells.every((c) => c.textContent === "–" && c.tagName === "SPAN")).toBe(true);
+    expect(await tipOf(cells[0]!)).toBe("Wartet auf den Spielstand");
+  });
+
   it("shows_live_flag_values_as_toggles_and_var_values_as_numbers", async () => {
     const onLiveToggle = vi.fn();
     const flags = new Array<number>(200).fill(0);

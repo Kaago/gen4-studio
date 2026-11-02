@@ -21,14 +21,27 @@ function usageOf(entry: FlagEntryDto): string {
 }
 
 /**
- * The cell „Live“ of a row. `value` undefined: no play mode, „–“ with `LIVE_OFF`; null: the snapshot does not hold the number (outside the
+ * The cell „Live“ of a row. `value` undefined: no snapshot, „–“ with `pending` in play mode, else `LIVE_OFF`; null: the snapshot does not hold the number (outside the
  * save), „–“ with `OUTSIDE_THE_SAVE`. A flag is „1“ or „0“ as a button that asks for the other value (a click does not choose the row; the
  * keyboard's way is the detail's switch, so the button is no tab stop of its own); a variable shows its value, changed in the detail.
  */
-function LiveCell({ kind, number, value, onToggle }: { kind: FlagKind; number: number; value: number | null | undefined; onToggle?: (n: number) => void }) {
+function LiveCell({
+  kind,
+  number,
+  value,
+  pending,
+  onToggle,
+}: {
+  kind: FlagKind;
+  number: number;
+  value: number | null | undefined;
+  /** Play mode before its first snapshot: why the cell waits (the hinge's text). */
+  pending?: string;
+  onToggle?: (n: number) => void;
+}) {
   if (value === undefined || value === null) {
     return (
-      <Tooltip content={value === undefined ? LIVE_OFF : OUTSIDE_THE_SAVE}>
+      <Tooltip content={value === null ? OUTSIDE_THE_SAVE : (pending ?? LIVE_OFF)}>
         <span data-flag-live="" className={styles.live}>
           –
         </span>
@@ -76,6 +89,7 @@ const FlagRow = memo(function FlagRow({
   selected,
   onSelect,
   live,
+  livePending,
   onLiveToggle,
 }: {
   entry: FlagEntryDto;
@@ -84,6 +98,7 @@ const FlagRow = memo(function FlagRow({
   onSelect: (n: number) => void;
   /** The live value (a flag 0 or 1); undefined outside play mode, null outside the snapshot. */
   live: number | null | undefined;
+  livePending?: string;
   onLiveToggle?: (n: number) => void;
 }) {
   const own = entry.own_id !== null;
@@ -110,7 +125,7 @@ const FlagRow = memo(function FlagRow({
               <Badge kind="success">frei</Badge>
             </span>
           )}
-          <LiveCell kind={kind} number={entry.number} value={live} onToggle={onLiveToggle} />
+          <LiveCell kind={kind} number={entry.number} value={live} pending={livePending} onToggle={onLiveToggle} />
         </span>
       }
     />
@@ -136,6 +151,8 @@ export type FlagListProps = {
   onSelect: (number: number) => void;
   /** The snapshot's values in play mode (the column „Live“ fills); absent: the column waits for „Hier spielen“. */
   live?: LiveValues | null;
+  /** Play mode without a snapshot yet (connecting, waiting for the save, lost): the hinge's text, the tooltip of the empty cells. */
+  livePending?: string;
   /** A click on a flag's live value: write the other one (keep it stable, the rows are memoised). */
   onLiveToggle?: (number: number) => void;
 };
@@ -154,7 +171,7 @@ function liveValueOf(live: LiveValues | null | undefined, kind: FlagKind, entry:
  * „Nichts passt zu Filter und Suche.“ when nothing is left, and the foot: how many of how many (when capped, how many rows show), and what scripts use without a number (script-local
  * variables, flags from variables). The first `ROW_LIMIT` rows show, and the chosen one wherever it is.
  */
-export function FlagList({ list, entries, selected, onSelect, live, onLiveToggle }: FlagListProps) {
+export function FlagList({ list, entries, selected, onSelect, live, livePending, onLiveToggle }: FlagListProps) {
   const host = useRef<HTMLDivElement>(null);
   useRovingList(host);
   const shown = entries.length > ROW_LIMIT ? entries.slice(0, ROW_LIMIT) : entries;
@@ -163,7 +180,7 @@ export function FlagList({ list, entries, selected, onSelect, live, onLiveToggle
   return (
     <div className={styles.list} data-flag-list="">
       <div className={styles.listHead}>
-        <span data-flag-live-head={live ? "on" : ""} className={styles.liveHead}>
+        <span data-flag-live-head={live || livePending !== undefined ? "on" : ""} className={styles.liveHead}>
           Live
         </span>
       </div>
@@ -179,6 +196,7 @@ export function FlagList({ list, entries, selected, onSelect, live, onLiveToggle
               selected={e.number === selected}
               onSelect={onSelect}
               live={liveValueOf(live, list.kind, e)}
+              livePending={livePending}
               onLiveToggle={onLiveToggle}
             />
           ))}
