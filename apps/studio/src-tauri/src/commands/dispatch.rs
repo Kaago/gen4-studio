@@ -1590,7 +1590,12 @@ mod tests {
                 "empty_region",
                 "new_figure",
                 "connect_doors",
-                "new_trainer_here"
+                "new_trainer_here",
+                "new_story",
+                "talk_advances",
+                "figure_appears",
+                "scene_on_enter",
+                "reward_once"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {

@@ -2075,6 +2075,11 @@ fn cli_recipe_list() {
             "new_figure  Neue Figur",
             "connect_doors  Tür verbinden",
             "new_trainer_here  Neuer Trainer hier  irreversible",
+            "new_story  Neue Geschichte",
+            "talk_advances  Gespräch schaltet weiter",
+            "figure_appears  Figur erscheint/verschwindet ab Schritt",
+            "scene_on_enter  Szene beim Betreten",
+            "reward_once  Belohnung einmalig",
         ],
         "{out}"
     );

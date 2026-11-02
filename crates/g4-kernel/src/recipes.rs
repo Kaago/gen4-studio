@@ -10,6 +10,11 @@
 //! [`apply`] dispatch a [`RecipeCall`] (recipe and JSON input) to them, as MCP and `g4k` call
 //! them; [`list`] names the recipes, [`is_irreversible`] says what an application would do
 //! that undo does not take back.
+//!
+//! The story recipes of 3d.7 (Erzählen): [`new_story`] names a variable of the pool and makes a
+//! story with the step „Anfang“; „Gespräch schaltet weiter“, „Figur erscheint/verschwindet ab
+//! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it. `story_common`
+//! holds what they share.
 
 pub mod area;
 pub mod connect_doors;
@@ -18,8 +23,10 @@ pub mod empty_region;
 pub mod events;
 pub mod extend;
 pub mod new_figure;
+pub mod new_story;
 pub mod new_trainer_here;
 pub mod room;
+pub mod story_common;
 pub mod types;
 
 use serde::Serialize;
@@ -99,6 +106,14 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             input::<new_trainer_here::NewTrainerHereInput>(call)?;
             Some("Trainer anlegen")
         }
+        RecipeId::NewStory => {
+            input::<new_story::NewStoryInput>(call)?;
+            None
+        }
+        RecipeId::TalkAdvances
+        | RecipeId::FigureAppears
+        | RecipeId::SceneOnEnter
+        | RecipeId::RewardOnce => None,
     })
 }
 
@@ -112,6 +127,11 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::NewFigure => new_figure::plan(store, &input(call)?),
         RecipeId::ConnectDoors => connect_doors::plan(store, &input(call)?),
         RecipeId::NewTrainerHere => new_trainer_here::plan(store, &input(call)?),
+        RecipeId::NewStory => new_story::plan(store, &input(call)?),
+        RecipeId::TalkAdvances => Err(not_yet(3)),
+        RecipeId::FigureAppears => Err(not_yet(5)),
+        RecipeId::SceneOnEnter => Err(not_yet(6)),
+        RecipeId::RewardOnce => Err(not_yet(4)),
     }
 }
 
@@ -125,5 +145,15 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::NewFigure => new_figure::apply(store, &input(call)?)?.into_dto(),
         RecipeId::ConnectDoors => connect_doors::apply(store, &input(call)?)?.into_dto(),
         RecipeId::NewTrainerHere => new_trainer_here::apply(store, &input(call)?)?.into_dto(),
+        RecipeId::NewStory => new_story::apply(store, &input(call)?)?.into_dto(),
+        RecipeId::TalkAdvances => Err(not_yet(3)),
+        RecipeId::FigureAppears => Err(not_yet(5)),
+        RecipeId::SceneOnEnter => Err(not_yet(6)),
+        RecipeId::RewardOnce => Err(not_yet(4)),
     }
+}
+
+/// The refusal of a story step recipe whose task of phase 3d.7 has not filled it yet.
+fn not_yet(task: u8) -> KernelError {
+    KernelError::Refused(format!("Kommt mit Task {task}"))
 }

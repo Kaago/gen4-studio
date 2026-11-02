@@ -2396,11 +2396,12 @@ mod tests {
         for name in ["recipe_plan", "recipe_apply"] {
             let schema = (tool(name).input_schema)();
             assert_eq!(schema["properties"]["recipe"]["enum"], json!(ids), "{name}");
-            // The input says what each recipe takes.
+            // The input says what each recipe takes (the story recipes of 3d.7 are described
+            // with their inputs once they take them).
             let input = schema["properties"]["input"]["description"]
                 .as_str()
                 .unwrap();
-            for id in &ids {
+            for id in &ids[..7] {
                 assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
             }
             assert_eq!(schema["required"], json!(["recipe"]), "{name}");

@@ -425,3 +425,46 @@ fn read_optional(root: &Path, rel: &Path) -> Result<Option<Vec<u8>>, KernelError
 
 #[cfg(all(test, feature = "test-support"))]
 mod tests;
+
+/// Appends `step` to story `id`, with the flags of `flags` the story does not name yet (in
+/// their order), as one [`update_story`] step labelled „Geschichte „<name>“ geändert“: the
+/// story's steps are read, extended and written back whole (the recipes of 3d.7). Refused
+/// before anything is written: not a current text project, an unknown id
+/// ([`unknown_id_text`]), a story without its file, a key the story has
+/// ([`duplicate_key_text`]); the refusals of [`update_story`] otherwise.
+pub fn append_step(
+    store: &mut Store,
+    id: &str,
+    step: Step,
+    flags: &[String],
+) -> Result<StoryReport, KernelError> {
+    let project = store.project_arc();
+    text_project(&project)?;
+    let Some(number) = super::schema::number_of(&project, id)? else {
+        return refuse(unknown_id_text(id));
+    };
+    let Some(story) = super::schema::read_story(&project, number)? else {
+        let rel = story_rel(number);
+        return refuse(format!(
+            "{id} hat keine Datei {}.",
+            rel.to_string_lossy().replace('\\', "/")
+        ));
+    };
+    if story.steps.iter().any(|s| s.key == step.key) {
+        return refuse(duplicate_key_text(&step.key));
+    }
+    let mut named = story.flags.clone();
+    for flag in flags {
+        if !named.contains(flag) {
+            named.push(flag.clone());
+        }
+    }
+    let mut steps = story.steps;
+    steps.push(step);
+    let patch = StoryPatch {
+        steps: Some(steps),
+        flags: (named != story.flags).then_some(named),
+        ..StoryPatch::default()
+    };
+    update_story(store, id, &patch)
+}
