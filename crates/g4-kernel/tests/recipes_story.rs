@@ -6,7 +6,8 @@
 //!
 //! Synthetic tests run on `test_support::TextFixture::exported()` (the synthetic Platinum
 //! project as a text project with the scripts adopted; header 0 has script file 0, event file
-//! 0 and text archive 433), as `recipes_erzaehlen.rs` does. Gated (`G4_TEST_PROJECT` of the
+//! 0 and text archive 433), as `recipes_erzaehlen.rs` does; a reward saved between applying and
+//! undoing is compared file by file over the whole folder. Gated (`G4_TEST_PROJECT` of the
 //! family and the base ROM next to it): a talk in the start town of a vanilla copy set up as
 //! text project, its commands per family; prints one line `talk …` each.
 #![cfg(feature = "test-support")]
@@ -26,6 +27,7 @@ use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag, taken_text};
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::recipes::new_story::{self, NewStoryInput};
+use g4_kernel::recipes::reward_once::{self, RewardOnceInput};
 use g4_kernel::recipes::story_common::FigureRef;
 use g4_kernel::recipes::talk_advances::{self, TalkAdvancesInput};
 use g4_kernel::recipes::{self, Draft, DraftMessage, RecipeCall, RecipeId, next_steps};
@@ -971,6 +973,428 @@ fn a_talk_needs_adopted_scripts() {
         ADOPT_FIRST
     );
     assert_eq!(store.undo_depth(), mark);
+}
+
+// ---------------------------------------------------------------------------------------
+// „Belohnung einmalig“
+// ---------------------------------------------------------------------------------------
+
+/// The first flag of the general area (Platinum) the reward tests take from the pool.
+const POOL_FLAG: u16 = 0x0100;
+
+/// The item the reward tests give (the fixture has `PT_ITEM_MEMBERS` items, 0 is none).
+const ITEM: u16 = 17;
+
+fn reward(local_id: u16, from_step: u16, text: &str) -> RewardOnceInput {
+    RewardOnceInput {
+        story: "STORY_TESTFADEN".to_owned(),
+        figure: FigureRef {
+            header: 0,
+            local_id,
+        },
+        from_step,
+        item: ITEM,
+        text: text.to_owned(),
+        flag: POOL_FLAG,
+        step_name: None,
+    }
+}
+
+fn reward_call() -> RecipeCall {
+    RecipeCall {
+        recipe: RecipeId::RewardOnce,
+        input: serde_json::json!({
+            "story": "STORY_TESTFADEN",
+            "figure": { "header": 0, "local_id": 5 },
+            "from_step": 0,
+            "item": ITEM,
+            "text": "Ein Geschenk!",
+            "flag": POOL_FLAG,
+        }),
+    }
+}
+
+#[test]
+fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_story() {
+    let (_fx, mut store) = talk_fixture();
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let message = u16::try_from(messages).unwrap();
+    let before = state(&store);
+    let old_source = source_of(&store, 0);
+    let mark = store.undo_depth();
+    let flag_id = "FLAG_STORY_TESTFADEN_BELOHNUNG_5";
+
+    // The plan writes nothing and names flag, slot and message.
+    let draft = recipes::plan(&mut store, &reward_call()).unwrap();
+    assert_eq!(
+        draft,
+        Draft {
+            messages: vec![DraftMessage {
+                archive: Some(ARCHIVE),
+                text: "Ein Geschenk!".to_owned(),
+            }],
+            notes: vec![
+                format!("Figur 5 gibt ab Schritt 0 einmal Gegenstand {ITEM}."),
+                format!("Benennt Flag 0x0100 als {flag_id}."),
+                format!("Script #3 in Scriptdatei 0, Nachricht {messages} in Archiv {ARCHIVE}."),
+            ],
+            ..Draft::default()
+        }
+    );
+    assert_eq!(recipes::is_irreversible(&reward_call()).unwrap(), None);
+    assert_eq!(state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+
+    let outcome = recipes::apply(&mut store, &reward_call()).unwrap();
+    assert_eq!(
+        outcome.report,
+        serde_json::json!({
+            "step": "r256",
+            "flag": POOL_FLAG,
+            "flag_id": flag_id,
+            "event_file": 0,
+            "object": 0,
+            "script_file": 0,
+            "slot": 3,
+            "previous_slot": 2,
+            "archive": ARCHIVE,
+            "message": message,
+        })
+    );
+    assert!(outcome.created.is_empty());
+    assert!(outcome.change.is_some());
+    let next: Vec<(&str, bool)> = outcome
+        .next
+        .iter()
+        .map(|s| (s.id.as_str(), s.available))
+        .collect();
+    assert_eq!(next, [("play_here", false)]);
+
+    // The flag has its own name and the reward's purpose.
+    assert_eq!(
+        json(&store, "data/ids/flags.json")[flag_id],
+        serde_json::json!(POOL_FLAG)
+    );
+    assert_eq!(
+        json(&store, "data/flags/0256.json"),
+        serde_json::json!({
+            "id": flag_id,
+            "description": "Belohnung von Figur 5 in „Testfaden“",
+        })
+    );
+    // The object points at the hull: from step 0 on and while the flag is clear it gives the
+    // item once and sets the flag, then it goes on with the old script.
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 3);
+    let source = source_of(&store, 0);
+    assert!(source.starts_with(&old_source), "{source}");
+    let hull = &source[source.find("script belohnung_5_3 #3:").unwrap()..];
+    for line in [
+        "    if VAR_STORY_TESTFADEN >= 0 then\n".to_owned(),
+        format!("        if {flag_id} == 0 then\n"),
+        format!("            Message {message}\n"),
+        format!("            GiveItem {ITEM}, 1, VAR_RESULT\n"),
+        format!("            SetFlag {flag_id}\n"),
+    ] {
+        assert!(hull.contains(&line), "{line}: {hull}");
+    }
+    assert!(hull.ends_with("    Jump zwei\n"), "{hull}");
+    let doc = store.text_archive(ARCHIVE).unwrap();
+    assert_eq!(doc.messages.len(), messages + 1);
+    assert_eq!(doc.messages[messages].text, "Ein Geschenk!");
+
+    // The story has the step and names the flag.
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    let keys: Vec<&str> = story.steps.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["s0", "r256"]);
+    assert_eq!(
+        story.steps[1],
+        Step {
+            made: Some(Made {
+                recipe: "reward_once".to_owned(),
+                studio: env!("CARGO_PKG_VERSION").to_owned(),
+            }),
+            uses: vec![
+                Use::Object {
+                    file: 0,
+                    local_id: 5
+                },
+                Use::Script { file: 0, slot: 3 },
+                Use::Message {
+                    archive: ARCHIVE,
+                    index: message
+                },
+                Use::Flag(flag_id.to_owned()),
+            ],
+            ..step("r256", 0, StepKind::Reward, "Belohnung von Figur 5")
+        }
+    );
+    assert_eq!(story.flags, [flag_id]);
+    assert_eq!(
+        json(&store, "data/stories/0000.json")["steps"][1]["kind"],
+        "reward"
+    );
+
+    // One undo step for naming, wrapping and the step: undo takes the name back too.
+    assert_eq!(store.undo_depth(), mark + 1);
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Belohnung von Figur 5 in „Testfaden“")
+    );
+    let after = state(&store);
+    store.undo().unwrap();
+    assert_eq!(state(&store), before);
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 2);
+    store.redo().unwrap();
+    assert_eq!(state(&store), after);
+}
+
+#[test]
+fn a_reward_takes_its_step_name_and_ends_for_a_figure_without_a_script() {
+    let (_fx, mut store) = talk_fixture();
+    let input = RewardOnceInput {
+        step_name: Some("Belohnung: Trank".to_owned()),
+        ..reward(7, 0, "Nimm das.")
+    };
+    let outcome = reward_once::apply(&mut store, &input).unwrap();
+    assert_eq!(
+        (outcome.report.object, outcome.report.previous_slot),
+        (2, 0)
+    );
+    assert_eq!(outcome.report.flag_id, "FLAG_STORY_TESTFADEN_BELOHNUNG_7");
+    let source = source_of(&store, 0);
+    assert!(source.contains("script belohnung_7_3 #3:"), "{source}");
+    assert!(
+        source.ends_with("    endif\n    ReleaseAll\n    End\n"),
+        "{source}"
+    );
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    assert_eq!(story.steps[1].name, "Belohnung: Trank");
+}
+
+/// Every file of the project folder by path relative to it, without the build's own record
+/// (`.g4/build/state.json`: each save records when it synced the text archives, times and
+/// sizes of their files; the content hashes stay).
+fn project_files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut files = files_below(root);
+    files.remove(Path::new(".g4/build/state.json"));
+    files
+}
+
+fn differ(
+    a: &BTreeMap<PathBuf, Vec<u8>>,
+    b: &BTreeMap<PathBuf, Vec<u8>>,
+) -> std::collections::BTreeSet<PathBuf> {
+    a.keys()
+        .chain(b.keys())
+        .filter(|k| a.get(*k) != b.get(*k))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn a_saved_reward_is_undone_byte_equal() {
+    let (fx, mut store) = talk_fixture();
+    // The figures of the fixture saved: the folder before the reward.
+    store.save().unwrap();
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    let before_files = project_files(fx.root());
+    let before = state(&store);
+
+    let outcome = reward_once::apply(&mut store, &reward(5, 0, "Ein Geschenk!")).unwrap();
+    store.save().unwrap();
+    let saved_files = project_files(fx.root());
+    let changed = differ(&saved_files, &before_files);
+    for rel in [
+        "data/ids/flags.json",
+        "data/flags/0256.json",
+        "data/stories/0000.json",
+    ] {
+        assert!(changed.contains(Path::new(rel)), "{rel}: {changed:?}");
+    }
+    assert!(changed.len() >= 6, "{changed:?}");
+
+    // Undone and saved: script, archive, event file, story and the flag's name as before.
+    store.undo().unwrap();
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 2);
+    assert_eq!(
+        store.text_archive(ARCHIVE).unwrap().messages.len(),
+        messages
+    );
+    assert!(!source_of(&store, 0).contains(&format!("#{}:", outcome.report.slot)));
+    store.save().unwrap();
+    assert_eq!(
+        differ(&project_files(fx.root()), &before_files),
+        Default::default()
+    );
+    assert_eq!(state(&store), before);
+
+    // Redone and saved: as after the first save.
+    store.redo().unwrap();
+    store.save().unwrap();
+    assert_eq!(
+        differ(&project_files(fx.root()), &saved_files),
+        Default::default()
+    );
+    let doc = store.text_archive(ARCHIVE).unwrap();
+    assert_eq!(doc.messages[messages].text, "Ein Geschenk!");
+    assert_eq!(store.event(0).unwrap().object_events[0].script, 3);
+}
+
+#[test]
+fn a_failed_reward_takes_the_flag_name_back() {
+    let (fx, mut store) = talk_fixture();
+    store.save().unwrap();
+    let before_files = project_files(fx.root());
+    let before = state(&store);
+    let mark = store.undo_depth();
+    let history = store.history();
+    // The story can be read but not written: `append_step` fails after the flag was named
+    // and the hull compiled.
+    story_files_readonly(&store, true);
+    let result = reward_once::apply(&mut store, &reward(5, 0, "Ein Geschenk!"));
+    story_files_readonly(&store, false);
+    assert!(result.is_err(), "{result:?}");
+    assert_eq!(state(&store), before);
+    // Every file as before, the ids rotom reads included.
+    assert_eq!(
+        differ(&project_files(fx.root()), &before_files),
+        Default::default()
+    );
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(store.history(), history);
+    assert!(
+        json(&store, "data/ids/flags.json")
+            .get("FLAG_STORY_TESTFADEN_BELOHNUNG_5")
+            .is_none()
+    );
+    // Applied again, it goes through with the same name.
+    let outcome = reward_once::apply(&mut store, &reward(5, 0, "Ein Geschenk!")).unwrap();
+    assert_eq!(outcome.report.flag_id, "FLAG_STORY_TESTFADEN_BELOHNUNG_5");
+    assert_eq!(store.undo_depth(), mark + 1);
+}
+
+#[test]
+fn a_used_flag_number_a_bad_item_and_a_trainer_are_refused() {
+    let (_fx, mut store) = talk_fixture();
+    name_flag(
+        &mut store,
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: POOL_FLAG + 1,
+            id: Some("FLAG_EIGEN".to_owned()),
+            description: None,
+        },
+    )
+    .unwrap();
+    let before = state(&store);
+    let mark = store.undo_depth();
+    let items = u16::try_from(common::PT_ITEM_MEMBERS).unwrap();
+    let with = |change: &dyn Fn(&mut RewardOnceInput)| {
+        let mut input = reward(5, 0, "Ein Geschenk!");
+        change(&mut input);
+        input
+    };
+    for (input, why) in [
+        (
+            with(&|i| i.flag = POOL_FLAG + 1),
+            taken_text(
+                "FLAG_EIGEN",
+                g4_kernel::flags::TakenBy::Register(u32::from(POOL_FLAG + 1)),
+            ),
+        ),
+        (
+            with(&|i| i.flag = 0x0010),
+            "Flag 0x0010 liegt nicht im allgemeinen Bereich.".to_owned(),
+        ),
+        (
+            with(&|i| i.flag = 0x0B60),
+            "Flag 0x0B60 liegt nicht im Spielstand.".to_owned(),
+        ),
+        (
+            with(&|i| i.item = 0),
+            "Gegenstand 0 gibt es nicht.".to_owned(),
+        ),
+        (
+            with(&|i| i.item = items),
+            format!("Gegenstand {items} gibt es nicht."),
+        ),
+        (
+            reward(8, 0, "Kampf!"),
+            "Trainer sprechen über ihre Kampftexte (Bereich Pokémon).".to_owned(),
+        ),
+        (
+            reward(9, 0, "Gemeinsam"),
+            "Figur 9 spricht über das gemeinsame Script 2000; das Rezept braucht ein eigenes \
+             Script."
+                .to_owned(),
+        ),
+        (
+            reward(5, 3, "Später"),
+            "Schritt 3 gibt es in „Testfaden“ nicht.".to_owned(),
+        ),
+        (
+            reward(5, 0, "  \n"),
+            "Die Belohnung braucht einen Text.".to_owned(),
+        ),
+        (
+            with(&|i| i.story = "STORY_GIBTS_NICHT".to_owned()),
+            "Unbekannte ID: STORY_GIBTS_NICHT.".to_owned(),
+        ),
+    ] {
+        assert_eq!(
+            refused(reward_once::plan(&mut store, &input)),
+            why,
+            "{input:?}"
+        );
+        assert_eq!(
+            refused(reward_once::apply(&mut store, &input)),
+            why,
+            "{input:?}"
+        );
+    }
+    assert_eq!(state(&store), before);
+    assert_eq!(store.undo_depth(), mark);
+    // The highest item is given.
+    let highest = with(&|i| i.item = items - 1);
+    assert!(reward_once::plan(&mut store, &highest).is_ok());
+}
+
+#[test]
+fn reward_after_talk_chains_both_wrappers() {
+    let (_fx, mut store) = talk_fixture();
+    let talked = talk_advances::apply(&mut store, &talk(5, 0, "Erst reden")).unwrap();
+    let rewarded = reward_once::apply(&mut store, &reward(5, 1, "Dann schenken")).unwrap();
+    assert_eq!(
+        (rewarded.report.slot, rewarded.report.previous_slot),
+        (talked.report.slot + 1, talked.report.slot)
+    );
+    // The object points at the reward's hull, which goes on with the talk's hull, that with
+    // `zwei`.
+    assert_eq!(
+        store.event(0).unwrap().object_events[0].script,
+        rewarded.report.slot
+    );
+    let source = source_of(&store, 0);
+    let hull = &source[source.find("script belohnung_5_4 #4:").unwrap()..];
+    assert!(
+        hull.contains("    if VAR_STORY_TESTFADEN >= 1 then\n"),
+        "{hull}"
+    );
+    assert!(hull.ends_with("    Jump gespraech_5_3\n"), "{hull}");
+    let talk_hull = &source[source.find("script gespraech_5_3 #3:").unwrap()..];
+    assert!(talk_hull.contains("    Jump zwei\n"), "{talk_hull}");
+    // The dialog shows both messages and the old one.
+    let dialog = dialog_of(&mut store, 0, 0, DialogKind::Object, 0).unwrap();
+    assert!(
+        matches!(dialog.source, DialogSource::Local { slot: 4, .. }),
+        "{dialog:?}"
+    );
+    let shown: Vec<u16> = dialog.messages.iter().map(|m| m.index).collect();
+    assert_eq!(shown, [rewarded.report.message, talked.report.message, 0]);
+    let story = read_story(store.project(), 0).unwrap().unwrap();
+    let keys: Vec<&str> = story.steps.iter().map(|s| s.key.as_str()).collect();
+    assert_eq!(keys, ["s0", "s1", "r256"]);
+    assert_eq!(story.steps[2].value, 1);
 }
 
 /// The base ROM of the vanilla project `project`: the one `suggest_base` finds or

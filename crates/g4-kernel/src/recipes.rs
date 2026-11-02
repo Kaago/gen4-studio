@@ -13,9 +13,9 @@
 //!
 //! The story recipes of 3d.7 (Erzählen): [`new_story`] names a variable of the pool and makes a
 //! story with the step „Anfang“; „Gespräch schaltet weiter“, „Figur erscheint/verschwindet ab
-//! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it ([`talk_advances`]
-//! is the first). `story_common` holds what they share, `story_wrap` the hull script a talk or
-//! a reward puts in front of a figure.
+//! Schritt“, „Szene beim Betreten“ and „Belohnung einmalig“ add a step to it ([`talk_advances`],
+//! [`reward_once`]). `story_common` holds what they share, `story_wrap` the hull script a talk
+//! or a reward puts in front of a figure.
 
 pub mod area;
 pub mod connect_doors;
@@ -26,6 +26,7 @@ pub mod extend;
 pub mod new_figure;
 pub mod new_story;
 pub mod new_trainer_here;
+pub mod reward_once;
 pub mod room;
 pub mod story_common;
 pub mod story_scripts;
@@ -114,7 +115,7 @@ pub fn is_irreversible(call: &RecipeCall) -> Result<Option<&'static str>, Kernel
             input::<new_story::NewStoryInput>(call)?;
             None
         }
-        // A talk is one undo step, whatever its input.
+        // A talk and a reward are one undo step each, whatever their input.
         RecipeId::TalkAdvances
         | RecipeId::FigureAppears
         | RecipeId::SceneOnEnter
@@ -136,7 +137,7 @@ pub fn plan(store: &mut Store, call: &RecipeCall) -> Result<Draft, KernelError> 
         RecipeId::TalkAdvances => talk_advances::plan(store, &input(call)?),
         RecipeId::FigureAppears => Err(not_yet(5)),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
-        RecipeId::RewardOnce => Err(not_yet(4)),
+        RecipeId::RewardOnce => reward_once::plan(store, &input(call)?),
     }
 }
 
@@ -154,7 +155,7 @@ pub fn apply(store: &mut Store, call: &RecipeCall) -> Result<OutcomeDto, KernelE
         RecipeId::TalkAdvances => talk_advances::apply(store, &input(call)?)?.into_dto(),
         RecipeId::FigureAppears => Err(not_yet(5)),
         RecipeId::SceneOnEnter => Err(not_yet(6)),
-        RecipeId::RewardOnce => Err(not_yet(4)),
+        RecipeId::RewardOnce => reward_once::apply(store, &input(call)?)?.into_dto(),
     }
 }
 

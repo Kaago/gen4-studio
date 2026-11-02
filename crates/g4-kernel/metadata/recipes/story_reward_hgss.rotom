@@ -1,4 +1,4 @@
-script belohnung_{local_id}_{n} #{n}:
+script {name} #{n}:
     LockAll
     FacePlayer
     if {var} >= {from} then

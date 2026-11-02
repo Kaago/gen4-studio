@@ -104,6 +104,9 @@ fn reward_script_checks_var_then_flag() {
          \x20   ReleaseAll\n\
          \x20   Jump figur_3\n"
     );
+    // The hull is named after its slot, the name from one place.
+    assert_eq!(reward_name(3, 7), "belohnung_3_7");
+    assert!(pt.starts_with(&format!("script {} #7:\n", reward_name(3, 7))));
     let hgss = reward_script(Family::Hgss, 7, 3, "V", 2, "F", 17, 9, &Tail::End);
     for line in [
         "            NPCMsg 9\n",

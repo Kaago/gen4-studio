@@ -70,7 +70,13 @@ pub(crate) fn talk_script(
     )
 }
 
-/// The reward branch `belohnung_<local_id>_<n> #n` of figure `local_id`: from step `from` on
+/// The name of the reward hull of figure `local_id` in slot `#n`: `belohnung_<local_id>_<n>`,
+/// unique in its script file by the slot, like [`talk_name`].
+pub(crate) fn reward_name(local_id: u16, n: u16) -> String {
+    format!("belohnung_{local_id}_{n}")
+}
+
+/// The reward branch [`reward_name`] `#n` of figure `local_id`: from step `from` on
 /// and while `flag_id` is clear it shows message `message`, gives `item` once and sets the
 /// flag; otherwise the script goes on with `tail`.
 #[expect(
@@ -91,8 +97,8 @@ pub(crate) fn reward_script(
     fill(
         template("story_reward", family),
         &[
+            ("name", reward_name(local_id, n)),
             ("n", n.to_string()),
-            ("local_id", local_id.to_string()),
             ("var", var_id.to_owned()),
             ("from", from.to_string()),
             ("flag", flag_id.to_owned()),
