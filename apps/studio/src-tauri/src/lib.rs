@@ -49,7 +49,7 @@ use commands::{assign_base, base_status, check_base, create_patch, register_base
 use commands::{assign_place, create_place, place_slots, rename_place};
 use commands::{changed_from_original, original_status, plan_reset, reset_to_original};
 use commands::{check_project_dest, create_project, default_project_parent, inspect_rom};
-use commands::{dialog_of, split_message};
+use commands::{dialog_of, dialogs_of_header, split_message};
 use commands::{diff_entity, git_init, git_status, restore_text_project, unsaved_changes};
 use commands::{flag_usage, free_flag, list_flags, name_flag};
 use commands::{get_battle_sprite, get_trainer_sprite};
@@ -248,7 +248,8 @@ pub fn run() {
             story_list,
             story_get,
             story_create,
-            story_update
+            story_update,
+            dialogs_of_header
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

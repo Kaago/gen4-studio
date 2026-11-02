@@ -61,6 +61,85 @@ pub struct Problem {
     pub message: String,
 }
 
+/// How many boxes the game shows message `text` (chatot text form) in, by the page rule of the
+/// preview (`apps/studio/src/workbench/text/textModel.ts`, `pages`): `\n` moves from line 1 to
+/// line 2, a `\n` in line 2 starts a new page; `\r` (clear) and `\f` (scroll) end the page. A
+/// `\r` or `\f` at the very end adds no empty page; an empty text is one page. As there, an
+/// escaped backslash, `\xNNNN` and a control code in braces or brackets are no break.
+pub fn page_count(text: &str) -> u32 {
+    let (mut pages, mut lines, mut fresh) = (0, 1, false);
+    let mut rest = text;
+    while !rest.is_empty() {
+        let (len, piece) = text_piece(rest);
+        rest = &rest[len..];
+        match piece {
+            Piece::Newline if lines == 1 => lines = 2,
+            Piece::Newline => {
+                pages += 1;
+                lines = 1;
+            }
+            // Scroll: the next page starts with the old line 2 as its line 1.
+            Piece::Clear | Piece::Scroll => {
+                pages += 1;
+                lines = if piece == Piece::Scroll { 2 } else { 1 };
+            }
+            Piece::Text => {}
+        }
+        // A page that a clear or scroll code started stays empty until something follows.
+        fresh = matches!(piece, Piece::Clear | Piece::Scroll);
+    }
+    if !fresh {
+        pages += 1;
+    }
+    pages
+}
+
+/// What [`text_piece`] found.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Piece {
+    Text,
+    Newline,
+    Clear,
+    Scroll,
+}
+
+/// The first piece of `rest` (not empty) and its length in bytes, as the preview's tokens
+/// split a message (`textModel.ts`, `TOKEN`): `\xNNNN`, a backslash and the next character
+/// (`\n`, `\r`, `\f` the breaks), `{…}` without a brace inside, `[…]` without a bracket
+/// inside, else one character of text.
+fn text_piece(rest: &str) -> (usize, Piece) {
+    let bytes = rest.as_bytes();
+    let closed = |open: u8, close: u8| {
+        bytes[1..]
+            .iter()
+            .position(|&b| b == open || b == close)
+            .filter(|&i| bytes[1 + i] == close)
+            .map(|i| (i + 2, Piece::Text))
+    };
+    let found = match bytes[0] {
+        b'\\'
+            if bytes.len() >= 6
+                && bytes[1] == b'x'
+                && bytes[2..6].iter().all(u8::is_ascii_hexdigit) =>
+        {
+            Some((6, Piece::Text))
+        }
+        b'\\' => rest[1..].chars().next().map(|c| {
+            let piece = match c {
+                'n' => Piece::Newline,
+                'r' => Piece::Clear,
+                'f' => Piece::Scroll,
+                _ => Piece::Text,
+            };
+            (1 + c.len_utf8(), piece)
+        }),
+        b'{' => closed(b'{', b'}'),
+        b'[' => closed(b'[', b']'),
+        _ => None,
+    };
+    found.unwrap_or_else(|| (rest.chars().next().map_or(1, char::len_utf8), Piece::Text))
+}
+
 /// `msg_<index:05>`, the id uxie writes when it decodes a member.
 pub fn default_message_id(index: usize) -> String {
     format!("msg_{index:05}")
@@ -1163,5 +1242,28 @@ mod tests {
         assert_eq!(Language::Spanish.locale_key(), "es_ES");
         assert_eq!(Language::Japanese.locale_key(), "ja_JP");
         assert_eq!(Language::Korean.locale_key(), "ko_KR");
+    }
+
+    // The cases of `textModel.test.ts` (`pages`), in the text form (`\n` a backslash and an n).
+    #[test]
+    fn page_count_follows_the_page_rule_of_the_preview() {
+        // Two lines per page; `\r` ends the page.
+        assert_eq!(page_count(r"A\nB\rC"), 2);
+        // `\f` ends it as well, the next page starts with the old second line.
+        assert_eq!(page_count(r"A\nB\fC"), 2);
+        assert_eq!(page_count(r"A\nB\fC\nD"), 3);
+        // A third line overflows into a new page.
+        assert_eq!(page_count(r"A\nB\nC"), 2);
+        // A break at the very end adds no empty page; an empty text is one page.
+        assert_eq!(page_count(r"A\r"), 1);
+        assert_eq!(page_count(r"A\nB\f"), 1);
+        assert_eq!(page_count(r"A\r\r"), 2);
+        assert_eq!(page_count(""), 1);
+        // Codes stay in the line; an escaped backslash before an n is text, as is a break
+        // inside a control code.
+        assert_eq!(page_count("Hallo {PLAYER}!"), 1);
+        assert_eq!(page_count(r"a\\nb\nc"), 1);
+        assert_eq!(page_count(r"\x0123\nB\nC"), 2);
+        assert_eq!(page_count(r"{X\n}\rB"), 2);
     }
 }

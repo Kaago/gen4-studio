@@ -60,3 +60,35 @@ export const dialogOf = (header: number, eventFile: number, kind: "object" | "bg
 /** Gives object `index` of `eventFile` its own copy of message (`archive`, `message`) as one undo step „Dialog von Figur k abgespalten“. */
 export const splitMessage = (header: number, eventFile: number, index: number, archive: number, message: number) =>
   invoke<SplitMessageReport>("split_message", { header, eventFile, index, archive, message });
+
+/**
+ * One figure of a place with what its dialog comes to (3d.8, `dialogs_of_header`): an object (`local_id`, `graphics_id`) or a sign
+ * (both null) by its index within its class, `trainer` the trainer's id for a trainer's battle, `source` as `dialogOf` names it, the
+ * text of the first message (null without one or when the archive has none there), how many messages it shows (each once), how
+ * many boxes they fill (`pages`) and the messages as indices into the header's text archive in the order of their first use
+ * (`message_ids`, empty unless the dialog is a local script's).
+ */
+export interface FigureDialog {
+  kind: "object" | "bg";
+  index: number;
+  local_id: number | null;
+  graphics_id: number | null;
+  trainer: number | null;
+  source: DialogSource;
+  first_text: string | null;
+  messages: number;
+  pages: number;
+  message_ids: number[];
+}
+
+/** The figures of header `header`'s event file, the objects by index, then the signs; `archive` is the header's text archive. */
+export interface HeaderDialogs {
+  header: number;
+  event_file: number;
+  archive: number;
+  figures: FigureDialog[];
+  ms: number;
+}
+
+/** Every figure of header `header` with its dialog in one call; an event file that does not load has none. */
+export const dialogsOfHeader = (header: number) => invoke<HeaderDialogs>("dialogs_of_header", { header });

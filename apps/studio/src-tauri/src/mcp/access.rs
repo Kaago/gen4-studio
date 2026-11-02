@@ -234,6 +234,7 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     // One undo step each (a file step: register, story, side file).
     ("story_create", Kind::Write),
     ("story_update", Kind::Write),
+    ("dialogs_of_header", Kind::Read),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -1007,6 +1008,7 @@ mod tests {
     fn dialog_commands_have_their_access() {
         let kind = |name: &str| kind_of(name).unwrap_or_else(|| panic!("{name} has no kind"));
         assert_eq!(kind("dialog_of"), Kind::Read);
+        assert_eq!(kind("dialogs_of_header"), Kind::Read);
         // One undo step (the archive's copy and the script file's step, squashed).
         assert_eq!(kind("split_message"), Kind::Write);
     }

@@ -213,6 +213,7 @@ pub const COMMANDS: &[&str] = &[
     "story_get",
     "story_create",
     "story_update",
+    "dialogs_of_header",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1117,6 +1118,9 @@ pub fn dispatch(
             { id: String, patch: Value },
             |a| story_update_value(state, a.id, a.patch)
         ),
+        "dialogs_of_header" => run!(json, "dialogs_of_header", args, { header: u16 }, |a| {
+            dialogs_of_header_impl(state, a.header)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1546,6 +1550,7 @@ mod tests {
                 "story_update",
                 json!({"id": "STORY_TEST", "patch": {"notes": "x"}}),
             ),
+            ("dialogs_of_header", json!({"header": 1})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];
