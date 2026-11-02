@@ -154,8 +154,9 @@ pub const SHARED_SCRIPT: &str =
 /// appended to the archive and every use of the message in this figure's dialog (its slot and
 /// the labels only it reaches) rewritten to the new index, as one undo step „Dialog von Figur
 /// {local_id} abgespalten“. Refused when the message is not shared (`NOT_SHARED`), when a use
-/// sits in a label another script of the file also reaches (`SHARED_LABEL`), when the archive
-/// is full or locked.
+/// sits in a label (or the slot's own body) another script of the file also reaches
+/// (`SHARED_LABEL`), when the archive has no message `message` ([`missing_message`]), when the
+/// archive is full or locked.
 ///
 /// `index` is an object of event file `file`, its dialog looked up on `header` as
 /// [`dialog_of`] does. Also refused: a message the dialog does not show, a slot another figure
@@ -228,7 +229,8 @@ pub fn split_message(
         .filter_map(|&id| graph.walk(&parsed, family, id))
         .flat_map(|shown| shown.visited)
         .collect();
-    let shared_label = |u: &Use| u.function != start && reached.contains(&u.function);
+    // Also the slot's own body: another slot that jumps or runs on into it shows it too.
+    let shared_label = |u: &Use| reached.contains(&u.function);
     if own
         .uses
         .iter()
@@ -242,6 +244,9 @@ pub fn split_message(
         index: archive,
     };
     let len = store.text_archive(archive)?.messages.len();
+    if usize::from(message) >= len {
+        return Err(KernelError::Refused(missing_message(archive, message)));
+    }
     if let Some(reason) = store.locked(id) {
         return Err(KernelError::Refused(format!(
             "Textarchiv {archive} ist gesperrt: {reason}"
@@ -373,6 +378,12 @@ pub(crate) fn highest_message(family: Family, written: &str) -> u32 {
         Some(p) if p.param_type == rotom::database::ParamType::U8 => u32::from(u8::MAX),
         _ => BELOW_VARIABLES,
     }
+}
+
+/// The refusal for a message index past the end of the archive (the dialog lists it without a
+/// text, script.message-missing).
+pub fn missing_message(archive: u16, message: u16) -> String {
+    format!("Textarchiv {archive} hat keine Nachricht {message}.")
 }
 
 /// The refusal for a message the dialog does not show.
@@ -1539,6 +1550,55 @@ mod tests {
             refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
             SHARED_SCRIPT
         );
+    }
+
+    #[test]
+    fn split_refuses_a_message_the_archive_does_not_have() {
+        let fx = TextFixture::exported();
+        // Both figures show message 12; the archive has ten messages.
+        let source = "script drei #3:\n    Message 12\n    End\n\
+                      script sieben #7:\n    Message 12\n    End\n";
+        let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        let three = of(&mut st, 3);
+        assert_eq!(three.messages[0].text, None);
+        assert_eq!(three.messages[0].shared_with, 1);
+        let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 12)),
+            missing_message(ARCHIVE, 12)
+        );
+        assert_eq!(st.undo_depth(), depth);
+        assert_eq!(archive_bytes(&st), archive);
+        assert_eq!(source_of(&st), source);
+    }
+
+    #[test]
+    fn split_refuses_when_another_script_jumps_into_this_figures_body() {
+        let fx = TextFixture::exported();
+        // Figure 7 jumps into figure 3's own body: rewriting it would change figure 7's dialog.
+        let source = "script drei #3:\n    Message 5\n    End\n\
+                      script sieben #7:\n    Message 1\n    GoTo drei\n";
+        let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        assert_eq!(indices(&of(&mut st, 7)), [1, 5]);
+        let (depth, archive) = (st.undo_depth(), archive_bytes(&st));
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
+            SHARED_LABEL
+        );
+        assert_eq!(st.undo_depth(), depth);
+        assert_eq!(archive_bytes(&st), archive);
+        assert_eq!(source_of(&st), source);
+
+        // Code of another script that runs on into figure 3's body shares it as well.
+        let fx = TextFixture::exported();
+        let source = "script sieben #7:\n    Message 1\n\
+                      script drei #3:\n    Message 5\n    End\n";
+        let mut st = store_with(&fx, source, &TEN, &[0, 0, 0, 3, 0, 0, 0, 7]);
+        assert_eq!(
+            refused(split_message(&mut st, 0, 0, 3, ARCHIVE, 5)),
+            SHARED_LABEL
+        );
+        assert_eq!(source_of(&st), source);
     }
 
     #[test]

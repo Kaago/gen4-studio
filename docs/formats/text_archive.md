@@ -203,10 +203,11 @@ Abgelehnt (`KernelError::Refused`, nichts geschrieben):
 | Fall | Satz |
 |---|---|
 | keine andere Figur zeigt die Nachricht | `NOT_SHARED` „Die Nachricht gehört nur dieser Figur.“ |
-| eine Stelle steht in einer Funktion außerhalb des eigenen Slots, die der Lauf eines anderen Slots der Datei erreicht (Sprung oder weiterlaufender Code) | `SHARED_LABEL` „Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.“ |
+| eine Stelle steht in einer Funktion, die der Lauf eines anderen Slots der Datei erreicht (Sprung oder weiterlaufender Code), auch im Rumpf des eigenen Slots (springt ein anderes Script dorthin, zeigte es die Kopie mit) | `SHARED_LABEL` „Die Nachricht steht in einem gemeinsamen Sprungziel; in Bauen im Script trennen.“ |
 | ein anderes Objekt oder Schild (Eventdateien der Header mit dieser Scriptdatei) führt einen Slot desselben Rumpfs aus | `SHARED_SCRIPT` „Eine andere Figur führt dasselbe Script aus; in Bauen ein eigenes Script anlegen.“ |
 | die Nummer der Kopie passt nicht in den Nachrichtenparameter eines umzuschreibenden Befehls (rotoms Datenbank: Platin `Message`/`MessageInstant`, HeartGold `NPCMsg`/`NonNPCMsg` nehmen ein u8, also bis 255; sonst bis 0x3FFF, ab 0x4000 wäre es eine Variable) | `NUMBER_TOO_HIGH` „Die Kopie bekäme eine Nummer, die der Nachrichtenbefehl nicht fasst“ mit Befehl, Höchstnummer und Nummer der Kopie |
 | die Nachricht steht nicht im Dialog, das Archiv ist gesperrt | mit Archiv und Nummer |
+| das Archiv hat die Nachricht nicht (der Dialog nennt sie ohne Text) | `missing_message` „Textarchiv {archive} hat keine Nachricht {message}.“ |
 | rotom hängt beim Übersetzen ein Text-Literal der Datei an dasselbe Archiv | der ganze Schritt wird zurückgenommen |
 
 Ein Übersetzungsfehler in der Datei (auch in einem anderen Script) schreibt die alte Quelle und
