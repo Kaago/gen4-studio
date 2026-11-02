@@ -17,7 +17,7 @@ Jede Abweichung trägt eine Einordnung:
 
 Das Gerüst der Idee steht. Raster, Maße, Tokens, Schriften, Symbole und die Komponentenbibliothek sind umgesetzt und werden vom Gate geprüft. Das Scharnier ist reicher als entworfen, und Tüfteln ist durchgehend gebaut.
 
-Von den 30 Screens sind **11 umgesetzt, 10 teilweise und 9 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
+Von den 30 Screens sind **11 umgesetzt, 14 teilweise und 5 offen**. Offen sind vor allem die Teile, die die Idee von einem ROM-Editor unterscheiden sollten. Die sechs größten Abweichungen:
 
 1. **Die Tiefe Erzählen ist nur zum Teil da.** Seit 3d.2 gibt es sie in der Welt (Rezept-Leiste, reduzierter Inspector, Entwurf der Assistenten in der Schau); andere Bereiche zeigen dort Bauen. Seit 3d.5 laufen alle fünf Rezepte der Leiste; offen bleiben Geschichten (3d.6, 3d.7), Pokémon und Texte (3d.8) und „Hier spielen“ (3d.9) (bewusst).
 2. **Die Schau zeigt Daten statt Spielerblick.** Pokédex, Attacken, Trainer und Gegenstände zeigen Datenkarten. DS-Profil und Kampfvorschau stehen seit 3d.3 Teil A (Pokédex, Trainer), das Laden fehlt (bewusst, später: keine Daten).
