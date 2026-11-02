@@ -936,7 +936,7 @@ Vergleichsquelle sind die Screenshots der Test-Umgebung unter `target/agent/gate
   | Zustand (Quelle des Kerns) | Zeile unter der Vorschau | Taste |
   |---|---|---|
   | Lokal (ein Script der Figur) | „2 Nachrichten · 3 Seiten“ (je „1 Nachricht“, „1 Seite“); ohne Nachricht „Sagt nichts“ | „Dialog bearbeiten…“ (leise, S) |
-  | Nichts (die Figur hat kein Script) | „Sagt nichts“ | „Dialog anlegen…“ gesperrt, Tooltip und Beschreibung „Kommt mit 3d.7“ |
+  | Nichts (die Figur hat kein Script: 0, auch 65535, seit dem UI-Test 3d.5 U5 statt „Gemeinsames Script 65535“) | „Sagt nichts“ | „Dialog anlegen…“ gesperrt, Tooltip und Beschreibung „Kommt mit 3d.7“ |
   | Gemeinsam (ein Script, das mehrere Orte teilen) | „Gemeinsames Script {n}: in Bauen bearbeiten.“ | keine |
   | Trainer (der Kampf läuft über das Trainer-Script) | „Kampftexte des Trainers: im Bereich Pokémon.“ | keine |
   | Nicht lesbar (das Script lässt sich nicht lesen) | „Script nicht lesbar: {Grund}“ | keine |

@@ -113,7 +113,9 @@ auf.
 Nachrichten ein Objekt oder Schild (`kind`: `object`, `bg`) der Eventdatei `file` zeigt, gelesen auf
 Header `header`. Der Weg:
 
-1. **Script-Nummer** des Events: `0` ist `none` (die Figur sagt nichts), `3000` bis `4999` und `5000`
+1. **Script-Nummer** des Events: `0` und `65535` sind `none` (die Figur sagt nichts; 65535 erreicht
+   kein Bereich der Tabelle gemeinsamer Scripts, `resolve_script` findet nichts, Platin
+   Zweiblattdorf Objekt 7; UI-Test 3d.5, U5), `3000` bis `4999` und `5000`
    bis `6999` sind `trainer` (Trainer `n − 3000 + 1` bzw. `n − 5000 + 1` als Doppelkampf-Partner, seine
    Texte stehen im Bereich Pokémon), ab `2000` sonst `common` (ein gemeinsames Script, in Bauen zu
    lesen). Diese drei haben keine Nachrichten.

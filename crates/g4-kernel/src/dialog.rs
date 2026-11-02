@@ -5,7 +5,7 @@
 //! those of each label it jumps to, in the order of the jumps (vanilla jumps away with
 //! `GoToIf … label` before its default text, which so comes first).
 //!
-//! The event's script number says where the dialog is: 0 is none, 3000 to 6999 a trainer's
+//! The event's script number says where the dialog is: 0 (and 65535) is none, 3000 to 6999 a trainer's
 //! battle (its texts are trainer texts), 2000 and up a common script, below 2000 script `#n` of
 //! the header's script file. That script's body is walked: every numbered argument of a message
 //! command (`script.message_params`) is a message of the header's text archive, and a command
@@ -39,6 +39,11 @@ use crate::text::default_message_id;
 
 /// Script numbers from here on are common scripts (`scripts::resolve_script`).
 const FIRST_COMMON: u16 = 2000;
+
+/// 65535 (`0xFFFF`) as an event's script: no range of the game's common script table reaches it
+/// (`scripts::resolve_script` finds nothing; Platinum's Zweiblattdorf object 7 has it), so the
+/// figure runs no script of its own and says nothing, like 0 (UI test 3d.5, U5).
+const NO_SCRIPT: u16 = u16::MAX;
 
 /// Where a figure's dialog comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -133,7 +138,7 @@ fn dialog_with(
 ) -> Result<Dialog, KernelError> {
     let script = event_script(store, file, kind, index)?;
     let source = match script {
-        0 => DialogSource::None,
+        0 | NO_SCRIPT => DialogSource::None,
         s if TRAINER_SCRIPTS.contains(&s) => DialogSource::Trainer {
             id: s - TRAINER_SCRIPTS.start() + 1,
         },
@@ -1547,13 +1552,15 @@ mod tests {
     #[test]
     fn common_trainer_and_none_scripts_have_no_messages() {
         let fx = TextFixture::exported();
-        let mut st = store_with(&fx, "", &TEN, &[2004, 3005, 0, 5001]);
+        let mut st = store_with(&fx, "", &TEN, &[2004, 3005, 0, 5001, 65535]);
         for (index, source) in [
             (0, DialogSource::Common { script: 2004 }),
             (1, DialogSource::Trainer { id: 6 }),
             (2, DialogSource::None),
             // The partner range: the same trainer as a double battle partner.
             (3, DialogSource::Trainer { id: 2 }),
+            // 0xFFFF: no script (UI test 3d.5, U5), not a common script.
+            (4, DialogSource::None),
         ] {
             let dialog = of(&mut st, index);
             assert_eq!(dialog.source, source);
