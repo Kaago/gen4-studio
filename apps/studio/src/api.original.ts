@@ -74,7 +74,8 @@ export interface ResetResult {
  */
 export type OriginalStatus = { state: "ready"; label: string; sha1: string; counts: Record<string, number> } | { state: "unavailable"; reason: string };
 
-export type ChangeState = "changed" | "new" | "missing";
+/** `deleted`: a tombstone in the saved project (3d.4), whether its members equal the base's or not. */
+export type ChangeState = "changed" | "new" | "missing" | "deleted";
 
 /** One entity of the saved project that differs from the base. `target` is null where there is nothing to reset to. */
 export interface ChangedEntry {

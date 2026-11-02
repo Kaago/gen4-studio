@@ -219,11 +219,11 @@ export function partialSplit(message: string): { copy: number; text: string } | 
   return { copy: Number(copy), text: `Begegnungsdatei ${copy} ist als Kopie von ${file} angelegt und bleibt. Danach fehlgeschlagen: Header ${header} auf sie umhängen (${reason}).` };
 }
 
-/** The files with a place (in file order), and the group „Ohne Ort“ (unused and locked files). */
-export function groupFiles(rows: readonly DataRowDto[]): { placed: DataRowDto[]; unplaced: DataRowDto[] } {
+/** The files with a place (in file order), and the group „Ohne Ort“ (unused and locked files); the tombstones (3d.4) only with `showDeleted`. */
+export function groupFiles(rows: readonly DataRowDto[], showDeleted = false): { placed: DataRowDto[]; unplaced: DataRowDto[] } {
   const placed: DataRowDto[] = [];
   const unplaced: DataRowDto[] = [];
-  for (const row of rows) (rowUsers(row).length > 0 ? placed : unplaced).push(row);
+  for (const row of rows) if (showDeleted || row.deleted !== true) (rowUsers(row).length > 0 ? placed : unplaced).push(row);
   return { placed, unplaced };
 }
 

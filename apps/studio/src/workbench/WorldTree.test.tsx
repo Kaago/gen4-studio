@@ -10,7 +10,7 @@ import { placeColor } from "./places";
 import { useWorldActions } from "./RoomActions";
 import { useWorldModel } from "./useWorldModel";
 import { buildWorld } from "./worldModel";
-import { WorldTree } from "./WorldTree";
+import { WorldTree, withoutDeleted } from "./WorldTree";
 import type { WorldTreeProps } from "./WorldTree";
 import { chooseContext, contextTexts, resetSpy, withReset } from "../original/resetTesting";
 
@@ -107,6 +107,8 @@ describe("WorldTree", () => {
     onTouch: () => {},
     onRename: () => {},
     onOwner: () => {},
+    showDeleted: false,
+    onShowDeleted: () => {},
     ...over,
   });
   const render = (over: Partial<WorldTreeProps> = {}) => act(() => root.render(withReset(reset, <WorldTree {...props(over)} />)));
@@ -405,5 +407,34 @@ describe("WorldTree", () => {
       expect(String(onError.mock.calls[0][0])).toContain("g4-world.json ist beschädigt: expected value at line 1 column 1. Repariere oder lösche die Datei.");
       expect(row(3)?.textContent).toBe("Haus 1");
     });
+  });
+});
+
+describe("withoutDeleted", () => {
+  const h = (id: number, deleted = false): HeaderSummary => ({ id, internal_name: `H${id}`, location_name: "", location_index: 0, kanto: false, matrix_id: 0, area_data_id: 0, event_file_id: 0, text_archive_id: 0, script_file_id: 0, level_script_id: 0, deleted });
+  const room = (header: HeaderSummary) => ({ header, name: `Raum ${header.id}`, suggested: "", placeKey: "", placeName: "", manual: false, shared: 0 });
+  const area = (key: string, headers: HeaderSummary[], rooms: HeaderSummary[] = []) => ({ key, name: key, placeKey: key, headers, rooms: rooms.map(room), matrix: 0 });
+
+  it("drops_deleted_rooms_sections_and_areas_and_keeps_an_area_with_living_rooms", () => {
+    const world = {
+      worldMaps: [{ key: "w0", matrix: 0, filter: null, name: "Sinnoh", areas: [area("a", [h(1), h(2, true)], [h(3), h(4, true)]), area("b", [h(5, true)]), area("c", [h(6, true)], [h(7)])] }],
+      moreAreas: [area("m", [h(8, true)])],
+      unconnected: [room(h(9, true)), room(h(10))],
+      other: [h(0), h(11, true)],
+      areaOf: new Map<number, string>(),
+      roomCount: 5,
+      assignedRooms: 3,
+    };
+    const live = withoutDeleted(world);
+    const areas = live.worldMaps[0]!.areas;
+    expect(areas.map((a) => a.key)).toEqual(["a", "c"]);
+    expect(areas[0]!.headers.map((x) => x.id)).toEqual([1]);
+    expect(areas[0]!.rooms.map((r) => r.header.id)).toEqual([3]);
+    // All headers deleted, a living room: the area stays as it is.
+    expect(areas[1]!.headers.map((x) => x.id)).toEqual([6]);
+    expect(areas[1]!.rooms.map((r) => r.header.id)).toEqual([7]);
+    expect(live.moreAreas).toEqual([]);
+    expect(live.unconnected.map((r) => r.header.id)).toEqual([10]);
+    expect(live.other.map((x) => x.id)).toEqual([0]);
   });
 });

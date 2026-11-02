@@ -174,6 +174,8 @@ function FoldedPlaces({
  */
 export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded, onFold, sort, onSort, identify, ...tree }: WorldExplorerProps) {
   const [mode, setMode] = useState<Mode>(readMode);
+  // „Gelöschte zeigen“, the same for the tree and the list; off by default.
+  const [showDeleted, setShowDeleted] = useState(false);
   const changeMode = (next: Mode) => {
     setMode(next);
     writeMode(next);
@@ -228,10 +230,12 @@ export const WorldExplorer = memo(function WorldExplorer({ onOpenWizard, folded,
             sort={sort.list}
             onSelect={tree.onSelect}
             marks={tree.marks}
+            showDeleted={showDeleted}
+            onShowDeleted={setShowDeleted}
           />
         ) : (
           // The recent choice reorders only the sort that asks for it: another sort keeps its rows when an area is touched.
-          <WorldTree {...tree} sort={sort.tree} recent={sort.tree === "recent" ? recent : NO_RECENT} onTouch={touch} />
+          <WorldTree {...tree} sort={sort.tree} recent={sort.tree === "recent" ? recent : NO_RECENT} onTouch={touch} showDeleted={showDeleted} onShowDeleted={setShowDeleted} />
         )}
       </div>
     </section>

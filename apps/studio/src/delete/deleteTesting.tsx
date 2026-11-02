@@ -36,11 +36,14 @@ export const figureRef = (slot: number): RefDto => ({
 
 export const deleteResult = (over: Partial<DeleteResult> = {}): DeleteResult => ({ change: "c1", changed: [{ kind: "Trainer", index: 901 }], freed: null, ms: 3, ...over });
 
-/** A delete api whose `open` is a spy; `states` gives `stateOf` its answers by `subjectKey` („trainer:12“). */
-export function deleteSpy(states: Record<string, EntityState> = {}): DeleteApi & { open: Mock<DeleteApi["open"]>; states: Record<string, EntityState> } {
+/** A delete api whose `open` and `restore` are spies; `states` gives `stateOf` its answers by `subjectKey` („trainer:12“). */
+export function deleteSpy(
+  states: Record<string, EntityState> = {},
+): DeleteApi & { open: Mock<DeleteApi["open"]>; restore: Mock<DeleteApi["restore"]>; states: Record<string, EntityState> } {
   const api = {
     states,
     open: vi.fn<DeleteApi["open"]>(),
+    restore: vi.fn<DeleteApi["restore"]>(),
     stateOf: (subject: DiffSubject) => api.states[subjectKey(subject)] ?? null,
   };
   return api;
@@ -48,5 +51,5 @@ export function deleteSpy(states: Record<string, EntityState> = {}): DeleteApi &
 
 /** `node` below `api` (a fresh object each time, so changed states reach every `useDelete`). */
 export function withDelete(api: DeleteApi, node: ReactNode): ReactNode {
-  return <DeleteApiProvider value={{ open: api.open, stateOf: api.stateOf }}>{node}</DeleteApiProvider>;
+  return <DeleteApiProvider value={{ open: api.open, stateOf: api.stateOf, restore: api.restore }}>{node}</DeleteApiProvider>;
 }

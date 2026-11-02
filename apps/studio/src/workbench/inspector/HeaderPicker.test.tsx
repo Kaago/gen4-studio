@@ -65,6 +65,13 @@ describe("HeaderPicker", () => {
     expect(options().map((o) => o.textContent)).toEqual(["Zweiblattdorf0411 · T01", "T01R02010414", "Route 2010500 · R201"]);
   });
 
+  it("leaves_deleted_headers_out", async () => {
+    // Header 600 is a tombstone: a new reference to it would be refused („die Sperre verbietet neue Verweise“).
+    await act(async () => root.render(<HeaderPicker open onOpenChange={onOpenChange} headers={[...headers, { ...header(600, "T01R0301", "Zweiblattdorf", 3), deleted: true }]} onPick={onPick} cache={cache} />));
+    await flush();
+    expect(options().map((o) => o.textContent)).toEqual(["Zweiblattdorf0411 · T01", "T01R02010414", "Route 2010500 · R201"]);
+  });
+
   it("adds_what_describe_says_about_a_header_to_its_row", async () => {
     await act(async () => root.render(<HeaderPicker open onOpenChange={onOpenChange} headers={headers} onPick={onPick} cache={cache} describe={(h) => `Warps hierher: ${h.id % 7}`} />));
     await flush();

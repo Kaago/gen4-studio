@@ -1,13 +1,14 @@
 import { useId, useRef, useState } from "react";
 import type { ReactNode, Ref } from "react";
 import type { Against, BlobSide, ChangedEntry, EntityDiff as Diff, EntityDiffReport, FieldChange, OriginalStatus, WordSpan } from "../api";
+import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
 import { useReset } from "../original/OriginalContext";
 import { RESET_LABEL } from "../original/resetEntry";
 import { Badge, Button, ChangeTable, Notice, Section, Tooltip } from "../ui/primitives";
 import type { ChangeCell, ChangeTableRow } from "../ui/primitives";
 import { headerFieldSpecs } from "../workbench/inspector/fields";
 import type { NavTarget } from "../workbench/navigation";
-import { navTargetOf, rowResetLock, sideWords } from "./diffWords";
+import { navTargetOf, restoreTarget, rowResetLock, sideWords } from "./diffWords";
 import styles from "./EntityDiff.module.css";
 import { useEntityDiff } from "./useEntityDiff";
 
@@ -44,7 +45,8 @@ function resetLock(entry: ChangedEntry, report: EntityDiffReport | null, status:
 /**
  * The detail of Technik › Änderungen: what of the chosen entity differs from the compared side, in the shape of its kind (fields, a map's
  * parts and cells, a text archive's messages with word spans, a script's lines, a binary part's size and SHA-1), with „Öffnen“ and
- * „Auf Original zurücksetzen…“. Without a choice it says what to do.
+ * „Auf Original zurücksetzen…“ („Wiederherstellen“ for a new entity deleted). A tombstone that differs between the sides (3d.4) is the badge
+ * „Gelöscht“ (or „Wiederhergestellt“ when only the old side is one) above the fields, never a field. Without a choice it says what to do.
  */
 export function EntityDiff({ entry, against, revision, headId = null, goTo, finalFocus }: EntityDiffProps) {
   const { report, error, busy } = useEntityDiff(entry?.subject ?? null, against, revision, headId);
@@ -64,7 +66,15 @@ export function EntityDiff({ entry, against, revision, headId = null, goTo, fina
         </p>
       )}
       {error !== null && <Notice kind="error">{error}</Notice>}
-      {report !== null && (report.state === "same" ? <p className={styles.text}>Keine Abweichung.</p> : <Body report={report} against={against} />)}
+      {report !== null &&
+        (report.state === "same" ? (
+          <p className={styles.text}>Keine Abweichung.</p>
+        ) : (
+          <>
+            <Tombstone report={report} />
+            {!(tombstoneDiffers(report) && nothingElse(report.diff)) && <Body report={report} against={against} />}
+          </>
+        ))}
     </div>
   );
 }
@@ -92,8 +102,31 @@ function LockableButton({ why, waiting = false, onClick, children, ref }: { why:
   );
 }
 
+/** Whether one side is a tombstone and the other is not. */
+const tombstoneDiffers = (report: EntityDiffReport) => report.tombstone !== null && report.tombstone.old !== report.tombstone.new;
+
+/** Whether the diff names nothing but the envelope: no field, no changed part, cell or building. */
+function nothingElse(diff: Diff): boolean {
+  if (diff.shape === "fields") return diff.changes.length === 0 && diff.more === 0;
+  if (diff.shape === "map") return !diff.parts.some((p) => p.changed) && diff.cells.length === 0 && diff.buildings.length === 0 && diff.more === 0;
+  return false;
+}
+
+/** The tombstone of the new side as the badge „Gelöscht“, of the old side only as „Wiederhergestellt“; nothing when the sides agree. */
+function Tombstone({ report }: { report: EntityDiffReport }) {
+  if (!tombstoneDiffers(report)) return null;
+  const deleted = report.tombstone!.new;
+  return (
+    <p className={styles.tombstone} data-tombstone={deleted ? "deleted" : "restored"}>
+      {deleted ? <Badge kind="error">Gelöscht</Badge> : <Badge kind="info">Wiederhergestellt</Badge>}
+    </p>
+  );
+}
+
 function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report: EntityDiffReport | null; goTo: (t: NavTarget) => void; finalFocus?: () => HTMLElement | null }) {
   const { open, status } = useReset();
+  const { restore } = useDelete();
+  const back = restoreTarget(entry);
   const resetButton = useRef<HTMLButtonElement>(null);
   const place = navTargetOf(entry.subject, report?.diff ?? null);
   // An event file's place follows from its diff: until that is read, „Öffnen“ waits without a reason.
@@ -114,16 +147,22 @@ function Head({ entry, report, goTo, finalFocus }: { entry: ChangedEntry; report
         <LockableButton why={place === null && !waiting ? NO_PLACE : null} waiting={waiting} onClick={() => place !== null && goTo(place)}>
           Öffnen
         </LockableButton>
-        <LockableButton
-          ref={resetButton}
-          why={locked}
-          onClick={() =>
-            target !== null &&
-            open(target, { finalFocus: () => (resetButton.current?.isConnected ? resetButton.current : (finalFocus?.() ?? null)) })
-          }
-        >
-          {RESET_LABEL}
-        </LockableButton>
+        {back !== null ? (
+          <LockableButton why={null} onClick={() => restore(back)}>
+            {RESTORE_LABEL}
+          </LockableButton>
+        ) : (
+          <LockableButton
+            ref={resetButton}
+            why={locked}
+            onClick={() =>
+              target !== null &&
+              open(target, { finalFocus: () => (resetButton.current?.isConnected ? resetButton.current : (finalFocus?.() ?? null)) })
+            }
+          >
+            {RESET_LABEL}
+          </LockableButton>
+        )}
       </div>
     </header>
   );

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("./platform/transport", () => ({ invoke, inTauri: () => true }));
 
-import { deleteEntity, deleteTargetLabel, deleteWritesFiles, isCmdError, isDeleted, planDelete, restoreEntity } from "./api";
+import { deleteEntity, deleteTargetLabel, deleteWritesFiles, isCmdError, planDelete, restoreEntity, tombstoneOf } from "./api";
 import type { DeletePlan, DeleteResult, DeleteTarget, RefDto } from "./api";
 
 const TRAINER: DeleteTarget = { kind: "trainer", index: 901 };
@@ -60,7 +60,7 @@ describe("delete commands", () => {
     expect(caught.references).toEqual([REF]);
   });
 
-  it("names_the_target_like_the_kernel_and_reads_the_live_tombstone", () => {
+  it("names_the_target_like_the_kernel_and_the_tombstone_of_a_diff_subject", () => {
     expect(deleteTargetLabel(TRAINER)).toBe("Trainer 0901");
     expect(deleteTargetLabel({ kind: "matrix", index: 3 })).toBe("Matrix 0003");
     expect(deleteTargetLabel({ kind: "area_data", index: 3 })).toBe("Gebietsdaten 0003");
@@ -71,11 +71,13 @@ describe("delete commands", () => {
     expect(deleteTargetLabel({ kind: "place", index: 120 })).toBe("Ort 120");
     expect(deleteTargetLabel({ kind: "flag", number: 0x94 })).toBe("Flag 0x0094");
     expect(deleteTargetLabel({ kind: "var", number: 0x4020 })).toBe("Variable 0x4020");
-    // The DTOs of the live state carry `deleted` since 3d.4; older test data leaves it out.
-    expect(isDeleted({ deleted: true })).toBe(true);
-    expect(isDeleted({ deleted: false })).toBe(false);
-    expect(isDeleted({})).toBe(false);
-    expect(isDeleted(null)).toBe(false);
+    // The entities with a tombstone, as the kernel's `tombstone_of`: a header by its id, no script, member or file.
+    expect(tombstoneOf({ kind: "trainer", index: 901 })).toEqual(TRAINER);
+    expect(tombstoneOf({ kind: "header", index: 600 })).toEqual({ kind: "header", id: 600 });
+    expect(tombstoneOf({ kind: "event_file", index: 17 })).toEqual({ kind: "event_file", index: 17 });
+    expect(tombstoneOf({ kind: "script", index: 40 })).toBeNull();
+    expect(tombstoneOf({ kind: "member", folder: "maps", index: 3 })).toBeNull();
+    expect(tombstoneOf({ kind: "file", path: "g4-world.json" })).toBeNull();
     // Freeing, names and places write files at once; a tombstone waits for the save.
     expect(deleteWritesFiles(TRAINER, false)).toBe(false);
     expect(deleteWritesFiles(TRAINER, true)).toBe(true);

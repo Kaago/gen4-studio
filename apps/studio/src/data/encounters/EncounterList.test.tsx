@@ -9,7 +9,7 @@ import { finding } from "../../checks/checksTesting";
 import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
-import { encounterHarness, wireApi } from "./encounterTesting";
+import { FILE_ROWS, encounterHarness, wireApi } from "./encounterTesting";
 import { chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -141,5 +141,27 @@ describe("EncounterList", () => {
     expect(h.reset.open).toHaveBeenCalledWith({ kind: "encounter", index: 0 });
     expect(contextTexts(row(182))).toEqual(["Auf Original zurücksetzen…Kein Original"]);
     expect(row(182).getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("hides_deleted_until_show_deleted_and_offers_restore", async () => {
+    // 141 (two places) and 182 (none) are tombstones.
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "encounter" ? FILE_ROWS.map((r) => (r.index === 141 || r.index === 182 ? { ...r, deleted: true } : r)) : []));
+    await h.open(140);
+    const box = () => h.list().querySelector<HTMLElement>("[data-show-deleted]")!;
+    expect(box().getAttribute("data-show-deleted")).toBe("false");
+    expect(box().textContent).toBe("Gelöschte zeigen");
+    expect(files().map((f) => Number(f.dataset.encounter))).toEqual([140, 0]);
+    expect(h.list().querySelector('[role=group][aria-label="Ohne Ort"]')?.textContent).toContain("Ohne Ort 1");
+    await act(async () => box().querySelector<HTMLElement>("[role=checkbox]")!.click());
+    await flush();
+    expect(box().getAttribute("data-show-deleted")).toBe("true");
+    expect(files().map((f) => Number(f.dataset.encounter))).toEqual([140, 141, 0, 182]);
+    expect(file(141)?.getAttribute("data-deleted")).toBe("true");
+    expect(file(141)?.querySelector("[data-entity-state]")?.textContent).toBe("gelöscht");
+    expect(file(140)?.hasAttribute("data-deleted")).toBe(false);
+    expect(contextTexts(file(182)!)[0]).toBe("Wiederherstellen");
+    expect(contextTexts(file(140)!)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(file(182)!, "Wiederherstellen");
+    expect(h.del.restore).toHaveBeenCalledWith({ kind: "encounter", index: 182 });
   });
 });

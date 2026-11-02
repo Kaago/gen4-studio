@@ -3,11 +3,13 @@ import { errorText, listScriptFiles, searchScripts } from "../api";
 import type { HeaderSummary, ProjectInfo, ResetTarget, ScriptFileDto, ScriptHitDto } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { restoreEntry, useDelete } from "../delete/DeleteContext";
+import { ShowDeleted } from "../delete/ShowDeleted";
 import { useReset } from "../original/OriginalContext";
 import { resetEntry } from "../original/resetEntry";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { Icon, Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
+import { EntityStateBadge, Icon, Notice, TextField, TreeRow, useRovingList } from "../ui/primitives";
 import type { IconName, MenuEntry } from "../ui/primitives";
 import { showsMatrix } from "./headers";
 import { placeColor } from "./places";
@@ -52,6 +54,9 @@ export interface WorldTreeProps {
   onTouch: (areaKey: string) => void;
   onRename: (target: RenameTarget, name: string) => void;
   onOwner: (room: number, areaKey: string | null) => void;
+  /** „Gelöschte zeigen“: the tombstones (3d.4) show, with their badge and „Wiederherstellen“; off they are left out. */
+  showDeleted: boolean;
+  onShowDeleted: (on: boolean) => void;
 }
 
 /** The context menu of a row of the tree: „Header …“ or „Scriptdatei auf Original zurücksetzen…“ (the tree holds both). */
@@ -60,6 +65,16 @@ function useResetMenu(target: ResetTarget): MenuEntry[] {
   const label = target.kind === "script" ? "Scriptdatei auf Original zurücksetzen…" : "Header auf Original zurücksetzen…";
   return [resetEntry(target, status, open, label)];
 }
+
+/** The context menu of a header's row: „Wiederherstellen“ first for a tombstone, then „Header auf Original zurücksetzen…“. */
+function useHeaderMenu(h: HeaderSummary): MenuEntry[] {
+  const reset = useResetMenu({ kind: "header", id: h.id });
+  const { restore } = useDelete();
+  return h.deleted === true ? [restoreEntry({ kind: "header", id: h.id }, restore), ...reset] : reset;
+}
+
+/** The data attribute of a deleted header's row. */
+const deletedAttr = (h: HeaderSummary) => (h.deleted === true ? "true" : undefined);
 
 /** The roots after the world maps; their keys cannot be area or world map keys. */
 const MORE = "group:more";
@@ -126,6 +141,30 @@ export function filterWorld(world: World, query: string): World {
   };
 }
 
+/**
+ * The world without the tombstones (3d.4): deleted rooms, deleted headers of an area (its sections in Tüfteln), an area whose headers all
+ * are. The world maps stay. An area whose headers all are deleted but that has living rooms stays whole (its rooms would else have no
+ * place in the tree).
+ */
+export function withoutDeleted(world: World): World {
+  const live = (h: HeaderSummary) => h.deleted !== true;
+  const rooms = (list: readonly Room[]) => list.filter((r) => live(r.header));
+  const areas = (list: readonly Area[]) =>
+    list.flatMap((a) => {
+      const kept = rooms(a.rooms);
+      const headers = a.headers.filter(live);
+      if (headers.length > 0) return [{ ...a, headers, rooms: kept }];
+      return kept.length > 0 ? [{ ...a, rooms: kept }] : [];
+    });
+  return {
+    ...world,
+    worldMaps: world.worldMaps.map((m) => ({ ...m, areas: areas(m.areas) })),
+    moreAreas: areas(world.moreAreas),
+    unconnected: rooms(world.unconnected),
+    other: world.other.filter(live),
+  };
+}
+
 /** Per header the branches that must be open for its row to show (Tüfteln lists the sections of an area as its children). */
 function branchesOf(world: World, tinker: boolean): Map<number, string[]> {
   const paths = new Map<number, string[]>();
@@ -173,7 +212,7 @@ const HeaderLeaf = memo(function HeaderLeaf({
   mark: MarkSeverity | undefined;
   onSelect: (h: HeaderSummary) => void;
 }) {
-  const contextMenu = useResetMenu({ kind: "header", id: h.id });
+  const contextMenu = useHeaderMenu(h);
   return (
     <TreeRow
       depth={depth}
@@ -184,10 +223,11 @@ const HeaderLeaf = memo(function HeaderLeaf({
       selected={selected}
       onSelect={() => onSelect(h)}
       title={tinker ? techTitle(h, marked) : undefined}
-      dataAttrs={{ "data-header-id": h.id }}
+      dataAttrs={{ "data-header-id": h.id, "data-deleted": deletedAttr(h) }}
       trailing={
-        marked || mark ? (
+        marked || mark || h.deleted === true ? (
           <>
+            {h.deleted === true && <EntityStateBadge state="deleted" />}
             {mark && <FindingMark severity={mark} />}
             {marked && <ShownMark />}
           </>
@@ -224,8 +264,8 @@ const AreaRow = memo(function AreaRow({
 }) {
   const first = area.headers[0];
   const count = area.rooms.length;
-  // A click selects the area's first header: so does its reset.
-  const contextMenu = useResetMenu({ kind: "header", id: first.id });
+  // A click selects the area's first header: so does its reset (and „Wiederherstellen“ of a tombstone).
+  const contextMenu = useHeaderMenu(first);
   return (
     <TreeRow
       contextMenu={contextMenu}
@@ -239,9 +279,10 @@ const AreaRow = memo(function AreaRow({
       onSelect={() => onPick(first, area.key)}
       expanded={branch ? open : undefined}
       onToggle={branch ? () => onToggle(area.key) : undefined}
-      dataAttrs={{ "data-area-key": area.key, "data-place-key": area.placeKey, "data-header-id": first.id }}
+      dataAttrs={{ "data-area-key": area.key, "data-place-key": area.placeKey, "data-header-id": first.id, "data-deleted": deletedAttr(first) }}
       trailing={
         <>
+          {first.deleted === true && <EntityStateBadge state="deleted" />}
           {mark && <FindingMark severity={mark} />}
           {marked && <ShownMark />}
           <span className={styles.count}>{count}</span>
@@ -286,7 +327,8 @@ const RoomRow = memo(function RoomRow({
   const h = room.header;
   const tech = tinker ? `${id4(h.id)} · ${h.internal_name}` : undefined;
   const plain = [room.name, labelled ? room.placeName : null].filter((part) => part !== null).join(", ");
-  const contextMenu = useResetMenu({ kind: "header", id: h.id });
+  const contextMenu = useHeaderMenu(h);
+  const deleted = h.deleted === true;
   return (
     <TreeRow
       contextMenu={contextMenu}
@@ -299,10 +341,11 @@ const RoomRow = memo(function RoomRow({
       title={tinker ? techTitle(h, marked) : `${plain}${room.manual ? " (von Hand zugeordnet)" : ""}`}
       selected={selected}
       onSelect={() => onPick(h, areaKey)}
-      dataAttrs={{ "data-header-id": h.id, "data-room": "" }}
+      dataAttrs={{ "data-header-id": h.id, "data-room": "", "data-deleted": deletedAttr(h) }}
       trailing={
-        labelled || marked || mark || selected || room.shared > 0 ? (
+        labelled || marked || mark || selected || room.shared > 0 || deleted ? (
           <>
+            {deleted && <EntityStateBadge state="deleted" />}
             {room.shared > 0 && (
               <span className={styles.shared} role="img" aria-label="geteilt" title={sharedText(room.shared)}>
                 <Icon name="shared" />
@@ -489,14 +532,16 @@ export function WorldTree({
   onTouch,
   onRename,
   onOwner,
+  showDeleted,
+  onShowDeleted,
 }: WorldTreeProps) {
   const tinker = depthAtLeast(depth, "tuefteln");
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
-  const sorted = useMemo(() => (world === null ? null : sortWorld(world, sort, recent)), [world, sort, recent]);
+  const sorted = useMemo(() => (world === null ? null : sortWorld(showDeleted ? world : withoutDeleted(world), sort, recent)), [world, sort, recent, showDeleted]);
   const shown = useMemo(() => (sorted === null ? null : filterWorld(sorted, query)), [sorted, query]);
   const branches = useMemo(() => (world === null ? new Map<number, string[]>() : branchesOf(world, tinker)), [world, tinker]);
-  const byId = useMemo(() => [...headers].sort((a, b) => a.id - b.id), [headers]);
+  const byId = useMemo(() => headers.filter((h) => showDeleted || h.deleted !== true).sort((a, b) => a.id - b.id), [headers, showDeleted]);
   // The areas a room can be given to, in the order of the world (not of the sort or the search).
   const choices = useMemo<AreaChoice[]>(
     () =>
@@ -646,6 +691,7 @@ export function WorldTree({
       <div className={styles.top}>
         <p className={styles.caption}>{world !== null ? worldCaption(world, headers.length, tinker) : matricesFailed && !matricesLoaded ? "Übersicht nicht verfügbar" : "Lade Übersicht …"}</p>
         <TextField type="search" label="Welt durchsuchen" placeholder="Gebiet, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <ShowDeleted checked={showDeleted} onChange={onShowDeleted} />
       </div>
       <div ref={tree} role="tree" aria-label="Orte" className={styles.host}>
         <ScriptsNode info={info} adopted={scriptsAdopted} depth={depth} onOpenScript={onOpenScript} />

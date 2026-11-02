@@ -978,6 +978,17 @@ function AppBody() {
       session.fail(e);
     }
   });
+  // „Wiederherstellen“ went in (one undo step, a store change like a tombstone: nothing is compared until the save): read again as after
+  // a delete.
+  const onRestored = useStableCallback(async (result: DeleteResult, label: string) => {
+    session.setMessage({ kind: "info", text: `Wiederhergestellt: ${label}` });
+    try {
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true);
+    } catch (e) {
+      session.fail(e);
+    }
+  });
   // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
   // detail of Änderungen reads its diff again on the same moves.
   const shownRevision = session.savedRevision + changedRevision + session.dirtyRevision;
@@ -1637,7 +1648,7 @@ function AppBody() {
   );
   // „Löschen…“ around everything (the dialog and the state badges of the heads).
   return (
-    <DeleteProvider stateOf={entityStateOf} goTo={data.goTo} onDeleted={onDeleted}>
+    <DeleteProvider stateOf={entityStateOf} goTo={data.goTo} onDeleted={onDeleted} onRestored={onRestored} onRestoreFailed={session.fail}>
       {app}
     </DeleteProvider>
   );

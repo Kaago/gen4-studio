@@ -1,4 +1,4 @@
-import type { AssetId } from "./api";
+import type { AssetId, DiffSubject } from "./api";
 import type { RefDto } from "./api.data";
 import { invoke } from "./platform/transport";
 
@@ -119,9 +119,21 @@ export function deleteTargetLabel(target: DeleteTarget): string {
 }
 
 /**
- * Whether a DTO of the live state is a tombstone: `HeaderSummary`, `DataRowDto`, `EventsDto` and `MatrixDto` carry `deleted` since 3d.4
- * (the types name it where they are read; data of older tests leaves it out, which reads as not deleted).
+ * The entity of `subject` that can be a tombstone (the kernel's `tombstone_of`): a map, matrix, area data, event file, encounter file,
+ * trainer or header; null for every other subject.
  */
-export function isDeleted(dto: object | null | undefined): boolean {
-  return dto != null && (dto as { deleted?: unknown }).deleted === true;
+export function tombstoneOf(subject: DiffSubject): DeleteTarget | null {
+  switch (subject.kind) {
+    case "map":
+    case "matrix":
+    case "area_data":
+    case "event_file":
+    case "encounter":
+    case "trainer":
+      return { kind: subject.kind, index: subject.index };
+    case "header":
+      return { kind: "header", id: subject.index };
+    default:
+      return null;
+  }
 }

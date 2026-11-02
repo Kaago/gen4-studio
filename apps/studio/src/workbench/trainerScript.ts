@@ -41,12 +41,13 @@ export function trainerPatch(id: number, object: { trainer_type: number; sight: 
 }
 
 /**
- * The trainers an object may start: all but the empty dummy 0 (it has no script) and the ID of the "seen" slot of the battle script
- * (Platinum 929, HeartGold 740), which the game runs on sight and which never gets a trainer (research trainer-script-extension §2.3).
+ * The trainers an object may start: all but the empty dummy 0 (it has no script), the ID of the "seen" slot of the battle script
+ * (Platinum 929, HeartGold 740), which the game runs on sight and which never gets a trainer (research trainer-script-extension §2.3), and
+ * the tombstones (3d.4: the kernel refuses a new reference to one).
  */
 export function placeableTrainers(rows: readonly DataRowDto[], family: string | null): DataRowDto[] {
   const seen = family === null ? undefined : TRAINER_SCRIPTS[family]?.seenSlot;
-  return rows.filter((row) => row.index !== 0 && row.index !== seen);
+  return rows.filter((row) => row.index !== 0 && row.index !== seen && row.deleted !== true);
 }
 
 /** "Teenager Sebastian"; a trainer the list does not (yet) have is "Trainer 0356". */

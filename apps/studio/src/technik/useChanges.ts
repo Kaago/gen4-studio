@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { changedFromOriginal, errorText } from "../api";
-import type { ChangedProgress, ChangedReport, ChangeState, DiffSubject } from "../api";
+import type { ChangedProgress, ChangedReport, DiffSubject } from "../api";
 import type { EntityState } from "../ui/primitives";
 import { FOCUS_DELAY_MS } from "../app/useExternalSync";
 import { subscribeWindowFocus } from "../platform/windowFocus";
@@ -204,11 +204,7 @@ export function stateOf(report: ChangedReport | null, subject: DiffSubject): Ent
   let states = statesOf.get(report);
   if (states === undefined) {
     states = new Map();
-    for (const entry of report.entries) {
-      // The kernel names a tombstone „deleted“ since 3d.4; `ChangeState` names it with the lists that show it.
-      const state: ChangeState | "deleted" = entry.state;
-      if (state !== "missing") states.set(subjectKey(entry.subject), state);
-    }
+    for (const entry of report.entries) if (entry.state !== "missing") states.set(subjectKey(entry.subject), entry.state);
     statesOf.set(report, states);
   }
   return states.get(subjectKey(subject)) ?? null;

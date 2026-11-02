@@ -17,7 +17,8 @@ const NONE_ID = "none";
 /**
  * The header field „Begegnungen“ (`wild_pokemon`): a reference to the encounter file in the Pokémon area, or „Keine“; „Ändern…“ opens a
  * picker of the files, each named by the places that use it, and „Keine“. The files are read when the picker opens (they change behind the
- * header editor: new files, splits). Picking commits like any header field: one undoable header edit.
+ * header editor: new files, splits); a tombstone (3d.4) is left out, the kernel refuses a new reference to it. Picking commits like any
+ * header field: one undoable header edit.
  */
 export function EncounterFileField({
   spec,
@@ -55,7 +56,7 @@ export function EncounterFileField({
     if (!picking || !files?.rows) return [];
     return [
       { id: NONE_ID, label: "Keine" },
-      ...files.rows.map((row) => {
+      ...files.rows.filter((row) => row.deleted !== true).map((row) => {
         const users = rowUsers(row).length;
         return { id: row.index, label: encounterRowLabel(row, headers), tech: row.tech, area: "pokemon" as const, description: users === 0 ? "von keinem Ort verwendet" : usedByText(users) };
       }),

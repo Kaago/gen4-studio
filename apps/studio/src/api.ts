@@ -34,6 +34,8 @@ export interface HeaderSummary {
   script_file_id: number;
   /** Level script file of the header (0: none). */
   level_script_id: number;
+  /** The header is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 export interface HeaderListing {
@@ -139,6 +141,8 @@ export interface MatrixDto {
   headers?: number[] | null;
   /** Row-major altitudes; null (or absent) when the matrix has no altitude section. */
   altitudes?: number[] | null;
+  /** The matrix is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 /** Map id the backend stores for, and accepts as, an empty matrix cell. */
@@ -231,6 +235,8 @@ export interface EventsDto {
   objects: ObjectDto[];
   warps: WarpDto[];
   coords: CoordDto[];
+  /** The event file is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 /** A named tile behaviour (decomp enum) for a permission kind byte; `class` drives the overlay colour. */

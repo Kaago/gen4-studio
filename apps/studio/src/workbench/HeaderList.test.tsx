@@ -55,6 +55,8 @@ describe("HeaderList", () => {
     depth: "bauen" as Depth,
     sort: "id" as ListSort,
     onSelect: () => {},
+    showDeleted: false,
+    onShowDeleted: () => {},
     ...over,
   });
 

@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { diffEntity } from "../api";
 import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
+import { deleteSpy, withDelete } from "../delete/deleteTesting";
 import { gitStatusOf, noRepo } from "../git/gitTesting";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { MISSING, READY, readyWith, resetSpy, withReset } from "../original/resetTesting";
@@ -32,6 +33,7 @@ describe("ChangesSurface", () => {
   let container: HTMLElement;
   let root: Root;
   let reset: ReturnType<typeof resetSpy>;
+  let del: ReturnType<typeof deleteSpy>;
   const onOpenProject = vi.fn();
 
   beforeEach(() => {
@@ -43,6 +45,7 @@ describe("ChangesSurface", () => {
     goTo.mockClear();
     vi.mocked(diffEntity).mockReset().mockResolvedValue(diffReport());
     reset = resetSpy();
+    del = deleteSpy();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -72,7 +75,9 @@ describe("ChangesSurface", () => {
       root.render(
         withReset(
           reset,
-          <ChangesSurface
+          withDelete(
+            del,
+            <ChangesSurface
             changes={changes}
             status={status}
             dirty={dirty}
@@ -87,7 +92,8 @@ describe("ChangesSurface", () => {
             onCommitAll={onCommitAll}
             goTo={goTo}
             revision={0}
-          />,
+            />,
+          ),
         ),
       ),
     );
@@ -353,6 +359,42 @@ describe("ChangesSurface", () => {
     // A locked button opens nothing.
     await act(async () => resetButton("Matrix 0000")!.click());
     expect(reset.open).toHaveBeenCalledOnce();
+  });
+
+  it("a_deleted_entry_shows_geloescht_and_restore", async () => {
+    // A new trainer deleted (nothing to reset to), an original deleted (the reset takes the tombstone back), a changed one.
+    const entries = [
+      entry({ group: "Trainer", label: "Trainer 0001", state: "deleted", target: { kind: "trainer", index: 1 }, assets: [{ kind: "Trainer", index: 1 }], folder: "trainer_properties", subject: { kind: "trainer", index: 1 } }),
+      entry({ group: "Trainer", label: "Trainer 0002", target: { kind: "trainer", index: 2 }, assets: [{ kind: "Trainer", index: 2 }], folder: "trainer_properties", subject: { kind: "trainer", index: 2 } }),
+      entry({ group: "Trainer", label: "Trainer 0930", state: "deleted", target: null, assets: [{ kind: "Trainer", index: 930 }], folder: "trainer_properties", subject: { kind: "trainer", index: 930 } }),
+    ];
+    vi.mocked(diffEntity).mockResolvedValue(diffReport({ against: "base", label: "Trainer 0930", subject: { kind: "trainer", index: 930 }, state: "new", diff: { shape: "fields", changes: [], more: 0 }, reset: { kind: "trainer", index: 930 }, tombstone: { old: false, new: true } }));
+    await render({ changes: changesWith({ report: report({ entries }) }) });
+    // The group counts the deleted ones with the others.
+    expect(group("Trainer")?.querySelector("h3")?.textContent).toBe("Trainer3");
+    expect(badges(change("Trainer 0930"))).toEqual(["Gelöscht"]);
+    expect(change("Trainer 0930")?.querySelector("[class*=error]")).not.toBeNull();
+    expect(change("Trainer 0930")?.getAttribute("aria-label")).toBe("Trainer 0930, Gelöscht");
+    expect(badges(change("Trainer 0001"))).toEqual(["Gelöscht"]);
+    // A new one deleted: „Wiederherstellen“ instead of the reset.
+    expect(resetButton("Trainer 0930")).toBeUndefined();
+    const restore = button("Wiederherstellen", change("Trainer 0930")!)!;
+    expect(restore.getAttribute("data-kind")).toBe("secondary");
+    await act(async () => restore.click());
+    expect(del.restore).toHaveBeenCalledExactlyOnceWith({ kind: "trainer", index: 930 });
+    // An original deleted: the reset, free.
+    expect(button("Wiederherstellen", change("Trainer 0001")!)).toBeUndefined();
+    expect(isLocked(resetButton("Trainer 0001"))).toBe(false);
+    await act(async () => resetButton("Trainer 0001")!.click());
+    expect(reset.open).toHaveBeenCalledExactlyOnceWith({ kind: "trainer", index: 1 }, { finalFocus: expect.any(Function) });
+    // The detail of the new one deleted offers „Wiederherstellen“ too.
+    await act(async () => change("Trainer 0930")!.click());
+    await act(async () => {});
+    const detail = container.querySelector<HTMLElement>("[data-entity-diff]")!;
+    expect(button("Wiederherstellen", detail)).toBeDefined();
+    expect(button("Auf Original zurücksetzen…", detail)).toBeUndefined();
+    await act(async () => button("Wiederherstellen", detail)!.click());
+    expect(del.restore).toHaveBeenCalledTimes(2);
   });
 
   it("unbuilt_folders_are_named", async () => {
