@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { ask } from "../platform/dialogs";
-import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, setPermission, updateBuilding } from "../api";
+import { addBuilding, addEvent, deleteBuilding, deleteEvent, getEvents, getMap, isCmdError, setPermission, updateBuilding } from "../api";
 import type { EventKind, EventPatch, HeaderSummary, MatrixDto } from "../api";
 import type { Message } from "./message";
+import type { NavTarget } from "../workbench/navigation";
 import type { InspectorModel } from "../workbench/Inspector";
 import { pinAfterHistory } from "../workbench/pin";
 import { DOOR, DOOR_COLLISION, readWarpTile } from "../workbench/warpTile";
@@ -32,6 +33,25 @@ interface WorldActionsParams {
   setMessage: (message: Message | null) => void;
   fail: (e: unknown) => void;
   refreshDirty: () => Promise<void>;
+  /** Where a reference of a refused delete leads (the toast's „Zur Quelle“); without it the references are only named. */
+  goTo?: (nav: NavTarget) => void;
+}
+
+/** How many references a refused delete offers a way to: more buttons do not fit a toast. */
+const MAX_REFERENCE_ACTIONS = 3;
+
+/**
+ * The message for a delete the references lock (`referenced`): the kernel's sentence and the references' lines („Tür 1 von
+ * Zweiblattdorf springt hierher“), with a way to each source (one: „Zur Quelle“; more: „Zu {Quelle}“, the first three); null for any
+ * other error.
+ */
+export function referencedMessage(e: unknown, goTo: ((nav: NavTarget) => void) | undefined): Message | null {
+  if (!isCmdError(e) || e.code !== "referenced" || e.references === undefined || e.references.length === 0) return null;
+  const refs = e.references;
+  const text = `${e.message} ${refs.map((r) => r.label).join("; ")}.`;
+  if (goTo === undefined) return { kind: "error", text };
+  const actions = refs.slice(0, MAX_REFERENCE_ACTIONS).map((r) => ({ label: refs.length === 1 ? "Zur Quelle" : `Zu ${r.source_name}`, run: () => goTo(r.nav) }));
+  return { kind: "error", text, actions };
 }
 
 const sameBuildings = (a: MapBuildings[], b: MapBuildings[]) =>
@@ -42,7 +62,7 @@ const sameBuildings = (a: MapBuildings[], b: MapBuildings[]) =>
  * after asking, pinning the selection in the inspector, and the bus events that make the scene
  * and the editors read their data again after a write.
  */
-export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, selectedRef, setMessage, fail, refreshDirty }: WorldActionsParams) {
+export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, selectedRef, setMessage, fail, refreshDirty, goTo }: WorldActionsParams) {
   const { pinned, setPinned, setHover } = pins;
   // The tile the pointer was last over: where a building added without a clicked tile (`onAddBuilding(fallbackMap)`) goes.
   const lastTile = useRef<{ map: number; x: number; y: number } | null>(null);
@@ -250,7 +270,11 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
         if (!(await ask(eventDeletePrompt(kind, index, event), { kind: "warning" }))) return;
         await deleteEvent(file, kind, index);
       } catch (e) {
-        fail(e);
+        // Nothing was deleted: the event stays selected. A door other warps point at names them, with a way there.
+        const refused = referencedMessage(e, goTo);
+        if (refused !== null) setMessage(refused);
+        else fail(e);
+        return;
       }
       // The ones of its class after a deleted event move up by one: nothing stays selected.
       unpinSelection();
@@ -258,7 +282,7 @@ export function useWorldActions({ bus, pins, matrix, matrixRef, headersRef, sele
       bus.emit({ topic: "eventData" });
       await refreshDirty();
     },
-    [bus, setMessage, fail, unpinSelection, refreshDirty],
+    [bus, setMessage, fail, unpinSelection, refreshDirty, goTo],
   );
 
   /** Another project was opened: nothing of the old one stays pinned, hovered or locked. */

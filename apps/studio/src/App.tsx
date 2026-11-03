@@ -7,7 +7,7 @@ import type { DataArea } from "./data/dataModel";
 import { withHeaderHint } from "./workbench/navigation";
 import { namedByWizard } from "./workbench/RoomActions";
 import type { WorkbenchWorld } from "./workbench/WorkbenchContext";
-import type { DataNav } from "./workbench/navigation";
+import type { DataNav, NavTarget } from "./workbench/navigation";
 import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
 import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
@@ -407,6 +407,8 @@ function AppBody() {
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
+  // Where a reference of a refused door delete leads (the toast's „Zur Quelle“); stable for the world's callbacks.
+  const goToReference = useStableCallback((nav: NavTarget) => void scene.goTo(nav));
   const world = useWorldActions({
     bus,
     pins: { ...pins, setPinned: pin },
@@ -417,6 +419,7 @@ function AppBody() {
     setMessage: session.setMessage,
     fail: session.fail,
     refreshDirty: session.refreshDirty,
+    goTo: goToReference,
   });
   // The matrix and warp overviews behind the world explorer; read again when the member counts change.
   const overview = useOverview({ bus, projectRoot: session.info?.root ?? null, counts: session.counts, onError: session.fail });
