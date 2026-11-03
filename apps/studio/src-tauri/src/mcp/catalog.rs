@@ -1447,14 +1447,16 @@ static TOOLS: &[ToolDef] = &[
         description: "Applies a recipe as one undo step and answers its outcome: report (as \
                       create_area, create_room or extend_area answer it; new_figure the new \
                       object, its script slot and message, connect_doors both doors, \
-                      new_trainer_here the trainer, its object and battle script, see \
-                      g4://docs/mcp), created (the new members, created first; they stay after \
-                      undo), change, changed (every asset to load again) and next (the recipes \
-                      that make sense now, available or with a reason). create_area/create_room \
-                      with header.allow_patch, empty_region and new_trainer_here cannot be \
-                      undone completely (new members stay); headless they need \
-                      --allow-irreversible, without it the call answers needs_confirmation. \
-                      Not in g4_batch.",
+                      new_trainer_here the trainer, its object and battle script, the story \
+                      recipes the step and what they wrote, see g4://docs/mcp), created (the \
+                      new members, created first; they stay after undo), change, changed \
+                      (every asset to load again) and next (the recipes that make sense now, \
+                      available or with a reason). create_area/create_room with \
+                      header.allow_patch, empty_region and new_trainer_here cannot be undone \
+                      completely (new members stay), nor figure_appears/scene_on_enter when the \
+                      place needs a level script file of its own (it shares its file with \
+                      another header or has none); headless they need --allow-irreversible, \
+                      without it the call answers needs_confirmation. Not in g4_batch.",
         input_schema: recipe_args,
         output_schema: answers_object,
         route: command("recipe_apply"),
@@ -1870,8 +1872,13 @@ fn recipe_args() -> Value {
                  {header, x, z, movement_type, dir, text, graphics_id?, hidden_flag?}; for \
                  connect_doors {a, b, back?, door_tiles?}, each end {header, warp} or {header, \
                  tile: {x, z}}; for new_trainer_here {header, x, z, dir, sight?, class, name, \
-                 party: [{species, level}], texts: {before, lose, after}, graphics_id?} \
-                 (details in g4://docs/mcp)"
+                 party: [{species, level}], texts: {before, lose, after}, graphics_id?}; for \
+                 the story recipes (text project, story by id, a variable or flag number from \
+                 free_flag) new_story {name, var, notes?}; talk_advances {story, figure: \
+                 {header, local_id}, from_step, text, step_name?}; figure_appears {story, \
+                 figure: {header, local_id}, step, appears, flag, step_name?}; scene_on_enter \
+                 {story, header, step, text, step_name?}; reward_once {story, figure: {header, \
+                 local_id}, from_step, item, text, flag, step_name?} (details in g4://docs/mcp)"
             ),
         }),
         &["recipe"],
@@ -2498,13 +2505,23 @@ mod tests {
         for name in ["recipe_plan", "recipe_apply"] {
             let schema = (tool(name).input_schema)();
             assert_eq!(schema["properties"]["recipe"]["enum"], json!(ids), "{name}");
-            // The input says what each recipe takes (the story recipes of 3d.7 are described
-            // with their inputs once they take them).
+            // The input says what each recipe takes, the story recipes of 3d.7 included.
             let input = schema["properties"]["input"]["description"]
                 .as_str()
                 .unwrap();
-            for id in &ids[..7] {
+            assert_eq!(ids.len(), 12);
+            for id in &ids {
                 assert!(input.contains(id.as_str().unwrap()), "{name} {id}: {input}");
+            }
+            // Every input key of the five story recipes (the kernel's `…Input` structs).
+            for key in [
+                "{name, var, notes?}",
+                "{story, figure: {header, local_id}, from_step, text, step_name?}",
+                "{story, figure: {header, local_id}, step, appears, flag, step_name?}",
+                "{story, header, step, text, step_name?}",
+                "{story, figure: {header, local_id}, from_step, item, text, flag, step_name?}",
+            ] {
+                assert!(input.contains(key), "{name} {key}: {input}");
             }
             assert_eq!(schema["required"], json!(["recipe"]), "{name}");
         }

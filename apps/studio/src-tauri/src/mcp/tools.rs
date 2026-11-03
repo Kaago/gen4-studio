@@ -31,7 +31,9 @@ use crate::commands::policy::UserPolicy;
 use crate::commands::{ProjectInfo, TextChoice, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
-use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
+use crate::mcp::access::{
+    Access, COMMAND_KINDS, Class, Kind, admit, classify, classify_in, kind_of, needs_store,
+};
 use crate::mcp::catalog::{Route, ToolDef, catalog};
 use crate::mcp::docs;
 use crate::mcp::host::StateSource;
@@ -932,7 +934,9 @@ impl<'a> Call<'a> {
     /// Whether the access admits the call (a command by its class), whether it changes the
     /// project (its class is not `Read`) and, in the app, the reason to ask the user about.
     /// In the app a write under the grant `read` or the switch is `read_only`, and
-    /// `open_project` is the user's.
+    /// `open_project` is the user's. A class that depends on the project (`needs_store`: a
+    /// visibility or a scene may create a level script file) is decided with the session's
+    /// store (`classify_in`); without a session it stays as [`classify`] answers.
     fn admit(&self, prepared: &Prepared) -> Result<Admitted, ToolError> {
         let Prepared::Command { command, args } = prepared else {
             return Ok(Admitted {
@@ -940,7 +944,13 @@ impl<'a> Call<'a> {
                 confirm: None,
             });
         };
-        let class = classify(command, args, self.policy);
+        let mut class = classify(command, args, self.policy);
+        if needs_store(command, &class)
+            && let Ok(exact) =
+                self.with_session(|s| classify_in(command, args, self.policy, &mut s.store))
+        {
+            class = exact;
+        }
         let changes = class != Class::Read;
         let Some(shared) = &self.shared else {
             admit(command, &class, &self.access)?;
@@ -4381,6 +4391,68 @@ mod tests {
             assert!(!not_in_batch("recipe_plan", &args), "{recipe}");
         }
         assert!(!not_in_batch("recipe_list", &json!({})));
+    }
+
+    /// Headless, a scene (and a visibility) asks for `--allow-irreversible` only when the
+    /// place needs a level script file of its own (`access::classify_in` with the session's
+    /// store): header 0 owns level script file 1 and needs none, header 1 has none.
+    #[test]
+    fn story_scene_asks_only_for_a_new_level_script_file() {
+        use g4_kernel::store::MapHeader;
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, WRITE, Some(fx.rom().to_path_buf())).unwrap();
+        let var = toolbox
+            .call("free_flag", json!({ "kind": "var" }), AGENT)
+            .unwrap()["number"]
+            .clone();
+        let story = toolbox
+            .call(
+                "recipe_apply",
+                json!({ "recipe": "new_story", "input": { "name": "Testfaden", "var": var } }),
+                AGENT,
+            )
+            .unwrap();
+        assert_eq!(story["report"]["story"], "STORY_TESTFADEN", "{story}");
+        {
+            let mut guard = crate::commands::lock(toolbox.state()).unwrap();
+            let store = &mut crate::commands::session(&mut guard).unwrap().store;
+            let archive = store.header_table().unwrap()[0].text_archive_id();
+            store
+                .transaction("Textarchiv", |tx| {
+                    tx.edit_header(1, |h| {
+                        match h {
+                            MapHeader::DP(h) => h.text_archive_id = archive,
+                            MapHeader::Pt(h) => h.text_archive_id = archive,
+                            MapHeader::HGSS(h) => h.text_archive_id = archive,
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+        }
+        let scene = |header: u16| {
+            json!({ "recipe": "scene_on_enter", "input": {
+                "story": "STORY_TESTFADEN", "header": header, "step": 0, "text": "Willkommen",
+            } })
+        };
+        let undo = history(&toolbox)["undo"].as_array().unwrap().len();
+        let (code, message, _) = failed(toolbox.call("recipe_apply", scene(1), AGENT));
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            "{message}"
+        );
+        assert_eq!(history(&toolbox)["undo"].as_array().unwrap().len(), undo);
+        let applied = toolbox.call("recipe_apply", scene(0), AGENT).unwrap();
+        assert_eq!(
+            applied["report"]["level_script_created"], false,
+            "{applied}"
+        );
+        assert_eq!(
+            history(&toolbox)["undo"].as_array().unwrap().len(),
+            undo + 1
+        );
     }
 
     /// Splitting a message writes and compiles the figure's script file as a file step of its
