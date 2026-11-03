@@ -1,6 +1,6 @@
 # Phase 3d.7: Gate prüfen
 
-Stand: 2026-11-03. Branch `phase-3d-7-geschichten-erzaehlen` (Worktree `.claude/worktrees/phase-3d-7`), Basis main `b66c4b06` (3d.5 und 3d.6 Teil A), main `9cfafbe5` (3d.8, 3d.9) vor den App-Tasks hineingemergt (`64a3c05d`, Entscheidung R9), Stand der Umsetzung `ed555b64`, nicht nach main gemergt. **Vom Agenten bestanden: (1) Automatik mit den gated Kernel-Tests auf Platin DE, HeartGold DE und HeartGold US und (2) die Szenarien `pt-geschichte` und `hg-geschichte` kopflos über MCP.** Der Browser-Teil (3) läuft nach dem abschließenden Review des Branches; seine Ergebnisse, Befunde und offenen Punkte trägt ein eigener Docs-Commit nach. Offen sind außerdem `scripts/gate.sh` als Ganzes auf main nach dem Merge (wie 3d.5, R8 dort: unter paralleler Last scheitern seine Zeitgrenzen; die Schritte, die 3d.7 berührt, laufen einzeln) sowie Hand und Blick beim Nutzer.
+Stand: 2026-11-03. Branch `phase-3d-7-geschichten-erzaehlen` (Worktree `.claude/worktrees/phase-3d-7`), Basis main `b66c4b06` (3d.5 und 3d.6 Teil A), main `9cfafbe5` (3d.8, 3d.9) vor den App-Tasks hineingemergt (`64a3c05d`, Entscheidung R9), Stand der Umsetzung `ed555b64`, Fix-Welle des abschließenden Reviews `05d26961`, `0aca5574`, `e932ef02`, `7cbddf0d`, Befund U1 des UI-Tests `90883c23`, nicht nach main gemergt. **Vom Agenten bestanden: (1) Automatik mit den gated Kernel-Tests auf Platin DE, HeartGold DE und HeartGold US, (2) die Szenarien `pt-geschichte` und `hg-geschichte` kopflos über MCP und (3) der Browser-Teil auf Platin DE und HeartGold DE (2026-11-03, ein Befund U1, behoben).** Offen sind `scripts/gate.sh` als Ganzes auf main nach dem Merge (wie 3d.5, R8 dort: unter paralleler Last scheitern seine Zeitgrenzen; die Schritte, die 3d.7 berührt, laufen einzeln) sowie Hand und Blick beim Nutzer.
 
 Phase 3d.7 bringt das Erzählen von Geschichten. Im Kernel liegen fünf Rezepte im Rahmen von 3d.2 und 3d.5: „Neue Geschichte“ (`new_story`: eine Variable aus dem Pool, benannt `VAR_STORY_…`, Schritt „Anfang“ mit Wert 0), „Gespräch schaltet weiter“ (`talk_advances`: ein Hüll-Script `if VAR == k then … SetVar k+1` vor dem bisherigen Script der Figur), „Figur erscheint/verschwindet ab Schritt“ (`figure_appears`: ein Sichtbarkeits-Flag aus dem Pool und ein Block im Übergangs-Script des Orts), „Szene beim Betreten“ (`scene_on_enter`: eine Bedingung `var == k` im Level-Script mit einem Script, das einen Text zeigt und weiterschaltet) und „Belohnung einmalig“ (`reward_once`: ab Schritt k einmal ein Gegenstand, gemerkt in einem Flag aus dem Pool). Jedes Rezept ist ein Undo-Schritt, hängt Scripts nur an (nie umgeschrieben), nummeriert seine Nachrichten wie „Neue Figur“ und schreibt den Schritt mit `made` in die Geschichte. Über MCP, `g4k recipe` und die App laufen sie gleich; `story_list` nennt den Pool (`free_vars`) und die Flags einer Geschichte. In der App sind die vier Schritt-Rezepte Modal-Dialoge, erreichbar aus dem Detail einer Geschichte („Schritt anlegen“), aus „Zu einer Geschichte“ nach „Neue Figur“ und aus „Dialog anlegen…“ einer Figur ohne Script; „Neue Geschichte“ läuft über das Rezept und nennt den Pool, der Graph speichert gezogene Knoten ins Beifile, der Inspector nennt unter einem Sichtbarkeits-Flag oder einer Auslöser-Variable die Geschichte und den Schritt.
 
@@ -28,7 +28,7 @@ Namen in der Oberfläche (Rollen und `data-*` für die Prüfung):
    - `3d-7-pt` (Platin DE), `3d-7-hgde` (HeartGold DE), `3d-7-hgus` (HeartGold US) für (1); nur gelesen, die Tests schreiben auf `vanilla_copy()` (das Textprojekt entsteht je Testprozess einmal in `target/tmp/story-<ordner>` und wird je Test kopiert). Sie bleiben bis zum Browser-Teil.
    - `3d-7-mess-pt` (Platin DE) für die Messung von `VISIBILITY_ENTRY` (Task 5, R1); nach der Messung gelöscht.
    - `3d-7-szen-pt` (Platin DE) und `3d-7-szen-hg` (HeartGold DE) für (2), frisch je Lauf (der Build ändert die Kopie); nach dem letzten grünen Lauf gelöscht.
-   - `3d-7-web` (Platin DE) für (3), mit `g4k git init` („Ausgangsstand“), übernommenen Scripts und einem Commit danach; legt der UI-Test an.
+   - `3d-7-web` (Platin DE) und `3d-7-webhg` (HeartGold DE) für (3), mit `g4k git init` („Ausgangsstand“), `assign_base`, `adopt_text_project` und einem Commit danach; legt der UI-Test an, nach ihm gelöscht.
 
    Kein ROM-Inhalt im Repository; `Manual`, `_saves` und die Kopien der parallelen Phasen bleiben.
 2. **Werkzeuge:** `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio` für die Szenarien; `tools/` ist der Symlink auf den Haupt-Checkout (nie einchecken). `G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms` absolut; `export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"` vor jedem Cargo-Aufruf.
@@ -50,8 +50,10 @@ Ergebnis: **bestanden** (Kernel 2026-11-02 und 2026-11-03, Schritt 2 auf `ed555b
   | `pnpm test` (in `apps/studio`) | **400 Dateien passed, 1 übersprungen; 3852 Tests passed, 1 übersprungen** (1402 s) |
   | `check-styles.sh`, `check-tokens.sh`, `check-depth.sh` | grün („check-styles: ok“, „Alles stimmig.“, „check-depth: ok“) |
 
+  **Nach der Fix-Welle** (2026-11-03, auf `e932ef02` bzw. `7cbddf0d`, unter Last 17 bis 20, Logs `target/agent/fixwave/`): `cargo fmt --check` und `cargo clippy … -D warnings` grün, `recipes_story` 45 passed, Bibliothek `recipes::` 43 passed, `cargo test -p studio --lib` 682 passed / 1 ignored, Styles, Tokens, Depth grün, `pnpm build` grün; `pnpm test` zuerst 3860 passed mit einem unbehandelten Fehler (der Verdrahtungstest des Schritt-Rezepts beantwortete die Textprüfung nicht, die er seit `0aca5574` abwartet; behoben in `7cbddf0d`), danach **401 Dateien, 3860 Tests passed, 1 übersprungen, ohne Fehler**. Nach U1 (`90883c23`): `src/stories`, `StoryRecipeHost.test.tsx`, `src/workbench/text` 29 Dateien / 171 Tests passed, `tsc`, Styles, Tokens grün.
+
   `cargo fmt --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` und `pnpm build` liefen vor jedem Commit der Tasks (Berichte der Tasks 1 bis 11); der Commit dieser Datei ändert nur Doku. Nicht einzeln: `cargo deny`, `cargo test -p studio --test mcp_stdio`, „dist has no bridge“, `g4emu` Integration, gated Tests der übrigen Phasen.
-- [x] 3. **Gated Kette der Geschichte** (Task 7, `crates/g4-kernel/tests/recipes_story.rs`), im Release je Spiel nacheinander:
+- [x] 3. **Gated Kette der Geschichte** (Task 7, `crates/g4-kernel/tests/recipes_story.rs`), im Release je Spiel nacheinander (Wiederholung mit der Belohnung `if !FLAG` und dem Kernel der Fix-Welle unten):
 
   ```sh
   G4_ROMS_DIR=<Roms> G4_TEST_PROJECT=<Roms>/_testkopien/3d-7-pt \
@@ -67,6 +69,8 @@ Ergebnis: **bestanden** (Kernel 2026-11-02 und 2026-11-03, Schritt 2 auf `ed555b
   | Platin DE (CPUD) | 411 | 0x4031 | 0x0042, 0x0043 | 7 / 8 | 20 → 19 | 101 → 99 | 111, 0 |
   | HeartGold DE (IPKD) | 60 | 0x4034 | 0x0040, 0x0041 | 10 / 11 | 81 → 80 | 154 → 152 | 145, 0 |
   | HeartGold US (IPKE) | 60 | 0x4034 | 0x0040, 0x0041 | 10 / 11 | 81 → 80 | 154 → 152 | 153, 0 |
+
+  **Wiederholung in der Fix-Welle** (2026-11-03, Release, Filter `vanilla hgss_talk`, gebaut einmal um 05:43 mit `0ce108d8` und dem Kernel von `05d26961`; danach ohne Neubau, also derselbe Stand wie der Commit), Logs `target/agent/gate-2026-11-03/3d-7/rerun-{hgus,pt,hgde}.log`: **5 passed, 0 failed** auf allen drei Spielen (HeartGold US 2409 s, Platin 1757 s, HeartGold DE 1175 s, unter Last 9 bis 19); dieselben 12 Pfade, `git_after_undo=[]`, Pool wie oben, Prüfungen 111 / 145 / 153 Befunde und 0 Fehler, Build 61 s / 89 s / 263 s. Damit hat auch HeartGold US einen Lauf mit der berichtigten Belohnung.
 
   Der Pool ist vorher und nachher mit einem frisch gebauten Index gezählt (`RefIndex::new().usage` und `flags::pool`); die drei genommenen Nummern sind danach nicht mehr frei. Übersprungen in den Prüfungen nur `script.message-missing` der gemeinsamen Scriptdateien, die kein Header nutzt (28 auf Platin, 25 auf HeartGold), wie bisher.
 
@@ -84,7 +88,7 @@ Ergebnis: **bestanden** (Kernel 2026-11-02 und 2026-11-03, Schritt 2 auf `ed555b
   | Undo aller sechs | 555 (555–1367) | 466 | 1056 |
   | `compile` / `build` / Prüfungen | 335 ms / 44,4 s / 2,3 s | 295 ms / 47,8 s / 2,0 s | 325 ms / 56,8 s / 1,9 s |
 
-- [x] 4. **Gated Gespräch je Familie** (Task 3, Debug, nach der Fix-Runde `027cdd2e`): `vanilla_pt_talk_uses_message_and_setvarfromvalue` auf `3d-7-pt`: `talk CPUD header=411 local_id=0 slot=10 previous=6 message=15 apply_ms=2154 undo_ms=2`; `hgss_talk_uses_npcmsg_and_setvar` auf `3d-7-hgde`: `talk IPKD header=60 local_id=0 slot=19 previous=1 message=38 apply_ms=3448 undo_ms=3` (die Hülle mit `NPCMsg`, `CloseMsg`, `SetVar`). Auf HeartGold US lief dieser Test nicht; das Gespräch selbst läuft dort in der Kette (1) 3 (Offen).
+- [x] 4. **Gated Gespräch je Familie** (Task 3, Debug, nach der Fix-Runde `027cdd2e`): `vanilla_pt_talk_uses_message_and_setvarfromvalue` auf `3d-7-pt`: `talk CPUD header=411 local_id=0 slot=10 previous=6 message=15 apply_ms=2154 undo_ms=2`; `hgss_talk_uses_npcmsg_and_setvar` auf `3d-7-hgde`: `talk IPKD header=60 local_id=0 slot=19 previous=1 message=38 apply_ms=3448 undo_ms=3` (die Hülle mit `NPCMsg`, `CloseMsg`, `SetVar`). In der Wiederholung (1) 3 auch auf `3d-7-hgus`: `talk IPKE header=60 local_id=0 slot=19 previous=1 message=38 apply_ms=1517 undo_ms=1`.
 - [x] 5. **`g4k`:** `cli_recipe_list` nennt zwölf Rezepte; `cli_recipe_apply_new_story_prints_the_outcome_and_saves` (Bericht, Speichern, zweite Geschichte auf derselben Variable abgelehnt, keine `0001.json`) und `cli_recipe_apply_figure_appears_asks_only_when_a_level_script_file_is_created` grün (Tasks 5 und 7). Ein voller Lauf des Kernels nach Task 7: 1823 passed, 0 failed, 1 ignored.
 - [x] 6. **`g4emu` Unit:** `cd scripts/g4emu && uv run pytest -q`: 393 passed, 7 skipped (Task 11).
 
@@ -113,22 +117,20 @@ Die Läufe davor: Lauf 1 scheiterte an `check:` (die Erwartungen `text.too-wide=
 
 ## (3) Browser
 
-Ergebnis: **läuft nach dem Whole-Branch-Review.** Seite `http://127.0.0.1:1770/?project=<Roms>/_testkopien/3d-7-web` (Platin DE), Erzählen über das Segment „Tiefe“. Vorher in der Kopie die Scripts übernehmen und speichern, außen `git add -A && git commit`. **Änderungen stehen in `git status` erst nach dem Speichern (⌘S)**; ⌘S und ⌘Z tun nichts, solange ein Modal (ein Rezept-Dialog) offen ist.
+Ergebnis: **bestanden** am 2026-11-03 auf Platin DE (`3d-7-web`, alle zwölf Punkte) und HeartGold DE (`3d-7-webhg`, Punkte 1, 3 bis 6, 10, 11), ein Befund (U1, behoben in `90883c23` und auf HeartGold DE wiederholt). Test-Umgebung auf 1770/1771 aus dem Worktree, Seite `http://127.0.0.1:1770/?project=<Roms>/_testkopien/3d-7-web` bzw. `…/3d-7-webhg`, Chrome headless (eigenes Profil `target/agent/chrome-prof`, 1440 × 900, `--use-angle=swiftshader`) über CDP, Erzählen über das Segment „Tiefe“. Vorbereitung je Kopie: `g4k git init` („Ausgangsstand“), `assign_base`, `adopt_text_project` (HeartGold 3:42 min), außen `git add -A && git commit` („Textprojekt übernommen“). Zahlen gegen `call.sh` (`free_flag`, `story_list`, `story_get`, `recipe_plan`, `history`, `dirty`) und `git status` der Kopie. Bilder unter `target/agent/gate-2026-11-03/3d-7/browser/`.
 
-- [ ] 1. **„Neue Geschichte“** (Bereich Geschichten): Variante Variable, `[data-pool-free]` „Noch {n} Variablen frei“ gleich `free_flag var` (`call.sh`), Feld vorbelegt; Anlegen → Schritt `s0` „Anfang“, `made.recipe` `new_story`; der Untertitel „{n} Geschichten · {free} Variablen frei“ zählt eine Variable weniger.
-- [ ] 2. **„Schritt anlegen“:** vier freie Tasten im Detail; eine Flag-Geschichte sperrt sie mit „Rezepte brauchen eine Variable als Fortschritt“.
-- [ ] 3. **„Gespräch schaltet weiter“:** Ort und Figur wählen (ein Trainer gesperrt mit „Trainer sprechen über ihre Kampftexte“), „Ab Schritt“ 0, Text; `[data-story-recipe-notes]` gleich den `notes` von `call.sh recipe_plan`; „Anlegen“ → Toast, Verlauf + 1, Schritt `s1` dialog.
-- [ ] 4. **„Figur erscheint/verschwindet ab Schritt“:** eine zweite Figur, Schritt 1, erscheint, Flag aus dem Pool („Noch {n} Flags frei“); an einem Ort, dessen Level-Script-Datei ein anderer Header teilt, steht die Warnung „Level-Script-Datei n wird angelegt und bleibt“ in `[data-story-recipe-irreversible]`.
-- [ ] 5. **„Szene beim Betreten“:** Ort, Schritt 1, Text; Schritt `s2` dialog.
-- [ ] 6. **„Belohnung einmalig“:** Figur, „Ab Schritt“ 2, Gegenstand über den Picker, Flag aus dem Pool; Schritt `r{flag}` reward.
-- [ ] 7. **Wege:** „Zu einer Geschichte“ nach „Neue Figur“ öffnet „Gespräch schaltet weiter“ mit der neuen Figur; „Dialog anlegen…“ im Feld „Dialog“ einer Figur ohne Script ebenso; „Neue Geschichte…“ im Dialog legt eine Geschichte an und wählt sie.
-- [ ] 8. **Hinweis im Inspector:** `[data-story-hint]` „Geschichte „X“: {Schrittname}“ unter dem Sichtbarkeits-Flag der Figur aus 4 (Erzählen und Bauen); ein Auslöser ohne Geschichte „Keine Geschichte führt die Variable dieses Auslösers.“
-- [ ] 9. **Graph:** einen Knoten ziehen → nach 500 ms ein Undo-Schritt „Geschichte „X“ geändert“, nach ⌘S `data/stories/NNNN.layout.json` in `git status`; Tooltip „Angelegt von „…““ an den Plaketten.
-- [ ] 10. **⌘Z bis zum Ausgangsstand:** Dialog zu, Meta+Z bis zum Stand vor 1, ⌘S → `git status` **leer** (eine nach ⌘Z gebliebene neue Level-Script-Datei aus 4 ist gewollt, R5, und steht dann im Ergebnis).
-- [ ] 11. **Konsole und Brückenlog:** keine Fehler außer erwarteten Ablehnungen.
-- [ ] 12. **Bilder** unter `target/agent/gate-<Datum>/3d-7/`: `blick-schritt-rezept-gespraech-hell.png`, `blick-schritt-rezept-erscheinen-hell.png`, `blick-schritt-rezept-szene-hell.png`, `blick-schritt-rezept-belohnung-hell.png`, `blick-pool-hell.png`, `blick-geschichte-schritte-dunkel.png`.
-
-Vor dem UI-Test zu beheben (aus dem Review von Task 10): `beforeStoryStep` speichert vor einem Schritt-Rezept nur die offene Scriptdatei des Orts, nicht ein geändertes Level-Script, das „Szene beim Betreten“ und „Figur erscheint/verschwindet ab Schritt“ schreiben.
+- [x] 1. **„Neue Geschichte“:** `[data-pool-free]` „Noch 20 Variablen frei“ = `free_flag var` `pool_free` 20, Feld vorbelegt `VAR_UNUSED_0x4031` (0x4031); „Der Brief“ angelegt → Toast „Geschichte „Der Brief“ angelegt“, Verlauf 0 → 1, `story_get` `s0` start „Anfang“ mit `made.recipe` `new_story`; Untertitel „Keine Geschichten · 20 Variablen frei“ → „1 Geschichte · 19 Variablen frei“, `story_list.free_vars` 19. HeartGold DE: 81 → 80, `0x4034`.
+- [x] 2. **„Schritt anlegen“:** vier freie Tasten `[data-story-recipe=…]` im Detail; eine Geschichte „Flaggeschichte“ mit `FLAG_UNK_0x0044` als Fortschritt sperrt alle vier (`disabled`), Tooltip und Beschreibung „Rezepte brauchen eine Variable als Fortschritt“, darunter „Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.“ (`s21-flaggeschichte-gesperrt.png`).
+- [x] 3. **„Gespräch schaltet weiter“:** Ort Zweiblattdorf (0411), Figur 2, „Ab Schritt“ 0, „Bring den Brief ins Haus!“; `[data-story-recipe-notes]` = `notes` von `recipe_plan` („Figur 2 bekommt den Zweig „ab Schritt 0“ und schaltet auf 1.“, „Script #10 in Scriptdatei 1052, Nachricht 15 in Archiv 554.“); „Anlegen“ → „Wird angelegt …“, Toast „Schritt „Gespräch mit Figur 2“ angelegt“, Verlauf + 1, `s1` dialog. Ein Trainer (Herzhofen 0092, Figur 0 · Aussehen 52) ist in der Figurenwahl mit der Plakette „Trainer“ gesperrt, „Trainer sprechen über ihre Kampftexte“ (`s11-trainer-gesperrt.png`, im Dialog „Belohnung“; dieselbe Sperre `lockTrainers`). HeartGold DE: Neuborkia (0060) Figur 0, Script #19 in Scriptdatei 842, Nachricht 38 in Archiv 542 (wie die gated Kette).
+- [x] 4. **„Figur erscheint/verschwindet ab Schritt“:** Figur 3 in Zweiblattdorf, Schritt 1, erscheint, Flag `FLAG_UNK_0x0042` aus dem Pool („Noch 101 Flags frei“ = `free_flag flag`); `a66` appearance (1), Pool danach 100. In Herzhofen 0092 (Level-Script-Datei 897, die 113 Header teilen) steht im Plan „Level-Script-Datei 1124 wird angelegt und bleibt“ in `[data-story-recipe-irreversible]` (Warnung, `blick-schritt-rezept-erscheinen-hell.png`; nicht angelegt). HeartGold DE: Figur 1, `a64`.
+- [x] 5. **„Szene beim Betreten“:** Zweiblattdorf, Schritt 1, „Der Brief ist angekommen.“; Plan „Beim Betreten von Header 411 mit Schritt 1 läuft die Szene und schaltet auf 2.“ = `recipe_plan`; `s2` dialog „Szene beim Betreten von Zweiblattdorf“. HeartGold DE: Neuborkia, `s2`.
+- [x] 6. **„Belohnung einmalig“:** Figur 2, „Ab Schritt“ 2, Trank (0017) über den Picker, Flag `FLAG_UNK_0x0043` aus dem Pool; Plan = `recipe_plan` („Figur 2 gibt ab Schritt 2 einmal Gegenstand 17.“, „Benennt Flag 0x0043 als FLAG_STORY_DER_BRIEF_BELOHNUNG_2.“, „Script #13 …“); `r67` reward; Pool Flags 101 → 99, Variablen 20 → 19, `story_list.flags` die beiden Flags. **Befund U1:** der Text blieb leer statt „Du erhältst Trank!“ und „Anlegen“ gesperrt, bis ein Text getippt war (im Lauf auf Platin mit „Danke! Nimm das.“ weiter). Nach `90883c23` auf HeartGold DE: nach dem Gegenstand steht „Du erhältst Trank!“, „Anlegen“ frei, `r65`, Flags 154 → 152.
+- [x] 7. **Wege:** „Dialog anlegen…“ im Feld „Dialog“ von Objekt 0 im Zimmer (0415, Script 0) öffnet „Gespräch schaltet weiter“ mit dieser Figur; „Neue Geschichte…“ im Dialog legt „Zweite Geschichte“ an (Verlauf + 1) und wählt sie; „Neue Figur“ im Zimmer (3, 6) → „Figur „Hallo, Reisender!“ aufgestellt“, „Als Nächstes“ `[data-recipe=story_join]` „Zu einer Geschichte“ frei, öffnet „Gespräch schaltet weiter“ mit der neuen Figur 1.
+- [x] 8. **Hinweis im Inspector:** Figur 3 in Zweiblattdorf: `[data-story-hint]` „Geschichte „Der Brief“: Figur 3 erscheint ab Schritt 1“ in Erzählen und in Bauen unter dem Sichtbarkeits-Flag (`s17-…`, `s18-hinweis-bauen.png`); Trigger 0 (Variable `VAR_TWINLEAF_TOWN_GUITARIS…`) in Erzählen „Keine Geschichte führt die Variable dieses Auslösers.“ (`s20-ausloeser-erzaehlen.png`; in Bauen ohne Satz, dort steht nur das Variablenfeld).
+- [x] 9. **Graph:** Knoten „Anfang“ 120 px nach oben gezogen → nach ≤ 1,8 s ein Undo-Schritt „Geschichte „Der Brief“ geändert“; nach ⌘S `?? data/stories/0000.layout.json` in `git status` mit allen fünf Knoten (`s0` y −127); Tooltip an der Plakette „Start“: „Angelegt von „Neue Geschichte“ (Studio 0.1.0)“.
+- [x] 10. **⌘Z bis zum Ausgangsstand:** Platin: neun Schritte (zwei Geschichten mehr, Figur, Layout) mit Meta+Z zurück, Verlauf 0, ⌘S → `call.sh dirty` `[]`, `git status` **leer** (keine Level-Script-Datei angelegt, die Warnung aus 4 blieb Plan). HeartGold DE: fünf Schritte gespeichert (16 Pfade), Meta+Z × 5, ⌘S → `git status` **leer**.
+- [x] 11. **Konsole und Brückenlog:** keine Fehler außer `favicon.ico` 404, WebGL-Hinweisen „GPU stall due to ReadPixels“ und erwarteten Ablehnungen: nach dem ⌘Z, das die offene Geschichte entfernt, lehnt die Brücke `story_get` und `thread_graph` mit „Unbekannte ID: STORY_DER_BRIEF.“ ab (HeartGold: je 10 in 0,8 s bei fünf Schritten, bei einer neuen Geschichte je 1; die Seite zeigt danach „Noch keine Geschichten.“). Brückenlog ohne Fehler.
+- [x] 12. **Bilder** unter `target/agent/gate-2026-11-03/3d-7/browser/`: `blick-schritt-rezept-gespraech-hell.png`, `blick-schritt-rezept-erscheinen-hell.png` (mit der Warnung), `blick-schritt-rezept-szene-hell.png`, `blick-schritt-rezept-belohnung-hell.png` (vor U1, mit getipptem Text), `blick-pool-hell.png`, `blick-geschichte-schritte-dunkel.png`, dazu `hg-blick-*` (HeartGold DE, Belohnung mit „Du erhältst Trank!“) und die Schritte `s00` bis `s30`, `befund-u1-belohnung-ohne-vorschlag.png`. Vom Agenten gelesen; Kompakt nicht aufgenommen.
 
 ## (4) Entscheidungen
 
@@ -150,7 +152,7 @@ Entscheidungen der Umsetzung, die vom Plan abweichen oder ihn festlegen (aus dem
 
 ## Hand und Blick
 
-Ergebnis: die Bilder der Szenarien sind aufgenommen und vom Agenten gelesen; die Bilder des Browser-Teils folgen mit (3). Bestätigung und Hand liegen beim Nutzer und sind **offen**.
+Ergebnis: die Bilder der Szenarien und des Browser-Teils sind aufgenommen und vom Agenten gelesen. Bestätigung und Hand liegen beim Nutzer und sind **offen**.
 
 ### Hand
 
@@ -159,7 +161,7 @@ Ergebnis: die Bilder der Szenarien sind aufgenommen und vom Agenten gelesen; die
 
 ### Blick
 
-- [ ] Die Dialoge der vier Schritt-Rezepte, die Pool-Zeile und die Schritte im Detail in Hell, Dunkel und Kompakt (Bilder aus (3) 12).
+- [ ] Die Dialoge der vier Schritt-Rezepte, die Pool-Zeile und die Schritte im Detail in Hell und Dunkel (Bilder aus (3) 12, `target/agent/gate-2026-11-03/3d-7/browser/blick-*.png` und `hg-blick-*.png`); Kompakt nur von Hand.
 - [ ] **`.fig`:** die Frames von 3d.7 sind nicht eingespielt (OpenPencil war in dieser Sitzung nicht verbunden); Anleitung in [design-system/README.md](../design-system/README.md), „Nachtrag 3d.7“.
 
 ## Ergebnis
@@ -167,12 +169,12 @@ Ergebnis: die Bilder der Szenarien sind aufgenommen und vom Agenten gelesen; die
 | Punkt | Wer | Ergebnis | Datum |
 |---|---|---|---|
 | (1) 1 `scripts/gate.sh` grün | Agent | offen: auf main nach dem Merge | – |
-| (1) 2 Schritte von `gate.sh`, die 3d.7 berührt | Agent | bestanden: Kernel 1896, Studio-Bibliothek 682, `pnpm test` 3852, Styles, Tokens, Depth (unter Last) | 2026-11-03 |
-| (1) 3 gated Kette der Geschichte | Agent | bestanden auf Platin DE, HeartGold DE, HeartGold US: je Rezept ein Undo-Schritt, 12 Pfade, `git status` leer nach Undo, Pool − 1 Variable und − 2 Flags, Build, 0 Fehler | 2026-11-02 |
-| (1) 4 gated Gespräch je Familie | Agent | bestanden auf Platin DE und HeartGold DE; HeartGold US offen | 2026-11-02 |
+| (1) 2 Schritte von `gate.sh`, die 3d.7 berührt | Agent | bestanden: Kernel 1896, Studio-Bibliothek 682, `pnpm test` 3852, Styles, Tokens, Depth (unter Last); nach der Fix-Welle `pnpm test` 3860 ohne Fehler (`7cbddf0d`) | 2026-11-03 |
+| (1) 3 gated Kette der Geschichte | Agent | bestanden auf Platin DE, HeartGold DE, HeartGold US: je Rezept ein Undo-Schritt, 12 Pfade, `git status` leer nach Undo, Pool − 1 Variable und − 2 Flags, Build, 0 Fehler; wiederholt mit `if !FLAG` und dem Kernel der Fix-Welle | 2026-11-03 |
+| (1) 4 gated Gespräch je Familie | Agent | bestanden auf Platin DE, HeartGold DE und HeartGold US | 2026-11-03 |
 | (1) 5, 6 `g4k`, `g4emu` Unit | Agent | bestanden | 2026-11-03 |
 | (2) Szenarien `pt-geschichte`, `hg-geschichte` | Agent + Blick | bestanden: `"ok": true`, alle Punkte des Gate-Texts außer ⌘Z (kopflos in (1) 3); Bilder vom Agenten gelesen, Bestätigung des Nutzers offen | 2026-11-03 |
-| (3) 1 bis 12 Browser-Teil | Agent + Blick | läuft nach dem Whole-Branch-Review | – |
+| (3) 1 bis 12 Browser-Teil | Agent + Blick | bestanden auf Platin DE (1 bis 12) und HeartGold DE (1, 3 bis 6, 10, 11); U1 behoben in `90883c23`; Bilder vom Agenten gelesen, Bestätigung offen | 2026-11-03 |
 | (4) Entscheidungen R1 bis R11 | Agent | festgehalten | 2026-11-03 |
 | Echter Spielstand, Szenario-Bilder | Hand | offen | – |
 | Blick der Dialoge, `.fig` | Blick | offen | – |
@@ -188,19 +190,40 @@ Jede Task lief durch ein Review; Fix-Runden hatten Task 3 (Hülle nimmt bei jede
 | E1 | Hoch (Produkt) | (2) | `reward_once` gab im Spiel nie etwas: `if FLAG == 0 then` ist in rotom ein Vergleich der Flag-Nummer mit 0, nie wahr; das Script fiel durch zur Hülle des Gesprächs und zum eigenen Text der Figur. Synthetische und gated Tests sahen es nicht (die Quelle kompiliert). | behoben: `0ce108d8` (`if !FLAG then`), R2; Lauf 3 grün auf beiden Spielen |
 | E2 | Doku | (2) | Die ersten Erwartungen von `check:` (`text.too-wide=0`, `event.script-missing=0`) waren falsch für Vanilla. | Szenario: nur Codes, die auf Vanilla 0 sind, dazu Platins eine Vanilla-`event.script-missing` |
 | E3 | Doku | (1) 3 | Die Reihenfolge des Plans (Trainer mitten in der Kette) lässt kein Undo bis zur Marke zu. | R7 |
-| E4 | Doku | (2) | [agent-gate.md](agent-gate.md) sagte, `"ok": true` stehe in `results.json`; es steht in der Schlusszeile des Runners auf stdout (und je Schritt in `play.jsonl`). | Doku: korrigiert mit diesem Commit |
+| E4 | Doku | (2) | [agent-gate.md](agent-gate.md) sagte, `"ok": true` stehe in `results.json`; es steht in der Schlusszeile des Runners auf stdout (und je Schritt in `play.jsonl`). | Doku: korrigiert (3d.7 in `f99b1880`, 3d.5 in `e932ef02`) |
 
-Befunde des Browser-Teils trägt der Docs-Commit nach dem UI-Test hier ein.
+### Aus dem abschließenden Review
+
+Das Review des ganzen Branches (Opus, `9cfafbe5..f99b1880`) sagte „mit Fixes“; die Fix-Welle und ihr Nach-Review (Opus, alle Punkte behoben, nichts Neues kaputt):
+
+| Nr. | Schwere | Befund | Status |
+|---|---|---|---|
+| F1 | Wichtig | `beforeStoryStep` speicherte vor einem Schritt-Rezept nur die Scriptdatei, nicht die geänderte Level-Script-Datei, die „Szene“ und „Erscheinen“ umschreiben | behoben: `0aca5574` (`app/storyStepSave`) |
+| F2 | Wichtig | der gated Nachweis auf HeartGold US stammte von vor `0ce108d8` (`if !FLAG`) | behoben: Wiederholung (1) 3 auf allen drei Spielen |
+| F3 | Klein | „Anlegen“ konnte den Plan einer vorigen Eingabe anwenden | behoben: `0aca5574` (`useDraftPlan.current`) |
+| F4 | Klein | „Dialog anlegen…“ und „Zu einer Geschichte“ außerhalb eines Textprojekts frei (der Kern lehnt ab) | behoben: `0aca5574` (gesperrt mit dem Satz des Kerns) |
+| F5 | Klein | `StoryRecipeHost` zeigte einen Fehler von `story_list` nicht | behoben: `0aca5574` |
+| F6 | Klein | eine nach einem späteren Fehler angelegte Level-Script-Datei blieb unangekündigt | behoben: `05d26961` („Level-Script-Datei n wurde angelegt und bleibt.“) |
+| F7 | Klein | eine binäre Level-Script-Datei wird ersetzt, ohne dass der Plan es sagt | behoben: `05d26961` („…; die Einträge der binären Level-Script-Datei m werden nicht übernommen“) |
+| F8 | Klein | `FigureField` erkannte Trainer nicht an `trainer_type` | behoben: `0aca5574` |
+| F9 | Doku | Undo-Folge ab 8, `"ok": true` im Abschnitt 3d.5 | behoben: `e932ef02` |
+| F10 | Test | `pnpm test` meldete einen unbehandelten Fehler im Verdrahtungstest des Schritt-Rezepts | behoben: `7cbddf0d` |
+
+### Aus dem UI-Test
+
+| Nr. | Schwere | Punkt | Befund | Status |
+|---|---|---|---|---|
+| U1 | Mittel (Produkt) | (3) 6 | „Belohnung einmalig“ zeigte nach dem Gegenstand nicht „Du erhältst {Gegenstand}!“, „Anlegen“ blieb gesperrt, bis ein Text getippt war: `SaysField` reichte das Echo des `MessageEditor` beim Einhängen als Eingabe weiter, der Text wurde "" statt `null`. | behoben: `90883c23` (`SaysField` meldet nur Änderungen, Test `RewardOnceForm.test.tsx`), Nach-Review sauber, auf HeartGold DE wiederholt |
+| U2 | Klein (Beobachtung) | (3) 11 | Ein ⌘Z, das die offene Geschichte entfernt, löst einen Schwall abgelehnter `story_get`/`thread_graph` aus („Unbekannte ID“, bis je 10 in 0,8 s); die Seite endet richtig. | offen, zurückgestellt |
+| U3 | Klein (Text) | (3) 5 | Der Plan der Szene sagt „Header 411“, der Dialog „Zweiblattdorf“. | offen, zurückgestellt |
 
 ## Offen
 
 - **(1) 1 `scripts/gate.sh` als Ganzes:** auf main nach dem Merge.
-- **(3) Browser-Teil** mit den Bildern; vorher der Fix von `beforeStoryStep` (Level-Script speichern).
-- **Gated Gespräch auf HeartGold US** (`hgss_talk_uses_npcmsg_and_setvar` auf `3d-7-hgus`): lief nur auf HeartGold DE (das Gespräch läuft auf HeartGold US in der Kette, nur die Prüfung des Script-Texts fehlt dort); der Befehl in (1) 3 nimmt ihn jetzt mit.
 - **Hand:** mit einem echten Spielstand spielen; die Szenario-Bilder bestätigen.
-- **Blick:** die Dialoge in Hell, Dunkel und Kompakt (Bilder aus (3)).
+- **Blick:** die Dialoge in Hell und Dunkel (Bilder aus (3) 12), Kompakt von Hand.
 - **`.fig`:** die Frames von 3d.7 (OpenPencil nicht verbunden; Anleitung im Nachtrag 3d.7 des Design-Systems).
-- **Zurückgestellt aus den Reviews:** eine bei einem späteren Fehler angelegte Level-Script-Datei bleibt verwaist und unangekündigt (jeder neue Versuch legt eine weitere an); der Rezept-Dialog ist über „Dialog anlegen…“ und „Zu einer Geschichte“ auch außerhalb eines Textprojekts erreichbar (der Kern lehnt dann ab); `StoryRecipeHost` zeigt einen Fehler von `story_list` nicht (bleibt bei „Die Geschichten werden gelesen …“); ein auf leer gelöschter Text der Belohnung kehrt nicht zum Vorschlag zurück und sperrt „Anlegen“; die Formulare „Erscheinen“, „Szene“ und „Belohnung“ haben keine eigenen Komponententests; der Regressionstest von R2 prüft den Vorlagentext, nicht den Bytecode (`CheckFlag`); die Pool-Zeile zählt die vorgeschlagene Variable mit; ein zweites Ziehen während eines laufenden Layout-Schreibens kann verloren gehen.
+- **Zurückgestellt aus den Reviews und dem UI-Test:** ein auf leer gelöschter Text der Belohnung kehrt nicht zum Vorschlag zurück und sperrt „Anlegen“; die Formulare „Erscheinen“ und „Szene“ haben keine eigenen Komponententests (die Belohnung seit U1), kein Test, dass „Gespräch“ und „Szene“ Eingaben weiter melden; der Regressionstest von R2 prüft den Vorlagentext, nicht den Bytecode (`CheckFlag`); die Pool-Zeile zählt die vorgeschlagene Variable mit; ein zweites Ziehen während eines laufenden Layout-Schreibens kann verloren gehen; ein Kompilierfehler nach einer angelegten Level-Script-Datei kommt als Text, nicht als Liste von Problemen; der Fehler von `story_list` steht im Dialog nur, wenn keine Geschichte vorgegeben ist; ein Textprojekt, das eine Migration braucht, sperrt die Wege mit „Kein Textprojekt …“; nach einem Teilfehler wird die neue Level-Script-Datei nicht neu gelesen; U2 und U3.
 - **rotom upstream:** `if FLAG_X == n` kompiliert still zu einem Vergleich mit der Nummer (R2); die Notiz aus 3d.1 („`if FLAG_X == 1 then` kompiliert“) stimmt, prüft aber das Flag nicht. Meldung an rotom offen.
-- **Testkopien:** `3d-7-pt`, `3d-7-hgde`, `3d-7-hgus` bleiben bis zum Browser-Teil und werden danach gelöscht, ebenso `3d-7-web`.
-- **Merge-Hinweise:** Anhängepunkte mit 3d.4 und 3d.6 Teil B (`recipes/types.rs`, `recipes.rs`, `dispatch.rs`, `mcp/*.rs`, `api.ts`, `App.tsx`, `StoryDetail.tsx`, `commands/stories.rs`, `docs/mcp.md`, `ROADMAP.md`, `design-system/README.md`); gesammelt lösen, die `.fig` von main behalten.
+- **Testkopien:** `3d-7-pt`, `3d-7-hgde`, `3d-7-hgus`, `3d-7-web`, `3d-7-webhg` nach dem UI-Test gelöscht (2026-11-03); `target/agent/` des Worktrees bleibt für den Hauptorchestrator.
+- **Merge-Hinweise:** `git merge-tree --write-tree main HEAD` gegen main `123ca8bb` (2026-11-03) meldet Konflikte in `apps/studio/src-tauri/src/mcp/access.rs`, `apps/studio/src-tauri/src/mcp/tools.rs`, `design-system/README.md`, `docs/ROADMAP.md`, `docs/agent-gate.md`, `docs/mcp.md` (Anhängepunkte); gesammelt lösen, die `.fig` von main behalten. MCP-Katalog: 3d.7 fügt kein Werkzeug hinzu.
