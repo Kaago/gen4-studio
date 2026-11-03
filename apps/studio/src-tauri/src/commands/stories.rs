@@ -1,7 +1,7 @@
 //! Stories (3d.6): the threads of the game (`list_threads`), the graph of one (`thread_graph`),
-//! the stories of a text project (`story_list`, `story_get`) and making and changing one
-//! (`story_create`, `story_update`, each one undo step). All six run under the session lock: the
-//! reference index and the undo stack belong to the store.
+//! the stories of a text project (`story_list`, `story_get`) and making, changing and deleting
+//! one (`story_create`, `story_update`, `story_delete`, each one undo step). All seven run under
+//! the session lock: the reference index and the undo stack belong to the store.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -409,7 +409,8 @@ fn progress_parts(progress: &Progress) -> (SymbolKind, &str) {
     }
 }
 
-/// A refusal of [`stories::create_story`] or [`stories::update_story`] with its code:
+/// A refusal of [`stories::create_story`], [`stories::update_story`] or
+/// [`stories::delete_story`] with its code:
 /// `not_text_project` outside a text project, `unknown_id` for a progress or story id that
 /// names nothing, `refused` for anything else (an empty name, a step key twice, nothing to
 /// change).
@@ -451,6 +452,20 @@ pub fn story_update_impl(
     let session = session(&mut guard)?;
     session.writable()?;
     let report = stories::update_story(&mut session.store, &id, &patch).map_err(story_error)?;
+    session.files_written(&[]);
+    session.after_write();
+    Ok(report)
+}
+
+/// Deletes story `id` (its file, side file and register entry) as one undo step
+/// ([`stories::delete_story`]), under the session lock. A refusal writes nothing:
+/// `not_text_project` outside a text project, `unknown_id` for an id the register does not
+/// have.
+pub fn story_delete_impl(state: &AppState, id: String) -> Result<StoryReport, CmdError> {
+    let mut guard = lock(state)?;
+    let session = session(&mut guard)?;
+    session.writable()?;
+    let report = stories::delete_story(&mut session.store, &id).map_err(story_error)?;
     session.files_written(&[]);
     session.after_write();
     Ok(report)
@@ -541,6 +556,11 @@ pub async fn story_update(
     patch: StoryPatch,
 ) -> Result<StoryReport, CmdError> {
     off_main(app, move |state| story_update_impl(state, id, patch)).await
+}
+
+#[tauri::command]
+pub async fn story_delete(app: tauri::AppHandle, id: String) -> Result<StoryReport, CmdError> {
+    off_main(app, move |state| story_delete_impl(state, id)).await
 }
 
 #[cfg(test)]

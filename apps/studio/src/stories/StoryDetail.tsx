@@ -1,14 +1,15 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import { errorText } from "../api";
-import type { EntityKind, FlagKind, FlagListDto, ProjectInfo, Step, StoryDto, StoryUse, storyUpdate } from "../api";
+import { errorText, storyDelete } from "../api";
+import type { EntityKind, FlagKind, FlagListDto, ProjectInfo, Step, StoryDto, StoryReport, StoryUse, storyUpdate } from "../api";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
 import { hex4 } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
+import { HeadActions } from "../original/HeadActions";
 import { useTextProject } from "../textproject/TextProjectContext";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { Badge, Notice, Reference, Section, Table, TextField } from "../ui/primitives";
+import { Badge, Dialog, Notice, Reference, Section, Table, TextField } from "../ui/primitives";
 import type { Area, TableColumn, TableRow } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { fallbackNumber, flagNumberOf, progressLabel, stepKindWord, useText } from "./storyWords";
@@ -28,6 +29,8 @@ export type StoryDetailProps = {
   goTo: (t: NavTarget) => void;
   /** Writes the fields given (`story_update`, seconds under load); a refusal rejects with the kernel's sentence. */
   onUpdate: (patch: StoryPatch) => Promise<void>;
+  /** „Geschichte löschen…“ went in (`story_delete`, one undo step): the report and the story's name. */
+  onDeleted: (r: StoryReport, name: string) => void;
   project: ProjectInfo | null;
   /** Moves whenever the project may differ: the graph is read again. */
   revision: number;
@@ -130,9 +133,10 @@ function Uses({ uses, at, goTo }: { uses: readonly StoryUse[]; at: Lookups; goTo
  * it runs, a refusal shown below them), its progress as a chip that opens Geschichten › Flags und Variablen on the number, the steps as a
  * table (value, kind, name, uses as chips; only read: the recipes of 3d.7 create them), and the graph of the progress variable with the
  * steps on its value nodes. A flag (the graph takes a variable only), an id that names nothing and a variable no script uses have no
- * graph: „Noch keine Werte im Spiel“.
+ * graph: „Noch keine Werte im Spiel“. The menu „Aktionen“ of the head has „Geschichte löschen…“, which asks first
+ * ({@link DeleteStoryDialog}).
  */
-export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }: StoryDetailProps): JSX.Element {
+export function StoryDetail({ story, depth, goTo, onUpdate, onDeleted, project, revision }: StoryDetailProps): JSX.Element {
   const { id, name, notes = "", progress, steps = [] } = story.story;
   const tech = depthAtLeast(depth, "bauen");
   const progressOf = progressLabel(progress);
@@ -191,6 +195,7 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
     },
   }));
   const [open, setOpen] = useState({ steps: true, graph: true });
+  const [deleting, setDeleting] = useState(false);
   const [node, setNode] = useState<string | null>(null);
   const number = story.progress_number;
 
@@ -234,6 +239,7 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
             dataAttrs={{ "data-story-progress": progressOf.kind }}
           />
         </div>
+        <HeadActions items={[{ label: "Geschichte löschen…", onSelect: () => setDeleting(true), disabled: saving }]} />
       </div>
       <div data-story-notes="">
         <TextField
@@ -257,7 +263,62 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
       <Section title="Graph" open={open.graph} onToggle={() => setOpen((o) => ({ ...o, graph: !o.graph }))}>
         {graphBody}
       </Section>
+      {deleting && <DeleteStoryDialog id={id} name={name} onClose={() => setDeleting(false)} onDeleted={onDeleted} />}
     </section>
+  );
+}
+
+/** What the dialog „Geschichte „X“ löschen?“ says: what goes, and that ⌘Z brings it back. */
+export const DELETE_STORY_TEXT = "Die Datei der Geschichte, ihr Layout und ihr Registereintrag gehen. Rückgängig mit ⌘Z.";
+
+/**
+ * „Geschichte „X“ löschen?“: no plan to ask (nothing points at a story, it has no tombstone), only „Abbrechen“ and „Löschen“. „Löschen“
+ * calls `story_delete` once (both buttons locked while it runs, a second click does nothing), reports and closes; a refusal stays in the
+ * dialog with the kernel's sentence and „Löschen“ goes again.
+ */
+function DeleteStoryDialog({ id, name, onClose, onDeleted }: { id: string; name: string; onClose: () => void; onDeleted: (r: StoryReport, name: string) => void }) {
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Read by a click that comes before the render of the one before (a double click).
+  const busy = useRef(false);
+  const remove = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    setRunning(true);
+    setError(null);
+    try {
+      const report = await storyDelete(id);
+      onDeleted(report, name);
+      onClose();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      busy.current = false;
+      setRunning(false);
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next && !busy.current) onClose();
+      }}
+      title={`Geschichte „${name}“ löschen?`}
+      description={DELETE_STORY_TEXT}
+      data={{ "data-story-delete-dialog": "" }}
+      actions={[
+        { label: "Abbrechen", onClick: onClose, disabled: running },
+        { label: "Löschen", kind: "primary", onClick: () => void remove(), disabled: running },
+      ]}
+    >
+      {running ? (
+        <p role="status" className={styles.note}>
+          Lösche …
+        </p>
+      ) : error !== null ? (
+        <Notice kind="error">{error}</Notice>
+      ) : null}
+    </Dialog>
   );
 }
 

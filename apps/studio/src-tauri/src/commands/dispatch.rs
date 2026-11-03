@@ -226,6 +226,7 @@ pub const COMMANDS: &[&str] = &[
     "plan_delete",
     "delete_entity",
     "restore_entity",
+    "story_delete",
 ];
 
 /// Import files must be readable under the policy; a map of the project needs nothing.
@@ -1195,6 +1196,9 @@ pub fn dispatch(
             { target: g4_kernel::delete::DeleteTarget },
             |a| restore_entity_impl(state, a.target)
         ),
+        "story_delete" => run!(json, "story_delete", args, { id: String }, |a| {
+            story_delete_impl(state, a.id)
+        }),
         _ => Err(DispatchError::Unknown(name.to_owned())),
     }
 }
@@ -1653,6 +1657,7 @@ mod tests {
                 "restore_entity",
                 json!({ "target": { "kind": "header", "id": 0 } }),
             ),
+            ("story_delete", json!({"id": "STORY_TEST"})),
             // Last: it closes the project the cases above work on.
             ("close_project", json!({})),
         ];

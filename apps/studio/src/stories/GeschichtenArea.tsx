@@ -55,6 +55,8 @@ export interface GeschichtenAreaProps {
   onStoryCreated?: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step): the history and the lists read again. */
   onStoryUpdated?: (r: StoryReport) => void;
+  /** A story was deleted (one undo step): the report and its name (the app's toast; the history and the lists read again). */
+  onStoryDeleted?: (r: StoryReport, name: string) => void;
 }
 
 const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[] = [
@@ -125,6 +127,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           revision={revision}
           onCreated={props.onStoryCreated ?? noSelect}
           onUpdated={props.onStoryUpdated}
+          onDeleted={props.onStoryDeleted}
           onError={props.onError}
           onOpenProject={props.onOpenProject}
         />

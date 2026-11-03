@@ -2612,6 +2612,11 @@ enum StoryCommand {
         #[arg(long)]
         notes: Option<String>,
     },
+    /// Delete a story of a text project by its id (register entry, `data/stories/NNNN.json` and
+    /// its `.layout.json`; no undo). Prints `deleted <id> number=<n> files=<a>,<b>,<c> ms=<n>`,
+    /// then a line `warning <text>` per warning. A refusal (no text project, an unknown id)
+    /// writes nothing (exit 1).
+    Delete { project: PathBuf, id: String },
     /// The threads of the game (variables with three values at two places, from the reference
     /// index): one line each, `<0xNNNN> <own id or pret name or -> <n> Werte · <n> Orte`, the
     /// story that claims it appended as `story=<id>`; `--json` prints every thread with its
@@ -2711,6 +2716,26 @@ fn story(command: StoryCommand) -> Result<(), Failure> {
                 .collect();
             println!(
                 "created {} number={} files={} ms={}",
+                report.id,
+                report.number,
+                files.join(","),
+                report.ms
+            );
+            for warning in &report.warnings {
+                println!("warning {warning}");
+            }
+            Ok(())
+        }
+        StoryCommand::Delete { project, id } => {
+            let project = Project::open(&project)?;
+            let report = stories::delete_story_files(&project, &id)?;
+            let files: Vec<String> = report
+                .files
+                .iter()
+                .map(|f| f.to_string_lossy().replace('\\', "/"))
+                .collect();
+            println!(
+                "deleted {} number={} files={} ms={}",
                 report.id,
                 report.number,
                 files.join(","),

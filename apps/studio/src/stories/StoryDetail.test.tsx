@@ -4,12 +4,12 @@ import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { entityIds, listFlags, threadGraph } from "../api";
+import { entityIds, listFlags, storyDelete, threadGraph } from "../api";
 import type { FlagListDto, ProjectInfo } from "../api";
 import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
 import { invalidateFlagLists } from "../flags/useFlagList";
 import { typeInto } from "../ui/primitives/testUtils";
-import { graphOf, storyDto } from "./storiesTesting";
+import { graphOf, storyDto, storyReport } from "./storiesTesting";
 import { StoryDetail } from "./StoryDetail";
 
 vi.mock("../api", async (importOriginal) => ({
@@ -17,6 +17,7 @@ vi.mock("../api", async (importOriginal) => ({
   threadGraph: vi.fn(),
   listFlags: vi.fn(),
   entityIds: vi.fn(),
+  storyDelete: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -39,6 +40,7 @@ describe("StoryDetail", () => {
   let root: Root;
   const goTo = vi.fn();
   const onUpdate = vi.fn<Props["onUpdate"]>();
+  const onDeleted = vi.fn<Props["onDeleted"]>();
   // The graph is a lazy chunk: loaded once here, its `React.lazy` resolves at once.
   beforeAll(async () => {
     await import("./graph/ThreadGraph");
@@ -53,6 +55,8 @@ describe("StoryDetail", () => {
     vi.mocked(entityIds).mockReset().mockImplementation(async (kind): Promise<Record<number, string>> => (kind === "Trainer" ? { 42: "TRAINER_0042" } : kind === "Map" ? { 411: "MAP_ZWEIBLATTDORF" } : {}));
     goTo.mockReset();
     onUpdate.mockReset().mockResolvedValue(undefined);
+    onDeleted.mockReset();
+    vi.mocked(storyDelete).mockReset();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -60,7 +64,7 @@ describe("StoryDetail", () => {
   });
 
   const show = async (over: Partial<Props> = {}) => {
-    await act(async () => root.render(<StoryDetail story={storyDto(0)} depth="bauen" goTo={goTo} onUpdate={onUpdate} project={project} revision={0} {...over} />));
+    await act(async () => root.render(<StoryDetail story={storyDto(0)} depth="bauen" goTo={goTo} onUpdate={onUpdate} onDeleted={onDeleted} project={project} revision={0} {...over} />));
     await flush();
   };
   const detail = () => container.querySelector<HTMLElement>("[data-story-detail]")!;
@@ -190,5 +194,65 @@ describe("StoryDetail", () => {
     expect(chip.textContent).toContain("0x4040");
     await click(chip.matches("button") ? chip : chip.querySelector("button"));
     expect(goTo).toHaveBeenLastCalledWith({ kind: "flag", flagKind: "var", number: 0x4040 });
+  });
+
+  it("deleting_asks_and_calls_story_delete", async () => {
+    await show();
+    const dialog = () => document.querySelector<HTMLElement>("[role=dialog][data-story-delete-dialog]");
+    const button = (label: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((b) => b.textContent === label);
+    // Opens the menu the way a pointer does (a click on an item in jsdom leaves it open: then it is not toggled shut) and returns its items.
+    const openMenu = () => {
+      const trigger = detail().querySelector<HTMLElement>("button[aria-label='Aktionen']")!;
+      if (trigger.getAttribute("aria-expanded") === "true") return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+      act(() => {
+        trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0 }));
+        trigger.click();
+      });
+      return [...document.querySelectorAll<HTMLElement>("[role=menuitem]")];
+    };
+    // The menu „Aktionen“ of the head has „Geschichte löschen…“; choosing it asks first and deletes nothing.
+    const items = openMenu();
+    expect(items.map((i) => i.textContent)).toEqual(["Geschichte löschen…"]);
+    await click(items[0]);
+    await flush();
+    expect(dialog()?.querySelector("h2")?.textContent).toBe("Geschichte „Rivalin“ löschen?");
+    expect(dialog()?.textContent).toContain("Rückgängig mit ⌘Z");
+    expect([...dialog()!.querySelectorAll("button")].filter((b) => b.dataset.kind !== undefined).map((b) => b.textContent)).toEqual(["Abbrechen", "Löschen"]);
+    expect(dialog()!.querySelectorAll('button[data-kind="primary"]')).toHaveLength(1);
+    expect(storyDelete).not.toHaveBeenCalled();
+    // „Abbrechen“ closes without a call.
+    await click(button("Abbrechen"));
+    await flush();
+    expect(dialog()).toBeNull();
+    expect(storyDelete).not.toHaveBeenCalled();
+
+    // „Löschen“ calls story_delete once (a second click while it runs does nothing), then reports and closes.
+    const pending = deferred<ReturnType<typeof storyReport>>();
+    vi.mocked(storyDelete).mockImplementationOnce(() => pending.promise);
+    await click(openMenu()[0]);
+    await flush();
+    await click(button("Löschen"));
+    await click(button("Löschen"));
+    expect(storyDelete).toHaveBeenCalledExactlyOnceWith("STORY_0000");
+    expect(dialog()?.textContent).toContain("Lösche …");
+    expect(button("Löschen")?.disabled).toBe(true);
+    expect(button("Abbrechen")?.disabled).toBe(true);
+    const report = storyReport(0);
+    await act(async () => pending.resolve(report));
+    await flush();
+    expect(onDeleted).toHaveBeenCalledExactlyOnceWith(report, "Rivalin");
+    expect(dialog()).toBeNull();
+
+    // A refusal keeps the dialog open with the kernel's sentence; nothing is reported.
+    onDeleted.mockClear();
+    vi.mocked(storyDelete).mockRejectedValueOnce({ code: "unknown_id", message: "Unbekannte ID: STORY_0000.", asset: null });
+    await click(openMenu()[0]);
+    await flush();
+    await click(button("Löschen"));
+    await flush();
+    expect(dialog()?.querySelector("[role=alert]")?.textContent).toBe("Unbekannte ID: STORY_0000.");
+    expect(button("Löschen")?.disabled).toBe(false);
+    expect(onDeleted).not.toHaveBeenCalled();
   });
 });

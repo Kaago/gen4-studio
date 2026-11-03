@@ -40,6 +40,8 @@ export type StoriesSurfaceProps = {
   onCreated: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step). */
   onUpdated?: (r: StoryReport) => void;
+  /** A story was deleted (one undo step, ⌘Z brings it back): the report and its name, for the app's toast and history. */
+  onDeleted?: (r: StoryReport, name: string) => void;
   /** What failed after a write went in (the report's warnings). */
   onError: (t: string) => void;
   /** „Projekt öffnen“ of the empty state without a project; without it the empty state offers nothing. */
@@ -58,7 +60,7 @@ const COLUMNS: readonly TableColumn[] = [
  * (locked in the DSPRE layout, with „Als Textprojekt einrichten…“ below), and the detail of the chosen story under the table.
  */
 export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
-  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onError, onOpenProject } = props;
+  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onDeleted, onError, onOpenProject } = props;
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
   const [creating, setCreating] = useState(false);
@@ -79,6 +81,12 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const update = async (id: string, patch: StoryPatch) => {
     const report = await storyUpdate(id, patch);
     onUpdated?.(report);
+    for (const warning of report.warnings) onError(warning);
+  };
+  // The deleted story's detail goes: nothing is chosen, the list is read again (the app's revision moves).
+  const deleted = (report: StoryReport, name: string) => {
+    onSelect(null);
+    onDeleted?.(report, name);
     for (const warning of report.warnings) onError(warning);
   };
 
@@ -166,7 +174,16 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
           ) : story === null ? (
             <p className={styles.note}>Geschichte wird gelesen …</p>
           ) : (
-            <StoryDetail key={chosen.id} story={story} depth={depth} goTo={goTo} onUpdate={(patch) => update(chosen.id, patch)} project={project} revision={revision} />
+            <StoryDetail
+              key={chosen.id}
+              story={story}
+              depth={depth}
+              goTo={goTo}
+              onUpdate={(patch) => update(chosen.id, patch)}
+              onDeleted={deleted}
+              project={project}
+              revision={revision}
+            />
           )}
         </>
       )}

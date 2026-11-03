@@ -1,11 +1,11 @@
-//! Making and changing a story, each as one file step on the undo stack, and the list of the
-//! stories.
+//! Making, changing and deleting a story, each as one file step on the undo stack, and the list
+//! of the stories.
 //!
 //! A story is no store asset (no member, no build step; see `docs/formats/stories.md`
-//! „Dateischritt statt Store-Asset“): [`create_story`] and [`update_story`] write the register,
-//! the story file and the side file at once and record them as one [`FileStep`] of kind
-//! [`FileStepKind::Reset`] on the header table, the way naming a flag does. Undo and redo move
-//! the files back and forth; there is no „unsaved“ story.
+//! „Dateischritt statt Store-Asset“): [`create_story`], [`update_story`] and [`delete_story`]
+//! write the register, the story file and the side file at once and record them as one
+//! [`FileStep`] of kind [`FileStepKind::Reset`] on the header table, the way naming a flag does.
+//! Undo and redo move the files back and forth; there is no „unsaved“ story.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -70,10 +70,10 @@ pub struct StoryPatch {
     pub layout: Option<Layout>,
 }
 
-/// What [`create_story`] or [`update_story`] did: the story's id and number, the files of the
-/// step (relative to the root, in the order written), the change on the undo stack (`None`
-/// without a store), how long it took, and what failed after the files were written
-/// (`warnings`, as in [`NameReport`](crate::flags::NameReport)).
+/// What [`create_story`], [`update_story`] or [`delete_story`] did: the story's id and number,
+/// the files of the step (relative to the root, in the order written), the change on the undo
+/// stack (`None` without a store), how long it took, and what failed after the files were
+/// written (`warnings`, as in [`NameReport`](crate::flags::NameReport)).
 #[derive(Debug, Clone, Serialize)]
 pub struct StoryReport {
     pub id: String,
@@ -144,6 +144,33 @@ pub fn update_story_files(
     let started = Instant::now();
     project.editable()?;
     let prepared = prepare_update(project, id, patch)?;
+    let warnings = apply(project, &prepared.step)?;
+    Ok(prepared.report(started, warnings))
+}
+
+/// Removes story `id`: its JSON, its side file and its register entry, as one file step
+/// labelled „Geschichte „<name>“ gelöscht“ (the id when the file does not read); undo brings
+/// all three back byte-equal. No tombstone and nothing to free: nothing points at a story, so
+/// its number is free again at once. A file that is missing already (a register entry without
+/// its file) is left out of the step. Refused before anything is written: not a current text
+/// project ([`NOT_A_TEXT_PROJECT`](crate::textproject::rename::NOT_A_TEXT_PROJECT)), an id the
+/// register does not have ([`unknown_id_text`](crate::textproject::ids::unknown_id_text)).
+pub fn delete_story(store: &mut Store, id: &str) -> Result<StoryReport, KernelError> {
+    let started = Instant::now();
+    let project = store.project_arc();
+    project.editable()?;
+    let prepared = prepare_delete(&project, id)?;
+    let warnings = apply(&project, &prepared.step)?;
+    let mut report = prepared.report(started, warnings);
+    report.change = Some(store.record_file_step(&prepared.label, prepared.step));
+    Ok(report)
+}
+
+/// [`delete_story`] without a store (`g4k`, tests): the same files go, no undo.
+pub fn delete_story_files(project: &Project, id: &str) -> Result<StoryReport, KernelError> {
+    let started = Instant::now();
+    project.editable()?;
+    let prepared = prepare_delete(project, id)?;
     let warnings = apply(project, &prepared.step)?;
     Ok(prepared.report(started, warnings))
 }
@@ -378,6 +405,43 @@ fn prepare_update(
         return refuse(NOTHING_TO_CHANGE);
     }
     let label = format!("Geschichte „{}“ geändert", story.name);
+    Ok(Prepared::new(id.to_owned(), number, label, files))
+}
+
+/// Checks a delete and makes its step: the register without `id`, the story file and the side
+/// file removed (each only when it is there).
+fn prepare_delete(project: &Project, id: &str) -> Result<Prepared, KernelError> {
+    text_project(project)?;
+    let root = &project.root;
+    let registry = Registry::load(root, SymbolKind::Story)?;
+    let Some(number) = registry.ids.get(id).and_then(|&n| u16::try_from(n).ok()) else {
+        return refuse(unknown_id_text(id));
+    };
+    let mut ids = registry.ids.clone();
+    ids.remove(id);
+    let register = Path::new(IDS_DIR).join(registry_file(SymbolKind::Story).unwrap_or_default());
+    let mut files = vec![FileChange {
+        before: read_optional(root, &register)?,
+        after: Some(to_canonical(&ids)),
+        path: register,
+    }];
+    let (rel, side) = (story_rel(number), layout_rel(number));
+    let story = read_optional(root, &rel)?;
+    let name = story
+        .as_deref()
+        .and_then(|bytes| serde_json::from_slice::<Story>(bytes).ok())
+        .map_or_else(|| id.to_owned(), |story| story.name);
+    let layout = read_optional(root, &side)?;
+    for (path, before) in [(rel, story), (side, layout)] {
+        if before.is_some() {
+            files.push(FileChange {
+                path,
+                before,
+                after: None,
+            });
+        }
+    }
+    let label = format!("Geschichte „{name}“ gelöscht");
     Ok(Prepared::new(id.to_owned(), number, label, files))
 }
 

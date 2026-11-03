@@ -321,6 +321,77 @@ fn story_create_and_update_over_the_command_path_are_one_undo_step_each() {
 }
 
 #[test]
+fn story_delete_over_the_command_path() {
+    let (fx, state) = text_project();
+    story_create_impl(&state, request("Starter", Progress::Var(STARTER.into()))).unwrap();
+    let files = [
+        "data/ids/stories.json",
+        "data/stories/0000.json",
+        "data/stories/0000.layout.json",
+    ];
+    let read = || files.map(|rel| std::fs::read(fx.root().join(rel)).ok());
+    let before = read();
+
+    // An unknown id is refused with its code and writes nothing.
+    let err = story_delete_impl(&state, "STORY_NOPE".into()).unwrap_err();
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        ("unknown_id", unknown_id_text("STORY_NOPE").as_str())
+    );
+    assert_eq!(history_impl(&state).unwrap().undo.len(), 1);
+
+    let report = story_delete_impl(&state, "STORY_STARTER".into()).unwrap();
+    assert_eq!((report.id.as_str(), report.number), ("STORY_STARTER", 0));
+    assert!(report.change.is_some());
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(
+        history_impl(&state).unwrap().undo,
+        [
+            "Geschichte „Starter“ angelegt",
+            "Geschichte „Starter“ gelöscht"
+        ]
+    );
+    assert!(!fx.root().join("data/stories/0000.json").exists());
+    assert!(!fx.root().join("data/stories/0000.layout.json").exists());
+    assert!(story_list_impl(&state).unwrap().stories.is_empty());
+    let err = story_get_impl(&state, "STORY_STARTER".into()).unwrap_err();
+    assert_eq!(err.code, "unknown_id");
+
+    // Over the dispatch table, as the bridge and MCP call it: the story is gone already.
+    let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+    match dispatch(
+        &state,
+        &policy,
+        "story_delete",
+        json!({ "id": "STORY_STARTER" }),
+    ) {
+        Err(crate::commands::dispatch::DispatchError::Cmd(e)) => assert_eq!(e.code, "unknown_id"),
+        other => panic!("expected unknown_id, got {:?}", other.map(|_| ())),
+    }
+
+    // One undo brings register entry, story and side file back byte-equal; redo takes them again.
+    undo_impl(&state).unwrap();
+    assert_eq!(read(), before);
+    assert_eq!(
+        story_get_impl(&state, "STORY_STARTER".into())
+            .unwrap()
+            .story
+            .name,
+        "Starter"
+    );
+    redo_impl(&state).unwrap();
+    assert!(story_list_impl(&state).unwrap().stories.is_empty());
+
+    // In the DSPRE layout there is nothing to delete.
+    let (_s, dspre) = open_synthetic();
+    let err = story_delete_impl(&dspre, "STORY_STARTER".into()).unwrap_err();
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        ("not_text_project", NOT_A_TEXT_PROJECT)
+    );
+}
+
+#[test]
 fn story_create_refuses_the_dspre_layout() {
     let (_s, state) = open_synthetic();
     let err =

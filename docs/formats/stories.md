@@ -7,7 +7,7 @@ ein Flag), und jeder Schritt steht für einen Wert davon. Der Build erzeugt nich
 bleibt byte-gleich. Implementierung: `crates/g4-kernel/src/stories.rs`, `stories/schema.rs`
 (`Story`, `Step`, `StepKind`, `Use`, `Progress`, `Layout`, `check_file`, `read_story`,
 `read_layout`, `number_of`), `stories/entities.rs` (`create_story`, `update_story`,
-`list_stories`), `textproject/kinds.rs` (`DATA_KINDS`, dritte Datenart).
+`delete_story`, `list_stories`), `textproject/kinds.rs` (`DATA_KINDS`, dritte Datenart).
 
 Begründung: [Gutachten A](../research/2026-10-30-phase-3d/gutachten-a-geschichten-erzaehlen.md)
 §3.2 (Modell (c), Mischform: Verweis-Modell plus Rezepte, die einmalig erzeugen) und
@@ -156,10 +156,11 @@ Registereintrag und keine Datei). Ein Registereintrag ohne Datei ist `textprojec
 Die Spezifikation nennt eine Store-Art `Story` (kein Member, kein Build-Schritt). Umgesetzt ist die
 Geschichte **ohne** Store-Asset: `AssetKind::ALL` zählt Archive, Build und Pack, ein Asset ohne
 Member bräuchte eine neue Art von Ablageort im Store, und den baut Phase 3d.4 zur selben Zeit um.
-Anlegen und Ändern sind darum je **ein** `FileStep` (Asset: die Header-Tabelle, Art
+Anlegen, Ändern und Löschen sind darum je **ein** `FileStep` (Asset: die Header-Tabelle, Art
 `FileStepKind::Reset`) mit Register, Geschichte und Beifile, aufgezeichnet über
 `Store::record_file_step`, wie „Als eigenes Flag benennen…“. ⌘Z, Verlauf und Label gelten wie bei
-jeder anderen Änderung (`Geschichte „Testfaden“ angelegt`, `Geschichte „Testfaden“ geändert`);
+jeder anderen Änderung (`Geschichte „Testfaden“ angelegt`, `Geschichte „Testfaden“ geändert`,
+`Geschichte „Testfaden“ gelöscht`);
 „ungespeichert“ gibt es für Geschichten nicht, die Dateien sind mit dem Schritt geschrieben. Undo
 und Redo prüfen jede Datei gegen ihre Seite und lehnen ab, wenn ein anderes Werkzeug sie
 inzwischen geändert hat.
@@ -263,7 +264,7 @@ Liste kommt mit der Fläche der Geschichten.
 
 ## Befehle
 
-Die App, die Brücke und MCP (`docs/mcp.md`, Tabelle „Werkzeuge“) haben sechs Befehle, alle
+Die App, die Brücke und MCP (`docs/mcp.md`, Tabelle „Werkzeuge“) haben sieben Befehle, alle
 unter dem Sitzungsschloss:
 
 | Befehl | Art | Was er tut |
@@ -274,6 +275,7 @@ unter dem Sitzungsschloss:
 | `story_get {id}` | lesend | Geschichte, Beifile (leer ohne Datei), Nummer und `progress_number` (die Nummer des Fortschritts) |
 | `story_create {req}` | schreibend | `create_story` als ein Undo-Schritt |
 | `story_update {id, patch}` | schreibend | `update_story` als ein Undo-Schritt |
+| `story_delete {id}` | schreibend | `delete_story` als ein Undo-Schritt (siehe „Löschen“) |
 
 Ablehnungen haben Codes: `not_text_project` (`Kein Textprojekt: …`), `unknown_id` (eine Geschichte
 oder ein Fortschritt, die nichts nennen), `refused` (leerer Name, Schlüssel doppelt, `Nichts zu
@@ -289,6 +291,9 @@ Variable); die Oberfläche entscheidet mit `progress_number`, was sie zeigt.
 - `g4k story get <project> <id>`: JSON `{number, story, layout}`;
 - `g4k story create <project> --name … (--var VAR_… | --flag FLAG_…) [--notes …]`: druckt
   `created STORY_… number=0 files=data/ids/stories.json,data/stories/0000.json,data/stories/0000.layout.json ms=…`;
+- `g4k story delete <project> <id>`: druckt
+  `deleted STORY_… number=0 files=data/ids/stories.json,data/stories/0000.json,data/stories/0000.layout.json ms=…`
+  (ohne Undo; eine unbekannte ID endet mit 1 und schreibt nichts);
 - `g4k story threads <project> [--json]`: eine Zeile je Faden, `0x4030 VAR_PLAYER_STARTER 3 Werte · 2 Orte`
   (der eigene Name vor dem pret-Namen, `story=<id>` angehängt, wenn eine Geschichte ihn beansprucht);
   `--json` alle Fäden mit ihren Verweisen;
@@ -296,5 +301,24 @@ Variable); die Oberfläche entscheidet mit `progress_number`, was sie zeigt.
 
 ## Löschen
 
-Folgt mit Teil B (`story_delete`: ein Dateischritt, der Geschichte, Beifile und Registereintrag
-entfernt).
+`delete_story(store, id)` (Befehl `story_delete {id}`) entfernt die Geschichte als **ein**
+Dateischritt „Geschichte „Name“ gelöscht“ (der Name aus der Datei; lässt sie sich nicht lesen,
+die ID): der Eintrag geht aus `data/ids/stories.json`, `data/stories/NNNN.json` und
+`NNNN.layout.json` werden entfernt (`FileChange { after: None }`; eine Datei, die schon fehlt,
+gehört nicht zum Schritt). ⌘Z stellt alle drei byte-gleich her, das Beifile mit seinen
+Positionen; `git status` nach ⌘Z ist wie vor dem Löschen. Es gibt keinen Grabstein und nichts
+freizugeben: auf eine Geschichte verweist nichts, ihre Nummer ist sofort wieder frei, das nächste
+Anlegen nimmt die kleinste freie (`0000`, wenn es die einzige war).
+
+Abgelehnt wird vor jedem Schreiben: kein aktuelles Textprojekt (`not_text_project`), eine ID, die
+das Register nicht hat (`unknown_id`, `Unbekannte ID: STORY_X.`). Ohne Store
+(`delete_story_files`, für `g4k` und Tests) gehen dieselben Dateien ohne Undo.
+
+`delete_entity` (3d.4) nimmt keine Geschichte: sein Ziel ist ein `DeleteTarget` mit festen Arten
+(Grabstein- und Freigabe-Regeln je Art), keine Art als Text; `story_delete` bleibt der einzige Weg.
+
+In der Oberfläche steht „Geschichte löschen…“ im Menü „Aktionen“ am Kopf des Details
+(Geschichten › Geschichten). Der Dialog „Geschichte „Name“ löschen?“ sagt „Die Datei der
+Geschichte, ihr Layout und ihr Registereintrag gehen. Rückgängig mit ⌘Z.“ und hat „Abbrechen“ und
+„Löschen“ (primär); während es läuft „Lösche …“, eine Ablehnung bleibt im Dialog. Danach ist
+nichts mehr gewählt, die Liste wird neu gelesen, die App meldet „Geschichte „Name“ gelöscht“.

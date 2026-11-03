@@ -20,6 +20,7 @@ use commands::close_project;
 use commands::git_commit_prepare;
 use commands::resolve_text_conflicts;
 use commands::split_room;
+use commands::story_delete;
 use commands::{
     accept_baseline, accept_disk, add_building, add_event, add_script, adopt_scripts, apply_fix,
     apply_header_patch, build_rom, checks_status, create_area, create_encounter_file,
@@ -269,7 +270,8 @@ pub fn run() {
             dialogs_of_header,
             plan_delete,
             delete_entity,
-            restore_entity
+            restore_entity,
+            story_delete
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,6 +1,7 @@
 #![cfg(feature = "test-support")]
 //! Stories in the text project: export and import leave them alone, the check and the source
-//! list know their files (synthetic Platinum fixture). Gated (`G4_TEST_PROJECT`, the base ROM
+//! list know their files, deleting one is one undo step that frees its number (synthetic
+//! Platinum fixture). Gated (`G4_TEST_PROJECT`, the base ROM
 //! next to it, and a `git` CLI): a vanilla copy set up as text project in Git with one story
 //! builds the base ROM byte-equal, and the story's files are in the index. Prints one line
 //! (`story-git …`) for the gate document.
@@ -8,15 +9,22 @@ mod common;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
 use g4_kernel::base::BaseRom;
 use g4_kernel::build::build;
+use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, names};
 use g4_kernel::git::{CommitOptions, GitCli, GitRepo, InitOptions, commit_all, git_init};
 use g4_kernel::project::Project;
 use g4_kernel::start::assign_base;
-use g4_kernel::stories::{Progress, StoryRequest, create_story_files};
+use g4_kernel::store::Store;
+use g4_kernel::stories::{
+    Layout, Position, Progress, StoryPatch, StoryRequest, create_story, create_story_files,
+    delete_story, delete_story_files, list_stories, update_story_files,
+};
+use g4_kernel::textproject::ids::unknown_id_text;
 use g4_kernel::textproject::{self, ExportOptions, adopt::adopt, check, export, import, sources};
 use sha1::{Digest, Sha1};
 
@@ -107,6 +115,126 @@ fn check_lists_the_story_files_as_sources() {
     assert_eq!(problem.file, Path::new("data/stories/0000.json"));
     assert_eq!(problem.line, 4);
     assert!(report.differs.is_empty(), "{:?}", report.differs);
+}
+
+/// The bytes of `rel`, `None` when the file is missing.
+fn bytes_of(fx: &TextFixture, rel: &str) -> Option<Vec<u8>> {
+    std::fs::read(fx.root().join(rel)).ok()
+}
+
+#[test]
+fn delete_removes_both_files_and_the_register_entry_as_one_undo_step() {
+    let fx = TextFixture::exported();
+    let mut store = Store::new(Arc::new(fx.project()));
+    create_story(&mut store, &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    // A second story stays in the register; the layout of the first has positions.
+    create_story_files(&fx.project(), &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    let layout = Layout {
+        nodes: [
+            ("s1".to_owned(), Position { x: 120.0, y: -40.5 }),
+            ("s2".to_owned(), Position { x: 0.25, y: 300.0 }),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    update_story_files(
+        &fx.project(),
+        "STORY_TESTFADEN",
+        &StoryPatch {
+            layout: Some(layout),
+            ..StoryPatch::default()
+        },
+    )
+    .unwrap();
+    let before = story_files(&fx);
+    let register = fx.read("data/ids/stories.json");
+    let undo_before = store.history().0.len();
+
+    let report = delete_story(&mut store, "STORY_TESTFADEN").unwrap();
+    assert_eq!((report.id.as_str(), report.number), ("STORY_TESTFADEN", 0));
+    assert!(report.change.is_some());
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert_eq!(
+        report.files,
+        STORY_FILES.iter().map(PathBuf::from).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        store.history().0.last().map(String::as_str),
+        Some("Geschichte „Testfaden“ gelöscht")
+    );
+    assert_eq!(store.history().0.len(), undo_before + 1);
+    assert_eq!(bytes_of(&fx, "data/stories/0000.json"), None);
+    assert_eq!(bytes_of(&fx, "data/stories/0000.layout.json"), None);
+    assert_eq!(
+        fx.text("data/ids/stories.json"),
+        "{\n  \"STORY_TESTFADEN_2\": 1\n}\n"
+    );
+    let left: Vec<u16> = list_stories(&fx.project())
+        .unwrap()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert_eq!(left, [1]);
+    // The check finds nothing: no file without its register entry, no entry without a file.
+    let checked = textproject::check(&fx.project()).unwrap();
+    assert!(checked.problems.is_empty(), "{:#?}", checked.problems);
+
+    // One undo brings all three back, byte-equal (the layout with its positions too).
+    store.undo().unwrap();
+    let after: BTreeMap<_, _> = story_files(&fx)
+        .into_iter()
+        .map(|(rel, (bytes, _))| (rel, bytes))
+        .collect();
+    let expected: BTreeMap<_, _> = before
+        .into_iter()
+        .map(|(rel, (bytes, _))| (rel, bytes))
+        .collect();
+    assert_eq!(after, expected);
+    assert_eq!(fx.read("data/ids/stories.json"), register);
+    assert_eq!(store.history().0.len(), undo_before);
+
+    // Redo removes them again.
+    store.redo().unwrap();
+    assert_eq!(bytes_of(&fx, "data/stories/0000.json"), None);
+    assert_eq!(bytes_of(&fx, "data/stories/0000.layout.json"), None);
+}
+
+#[test]
+fn delete_of_an_unknown_id_is_unknown_id() {
+    let fx = TextFixture::exported();
+    let mut store = Store::new(Arc::new(fx.project()));
+    create_story(&mut store, &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    let before = story_files(&fx);
+    let undo = store.history().0.len();
+    for result in [
+        delete_story(&mut store, "STORY_NOPE"),
+        delete_story_files(&fx.project(), "STORY_NOPE"),
+    ] {
+        match result {
+            Err(KernelError::Refused(why)) => assert_eq!(why, unknown_id_text("STORY_NOPE")),
+            other => panic!("expected unknown id, got {other:?}"),
+        }
+    }
+    assert_eq!(story_files(&fx), before);
+    assert_eq!(store.history().0.len(), undo);
+}
+
+#[test]
+fn a_deleted_number_is_free_again() {
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    create_story_files(&p, &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    let second = create_story_files(&p, &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    assert_eq!(second.number, 1);
+    let report = delete_story_files(&p, "STORY_TESTFADEN").unwrap();
+    assert_eq!((report.number, report.change), (0, None));
+    assert_eq!(bytes_of(&fx, "data/stories/0000.json"), None);
+
+    // Nothing points at a story: the next one takes number 0000 and the id again.
+    let next = create_story_files(&p, &testfaden("VAR_UNUSED_0x406C")).unwrap();
+    assert_eq!((next.id.as_str(), next.number), ("STORY_TESTFADEN", 0));
+    assert!(fx.root().join("data/stories/0000.json").is_file());
+    assert!(fx.root().join("data/stories/0000.layout.json").is_file());
 }
 
 /// The isolated `git` with an identity from the environment (as in `tests/git.rs`); `None`

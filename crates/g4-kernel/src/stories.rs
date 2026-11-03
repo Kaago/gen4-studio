@@ -5,9 +5,9 @@
 //! ([`DATA_KINDS`](crate::textproject::kinds::DATA_KINDS)): export, import and the build leave
 //! it alone, the check judges its files ([`schema::check_file`]).
 //!
-//! A story is no store asset: making and changing one are each one file step on the undo
-//! stack ([`entities::create_story`], [`entities::update_story`]), written at once like naming a
-//! flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know,
+//! A story is no store asset: making, changing and deleting one are each one file step on the
+//! undo stack ([`entities::create_story`], [`entities::update_story`],
+//! [`entities::delete_story`]), written at once like naming a flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know,
 //! or a use of an entity with a tombstone, is a warning (`story.dangling-ref`), never a refusal;
 //! deleting what a story names is never locked by it, the delete plan lists the stories
 //! ([`uses::mentions_of`]). The format is documented in `docs/formats/stories.md`.
@@ -23,8 +23,8 @@ pub mod uses;
 
 pub use entities::{
     NOTHING_TO_CHANGE, StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story,
-    create_story_files, duplicate_key_text, list_stories, name_empty_text, update_story,
-    update_story_files,
+    create_story_files, delete_story, delete_story_files, duplicate_key_text, list_stories,
+    name_empty_text, update_story, update_story_files,
 };
 pub use schema::{
     DANGLING_REF_CODE, Layout, Made, Position, Progress, STORIES_DIR, Step, StepKind, Story, Use,
