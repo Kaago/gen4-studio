@@ -982,7 +982,8 @@ impl<'a> Call<'a> {
     /// a `dir` outside `build/`) answers the refusals of `check_publish_patch` unasked and names
     /// the patch file; `git_commit_all` answers `unsaved`, `no_repo`, `enclosing_repo`,
     /// `no_git` and `nothing_to_commit` unasked. `delete_entity` (asked only with the number
-    /// freed) names the entity.
+    /// freed) answers the refusals of `check_free_number` unasked (an entity that does not
+    /// exist, a read-only one, `cannot_free`, references) and names the entity.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -1033,16 +1034,20 @@ impl<'a> Call<'a> {
                 crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
             }
-            // „Nummer freigeben: Trainer 0002“; a target that is none is refused by the command.
-            ("delete_entity", _) => Ok(args
-                .get("target")
-                .and_then(|target| {
+            // „Nummer freigeben: Trainer 0002“, after the plan: a refusal comes back unasked.
+            // A target that is none is refused by the command.
+            ("delete_entity", shared) => {
+                let target = args.get("target").and_then(|target| {
                     serde_json::from_value::<g4_kernel::delete::DeleteTarget>(target.clone()).ok()
-                })
-                .map_or_else(
-                    || why.to_owned(),
-                    |target| format!("{why}: {}", target.label()),
-                )),
+                });
+                let Some(target) = target else {
+                    return Ok(why.to_owned());
+                };
+                if shared.is_some() {
+                    crate::commands::check_free_number(self.state, target)?;
+                }
+                Ok(format!("{why}: {}", target.label()))
+            }
             _ => Ok(why.to_owned()),
         }
     }
@@ -4778,16 +4783,43 @@ mod tests {
         assert_eq!(history(&toolbox)["undo"], json!([]));
     }
 
+    /// The synthetic text project (exported) open in a state of the "app" with agents allowed,
+    /// a write grant and expert mode, its packed archives with one trainer as the base on this
+    /// thread (the header-only ROM holds none; so trainers 1 and up are new); a toolbox over
+    /// it and the number of trainers.
+    fn shared_text_project() -> (
+        g4_kernel::test_support::TextFixture,
+        Arc<AppState>,
+        Toolbox,
+        u16,
+    ) {
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        state.agents.set_expert(true).unwrap();
+        let trainers =
+            crate::commands::data_list_impl(&state, crate::commands::DataKind::Trainer, None)
+                .unwrap()
+                .len();
+        crate::commands::delete::use_test_base(fx.root(), Some(1));
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        (fx, state, toolbox, u16::try_from(trainers).unwrap())
+    }
+
     /// „Nummer freigeben“ asks the user with the entity's name, through the curated tool and
     /// through g4_call with the curated tool's key; a no frees nothing.
     #[test]
     fn free_number_question_names_the_entity() {
         use g4_kernel::delete::DeleteTarget;
-        let (fixture, state, toolbox) = shared_app();
-        grant(&state, &fixture, GrantLevel::Write);
-        state.agents.set_expert(true).unwrap();
-        let target = json!({ "kind": "trainer", "index": 2 });
-        let label = DeleteTarget::Trainer { index: 2 }.label();
+        let (_fx, state, toolbox, trainers) = shared_text_project();
+        let index = trainers - 1;
+        let target = json!({ "kind": "trainer", "index": index });
+        let label = DeleteTarget::Trainer { index }.label();
         assert!(label.starts_with("Trainer "), "{label}");
         for (tool, args) in [
             (
@@ -4811,6 +4843,35 @@ mod tests {
             );
             assert_eq!(code, "needs_confirmation", "{tool}: {message}");
         }
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+    }
+
+    /// Gate 3d.4 B10: „Nummer freigeben“ of a trainer that does not exist, or of one with
+    /// living trainers behind it, comes back to the agent unasked with the plan's refusal.
+    #[test]
+    fn free_number_refuses_before_asking() {
+        let (_fx, state, toolbox, trainers) = shared_text_project();
+        let unasked = |index: u16| {
+            let args =
+                json!({ "target": { "kind": "trainer", "index": index }, "free_number": true });
+            let (code, message, _) = failed(toolbox.call("delete_entity", args, AGENT));
+            assert_eq!(state.agents.status().question, None, "{message}");
+            (code, message)
+        };
+        assert_eq!(
+            unasked(trainers),
+            (
+                "error".to_owned(),
+                format!("Trainer {trainers:04} gibt es nicht.")
+            )
+        );
+        assert_eq!(
+            unasked(trainers - 2),
+            (
+                "error".to_owned(),
+                g4_kernel::delete::later_entries_live(trainers - 2, 1)
+            )
+        );
         assert!(history_impl(&state).unwrap().undo.is_empty());
     }
 

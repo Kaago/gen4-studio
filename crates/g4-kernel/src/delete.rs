@@ -19,7 +19,7 @@ mod tombstone;
 mod types;
 pub mod warps;
 
-pub use free::{IRREVERSIBLE, free_number};
+pub use free::{IRREVERSIBLE, check_free, free_number};
 pub use plan::{
     CANNOT_FREE_ORIGINAL, DeletePlan, FreeInfo, IDENTIFIER_FIELD, PLACE_ONLY_LAST, guard_header,
     guard_reference, later_entries_live, locked_refusal, plan_delete,

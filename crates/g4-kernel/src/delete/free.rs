@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use g4_formats::data::trainer_text::TrainerTextOffsets;
 
-use super::plan::plan_delete;
+use super::plan::{DeletePlan, FreeInfo, plan_delete};
 use super::tombstone::{DeleteResult, delete, ms_since};
 use super::types::DeleteTarget;
 use crate::data::names::{Bank, bank_index};
@@ -29,7 +29,54 @@ fn nothing_to_free(label: &str) -> String {
     format!("{label} hat keine Nummer, die sich freigeben lässt.")
 }
 
-/// [`delete`] and then the truncation: refused like the plan ([`plan_delete`]: its
+/// Whether „Nummer freigeben“ of `target` would go, changing nothing: the plan
+/// ([`plan_delete`]) and what it would remove, or the refusal [`free_number`] answers before
+/// anything changes: the plan's `cannot_free` (a read-only entity, an original, living entries
+/// behind it), a kind without a number of its own, the references that lock it or one of the
+/// tombstones behind it (but those from an entity freed with it), the base's error without a
+/// base ROM, an entity that does not exist. MCP asks the user only after this passed.
+pub fn check_free(
+    store: &mut Store,
+    refs: &mut RefIndex,
+    original: &dyn Original,
+    target: DeleteTarget,
+) -> Result<(DeletePlan, FreeInfo), KernelError> {
+    let plan = plan_delete(store, refs, original, target)?;
+    if let Some(why) = plan.cannot_free {
+        return Err(KernelError::Refused(why));
+    }
+    let Some(info) = plan.can_free.clone() else {
+        return Err(KernelError::Refused(nothing_to_free(&plan.label)));
+    };
+    let freed = freed_targets(target, &info);
+    // Every reference to them locks, but one from an entity freed with them.
+    let mut references = plan.references.clone();
+    for &later in freed.iter().skip(1) {
+        references.extend(plan_delete(store, refs, original, later)?.references);
+    }
+    references.retain(|r| {
+        DeleteTarget::of_asset(r.source.kind, r.source.index)
+            .is_none_or(|source| !freed.contains(&source))
+    });
+    if !references.is_empty() {
+        return Err(KernelError::Referenced {
+            label: plan.label,
+            references,
+        });
+    }
+    Ok((plan, info))
+}
+
+/// The entities „Nummer freigeben“ of `target` removes: it and the tombstones behind it.
+fn freed_targets(target: DeleteTarget, info: &FreeInfo) -> Vec<DeleteTarget> {
+    let first = target.number();
+    (0..info.count)
+        .filter_map(|k| u16::try_from(usize::from(first) + k).ok())
+        .map(|n| target.with_number(n))
+        .collect()
+}
+
+/// [`delete`] and then the truncation: refused like [`check_free`] ([`plan_delete`]: its
 /// `cannot_free`, the references that lock it or one of the tombstones behind it, the base's
 /// error without a base ROM). In a text project an entity of a kind with a tombstone gets it
 /// first (one step „Gelöscht: {label}“, unless it is deleted already); script files, text
@@ -50,33 +97,9 @@ pub fn free_number(
     target: DeleteTarget,
 ) -> Result<DeleteResult, KernelError> {
     let started = Instant::now();
-    let plan = plan_delete(store, refs, original, target)?;
-    if let Some(why) = plan.cannot_free {
-        return Err(KernelError::Refused(why));
-    }
-    let Some(info) = plan.can_free else {
-        return Err(KernelError::Refused(nothing_to_free(&plan.label)));
-    };
+    let (plan, info) = check_free(store, refs, original, target)?;
     let first = target.number();
-    let freed: Vec<DeleteTarget> = (0..info.count)
-        .filter_map(|k| u16::try_from(usize::from(first) + k).ok())
-        .map(|n| target.with_number(n))
-        .collect();
-    // Every reference to them locks, but one from an entity freed with them.
-    let mut references = plan.references;
-    for &later in freed.iter().skip(1) {
-        references.extend(plan_delete(store, refs, original, later)?.references);
-    }
-    references.retain(|r| {
-        DeleteTarget::of_asset(r.source.kind, r.source.index)
-            .is_none_or(|source| !freed.contains(&source))
-    });
-    if !references.is_empty() {
-        return Err(KernelError::Referenced {
-            label: plan.label,
-            references,
-        });
-    }
+    let freed = freed_targets(target, &info);
     store.project().editable()?;
     if store.busy().is_some() {
         // The barrier would be refused after the files went.

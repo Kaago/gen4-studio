@@ -58,12 +58,35 @@ fn current<'s>(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests on this thread: the base [`original_for`] answers instead of the found base ROM
+    /// (a fixture's header-only ROM holds no archives), see [`use_test_base`].
+    static TEST_BASE: std::cell::RefCell<Option<(std::path::PathBuf, Option<usize>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: on this thread the plan, the check and the delete read the base from the packed
+/// archives under `root`, with `trainers` trainers if given (so the ones from there on are
+/// new); for paths that find the base themselves, as MCP's question does.
+#[cfg(test)]
+pub(crate) fn use_test_base(root: &std::path::Path, trainers: Option<usize>) {
+    TEST_BASE.with(|base| *base.borrow_mut() = Some((root.to_path_buf(), trainers)));
+}
+
 /// The open project and the base ROM `target` is planned against, read without the session
 /// lock: `base_missing` without a found base ROM, unless the target needs none.
 fn original_for(
     state: &AppState,
     target: DeleteTarget,
 ) -> Result<(Arc<Project>, Box<dyn Original>), CmdError> {
+    #[cfg(test)]
+    if let Some((root, trainers)) = TEST_BASE.with(|base| base.borrow().clone()) {
+        return Ok((
+            super::open_project_arc(state)?,
+            Box::new(tests::Base::of(&root, trainers)),
+        ));
+    }
     match open_original(state) {
         Ok((project, base)) => Ok((project, Box::new(base))),
         Err(e) if e.code == "base_missing" && !target.needs_base() => Ok((
@@ -199,6 +222,20 @@ fn delete_in_session(
         session.scripts_written();
     }
     Ok(result)
+}
+
+/// Whether „Nummer freigeben“ of `target` would go, changing nothing: MCP checks it before it
+/// asks the user (gate 3d.4 B10), so a refusal (an entity that does not exist, a read-only one,
+/// living entries behind it, references, `base_missing`) goes back to the agent unasked.
+pub fn check_free_number(state: &AppState, target: DeleteTarget) -> Result<(), CmdError> {
+    let (project, base) = original_for(state, target)?;
+    let mut guard = super::lock(state)?;
+    let session = current(super::session(&mut guard)?, &project)?;
+    let Session { store, refs, .. } = &mut *session;
+    match delete::check_free(store, refs, base.as_ref(), target) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(CmdError::in_session(session, e)),
+    }
 }
 
 /// Takes the tombstone of `target` back as one undo step „Wiederhergestellt: {label}“;
