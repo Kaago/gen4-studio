@@ -10,7 +10,7 @@ import { placeColor } from "./places";
 import { useWorldActions } from "./RoomActions";
 import { useWorldModel } from "./useWorldModel";
 import { buildWorld } from "./worldModel";
-import { WorldTree, withoutDeleted } from "./WorldTree";
+import { WorldTree, withoutDeleted, worldCaption } from "./WorldTree";
 import type { WorldTreeProps } from "./WorldTree";
 import { chooseContext, contextTexts, resetSpy, withReset } from "../original/resetTesting";
 
@@ -436,5 +436,9 @@ describe("withoutDeleted", () => {
     expect(live.moreAreas).toEqual([]);
     expect(live.unconnected.map((r) => r.header.id)).toEqual([10]);
     expect(live.other.map((x) => x.id)).toEqual([0]);
+    // Gate 3d.4 B13: the caption counts what the tree shows, without the deleted rooms (4 and 9; 4 was assigned to an area).
+    expect(live.roomCount).toBe(3);
+    expect(live.assignedRooms).toBe(2);
+    expect(worldCaption(live, 0, false)).toBe("1 Weltkarte, 2 Gebiete, 3 Räume");
   });
 });

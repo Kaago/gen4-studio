@@ -144,11 +144,19 @@ export function filterWorld(world: World, query: string): World {
 /**
  * The world without the tombstones (3d.4): deleted rooms, deleted headers of an area (its sections in Tüfteln), an area whose headers all
  * are. The world maps stay. An area whose headers all are deleted but that has living rooms stays whole (its rooms would else have no
- * place in the tree).
+ * place in the tree). Its room counts are those of the rooms left.
  */
 export function withoutDeleted(world: World): World {
   const live = (h: HeaderSummary) => h.deleted !== true;
-  const rooms = (list: readonly Room[]) => list.filter((r) => live(r.header));
+  // The rooms that go, for the counts of the caption („494 Räume“ would count a deleted one).
+  let gone = 0;
+  let goneAssigned = 0;
+  const rooms = (list: readonly Room[], assigned = true) => {
+    const kept = list.filter((r) => live(r.header));
+    gone += list.length - kept.length;
+    if (assigned) goneAssigned += list.length - kept.length;
+    return kept;
+  };
   const areas = (list: readonly Area[]) =>
     list.flatMap((a) => {
       const kept = rooms(a.rooms);
@@ -156,12 +164,17 @@ export function withoutDeleted(world: World): World {
       if (headers.length > 0) return [{ ...a, headers, rooms: kept }];
       return kept.length > 0 ? [{ ...a, rooms: kept }] : [];
     });
+  const worldMaps = world.worldMaps.map((m) => ({ ...m, areas: areas(m.areas) }));
+  const moreAreas = areas(world.moreAreas);
+  const unconnected = rooms(world.unconnected, false);
   return {
     ...world,
-    worldMaps: world.worldMaps.map((m) => ({ ...m, areas: areas(m.areas) })),
-    moreAreas: areas(world.moreAreas),
-    unconnected: rooms(world.unconnected),
+    worldMaps,
+    moreAreas,
+    unconnected,
     other: world.other.filter(live),
+    roomCount: world.roomCount - gone,
+    assignedRooms: world.assignedRooms - goneAssigned,
   };
 }
 
@@ -689,7 +702,7 @@ export function WorldTree({
   return (
     <div className={styles.column}>
       <div className={styles.top}>
-        <p className={styles.caption}>{world !== null ? worldCaption(world, headers.length, tinker) : matricesFailed && !matricesLoaded ? "Übersicht nicht verfügbar" : "Lade Übersicht …"}</p>
+        <p className={styles.caption}>{sorted !== null ? worldCaption(sorted, byId.length, tinker) : matricesFailed && !matricesLoaded ? "Übersicht nicht verfügbar" : "Lade Übersicht …"}</p>
         <TextField type="search" label="Welt durchsuchen" placeholder="Gebiet, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
         <ShowDeleted checked={showDeleted} onChange={onShowDeleted} />
       </div>
