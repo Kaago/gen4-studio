@@ -719,6 +719,8 @@ describe("App wiring", () => {
     document.body.append(host);
     const chipRoot = createRoot(host);
     const chip = () => host.querySelector("[data-chip]")?.textContent;
+    // The message editor's debounced length check fires while this test waits, so it must be answered.
+    vi.mocked(validateText).mockResolvedValue([]);
     vi.mocked(storyGet).mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id }));
     vi.mocked(getEvents).mockResolvedValue({ event_file_id: 1, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 3, local_id: 4, graphics_id: 97, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, hidden_flag: 0, x: 4, z: 0, y: 0 }] });
     vi.mocked(recipePlan).mockResolvedValue({ cells: [], tiles: [], events: [], messages: [], notes: [], irreversible: [] });
