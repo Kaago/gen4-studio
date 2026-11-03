@@ -3096,6 +3096,12 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.locked.as_deref())
     }
 
+    /// Why asset `id` is read-only, loading it first ([`Store::locked`] for an asset not
+    /// loaded yet); `None` when it is editable.
+    pub fn load_locked(&mut self, id: AssetId) -> Result<Option<String>, KernelError> {
+        Ok(self.load(id)?.locked.clone())
+    }
+
     /// Whether the store holds `id` (it was read, edited or created since it was opened).
     pub fn is_loaded(&self, id: AssetId) -> bool {
         self.assets.contains_key(&id)

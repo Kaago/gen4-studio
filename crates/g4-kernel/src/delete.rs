@@ -22,7 +22,7 @@ pub mod warps;
 pub use free::{IRREVERSIBLE, free_number};
 pub use plan::{
     CANNOT_FREE_ORIGINAL, DeletePlan, FreeInfo, IDENTIFIER_FIELD, PLACE_ONLY_LAST, guard_header,
-    guard_reference, later_entries_live, plan_delete,
+    guard_reference, later_entries_live, locked_refusal, plan_delete,
 };
 pub use tombstone::{DeleteResult, delete, restore};
 pub use types::{

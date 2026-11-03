@@ -21,7 +21,7 @@ use crate::original::Original;
 use crate::places::{location_bank, location_names};
 use crate::project::{AssetKind, Project, SourceMode};
 use crate::scripts::{self, SourceKind};
-use crate::store::{MapHeader, Store};
+use crate::store::{MapHeader, PLACEHOLDER_REASON, Store};
 use crate::text::TextArchiveDoc;
 use crate::textproject::rename::sources_naming;
 
@@ -32,6 +32,17 @@ pub const PLACE_ONLY_LAST: &str =
     "Nur der letzte eigene Ort lässt sich entfernen; Orte rücken nicht nach.";
 /// The field of a reference from a script source that writes an own flag or variable name.
 pub const IDENTIFIER_FIELD: &str = "identifier";
+
+/// Why an entity the store holds read-only ([`Store::locked`]) is neither deleted nor freed:
+/// the placeholder trainer of the sight script slot ([`PLACEHOLDER_REASON`]) by name, any
+/// other lock with the store's reason.
+pub fn locked_refusal(label: &str, reason: &str) -> String {
+    if reason == PLACEHOLDER_REASON {
+        format!("{label} ist der Platzhalter des Sicht-Scripts und lässt sich nicht löschen.")
+    } else {
+        format!("{label} ist schreibgeschützt ({reason}) und lässt sich nicht löschen.")
+    }
+}
 
 /// Why number `n` is not freed: `m` later entries live (no moving up, a tombstone before a
 /// living entry stays); one in the singular.
@@ -63,7 +74,8 @@ pub struct DeletePlan {
     pub label: String,
     pub rule: Rule,
     /// Why a tombstone is refused ([`ORIGINAL_KIND`], [`NO_TOMBSTONE_FOR_FILES`],
-    /// [`NO_TOMBSTONE_FOR_BINARIES`], [`NOT_A_TEXT_PROJECT`], [`PLACE_ONLY_LAST`]); `None`: it
+    /// [`NO_TOMBSTONE_FOR_BINARIES`], [`NOT_A_TEXT_PROJECT`], [`PLACE_ONLY_LAST`], a read-only
+    /// entity [`locked_refusal`]); `None`: it
     /// can be set (a place: it can be removed; a flag or variable: its name can be removed).
     pub refusal: Option<String>,
     /// The references that lock the entity (hard sources), in the index's order.
@@ -79,7 +91,7 @@ pub struct DeletePlan {
     /// ([`DeletePlan::cannot_free`]).
     pub can_free: Option<FreeInfo>,
     /// Why the number cannot be freed ([`CANNOT_FREE_ORIGINAL`], [`later_entries_live`],
-    /// [`PLACE_ONLY_LAST`]); `None` when it can or the kind has no number to free (flags and
+    /// [`PLACE_ONLY_LAST`], a read-only entity [`locked_refusal`]); `None` when it can or the kind has no number to free (flags and
     /// variables, a place that can be removed).
     pub cannot_free: Option<String>,
 }
@@ -112,7 +124,12 @@ pub fn plan_delete(
     let place_ok = counts.is_some_and(|(base, current)| {
         usize::from(number) >= base && usize::from(number) + 1 == current
     });
-    let refusal = refusal(target, rule, original_entry, text_project, place_ok);
+    // A read-only entity (the placeholder trainer of the sight script slot, bytes the codec
+    // would not write back) gets no tombstone and keeps its number: refused up front.
+    let locked = locked_reason(store, target)?.map(|reason| locked_refusal(&label, &reason));
+    let refusal = locked
+        .clone()
+        .or_else(|| refusal(target, rule, original_entry, text_project, place_ok));
 
     let found = match target {
         DeleteTarget::Flag { number } | DeleteTarget::Var { number } => {
@@ -140,6 +157,7 @@ pub fn plan_delete(
         .partition(|r| strength(r.source) == Strength::Hard);
 
     let (can_free, cannot_free) = match (target, counts) {
+        _ if locked.is_some() => (None, locked),
         (DeleteTarget::Flag { .. } | DeleteTarget::Var { .. }, _) | (_, None) => (None, None),
         (DeleteTarget::Place { .. }, _) => (None, (!place_ok).then(|| PLACE_ONLY_LAST.to_owned())),
         _ if original_entry => (None, Some(CANNOT_FREE_ORIGINAL.to_owned())),
@@ -158,6 +176,20 @@ pub fn plan_delete(
         can_free,
         cannot_free,
     })
+}
+
+/// Why the store holds an asset of entity `target` read-only, loading it (as setting the
+/// tombstone would); `None` for kinds without a tombstone, whose files are not the store's.
+fn locked_reason(store: &mut Store, target: DeleteTarget) -> Result<Option<String>, KernelError> {
+    if !target.has_envelope() {
+        return Ok(None);
+    }
+    for id in target.assets() {
+        if let Some(reason) = store.load_locked(id)? {
+            return Ok(Some(reason));
+        }
+    }
+    Ok(None)
 }
 
 /// Refuses an edit that would point at a tombstone: [`KernelError::Refused`]

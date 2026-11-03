@@ -18,7 +18,9 @@ use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag_files};
 use g4_kernel::original::{Original, ResetTarget, plan_reset};
 use g4_kernel::project::{AssetId, AssetKind};
-use g4_kernel::store::{HEADER_TABLE, MapHeader, ObjectEvent, Store, WarpEvent};
+use g4_kernel::store::{
+    HEADER_TABLE, MapHeader, ObjectEvent, PLACEHOLDER_REASON, Store, WarpEvent,
+};
 use g4_kernel::test_support::{ProjectOriginal, TextFixture};
 use g4_kernel::textproject::Art;
 
@@ -676,7 +678,7 @@ fn free_info_serializes_its_count_and_files() {
 // --- delete, restore and „Nummer freigeben“ (task 5) ---
 
 use g4_kernel::delete::{
-    DeleteResult, IRREVERSIBLE, PLACE_ONLY_LAST, delete, free_number, restore,
+    DeleteResult, IRREVERSIBLE, PLACE_ONLY_LAST, delete, free_number, locked_refusal, restore,
 };
 use g4_kernel::places::{create_place, location_names};
 use g4_kernel::textproject::check;
@@ -1084,6 +1086,47 @@ fn free_number_refuses_a_tombstone_before_a_living_entry() {
     assert!(exists(&fx, "data/trainers/0001.json"));
     assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 3);
     assert!(st.is_deleted(target));
+}
+
+#[test]
+fn plan_refuses_a_locked_trainer_up_front_in_german() {
+    // Gate 3d.4 B9: the placeholder trainer of the sight script slot was planned with
+    // `refusal: null` and `can_free`, then the delete failed with an English `read_only`.
+    let (fx, mut st) = fixture();
+    let base = new_trainers_from(&fx, 1);
+    let mut refs = RefIndex::new();
+    let target = DeleteTarget::Trainer { index: 2 };
+    st.lock(trainer_asset(2), PLACEHOLDER_REASON).unwrap();
+    let sentence = locked_refusal("Trainer 0002", PLACEHOLDER_REASON);
+    assert_eq!(
+        sentence,
+        "Trainer 0002 ist der Platzhalter des Sicht-Scripts und lässt sich nicht löschen."
+    );
+    let p = plan(&mut st, &base, target);
+    assert_eq!(p.refusal.as_deref(), Some(sentence.as_str()));
+    assert_eq!(p.can_free, None);
+    assert_eq!(p.cannot_free.as_deref(), Some(sentence.as_str()));
+    let depth = st.undo_depth();
+    assert_eq!(refused(delete(&mut st, &mut refs, &base, target)), sentence);
+    assert_eq!(
+        refused(free_number(&mut st, &mut refs, &base, target)),
+        sentence
+    );
+    assert_eq!(st.undo_depth(), depth);
+    assert!(exists(&fx, "data/trainers/0002.json"));
+
+    // Any other lock says its reason in the same German frame.
+    st.lock(trainer_asset(1), "17 bytes read, 16 would be written")
+        .unwrap();
+    let other = plan(&mut st, &base, DeleteTarget::Trainer { index: 1 });
+    assert_eq!(
+        other.refusal.as_deref(),
+        Some(
+            "Trainer 0001 ist schreibgeschützt (17 bytes read, 16 would be written) und lässt \
+             sich nicht löschen."
+        )
+    );
+    assert_eq!(other.can_free, None);
 }
 
 #[test]
