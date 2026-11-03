@@ -2,7 +2,8 @@
 # npm licenses (phase 3d.6): every production package of apps/studio (`pnpm licenses list --prod --json`) must carry a
 # license from the allow list below. An SPDX expression `A OR B` passes when one side is allowed, `A AND B` only when
 # both are; parentheses group. Every other license prints package, version and license, and the script exits 1.
-# Ends with `npm licenses: <n> packages ok`. Called by scripts/gate.sh as the step `npm licenses` after `cargo deny`.
+# An empty list (no package at all, e.g. without `pnpm install`) fails too. Ends with `npm licenses: <n> packages ok`.
+# Called by scripts/gate.sh as the step `npm licenses` after `cargo deny`.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -93,6 +94,13 @@ for license_expr, packages in sorted(data.items()):
             versions = ", ".join(package.get("versions") or [])
             bad.append(f"{package.get('name')} {versions}: {license_expr}")
 
+if count == 0:
+    print(
+        "npm licenses: die Liste ist leer, pnpm nennt kein Produktionspaket "
+        "(fehlt `pnpm install` in apps/studio?).",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 if bad:
     for line in bad:
         print(f"npm licenses: not allowed: {line}", file=sys.stderr)

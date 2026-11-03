@@ -1457,7 +1457,10 @@ impl ScriptSources {
 /// The script sources of an adopted project by number (none without one): the `.rotom`
 /// sources and the level scripts (`.json`); a number with both is its `.rotom`, as
 /// [`scripts::source_kind`] has it.
-fn script_sources(project: &Project, dir: &Path) -> Result<BTreeMap<u16, SourceKind>, KernelError> {
+pub(crate) fn script_sources(
+    project: &Project,
+    dir: &Path,
+) -> Result<BTreeMap<u16, SourceKind>, KernelError> {
     if !scripts::is_adopted(project) {
         return Ok(BTreeMap::new());
     }

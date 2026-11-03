@@ -4,25 +4,31 @@
 //! dozen at most.
 //!
 //! A mention is weak: deleting what a story names is never locked by it. The delete plan lists
-//! the mentions beside the references ([`mentions_of`], `DeletePlan.mentions`), and afterwards
-//! the check reports the use as open (`story.dangling-ref`, „… ist gelöscht.“).
+//! the mentions beside the references ([`mentions_of`], `DeletePlan.mentions`). Once the
+//! deletion is saved, the check of the text project reports the use as open
+//! (`story.dangling-ref`, „… ist gelöscht.“ for a tombstone, „… gibt es nicht.“ for what is
+//! gone, [`OnDisk`]).
 
+use std::cell::OnceCell;
 use std::path::PathBuf;
 
 use serde::Serialize;
 
 use super::entities::{StoryEntry, list_stories};
 use super::schema::{Progress, Step, Story, Use, story_rel};
+use crate::data::refs::script_sources;
 use crate::delete::DeleteTarget;
 use crate::error::KernelError;
-use crate::project::Project;
+use crate::project::{AssetKind, Project};
+use crate::scripts::numbered_files;
+use crate::textproject::Art;
 use crate::textproject::ids::{RefInput, Resolver, unknown_id_text};
+use crate::textproject::source::deleted_on_disk;
 use crate::textproject::symbols::SymbolKind;
 
 /// One thing of the game a story can name, by number: an id resolved through the resolver
 /// (`trainer`, `map`: a header, `flag`, `var`) or a place by numbers as the story has it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UseTarget {
     Trainer(u16),
     /// A header (`MAP_…` names a header, its internal name in `mapname.bin`).
@@ -65,6 +71,100 @@ impl UseTarget {
             UseTarget::Message { archive, .. } => DeleteTarget::TextArchive { index: archive },
         }
     }
+}
+
+/// What the text project on disk has of the things a story names, read without the store and
+/// each art at most once, only when a use asks: one past the highest script file, text archive
+/// and event file, and the entity files of trainers and headers. A count that does not read is
+/// unknown and reports nothing.
+pub(crate) struct OnDisk<'a> {
+    project: &'a Project,
+    scripts: OnceCell<Option<u32>>,
+    archives: OnceCell<Option<u32>>,
+    events: OnceCell<Option<u32>>,
+}
+
+impl<'a> OnDisk<'a> {
+    pub(crate) fn new(project: &'a Project) -> OnDisk<'a> {
+        OnDisk {
+            project,
+            scripts: OnceCell::new(),
+            archives: OnceCell::new(),
+            events: OnceCell::new(),
+        }
+    }
+
+    /// Why `target` names nothing now, or `None`: „<Label> gibt es nicht.“ for a script file,
+    /// text archive or event file at or past the count of its art, or a trainer or header whose
+    /// file is gone („Nummer freigeben“); „<Label> ist gelöscht.“ for an entity whose JSON
+    /// carries a tombstone. Flags and variables always exist.
+    pub(crate) fn open(&self, target: &UseTarget) -> Option<String> {
+        let entity = target.entity();
+        let n = entity.number();
+        let missing = match *target {
+            UseTarget::Trainer(_) | UseTarget::Map(_) => {
+                entity.art().is_some_and(|art| self.file_gone(art, n))
+            }
+            UseTarget::Object { .. } => past(&self.events, n, || self.count_events()),
+            UseTarget::Script { .. } | UseTarget::LevelScript { .. } => {
+                past(&self.scripts, n, || self.count_scripts())
+            }
+            UseTarget::Message { .. } => past(&self.archives, n, || self.count_archives()),
+            UseTarget::Flag(_) | UseTarget::Var(_) => false,
+        };
+        if missing {
+            return Some(format!("{} gibt es nicht.", entity.label()));
+        }
+        let art = entity.art()?;
+        deleted_on_disk(&self.project.root)(art, n)
+            .then(|| format!("{} ist gelöscht.", entity.label()))
+    }
+
+    /// Whether the JSON of entity `n` of `art` is gone (a file that cannot be asked counts as
+    /// there).
+    fn file_gone(&self, art: Art, n: u16) -> bool {
+        let path = self
+            .project
+            .root
+            .join(art.dir())
+            .join(format!("{n:04}.json"));
+        matches!(path.try_exists(), Ok(false))
+    }
+
+    /// One past the highest event file (`data/events/NNNN.json`).
+    fn count_events(&self) -> Option<u32> {
+        let dir = self.project.root.join(Art::Events.dir());
+        Some(one_past(numbered_files(&dir, Some("json")).ok()?))
+    }
+
+    /// One past the highest script file: a source (`.rotom` or level script, as the reference
+    /// index numbers them) or a member.
+    fn count_scripts(&self) -> Option<u32> {
+        let p = self.project;
+        let sources = script_sources(p, &p.expanded_dir(AssetKind::Script)).ok()?;
+        let members = numbered_files(&p.unpacked_dir(AssetKind::Script), None).ok()?;
+        Some(one_past(sources.into_keys().chain(members)))
+    }
+
+    /// One past the highest text archive (`NNNN.json` or member).
+    fn count_archives(&self) -> Option<u32> {
+        let p = self.project;
+        let json = numbered_files(&p.expanded_dir(AssetKind::TextArchive), Some("json")).ok()?;
+        let members = numbered_files(&p.unpacked_dir(AssetKind::TextArchive), None).ok()?;
+        Some(one_past(json.into_iter().chain(members)))
+    }
+}
+
+/// Whether `n` is at or past the count in `cell` (read once by `count`); never for an unknown
+/// count.
+fn past(cell: &OnceCell<Option<u32>>, n: u16, count: impl FnOnce() -> Option<u32>) -> bool {
+    cell.get_or_init(count)
+        .is_some_and(|count| u32::from(n) >= count)
+}
+
+/// One past the highest of `numbers`, 0 for none.
+fn one_past(numbers: impl IntoIterator<Item = u16>) -> u32 {
+    numbers.into_iter().max().map_or(0, |n| u32::from(n) + 1)
 }
 
 /// A story that mentions something: the story (id, name, number, file relative to the root)

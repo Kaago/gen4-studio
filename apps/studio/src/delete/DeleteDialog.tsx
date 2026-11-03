@@ -27,8 +27,11 @@ export const NOT_A_TEXT_PROJECT = "Echtes Löschen gibt es im Textprojekt (Techn
 /** What the dialog says beside it: emptying stays an ordinary edit. */
 export const CLEAR_HINT = "Leeren geht als gewöhnliche Bearbeitung: Eventdatei leeren im Inspector, Begegnungen auf 0.";
 
-/** What the dialog says under the stories that mention the entity: they are documentation and never lock. */
-export const MENTIONS_HINT = "Geschichten sperren nicht; der Verweis wird als offen gemeldet.";
+/**
+ * What the dialog says under the stories that mention the entity: they are documentation and never lock; once the
+ * delete is saved, the text project check reports each use that names nothing any more (`story.dangling-ref`).
+ */
+export const MENTIONS_HINT = "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.";
 
 /** „{n} Verweise: zuerst umhängen.“ (one: „Verweis“). */
 export function referencesText(n: number): string {

@@ -229,7 +229,9 @@ describe("DeleteDialog", () => {
     expect(chips().map((c) => c.textContent)).toEqual(["Testfaden › Kampf gegen Kai", "Testfaden"]);
     expect(chips().map((c) => c.dataset.deleteMention)).toEqual(["STORY_TESTFADEN", "STORY_TESTFADEN"]);
     expect(mentions()?.textContent).toContain(MENTIONS_HINT);
-    expect(MENTIONS_HINT).toBe("Geschichten sperren nicht; der Verweis wird als offen gemeldet.");
+    expect(MENTIONS_HINT).toBe(
+      "Geschichten sperren nicht; nach dem Speichern meldet die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.",
+    );
     expect(notices("alert")).toEqual([]);
     expect(notices("status")).toEqual([KEEPS]);
     expect(button("Löschen")?.disabled).toBe(false);

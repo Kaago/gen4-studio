@@ -75,9 +75,9 @@ pub struct Thread {
 
 /// Every thread (decisions „Fäden-Regel“), ascending by number; builds or refreshes the index
 /// like [`RefIndex::refs`]. One pass over the index for all candidate variables; the header
-/// mapping, the own names and the stories are read once per call. The variables' or the stories'
-/// register that does not read is its error; a story that does not read claims nothing, and no
-/// story claims a thread when another register does not read.
+/// mapping, the own names and the stories are read once per call. The variables' register that
+/// does not read is its error; a story that does not read claims nothing, and no story claims a
+/// thread when the stories' register or folder or another register does not read.
 pub fn threads(store: &mut Store, index: &mut RefIndex) -> Result<Vec<Thread>, KernelError> {
     let family = store.project().family;
     let headers = Headers::of(store);
@@ -93,7 +93,7 @@ pub fn threads(store: &mut Store, index: &mut RefIndex) -> Result<Vec<Thread>, K
     }
     let project = store.project();
     let own = own_ids(project)?;
-    let stories = story_vars(project)?;
+    let stories = story_vars(project);
     let pret = names(family, FlagKind::Var);
     let mut out = Vec::new();
     for (var, refs) in by_var {
@@ -158,10 +158,13 @@ fn own_ids(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
 
 /// The story of every variable a story keeps its progress in: number → id of the first story by
 /// number. A story that does not read, or whose progress resolves nowhere, claims nothing; so
-/// does every story when the resolver cannot be made (a register the threads do not need that
-/// does not read: the overview still lists the threads, the check names the register).
-fn story_vars(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
-    let stories = list_stories(project)?;
+/// does every story when the stories' register or folder does not read or the resolver cannot
+/// be made (a register the threads do not need that does not read): the overview still lists
+/// the threads, the check names the register.
+fn story_vars(project: &Project) -> HashMap<u16, String> {
+    let Ok(stories) = list_stories(project) else {
+        return HashMap::new();
+    };
     let mut out = HashMap::new();
     let mut resolver: Option<Resolver> = None;
     for (_, story) in stories {
@@ -173,7 +176,7 @@ fn story_vars(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
             Some(resolver) => resolver,
             None => match Resolver::for_project(project) {
                 Ok(made) => resolver.insert(made),
-                Err(_) => return Ok(HashMap::new()),
+                Err(_) => return HashMap::new(),
             },
         };
         let Ok(n) = resolver.number(SymbolKind::Var, &RefInput::Id(var.clone())) else {
@@ -182,7 +185,7 @@ fn story_vars(project: &Project) -> Result<HashMap<u16, String>, KernelError> {
         let Ok(n) = u16::try_from(n) else { continue };
         out.entry(n).or_insert(story.id);
     }
-    Ok(out)
+    out
 }
 
 /// The first header (by id) that names each event file, script file and level script (the

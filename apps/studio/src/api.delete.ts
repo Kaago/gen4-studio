@@ -42,7 +42,8 @@ export interface FreeInfo {
 
 /**
  * A story that mentions the entity (the kernel's `stories::StoryUse`): the story and the step whose `uses` name it; no step when the
- * story's progress or flags name it. Weak: a mention never locks a delete; afterwards the check reports the use as open.
+ * story's progress or flags name it. Weak: a mention never locks a delete; once the delete is saved, the text project
+ * check (`text_check`) reports each use that names nothing any more as open (`story.dangling-ref`).
  */
 export interface StoryMention {
   story_id: string;

@@ -85,7 +85,8 @@ pub struct DeletePlan {
     /// The references that only warn (soft sources, [`crate::data::refs::SOFT_SOURCES`]).
     pub warnings: Vec<Ref>,
     /// The stories (and steps) that mention the entity ([`mentions_of`]): weak, they never lock
-    /// or refuse; after the delete the check reports each use as open (`story.dangling-ref`).
+    /// or refuse; once the delete is saved, the text project check reports each use that names
+    /// nothing any more as open (`story.dangling-ref`).
     pub mentions: Vec<StoryUse>,
     /// The entity is one of the base ROM (index below the base's count); never a place, flag
     /// or variable. Deleting an original of a [`Rule::Tombstone`] kind warns.

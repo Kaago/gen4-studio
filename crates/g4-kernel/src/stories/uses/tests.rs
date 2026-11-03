@@ -182,3 +182,84 @@ fn an_unreadable_story_is_skipped() {
     assert!(uses_of(&p, &resolver, &UseTarget::Trainer(1)).is_err());
     assert!(mentions_of(&p, DeleteTarget::Trainer { index: 1 }).is_empty());
 }
+
+/// Every use form names the entity deleting it would name: `map` a header, `object` an event
+/// file, `script` and `levelScript` a script file, `flag`, `progress.flag` and `flags[]` a flag.
+#[test]
+fn each_use_form_names_its_entity() {
+    let fx = TextFixture::exported();
+    story(
+        &fx,
+        "Formen",
+        vec![
+            step("s0", 0, "Ort", vec![Use::Map("MAP_T02".to_owned())]),
+            step(
+                "s1",
+                1,
+                "Objekt",
+                vec![Use::Object {
+                    file: 1,
+                    local_id: 0,
+                }],
+            ),
+            step("s2", 2, "Script", vec![Use::Script { file: 1, slot: 0 }]),
+            step(
+                "s3",
+                3,
+                "Level-Script",
+                vec![Use::LevelScript {
+                    file: 0,
+                    condition: 0,
+                }],
+            ),
+            step("s4", 4, "Flag", vec![Use::Flag("FLAG_0002".to_owned())]),
+        ],
+        &[],
+    );
+    create_story_files(
+        &fx.project(),
+        &StoryRequest {
+            name: "Flaggen".to_owned(),
+            progress: Progress::Flag("FLAG_0003".to_owned()),
+            notes: String::new(),
+            steps: Vec::new(),
+            flags: vec!["FLAG_0004".to_owned()],
+        },
+    )
+    .unwrap();
+    let p = fx.project();
+    let resolver = Resolver::for_project(&p).unwrap();
+    assert_eq!(number(&resolver, SymbolKind::Map, "MAP_T02"), Ok(1));
+    let formen = |key: &str, name: &str| row("STORY_FORMEN", "Formen", 0, Some((key, name)));
+    let flaggen = row("STORY_FLAGGEN", "Flaggen", 1, None);
+
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::Header { id: 1 }),
+        [formen("s0", "Ort")]
+    );
+    assert!(mentions_of(&p, DeleteTarget::Header { id: 0 }).is_empty());
+    // `MAP_…` names a header, never a map file.
+    assert!(mentions_of(&p, DeleteTarget::Map { index: 1 }).is_empty());
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::EventFile { index: 1 }),
+        [formen("s1", "Objekt")]
+    );
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::Script { file: 1 }),
+        [formen("s2", "Script")]
+    );
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::Script { file: 0 }),
+        [formen("s3", "Level-Script")]
+    );
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::Flag { number: 2 }),
+        [formen("s4", "Flag")]
+    );
+    // The progress flag and a flag of `flags`: the story without a step.
+    assert_eq!(
+        mentions_of(&p, DeleteTarget::Flag { number: 3 }),
+        std::slice::from_ref(&flaggen)
+    );
+    assert_eq!(mentions_of(&p, DeleteTarget::Flag { number: 4 }), [flaggen]);
+}

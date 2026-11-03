@@ -1837,8 +1837,10 @@ target/release/studio mcp --project $P --base-rom $N
 #   rename_id {"id":"<TRAINER_…>","new_id":"<TRAINER_…>_GATE"} → data/stories/0000.json trägt den neuen Namen
 #   diff_entity {"kind":"story","index":0,"against":"head"}      → Fields mit JSON-Pfaden (steps[0].uses[0].trainer)
 #   plan_delete {"target":{"kind":"trainer","index":<n>}}        → mentions mit Geschichte und Schritt, keine Sperre
-#   delete_entity {"target":{"kind":"trainer","index":<n>}}      → Grabstein, mentions in der Antwort (nicht warnings, PB1)
-#   run_checks                                                     → story.dangling-ref (Warnung) an data/stories/0000.json
+#   delete_entity {"target":{"kind":"trainer","index":<n>}}      → ein Undo-Schritt, mentions und ms in der Antwort (nicht warnings, PB1)
+#   plan_delete (erneut)                                           → deleted: true (der Grabstein); Zeit von plan_delete und ms von delete_entity in die Zahlentabelle
+#   save; text_check                                               → Warnung "story.dangling-ref: steps[0].uses[0].trainer: Trainer 0NNN ist gelöscht." an data/stories/0000.json
+#                                                                    (nie run_checks: das sind die Kernel-Prüfungen; text_check liest die Platte, delete_entity speichert nicht)
 #   story_delete {"id":"STORY_GATE"}; undo                         → alle drei Dateien byte-gleich zurück
 ```
 

@@ -98,10 +98,26 @@ Die Verweise einer Geschichte sind **schwach**: Eine Geschichte ist Dokumentatio
 Löschen und hält keinen Build auf. Der Check meldet eine ID in `progress`, `uses` oder `flags`, die
 im Projekt nichts nennt (Resolver: Tabellen, Register, pret-Namen, Ersatz-IDs), als Warnung
 `story.dangling-ref` am JSON-Pfad (`story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE.`),
-ebenso einen Eintrag in `uses`, dessen Entität einen Grabstein trägt (seit 3d.4 gelöscht:
-`story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht.`). Verweise über Nummern
-(`object`, `script`, `message`, `levelScript`) prüft der Check nur auf den Grabstein ihrer
-Eventdatei (`object`); Scriptdateien und Textarchive haben keinen.
+ebenso einen Eintrag in `uses`, dessen Ziel fehlt oder einen Grabstein trägt. Der Check liest dafür
+das Textprojekt auf der Platte, nicht den Store (ungespeicherte Änderungen zählen nicht):
+
+- **fehlt** („<Name> gibt es nicht.“): ein Verweis über eine Nummer, die nicht unter der Zahl ihrer
+  Art liegt (eins über der höchsten vorhandenen Nummer): `script { file }` und
+  `levelScript { file }` gegen die Scriptdateien (Quellen `.rotom` und Level-Scripts unter
+  `expanded/scripts/`, nummeriert wie im Verweis-Index, und Member), `message { archive }` gegen
+  die Textarchive (`expanded/textArchives/NNNN.json` und Member), `object { file }` gegen die
+  Eventdateien (`data/events/NNNN.json`); ein `trainer` oder `map`, dessen ID noch auflöst, dessen
+  Datei (`data/trainers/NNNN.json`, `data/headers/NNNN.json`) es aber nicht mehr gibt („Nummer
+  freigeben“): `story.dangling-ref: steps[0].uses[0].script: Scriptdatei 0101 gibt es nicht.`,
+  `… Trainer 0928 gibt es nicht.`;
+- **gelöscht** („<Name> ist gelöscht.“, seit 3d.4): ein `trainer`, `map` oder `object`, dessen
+  Entität einen Grabstein trägt:
+  `story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht.`.
+
+Die Namen sind die des Löschens (`Trainer 0001`, `Header 0003`, `Eventdatei 0002`,
+`Scriptdatei 0101`, `Textarchiv 0433`). Ein Flag und eine Variable gibt es immer; nach dem
+Entfernen eines eigenen Namens löst die ID nicht mehr auf (`Unbekannte ID: FLAG_MEIN.`), eine
+Ersatz-ID (`FLAG_0042`) nennt weiter dieselbe Nummer und bleibt still.
 „ID umbenennen“ zieht jede ID in einer Geschichte mit, wie jede JSON-Zeichenkette unter `data/`
 ([text_project.md](text_project.md) „ID umbenennen“).
 
@@ -110,7 +126,11 @@ Eventdatei (`object`); Scriptdateien und Textarchive haben keinen.
 Was eine Geschichte nennt, lässt sich löschen, als nennte sie es nicht: `plan_delete` listet die
 Geschichten unter `mentions` neben den Verweisen (`references`, die sperren, und `warnings`, die
 weichen Verweise des Index), `delete_entity` antwortet mit derselben Liste (`mentions`, fehlt, wenn
-keine Geschichte die Entität nennt); danach meldet der Check den Eintrag als offen (oben). Eine
+keine Geschichte die Entität nennt). Gemeldet wird der Eintrag danach nicht vom Löschen, sondern von
+der Prüfung des Textprojekts (`text_check`, `g4k text check`, oben), die die Platte liest: nach
+einem Grabstein also erst nach dem Speichern (`save`), nach „Nummer freigeben“ und dem Entfernen
+eines eigenen Flag- oder Variablennamens sofort (diese schreiben ihre Dateien selbst). `run_checks`
+(die Kernel-Prüfungen) meldet ihn nie. Eine
 Zeile ist `{story_id, story_name, number, step_key, step_name, file}`: die Geschichte und der
 Schritt, dessen `uses` die Entität nennen, ohne Schritt (`null`), wenn `progress` oder `flags` sie
 nennen; jede Zeile einmal. Gesucht wird über `stories::uses::uses_of` (die Geschichten-Dateien,
@@ -130,8 +150,8 @@ nennt:
 
 Die übrigen Arten (Begegnungen, Matrizen, Karten, Bereichsdaten, Texturen, Modelle, Orte) nennt
 keine Geschichte. Im Lösch-Dialog stehen die Geschichten unter „Erwähnt in Geschichten“ als Chips
-(ein Klick öffnet die Geschichte) mit dem Satz „Geschichten sperren nicht; der Verweis wird als
-offen gemeldet.“
+(ein Klick öffnet die Geschichte) mit dem Satz „Geschichten sperren nicht; nach dem Speichern meldet
+die Prüfung des Textprojekts jeden Verweis, der nichts mehr nennt, als offen.“
 
 ## Beifile
 
@@ -248,8 +268,9 @@ Schritten, ein unlesbares Beifile, ein Dateiname, der weder `NNNN.json` noch `NN
 ist) und `textproject.id-mismatch` (`id` ohne `STORY_` oder nicht die ID der Nummer im Register);
 Warnungen sind `textproject.id-dangling` (ein Registereintrag ohne Datei) und
 **`story.dangling-ref`**: eine ID in `progress`, `uses` oder `flags`, die im Projekt nichts nennt,
-oder ein Eintrag in `uses`, dessen Entität einen Grabstein trägt („Trainer 0001 ist gelöscht.“),
-mit Datei und Zeile des Eintrags
+oder ein Eintrag in `uses`, dessen Ziel auf der Platte fehlt („Scriptdatei 0101 gibt es nicht.“,
+„Trainer 0928 gibt es nicht.“) oder einen Grabstein trägt („Trainer 0001 ist gelöscht.“; „Verweise“
+oben), mit Datei und Zeile des Eintrags
 (`data/stories/0000.json`, Zeile von `"TRAINER_NOPE"`:
 `story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NOPE.`). Eine Warnung hält
 weder Import noch Build auf; der Code steht in der Codeliste von
