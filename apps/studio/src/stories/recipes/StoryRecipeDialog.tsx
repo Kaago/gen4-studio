@@ -20,6 +20,8 @@ export type StoryRecipeDialogProps = {
   request: StoryRecipeRequest;
   /** The stories of the project (`story_list`; null while read): the field „Geschichte“ offers those with a variable as progress. */
   stories: readonly StoryRowDto[] | null;
+  /** Why the stories could not be read (`story_list` refused): shown in place of „Die Geschichten werden gelesen …“. */
+  storiesError?: string | null;
   project: ProjectInfo | null;
   /** Changes when the project may differ: the story and the figures are read again. */
   revision: number;
@@ -54,7 +56,7 @@ function placeOf(input: StepRecipeInput): number {
  * there and while the plan refuses; while the recipe runs (seconds) it is busy and the dialog stays; a refusal stays in it as an error.
  */
 export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
-  const { request, stories, project, revision, headers, onApplied, onClose, onError, beforeApply, onNewStory, newStory = null, hidden = false } = props;
+  const { request, stories, storiesError = null, project, revision, headers, onApplied, onClose, onError, beforeApply, onNewStory, newStory = null, hidden = false } = props;
   const [form, setForm] = useState<StoryRecipeForm>(() => formOf(request));
   const [running, setRunning] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -81,7 +83,8 @@ export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
   const names = { headers };
   const input = inputOf(form, names);
   const plan = useDraftPlan(form.recipe, input, noDraft);
-  const ready = input !== null && plan.error === null;
+  // Only a plan of this very input: one that changed (another place) waits for its own sentences before „Anlegen“.
+  const ready = input !== null && plan.current && plan.error === null;
 
   const apply = async () => {
     if (busy.current || input === null) return;
@@ -141,7 +144,9 @@ export function StoryRecipeDialog(props: StoryRecipeDialogProps): JSX.Element {
           <div className={styles.field}>
             <span className={styles.label}>Geschichte</span>
             <div className={styles.line}>
-              {form.story === null ? (
+              {form.story === null && storiesError !== null ? (
+                <Notice kind="error">{storiesError}</Notice>
+              ) : form.story === null ? (
                 <span className={styles.note}>{stories === null ? "Die Geschichten werden gelesen …" : "Noch keine Geschichte mit einer Variable als Fortschritt."}</span>
               ) : (
                 <SelectField label="Geschichte" value={form.story} options={storyOptions} onChange={(id) => setForm({ ...form, story: id, step: null })} disabled={running} />

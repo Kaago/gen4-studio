@@ -745,6 +745,9 @@ describe("App wiring", () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(text, "Hallo!");
         text.dispatchEvent(new Event("input", { bubbles: true }));
       });
+      // „Anlegen“ waits for the plan of this input (300 ms after the last change).
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 350))));
+      await flush();
       vi.mocked(listFlags).mockResolvedValue(named);
       const refetched = vi.fn();
       data().bus.subscribe("eventsRefetch", refetched);

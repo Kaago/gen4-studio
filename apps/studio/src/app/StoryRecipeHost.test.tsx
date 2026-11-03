@@ -135,11 +135,56 @@ describe("StoryRecipeHost", () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(text, "Hallo!");
       text.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    await wait(350);
+    await flush();
     await act(async () => dialog().querySelector<HTMLButtonElement>("button[data-story-recipe-apply]")!.click());
     await flush();
     expect(dialog().textContent).toContain("Schritt 4 gibt es schon: „Kampf“.");
     expect(host.onApplied).not.toHaveBeenCalled();
     expect(host.onClose).not.toHaveBeenCalled();
     expect(listToasts()).toHaveLength(0);
+  });
+
+  it("anlegen_waits_for_the_plan_of_the_changed_input", async () => {
+    const host = props();
+    await act(async () => root.render(<StoryRecipeHost {...host} />));
+    await flush();
+    const dialog = () => document.querySelector<HTMLElement>('[data-story-recipe-dialog="talk_advances"]')!;
+    const apply = () => dialog().querySelector<HTMLButtonElement>("button[data-story-recipe-apply]")!;
+    const type = (value: string) =>
+      act(async () => {
+        const text = dialog().querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!;
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(text, value);
+        text.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await type("Hallo!");
+    // Everything is there, but no plan yet: locked.
+    expect(apply().disabled).toBe(true);
+    await wait(350);
+    await flush();
+    expect(apply().disabled).toBe(false);
+    // The input changes: the last plan's sentences stay shown, but „Anlegen“ waits for the plan of the new input.
+    const second = deferred<Awaited<ReturnType<typeof recipePlan>>>();
+    vi.mocked(recipePlan).mockReturnValueOnce(second.promise);
+    await type("Hallo, Reisender!");
+    expect(dialog().querySelector("[data-story-recipe-notes]")?.textContent).toContain("Figur 4 bekommt das Script #12");
+    expect(apply().disabled).toBe(true);
+    await wait(350);
+    expect(apply().disabled).toBe(true);
+    await act(async () =>
+      second.resolve({ cells: [], tiles: [], events: [], messages: [], notes: ["Neuer Plan."], irreversible: ["Level-Script-Datei 910 wird angelegt und bleibt"] }),
+    );
+    await flush();
+    expect(dialog().querySelector("[data-story-recipe-irreversible]")?.textContent).toContain("Level-Script-Datei 910 wird angelegt und bleibt");
+    expect(apply().disabled).toBe(false);
+  });
+
+  it("a_failed_story_list_shows_its_error_instead_of_reading_forever", async () => {
+    vi.mocked(storyList).mockReset().mockRejectedValue({ code: "error", message: "data/ids/stories.json ist kaputt", asset: null });
+    await act(async () => root.render(<StoryRecipeHost {...props({ request: { recipe: "scene_on_enter" } })} />));
+    await flush();
+    const dialog = document.querySelector<HTMLElement>('[data-story-recipe-dialog="scene_on_enter"]')!;
+    expect(dialog.textContent).not.toContain("Die Geschichten werden gelesen …");
+    expect(dialog.querySelector("[role=alert]")?.textContent).toContain("data/ids/stories.json ist kaputt");
   });
 });

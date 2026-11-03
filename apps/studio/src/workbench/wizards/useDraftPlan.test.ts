@@ -26,9 +26,12 @@ describe("useDraftPlan", () => {
   let root: Root;
   const onDraft = vi.fn<(draft: DraftDto | null) => void>();
   let seen: { draft: DraftDto | null; error: string | null } = { draft: null, error: null };
+  let current = true;
 
   function Probe({ recipe, input }: { recipe: RecipeId; input: unknown | null }) {
-    seen = useDraftPlan(recipe, input, onDraft);
+    const plan = useDraftPlan(recipe, input, onDraft);
+    seen = { draft: plan.draft, error: plan.error };
+    current = plan.current;
     return null;
   }
   const show = (input: unknown | null, recipe: RecipeId = "extend_area") => act(() => root.render(createElement(Probe, { recipe, input })));
@@ -42,6 +45,7 @@ describe("useDraftPlan", () => {
     onDraft.mockReset();
     vi.mocked(recipePlan).mockReset();
     seen = { draft: null, error: null };
+    current = true;
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -129,5 +133,36 @@ describe("useDraftPlan", () => {
     show({ source_map: 9 });
     await wait(DRAFT_DEBOUNCE_MS);
     expect(seen).toEqual({ draft: answer, error: null });
+  });
+
+  it("a_draft_kept_for_a_changed_input_is_not_current", async () => {
+    const first = draft("Ort 1");
+    const second = deferred<DraftDto>();
+    vi.mocked(recipePlan).mockResolvedValueOnce(first).mockReturnValueOnce(second.promise);
+    show({ header: 1 });
+    // No answer yet for this input.
+    expect(current).toBe(false);
+    await wait(DRAFT_DEBOUNCE_MS);
+    expect(seen.draft).toBe(first);
+    expect(current).toBe(true);
+    // Another place: the last draft stays shown, but it is not the plan of this input until its own answer is in.
+    show({ header: 2 });
+    expect(seen.draft).toBe(first);
+    expect(current).toBe(false);
+    await wait(DRAFT_DEBOUNCE_MS);
+    expect(current).toBe(false);
+    const answer = draft("Ort 2");
+    await act(async () => second.resolve(answer));
+    expect(seen.draft).toBe(answer);
+    expect(current).toBe(true);
+    // Back to an input whose answer was the first: it is asked again, the held draft is not current meanwhile.
+    vi.mocked(recipePlan).mockResolvedValueOnce(first);
+    show({ header: 1 });
+    expect(current).toBe(false);
+    await wait(DRAFT_DEBOUNCE_MS);
+    expect(current).toBe(true);
+    // Incomplete input is current at once (there is nothing to plan).
+    show(null);
+    expect(current).toBe(true);
   });
 });

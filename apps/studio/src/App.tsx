@@ -83,6 +83,7 @@ import type { Message } from "./app/message";
 import { ProblemCount } from "./app/ProblemCount";
 import { ToolHints } from "./app/ToolHints";
 import { startTownName } from "./app/startTown";
+import { saveBeforeStoryStep } from "./app/storyStepSave";
 import { statusContext } from "./app/statusContext";
 import { HistoryFeed, useHistoryReader } from "./app/useHistory";
 import { useHistoryReload } from "./app/useHistoryReload";
@@ -1064,11 +1065,8 @@ function AppBody() {
   const [dialogEditor, setDialogEditor] = useState<DialogTarget | null>(null);
   // The step recipe shown as a dialog (a story's step bar, „Zu einer Geschichte“, „Dialog anlegen…“); another project closes it.
   const storyRecipe = useStoryRecipe(session.info);
-  // A step recipe appends to the place's script file: typing there is saved first (as before „Neue Figur“).
-  const beforeStoryStep = useStableCallback(async (header: number) => {
-    const file = scene.headers.find((h) => h.id === header)?.script_file_id;
-    if (file !== undefined) await scripts.api.saveIfDirty(file);
-  });
+  // A step recipe appends to the place's script file and changes its level script: typing in both is saved first (as before „Neue Figur“).
+  const beforeStoryStep = useStableCallback((header: number) => saveBeforeStoryStep(scene.headers, header, scripts.api.saveIfDirty));
   const dialogRevision = useBusRevision(bus, "textData") + scripts.api.revision;
   // Another project (or none): the figure is not there any more.
   useEffect(() => setDialogEditor(null), [session.info]);

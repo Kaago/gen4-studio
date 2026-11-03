@@ -5,7 +5,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getEvents } from "../../api";
 import type { EventsDto, HeaderSummary, ObjectDto } from "../../api";
-import { FigureField } from "./FigureField";
+import { FigureField, isTrainerFigure } from "./FigureField";
 import { TRAINERS_TALK } from "./storyRecipeModel";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn() }));
@@ -73,5 +73,27 @@ describe("FigureField", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Figur wählen…"]')!.click());
     await flush();
     expect(options()[1]?.getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("a_trainer_is_what_the_kernel_counts_as_one", async () => {
+    // As in the kernel: an object that sees, or a trainer's battle script; a partner's script alone is no trainer.
+    expect(isTrainerFigure({ script: 0, trainer_type: 1 })).toBe(true);
+    expect(isTrainerFigure({ script: 3001, trainer_type: 0 })).toBe(true);
+    expect(isTrainerFigure({ script: 4999, trainer_type: 0 })).toBe(true);
+    expect(isTrainerFigure({ script: 5001, trainer_type: 0 })).toBe(false);
+    expect(isTrainerFigure({ script: 12, trainer_type: 0 })).toBe(false);
+    vi.mocked(getEvents).mockResolvedValue({
+      ...events,
+      objects: [object(0, { local_id: 1, script: 12, trainer_type: 1, sight: 3 }), object(1, { local_id: 2, script: 5001 })],
+    });
+    await act(async () => root.render(<FigureField header={3} localId={null} onChange={onChange} headers={[town]} revision={0} lockTrainers onError={vi.fn()} />));
+    await flush();
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Figur wählen…"]')!.click());
+    await flush();
+    const [seer, partner] = options();
+    expect(seer?.textContent).toContain(TRAINERS_TALK);
+    expect(seer?.getAttribute("aria-disabled") ?? seer?.getAttribute("data-disabled")).not.toBeNull();
+    expect(partner?.textContent).not.toContain("Trainer");
+    expect(partner?.getAttribute("aria-disabled")).not.toBe("true");
   });
 });

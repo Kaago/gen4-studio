@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialogOf } from "../../api";
 import type { Dialog, DialogSource } from "../../api";
 import type { DialogTarget } from "../dialog/dialogModel";
+import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
 import { DialogSection } from "./DialogSection";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), dialogOf: vi.fn() }));
@@ -90,7 +92,12 @@ describe("DialogSection", () => {
     const onStoryRecipe = vi.fn();
     vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
     await act(async () =>
-      root.render(<DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />),
+      root.render(
+        withTextProject(
+          textProjectSpy(true),
+          <DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />,
+        ),
+      ),
     );
     await flush();
     expect(section()?.textContent).toContain("Sagt nichts");
@@ -105,5 +112,25 @@ describe("DialogSection", () => {
     await act(async () => root.render(<DialogSection target={sign} revision={++revision} onEdit={onEdit} onError={onError} />));
     await flush();
     expect(button("Dialog anlegen…")).toBeUndefined();
+  });
+
+  it("outside_a_text_project_dialog_anlegen_is_locked_with_the_reason", async () => {
+    const onStoryRecipe = vi.fn();
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () =>
+      root.render(
+        withTextProject(
+          textProjectSpy(false),
+          <DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />,
+        ),
+      ),
+    );
+    await flush();
+    // A DSPRE folder: the recipe could never go in, so the button is there but locked, and says why.
+    const anlegen = button("Dialog anlegen…")!;
+    expect(anlegen.disabled).toBe(true);
+    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe(NOT_A_TEXT_PROJECT);
+    await act(async () => anlegen.click());
+    expect(onStoryRecipe).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,9 @@ import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { recipeApply, releases, validateText } from "../api";
 import type { HeaderSummary, NewFigureReport, RecipeOutcome } from "../api";
+import { NOT_A_TEXT_PROJECT } from "../flags/flagWords";
 import { releasesOf } from "../publish/publishTesting";
+import { textProjectSpy, withTextProject } from "../textproject/textProjectTesting";
 import { ShellProvider } from "../ui/frame/ShellContext";
 import type { WizardRequest } from "../workbench/WorkbenchContext";
 import { WizardHost } from "./WizardHost";
@@ -33,6 +35,8 @@ describe("WizardHost", () => {
   let root: Root;
   const publish = { gitOwn: true, onPublish: vi.fn(), onReveal: vi.fn(), onCommit: vi.fn(), onClose: vi.fn() };
 
+  // A text project unless a test says otherwise (the story recipes need one).
+  let textProject = true;
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
@@ -43,6 +47,7 @@ describe("WizardHost", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    textProject = true;
   });
 
   function props(request: WizardRequest | null): ComponentProps<typeof WizardHost> {
@@ -73,9 +78,12 @@ describe("WizardHost", () => {
   const show = async (request: WizardRequest | null, over: Partial<ComponentProps<typeof WizardHost>> = {}) => {
     await act(async () =>
       root.render(
-        <ShellProvider>
-          <WizardHost {...props(request)} {...over} />
-        </ShellProvider>,
+        withTextProject(
+          textProjectSpy(textProject),
+          <ShellProvider>
+            <WizardHost {...props(request)} {...over} />
+          </ShellProvider>,
+        ),
       ),
     );
     await flush();
@@ -166,6 +174,43 @@ describe("WizardHost", () => {
     expect(order).toEqual(["created", "recipe"]);
     expect(onOpenStoryRecipe).toHaveBeenCalledExactlyOnceWith({ recipe: "talk_advances", prefill: { figure: { header: 0, local_id: 4 } } });
     expect(base.wizards.open).not.toHaveBeenCalled();
+  });
+
+  it("story_join_outside_a_text_project_is_locked_with_the_reason", async () => {
+    textProject = false;
+    const town: HeaderSummary = { id: 0, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 5, text_archive_id: 554, script_file_id: 7, level_script_id: 0 };
+    const outcome: RecipeOutcome<NewFigureReport> = {
+      report: { event_file: 5, object: 3, local_id: 4, script_file: 7, slot: 12, archive: 554, message: 40 },
+      created: [],
+      change: 17,
+      changed: [{ kind: "Event", index: 5 }],
+      next: [
+        { id: "edit_dialog", label: "Dialog bearbeiten", available: true, reason: null },
+        { id: "story_join", label: "Zu einer Geschichte", available: true, reason: null },
+      ],
+    };
+    vi.mocked(recipeApply).mockReset().mockResolvedValue(outcome as never);
+    const onOpenStoryRecipe = vi.fn();
+    const base = props({ kind: "new_figure", prefill: { header: 0, tile: { x: 12, z: 7 } } });
+    const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+    const click = (name: string) => act(async () => void button(name)?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await show(base.wizards.request, { headers: [town], onOpenStoryRecipe, onRecipeApplied: async () => {} });
+    await click("Weiter");
+    const area = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Was sie sagt"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(area, "Hallo!");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Weiter");
+    await click("Aufstellen");
+    await flush();
+    // A DSPRE folder: the story recipe could never go in, so the step is locked and says why.
+    const step = container.querySelector<HTMLButtonElement>('[data-next-steps] button[data-recipe="story_join"]')!;
+    expect(step.disabled).toBe(true);
+    expect(container.querySelector('[data-next-steps] button[data-recipe="edit_dialog"]')?.hasAttribute("disabled")).toBe(false);
+    expect(document.getElementById(step.getAttribute("aria-describedby") ?? "")?.textContent).toBe(NOT_A_TEXT_PROJECT);
+    await act(async () => step.click());
+    expect(onOpenStoryRecipe).not.toHaveBeenCalled();
   });
 
   it("publish_request_renders_the_publish_wizard", async () => {

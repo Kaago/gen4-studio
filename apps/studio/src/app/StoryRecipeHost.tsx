@@ -32,7 +32,7 @@ export type StoryRecipeHostProps = {
 export function StoryRecipeHost({ request, onClose, project, revision, headers, onApplied, onError, onStoryCreated, beforeApply }: StoryRecipeHostProps) {
   const [creating, setCreating] = useState(false);
   const [made, setMade] = useState<string | null>(null);
-  const { list, reload } = useStories({ project: request === null ? null : project, revision });
+  const { list, error, reload } = useStories({ project: request === null ? null : project, revision });
   // Another request starts without what the last one made.
   const [seen, setSeen] = useState(request);
   if (seen !== request) {
@@ -55,6 +55,7 @@ export function StoryRecipeHost({ request, onClose, project, revision, headers, 
         key={JSON.stringify(request)}
         request={request}
         stories={list?.stories ?? null}
+        storiesError={error}
         project={project}
         revision={revision}
         headers={headers}

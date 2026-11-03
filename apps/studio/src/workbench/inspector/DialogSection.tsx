@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import type { FigureRef } from "../../api";
 import type { StoryRecipeRequest } from "../../stories/recipes/storyRecipeModel";
-import { Button, DSScreen } from "../../ui/primitives";
+import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { useTextProject } from "../../textproject/TextProjectContext";
+import { Button, DSScreen, Tooltip } from "../../ui/primitives";
 import { pages } from "../text/textModel";
 import { dialogSummary } from "../dialog/dialogModel";
 import type { DialogTarget } from "../dialog/dialogModel";
@@ -12,7 +14,8 @@ import styles from "./DialogSection.module.css";
  * The field „Dialog“ of a figure in Erzählen (a sign's is „Text“): the first page of its first message on the DS screen, a line with
  * what it says, and the way into the dialog editor. A common script, a trainer's battle and a script that cannot be read say where they
  * are edited instead. A figure without a script gets one with „Dialog anlegen…“: the recipe „Gespräch schaltet weiter“ with the figure
- * (`figure` and `onStoryRecipe` given; its story is chosen in the recipe's dialog).
+ * (`figure` and `onStoryRecipe` given; its story is chosen in the recipe's dialog). Outside a text project the recipe cannot go in: the
+ * button is locked with the kernel's sentence (tooltip and description).
  */
 export function DialogSection({
   target,
@@ -43,6 +46,19 @@ export function DialogSection({
   }, [error]);
 
   const source = dialog?.source.kind ?? null;
+  const textProject = useTextProject().active;
+  const reasonId = useId();
+  const create = (
+    <Button
+      kind="quiet"
+      size="s"
+      disabled={!textProject}
+      aria-describedby={textProject ? undefined : reasonId}
+      onClick={() => figure !== undefined && onStoryRecipe?.({ recipe: "talk_advances", prefill: { figure } })}
+    >
+      Dialog anlegen…
+    </Button>
+  );
   return (
     <section className={styles.section} data-dialog-section="">
       <h3 className={styles.title}>{target.kind === "bg" ? "Text" : "Dialog"}</h3>
@@ -59,9 +75,18 @@ export function DialogSection({
       )}
       {source === "none" && figure !== undefined && onStoryRecipe !== undefined && (
         <div className={styles.actions}>
-          <Button kind="quiet" size="s" onClick={() => onStoryRecipe({ recipe: "talk_advances", prefill: { figure } })}>
-            Dialog anlegen…
-          </Button>
+          {textProject ? (
+            create
+          ) : (
+            <>
+              <Tooltip content={NOT_A_TEXT_PROJECT}>
+                <span className={styles.lockedWrap}>{create}</span>
+              </Tooltip>
+              <span id={reasonId} hidden>
+                {NOT_A_TEXT_PROJECT}
+              </span>
+            </>
+          )}
         </div>
       )}
     </section>

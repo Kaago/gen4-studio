@@ -29,3 +29,9 @@
   align-items: center;
   gap: var(--g4-raum-8);
 }
+
+/* „Dialog anlegen…“ locked outside a text project: the wrapper takes the tooltip, the button cannot. */
+.lockedWrap {
+  display: inline-flex;
+  cursor: not-allowed;
+}

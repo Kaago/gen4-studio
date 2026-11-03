@@ -25,6 +25,12 @@ export type FigureFieldProps = {
   onError: (e: unknown) => void;
 };
 
+/**
+ * A trainer as the kernel tells it (`story_common`, the refusal of talk and a reward): an object that sees (`trainer_type` ≠ 0) or runs
+ * a trainer's battle script (3000 to 4999; a double battle partner's script from 5000 is not one).
+ */
+export const isTrainerFigure = (o: Pick<ObjectDto, "script" | "trainer_type">): boolean => o.trainer_type !== 0 || trainerOfScript(o.script)?.partner === false;
+
 /** „Figur 3 · Aussehen 97“: a figure by its local id and its look. */
 export const figureLabel = (o: Pick<ObjectDto, "local_id" | "graphics_id">): string => `Figur ${o.local_id} · Aussehen ${o.graphics_id}`;
 
@@ -51,7 +57,7 @@ export function FigureField({ header, localId, onChange, headers, revision, lock
       picking !== "figure"
         ? []
         : objects.map((o) => {
-            const trainer = trainerOfScript(o.script) !== null;
+            const trainer = isTrainerFigure(o);
             const locked = trainer && lockTrainers;
             return {
               id: o.index,
