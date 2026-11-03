@@ -2,7 +2,7 @@ script {name} #{n}:
     LockAll
     FacePlayer
     if {var} >= {from} then
-        if {flag} == 0 then
+        if !{flag} then
             Message {message}
             WaitButton
             CloseMessage

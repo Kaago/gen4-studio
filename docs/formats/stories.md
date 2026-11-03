@@ -326,9 +326,9 @@ gemeinsame Script s; das Rezept braucht ein eigenes Script.“). Der Zweig des G
 `if VAR == k then` Nachricht, `SetVarFromValue VAR, k+1` (HeartGold `SetVar`), `ReleaseAll`, `End`
 `endif`.
 
-**Belohnung.** Der Zweig ist `if VAR >= k then` / `if FLAG == 0 then` / Nachricht /
+**Belohnung.** Der Zweig ist `if VAR >= k then` / `if !FLAG then` / Nachricht /
 `GiveItem item, 1, VAR_RESULT` (HeartGold `VAR_SPECIAL_RESULT`) / `SetFlag FLAG` / `ReleaseAll` /
-`End` / `endif` / `endif`; danach geht es zum bisherigen Script. Nur Gegenstände (1 bis Zahl der
+`End` / `endif` / `endif`; danach geht es zum bisherigen Script. Das Flag prüft `if !FLAG` (rotoms `CheckFlag`), nicht `if FLAG == 0`: rotom übersetzt den Vergleich in `CompareVarValue <Nummer des Flags>, 0`, das Spiel liest eine Nummer unter 0x4000 als den Wert selbst, die Bedingung ist dann nie wahr (gefunden mit `pt-geschichte`/`hg-geschichte`). Nur Gegenstände (1 bis Zahl der
 Gegenstände − 1), kein Pokémon. Ein **voller Beutel wird nicht geprüft**: `GiveItem` scheitert dann
 still, das Flag ist trotzdem gesetzt, die Belohnung ist vertan.
 

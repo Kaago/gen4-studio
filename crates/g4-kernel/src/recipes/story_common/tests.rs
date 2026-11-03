@@ -352,3 +352,24 @@ fn every_story_template_resolves() {
         template("story_visibility_head", Family::Pt)
     );
 }
+
+/// A flag is tested by its truth (`if !FLAG then`, rotom's `CheckFlag`), never compared: rotom
+/// lowers `FLAG == 0` to `CompareVarValue <flag number>, 0`, and the game reads a number below
+/// 0x4000 as the value itself, so the comparison is constant and the reward never came
+/// (pt-geschichte, hg-geschichte).
+#[test]
+fn a_flag_is_tested_by_its_truth_not_compared() {
+    for (name, pt, hgss) in TEMPLATES {
+        for text in [pt, hgss] {
+            for op in ["==", "!=", ">=", "<=", ">", "<"] {
+                assert!(!text.contains(&format!("{{flag}} {op}")), "{name}: {text}");
+            }
+        }
+    }
+    for family in [Family::Dp, Family::Pt, Family::Hgss] {
+        assert!(
+            template("story_reward", family).contains("        if !{flag} then\n"),
+            "{family:?}"
+        );
+    }
+}

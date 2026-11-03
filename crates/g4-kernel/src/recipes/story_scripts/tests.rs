@@ -91,7 +91,7 @@ fn reward_script_checks_var_then_flag() {
          \x20   LockAll\n\
          \x20   FacePlayer\n\
          \x20   if VAR_STORY_TESTFADEN >= 2 then\n\
-         \x20       if FLAG_STORY_TESTFADEN_BELOHNUNG_3 == 0 then\n\
+         \x20       if !FLAG_STORY_TESTFADEN_BELOHNUNG_3 then\n\
          \x20           Message 9\n\
          \x20           WaitButton\n\
          \x20           CloseMessage\n\
@@ -256,7 +256,7 @@ fn insert_rule_without_marker_is_refused() {
     }
 }
 
-/// The compiler takes the templates, `if FLAG == 0 then` among them, in both families.
+/// The compiler takes the templates, `if !FLAG then` among them, in both families.
 #[cfg(feature = "test-support")]
 mod compile {
     use super::*;

@@ -1143,7 +1143,7 @@ fn apply_of_a_reward_names_the_flag_wraps_the_script_and_lists_the_flag_in_the_s
     let hull = &source[source.find("script belohnung_5_3 #3:").unwrap()..];
     for line in [
         "    if VAR_STORY_TESTFADEN >= 0 then\n".to_owned(),
-        format!("        if {flag_id} == 0 then\n"),
+        format!("        if !{flag_id} then\n"),
         format!("            Message {message}\n"),
         format!("            GiveItem {ITEM}, 1, VAR_RESULT\n"),
         format!("            SetFlag {flag_id}\n"),
