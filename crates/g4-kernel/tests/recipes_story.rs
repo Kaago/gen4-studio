@@ -2241,6 +2241,107 @@ fn a_failed_visibility_takes_back_the_block_and_the_level_script() {
     assert_eq!(store.undo_depth(), mark + 1);
 }
 
+/// The error of a recipe that failed after it created a level script file: a
+/// [`KernelError::Partial`] that names the file, which stays (empty, the header points back at
+/// its old level script).
+fn assert_kept_level_script<T: std::fmt::Debug>(
+    store: &mut Store,
+    result: Result<T, KernelError>,
+    n: u16,
+) {
+    match result {
+        Err(KernelError::Partial(m)) => assert!(
+            m.ends_with(&format!(
+                ". Level-Script-Datei {n} wurde angelegt und bleibt."
+            )),
+            "{m}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(store.header_table().unwrap()[1].level_script_id(), 0);
+    assert_eq!(level_json(store, n), entries(serde_json::json!([])));
+}
+
+#[test]
+fn a_failed_visibility_names_the_level_script_file_it_created() {
+    let (_fx, mut store) = appear_fixture();
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let mark = store.undo_depth();
+    let input = FigureAppearsInput {
+        figure: FigureRef {
+            header: 1,
+            local_id: 4,
+        },
+        ..appear(4, 1, true, POOL_FLAG)
+    };
+    // `append_step` fails after the new level script file was created.
+    story_files_readonly(&store, true);
+    let result = figure_appears::apply(&mut store, &input);
+    story_files_readonly(&store, false);
+    assert_kept_level_script(&mut store, result, n);
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(store.event(0).unwrap().object_events[5].hidden_flag, 0);
+}
+
+#[test]
+fn a_failed_scene_names_the_level_script_file_it_created() {
+    let (_fx, mut store) = talk_fixture();
+    // Header 1 (level script 0) takes header 0's text archive, as in the scene tests.
+    store
+        .transaction("Textarchiv", |tx| {
+            tx.edit_header(1, |h| {
+                match h {
+                    MapHeader::DP(h) => h.text_archive_id = ARCHIVE,
+                    MapHeader::Pt(h) => h.text_archive_id = ARCHIVE,
+                    MapHeader::HGSS(h) => h.text_archive_id = ARCHIVE,
+                }
+                Ok(())
+            })
+        })
+        .unwrap();
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let mark = store.undo_depth();
+    let messages = store.text_archive(ARCHIVE).unwrap().messages.len();
+    story_files_readonly(&store, true);
+    let result = scene_on_enter::apply(&mut store, &scene(1, 0, SCENE_TEXT));
+    story_files_readonly(&store, false);
+    assert_kept_level_script(&mut store, result, n);
+    assert_eq!(store.undo_depth(), mark);
+    assert_eq!(
+        store.text_archive(ARCHIVE).unwrap().messages.len(),
+        messages
+    );
+}
+
+#[test]
+fn a_binary_level_script_is_replaced_without_its_entries_and_says_so() {
+    let (_fx, mut store) = appear_fixture();
+    // Level script 1 of header 0 loses its source: rotom could not decompile it (binary).
+    let json = scripts::source_path(store.project(), LEVEL, scripts::SourceKind::LevelScript);
+    std::fs::remove_file(json).unwrap();
+    assert!(matches!(
+        scripts::read_source(store.project(), LEVEL).unwrap(),
+        ScriptSource::Binary { .. }
+    ));
+    let n = scripts::next_script_file(store.project()).unwrap();
+    let draft = recipes::plan(&mut store, &appear_call(&appear(4, 1, true, POOL_FLAG))).unwrap();
+    assert_eq!(
+        draft.irreversible,
+        [format!(
+            "Level-Script-Datei {n} wird angelegt und bleibt; die Einträge der binären \
+             Level-Script-Datei {LEVEL} werden nicht übernommen"
+        )]
+    );
+    let draft = scene_on_enter::plan(&mut store, &scene(0, 1, SCENE_TEXT)).unwrap();
+    assert_eq!(
+        draft.irreversible,
+        [format!(
+            "Level-Script-Datei {n} wird angelegt und bleibt; die Einträge der binären \
+             Level-Script-Datei {LEVEL} werden nicht übernommen"
+        )]
+    );
+}
+
 // ---------------------------------------------------------------------------------------
 // „Szene beim Betreten“
 // ---------------------------------------------------------------------------------------

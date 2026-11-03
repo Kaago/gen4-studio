@@ -15,7 +15,7 @@ use g4_formats::game::Family;
 use serde::{Deserialize, Serialize};
 
 use super::level_script::{
-    LevelScriptPlan, created_text, ensure_level_script, plan_level_script, push_condition,
+    LevelScriptPlan, ensure_level_script, kept_level_script, plan_level_script, push_condition,
     set_level_script, write_level_script,
 };
 use super::story_common::{
@@ -186,12 +186,7 @@ pub fn plan(store: &mut Store, input: &SceneOnEnterInput) -> Result<Draft, Kerne
             "Beim Betreten von Header {} mit Schritt {} läuft die Szene und schaltet auf {}.",
             input.header, input.step, checked.value
         )],
-        irreversible: checked
-            .level
-            .create
-            .then(|| created_text(checked.level.file))
-            .into_iter()
-            .collect(),
+        irreversible: checked.level.irreversible().into_iter().collect(),
         ..Draft::default()
     })
 }
@@ -265,9 +260,11 @@ pub fn apply(
         doc,
         step,
     };
+    let kept = checked.level.create.then_some(level_script);
     let change = rolled_back(store, mark, |store, disk| {
         write_scene(store, mark, checked, write, disk)
-    })?;
+    })
+    .map_err(|e| kept_level_script(e, kept))?;
     Ok(Outcome {
         report,
         created,

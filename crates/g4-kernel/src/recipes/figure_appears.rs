@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::level_script::{
-    LevelScriptPlan, created_text, ensure_level_script, plan_level_script, set_level_script,
+    LevelScriptPlan, ensure_level_script, kept_level_script, plan_level_script, set_level_script,
     set_transition, write_level_script,
 };
 use super::story_common::{
@@ -168,9 +168,9 @@ impl Block {
     }
 
     /// The level script file a new file would get (`Some` only when one is created).
-    fn created_level_script(&self) -> Option<u16> {
+    fn created_level_script(&self) -> Option<&LevelScriptPlan> {
         match self {
-            Block::New { level, .. } if level.create => Some(level.file),
+            Block::New { level, .. } if level.create => Some(level),
             _ => None,
         }
     }
@@ -313,7 +313,7 @@ pub fn plan(store: &mut Store, input: &FigureAppearsInput) -> Result<Draft, Kern
         irreversible: checked
             .block
             .created_level_script()
-            .map(created_text)
+            .and_then(LevelScriptPlan::irreversible)
             .into_iter()
             .collect(),
         ..Draft::default()
@@ -406,9 +406,11 @@ pub fn apply(
         level_created,
         step,
     };
+    let kept = level_created.then_some(level_script);
     let change = rolled_back(store, mark, |store, disk| {
         write_visibility(store, mark, checked, write, disk)
-    })?;
+    })
+    .map_err(|e| kept_level_script(e, kept))?;
     Ok(Outcome {
         report,
         created,

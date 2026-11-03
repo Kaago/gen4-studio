@@ -79,3 +79,63 @@ fn push_condition_adds_the_var_condition_entry_once() {
     );
     assert!(level.validate().is_ok());
 }
+
+fn plan(create: bool, binary: Option<u16>) -> LevelScriptPlan {
+    LevelScriptPlan {
+        file: 910,
+        create,
+        doc: LevelScriptDoc::default(),
+        transition: None,
+        binary,
+    }
+}
+
+#[test]
+fn the_irreversible_sentence_names_a_replaced_binary_file() {
+    assert_eq!(plan(false, None).irreversible(), None);
+    assert_eq!(
+        plan(true, None).irreversible().as_deref(),
+        Some("Level-Script-Datei 910 wird angelegt und bleibt")
+    );
+    assert_eq!(
+        plan(true, Some(909)).irreversible().as_deref(),
+        Some(
+            "Level-Script-Datei 910 wird angelegt und bleibt; die Einträge der binären \
+             Level-Script-Datei 909 werden nicht übernommen"
+        )
+    );
+}
+
+#[test]
+fn a_kept_level_script_is_named_in_the_error() {
+    let refused = KernelError::Refused("Die Geschichte ist schreibgeschützt".to_owned());
+    // Nothing created: the error as it is.
+    assert!(matches!(
+        kept_level_script(refused, None),
+        KernelError::Refused(m) if m == "Die Geschichte ist schreibgeschützt"
+    ));
+    let failed = KernelError::Refused("Die Geschichte ist schreibgeschützt".to_owned());
+    match kept_level_script(failed, Some(910)) {
+        KernelError::Partial(m) => assert_eq!(
+            m,
+            "Die Geschichte ist schreibgeschützt. Level-Script-Datei 910 wurde angelegt und \
+             bleibt."
+        ),
+        other => panic!("{other:?}"),
+    }
+    let compile = KernelError::Compile(vec![crate::text::Problem {
+        severity: crate::text::Severity::Error,
+        file: "expanded/scripts/0910.json".into(),
+        line: 3,
+        col: 7,
+        message: "unknown script 4".to_owned(),
+    }]);
+    match kept_level_script(compile, Some(910)) {
+        KernelError::Partial(m) => assert_eq!(
+            m,
+            "1 problem(s) in scripts, texts or the text project: expanded/scripts/0910.json:3:7: \
+             unknown script 4. Level-Script-Datei 910 wurde angelegt und bleibt."
+        ),
+        other => panic!("{other:?}"),
+    }
+}

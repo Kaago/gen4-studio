@@ -367,9 +367,12 @@ nennt, sonst keinen `map`-Eintrag.
 **Level-Script-Datei.** Sichtbarkeit und Szene ändern die Level-Script-Datei des Headers an Ort
 und Stelle. Teilt ein anderer Header sie, bekommt dieser Header eine Kopie als neue Datei; hat er
 keine (0) oder nur eine binäre, eine neue leere. Eine neue Datei ist ein Member, der nach ⌘Z bleibt
-(`Outcome.created`, im Entwurf „Level-Script-Datei n wird angelegt und bleibt“); nur dann ist das
-Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem Plan, ein
-abgelehnter Plan fragt sicherheitshalber, siehe [docs/mcp.md](../mcp.md)).
+(`Outcome.created`, im Entwurf „Level-Script-Datei n wird angelegt und bleibt“, ersetzt sie eine
+binäre m, dazu „; die Einträge der binären Level-Script-Datei m werden nicht übernommen“); nur dann
+ist das Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem
+Plan, ein abgelehnter Plan fragt sicherheitshalber, siehe [docs/mcp.md](../mcp.md)). Scheitert das
+Rezept nach dem Anlegen, nimmt es alles andere zurück und nennt die Datei am Ende des Fehlers
+(`partial`): „Level-Script-Datei n wurde angelegt und bleibt.“
 
 **In der App.** „Neue Geschichte“ ruft in der Variante Variable `new_story` mit der freien
 Variable aus `free_flag var` (das Feld bleibt änderbar) und nennt den Pool („Noch 20 Variablen

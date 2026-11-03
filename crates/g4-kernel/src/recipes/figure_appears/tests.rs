@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+use crate::recipes::level_script::created_text;
 
 #[test]
 fn key_label_and_texts() {

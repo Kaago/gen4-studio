@@ -43,6 +43,22 @@ pub(crate) struct LevelScriptPlan {
     pub doc: LevelScriptDoc,
     /// The script [`VISIBILITY_ENTRY`] starts so far (a slot of the header's script file).
     pub transition: Option<u16>,
+    /// The header's binary level script file (rotom could not decompile it) the new file
+    /// replaces without its entries; `None` otherwise.
+    pub binary: Option<u16>,
+}
+
+impl LevelScriptPlan {
+    /// The sentence of the dialog (`Draft::irreversible`) when the plan creates a file:
+    /// [`created_text`], for a replaced binary file [`binary_created_text`]; `None` when the
+    /// header's own file is changed in place.
+    pub(crate) fn irreversible(&self) -> Option<String> {
+        match (self.create, self.binary) {
+            (false, _) => None,
+            (true, None) => Some(created_text(self.file)),
+            (true, Some(old)) => Some(binary_created_text(self.file, old)),
+        }
+    }
 }
 
 /// The refusal for a header whose level script id names a rotom script.
@@ -64,6 +80,7 @@ pub(crate) fn plan_level_script(
 ) -> Result<LevelScriptPlan, KernelError> {
     let current = header_files(store, header)?.level_script;
     let project = store.project_arc();
+    let mut binary = None;
     let (create, doc) = if current == 0 {
         (true, LevelScriptDoc::default())
     } else {
@@ -76,7 +93,10 @@ pub(crate) fn plan_level_script(
                     .any(|(i, h)| i != usize::from(header) && h.level_script_id() == current);
                 (shared, doc)
             }
-            ScriptSource::Binary { .. } => (true, LevelScriptDoc::default()),
+            ScriptSource::Binary { .. } => {
+                binary = Some(current);
+                (true, LevelScriptDoc::default())
+            }
             ScriptSource::Rotom(_) => {
                 return Err(refused(not_a_level_script_text(current, header)));
             }
@@ -94,6 +114,7 @@ pub(crate) fn plan_level_script(
         create,
         doc,
         transition,
+        binary,
     })
 }
 
@@ -103,9 +124,44 @@ pub(crate) fn created_text(file: u16) -> String {
     format!("Level-Script-Datei {file} wird angelegt und bleibt")
 }
 
+/// The sentence of the dialog for level script file `file` a recipe creates in place of the
+/// header's binary level script file `old`: it stays after undo, and the entries of `old` are
+/// not in it (rotom cannot read them), so the place loses them while it uses the new file.
+pub(crate) fn binary_created_text(file: u16, old: u16) -> String {
+    format!(
+        "{}; die Einträge der binären Level-Script-Datei {old} werden nicht übernommen",
+        created_text(file)
+    )
+}
+
+/// The error `e` of a recipe that failed after it created level script file `file`, which
+/// stays: a [`KernelError::Partial`] whose text appends „Level-Script-Datei {file} wurde
+/// angelegt und bleibt.“ (the problems of a compile error are named before). `file` `None`
+/// (nothing created) answers `e` as it is.
+pub(crate) fn kept_level_script(e: KernelError, file: Option<u16>) -> KernelError {
+    let Some(file) = file else {
+        return e;
+    };
+    let what = match &e {
+        KernelError::Compile(problems) => {
+            let list = problems
+                .iter()
+                .map(|p| format!("{}:{}:{}: {}", p.file.display(), p.line, p.col, p.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("{e}: {list}")
+        }
+        _ => e.to_string(),
+    };
+    KernelError::Partial(format!(
+        "{what}. Level-Script-Datei {file} wurde angelegt und bleibt."
+    ))
+}
+
 /// The file of `plan`: created when the plan says so, as a new level script file with the
 /// plan's document (compiled), named in `created`; else the header's own file. A new file
-/// stays after undo (it is a new member, no undo step takes it back).
+/// stays after undo (it is a new member, no undo step takes it back); an error after it was
+/// created names it ([`kept_level_script`]).
 pub(crate) fn ensure_level_script(
     store: &mut Store,
     plan: &LevelScriptPlan,
@@ -120,15 +176,19 @@ pub(crate) fn ensure_level_script(
         kind: AssetKind::Script,
         index: file,
     });
-    if plan.doc != LevelScriptDoc::default() {
-        touched.extend(write_level_script(&project, file, &plan.doc)?);
-    }
-    for a in touched {
-        let archive = id(AssetKind::TextArchive, a);
-        if store.is_loaded(archive) {
-            store.reload_from_disk(archive)?;
+    let mut written = || -> Result<(), KernelError> {
+        if plan.doc != LevelScriptDoc::default() {
+            touched.extend(write_level_script(&project, file, &plan.doc)?);
         }
-    }
+        for a in touched.drain(..) {
+            let archive = id(AssetKind::TextArchive, a);
+            if store.is_loaded(archive) {
+                store.reload_from_disk(archive)?;
+            }
+        }
+        Ok(())
+    };
+    written().map_err(|e| kept_level_script(e, Some(file)))?;
     Ok(file)
 }
 
