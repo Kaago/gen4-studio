@@ -1417,7 +1417,7 @@ target/release/studio mcp --project $P --base-rom $N --allow-irreversible --expe
 #     delete_entity (Grabstein), save; Prüfsumme der Dateien außer .git und .g4 vor und nach undo gleich; g4k build und g4k check 0 Fehler
 #   restore_entity; reset_to_original eines gelöschten Original-Trainers → wieder da
 #   delete_entity mit free_number → freed {count, files}; git status nennt die entfernte Datei; undo hält an der Grenze
-target/release/g4k delete plan  $P trainer <n>               # JSON (Basis-ROM: die .nds neben $P oder --base-rom $N); ein abgelehnter Plan endet mit Exit 1
+target/release/g4k delete plan  $P trainer <n>               # JSON (Basis-ROM: die .nds neben $P oder --base-rom $N); ein abgelehnter Plan endet mit Exit 0, `refusal` im JSON nennt den Grund
 target/release/g4k delete apply $P trainer <n> [--free-number --allow-irreversible]   # --free-number allein: stderr „error: delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); kopflos nur mit --allow-irreversible“, Exit 1
 target/release/g4k delete restore $P trainer <n>
 # Migration: Kopie mit schemaVersion 1 (aus einem Commit vor 3d.4 exportiert)
