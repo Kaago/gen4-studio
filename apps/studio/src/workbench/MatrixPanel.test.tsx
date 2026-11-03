@@ -189,6 +189,25 @@ describe("MatrixPanel", () => {
     expect(container.textContent).toContain("gehört noch zu keinem Header");
   });
 
+  it("shows_the_matrix_of_a_link_after_a_matrix_was_created", async () => {
+    // Gate 3d.4 G3 (B12b): the created matrix kept the grid although a link led to a cell of another matrix.
+    vi.mocked(createMatrix).mockResolvedValue(9);
+    vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
+    await show();
+    await act(async () => button("Neue Matrix").click());
+    await flush();
+    expect(container.querySelector("header")?.textContent).toContain("0009 · Matrix");
+    // goTo selects the new matrix's cell: it stays.
+    await show({ selection: { matrix: 9, x: 0, y: 0 } });
+    expect(container.querySelector("header")?.textContent).toContain("0009 · Matrix");
+    expect(container.textContent).toContain("gehört noch zu keinem Header");
+    // A link to a cell of another matrix: that matrix, and no note about the created one.
+    await show({ selection: { matrix: 290, x: 0, y: 0 } });
+    expect(getMatrix).toHaveBeenLastCalledWith(290);
+    expect(container.querySelector("header")?.textContent).toContain("0290 · Matrix");
+    expect(container.textContent).not.toContain("gehört noch zu keinem Header");
+  });
+
   it("opens_the_cell_in_the_inspector_on_a_click_and_the_extend_dialog_from_a_plus_cell", async () => {
     await show();
     await act(async () => container.querySelector<HTMLElement>('[data-cell="1,0"]')!.click());

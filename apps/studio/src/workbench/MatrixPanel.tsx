@@ -52,6 +52,11 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
   useEffect(() => setCreated(null), [sceneMatrix, info?.root]);
+  // A link to a cell of another matrix ends it too (gate 3d.4 B12b); the cell of the created matrix itself (`goTo` after „Neue Matrix“) does not.
+  const selectedMatrix = selection?.matrix;
+  useEffect(() => {
+    if (selectedMatrix !== undefined) setCreated((made) => (made === selectedMatrix ? made : null));
+  }, [selectedMatrix]);
   // A cell chosen by a link („Matrix 0290, Zelle 0, 0“) shows its matrix, also when it is not the scene's (gate 3d.4 B12).
   const index = created ?? selection?.matrix ?? sceneMatrix;
   const matrix = useMatrix(index, revision, onError);
