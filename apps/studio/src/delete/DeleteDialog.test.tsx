@@ -4,9 +4,9 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteEntity, planDelete } from "../api";
-import type { DeletePlan, DeleteResult } from "../api";
+import type { DeletePlan, DeleteResult, StoryMention } from "../api";
 import { pressKey } from "../ui/primitives/testUtils";
-import { DeleteDialog } from "./DeleteDialog";
+import { DeleteDialog, MENTIONS_HINT } from "./DeleteDialog";
 import type { DeleteDialogProps } from "./DeleteDialog";
 import { TRAINER_901, deletePlan, deleteResult, figureRef } from "./deleteTesting";
 
@@ -208,6 +208,61 @@ describe("DeleteDialog", () => {
     expect(deleteEntity).toHaveBeenCalledWith(target, true);
     expect(onDeleted).toHaveBeenCalledWith(freed, true, "Scriptdatei 1200");
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("mentions_are_listed_without_locking", async () => {
+    const mention = (over: Partial<StoryMention> = {}): StoryMention => ({
+      story_id: "STORY_TESTFADEN",
+      story_name: "Testfaden",
+      number: 3,
+      step_key: "s1",
+      step_name: "Kampf gegen Kai",
+      file: "data/stories/0003.json",
+      ...over,
+    });
+    const mentions = () => dialog()?.querySelector<HTMLElement>("[data-delete-mentions]") ?? null;
+    const chips = () => [...(mentions()?.querySelectorAll<HTMLButtonElement>("[data-delete-mention]") ?? [])];
+    vi.mocked(planDelete).mockResolvedValue(deletePlan({ mentions: [mention(), mention({ step_key: null, step_name: null })] }));
+    await show();
+    // „Erwähnt in Geschichten“: one chip per story and step, and that they do not lock.
+    expect(mentions()?.querySelector("h3")?.textContent).toBe("Erwähnt in Geschichten");
+    expect(chips().map((c) => c.textContent)).toEqual(["Testfaden › Kampf gegen Kai", "Testfaden"]);
+    expect(chips().map((c) => c.dataset.deleteMention)).toEqual(["STORY_TESTFADEN", "STORY_TESTFADEN"]);
+    expect(mentions()?.textContent).toContain(MENTIONS_HINT);
+    expect(MENTIONS_HINT).toBe("Geschichten sperren nicht; der Verweis wird als offen gemeldet.");
+    expect(notices("alert")).toEqual([]);
+    expect(notices("status")).toEqual([KEEPS]);
+    expect(button("Löschen")?.disabled).toBe(false);
+    // A chip opens the story and closes the dialog.
+    await act(async () => chips()[0]!.click());
+    expect(goTo).toHaveBeenCalledWith({ kind: "story", number: 3 });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    // „Löschen“ goes with the stories beside it.
+    act(() => root.unmount());
+    root = createRoot(container);
+    const result = deleteResult({ mentions: [mention()] });
+    vi.mocked(deleteEntity).mockResolvedValueOnce(result);
+    await show();
+    await act(async () => button("Löschen")!.click());
+    expect(deleteEntity).toHaveBeenCalledWith(TRAINER_901, false);
+    expect(onDeleted).toHaveBeenCalledWith(result, false, "Trainer 0901");
+
+    // A hard reference still locks; the stories stand beside it.
+    act(() => root.unmount());
+    root = createRoot(container);
+    vi.mocked(planDelete).mockResolvedValue(deletePlan({ references: [figureRef(2)], mentions: [mention()] }));
+    await show();
+    expect(notices("alert")).toEqual(["1 Verweis: zuerst umhängen."]);
+    expect(chips().map((c) => c.textContent)).toEqual(["Testfaden › Kampf gegen Kai"]);
+    expect(button("Löschen")?.disabled).toBe(true);
+
+    // No story: no section.
+    act(() => root.unmount());
+    root = createRoot(container);
+    vi.mocked(planDelete).mockResolvedValue(deletePlan());
+    await show();
+    expect(mentions()).toBeNull();
   });
 
   it("a_failed_delete_stays_open_with_the_reason_and_the_references_it_names", async () => {

@@ -21,6 +21,7 @@ const PLAN: DeletePlan = {
   refusal: null,
   references: [],
   warnings: [],
+  mentions: [],
   original: false,
   deleted: false,
   can_free: { count: 1, files: ["data/trainers/0901.json"] },

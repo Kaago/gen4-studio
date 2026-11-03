@@ -5,7 +5,7 @@
 //! ([`to_canonical`](crate::textproject::canon::to_canonical)), keys in the order of the type.
 //! A step's `key` is unique in its story; `value` is the value of the story's progress variable
 //! (or flag) the step stands for. The references in `progress`, `uses` and `flags` are weak:
-//! the check warns about one that names nothing ([`DANGLING_REF_CODE`]).
+//! the check warns about one that names nothing or a deleted entity ([`DANGLING_REF_CODE`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,10 +19,13 @@ use crate::text::{Problem, Severity};
 use crate::textproject::arts::file_names;
 use crate::textproject::canon::{parse_json, problem};
 use crate::textproject::codes::{ID_DANGLING_CODE, ID_MISMATCH_CODE, SCHEMA_CODE};
-use crate::textproject::ids::{RefInput, Resolver};
+use crate::textproject::ids::Resolver;
 use crate::textproject::locate::{key_position, position};
 use crate::textproject::registry::{IDS_DIR, Registry, registry_file};
+use crate::textproject::source::deleted_on_disk;
 use crate::textproject::symbols::SymbolKind;
+
+use super::uses::{UseTarget, number, resolve};
 
 /// The folder of the stories, relative to the project root.
 pub const STORIES_DIR: &str = "data/stories";
@@ -164,10 +167,11 @@ pub fn layout_rel(n: u16) -> PathBuf {
 /// Reads and judges one story file `bytes` of number `n`: not JSON or not the schema →
 /// `textproject.schema` (file, line, col via `parse_json`); `id` without the `STORY_` prefix or
 /// ≠ the register's id of `n` → `textproject.id-mismatch`; a duplicate step `key` →
-/// `textproject.schema`; `progress`/`uses`/`flags` that name no known id or number (resolver)
-/// → warning [`DANGLING_REF_CODE`]. The id is judged even when the rest does not read.
+/// `textproject.schema`; `progress`/`uses`/`flags` that name no known id (resolver), or a use
+/// of an entity whose JSON carries a tombstone (3d.4) → warning [`DANGLING_REF_CODE`]. The id
+/// is judged even when the rest does not read.
 pub fn check_file(
-    _project: &Project,
+    project: &Project,
     registry: &Registry,
     resolver: &Resolver,
     n: u16,
@@ -175,7 +179,13 @@ pub fn check_file(
 ) -> Vec<Problem> {
     let (story, mut problems) = judge(registry, n, bytes);
     if let Some(story) = story {
-        problems.extend(dangling(&story, resolver, &story_rel(n), bytes));
+        problems.extend(dangling(
+            &story,
+            resolver,
+            &project.root,
+            &story_rel(n),
+            bytes,
+        ));
     }
     problems
 }
@@ -247,35 +257,65 @@ fn id_problem(registry: &Registry, n: u16, rel: &Path, bytes: &[u8]) -> Option<P
     })
 }
 
-/// The warnings of the ids in `progress`, `uses` and `flags` of `story` that resolve nowhere,
-/// each at its JSON path.
-fn dangling(story: &Story, resolver: &Resolver, rel: &Path, bytes: &[u8]) -> Vec<Problem> {
-    let mut refs: Vec<(String, SymbolKind, &str)> = Vec::new();
+/// The warnings of the references in `progress`, `uses` and `flags` of `story` that name
+/// nothing: an id that resolves nowhere (the resolver's sentence), or a use of an entity whose
+/// JSON under `root` carries a tombstone („Trainer 0001 ist gelöscht.“), each at its JSON path.
+fn dangling(
+    story: &Story,
+    resolver: &Resolver,
+    root: &Path,
+    rel: &Path,
+    bytes: &[u8],
+) -> Vec<Problem> {
+    let mut refs: Vec<(String, Result<UseTarget, String>)> = Vec::new();
     match &story.progress {
-        Progress::Var(id) => refs.push(("progress.var".to_owned(), SymbolKind::Var, id)),
-        Progress::Flag(id) => refs.push(("progress.flag".to_owned(), SymbolKind::Flag, id)),
+        Progress::Var(id) => refs.push((
+            "progress.var".to_owned(),
+            number(resolver, SymbolKind::Var, id).map(UseTarget::Var),
+        )),
+        Progress::Flag(id) => refs.push((
+            "progress.flag".to_owned(),
+            number(resolver, SymbolKind::Flag, id).map(UseTarget::Flag),
+        )),
     }
     for (i, step) in story.steps.iter().enumerate() {
         for (j, used) in step.uses.iter().enumerate() {
-            let (key, kind, id) = match used {
-                Use::Trainer(id) => ("trainer", SymbolKind::Trainer, id),
-                Use::Map(id) => ("map", SymbolKind::Map, id),
-                Use::Flag(id) => ("flag", SymbolKind::Flag, id),
-                Use::Var(id) => ("var", SymbolKind::Var, id),
-                Use::Object { .. }
-                | Use::Script { .. }
-                | Use::Message { .. }
-                | Use::LevelScript { .. } => continue,
+            let key = match used {
+                Use::Trainer(_) => "trainer",
+                Use::Map(_) => "map",
+                Use::Flag(_) => "flag",
+                Use::Var(_) => "var",
+                Use::Object { .. } => "object",
+                Use::Script { .. } => "script",
+                Use::Message { .. } => "message",
+                Use::LevelScript { .. } => "levelScript",
             };
-            refs.push((format!("steps[{i}].uses[{j}].{key}"), kind, id));
+            refs.push((
+                format!("steps[{i}].uses[{j}].{key}"),
+                resolve(used, resolver),
+            ));
         }
     }
     for (k, id) in story.flags.iter().enumerate() {
-        refs.push((format!("flags[{k}]"), SymbolKind::Flag, id));
+        refs.push((
+            format!("flags[{k}]"),
+            number(resolver, SymbolKind::Flag, id).map(UseTarget::Flag),
+        ));
     }
+    let deleted = deleted_on_disk(root);
     refs.into_iter()
-        .filter_map(|(path, kind, id)| {
-            let why = resolver.number(kind, &RefInput::Id(id.to_owned())).err()?;
+        .filter_map(|(path, target)| {
+            let why = match target {
+                Err(why) => why,
+                Ok(target) => {
+                    let entity = target.entity();
+                    let art = entity.art()?;
+                    if !deleted(art, entity.number()) {
+                        return None;
+                    }
+                    format!("{} ist gelöscht.", entity.label())
+                }
+            };
             Some(at(
                 rel,
                 bytes,
@@ -452,6 +492,7 @@ mod tests {
     use super::*;
     use crate::test_support::TextFixture;
     use crate::textproject::canon::to_canonical;
+    use crate::textproject::tombstone::with_envelope;
 
     /// Gutachten A §3.2 (c), grown to seven steps (one of each kind) with every form of `uses`.
     const EXAMPLE: &str = r#"{
@@ -824,6 +865,46 @@ mod tests {
         assert_eq!(
             problems[1].message,
             "story.dangling-ref: flags[0]: Unbekannte ID: FLAG_NIRGENDS."
+        );
+    }
+
+    #[test]
+    fn a_use_of_a_deleted_entity_is_dangling() {
+        let fx = TextFixture::exported();
+        fx.write("data/ids/stories.json", b"{\n  \"STORY_A\": 0\n}\n");
+        let p = fx.project();
+        let registry = Registry::load(fx.root(), SymbolKind::Story).unwrap();
+        let resolver = Resolver::for_project(&p).unwrap();
+        let text = "{\n  \"id\": \"STORY_A\",\n  \"name\": \"A\",\n  \"progress\": {\n    \"flag\": \
+                    \"FLAG_0001\"\n  },\n  \"steps\": [\n    {\n      \"key\": \"s0\",\n      \
+                    \"value\": 0,\n      \"kind\": \"battle\",\n      \"name\": \"Kampf\",\n      \
+                    \"uses\": [\n        {\n          \"trainer\": \"TRAINER_YOUNGSTER_KAI\"\n        },\n        \
+                    {\n          \"object\": {\n            \"file\": 0,\n            \"local_id\": 1\n          \
+                    }\n        }\n      ]\n    }\n  ]\n}\n";
+        let check = || check_file(&p, &registry, &resolver, 0, text.as_bytes());
+        // Both live: nothing.
+        assert!(check().is_empty(), "{:#?}", check());
+
+        // Trainer 1 and event file 0 carry a tombstone: each use is open, at its line.
+        for rel in ["data/trainers/0001.json", "data/events/0000.json"] {
+            fx.write(rel, &with_envelope(fx.read(rel)));
+        }
+        let problems = check();
+        assert_eq!(
+            found(&problems),
+            [
+                (DANGLING_REF_CODE.to_owned(), Severity::Warning, 15),
+                (DANGLING_REF_CODE.to_owned(), Severity::Warning, 18),
+            ],
+            "{problems:#?}"
+        );
+        assert_eq!(
+            problems[0].message,
+            "story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht."
+        );
+        assert_eq!(
+            problems[1].message,
+            "story.dangling-ref: steps[0].uses[1].object: Eventdatei 0000 ist gelöscht."
         );
     }
 

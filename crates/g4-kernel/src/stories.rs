@@ -7,9 +7,10 @@
 //!
 //! A story is no store asset: making and changing one are each one file step on the undo
 //! stack ([`entities::create_story`], [`entities::update_story`]), written at once like naming a
-//! flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know
-//! is a warning (`story.dangling-ref`), never a refusal. The format is documented in
-//! `docs/formats/stories.md`.
+//! flag. Its references (`progress`, `uses`, `flags`) are weak: an id the project does not know,
+//! or a use of an entity with a tombstone, is a warning (`story.dangling-ref`), never a refusal;
+//! deleting what a story names is never locked by it, the delete plan lists the stories
+//! ([`uses::mentions_of`]). The format is documented in `docs/formats/stories.md`.
 //!
 //! The threads ([`threads::threads`]) are the variables the game already tells a story with
 //! (three values at two places), the graph of one ([`threads::thread_graph`]) its values and the
@@ -18,6 +19,7 @@
 pub mod entities;
 pub mod schema;
 pub mod threads;
+pub mod uses;
 
 pub use entities::{
     NOTHING_TO_CHANGE, StoryEntry, StoryPatch, StoryReport, StoryRequest, create_story,
@@ -32,3 +34,4 @@ pub use threads::{
     GraphEdge, GraphNode, Place, Thread, ThreadGraph, is_story_var, place_label, thread_graph,
     threads,
 };
+pub use uses::{StoryUse, UseTarget, mentions_of, uses_of};

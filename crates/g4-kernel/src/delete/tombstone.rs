@@ -15,11 +15,13 @@ use crate::flags::FlagKind;
 use crate::original::Original;
 use crate::project::AssetId;
 use crate::store::{ChangeId, Store};
+use crate::stories::uses::StoryUse;
 
 /// What [`delete`], [`restore`] and [`super::free_number`] did: the step on the undo stack
 /// (`None` when nothing was recorded), the assets that changed, what „Nummer freigeben“
-/// removed, how long it took, and what went wrong on the side without undoing it (`notes`,
-/// German sentences; left out of the JSON when there are none).
+/// removed, how long it took, what went wrong on the side without undoing it (`notes`, German
+/// sentences), and the stories that mention the deleted entity (`mentions`, the plan's list:
+/// their uses are open now). `notes` and `mentions` are left out of the JSON when empty.
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteResult {
     pub change: Option<ChangeId>,
@@ -28,6 +30,8 @@ pub struct DeleteResult {
     pub ms: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<StoryUse>,
 }
 
 pub(super) fn ms_since(started: Instant) -> u64 {
@@ -44,7 +48,8 @@ pub(super) fn already_deleted(label: &str) -> String {
 /// ([`KernelError::Referenced`]) or the base's error without a base ROM; an entity deleted
 /// already is refused („{label} ist schon gelöscht.“). Then one transaction
 /// „Gelöscht: {label}“ that sets the tombstone; a flag or variable loses its own name and a
-/// place its name as the file step of `files.rs` instead.
+/// place its name as the file step of `files.rs` instead. The stories that mention the entity
+/// never refuse it: the result carries the plan's `mentions`.
 pub fn delete(
     store: &mut Store,
     refs: &mut RefIndex,
@@ -63,6 +68,7 @@ pub fn delete(
         });
     }
     let label = plan.label;
+    let mentions = plan.mentions;
     let (change, changed) = match target {
         DeleteTarget::Flag { number } => {
             let (change, asset) = remove_own_name(store, FlagKind::Flag, number, &label)?;
@@ -89,6 +95,7 @@ pub fn delete(
         freed: None,
         ms: ms_since(started),
         notes: Vec::new(),
+        mentions,
     })
 }
 
@@ -110,5 +117,6 @@ pub fn restore(store: &mut Store, target: DeleteTarget) -> Result<DeleteResult, 
         freed: None,
         ms: ms_since(started),
         notes: Vec::new(),
+        mentions: Vec::new(),
     })
 }

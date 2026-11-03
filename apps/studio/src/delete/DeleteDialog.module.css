@@ -45,3 +45,23 @@
   color: var(--g4-text-sekundaer);
   font: var(--g4-font-text-s);
 }
+
+/* „Erwähnt in Geschichten“: a small title, the stories as chips that wrap, why they do not lock. */
+.mentions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+}
+
+.mentionsTitle {
+  margin: 0;
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-4);
+}

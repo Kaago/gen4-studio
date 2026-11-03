@@ -96,10 +96,41 @@ JSON-Schlüssel; die Oberfläche sagt sie deutsch:
 Die Verweise einer Geschichte sind **schwach**: Eine Geschichte ist Dokumentation, sie sperrt kein
 Löschen und hält keinen Build auf. Der Check meldet eine ID in `progress`, `uses` oder `flags`, die
 im Projekt nichts nennt (Resolver: Tabellen, Register, pret-Namen, Ersatz-IDs), als Warnung
-`story.dangling-ref` am JSON-Pfad (`story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE.`).
-Verweise über Nummern (`object`, `script`, `message`, `levelScript`) prüft der Check nicht.
+`story.dangling-ref` am JSON-Pfad (`story.dangling-ref: progress.var: Unbekannte ID: VAR_NOPE.`),
+ebenso einen Eintrag in `uses`, dessen Entität einen Grabstein trägt (seit 3d.4 gelöscht:
+`story.dangling-ref: steps[0].uses[0].trainer: Trainer 0001 ist gelöscht.`). Verweise über Nummern
+(`object`, `script`, `message`, `levelScript`) prüft der Check nur auf den Grabstein ihrer
+Eventdatei (`object`); Scriptdateien und Textarchive haben keinen.
 „ID umbenennen“ zieht jede ID in einer Geschichte mit, wie jede JSON-Zeichenkette unter `data/`
 ([text_project.md](text_project.md) „ID umbenennen“).
+
+### Der Löschweg
+
+Was eine Geschichte nennt, lässt sich löschen, als nennte sie es nicht: `plan_delete` listet die
+Geschichten unter `mentions` neben den Verweisen (`references`, die sperren, und `warnings`, die
+weichen Verweise des Index), `delete_entity` antwortet mit derselben Liste (`mentions`, fehlt, wenn
+keine Geschichte die Entität nennt); danach meldet der Check den Eintrag als offen (oben). Eine
+Zeile ist `{story_id, story_name, number, step_key, step_name, file}`: die Geschichte und der
+Schritt, dessen `uses` die Entität nennen, ohne Schritt (`null`), wenn `progress` oder `flags` sie
+nennen; jede Zeile einmal. Gesucht wird über `stories::uses::uses_of` (die Geschichten-Dateien,
+keine Quelle im Verweis-Index): eine Datei, die sich nicht lesen lässt, wird übersprungen, und ohne
+lesbares Register gibt der Plan keine Zeile statt eines Fehlers. Welcher Eintrag welche Entität
+nennt:
+
+| Ziel des Löschens | Eintrag der Geschichte |
+|---|---|
+| Trainer | `trainer` |
+| Header | `map` (`MAP_…` nennt einen Header) |
+| Flag | `flag`, `progress.flag`, `flags[]` |
+| Variable | `var`, `progress.var` |
+| Scriptdatei | `script { file }` und `levelScript { file }` (ein Level-Script ist eine Scriptdatei, `level_script_id` des Headers) |
+| Eventdatei | `object { file }` |
+| Textarchiv | `message { archive }` |
+
+Die übrigen Arten (Begegnungen, Matrizen, Karten, Bereichsdaten, Texturen, Modelle, Orte) nennt
+keine Geschichte. Im Lösch-Dialog stehen die Geschichten unter „Erwähnt in Geschichten“ als Chips
+(ein Klick öffnet die Geschichte) mit dem Satz „Geschichten sperren nicht; der Verweis wird als
+offen gemeldet.“
 
 ## Beifile
 
@@ -209,6 +240,7 @@ Schritten, ein unlesbares Beifile, ein Dateiname, der weder `NNNN.json` noch `NN
 ist) und `textproject.id-mismatch` (`id` ohne `STORY_` oder nicht die ID der Nummer im Register);
 Warnungen sind `textproject.id-dangling` (ein Registereintrag ohne Datei) und
 **`story.dangling-ref`**: eine ID in `progress`, `uses` oder `flags`, die im Projekt nichts nennt,
+oder ein Eintrag in `uses`, dessen Entität einen Grabstein trägt („Trainer 0001 ist gelöscht.“),
 mit Datei und Zeile des Eintrags
 (`data/stories/0000.json`, Zeile von `"TRAINER_NOPE"`:
 `story.dangling-ref: steps[0].uses[0].trainer: Unbekannte ID: TRAINER_NOPE.`). Eine Warnung hält

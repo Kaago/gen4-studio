@@ -1801,7 +1801,8 @@ static TOOLS: &[ToolDef] = &[
         description: concat!(
             "Shows what delete_entity would do and changes nothing: refusal (why the entity gets \
              no tombstone), references that lock it (label, source and nav each; the delete \
-             answers referenced while there are any), warnings, original (an entry of the base \
+             answers referenced while there are any), warnings, mentions (the stories and steps \
+             that name the entity: weak, they never lock), original (an entry of the base \
              ROM, which stays in the ROM), deleted, can_free (what free_number would remove: \
              count, files) or cannot_free; no base ROM answers base_missing. ",
             data_note!(),
@@ -1823,7 +1824,8 @@ static TOOLS: &[ToolDef] = &[
              free_number a new entity at the end and the tombstones of new entities behind it \
              leave the project for good so the number can be used again: undo stops there, \
              headless it needs --allow-irreversible (else needs_confirmation) and it is not \
-             allowed in g4_batch. ",
+             allowed in g4_batch; the answer carries the plan's mentions (stories that name \
+             the entity, their uses are reported open afterwards). ",
             ids_note!()
         ),
         input_schema: || {
