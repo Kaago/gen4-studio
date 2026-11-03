@@ -80,6 +80,9 @@ use super::registry::IDS_DIR;
 use super::sync::{self, Known};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 
+/// The step's id, its key in `.g4/build/state.json`.
+pub(crate) const STEP_ID: &str = "textproject";
+
 /// The step's revision; raise it when what the step writes changes.
 pub(crate) const TEXTPROJECT_REV: u32 = 1;
 
@@ -106,7 +109,7 @@ pub(crate) struct TextProjectStep {
 
 impl Step for TextProjectStep {
     fn id(&self) -> String {
-        "textproject".to_owned()
+        STEP_ID.to_owned()
     }
 
     fn salt(&self) -> String {
@@ -321,6 +324,31 @@ pub(crate) fn forget_kept(root: &Path, members: &[PathBuf]) -> Result<(), Kernel
         save_kept(root, &kept)?;
     }
     Ok(())
+}
+
+/// Forgets `files` (relative to the root) among the inputs the step saw at its last run:
+/// „Nummer freigeben“ removes them, or shortens them, outside the step, for good. The next run
+/// then counts such a file as added when it is there (a later entity with the same number, or
+/// the file back after `git switch`; the sync's record decides which side, see [`Records`])
+/// and passes over it when it is not, instead of finding it changed since a version that no
+/// longer counts, which with a JSON that came back made a conflict. Leaves the state alone
+/// without an entry of the step or when the entry names none of them.
+pub(crate) fn forget_seen(root: &Path, files: &[PathBuf]) -> Result<(), KernelError> {
+    let keys: Vec<String> = files.iter().map(|f| shown(f)).collect();
+    let named = BuildState::load_shared(root)
+        .steps
+        .get(STEP_ID)
+        .is_some_and(|entry| keys.iter().any(|k| entry.inputs.contains_key(k)));
+    if !named {
+        return Ok(());
+    }
+    BuildState::update(root, |state| {
+        if let Some(entry) = state.steps.get_mut(STEP_ID) {
+            for key in &keys {
+                entry.inputs.remove(key);
+            }
+        }
+    })
 }
 
 /// Puts the quirks file into rotom's compile state when that would change it (a compile state

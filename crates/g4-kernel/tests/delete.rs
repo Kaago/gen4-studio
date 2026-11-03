@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use g4_formats::narc::Narc;
+use g4_kernel::build;
 use g4_kernel::data::refs::{Access, Ref, RefIndex, Target};
 use g4_kernel::delete::{
     CANNOT_FREE_ORIGINAL, DeletePlan, DeleteTarget, FreeInfo, NO_TOMBSTONE_FOR_BINARIES,
@@ -1263,7 +1264,8 @@ fn a_freed_trainer_number_is_created_again() {
         }
         free_number(&mut st, &mut refs, &base, target).unwrap();
         assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 3);
-        assert_eq!(st.trainer_text_offsets(0).unwrap().offsets.len(), 3);
+        // `trtblofs` is the base's again: two offsets (fewer than its three trainers).
+        assert_eq!(st.trainer_text_offsets(0).unwrap().offsets.len(), 2);
         assert_eq!(refused(st.undo()), IRREVERSIBLE);
         st.save().unwrap();
 
@@ -1275,6 +1277,152 @@ fn a_freed_trainer_number_is_created_again() {
         assert_eq!(fresh.member_count(AssetKind::Trainer).unwrap(), 4);
         assert_eq!(fresh.trainer_text_offsets(0).unwrap().offsets.len(), 4);
     }
+}
+
+/// Copies the side of the text project Git tracks (`data/`, `expanded/`) to `to`.
+fn snapshot_tracked(fx: &TextFixture, to: &Path) {
+    for dir in ["data", "expanded"] {
+        g4_kernel::test_support::copy_dir(&fx.root().join(dir), &to.join(dir));
+    }
+}
+
+/// `git switch` as the build sees it: the tracked side as in `from`, where it differs (a
+/// file with the same bytes keeps its `stat`, as Git leaves it), the members (not tracked,
+/// `unpacked/`) and the build's state stay.
+fn switch_tracked(fx: &TextFixture, from: &Path) {
+    fn files(dir: &Path, rel: &Path, out: &mut BTreeSet<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir.join(rel)) else {
+            return;
+        };
+        for entry in entries {
+            let entry = entry.unwrap();
+            let rel = rel.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                files(dir, &rel, out);
+            } else {
+                out.insert(rel);
+            }
+        }
+    }
+    for dir in ["data", "expanded"] {
+        let (mut now, mut then) = (BTreeSet::new(), BTreeSet::new());
+        files(fx.root(), Path::new(dir), &mut now);
+        files(from, Path::new(dir), &mut then);
+        for gone in now.difference(&then) {
+            std::fs::remove_file(fx.root().join(gone)).unwrap();
+        }
+        for rel in &then {
+            let bytes = std::fs::read(from.join(rel)).unwrap();
+            let to = fx.root().join(rel);
+            if std::fs::read(&to).ok().as_deref() != Some(bytes.as_slice()) {
+                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                std::fs::write(&to, bytes).unwrap();
+            }
+        }
+    }
+}
+
+/// The step `textproject`'s problems of a build's preparation that succeeded.
+fn step_problems(prepared: &g4_kernel::build::Prepared) -> Vec<String> {
+    prepared
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject."))
+        .map(|p| p.message.clone())
+        .collect()
+}
+
+#[test]
+fn freeing_a_trainer_puts_the_battle_text_offsets_back_to_the_base() {
+    // The fixture's `trtblofs` has fewer offsets than there are trainers, as HeartGold's (735
+    // offsets for 738 trainers): `create_trainer` pads it up to the new trainer.
+    let fx = TextFixture::exported();
+    let project = Arc::new(fx.project());
+    let mut st = Store::new(project.clone());
+    let base_offsets = st.trainer_text_offsets(0).unwrap().offsets.clone();
+    assert!(base_offsets.len() < 3, "{base_offsets:?}");
+    let mut names = g4_kernel::data::names::NameTables::new();
+    let mut battle = None;
+    let id = create_trainer_in(&project, &mut st, &mut names, &mut battle, "Jens");
+    assert_eq!(id, 3);
+    st.save().unwrap();
+    let main = tempfile::tempdir().unwrap();
+    snapshot_tracked(&fx, main.path());
+
+    // Another branch: freed. The offsets are the base's again, not padded.
+    let base = ProjectOriginal::new(fx.root());
+    let mut refs = RefIndex::new();
+    let target = DeleteTarget::Trainer { index: id };
+    delete(&mut st, &mut refs, &base, target).unwrap();
+    free_number(&mut st, &mut refs, &base, target).unwrap();
+    assert_eq!(st.trainer_text_offsets(0).unwrap().offsets, base_offsets);
+    st.save().unwrap();
+    drop(st);
+    let offsets_member = project.member_path(AssetKind::TrainerTextOffsets, 0);
+    let base_member = base
+        .member(AssetKind::TrainerTextOffsets, 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(&offsets_member).unwrap(), base_member);
+
+    // Back on the branch with the trainer, the first build (a full run, judged by the base)
+    // appends its members and takes the offsets from the JSON.
+    switch_tracked(&fx, main.path());
+    let prepared = build::prepare(&fx.project()).unwrap();
+    assert!(
+        step_problems(&prepared).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
+        assert!(project.member_path(kind, id).is_file(), "{kind:?}");
+    }
+    // The member holds the JSON's four offsets (two bytes each).
+    assert_eq!(std::fs::read(&offsets_member).unwrap().len(), 8);
+}
+
+#[test]
+fn a_number_freed_and_taken_again_builds_after_a_switch_back() {
+    let fx = TextFixture::exported();
+    let project = Arc::new(fx.project());
+    let mut st = Store::new(project.clone());
+    let mut names = g4_kernel::data::names::NameTables::new();
+    let mut battle = None;
+    let base = ProjectOriginal::new(fx.root());
+    let mut refs = RefIndex::new();
+
+    // Trainer 3 built (the step's entry knows its files), freed, and created anew.
+    let id = create_trainer_in(&project, &mut st, &mut names, &mut battle, "Gate");
+    st.save().unwrap();
+    build::prepare(&fx.project()).unwrap();
+    let target = DeleteTarget::Trainer { index: id };
+    delete(&mut st, &mut refs, &base, target).unwrap();
+    free_number(&mut st, &mut refs, &base, target).unwrap();
+    st.save().unwrap();
+    let again = create_trainer_in(&project, &mut st, &mut names, &mut battle, "Zweig");
+    assert_eq!(again, id);
+    st.save().unwrap();
+    let main = tempfile::tempdir().unwrap();
+    snapshot_tracked(&fx, main.path());
+
+    // Another branch frees it again; back on the first, the build appends it as new.
+    delete(&mut st, &mut refs, &base, target).unwrap();
+    free_number(&mut st, &mut refs, &base, target).unwrap();
+    st.save().unwrap();
+    drop(st);
+    switch_tracked(&fx, main.path());
+    let prepared = build::prepare(&fx.project()).unwrap();
+    assert!(
+        step_problems(&prepared).is_empty(),
+        "{:?}",
+        prepared.problems
+    );
+    for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
+        assert!(project.member_path(kind, id).is_file(), "{kind:?}");
+    }
+    // The offsets come from the JSON too, not kept short as „newer“ than it.
+    let offsets_member = project.member_path(AssetKind::TrainerTextOffsets, 0);
+    assert_eq!(std::fs::read(&offsets_member).unwrap().len(), 8);
 }
 
 #[test]

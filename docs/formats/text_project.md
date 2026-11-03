@@ -429,7 +429,12 @@ Aufzeichnung unverändert; ein Member ohne Eintrag gilt als geändert) und hat d
 keines von ihnen, plant der Import sie als Entfernung (`removals`, im Check unter `differs`) und
 entfernt sie (Warnung `textproject.member-removed`); so baut ein zweiter Git-Branch, auf dem
 „Nummer freigeben“ die JSON löschte, nach `git switch` (auch der Build-Schritt `textproject`
-entfernt sie). In der Mitte, seit der Aufzeichnung geändert oder in der Basis bleibt es
+entfernt sie). „Nummer freigeben“ selbst lässt den Build-Schritt vergessen, was er bei seinem
+letzten Lauf von den entfernten Dateien sah (bei Trainern auch von `trtblofs`, bei Headern von
+`mapname.bin`): kommt die JSON nach `git switch` zurück oder bekommt ein neuer Eintrag dieselbe
+Nummer, gilt sie als neu und nicht als auf beiden Seiten geändert. `trtblofs` geht dabei auf die
+Basis zurück, ohne die Nullen, die das Anlegen vor dem ersten neuen Trainer auffüllte (HeartGold
+hat 735 Offsets für 738 Trainer), so dass ein voller Lauf den Member als Basis erkennt. In der Mitte, seit der Aufzeichnung geändert oder in der Basis bleibt es
 `member-without-json`. Dieselbe Regel gilt für Header am Ende (Patch „Dynamische Header“): fehlen
 die JSON ab einer Nummer, sind ihre Dateien `unpacked/dynamicHeaders/NNNN` und `mapname.bin` seit
 der Aufzeichnung unverändert und hat die Basis die Header nicht, schreibt der Import die Tabelle

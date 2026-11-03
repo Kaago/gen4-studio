@@ -2,7 +2,10 @@
 //! tombstones of new entities behind it) leaves the project for good, so its number can be
 //! used again. Recorded as an undo barrier: undo stops there.
 
+use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+use g4_formats::data::trainer_text::TrainerTextOffsets;
 
 use super::plan::plan_delete;
 use super::tombstone::{DeleteResult, delete, ms_since};
@@ -11,10 +14,12 @@ use crate::data::names::{Bank, bank_index};
 use crate::data::refs::RefIndex;
 use crate::error::KernelError;
 use crate::original::Original;
-use crate::project::AssetId;
+use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
 use crate::store::Store;
 use crate::text;
+use crate::textproject::Art;
+use crate::textproject::step::forget_seen;
 
 /// Why undo stops at „Nummer freigegeben“.
 pub const IRREVERSIBLE: &str = "Nummer freigeben lässt sich nicht rückgängig machen";
@@ -32,10 +37,12 @@ fn nothing_to_free(label: &str) -> String {
 /// [`super::FreeInfo`] go (the trailing tombstones too): a trainer's two members, a script's
 /// sources, member and compile-state entry, a text archive's JSON, member and text sync
 /// record, a header's record in the table and `mapname.bin` and its files; a trainer's name in
-/// the name bank and its entry of `trtblofs` go in the barrier step itself; the store forgets
-/// the entities (histories, its own tombstone flags), the sync forgets their files, and the
-/// barrier „Nummer freigegeben: {label}“ ([`IRREVERSIBLE`]) is recorded. The reference index
-/// drops their sources at its next refresh.
+/// the name bank and its entry of `trtblofs` go in the barrier step itself (`trtblofs` back to
+/// the base's, [`free_offsets`]); the store forgets the entities (histories, its own tombstone
+/// flags), the sync forgets their files, the build step `textproject` what it saw of them and
+/// of the shrunk `trtblofs` or `mapname.bin` ([`forget_seen`]), and the barrier „Nummer
+/// freigegeben: {label}“ ([`IRREVERSIBLE`]) is recorded. The reference index drops their
+/// sources at its next refresh.
 pub fn free_number(
     store: &mut Store,
     refs: &mut RefIndex,
@@ -76,6 +83,16 @@ pub fn free_number(
         return Err(KernelError::Busy(store.busy().unwrap_or_default().to_owned()));
     }
 
+    // Trainers: `trtblofs` goes back to the base's from the first freed trainer on (read
+    // before anything is removed).
+    let base_offsets = match target {
+        DeleteTarget::Trainer { .. } => match original.member(AssetKind::TrainerTextOffsets, 0)? {
+            Some(bytes) => Some(TrainerTextOffsets::read(&bytes)?.offsets),
+            None => None,
+        },
+        _ => None,
+    };
+
     if plan.refusal.is_none() && target.has_envelope() && !plan.deleted {
         delete(store, refs, original, target)?;
     }
@@ -95,10 +112,23 @@ pub fn free_number(
         store.remove_trailing_headers(first)?;
     }
     store.remove_member_files(&freed, &info.files)?;
+    // The build step forgets what it saw of the files that went and of the tables that
+    // shrank: a later entity with the same number, or the files back after `git switch`,
+    // count as new and not as changed on both sides.
+    let mut seen = info.files.clone();
+    match target {
+        DeleteTarget::Trainer { .. } => {
+            seen.push(Art::TrainerTextOffsets.dir().join("0000.json"));
+            seen.push(rel(&project, &project.member_path(AssetKind::TrainerTextOffsets, 0)));
+        }
+        DeleteTarget::Header { .. } => seen.push(rel(&project, &project.mapname_path())),
+        _ => {}
+    }
+    let _ = forget_seen(&project.root, &seen);
     let label = plan.label;
     let step = format!("Nummer freigegeben: {label}");
     // Trainers: the name bank and `trtblofs` hold one entry per trainer; they lose the freed
-    // ones, so the next trainer created gets the number again.
+    // ones, so the next trainer created gets the number again ([`free_offsets`]).
     let names_bank = match target {
         DeleteTarget::Trainer { .. } => {
             bank_index(project.family, project.language, Bank::TrainerNames)
@@ -109,7 +139,9 @@ pub fn free_number(
     let shortened = store.barrier_transaction(&step, IRREVERSIBLE, |tx| {
         if let Some(bank) = names_bank {
             tx.edit_text_archive(bank, |doc| doc.messages.truncate(keep))?;
-            tx.edit_trainer_text_offsets(0, |o| o.offsets.truncate(keep))?;
+            tx.edit_trainer_text_offsets(0, |o| {
+                free_offsets(&mut o.offsets, keep, base_offsets.as_deref())
+            })?;
         }
         Ok(())
     });
@@ -141,4 +173,70 @@ pub fn free_number(
         freed: Some(info),
         ms: ms_since(started),
     })
+}
+
+/// `path` relative to the project root.
+fn rel(project: &Project, path: &Path) -> PathBuf {
+    path.strip_prefix(&project.root)
+        .unwrap_or(path)
+        .to_path_buf()
+}
+
+/// `trtblofs` without the trainers from `keep` on, as it was before the first of them was
+/// created: where the base's table reaches past `keep` it holds the base's entries again (a new
+/// trainer took one over), and the zeros `create_trainer` padded in front of the first new
+/// trainer go (HeartGold's table has 735 offsets for 738 trainers), so a table the base had
+/// shorter than its trainers is the base's again. A zero offset past the base points at no
+/// block of its trainer, as no offset does. Without the base (`None`) it only truncates.
+fn free_offsets(offsets: &mut Vec<u16>, keep: usize, base: Option<&[u16]>) {
+    let Some(base) = base else {
+        offsets.truncate(keep);
+        return;
+    };
+    offsets.truncate(keep.max(base.len()));
+    for (i, offset) in offsets.iter_mut().enumerate().skip(keep) {
+        *offset = base[i];
+    }
+    while offsets.len() > base.len() && offsets.last() == Some(&0) {
+        offsets.pop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::free_offsets;
+
+    fn freed(offsets: &[u16], keep: usize, base: Option<&[u16]>) -> Vec<u16> {
+        let mut offsets = offsets.to_vec();
+        free_offsets(&mut offsets, keep, base);
+        offsets
+    }
+
+    #[test]
+    fn a_base_shorter_than_its_trainers_comes_back_without_the_padding() {
+        // Base: 3 offsets for 5 trainers; trainer 5 created (padding for 3 and 4), then 6.
+        let base = [0, 8, 16];
+        let created = [0, 8, 16, 0, 0, 40, 48];
+        assert_eq!(freed(&created, 5, Some(&base)), base);
+        assert_eq!(freed(&created, 6, Some(&base)), [0, 8, 16, 0, 0, 40]);
+    }
+
+    #[test]
+    fn an_offset_a_base_trainer_got_stays() {
+        // Trainer 4 of the base got battle texts (offset 32), then trainer 5 was created.
+        let base = [0, 8, 16];
+        assert_eq!(freed(&[0, 8, 16, 0, 32, 40], 5, Some(&base)), [0, 8, 16, 0, 32]);
+    }
+
+    #[test]
+    fn a_base_longer_than_the_kept_trainers_gets_its_entries_back() {
+        // Base: 4 offsets for 3 trainers; trainer 3 took over entry 3.
+        let base = [0, 8, 16, 24];
+        assert_eq!(freed(&[0, 8, 16, 40, 48], 3, Some(&base)), base);
+    }
+
+    #[test]
+    fn without_a_base_it_truncates() {
+        assert_eq!(freed(&[0, 8, 0, 0, 40], 4, None), [0, 8, 0, 0]);
+    }
 }
