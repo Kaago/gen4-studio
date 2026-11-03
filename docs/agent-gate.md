@@ -1781,9 +1781,9 @@ Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": 
 
 3d.6 bringt das Lesen von Geschichten: Werte im Referenzindex (`Ref.value`), die Fäden (`list_threads`) und den Graph eines Fadens (`thread_graph`), die Geschichte als Datei des Textprojekts (`data/stories/NNNN.json`, Beifile `NNNN.layout.json`, Register `data/ids/stories.json`) mit `story_list`, `story_get`, `story_create`, `story_update`, `story_delete` und `g4k story`, den Diff als Felder, „ID umbenennen“ und die Erwähnung im Löschweg (`mentions`), dazu den Bereich Geschichten in der App (Fäden, Geschichten, Flags und Variablen). Die Punkte und Ergebnisse stehen in der Gate-Datei; hier nur, wer sie prüft und wie.
 
-**Kopien:** unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), je `.nds` daneben: `3d-6-pt`, `3d-6-hgde`, `3d-6-hgus` für die gated Tests (seit Teil A da, nur gelesen), `3d-6-kpt` (Platin DE) und `3d-6-khgde` (HeartGold DE) für das Szenario kopflos, `3d-6-web` (Platin DE, seit Task 7 Textprojekt in Git mit den Geschichten „Rivalin“ und „Heimkehr“) und `3d-6-hgweb` (HeartGold DE) für den Browser; alle als Textprojekt über `adopt_text_project` (bzw. `g4k base assign` und `g4k text adopt`), dann `g4k git init`. Die vorhandenen Ordner heißen ohne `_DSPRE_contents`: die Tests von 3d.6 finden `<ordner>.nds` selbst, `g4k text adopt` braucht `--base-rom <kopie>.nds`, die Test-Umgebung `G4_BASE_ROM_DIR=<Roms>/_testkopien`, und Tests anderer Phasen mit Basis-ROM (der Lösch-Test von 3d.4) laufen über Symlinks `target/agent/t10-vanilla/3d-6-pt_DSPRE_contents` und `3d-6-pt.nds` (sonst überspringen sie sich still). Neue Kopien dürfen den Zusatz `_DSPRE_contents` tragen. Alle `3d-6-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
+**Kopien:** unter `$G4_ROMS_DIR/_testkopien` per `cp -cR` (Ordner) und `cp -c` (`.nds`), je `.nds` daneben: `3d-6-pt`, `3d-6-hgde`, `3d-6-hgus` für die gated Tests (seit Teil A da, nur gelesen), `3d-6-kpt` (Platin DE) und `3d-6-khgde` (HeartGold DE) für das Szenario kopflos, `3d-6-web` (Platin DE, seit Task 7 Textprojekt in Git mit den Geschichten „Rivalin“ und „Heimkehr“) und `3d-6-hgweb` (HeartGold DE) für den Browser; alle als Textprojekt über `adopt_text_project` (bzw. `g4k base assign` und `g4k text adopt`), dann `g4k git init`. Die vorhandenen Ordner heißen ohne `_DSPRE_contents`: die Tests von 3d.6 finden `<ordner>.nds` selbst, `g4k text adopt` braucht `--base-rom <kopie>.nds`, die Test-Umgebung `G4_BASE_ROM_DIR=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien`, und Tests anderer Phasen mit Basis-ROM (der Lösch-Test von 3d.4) laufen über Symlinks `<Worktree>/target/agent/t10-vanilla/3d-6-pt_DSPRE_contents` und `3d-6-pt.nds`, in `G4_TEST_PROJECT` absolut (sonst überspringen sie sich still). Neue Kopien dürfen den Zusatz `_DSPRE_contents` tragen. Alle `3d-6-*` nach dem Gate löschen (`Manual` und `_saves` bleiben).
 
-**Ports:** `G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761` (`G4_ROMS_DIR=<absolut> G4_BASE_ROM_DIR=<absolut>/_testkopien G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1760/?project=<Roms>/_testkopien/3d-6-web`; andere Ports nie anfassen. Chrome headless 1440 × 900 mit eigenem Profil unter `target/agent/`, nur über seine PID beenden; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste.
+**Ports:** `G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761` (`G4_ROMS_DIR=/Users/POLTEP/Projekte/lab/editor/Roms G4_BASE_ROM_DIR=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien G4_VITE_PORT=1760 G4_BRIDGE_PORT=1761 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1760/?project=/Users/POLTEP/Projekte/lab/editor/Roms/_testkopien/3d-6-web`; andere Ports nie anfassen. Chrome headless 1440 × 900 mit eigenem Profil unter `target/agent/`, nur über seine PID beenden; Hell und Dunkel über `prefers-color-scheme`, Kompakt über die Taste der Statusleiste.
 
 **Wo was ist:** Atlas „Geschichten“, Liste mit „Fäden“, „Geschichten“, „Flags und Variablen“, die Fläche `[data-geschichten=threads|stories|flags]`. Fäden: Zeilen `[data-thread-row=<var>]` mit `[data-thread-name]`, ab Bauen `[data-thread-tech]`, Chip `[data-thread-story]`; nach einem Klick der Graph `[data-thread-graph]` mit `[data-node-count]` und `[data-edge-count]`, Knoten `[data-story-node][data-kind]`, `[data-noted-only]`, `[data-loose]`. Geschichten: „Neue Geschichte…“ `[data-new-story]`, Dialog `[data-new-story-dialog]` mit `[data-progress-kind]` (seit 3d.7 `[data-pool-free]`), Zeilen `[data-story-row=<id>]`, Detail `[data-story-detail=<id>]` mit `[data-story-notes]`, `[data-story-kind]`, `[data-story-empty-graph]`, „Aktionen“ › „Geschichte löschen…“ (`[data-story-delete-dialog]`). Löschen eines Trainers: im Dialog von 3d.4 `[data-delete-mentions]` „Erwähnt in Geschichten“ mit `[data-delete-mention=<STORY_…>]`. Galerie `?gallery`, Seite „Inhalt und Status“, Blöcke `[data-gallery-state=story-nodes]` und `[data-gallery-state=threads]`. Bilder: Teil A `target/agent/gate-2026-11-01/3d-6/`, Teil B `target/agent/gate-2026-11-03/3d-6/`, das Gate `target/agent/gate-<Datum>/3d-6/`.
 
@@ -1796,20 +1796,21 @@ Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": 
 | (3) Browser | Agent | Test-Umgebung auf 1760/1761, Ablauf in der Gate-Datei, (3) |
 | (4) Fäden, Graph, Knotenarten, Blick, `.fig` | Hand, Agent + Blick | Gate-Datei, „(4) Hand und Blick“ |
 
-**Gated Tests (1)**, aus der Wurzel des Worktrees (`K=$G4_ROMS_DIR/_testkopien`, `<k>` = `pt`, `hgde`, `hgus`):
+**Gated Tests (1)**, aus der Wurzel des Worktrees, alle Pfade absolut (cargo startet die Tests von `-p studio` in `apps/studio/src-tauri`, `G4_TEST_PROJECT` gilt wörtlich; `<k>` = `pt`, `hgde`, `hgus`):
 
 ```sh
 export PATH="$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$HOME/.cargo/bin:$PATH"
-G4_TIMING_STRICT=1 G4_ROMS_DIR=<Roms> G4_TEST_PROJECT="$K/3d-6-<k>" \
+R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien; W=$PWD   # W = Wurzel des Worktrees
+G4_TIMING_STRICT=1 G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/3d-6-<k>" \
   cargo test --release -p g4-kernel --all-features --test threads --test stories -- --nocapture --test-threads 1
 #   vanilla_threads_count_at_least_the_measured: threads <Spielcode> count=… values=… max_values=… max_places=… ms=… (kalt)
 #   vanilla_thread_graph_of_the_first_thread_has_a_node_per_value: graph <Spielcode> var=… nodes=… edges=… threads_ms=… graph_ms=…
 #     (strikt: threads() warm ≤ 100 ms, thread_graph ≤ 20 ms); Platin ≥ 59, HeartGold ≥ 62 Fäden
 #   text_project_with_a_story_builds_from_base_byte_equal: story-git <Spielcode> build_ms=… (braucht git; Minuten)
-G4_ROMS_DIR=<Roms> G4_TEST_PROJECT="$K/3d-6-<k>" \
+G4_ROMS_DIR=$R G4_TEST_PROJECT="$K/3d-6-<k>" \
   cargo test --release -p studio --all-features --lib stories_over_the_command_path -- --nocapture --test-threads 1
 #   stories <Spielcode> threads_ms=… graph_ms=… create_ms=… threads=… first=… values=… edges=…
-G4_ROMS_DIR=<Roms> G4_TEST_PROJECT=target/agent/t10-vanilla/3d-6-pt_DSPRE_contents \
+G4_ROMS_DIR=$R G4_TEST_PROJECT="$W/target/agent/t10-vanilla/3d-6-pt_DSPRE_contents" \
   cargo test -p studio --all-features --lib delete_over_the_command_path -- --nocapture --test-threads 1
 #   3d.4s Lösch-Test über die Symlinks (auf 3d-6-pt direkt: „skipped: no <Name>.nds …“); delete over the command path: … ms
 ```
@@ -1819,6 +1820,7 @@ Die Fäden-Tests übernehmen die Scripts einmal je Lauf auf einer Kopie unter `t
 **Kopflos (2)**, nach `cargo build --release -p g4-kernel --bin g4k` und `cargo build --release -p studio --bin studio`:
 
 ```sh
+R=/Users/POLTEP/Projekte/lab/editor/Roms; K=$R/_testkopien
 N=$K/3d-6-k<k>.nds; P=$K/3d-6-k<k>              # <k> = pt, hgde
 target/release/g4k base assign $P $N
 target/release/g4k text adopt $P --base-rom $N   # Textprojekt mit übernommenen Scripts

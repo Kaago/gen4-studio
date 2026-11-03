@@ -1238,7 +1238,7 @@ Die Bilder entstanden vor dem Merge von 3d.7 (Dialog „Neue Geschichte“ ohne 
 
 ### Anleitung: Frames von 3d.6 in die `.fig`
 
-Wenn OpenPencil antwortet, auf der Seite „App: Texte, Technik, Dialoge“ (oder der Seite „App: Geschichten“, falls 3d.7 sie angelegt hat) in den nächsten freien Spalten (x = Spalte × 1520, y = Reihe × 1000) drei Frames im hellen Thema anlegen, nachgezeichnet nach `openpencil/BRIEFING-APP-SCREENS.md` mit den Bausteinen aus `openpencil/jsx-lib-app.js`:
+Wenn OpenPencil antwortet, auf der Seite „App: Texte, Technik, Dialoge“ (oder der Seite „App: Geschichten“, falls 3d.7 sie angelegt hat) **nach den Frames von 3d.7** (die Anleitung von 3d.7 oben nimmt dieselben „nächsten freien Spalten“: erst ihre drei Frames, dann diese; x = Spalte × 1520, y = Reihe × 1000) drei Frames im hellen Thema anlegen, nachgezeichnet nach `openpencil/BRIEFING-APP-SCREENS.md` mit den Bausteinen aus `openpencil/jsx-lib-app.js`:
 
 1. **„Story-Knoten“** (Brett auf der Seite „Komponenten“, unter „Komponenten (App)“): die sieben Arten in Ruhe und gewählt, Wert, Ort, nur notiert, lose. Vorlage: `galerie-story-knoten-hell.png`.
 2. **„Fäden-Übersicht“** (1440 × 900): Bereich Geschichten › Fäden mit der Tabelle in Bauen und dem Graph von `VAR_PLAYER_HOUSE_POSTGAME_STATE` darunter. Vorlage: `blick-faeden-graph-hell.png`.
