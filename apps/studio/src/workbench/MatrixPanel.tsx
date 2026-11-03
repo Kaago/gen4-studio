@@ -26,7 +26,7 @@ export interface MatrixPanelContext {
   sceneMatrix: number | null;
   /** Changes whenever matrix data may have changed behind the panel (edits, undo, redo, reload). */
   revision: number;
-  /** The cell shown in the inspector, if any. */
+  /** The cell shown in the inspector, if any: the panel shows its matrix (a link may lead to a cell of another matrix than the scene's). */
   selection: { matrix: number; x: number; y: number } | null;
   /** The depth of the app: Tüfteln writes the raw values into every cell. */
   depth: Depth;
@@ -52,7 +52,8 @@ export const MatrixPanel = memo(function MatrixPanel({ context }: { context: Mat
   // (or project) ends that.
   const [created, setCreated] = useState<number | null>(null);
   useEffect(() => setCreated(null), [sceneMatrix, info?.root]);
-  const index = created ?? sceneMatrix;
+  // A cell chosen by a link („Matrix 0290, Zelle 0, 0“) shows its matrix, also when it is not the scene's (gate 3d.4 B12).
+  const index = created ?? selection?.matrix ?? sceneMatrix;
   const matrix = useMatrix(index, revision, onError);
   const [extendAt, setExtendAt] = useState<{ x: number; y: number } | null>(null);
   // The dialog belongs to the cell it was opened for: another matrix or project ends it.

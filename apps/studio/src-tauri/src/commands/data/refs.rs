@@ -125,11 +125,9 @@ fn area_field(field: &str) -> &str {
 /// The references `found` as the app shows them, in their order: label, source name and where a
 /// click leads (also the list of a `referenced` error, [`crate::errors::CmdError::in_session`]).
 pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
-    // Event file → its first header and that header's name, read once when a warp is among them.
-    let events = if found
-        .iter()
-        .any(|r| r.source.kind == AssetKind::Event && warp_field(r.field))
-    {
+    // Event file → its first header and that header's name, read once when an event is among
+    // them (a warp names the place, every event leads to the header that shows it).
+    let events = if found.iter().any(|r| r.source.kind == AssetKind::Event) {
         event_users(session)
     } else {
         HashMap::new()
@@ -196,6 +194,8 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                     },
                 )
             }
+            // A figure, to it in the first header that shows its event file (the scene shows
+            // that place), as a warp.
             AssetKind::Event => (
                 format!("Eventdatei {index:04}"),
                 format!("Objekt {}", slot.unwrap_or(0)),
@@ -203,7 +203,7 @@ pub(crate) fn ref_dtos(session: &mut Session, found: &[Ref]) -> Vec<RefDto> {
                     event_file: index,
                     event_kind: "object",
                     index: slot.unwrap_or(0),
-                    header: None,
+                    header: events.get(&index).map(|&(id, _)| id),
                 },
             ),
             AssetKind::Personal => (
@@ -399,6 +399,39 @@ mod tests {
                 event_kind: "warp",
                 index: 0,
                 header: None,
+            }
+        );
+    }
+
+    /// Gate 3d.4 B12 (a): a figure's reference (a trainer it starts) leads to the figure in the
+    /// first header that shows its event file, like a warp's, so the scene shows its place.
+    #[test]
+    fn an_object_reference_leads_to_the_header_of_its_event_file() {
+        use g4_kernel::data::refs::{Access, Ref};
+        use g4_kernel::project::AssetId;
+        let (_s, state) = open_synthetic();
+        let mut guard = lock(&state).unwrap();
+        let session = session(&mut guard).unwrap();
+        // Header 0 is the first that shows its event file.
+        let file = session.store.header_table().unwrap()[0].event_file_id();
+        let figure = Ref {
+            source: AssetId {
+                kind: AssetKind::Event,
+                index: file,
+            },
+            field: "object_events.script",
+            slot: Some(0),
+            target: Target::Trainer(1),
+            access: Access::Unknown,
+        };
+        let dto = ref_dtos(session, &[figure]).remove(0);
+        assert_eq!(
+            dto.nav,
+            NavTargetDto::Event {
+                event_file: file,
+                event_kind: "object",
+                index: 0,
+                header: Some(0),
             }
         );
     }

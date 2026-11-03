@@ -166,6 +166,18 @@ describe("MatrixPanel", () => {
     expect(setMatrixSections).toHaveBeenCalledWith(7, true, false);
   });
 
+  it("shows_the_matrix_of_a_cell_chosen_by_a_link_not_the_scenes", async () => {
+    // Gate 3d.4 B12 (b): „Matrix 0290, Zelle 0, 0“ followed while a room of matrix 0007 was selected: the grid showed 0007.
+    vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
+    await show({ selection: { matrix: 290, x: 0, y: 0 } });
+    expect(getMatrix).toHaveBeenLastCalledWith(290);
+    expect(container.querySelector("header")?.textContent).toContain("0290 · Matrix");
+    expect(container.querySelector('[data-cell="0,0"]')?.getAttribute("aria-pressed")).toBe("true");
+    // A cell of the scene's matrix, or none: the scene's.
+    await show({ selection: null });
+    expect(container.querySelector("header")?.textContent).toContain("0007 · Matrix");
+  });
+
   it("creates_a_matrix_and_shows_it_with_a_note_that_no_header_uses_it", async () => {
     vi.mocked(createMatrix).mockResolvedValue(9);
     vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
