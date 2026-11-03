@@ -110,6 +110,12 @@ von Knoten den Diff der Bedeutung nicht verrauscht. Beim Anlegen ist es leer (`{
 ein fehlendes Beifile ist kein Fehler (der Graph legt sich selbst aus), ein unlesbares ist
 `textproject.schema`.
 
+Seit 3d.7 schreibt die App das Beifile: im Detail einer Geschichte lassen sich die Knoten ziehen
+(auch mit den Pfeiltasten), 500 ms nach dem Loslassen geht `story_update` mit `{ layout }` als ein
+Undo-Schritt („Geschichte „X“ geändert“). Beim ersten Ziehen kommen **alle** gezeigten Knoten ins
+Beifile, nicht nur der gezogene, damit das Bild danach nicht springt; Schlüssel, die der Graph nicht
+mehr zeigt, bleiben stehen. Ein Knoten ohne Schritt heißt nach seiner Kennung im Graph.
+
 ## Register und ID
 
 Das Register `data/ids/stories.json` (ID → Nummer) ist das siebte Register; der Export schreibt
@@ -328,7 +334,11 @@ gemeinsame Script s; das Rezept braucht ein eigenes Script.“). Der Zweig des G
 
 **Belohnung.** Der Zweig ist `if VAR >= k then` / `if !FLAG then` / Nachricht /
 `GiveItem item, 1, VAR_RESULT` (HeartGold `VAR_SPECIAL_RESULT`) / `SetFlag FLAG` / `ReleaseAll` /
-`End` / `endif` / `endif`; danach geht es zum bisherigen Script. Das Flag prüft `if !FLAG` (rotoms `CheckFlag`), nicht `if FLAG == 0`: rotom übersetzt den Vergleich in `CompareVarValue <Nummer des Flags>, 0`, das Spiel liest eine Nummer unter 0x4000 als den Wert selbst, die Bedingung ist dann nie wahr (gefunden mit `pt-geschichte`/`hg-geschichte`). Nur Gegenstände (1 bis Zahl der
+`End` / `endif` / `endif`; danach geht es zum bisherigen Script. Das Flag prüft `if !FLAG`
+(rotoms `CheckFlag`), nicht `if FLAG == 0`: rotom übersetzt den Vergleich in
+`CompareVarValue <Nummer des Flags>, 0`, das Spiel liest eine Nummer unter 0x4000 als den Wert
+selbst, die Bedingung ist dann nie wahr (gefunden mit `pt-geschichte`/`hg-geschichte`, siehe
+[phase-3d-7-gate.md](../phase-3d-7-gate.md), R2). Nur Gegenstände (1 bis Zahl der
 Gegenstände − 1), kein Pokémon. Ein **voller Beutel wird nicht geprüft**: `GiveItem` scheitert dann
 still, das Flag ist trotzdem gesetzt, die Belohnung ist vertan.
 
@@ -360,6 +370,17 @@ keine (0) oder nur eine binäre, eine neue leere. Eine neue Datei ist ein Member
 (`Outcome.created`, im Entwurf „Level-Script-Datei n wird angelegt und bleibt“); nur dann ist das
 Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem Plan, ein
 abgelehnter Plan fragt sicherheitshalber, siehe [docs/mcp.md](../mcp.md)).
+
+**In der App.** „Neue Geschichte“ ruft in der Variante Variable `new_story` mit der freien
+Variable aus `free_flag var` (das Feld bleibt änderbar) und nennt den Pool („Noch 20 Variablen
+frei“; ohne freie Variable „Keine freie Variable im allgemeinen Bereich.“, die Taste gesperrt);
+die Variante Flag bleibt `story_create`. Die vier Schritt-Rezepte sind Dialoge aus „Schritt
+anlegen“ im Detail einer Geschichte, aus „Zu einer Geschichte“ nach „Neue Figur“ und aus „Dialog
+anlegen…“ einer Figur ohne Script; den Dialog füllen Geschichte und Figur vor, die Flags für
+Erscheinen und Belohnung schlägt er aus `free_flag flag` vor, rechts stehen die Sätze des Plans.
+Eine Flag-Geschichte sperrt die Rezepte („Rezepte brauchen eine Variable als Fortschritt“). Der
+Inspector nennt unter einem Sichtbarkeits-Flag oder einer Auslöser-Variable „Geschichte „X“:
+{Schritt}“, wenn eine Geschichte das Flag in `flags` bzw. die Variable als Fortschritt führt.
 
 **Beispiel.** Nach `new_story` „Testfaden“ (Variable 0x4030 → `VAR_STORY_TESTFADEN`) und
 `talk_advances` mit Figur 4 ab Schritt 0 hat die Geschichte zwei Schritte:
