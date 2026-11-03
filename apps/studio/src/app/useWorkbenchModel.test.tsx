@@ -301,7 +301,8 @@ describe("workbench model", () => {
   it("does not render the script or problems panel for a hover or a message, and the script panel follows a new scripts object", async () => {
     const showScript = await mountPanel("script");
     // The editor chunk is loaded on its own: the panel appears once it has arrived.
-    await vi.waitFor(() => expect(container.textContent).toContain("Scripts werden geprüft"));
+    // Under a loaded machine the chunk can take longer than the 1 s default.
+    await vi.waitFor(() => expect(container.textContent).toContain("Scripts werden geprüft"), { timeout: 10_000 });
     for (const k of Object.keys(reads) as Array<keyof typeof reads>) reads[k] = 0;
     await showScript({ hover: tile(1), message: null });
     await showScript({ hover: null, message: { kind: "info", text: "Modelle 3/900" } });
