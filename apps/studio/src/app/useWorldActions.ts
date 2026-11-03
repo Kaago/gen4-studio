@@ -42,15 +42,23 @@ const MAX_REFERENCE_ACTIONS = 3;
 
 /**
  * The message for a delete the references lock (`referenced`): the kernel's sentence and the references' lines („Tür 1 von
- * Zweiblattdorf springt hierher“), with a way to each source (one: „Zur Quelle“; more: „Zu {Quelle}“, the first three); null for any
- * other error.
+ * Zweiblattdorf springt hierher“), with a way to each place they lead to (once: „Zur Quelle“; more: „Zu {Quelle}“, the first three, and
+ * where several lead into one source, each by its reference's line, so no two buttons read alike); null for any other error.
  */
 export function referencedMessage(e: unknown, goTo: ((nav: NavTarget) => void) | undefined): Message | null {
   if (!isCmdError(e) || e.code !== "referenced" || e.references === undefined || e.references.length === 0) return null;
   const refs = e.references;
   const text = `${e.message} ${refs.map((r) => r.label).join("; ")}.`;
   if (goTo === undefined) return { kind: "error", text };
-  const actions = refs.slice(0, MAX_REFERENCE_ACTIONS).map((r) => ({ label: refs.length === 1 ? "Zur Quelle" : `Zu ${r.source_name}`, run: () => goTo(r.nav) }));
+  // One button per place: the same door twice leads to the same place.
+  const places = new Set<string>();
+  const targets = refs.filter((r) => !places.has(JSON.stringify(r.nav)) && places.add(JSON.stringify(r.nav))).slice(0, MAX_REFERENCE_ACTIONS);
+  const sources = new Map<string, number>();
+  for (const r of targets) sources.set(r.source_name, (sources.get(r.source_name) ?? 0) + 1);
+  const actions = targets.map((r) => ({
+    label: targets.length === 1 ? "Zur Quelle" : (sources.get(r.source_name) ?? 0) > 1 ? r.label : `Zu ${r.source_name}`,
+    run: () => goTo(r.nav),
+  }));
   return { kind: "error", text, actions };
 }
 

@@ -294,6 +294,34 @@ describe("useWorldActions.onDeleteEvent", () => {
     expect(setPinned).not.toHaveBeenCalled();
   });
 
+  it("gives_every_button_of_several_references_from_one_file_its_own_name", async () => {
+    // Gate 3d.4 G3: three doors of event file 0532 pointed at the door: three buttons „Zu Eventdatei 0532“.
+    const door = (index: number, header: number) => ({
+      source: { kind: "Event", index: 532 },
+      field: "warp_events.dest_warp_id",
+      slot: index,
+      label: `Tür ${index} von Zweiblattdorf springt hierher`,
+      source_name: "Eventdatei 0532",
+      nav: { kind: "event", eventFile: 532, eventKind: "warp", index, header },
+    });
+    const other = { ...door(0, 7), source: { kind: "Event", index: 540 }, label: "Tür 0 von Route 201 springt hierher", source_name: "Eventdatei 0540", nav: { kind: "event", eventFile: 540, eventKind: "warp", index: 0, header: 7 } };
+    vi.mocked(deleteEvent).mockRejectedValue({ ...referenced, references: [door(1, 415), door(2, 415), door(2, 415), other] });
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    const labels = setMessage.mock.calls[0][0].actions.map((a: { label: string }) => a.label);
+    // The same door twice is one button; two doors of one file are told apart by their reference, a file of its own by its name.
+    expect(labels).toEqual(["Tür 1 von Zweiblattdorf springt hierher", "Tür 2 von Zweiblattdorf springt hierher", "Zu Eventdatei 0540"]);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("offers_zur_quelle_when_every_reference_leads_to_the_same_place", async () => {
+    const same = { ...referenced.references![0]!, label: "Tür 1 von Zweiblattdorf springt hierher (Ziel)" };
+    vi.mocked(deleteEvent).mockRejectedValue({ ...referenced, references: [referenced.references![0], same] });
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    expect(setMessage.mock.calls[0][0].actions.map((a: { label: string }) => a.label)).toEqual(["Zur Quelle"]);
+  });
+
   it("keeps_the_selection_after_any_failed_delete_and_drops_it_after_one_that_went_in", async () => {
     vi.mocked(deleteEvent).mockRejectedValue(new Error("kaputt"));
     act(() => root.render(<Probe />));
