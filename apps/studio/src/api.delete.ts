@@ -66,6 +66,8 @@ export interface DeleteResult {
   /** What „Nummer freigeben“ removed. */
   freed: FreeInfo | null;
   ms: number;
+  /** What went wrong on the side without undoing the step (German sentences); absent when nothing did. */
+  notes?: string[];
 }
 
 /** What deleting `target` would do; changes nothing. */

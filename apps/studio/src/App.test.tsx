@@ -3568,11 +3568,17 @@ describe("App wiring", () => {
       await act(async () => {});
       expect(live().message).toEqual({ kind: "info", text: "Nummer freigegeben: Trainer 0901" });
       expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      // A note of the kernel (the build step could not forget the files) is said with it.
+      const note = "Der Build-Schritt „textproject“ hat die freigegebenen Dateien nicht vergessen (kaputt); kommt eine zurück, kann er sie für geändert halten.";
+      await act(async () => deleteProps.props!.onDeleted({ change: null, changed: [], freed: { count: 1, files: [] }, ms: 1, notes: [note] }, true, "Trainer 0901", target));
+      expect(live().message).toEqual({ kind: "info", text: `Nummer freigegeben: Trainer 0901. ${note}` });
+      await act(async () => {});
+      const compared = vi.mocked(changedFromOriginal).mock.calls.length;
       // „Wiederherstellen“ is a store change like a tombstone: the message names the entity, nothing is compared until the save.
       await act(async () => deleteProps.props!.onRestored({ change: "c2", changed: [{ kind: "Trainer", index: 901 }], freed: null, ms: 1 }, "Trainer 0901", target));
       await act(async () => {});
       expect(live().message).toEqual({ kind: "info", text: "Wiederhergestellt: Trainer 0901" });
-      expect(changedFromOriginal).toHaveBeenCalledTimes(3);
+      expect(changedFromOriginal).toHaveBeenCalledTimes(compared);
       // A refusal is said as an error.
       await act(async () => deleteProps.props!.onRestoreFailed({ code: "error", message: "Trainer 0901 ist nicht gelöscht.", asset: null, problems: [] }));
       expect(live().message).toEqual({ kind: "error", text: "Trainer 0901 ist nicht gelöscht." });

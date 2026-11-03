@@ -24,6 +24,16 @@ use crate::textproject::step::forget_seen;
 /// Why undo stops at „Nummer freigegeben“.
 pub const IRREVERSIBLE: &str = "Nummer freigeben lässt sich nicht rückgängig machen";
 
+/// The note of a „Nummer freigeben“ whose build step could not forget the freed files
+/// ([`forget_seen`] failed): the number is free, but a file that comes back may be taken for a
+/// changed one.
+pub(super) fn forget_failed(e: &KernelError) -> String {
+    format!(
+        "Der Build-Schritt „textproject“ hat die freigegebenen Dateien nicht vergessen ({e}); \
+         kommt eine zurück, kann er sie für geändert halten."
+    )
+}
+
 /// Why a kind without a number of its own is not freed (flags, variables, places).
 fn nothing_to_free(label: &str) -> String {
     format!("{label} hat keine Nummer, die sich freigeben lässt.")
@@ -147,7 +157,12 @@ pub fn free_number(
         DeleteTarget::Header { .. } => seen.push(rel(&project, &project.mapname_path())),
         _ => {}
     }
-    let _ = forget_seen(&project.root, &seen);
+    // The files are gone either way; a state the step cannot write is said, not undone.
+    let notes: Vec<String> = forget_seen(&project.root, &seen)
+        .err()
+        .map(|e| forget_failed(&e))
+        .into_iter()
+        .collect();
     let label = plan.label;
     let step = format!("Nummer freigegeben: {label}");
     // Trainers: the name bank and `trtblofs` hold one entry per trainer; they lose the freed
@@ -195,6 +210,7 @@ pub fn free_number(
         changed,
         freed: Some(info),
         ms: ms_since(started),
+        notes,
     })
 }
 
@@ -227,7 +243,29 @@ fn free_offsets(offsets: &mut Vec<u16>, keep: usize, base: Option<&[u16]>) {
 
 #[cfg(test)]
 mod tests {
-    use super::free_offsets;
+    use super::{forget_failed, free_offsets};
+    use crate::delete::DeleteResult;
+    use crate::error::KernelError;
+
+    /// Gate 3d.4 G1: a build state the step cannot write is a note of the result, not dropped;
+    /// without one the JSON has no `notes`.
+    #[test]
+    fn a_failed_forget_is_a_note_of_the_result() {
+        let note = forget_failed(&KernelError::Refused("kaputt".to_owned()));
+        assert!(note.starts_with("Der Build-Schritt „textproject“"), "{note}");
+        assert!(note.contains("kaputt"), "{note}");
+        let result = |notes: Vec<String>| DeleteResult {
+            change: None,
+            changed: Vec::new(),
+            freed: None,
+            ms: 0,
+            notes,
+        };
+        let json = serde_json::to_value(result(Vec::new())).unwrap();
+        assert!(json.get("notes").is_none(), "{json}");
+        let json = serde_json::to_value(result(vec![note.clone()])).unwrap();
+        assert_eq!(json["notes"], serde_json::json!([note]));
+    }
 
     fn freed(offsets: &[u16], keep: usize, base: Option<&[u16]>) -> Vec<u16> {
         let mut offsets = offsets.to_vec();

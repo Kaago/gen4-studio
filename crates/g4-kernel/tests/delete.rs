@@ -1359,8 +1359,22 @@ fn a_freed_trainer_number_is_created_again() {
         }
         free_number(&mut st, &mut refs, &base, target).unwrap();
         assert_eq!(st.member_count(AssetKind::Trainer).unwrap(), 3);
-        // `trtblofs` is the base's again: two offsets (fewer than its three trainers).
-        assert_eq!(st.trainer_text_offsets(0).unwrap().offsets.len(), 2);
+        // `trtblofs` is the base's again: two offsets (fewer than its three trainers), the
+        // base member's values.
+        let base_offsets = g4_formats::data::trainer_text::TrainerTextOffsets::read(
+            &base
+                .member(AssetKind::TrainerTextOffsets, 0)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap()
+        .offsets;
+        assert_eq!(base_offsets.len(), 2);
+        assert_eq!(
+            st.trainer_text_offsets(0).unwrap().offsets,
+            base_offsets,
+            "text project: {text_project}"
+        );
         assert_eq!(refused(st.undo()), IRREVERSIBLE);
         st.save().unwrap();
 
@@ -1784,7 +1798,10 @@ fn deleted_in_follows_an_envelope_changed_outside() {
     st.save().unwrap();
     const JSON: &str = "data/trainers/0001.json";
     let with = fx.read(JSON);
-    // Read once: the store keeps what it read until a file's `stat` changes.
+    // Asked twice, the same answer; the second comes from the store's cache (a file whose
+    // `stat` did not change is not read again), which only the unit test
+    // `read_deleted_cached_reads_a_file_again_only_when_its_stat_changed` (tombstone.rs) can
+    // see. From here on the cache is warm: every change below happens behind it.
     assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1]));
     assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1]));
 

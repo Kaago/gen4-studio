@@ -985,7 +985,10 @@ function AppBody() {
     // once), so no read below asks for a number that is gone.
     const gone = freed && result.freed !== null ? freedSelection(target, result.freed.count, shell.state.selected) : null;
     if (gone !== null) flushSync(() => shell.setSelected(gone, null));
-    session.setMessage({ kind: "info", text: freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}` });
+    const done = freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}`;
+    // A side effect that failed without undoing the step (the build step's state) is said with it.
+    const notes = result.notes ?? [];
+    session.setMessage({ kind: "info", text: notes.length === 0 ? done : `${done}. ${notes.join(" ")}` });
     // A tombstone waits for the save (which compares again).
     if (deleteWritesFiles(target, freed)) bumpChanged();
     try {

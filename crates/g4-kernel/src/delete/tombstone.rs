@@ -18,13 +18,16 @@ use crate::store::{ChangeId, Store};
 
 /// What [`delete`], [`restore`] and [`super::free_number`] did: the step on the undo stack
 /// (`None` when nothing was recorded), the assets that changed, what „Nummer freigeben“
-/// removed, and how long it took.
+/// removed, how long it took, and what went wrong on the side without undoing it (`notes`,
+/// German sentences; left out of the JSON when there are none).
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteResult {
     pub change: Option<ChangeId>,
     pub changed: Vec<AssetId>,
     pub freed: Option<FreeInfo>,
     pub ms: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 pub(super) fn ms_since(started: Instant) -> u64 {
@@ -85,6 +88,7 @@ pub fn delete(
         changed,
         freed: None,
         ms: ms_since(started),
+        notes: Vec::new(),
     })
 }
 
@@ -105,5 +109,6 @@ pub fn restore(store: &mut Store, target: DeleteTarget) -> Result<DeleteResult, 
         changed: target.assets(),
         freed: None,
         ms: ms_since(started),
+        notes: Vec::new(),
     })
 }
