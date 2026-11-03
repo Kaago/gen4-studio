@@ -3,10 +3,12 @@
 use std::sync::Arc;
 
 use g4_formats::error::FormatError;
+use g4_kernel::delete::guard_header;
 use g4_kernel::error::KernelError;
 use g4_kernel::places;
 use g4_kernel::project::HeaderListing;
 use g4_kernel::store::MapHeader;
+use g4_kernel::textproject::Art;
 use tauri::State;
 
 use super::{lock, session};
@@ -16,12 +18,12 @@ use crate::state::AppState;
 /// The header list of the store's table, so edits show up before saving. Internal names
 /// come from the project files; location names (and `names_error`) from the store's
 /// location text bank, so a name added and not saved yet shows too. The location text
-/// follows the edited `location_name` index.
+/// follows the edited `location_name` index. `deleted` marks the tombstones (3d.4).
 pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
     // One lock: the project, a copy of the edited table and the names of the same session
     // (the store decodes the bank on first use and keeps it). `mapname.bin` is read without
     // the lock.
-    let (project, table, names) = {
+    let (project, table, names, deleted) = {
         let mut guard = lock(state)?;
         let session = session(&mut guard)?;
         let project = Arc::clone(&session.project);
@@ -31,11 +33,17 @@ pub fn list_headers_impl(state: &AppState) -> Result<HeaderListing, CmdError> {
             .map_err(CmdError::from)?
             .to_vec();
         let names = places::location_names(&mut session.store).map_err(|e| e.to_string());
-        (project, table, names)
+        // The tombstones of the headers (3d.4), read once.
+        let deleted = session.store.deleted_in(Art::Headers);
+        (project, table, names, deleted)
     };
-    project
+    let mut listing = project
         .header_listing_with(&table, names)
-        .map_err(CmdError::from)
+        .map_err(CmdError::from)?;
+    for header in &mut listing.headers {
+        header.deleted = deleted.contains(&header.id);
+    }
+    Ok(listing)
 }
 
 /// Map header `id` as the store holds it, edits included.
@@ -56,7 +64,9 @@ pub fn get_header_impl(state: &AppState, id: u16) -> Result<MapHeader, CmdError>
 }
 
 /// Replaces header `id` as a whole; `label` names the change in the undo history. The table
-/// cannot grow and a header keeps its game family; an identical header records no change.
+/// cannot grow and a header keeps its game family; an identical header records no change. A
+/// matrix, event file, area data or encounter file the header did not name before and that is
+/// deleted is refused („{Ziel} ist gelöscht.“).
 pub fn set_header_impl(
     state: &AppState,
     id: u16,
@@ -65,6 +75,11 @@ pub fn set_header_impl(
 ) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
+    // A new reference to a tombstone is refused; one the header holds already stays.
+    let before = session.store.header_table()?.get(usize::from(id)).cloned();
+    if let Some(before) = before {
+        guard_header(&session.store, &before, &header)?;
+    }
     session.store.edit_header(id, label, |slot| {
         *slot = header;
         Ok(())

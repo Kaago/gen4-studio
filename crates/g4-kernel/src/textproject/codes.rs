@@ -22,8 +22,13 @@ pub(crate) const MAP_SOURCE_CODE: &str = "textproject.map-source";
 /// A number of headers the project cannot take (without the Dynamic Headers patch any
 /// change, with it more than the most), a gap or a duplicate number.
 pub(crate) const HEADER_COUNT_CODE: &str = "textproject.header-count";
-/// A member (or header) without its JSON: the import never deletes, that is 3d.
+/// A member (or header) without its JSON: the import deletes only the members of
+/// [`MEMBER_REMOVED_CODE`].
 pub(crate) const MEMBER_WITHOUT_JSON_CODE: &str = "textproject.member-without-json";
+/// Warning: members without JSON at the end of an art, unchanged since the sync's record and
+/// absent in the base (their JSON was deleted with „Nummer freigeben“, also on another Git
+/// branch): the import removes them.
+pub(crate) const MEMBER_REMOVED_CODE: &str = "textproject.member-removed";
 /// The header table cannot be located or read.
 pub(crate) const HEADER_TABLE_CODE: &str = "textproject.header-table";
 /// A key of `data/rotom-quirks.json` that is no plain path of an existing source below
@@ -61,7 +66,7 @@ pub(crate) const EGG_MOVES_UNEXPORTED_CODE: &str = "textproject.egg-moves-unexpo
 
 /// Every code, for the documentation test (with the stories' own check code).
 #[cfg(test)]
-const ALL: [&str; 23] = [
+const ALL: [&str; 24] = [
     SCHEMA_CODE,
     UNKNOWN_ID_CODE,
     ID_MISMATCH_CODE,
@@ -71,6 +76,7 @@ const ALL: [&str; 23] = [
     MAP_SOURCE_CODE,
     HEADER_COUNT_CODE,
     MEMBER_WITHOUT_JSON_CODE,
+    MEMBER_REMOVED_CODE,
     HEADER_TABLE_CODE,
     QUIRK_KEY_CODE,
     RAW_PATH_CODE,

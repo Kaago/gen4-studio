@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { changedFromOriginal, errorText } from "../api";
-import type { ChangedProgress, ChangedReport } from "../api";
+import type { ChangedProgress, ChangedReport, DiffSubject } from "../api";
+import type { EntityState } from "../ui/primitives";
 import { FOCUS_DELAY_MS } from "../app/useExternalSync";
 import { subscribeWindowFocus } from "../platform/windowFocus";
 
@@ -14,6 +15,11 @@ export interface ChangesApi {
   progress: ChangedProgress | null;
   error: string | null;
   busy: boolean;
+  /**
+   * `report` is of the current saved state (no save, reset or delete since it was made): only then do the heads take their badges
+   * („geändert“, „neu“) from it; an older one stays for the surface until the next one comes.
+   */
+  fresh: boolean;
   /** Compares again („Neu vergleichen“). */
   compare: () => Promise<void>;
 }
@@ -32,6 +38,11 @@ export type UseChangesOptions = {
   revision: number;
   /** The base comparison is the one on screen (`shown` and „Gegen Basis“ chosen): only then does a window focus compare. Default `shown`. */
   listed?: boolean;
+  /**
+   * Compare quietly while the surface is not shown as well, once per project and base and after every revision (the heads' badges need
+   * the report). Default false: only when the surface shows.
+   */
+  background?: boolean;
 };
 
 /**
@@ -43,10 +54,13 @@ export type UseChangesOptions = {
  * Never
  * two compares side by side: a reason to compare that comes while one runs makes one more run after it. Everything starts over when another
  * project opens or another base is found (already in the render that sees it, so no frame shows the report before); an answer for the
- * project and base before is dropped.
+ * project and base before is dropped. With `background` it also compares quietly while the surface is away (the heads' badges need the
+ * report); `fresh` says whether the report is of the current revision.
  */
-export function useChanges({ project, shown, base, revision, listed = shown }: UseChangesOptions): ChangesApi {
+export function useChanges({ project, shown, base, revision, listed = shown, background = false }: UseChangesOptions): ChangesApi {
   const [report, setReport] = useState<ChangedReport | null>(null);
+  // The revision the report was made at (the one its compare started with).
+  const [reportRevision, setReportRevision] = useState<number | null>(null);
   const [progress, setProgress] = useState<ChangedProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +71,7 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
   if (stale) {
     setOwner(key);
     setReport(null);
+    setReportRevision(null);
     setProgress(null);
     setError(null);
     setBusy(false);
@@ -100,6 +115,7 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
         again.current = false;
         focused.current = false;
         compared.current = latest.current;
+        const at = latest.current;
         const say = loud.current;
         loud.current = false;
         if (say) {
@@ -111,6 +127,7 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
           const next = await changedFromOriginal((p) => say && mine() && setProgress(p));
           if (!mine()) return;
           setReport(next);
+          setReportRevision(at);
           setError(null);
         } catch (e) {
           if (!mine()) return;
@@ -128,10 +145,16 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
   const compare = useCallback(() => run(false), [run]);
 
   useEffect(() => {
-    if (key === null || !shown) return;
+    if (key === null) return;
+    if (!shown) {
+      if (background && compared.current !== revision) void run(true);
+      return;
+    }
     if (compared.current !== revision) void run(false);
     else if (listed && focused.current) void run(true);
-  }, [key, shown, listed, revision, run]);
+    // A background compare of this revision still runs: the surface says it compares (without progress, the run is under way).
+    else if (running.current !== null) setBusy(true);
+  }, [key, shown, listed, revision, run, background]);
 
   // The window got the focus back (quick changes make one reason): the files may differ without a revision having moved.
   useEffect(() => {
@@ -152,6 +175,37 @@ export function useChanges({ project, shown, base, revision, listed = shown }: U
   }, [key, run]);
 
   // React renders again at once after the reset above; this pass already shows nothing of the state before.
-  if (stale) return { report: null, progress: null, error: null, busy: false, compare };
-  return { report, progress, error, busy, compare };
+  if (stale) return { report: null, progress: null, error: null, busy: false, fresh: false, compare };
+  return { report, progress, error, busy, fresh: report !== null && reportRevision === revision, compare };
+}
+
+/** The key of the entity `subject` names (the same in all three lists of Technik › Änderungen): „trainer:12“, „file:data/x.json“. */
+export function subjectKey(subject: DiffSubject): string {
+  switch (subject.kind) {
+    case "file":
+      return `file:${subject.path}`;
+    case "member":
+      return `member:${subject.folder}:${subject.index}`;
+    default:
+      return `${subject.kind}:${subject.index}`;
+  }
+}
+
+/** The states of a report by subject, made once per report. */
+const statesOf = new WeakMap<ChangedReport, Map<string, EntityState>>();
+
+/**
+ * How the entity `subject` stands in the saved project against the base ROM by `report` (`changed_from_original`): „changed“, „new“, or
+ * „deleted“ (a tombstone, 3d.4); null when the report does not list it (as in the base), when it is missing from the project, and without
+ * a report.
+ */
+export function stateOf(report: ChangedReport | null, subject: DiffSubject): EntityState | null {
+  if (report === null) return null;
+  let states = statesOf.get(report);
+  if (states === undefined) {
+    states = new Map();
+    for (const entry of report.entries) if (entry.state !== "missing") states.set(subjectKey(entry.subject), entry.state);
+    statesOf.set(report, states);
+  }
+  return states.get(subjectKey(subject)) ?? null;
 }

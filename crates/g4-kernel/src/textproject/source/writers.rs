@@ -127,7 +127,9 @@ impl EntitySource {
     }
 
     /// Writes the files of entity `index` of `art`: its members from `given`, else `current`,
-    /// else its JSON, else the members on disk.
+    /// else its JSON, else the members on disk; the JSON with the tombstone envelope when
+    /// `deleted`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn write_entity(
         &mut self,
         project: &Project,
@@ -135,6 +137,7 @@ impl EntitySource {
         index: u16,
         given: &[(AssetId, &[u8])],
         current: &dyn Fn(AssetId) -> Option<Vec<u8>>,
+        deleted: bool,
         out: &mut SourceWrite,
     ) -> Result<(), KernelError> {
         let kinds = art.kinds();
@@ -222,7 +225,7 @@ impl EntitySource {
             side: Vec::new(),
             egg_moves: eggs.as_ref(),
         };
-        let mut files = entity_files(art, u32::from(index), &parts, &mut ctx)?;
+        let mut files = entity_files(art, u32::from(index), &parts, &mut ctx, deleted)?;
         if let (Some(field), Some((_, json))) = (keep_eggs, files.first_mut()) {
             let mut entity: SpeciesEntity = serde_json::from_slice(json)
                 .map_err(|e| KernelError::InvalidProject(format!("{}: {e}", rel.display())))?;
@@ -331,7 +334,7 @@ impl EntitySource {
             let rel = json_rel(Art::Headers, u32::try_from(n).unwrap_or(u32::MAX));
             let path = self.root.join(&rel);
             let bytes = std::fs::read(&path).map_err(io_at(&path))?;
-            let parts = import_art(
+            let (parts, _deleted) = import_art(
                 Art::Headers,
                 u32::try_from(n).unwrap_or(u32::MAX),
                 &rel,
@@ -358,11 +361,13 @@ impl EntitySource {
     }
 
     /// Writes the header files whose JSON changes, from the table's bytes and the internal
-    /// names of the header files (or of `mapname.bin` for new headers).
+    /// names of the header files (or of `mapname.bin` for new headers); a header `deleted`
+    /// names gets the tombstone envelope.
     pub(super) fn write_headers(
         &mut self,
         project: &Project,
         given: &[(AssetId, &[u8])],
+        deleted: &dyn Fn(Art, u16) -> bool,
         out: &mut SourceWrite,
     ) -> Result<(), KernelError> {
         let Some(&(_, table)) = given.last() else {
@@ -405,7 +410,8 @@ impl EntitySource {
         {
             let parts = [Some(header.to_vec()), Some(name.to_vec())];
             let index = u32::try_from(i).unwrap_or(u32::MAX);
-            for (file, bytes) in entity_files(Art::Headers, index, &parts, &mut ctx)? {
+            let tomb = u16::try_from(i).is_ok_and(|id| deleted(Art::Headers, id));
+            for (file, bytes) in entity_files(Art::Headers, index, &parts, &mut ctx, tomb)? {
                 let rel = dir.join(file);
                 if let Some(dry) = self.dry.as_mut() {
                     dry.insert(rel, bytes);
@@ -418,7 +424,8 @@ impl EntitySource {
     }
 
     /// The canonical JSON of header `index` from its 24 bytes and its `mapname.bin` record,
-    /// as the header files are written (the ids of this source's symbols); writes nothing.
+    /// as the header files are written (the ids of this source's symbols), without the
+    /// tombstone envelope; writes nothing.
     pub(crate) fn export_header(
         &mut self,
         index: u16,
@@ -433,7 +440,7 @@ impl EntitySource {
             egg_moves: None,
         };
         let parts = [Some(header.to_vec()), Some(name.to_vec())];
-        let files = entity_files(Art::Headers, u32::from(index), &parts, &mut ctx)?;
+        let files = entity_files(Art::Headers, u32::from(index), &parts, &mut ctx, false)?;
         files
             .into_iter()
             .next()

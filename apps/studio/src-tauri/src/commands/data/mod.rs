@@ -24,7 +24,7 @@ pub use create::*;
 pub use dto::*;
 use fields::FieldSpanDto;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use g4_formats::data::encounter::{HgssEncounters, PtEncounters};
 use g4_formats::data::evolution::Evolution;
@@ -42,6 +42,7 @@ use g4_kernel::error::KernelError;
 use g4_kernel::places;
 use g4_kernel::project::{AssetId, AssetKind, Project};
 use g4_kernel::store::{MapHeader, Store};
+use g4_kernel::textproject::Art;
 use serde_json::json;
 use tauri::{Manager, State};
 
@@ -68,6 +69,7 @@ fn unlocked_family(project: &Project) -> Result<(), CmdError> {
             message: DP_LOCKED.to_owned(),
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         });
     }
     Ok(())
@@ -137,6 +139,7 @@ fn row(index: u16, name: String, read: Result<serde_json::Value, String>) -> Dat
         tech: tech(index),
         locked,
         extra,
+        deleted: false,
     }
 }
 
@@ -371,10 +374,20 @@ pub fn data_list_impl(
         DataKind::Encounter => encounter_rows(session)?,
         DataKind::Trainer => trainer::trainer_rows(session)?,
     };
+    // The tombstones of the list's art, read once (3d.4: trainers and encounter files).
+    let deleted = match kind {
+        DataKind::Trainer => session.store.deleted_in(Art::Trainers),
+        DataKind::Encounter => session.store.deleted_in(Art::Encounters),
+        _ => BTreeSet::new(),
+    };
     let filter = filter.unwrap_or_default();
     Ok(rows
         .into_iter()
         .filter(|row| filter.keeps(kind, row))
+        .map(|row| DataRowDto {
+            deleted: deleted.contains(&row.index),
+            ..row
+        })
         .collect())
 }
 

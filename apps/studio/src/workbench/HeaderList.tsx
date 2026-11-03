@@ -2,11 +2,13 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { HeaderSummary, ProjectInfo } from "../api";
 import { FindingMark } from "../checks/FindingMark";
 import type { MarkSeverity } from "../checks/FindingMark";
+import { restoreEntry, useDelete } from "../delete/DeleteContext";
+import { ShowDeleted } from "../delete/ShowDeleted";
 import { useReset } from "../original/OriginalContext";
 import { resetEntry } from "../original/resetEntry";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth, ListSort } from "../ui/frame/shellState";
-import { ListRow, TextField, useRovingList } from "../ui/primitives";
+import { EntityStateBadge, ListRow, TextField, useRovingList } from "../ui/primitives";
 import { filterHeaders, showsMatrix } from "./headers";
 import { ShownMark } from "./ShownMark";
 import { TERMS, id4, techLabel } from "./terms";
@@ -27,6 +29,9 @@ interface Props {
   onSelect: (h: HeaderSummary) => void;
   /** The worst error or warning the checks found per header (`headerMarks`); none: no marks. */
   marks?: ReadonlyMap<number, MarkSeverity>;
+  /** „Gelöschte zeigen“: the tombstones (3d.4) show, with their badge and „Wiederherstellen“; off they are left out. */
+  showDeleted: boolean;
+  onShowDeleted: (on: boolean) => void;
 }
 
 /** One row of the list. Memoised: a selection or search change renders the rows whose props changed, not all of them. */
@@ -46,11 +51,14 @@ const HeaderRow = memo(function HeaderRow({
   onSelect: (h: HeaderSummary) => void;
 }) {
   const name = h.location_name || h.internal_name;
-  // The same entry as the world tree's rows (the list is the tree's other view).
+  // The same entries as the world tree's rows (the list is the tree's other view).
   const { status, open } = useReset();
+  const { restore } = useDelete();
+  const deleted = h.deleted === true;
+  const reset = resetEntry({ kind: "header", id: h.id }, status, open, "Header auf Original zurücksetzen…");
   return (
     <ListRow
-      contextMenu={[resetEntry({ kind: "header", id: h.id }, status, open, "Header auf Original zurücksetzen…")]}
+      contextMenu={deleted ? [restoreEntry({ kind: "header", id: h.id }, restore), reset] : [reset]}
       label={name}
       // The number and the code tell the rows of one place apart (eight rooms of Zweiblattdorf all read "Zweiblattdorf").
       tech={`${id4(h.id)} · ${h.internal_name}`}
@@ -62,10 +70,11 @@ const HeaderRow = memo(function HeaderRow({
           ? `${techLabel("header", h.id)} ${h.location_name} ${h.internal_name}, ${techLabel("matrix", h.matrix_id)}${marked ? ` (${TERMS.matrix.label} wird angezeigt)` : ""}`
           : `${name} · Nummer ${id4(h.id)} · ${h.internal_name}`
       }
-      dataAttrs={{ "data-header-id": h.id }}
+      dataAttrs={{ "data-header-id": h.id, "data-deleted": deleted ? "true" : undefined }}
       trailing={
-        mark || marked || tinker ? (
+        mark || marked || tinker || deleted ? (
           <>
+            {deleted && <EntityStateBadge state="deleted" />}
             {mark && <FindingMark severity={mark} />}
             {marked && <ShownMark />}
             {tinker && <span className={styles.matrixTag}>M{h.matrix_id}</span>}
@@ -81,9 +90,9 @@ const HeaderRow = memo(function HeaderRow({
  * reveal token or the callback change, not when the scene is hovered or a message arrives.
  * `onSelect` must keep its identity for that.
  */
-export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, sort, onSelect, marks }: Props) {
+export const HeaderList = memo(function HeaderList({ info, headers, selected, shownMatrix, revealToken, depth, sort, onSelect, marks, showDeleted, onShowDeleted }: Props) {
   const [query, setQuery] = useState("");
-  const sorted = useMemo(() => sortHeaders(headers, sort), [headers, sort]);
+  const sorted = useMemo(() => sortHeaders(showDeleted ? headers : headers.filter((h) => h.deleted !== true), sort), [headers, sort, showDeleted]);
   const shown = useMemo(() => filterHeaders(sorted, query), [sorted, query]);
   // The host is always rendered, so the arrow keys work after a search and after switching modes.
   const list = useRef<HTMLDivElement>(null);
@@ -117,6 +126,7 @@ export const HeaderList = memo(function HeaderList({ info, headers, selected, sh
           </p>
         )}
         <TextField type="search" label={depthAtLeast(depth, "tuefteln") ? "Header suchen" : "Orte suchen"} placeholder="Ort, Raum oder Kürzel suchen" value={query} onChange={setQuery} onCommit={setQuery} />
+        <ShowDeleted checked={showDeleted} onChange={onShowDeleted} />
       </div>
       <div ref={list} role="listbox" aria-label={depthAtLeast(depth, "tuefteln") ? TERMS.header.plural : TERMS.place.plural} className={styles.host}>
         {shown.map((h) => (

@@ -352,6 +352,15 @@ impl Symbols {
         }
     }
 
+    /// The register's own id of `n` (never a fixed or pret name); `None` without a register
+    /// entry.
+    pub fn registered_id(&self, kind: SymbolKind, n: u32) -> Option<String> {
+        self.registries
+            .get(&kind)
+            .and_then(|r| r.id_of(n))
+            .map(str::to_owned)
+    }
+
     /// Every entry of the register of `kind` as (number, id), ascending by id; nothing for a
     /// kind with a fixed table.
     pub fn ids(&self, kind: SymbolKind) -> Vec<(u32, String)> {
@@ -791,5 +800,42 @@ mod tests {
         );
         // Other kinds are untouched by the family.
         assert_eq!(symbols.number(SymbolKind::Map, "MAP_0003"), Some(3));
+    }
+
+    #[test]
+    fn registered_id_answers_the_register_only() {
+        use g4_formats::game::Family;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(IDS_DIR)).unwrap();
+        std::fs::write(
+            root.join("data/ids/flags.json"),
+            "{\"FLAG_HAT_MEDAILLE\": 148}\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("data/ids/maps.json"), "{\"MAP_T01\": 3}\n").unwrap();
+        let symbols = Symbols::load(root)
+            .unwrap()
+            .with_family(Family::Pt)
+            .with_fallbacks();
+        assert_eq!(
+            symbols.registered_id(SymbolKind::Flag, 148).as_deref(),
+            Some("FLAG_HAT_MEDAILLE")
+        );
+        assert_eq!(
+            symbols.registered_id(SymbolKind::Map, 3).as_deref(),
+            Some("MAP_T01")
+        );
+        // A pret name, a fallback and a fixed table are no register entries.
+        assert_eq!(
+            symbols.id(SymbolKind::Flag, 149).as_deref(),
+            Some("FLAG_UNUSED_0x0095")
+        );
+        assert_eq!(symbols.registered_id(SymbolKind::Flag, 149), None);
+        assert_eq!(symbols.registered_id(SymbolKind::Var, 0x4000), None);
+        assert_eq!(symbols.registered_id(SymbolKind::Map, 4), None);
+        assert!(symbols.id(SymbolKind::Species, 1).is_some());
+        assert_eq!(symbols.registered_id(SymbolKind::Species, 1), None);
     }
 }

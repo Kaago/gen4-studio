@@ -530,9 +530,10 @@ fn data_get_trainer_lists_party_texts_and_events() {
             assert_eq!((name_archive, text_archive), (Some(618), Some(617)));
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].source, id(AssetKind::Event, 1));
+            // To the figure in the first header that shows event file 1 (gate 3d.4 B12).
             assert_eq!(
                 serde_json::to_value(&events[0].nav).unwrap(),
-                json!({ "kind": "event", "eventFile": 1, "eventKind": "object", "index": 0 })
+                json!({ "kind": "event", "eventFile": 1, "eventKind": "object", "index": 0, "header": 0 })
             );
             // The text before the battle does not end with \r: a Problems row.
             assert_eq!(problems.len(), 1);

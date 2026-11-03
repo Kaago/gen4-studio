@@ -20,7 +20,8 @@
 //! | not readable | – | – | [`UnitSide::Broken`] |
 //!
 //! A member deleted since the record, or a JSON deleted while its member stays, is broken
-//! (deleting an entity comes with the reference lock, 3d). A unit with members but no source
+//! (an entity is deleted in the editor: a tombstone keeps its JSON, „Nummer freigeben“
+//! removes member and JSON together, [`crate::delete`]). A unit with members but no source
 //! at all is from DSPRE (an appended member), one with a source but no member from the files.
 //! Texts follow [`TextSync`](crate::text::TextSync) and their records in `texts`; scripts are
 //! in step where rotom's compile state names the source's and the member's hashes, and a

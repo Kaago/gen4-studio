@@ -44,7 +44,7 @@ pub enum OriginalStatusDto {
 
 /// The open project and its base ROM, read without the session lock (the search may hash a
 /// whole ROM, reading it takes a while): `base_missing` with the reason when it is not found.
-fn open_original(state: &AppState) -> Result<(Arc<Project>, BaseRom), CmdError> {
+pub(super) fn open_original(state: &AppState) -> Result<(Arc<Project>, BaseRom), CmdError> {
     let project = super::open_project_arc(state)?;
     let (mark, hit) = found_base(state, &project.root)?;
     let base = BaseRom::open_unchecked(&hit.path, &mark.sha1)?;
@@ -74,6 +74,7 @@ fn reset_error(e: KernelError) -> CmdError {
             message: why,
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         },
         other => other.into(),
     }

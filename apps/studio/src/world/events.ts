@@ -125,15 +125,16 @@ export function eventReadOnlyReason(e: unknown): string | null {
   return at < 0 ? e.message : e.message.slice(at + marker.length);
 }
 
-/** Added to the confirmation for a warp: what deleting it does not fix. */
-export const WARP_RENUMBER_NOTE = "Warp-Ziele anderer Events, die auf spätere Warps dieser Datei zeigen, werden nicht angepasst.";
+/** Added to the confirmation for a warp: what deleting it does to later doors and the warps to them, and what refuses it (3d.4). */
+export const WARP_RENUMBER_NOTE =
+  "Spätere Türen rücken nach; Warps, die auf sie zeigen, werden nachgezogen. Eine Tür, auf die ein Warp zeigt oder die ein Script per Index umsetzt, lässt sich nicht löschen.";
 
 /** Text of the confirmation before an event is deleted: its class, index and position. */
 export function eventDeletePrompt(kind: EventKind, index: number, data: Pick<EventData, "x" | "z"> | undefined): string {
   const what = `${KIND_LABELS[kind]} ${index}`;
   const ask = data ? `${what} (x ${data.x}, z ${data.z}) löschen?` : `${what} löschen?`;
-  // The game addresses a warp by its index in the file: later warps move up by one, and warps of
-  // other events that point at them are not renumbered.
+  // The game addresses a warp by its index in the file: later warps move up by one, and the kernel
+  // renumbers the warps that point at them (`delete::warps`), or refuses a door a warp or script targets.
   return kind === "warp" ? `${ask}\n\n${WARP_RENUMBER_NOTE}` : ask;
 }
 

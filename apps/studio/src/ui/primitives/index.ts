@@ -1,5 +1,7 @@
 export { Badge } from "./Badge";
 export type { BadgeKind, BadgeProps } from "./Badge";
+export { EntityStateBadge } from "./EntityStateBadge";
+export type { EntityState } from "./EntityStateBadge";
 export { Button } from "./Button";
 export type { ButtonProps } from "./Button";
 export { Checkbox } from "./Checkbox";

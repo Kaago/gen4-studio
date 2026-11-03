@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { FocusEvent, ReactNode, Ref } from "react";
 import type { Against, AssetId, ChangedEntry, DiffSubject, GitStatus, OriginalStatus } from "../api";
+import { RESTORE_LABEL, useDelete } from "../delete/DeleteContext";
 import { NO_GIT_FOR_COMMIT } from "../git/gitWords";
 import type { GitStatusApi } from "../git/useGitStatus";
 import { useReset } from "../original/OriginalContext";
@@ -9,7 +10,7 @@ import { Badge, Button, EmptyState, ListRow, Notice, Section, Segmented, Tooltip
 import type { SegmentedOption } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import styles from "./ChangesSurface.module.css";
-import { rowResetLock, stateBadge } from "./diffWords";
+import { restoreTarget, rowResetLock, stateBadge } from "./diffWords";
 import { EntityDiff } from "./EntityDiff";
 import type { ChangesApi } from "./useChanges";
 
@@ -263,9 +264,9 @@ function headLead(git: GitStatus): string {
 /**
  * Technik › Änderungen (4.1b, 4.4): what of the project differs from the base ROM, the last commit or the saved state (the switch above
  * the list), one section per group, one row per entity with its state and „Auf Original zurücksetzen…“ (the app's dialog, through
- * `useReset`); the chosen row's diff beside the list (below it on a narrow surface). Without a base ROM „Gegen Basis“ names the reason and
- * where the base is assigned; without a repository „Gegen letzten Commit“ offers „Git einrichten…“. The compares run in the app's hooks;
- * this surface only shows them.
+ * `useReset`), a new entity deleted (3d.4) „Wiederherstellen“ instead (through `useDelete`); the chosen row's diff beside the list (below
+ * it on a narrow surface). Without a base ROM „Gegen Basis“ names the reason and where the base is assigned; without a repository „Gegen
+ * letzten Commit“ offers „Git einrichten…“. The compares run in the app's hooks; this surface only shows them.
  */
 export function ChangesSurface(props: ChangesSurfaceProps) {
   const { changes, status, dirty, onOpenProject, against, onAgainst, git, unsaved, unsavedError = null, onReloadUnsaved = () => {}, onGitSetup, onCommitAll, goTo, revision } = props;
@@ -516,6 +517,7 @@ function ChangeGroups({ entries, dirty, against, status, where, selected, onSele
 
 function GroupList({ group, entries, dirty, against, status, where, selected, onSelect }: Omit<GroupsProps, "entries"> & { group: string; entries: readonly ChangedEntry[] }) {
   const { open } = useReset();
+  const { restore } = useDelete();
   const list = useRef<HTMLDivElement>(null);
   const noteBase = useId();
   useRovingList(list);
@@ -527,6 +529,7 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
         const unsaved = entry.assets.some((a) => dirty.some((d) => sameAsset(a, d)));
         const why = rowResetLock(entry, status);
         const target = entry.target;
+        const back = restoreTarget(entry);
         const noteId = `${noteBase}${entries.indexOf(entry)}`;
         // A locked button stays focusable (aria-disabled): the reason is its description and the tooltip, which keyboard focus opens too.
         const button = (
@@ -555,7 +558,12 @@ function GroupList({ group, entries, dirty, against, status, where, selected, on
               <span className={styles.trailing}>
                 <Badge kind={badge.kind}>{badge.text}</Badge>
                 {unsaved && <Badge kind="unsaved" />}
-                {why === null ? (
+                {back !== null ? (
+                  // A new entity deleted has no original: its tombstone is taken back (one undo step, no dialog).
+                  <Button kind="secondary" size="s" onClick={() => restore(back)}>
+                    {RESTORE_LABEL}
+                  </Button>
+                ) : why === null ? (
                   button
                 ) : (
                   <>

@@ -15,6 +15,7 @@ import type { HeaderEditorContext } from "./HeaderEditor";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
 import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
+import { deleteSpy, withDelete } from "../../delete/deleteTesting";
 import type { Depth } from "../../ui/frame/shellState";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -220,9 +221,28 @@ describe("HeaderEditor scripts", () => {
   it("binds_a_room_here_from_the_head_menu", async () => {
     const onOpenWizard = vi.fn();
     await show(context({ onOpenWizard }));
-    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…"]);
     chooseAction(container, "Raum hier anbinden…");
     expect(onOpenWizard).toHaveBeenCalledWith({ kind: "room", prefill: { outsideHeader: 411 } });
+  });
+
+  it("the_actions_menu_has_loeschen", async () => {
+    const del = deleteSpy({ "header:411": "changed" });
+    const render = async (ctx: HeaderEditorContext, depth: Depth) => {
+      await act(async () => root.render(withReset(reset, withDelete(del, <HeaderEditor id={411} context={ctx} depth={depth} />))));
+      await flush();
+    };
+    await render(context(), "bauen");
+    // After „Ort umbenennen…“: the header (an area, a room or a place) as a tombstone.
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…"]);
+    chooseAction(container, "Löschen…");
+    expect(del.open).toHaveBeenCalledWith({ kind: "header", id: 411 });
+    // The state of the saved header against the base, beside the title; the live tombstone wins, the same in every depth.
+    expect(container.querySelector("header[data-inspector-kind] [data-entity-state]")?.textContent).toBe("geändert");
+    for (const depth of ["erzaehlen", "bauen", "tuefteln"] as const) {
+      await render(context({ headers: [Object.assign({}, summary, { deleted: true })] }), depth);
+      expect(container.querySelector("header[data-inspector-kind] [data-entity-state]")?.textContent).toBe("gelöscht");
+    }
   });
 
   it("text_project_shows_the_id_and_offers_rename", async () => {
@@ -233,7 +253,7 @@ describe("HeaderEditor scripts", () => {
     expect(entityIds).toHaveBeenCalledWith("Map");
     expect(container.querySelector("header[data-inspector-kind] [data-entity-id]")?.textContent).toBe("MAP_T01");
     expect(container.querySelector('header[data-inspector-kind] button[aria-label="ID kopieren"]')).not.toBeNull();
-    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…", "ID umbenennen…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…", "ID umbenennen…"]);
     chooseAction(container, "ID umbenennen…");
     const dialog = document.querySelector<HTMLElement>("[role=dialog]");
     expect(dialog?.querySelector("h2")?.textContent).toBe("ID umbenennen");
@@ -246,7 +266,7 @@ describe("HeaderEditor scripts", () => {
     await flush();
     expect(entityIds).not.toHaveBeenCalled();
     expect(container.querySelector("[data-entity-id]")).toBeNull();
-    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
+    expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…"]);
   });
 
   it("head_offers_reset_of_the_header_and_locks_a_new_one", async () => {
@@ -303,14 +323,14 @@ describe("HeaderEditor scripts", () => {
 
     it("offers_split_only_for_a_shared_room", async () => {
       await showHouse(houseWorld(0));
-      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…"]);
       // An area is no room, whatever shares its world map.
       await show(context({ world: houseWorld(3) }));
       expect(headActions(container)).not.toContain("Für diesen Raum abspalten…");
       // Another header: a fresh editor, as the inspector mounts one per header (`key={id}`).
       await act(async () => root.render(null));
       await showHouse(houseWorld(3));
-      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Für diesen Raum abspalten…", "Auf Original zurücksetzen…"]);
+      expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Für diesen Raum abspalten…", "Auf Original zurücksetzen…"]);
       chooseAction(container, "Für diesen Raum abspalten…");
       await flush();
       const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
@@ -339,7 +359,7 @@ describe("HeaderEditor scripts", () => {
         await act(async () => root.render(null));
         await showHouse(houseWorld(3, matrixId));
         expect(container.querySelector("header[data-inspector-kind] [data-shared]")?.textContent).toBe("Geteilt mit 3 Räumen");
-        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Auf Original zurücksetzen…"]);
+        expect(headActions(container)).toEqual(["Raum hier anbinden…", "Ort umbenennen…", "Löschen…", "Auf Original zurücksetzen…"]);
       }
     });
 

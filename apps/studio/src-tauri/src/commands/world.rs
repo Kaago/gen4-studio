@@ -2,6 +2,7 @@
 
 use g4_formats::map::{Cell, MapFile};
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
+use g4_kernel::delete::DeleteTarget;
 use g4_kernel::project::{AssetId, AssetKind};
 use g4_kernel::store::EventFile;
 use g4_kernel::tiles::TileBehavior;
@@ -24,6 +25,8 @@ pub struct MatrixDto {
     pub headers: Option<Vec<u16>>,
     /// Row-major altitudes; `None` when the matrix has no altitude section.
     pub altitudes: Option<Vec<u8>>,
+    /// The matrix is a tombstone (3d.4, a text project).
+    pub deleted: bool,
 }
 
 impl MatrixDto {
@@ -40,6 +43,7 @@ impl MatrixDto {
                 .collect(),
             headers: matrix.headers.clone(),
             altitudes: matrix.altitudes.clone(),
+            deleted: false,
         }
     }
 }
@@ -164,6 +168,8 @@ pub struct EventsDto {
     pub objects: Vec<ObjectDto>,
     pub warps: Vec<WarpDto>,
     pub coords: Vec<CoordDto>,
+    /// The event file is a tombstone (3d.4, a text project).
+    pub deleted: bool,
 }
 
 /// Position of an event inside its list as the `u16` the DTOs carry. `get_events_impl`
@@ -250,6 +256,7 @@ impl EventsDto {
                     value: e.value,
                 })
                 .collect(),
+            deleted: false,
         })
     }
 }
@@ -265,7 +272,11 @@ pub fn get_matrix_impl(state: &AppState, index: u16) -> Result<MatrixDto, CmdErr
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
     let matrix = session.store.matrix(index).map_err(CmdError::from)?;
-    Ok(MatrixDto::from_matrix(index, matrix))
+    let dto = MatrixDto::from_matrix(index, matrix);
+    Ok(MatrixDto {
+        deleted: session.store.is_deleted(DeleteTarget::Matrix { index }),
+        ..dto
+    })
 }
 
 pub fn get_map_impl(state: &AppState, index: u16) -> Result<MapDto, CmdError> {
@@ -287,6 +298,9 @@ pub fn get_events_impl(state: &AppState, event_file_id: u16) -> Result<EventsDto
     };
     Ok(EventsDto {
         locked: session.store.locked(id).map(str::to_owned),
+        deleted: session.store.is_deleted(DeleteTarget::EventFile {
+            index: event_file_id,
+        }),
         ..dto
     })
 }

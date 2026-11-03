@@ -145,6 +145,12 @@ export type EntityDiff =
   | { shape: "lines"; hunks: { old_start: number; new_start: number; lines: [SpanOp, string][] }[]; more: number }
   | { shape: "binary"; old: BlobSide; new: BlobSide };
 
+/** Whether each side of a diff is a tombstone (3d.4, the envelope `"deleted": true` of its JSON). */
+export interface TombstoneDiff {
+  old: boolean;
+  new: boolean;
+}
+
 /**
  * The diff of one entity with what the user sees around it: its name, the names of both sides (`old_label` „Basis-ROM …“, „Commit abc1234
  * „…““, „Gespeichert“; `new_label` „Projekt (gespeichert)“ or „Ungespeichert“), the state, the reset target of the subject (null for a kind
@@ -159,6 +165,8 @@ export interface EntityDiffReport {
   state: DiffState;
   diff: EntityDiff;
   reset: ResetTarget | null;
+  /** For a kind with tombstones: whether each side is one (the diff shows it as the badge „Gelöscht“, never as a field); null for scripts, archives, members, files. */
+  tombstone: TombstoneDiff | null;
   ms: number;
 }
 

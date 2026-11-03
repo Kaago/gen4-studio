@@ -2778,3 +2778,458 @@ fn vanilla_trainers_load_unlocked_through_the_store() {
     assert!(st.dirty().is_empty());
     eprintln!("{count} trainers load through the store");
 }
+
+// --- tombstones (3d.4) ---
+
+use g4_kernel::delete::{
+    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+};
+use g4_kernel::store::HEADER_TABLE;
+use g4_kernel::textproject::Art;
+
+const TRAINER_1_JSON: &str = "data/trainers/0001.json";
+const ENVELOPE_END: &[u8] = b",\n  \"deleted\": true\n}\n";
+
+fn text_store(fx: &common::TextFixture) -> Store {
+    Store::new(Arc::new(fx.project()))
+}
+
+/// The deleted trainers and encounters (the arts these tests delete in), unsaved steps
+/// included, sorted.
+fn deleted(st: &Store) -> Vec<DeleteTarget> {
+    let trainers = st.deleted_in(Art::Trainers).into_iter();
+    let encounters = st.deleted_in(Art::Encounters).into_iter();
+    trainers
+        .map(|index| DeleteTarget::Trainer { index })
+        .chain(encounters.map(|index| DeleteTarget::Encounter { index }))
+        .collect()
+}
+
+/// Every file below `data/`, relative to the root, with its bytes.
+fn data_files(root: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    fn go(
+        root: &std::path::Path,
+        rel: &std::path::Path,
+        out: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(root.join(rel)) else {
+            return;
+        };
+        for entry in entries {
+            let entry = entry.unwrap();
+            let r = rel.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                go(root, &r, out);
+            } else {
+                out.insert(r.clone(), std::fs::read(root.join(&r)).unwrap());
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    go(root, std::path::Path::new("data"), &mut out);
+    out
+}
+
+fn changed_files(
+    a: &std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+    b: &std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,
+) -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = a
+        .keys()
+        .chain(b.keys())
+        .filter(|k| a.get(*k) != b.get(*k))
+        .cloned()
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+#[test]
+fn set_deleted_is_one_undo_step_and_save_writes_the_envelope() {
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let trainer = DeleteTarget::Trainer { index: 1 };
+    let before = fx.read(TRAINER_1_JSON);
+    st.trainer(1).unwrap();
+    let member = st.current_bytes(trainer_id(1)).unwrap();
+    assert!(member.is_some());
+    assert!(!st.is_deleted(trainer));
+
+    let depth = st.undo_depth();
+    let ((), change) = st
+        .transaction("Gelöscht: Trainer 0001", |tx| {
+            tx.set_deleted(trainer, true)
+        })
+        .unwrap();
+    assert!(change.is_some());
+    assert_eq!(st.undo_depth(), depth + 1);
+    assert!(st.is_deleted(trainer));
+    assert_eq!(deleted(&st), [trainer]);
+    assert_eq!(st.dirty(), [trainer_id(1)]);
+    // Setting it again records nothing.
+    let ((), again) = st
+        .transaction("noch mal", |tx| tx.set_deleted(trainer, true))
+        .unwrap();
+    assert_eq!(again, None);
+    assert_eq!(st.undo_depth(), depth + 1);
+    // Nothing is written before the save.
+    assert_eq!(fx.read(TRAINER_1_JSON), before);
+
+    st.save().unwrap();
+    let saved = fx.read(TRAINER_1_JSON);
+    assert!(
+        saved.ends_with(ENVELOPE_END),
+        "{}",
+        String::from_utf8_lossy(&saved)
+    );
+    // Content and members stay as they were.
+    assert_eq!(
+        saved[..saved.len() - ENVELOPE_END.len()],
+        before[..before.len() - b"\n}\n".len()]
+    );
+    assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), member);
+    assert!(st.dirty().is_empty());
+
+    st.undo().unwrap();
+    assert!(!st.is_deleted(trainer));
+    assert!(deleted(&st).is_empty());
+    assert_eq!(st.dirty(), [trainer_id(1)]);
+    st.save().unwrap();
+    assert_eq!(fx.read(TRAINER_1_JSON), before);
+    assert!(st.dirty().is_empty());
+
+    // Redo deletes it again.
+    st.redo().unwrap();
+    assert!(st.is_deleted(trainer));
+    st.save().unwrap();
+    assert_eq!(fx.read(TRAINER_1_JSON), saved);
+}
+
+/// The encounter rate of encounter file 0 (Platinum).
+fn grass_rate(st: &mut Store) -> u32 {
+    match st.encounter(0).unwrap() {
+        Encounters::Pt(e) => e.grass_rate(),
+        Encounters::Hgss(_) => panic!("the synthetic project is Platinum"),
+    }
+}
+
+#[test]
+fn undo_restores_the_tombstone_and_the_bytes_in_order() {
+    const JSON: &str = "data/encounters/0000.json";
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let encounter = DeleteTarget::Encounter { index: 0 };
+    let original = fx.read(JSON);
+    let member = fx.project().member_path(AssetKind::Encounter, 0);
+    let member_before = std::fs::read(&member).ok();
+    let rate = grass_rate(&mut st);
+    let depth = st.undo_depth();
+
+    // (1) Deleted and saved: the envelope, the member untouched.
+    st.transaction("Gelöscht: Begegnungsdatei 0000", |tx| {
+        tx.set_deleted(encounter, true)
+    })
+    .unwrap();
+    st.save().unwrap();
+    let deleted = fx.read(JSON);
+    assert!(deleted.ends_with(ENVELOPE_END));
+    assert_eq!(std::fs::read(&member).ok(), member_before);
+
+    // (2) The rate edited in a step of its own and saved: envelope and new rate.
+    st.edit_encounter(0, "Rate", |e| match e {
+        Encounters::Pt(e) => e.set_grass_rate(rate + 5),
+        Encounters::Hgss(_) => {}
+    })
+    .unwrap()
+    .unwrap();
+    st.save().unwrap();
+    let edited = fx.read(JSON);
+    assert!(edited.ends_with(ENVELOPE_END));
+    assert_ne!(edited, deleted);
+    assert_eq!(grass_rate(&mut st), rate + 5);
+    let value: serde_json::Value = serde_json::from_slice(&edited).unwrap();
+    assert_eq!(value["data"]["grass_rate"], rate + 5, "{value}");
+
+    // (3) Undo takes the rate back, the tombstone stays.
+    st.undo().unwrap();
+    assert_eq!(grass_rate(&mut st), rate);
+    assert!(st.is_deleted(encounter));
+    st.save().unwrap();
+    assert_eq!(fx.read(JSON), deleted);
+
+    // (4) Undo takes the tombstone back: byte-equal to before the delete.
+    st.undo().unwrap();
+    assert!(!st.is_deleted(encounter));
+    assert_eq!(st.undo_depth(), depth);
+    st.save().unwrap();
+    assert_eq!(fx.read(JSON), original);
+    assert_eq!(std::fs::read(&member).ok(), member_before);
+}
+
+#[test]
+fn an_envelope_removed_outside_is_not_written_back() {
+    const JSON: &str = "data/encounters/0000.json";
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let encounter = DeleteTarget::Encounter { index: 0 };
+    let original = fx.read(JSON);
+    // Trainer 1 is deleted on disk before the store opens; it is never loaded.
+    let trainer = DeleteTarget::Trainer { index: 1 };
+    let mut other = text_store(&fx);
+    other
+        .transaction("Gelöscht", |tx| tx.set_deleted(trainer, true))
+        .unwrap();
+    other.save().unwrap();
+    drop(other);
+    assert!(st.is_deleted(trainer));
+
+    st.transaction("Gelöscht", |tx| tx.set_deleted(encounter, true))
+        .unwrap();
+    st.save().unwrap();
+    assert!(fx.read(JSON).ends_with(ENVELOPE_END));
+
+    // Outside the app (a `git checkout`): both envelopes go.
+    fx.write(JSON, &original);
+    let trainer_json = fx.read(TRAINER_1_JSON);
+    let without = [
+        &trainer_json[..trainer_json.len() - ENVELOPE_END.len()],
+        b"\n}\n",
+    ]
+    .concat();
+    fx.write(TRAINER_1_JSON, &without);
+    assert!(!st.is_deleted(encounter));
+    assert!(!st.is_deleted(trainer));
+    assert!(deleted(&st).is_empty());
+    assert!(st.snapshot_overlay().tombstones.is_empty());
+    assert!(st.dirty().is_empty());
+
+    // An edit and a save do not bring the envelopes back.
+    st.edit_encounter(0, "Rate", |e| match e {
+        Encounters::Pt(e) => e.set_grass_rate(e.grass_rate() + 1),
+        Encounters::Hgss(_) => {}
+    })
+    .unwrap()
+    .unwrap();
+    st.edit_trainer(1, "KI", |t| t.ai = 7).unwrap().unwrap();
+    st.save().unwrap();
+    assert!(!fx.read(JSON).ends_with(ENVELOPE_END));
+    assert!(!fx.read(TRAINER_1_JSON).ends_with(ENVELOPE_END));
+    assert!(!text_store(&fx).is_deleted(encounter));
+    assert!(!text_store(&fx).is_deleted(trainer));
+}
+
+#[test]
+fn squash_since_carries_the_tombstones() {
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let trainer = DeleteTarget::Trainer { index: 1 };
+    let original = fx.read(TRAINER_1_JSON);
+    st.trainer(1).unwrap();
+    let bytes0 = st.current_bytes(trainer_id(1)).unwrap();
+
+    // Step A edits the trainer; step B edits it again and deletes it in one transaction.
+    st.edit_trainer(1, "A", |t| t.ai = 7).unwrap().unwrap();
+    let bytes_a = st.current_bytes(trainer_id(1)).unwrap();
+    st.transaction("B", |tx| {
+        tx.edit_trainer(1, |t| t.ai = 9)?;
+        tx.set_deleted(trainer, true)
+    })
+    .unwrap();
+    let bytes_b = st.current_bytes(trainer_id(1)).unwrap();
+    assert!(st.is_deleted(trainer));
+    assert_eq!(st.history().0, ["A", "B"]);
+
+    // A tombstone alone and the step that follows it: undone newest first.
+    st.transaction("C", |tx| {
+        tx.set_deleted(DeleteTarget::Trainer { index: 2 }, true)
+    })
+    .unwrap();
+    assert_eq!(deleted(&st), [trainer, DeleteTarget::Trainer { index: 2 }]);
+
+    assert_eq!(st.undo().unwrap(), [trainer_id(2)]);
+    assert_eq!(deleted(&st), [trainer]);
+    assert_eq!(st.undo().unwrap(), [trainer_id(1)]);
+    assert!(!st.is_deleted(trainer));
+    assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), bytes_a);
+    st.undo().unwrap();
+    assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), bytes0);
+    assert!(st.dirty().is_empty());
+
+    st.redo().unwrap();
+    st.redo().unwrap();
+    assert!(st.is_deleted(trainer));
+    assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), bytes_b);
+    st.save().unwrap();
+    let saved = fx.read(TRAINER_1_JSON);
+    assert!(saved.ends_with(ENVELOPE_END));
+    assert_ne!(
+        saved[..saved.len() - ENVELOPE_END.len()],
+        original[..original.len() - b"\n}\n".len()]
+    );
+
+    // Squashed with the steps around it, the tombstone is one step with them.
+    let mark = st.undo_depth();
+    st.transaction("D1", |tx| tx.set_deleted(trainer, false))
+        .unwrap();
+    st.edit_trainer(1, "D2", |t| t.ai = 0).unwrap();
+    st.transaction("D3", |tx| {
+        tx.set_deleted(DeleteTarget::Trainer { index: 0 }, true)
+    })
+    .unwrap();
+    st.squash_since(mark, "D");
+    assert_eq!(st.undo_depth(), mark + 1);
+    assert!(!st.is_deleted(trainer));
+    assert!(st.is_deleted(DeleteTarget::Trainer { index: 0 }));
+    st.undo().unwrap();
+    assert!(st.is_deleted(trainer));
+    assert!(!st.is_deleted(DeleteTarget::Trainer { index: 0 }));
+    assert_eq!(st.current_bytes(trainer_id(1)).unwrap(), bytes_b);
+    // A tombstone set and taken back within the squash falls away.
+    let mark = st.undo_depth();
+    st.transaction("E1", |tx| {
+        tx.set_deleted(DeleteTarget::Trainer { index: 2 }, true)
+    })
+    .unwrap();
+    st.transaction("E2", |tx| {
+        tx.set_deleted(DeleteTarget::Trainer { index: 2 }, false)
+    })
+    .unwrap();
+    st.squash_since(mark, "E");
+    assert_eq!(st.undo_depth(), mark);
+
+    // Back to the start (steps A and B are left): the file byte for byte as exported.
+    assert_eq!(st.undo_depth(), 2);
+    st.undo().unwrap();
+    st.undo().unwrap();
+    assert_eq!(st.undo_depth(), 0);
+    st.save().unwrap();
+    assert_eq!(fx.read(TRAINER_1_JSON), original);
+}
+
+#[test]
+fn a_tombstone_survives_reopen() {
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let encounter = DeleteTarget::Encounter { index: 0 };
+    st.transaction("Gelöscht", |tx| tx.set_deleted(encounter, true))
+        .unwrap();
+    st.save().unwrap();
+    drop(st);
+
+    let mut st = text_store(&fx);
+    assert!(st.is_deleted(encounter));
+    assert_eq!(deleted(&st), [encounter]);
+    assert!(st.dirty().is_empty());
+    // Restoring it is a step like deleting it.
+    st.transaction("Wiederhergestellt", |tx| tx.set_deleted(encounter, false))
+        .unwrap();
+    assert_eq!(
+        st.dirty(),
+        [AssetId {
+            kind: AssetKind::Encounter,
+            index: 0
+        }]
+    );
+    st.save().unwrap();
+    assert!(!text_store(&fx).is_deleted(encounter));
+}
+
+#[test]
+fn set_deleted_refuses_the_dspre_layout() {
+    let fx = common::TextFixture::dspre();
+    let mut st = text_store(&fx);
+    let err = st
+        .transaction("Gelöscht", |tx| {
+            tx.set_deleted(DeleteTarget::Trainer { index: 1 }, true)
+        })
+        .unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Refused(why) if why == NOT_A_TEXT_PROJECT),
+        "{err}"
+    );
+    assert_eq!(st.undo_depth(), 0);
+    assert!(deleted(&st).is_empty());
+
+    // In a text project, kinds without an envelope are refused with their sentence.
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    for target in [
+        DeleteTarget::Script { file: 0 },
+        DeleteTarget::TextArchive { index: 0 },
+    ] {
+        let err = st
+            .transaction("Gelöscht", |tx| tx.set_deleted(target, true))
+            .unwrap_err();
+        assert!(
+            matches!(&err, KernelError::Refused(why) if why == NO_TOMBSTONE_FOR_FILES),
+            "{err}"
+        );
+    }
+    // Textures and models are binary: no envelope either.
+    let err = st
+        .transaction("Gelöscht", |tx| {
+            tx.set_deleted(DeleteTarget::MapTexture { index: 0 }, true)
+        })
+        .unwrap_err();
+    assert!(
+        matches!(&err, KernelError::Refused(why) if why == NO_TOMBSTONE_FOR_BINARIES),
+        "{err}"
+    );
+    // A failing transaction keeps a tombstone it staged out of the store.
+    let err = st
+        .transaction("zwei", |tx| {
+            tx.set_deleted(DeleteTarget::Trainer { index: 1 }, true)?;
+            tx.set_deleted(DeleteTarget::Script { file: 0 }, true)
+        })
+        .unwrap_err();
+    assert!(matches!(err, KernelError::Refused(_)), "{err}");
+    assert!(deleted(&st).is_empty());
+    assert_eq!(st.undo_depth(), 0);
+    // An entity that does not exist cannot be deleted.
+    assert!(
+        st.transaction("weg", |tx| tx
+            .set_deleted(DeleteTarget::Trainer { index: 999 }, true))
+            .is_err()
+    );
+    assert!(deleted(&st).is_empty());
+}
+
+#[test]
+fn set_deleted_on_a_header_writes_its_file_only() {
+    let fx = common::TextFixture::exported();
+    let mut st = text_store(&fx);
+    let arm9 = fx.read("arm9/arm9.bin");
+    let names = fx.read("files/fielddata/maptable/mapname.bin");
+    let before = data_files(fx.root());
+    let header = DeleteTarget::Header { id: 1 };
+    st.transaction("Gelöscht: Header 0001", |tx| tx.set_deleted(header, true))
+        .unwrap();
+    assert_eq!(st.dirty(), [HEADER_TABLE]);
+    st.save().unwrap();
+    let after = data_files(fx.root());
+    assert_eq!(
+        changed_files(&before, &after),
+        [std::path::PathBuf::from("data/headers/0001.json")]
+    );
+    assert!(fx.read("data/headers/0001.json").ends_with(ENVELOPE_END));
+    assert_eq!(fx.read("arm9/arm9.bin"), arm9);
+    assert_eq!(fx.read("files/fielddata/maptable/mapname.bin"), names);
+    assert!(st.dirty().is_empty());
+
+    // The header file keeps its envelope when an edit of another header saves the table.
+    st.edit_header(0, "Header 0", |h| {
+        if let g4_kernel::store::MapHeader::Pt(h) = h {
+            h.area_data_id = 1;
+        }
+        Ok(())
+    })
+    .unwrap();
+    st.save().unwrap();
+    let again = data_files(fx.root());
+    assert_eq!(
+        changed_files(&after, &again),
+        [std::path::PathBuf::from("data/headers/0000.json")]
+    );
+    assert!(text_store(&fx).is_deleted(header));
+}

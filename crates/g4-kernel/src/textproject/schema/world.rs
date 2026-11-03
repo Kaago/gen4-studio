@@ -1,6 +1,7 @@
 //! The world kinds of one area: map matrices (the grids as text lines), area data (the
 //! layout of the project's family) and event files (with each warp's destination header as
-//! an id). Each is one member; one that does not decode or does not write back byte for
+//! an id, each hidden flag and trigger variable as its own name where the register has one).
+//! Each is one member; one that does not decode or does not write back byte for
 //! byte is `{"locked", "raw"}`.
 
 use std::io::Cursor;
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
 
 use crate::error::KernelError;
+use crate::flags::{FlagKind, names};
 
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{Member, PartKey};
@@ -93,7 +95,8 @@ pub struct BgEventJson {
     pub player_facing_dir: u16,
 }
 
-/// An object event (uxie `ObjectEvent`).
+/// An object event (uxie `ObjectEvent`): `hidden_flag` is the flag's own name from the
+/// register (`FLAG_*`) or its number; the import takes the pret name, too.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectEventJson {
@@ -101,7 +104,7 @@ pub struct ObjectEventJson {
     pub graphics_id: u16,
     pub movement_type: u16,
     pub trainer_type: u16,
-    pub hidden_flag: u16,
+    pub hidden_flag: SymRef,
     pub script: u16,
     pub dir: i16,
     pub data: [u16; 3],
@@ -124,7 +127,8 @@ pub struct WarpEventJson {
     pub height: u32,
 }
 
-/// A coordinate trigger (uxie `CoordEvent`).
+/// A coordinate trigger (uxie `CoordEvent`): `var` is the variable's own name from the
+/// register (`VAR_*`) or its number; the import takes the pret name, too; `value` is a number.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoordEventJson {
@@ -135,7 +139,7 @@ pub struct CoordEventJson {
     pub length: u16,
     pub y: u16,
     pub value: u16,
-    pub var: u16,
+    pub var: SymRef,
 }
 
 /// The member of entity `index` of `art`, which is its own part.
@@ -326,7 +330,7 @@ impl EntitySchema for EventEntity {
                 graphics_id: 0,
                 movement_type: 0,
                 trainer_type: 0,
-                hidden_flag: 0,
+                hidden_flag: SymRef::Id(fallback_id(SymbolKind::Flag, 1)),
                 script: 0,
                 dir: 0,
                 data: [0; 3],
@@ -351,7 +355,7 @@ impl EntitySchema for EventEntity {
                 length: 0,
                 y: 0,
                 value: 0,
-                var: 0,
+                var: SymRef::Id(fallback_id(SymbolKind::Var, 0x4000)),
             }],
         }))
     }
@@ -635,7 +639,7 @@ fn events_json(f: &EventFile, sym: &Symbols) -> EventsJson {
                 graphics_id: o.graphics_id,
                 movement_type: o.movement_type,
                 trainer_type: o.trainer_type,
-                hidden_flag: o.hidden_flag,
+                hidden_flag: own_name(sym, SymbolKind::Flag, o.hidden_flag),
                 script: o.script,
                 dir: o.dir,
                 data: o.data,
@@ -668,10 +672,39 @@ fn events_json(f: &EventFile, sym: &Symbols) -> EventsJson {
                 length: c.length,
                 y: c.y,
                 value: c.value,
-                var: c.var,
+                var: own_name(sym, SymbolKind::Var, c.var),
             })
             .collect(),
     }
+}
+
+/// Flag or variable `n` as its own name from the register, else as the number (0 and every
+/// number without an own name; never a pret name, so a project without names keeps numbers).
+fn own_name(sym: &Symbols, kind: SymbolKind, n: u16) -> SymRef {
+    let n = u32::from(n);
+    match sym.registered_id(kind, n) {
+        Some(id) if n > 0 => SymRef::Id(id),
+        _ => SymRef::Num(n),
+    }
+}
+
+/// The number of flag or variable `r` (field `path`): an own name, a pret name of `family`,
+/// a fallback id or a number up to `0xFFFF`.
+fn flag_number(
+    sym: &Symbols,
+    family: Family,
+    kind: SymbolKind,
+    r: &SymRef,
+    path: &str,
+) -> Result<u16, String> {
+    if let SymRef::Id(id) = r
+        && sym.number(kind, id).is_none()
+        && let Some(n) = FlagKind::from_symbol(kind).and_then(|k| names(family, k).number(id))
+    {
+        return Ok(n);
+    }
+    let n = resolve_max(sym, kind, r, path, u32::from(u16::MAX))?;
+    Ok(u16::try_from(n).unwrap_or(u16::MAX))
 }
 
 /// The event file of `j` in `family`; a warp outside HeartGold/SoulSilver has height 0.
@@ -700,6 +733,39 @@ fn events_bytes(j: &EventsJson, family: Family, sym: &Symbols) -> Result<Vec<u8>
             height: w.height,
         });
     }
+    let mut object_events = Vec::with_capacity(j.object_events.len());
+    for (i, o) in j.object_events.iter().enumerate() {
+        let path = format!("object_events[{i}].hidden_flag");
+        object_events.push(ObjectEvent {
+            local_id: o.local_id,
+            graphics_id: o.graphics_id,
+            movement_type: o.movement_type,
+            trainer_type: o.trainer_type,
+            hidden_flag: flag_number(sym, family, SymbolKind::Flag, &o.hidden_flag, &path)?,
+            script: o.script,
+            dir: o.dir,
+            data: o.data,
+            movement_range_x: o.movement_range_x,
+            movement_range_z: o.movement_range_z,
+            x: o.x,
+            z: o.z,
+            y: o.y,
+        });
+    }
+    let mut coord_events = Vec::with_capacity(j.coord_events.len());
+    for (i, c) in j.coord_events.iter().enumerate() {
+        let path = format!("coord_events[{i}].var");
+        coord_events.push(CoordEvent {
+            script: c.script,
+            x: c.x,
+            z: c.z,
+            width: c.width,
+            length: c.length,
+            y: c.y,
+            value: c.value,
+            var: flag_number(sym, family, SymbolKind::Var, &c.var, &path)?,
+        });
+    }
     let file = EventFile {
         bg_events: j
             .bg_events
@@ -713,40 +779,9 @@ fn events_bytes(j: &EventsJson, family: Family, sym: &Symbols) -> Result<Vec<u8>
                 player_facing_dir: e.player_facing_dir,
             })
             .collect(),
-        object_events: j
-            .object_events
-            .iter()
-            .map(|o| ObjectEvent {
-                local_id: o.local_id,
-                graphics_id: o.graphics_id,
-                movement_type: o.movement_type,
-                trainer_type: o.trainer_type,
-                hidden_flag: o.hidden_flag,
-                script: o.script,
-                dir: o.dir,
-                data: o.data,
-                movement_range_x: o.movement_range_x,
-                movement_range_z: o.movement_range_z,
-                x: o.x,
-                z: o.z,
-                y: o.y,
-            })
-            .collect(),
+        object_events,
         warp_events,
-        coord_events: j
-            .coord_events
-            .iter()
-            .map(|c| CoordEvent {
-                script: c.script,
-                x: c.x,
-                z: c.z,
-                width: c.width,
-                length: c.length,
-                y: c.y,
-                value: c.value,
-                var: c.var,
-            })
-            .collect(),
+        coord_events,
     };
     let mut out = Cursor::new(Vec::new());
     file.to_binary_for(&mut out, uxie_family(family))
@@ -1026,6 +1061,141 @@ mod tests {
         let (e, _) = export::<EventEntity>(Family::Pt, 1, &[Some(bytes.clone())]);
         assert!(matches!(e.0, Member::Locked { .. }), "{e:?}");
         assert_eq!(import(Family::Pt, &e, 1).unwrap(), vec![Some(bytes)]);
+    }
+
+    fn object(hidden_flag: u16) -> ObjectEvent {
+        ObjectEvent {
+            local_id: 1,
+            graphics_id: 2,
+            movement_type: 3,
+            trainer_type: 0,
+            hidden_flag,
+            script: 7,
+            dir: 1,
+            data: [0; 3],
+            movement_range_x: 0,
+            movement_range_z: 0,
+            x: 4,
+            z: 5,
+            y: 0,
+        }
+    }
+
+    fn coord(var: u16) -> CoordEvent {
+        CoordEvent {
+            script: 9,
+            x: 1,
+            z: 2,
+            width: 1,
+            length: 1,
+            y: 0,
+            value: 1,
+            var,
+        }
+    }
+
+    /// An event file with an object per flag and a trigger per variable.
+    fn flag_file(flags: &[u16], vars: &[u16]) -> EventFile {
+        EventFile {
+            bg_events: Vec::new(),
+            object_events: flags.iter().map(|&f| object(f)).collect(),
+            warp_events: Vec::new(),
+            coord_events: vars.iter().map(|&v| coord(v)).collect(),
+        }
+    }
+
+    #[test]
+    fn hidden_flag_and_var_export_the_own_name_and_import_both_names() {
+        use crate::flags::{FlagKind, names};
+
+        let bytes = event_bytes(&flag_file(&[148, 0], &[0x406C, 0]), Family::Pt);
+        let mut sym = symbols();
+        sym.registry_mut(SymbolKind::Flag)
+            .ids
+            .insert("FLAG_HAT_MEDAILLE".into(), 148);
+        sym.registry_mut(SymbolKind::Var)
+            .ids
+            .insert("VAR_ZAEHLER".into(), 0x406C);
+        let (e, _) = export_with::<EventEntity>(Family::Pt, 7, &[Some(bytes.clone())], &mut sym);
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(
+            v["object_events"][0]["hidden_flag"],
+            json!("FLAG_HAT_MEDAILLE")
+        );
+        assert_eq!(v["object_events"][1]["hidden_flag"], json!(0));
+        assert_eq!(v["coord_events"][0]["var"], json!("VAR_ZAEHLER"));
+        assert_eq!(v["coord_events"][1]["var"], json!(0));
+        assert_eq!(
+            v["coord_events"][0]["value"],
+            json!(1),
+            "value stays a number"
+        );
+
+        // The own name, the pret name and the number give the same bytes.
+        let pret_flag = names(Family::Pt, FlagKind::Flag).name(148).unwrap();
+        assert_eq!(pret_flag, "FLAG_UNUSED_0x0094");
+        let pret_var = names(Family::Pt, FlagKind::Var).name(0x406C).unwrap();
+        let with = |flag: SymRef, var: SymRef| {
+            let mut e = e.clone();
+            let Member::Value(j) = &mut e.0 else { panic!() };
+            j.object_events[0].hidden_flag = flag;
+            j.coord_events[0].var = var;
+            import_with(Family::Pt, &e, 7, &sym)
+        };
+        for (flag, var) in [
+            (
+                SymRef::Id("FLAG_HAT_MEDAILLE".into()),
+                SymRef::Id("VAR_ZAEHLER".into()),
+            ),
+            (SymRef::Id(pret_flag.into()), SymRef::Id(pret_var.into())),
+            (SymRef::Num(148), SymRef::Num(0x406C)),
+        ] {
+            assert_eq!(
+                with(flag.clone(), var.clone()).unwrap(),
+                vec![Some(bytes.clone())],
+                "{flag:?} {var:?}"
+            );
+        }
+        // Unknown names and numbers past 16 bits name the field.
+        let err = with(SymRef::Id("FLAG_GIBTS_NICHT".into()), SymRef::Num(0)).unwrap_err();
+        assert_eq!(
+            code_and_path(&err),
+            ("textproject.unknown-id", "object_events[0].hidden_flag")
+        );
+        let err = with(SymRef::Num(0), SymRef::Num(65_536)).unwrap_err();
+        assert_eq!(
+            code_and_path(&err),
+            ("textproject.schema", "coord_events[0].var")
+        );
+        let err = with(SymRef::Num(0), SymRef::Id(pret_flag.into())).unwrap_err();
+        assert_eq!(
+            code_and_path(&err),
+            ("textproject.unknown-id", "coord_events[0].var"),
+            "a flag name is no variable"
+        );
+    }
+
+    #[test]
+    fn a_number_without_own_name_exports_as_a_number() {
+        let bytes = event_bytes(&flag_file(&[149, 148], &[0x4000]), Family::Pt);
+        let mut sym = symbols().with_family(Family::Pt);
+        // A register entry of another number does not name 149.
+        sym.registry_mut(SymbolKind::Flag)
+            .ids
+            .insert("FLAG_HAT_MEDAILLE".into(), 148);
+        let (e, _) = export_with::<EventEntity>(Family::Pt, 0, &[Some(bytes.clone())], &mut sym);
+        let v = serde_json::to_value(&e).unwrap();
+        // 149 and 0x4000 have pret names, but no own names: they stay numbers.
+        assert_eq!(v["object_events"][0]["hidden_flag"], json!(149));
+        assert_eq!(
+            v["object_events"][1]["hidden_flag"],
+            json!("FLAG_HAT_MEDAILLE")
+        );
+        assert_eq!(v["coord_events"][0]["var"], json!(0x4000));
+        assert_eq!(
+            import_with(Family::Pt, &e, 0, &sym).unwrap(),
+            vec![Some(bytes)]
+        );
     }
 
     #[test]

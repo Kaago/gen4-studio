@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addBuilding, addEvent, getMap, setPermission, tileBehaviors, updateBuilding } from "../api";
-import type { HeaderSummary, MatrixDto } from "../api";
+import { addBuilding, addEvent, deleteEvent, getEvents, getMap, setPermission, tileBehaviors, updateBuilding } from "../api";
+import type { CmdError, EventsDto, HeaderSummary, MatrixDto } from "../api";
 import { ask } from "../platform/dialogs";
 import { resetTileNames } from "../world/scene/tileNames";
 import { createEditBus } from "../bus/editBus";
@@ -13,7 +13,7 @@ import { useWorldActions } from "./useWorldActions";
 import type { WorldActions } from "./useWorldActions";
 
 vi.mock("../platform/dialogs", () => ({ ask: vi.fn() }));
-vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), addBuilding: vi.fn(), addEvent: vi.fn(), getMap: vi.fn(), setPermission: vi.fn(), tileBehaviors: vi.fn(), updateBuilding: vi.fn() }));
+vi.mock("../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api")>()), addBuilding: vi.fn(), addEvent: vi.fn(), deleteEvent: vi.fn(), getEvents: vi.fn(), getMap: vi.fn(), setPermission: vi.fn(), tileBehaviors: vi.fn(), updateBuilding: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -232,5 +232,104 @@ describe("useWorldActions.buildings", () => {
     expect(actions.sceneBuildings).toEqual([{ map: 40, models: [1, 3] }]);
     act(() => actions.resetForProject());
     expect(actions.sceneBuildings).toEqual([]);
+  });
+});
+
+describe("useWorldActions.onDeleteEvent", () => {
+  let container: HTMLElement;
+  let root: Root;
+  let actions: WorldActions;
+  const setPinned = vi.fn();
+  const pins = { pinned: { kind: "event", eventFile: 534, eventKind: "warp", index: 0 }, setPinned, setHover: vi.fn() } as never;
+  const setMessage = vi.fn();
+  const fail = vi.fn();
+  const goTo = vi.fn();
+  // The answer of `delete_event` for a door another warp points at (gate 3d.4 B7).
+  const referenced: CmdError = {
+    code: "referenced",
+    message: "Eventdatei 0534, Tür 0 wird noch verwendet (1 Verweis).",
+    asset: null,
+    references: [
+      {
+        source: { kind: "Event", index: 532 },
+        field: "warp_events.dest_warp_id",
+        slot: 1,
+        label: "Tür 1 von Zweiblattdorf springt hierher",
+        source_name: "Eventdatei 0532",
+        nav: { kind: "event", eventFile: 532, eventKind: "warp", index: 1, header: 415 },
+      },
+    ],
+  } as CmdError;
+  beforeEach(() => {
+    container = document.createElement("div");
+    root = createRoot(container);
+    vi.mocked(ask).mockReset().mockResolvedValue(true);
+    vi.mocked(getEvents).mockReset().mockResolvedValue({ warps: [{ x: 3, z: 7 }] } as unknown as EventsDto);
+    vi.mocked(deleteEvent).mockReset();
+    setPinned.mockReset();
+    setMessage.mockReset();
+    fail.mockReset();
+    goTo.mockReset();
+  });
+  afterEach(() => act(() => root.unmount()));
+  function Probe() {
+    const matrix: MatrixDto = { index: 0, name: "m", width: 1, height: 1, maps: [40] };
+    actions = useWorldActions({ bus: createEditBus(), pins, matrix, matrixRef: { current: matrix }, headersRef: { current: [] }, selectedRef: { current: 593 }, setMessage, fail, refreshDirty: async () => {}, goTo });
+    return null;
+  }
+
+  it("names_the_references_of_a_refused_door_and_keeps_it_selected", async () => {
+    vi.mocked(deleteEvent).mockRejectedValue(referenced);
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    expect(fail).not.toHaveBeenCalled();
+    expect(setMessage).toHaveBeenCalledTimes(1);
+    const message = setMessage.mock.calls[0][0];
+    expect(message.kind).toBe("error");
+    expect(message.text).toBe("Eventdatei 0534, Tür 0 wird noch verwendet (1 Verweis). Tür 1 von Zweiblattdorf springt hierher.");
+    expect(message.actions.map((a: { label: string }) => a.label)).toEqual(["Zur Quelle"]);
+    message.actions[0].run();
+    expect(goTo).toHaveBeenCalledWith({ kind: "event", eventFile: 532, eventKind: "warp", index: 1, header: 415 });
+    // Nothing was deleted: the door stays pinned.
+    expect(setPinned).not.toHaveBeenCalled();
+  });
+
+  it("gives_every_button_of_several_references_from_one_file_its_own_name", async () => {
+    // Gate 3d.4 G3: three doors of event file 0532 pointed at the door: three buttons „Zu Eventdatei 0532“.
+    const door = (index: number, header: number) => ({
+      source: { kind: "Event", index: 532 },
+      field: "warp_events.dest_warp_id",
+      slot: index,
+      label: `Tür ${index} von Zweiblattdorf springt hierher`,
+      source_name: "Eventdatei 0532",
+      nav: { kind: "event", eventFile: 532, eventKind: "warp", index, header },
+    });
+    const other = { ...door(0, 7), source: { kind: "Event", index: 540 }, label: "Tür 0 von Route 201 springt hierher", source_name: "Eventdatei 0540", nav: { kind: "event", eventFile: 540, eventKind: "warp", index: 0, header: 7 } };
+    vi.mocked(deleteEvent).mockRejectedValue({ ...referenced, references: [door(1, 415), door(2, 415), door(2, 415), other] });
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    const labels = setMessage.mock.calls[0][0].actions.map((a: { label: string }) => a.label);
+    // The same door twice is one button; two doors of one file are told apart by their reference, a file of its own by its name.
+    expect(labels).toEqual(["Tür 1 von Zweiblattdorf springt hierher", "Tür 2 von Zweiblattdorf springt hierher", "Zu Eventdatei 0540"]);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("offers_zur_quelle_when_every_reference_leads_to_the_same_place", async () => {
+    const same = { ...referenced.references![0]!, label: "Tür 1 von Zweiblattdorf springt hierher (Ziel)" };
+    vi.mocked(deleteEvent).mockRejectedValue({ ...referenced, references: [referenced.references![0], same] });
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    expect(setMessage.mock.calls[0][0].actions.map((a: { label: string }) => a.label)).toEqual(["Zur Quelle"]);
+  });
+
+  it("keeps_the_selection_after_any_failed_delete_and_drops_it_after_one_that_went_in", async () => {
+    vi.mocked(deleteEvent).mockRejectedValue(new Error("kaputt"));
+    act(() => root.render(<Probe />));
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    expect(fail).toHaveBeenCalledTimes(1);
+    expect(setPinned).not.toHaveBeenCalled();
+    vi.mocked(deleteEvent).mockResolvedValue(undefined as never);
+    await act(async () => actions.onDeleteEvent(534, "warp", 0));
+    expect(setPinned).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { inTauri, invoke } from "./platform/transport";
 import type { CheckFieldsDto } from "./api.checks";
+import type { RefDto } from "./api.data";
 import type { TextProjectStatus } from "./api.textproject";
 
 export interface ProjectInfo {
@@ -33,6 +34,8 @@ export interface HeaderSummary {
   script_file_id: number;
   /** Level script file of the header (0: none). */
   level_script_id: number;
+  /** The header is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 export interface HeaderListing {
@@ -138,6 +141,8 @@ export interface MatrixDto {
   headers?: number[] | null;
   /** Row-major altitudes; null (or absent) when the matrix has no altitude section. */
   altitudes?: number[] | null;
+  /** The matrix is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 /** Map id the backend stores for, and accepts as, an empty matrix cell. */
@@ -230,6 +235,8 @@ export interface EventsDto {
   objects: ObjectDto[];
   warps: WarpDto[];
   coords: CoordDto[];
+  /** The event file is a tombstone (3d.4, a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 /** A named tile behaviour (decomp enum) for a permission kind byte; `class` drives the overlay colour. */
@@ -511,11 +518,14 @@ export interface CmdError {
     | "pool_empty"
     | "invalid_id"
     | "taken"
-    | "refused";
+    | "refused"
+    | "referenced";
   message: string;
   asset: AssetId | null;
   /** The problems behind a "compile" or "text_conflict" error; the backend sends `[]` for every other code, but callers must handle absence. */
   problems?: ProblemDto[];
+  /** The references that lock a delete („referenced“, 3d.4); left out for every other code. */
+  references?: RefDto[];
 }
 
 export function isCmdError(e: unknown): e is CmdError {
@@ -558,10 +568,12 @@ export function isCmdError(e: unknown): e is CmdError {
       o.code === "pool_empty" ||
       o.code === "invalid_id" ||
       o.code === "taken" ||
-      o.code === "refused") &&
+      o.code === "refused" ||
+      o.code === "referenced") &&
     typeof o.message === "string" &&
     (o.asset === null || typeof o.asset === "object") &&
-    (o.problems === undefined || Array.isArray(o.problems))
+    (o.problems === undefined || Array.isArray(o.problems)) &&
+    (o.references === undefined || Array.isArray(o.references))
   );
 }
 
@@ -1089,3 +1101,4 @@ export * from "./api.flags";
 export * from "./api.dialog";
 export * from "./api.stories";
 export * from "./api.live";
+export * from "./api.delete";

@@ -111,4 +111,21 @@ describe("InspectorHead", () => {
     // The hover views are gone, and with them the badge that marked them.
     expect(text()).not.toContain("Nur Ansicht");
   });
+
+  it("shows_the_entity_state_badge", () => {
+    for (const depth of ["erzaehlen", "bauen", "tuefteln"] as const) {
+      show({ state: "deleted", unsaved: true, depth });
+      // The state stands before „Ungespeichert“, the same in every depth.
+      const state = container.querySelector<HTMLElement>("header [data-entity-state]");
+      expect(state?.getAttribute("data-entity-state")).toBe("deleted");
+      expect(state?.textContent).toBe("gelöscht");
+      expect(state?.nextElementSibling?.textContent).toBe("Ungespeichert");
+    }
+    show({ state: "changed" });
+    expect(container.querySelector("[data-entity-state]")?.textContent).toBe("geändert");
+    show({ state: "new" });
+    expect(container.querySelector("[data-entity-state]")?.textContent).toBe("neu");
+    show({});
+    expect(container.querySelector("[data-entity-state]")).toBeNull();
+  });
 });

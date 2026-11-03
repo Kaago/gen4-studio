@@ -1,4 +1,5 @@
-import type { Against, ChangedEntry, ChangeState, DiffSubject, EntityDiff, EventKind, OriginalStatus } from "../api";
+import { tombstoneOf } from "../api";
+import type { Against, ChangedEntry, ChangeState, DeleteTarget, DiffSubject, EntityDiff, EventKind, OriginalStatus } from "../api";
 import { whyNot } from "../original/resetEntry";
 import type { BadgeKind } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
@@ -15,10 +16,13 @@ export function sideWords(against: Against): { old: string; new: string } {
   }
 }
 
+/** A tombstone (3d.4) is „Gelöscht“ in every comparison. */
+const DELETED = { kind: "error", text: "Gelöscht" } as const;
+
 const BADGES: Record<Exclude<Against, "saved">, Record<ChangeState, { kind: BadgeKind; text: string }>> = {
-  base: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Fehlt" } },
+  base: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Fehlt" }, deleted: DELETED },
   // Missing since the commit: the user deleted it.
-  head: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Gelöscht" } },
+  head: { changed: { kind: "warning", text: "Geändert" }, new: { kind: "info", text: "Neu" }, missing: { kind: "error", text: "Gelöscht" }, deleted: DELETED },
 };
 
 /** The badge of a row: its state in the words of the comparison; against the saved state every row is „Ungespeichert“. */
@@ -29,12 +33,20 @@ export function stateBadge(against: Against, state: ChangeState): { kind: BadgeK
 /**
  * Why a row's reset is locked; null when it can be used. Besides the row's own state and kind the base ROM decides (`whyNot`: read,
  * missing, or without the entry): the lists against the last commit and the saved state show without one, and their state says nothing
- * about the base.
+ * about the base. A deleted original resets like a changed one (the reset takes the tombstone back).
  */
 export function rowResetLock(entry: ChangedEntry, status: OriginalStatus | null): string | null {
-  if (entry.state !== "changed") return "Kein Original";
+  if (entry.state !== "changed" && entry.state !== "deleted") return "Kein Original";
   if (entry.target === null) return "Für diese Art gibt es kein Zurücksetzen.";
   return whyNot(entry.target, status);
+}
+
+/**
+ * What „Wiederherstellen“ takes back instead of „Auf Original zurücksetzen…“: the entity of a deleted entry without a reset target (a new
+ * one, nothing to reset to); null for every other entry.
+ */
+export function restoreTarget(entry: ChangedEntry): DeleteTarget | null {
+  return entry.state === "deleted" && entry.target === null ? tombstoneOf(entry.subject) : null;
 }
 
 /** The lists of an event file's JSON (`schema/world.rs` `EventsJson`) and the kind of event each holds. */

@@ -9,6 +9,8 @@ import { TextProjectSurface, requestTextProjectFocus } from "./TextProjectSurfac
 import type { TextProjectView } from "./TextProjectSurface";
 import { conflict, outcome, syncWith, textWith } from "./textProjectTesting";
 import type { BrokenEntry } from "../api";
+import { deleteSpy, withDelete } from "../delete/deleteTesting";
+import { openSelect, typeInto } from "../ui/primitives/testUtils";
 
 vi.mock("../api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api")>()),
@@ -378,5 +380,44 @@ describe("TextProjectSurface", () => {
       await render(textWith({ sync: syncWith({ last: outcome({ conflicts: many(2).conflicts.slice(1) }) }) }));
       expect(document.activeElement).toBe(other);
     });
+  });
+
+  it("the_delete_section_opens_the_dialog_for_a_matrix", async () => {
+    const del = deleteSpy();
+    const show = (text: TextProjectView, depth: "bauen" | "tuefteln") =>
+      act(async () => root.render(withDelete(del, <TextProjectSurface text={text} onOpenProject={onOpenProject} depth={depth} />)));
+    // Only in Tüfteln: the entities without a head of their own.
+    await show(textWith(), "bauen");
+    expect(container.querySelector("[data-delete-section]")).toBeNull();
+    await show(textWith(), "tuefteln");
+    const section = container.querySelector<HTMLElement>("[data-delete-section]");
+    expect(section?.textContent).toContain("Löschen");
+    const kind = section!.querySelector<HTMLElement>("[aria-label='Art']")!;
+    expect(kind.textContent).toContain("Matrix");
+    openSelect(kind);
+    expect([...document.querySelectorAll<HTMLElement>("[role=option]")].map((o) => o.textContent)).toEqual(["Matrix", "Karte", "Eventdatei", "Gebietsdaten", "Scriptdatei", "Textarchiv"]);
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Matrix")!.click());
+    const number = section!.querySelector<HTMLInputElement>("input[aria-label='Nummer']")!;
+    await act(async () => number.focus());
+    typeInto(number, "3");
+    await act(async () => number.blur());
+    await click(button("Löschen…", section!));
+    expect(del.open).toHaveBeenLastCalledWith({ kind: "matrix", index: 3 });
+
+    // A script file names its file.
+    openSelect(kind);
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Scriptdatei")!.click());
+    await click(button("Löschen…", section!));
+    expect(del.open).toHaveBeenLastCalledWith({ kind: "script", file: 3 });
+
+    // A map: its head's entry is locked by the very cell that shows it; here it can be deleted once no cell holds it.
+    openSelect(kind);
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent === "Karte")!.click());
+    await click(button("Löschen…", section!));
+    expect(del.open).toHaveBeenLastCalledWith({ kind: "map", index: 3 });
+
+    // The DSPRE layout too: there a new entry at the end can have its number freed.
+    await show(textWith({ status: { state: "dspre", adoptable: true, reason: null } }), "tuefteln");
+    expect(container.querySelector("[data-delete-section]")).not.toBeNull();
   });
 });

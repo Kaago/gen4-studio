@@ -9,6 +9,11 @@
 //! names it. A count of 0 means the archive could not be counted (also named there), so no
 //! index is compared against it.
 //!
+//! A tombstone ([`Source::deleted`]) counts as missing: a reference to a deleted entity is
+//! reported with the code of a missing one and the sentence ending [`DELETED`], and a deleted
+//! header, event file, matrix, map or area data is not checked as a source (a deleted header
+//! uses no event file or script file).
+//!
 //! Every check documents its key and the order of its message arguments.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -26,6 +31,9 @@ use crate::project::{AssetKind, location_name_index};
 use crate::tiles;
 
 // --- shared helpers ---
+
+/// The end of the sentence about a reference to a deleted entity.
+pub(crate) const DELETED: &str = ", which is deleted (Grabstein).";
 
 /// The header table, or the reason a check needing it is skipped.
 fn headers(src: &dyn Source) -> Result<&[MapHeader], Skipped> {
@@ -45,13 +53,16 @@ fn known(src: &dyn Source, kind: AssetKind) -> Option<usize> {
 }
 
 /// Each event file a header uses, with its users in header order; only files that can be
-/// read.
+/// read. Deleted headers use none, deleted event files are left out.
 fn used_event_files<'a>(
     src: &'a dyn Source,
     headers: &[MapHeader],
 ) -> Vec<(u16, &'a EventFile, Vec<u16>)> {
     let mut users: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
     for (h, header) in headers.iter().enumerate() {
+        if src.header_deleted(idx(h)) {
+            continue;
+        }
         users
             .entry(header.event_file_id())
             .or_default()
@@ -59,6 +70,7 @@ fn used_event_files<'a>(
     }
     users
         .into_iter()
+        .filter(|(file, _)| !src.deleted(AssetKind::Event, *file))
         .filter_map(|(file, users)| Some((file, src.event(file)?, users)))
         .collect()
 }
@@ -155,9 +167,9 @@ pub(crate) fn trainer_of(script: u16) -> Option<u16> {
 
 // --- warps ---
 
-/// `warp.dest-header` (error): a warp leads to a header that does not exist. The pair
-/// (0x0FFF, 256) of `warp.dynamic` takes its target from the save game and is exempt; 0x0FFF
-/// with another warp stays an error. Subject: event file; key `warp:<i>`; field
+/// `warp.dest-header` (error): a warp leads to a header that does not exist or is deleted.
+/// The pair (0x0FFF, 256) of `warp.dynamic` takes its target from the save game and is exempt;
+/// 0x0FFF with another warp stays an error. Subject: event file; key `warp:<i>`; field
 /// `dest_header_id`. Args: `[warp, dest header, header count, dest warp]`. Fingerprint: the
 /// warp's target.
 pub(crate) struct WarpDestHeader;
@@ -178,10 +190,13 @@ impl SourceCheck for WarpDestHeader {
         for (file, events, _) in used_event_files(src, headers) {
             for (i, w) in events.warp_events.iter().enumerate() {
                 let (dh, dw) = (w.dest_header_id, w.dest_warp_id);
-                if is_dynamic(w, dynamic) || usize::from(dh) < n {
+                let deleted = usize::from(dh) < n && src.header_deleted(dh);
+                if is_dynamic(w, dynamic) || (usize::from(dh) < n && !deleted) {
                     continue;
                 }
-                let message = if dh == dynamic.header {
+                let message = if deleted {
+                    format!("Warp {i} leads to header {dh}{DELETED}")
+                } else if dh == dynamic.header {
                     format!(
                         "Warp {i} leads to header {dh} (0x{dh:04X}), the dynamic target, but to warp {dw}; a dynamic target needs warp {}.",
                         dynamic.warp
@@ -401,7 +416,7 @@ impl SourceCheck for WarpNeverFires {
 // --- events ---
 
 /// `event.trainer-missing` (error): an object's script 3000–4999 or 5000–6999 battles as a
-/// trainer that does not exist. Subject: event file; key `object:<i>`; field `script`. Args:
+/// trainer that does not exist or is deleted. Subject: event file; key `object:<i>`; field `script`. Args:
 /// `[object, script, trainer, trainer count]`. Fingerprint: the script.
 pub(crate) struct EventTrainerMissing;
 
@@ -421,19 +436,29 @@ impl SourceCheck for EventTrainerMissing {
                 let Some(trainer) = trainer_of(o.script) else {
                     continue;
                 };
-                if usize::from(trainer) < count {
+                let exists = usize::from(trainer) < count;
+                let deleted = exists && src.deleted(AssetKind::Trainer, trainer);
+                if exists && !deleted {
                     continue;
                 }
+                let message = if deleted {
+                    format!(
+                        "Object {i} battles as trainer {trainer} (script {}){DELETED}",
+                        o.script
+                    )
+                } else {
+                    format!(
+                        "Object {i} battles as trainer {trainer} (script {}), which does not exist (the project has {count} trainers).",
+                        o.script
+                    )
+                };
                 out.push(
                     Finding::new(
                         Self::CODE,
                         Self::SEVERITY,
                         Subject::EventFile(file),
                         format!("object:{i}"),
-                        format!(
-                            "Object {i} battles as trainer {trainer} (script {}), which does not exist (the project has {count} trainers).",
-                            o.script
-                        ),
+                        message,
                         &le(&[o.script]),
                     )
                     .with_args([i, usize::from(o.script), usize::from(trainer), count])
@@ -652,7 +677,8 @@ impl SourceCheck for EventSameSpot {
 // --- headers ---
 
 /// `header.ref-range` (error): a header field points past the end of its archive (matrix,
-/// event file, script file, level script, text archive, area data). Subject: header; key and
+/// event file, script file, level script, text archive, area data) or at a deleted entry. A
+/// deleted header is not checked. Subject: header; key and
 /// field: the field name. Args: `[header, field, value, count]`. Fingerprint: the value.
 pub(crate) struct HeaderRefRange;
 
@@ -702,26 +728,41 @@ impl SourceCheck for HeaderRefRange {
         ];
         let counts: Vec<Option<usize>> = fields.iter().map(|f| known(src, f.2)).collect();
         for (h, header) in headers.iter().enumerate() {
-            for ((field, what, _, get), count) in fields.iter().zip(&counts) {
+            if src.header_deleted(idx(h)) {
+                continue;
+            }
+            for ((field, what, kind, get), count) in fields.iter().zip(&counts) {
                 let Some(count) = *count else {
                     continue;
                 };
                 let value = get(header);
-                if usize::from(value) < count {
+                let exists = usize::from(value) < count;
+                let deleted = exists && src.deleted(*kind, value);
+                if exists && !deleted {
                     continue;
                 }
+                let message = if deleted {
+                    format!("Header {h} points at {what} {value}{DELETED}")
+                } else {
+                    format!(
+                        "Header {h} points at {what} {value}, which does not exist (only {count})."
+                    )
+                };
                 out.push(
                     Finding::new(
                         Self::CODE,
                         Self::SEVERITY,
                         Subject::Header(idx(h)),
                         *field,
-                        format!(
-                            "Header {h} points at {what} {value}, which does not exist (only {count})."
-                        ),
+                        message,
                         &le(&[value]),
                     )
-                    .with_args([h.to_string(), (*field).to_owned(), value.to_string(), count.to_string()])
+                    .with_args([
+                        h.to_string(),
+                        (*field).to_owned(),
+                        value.to_string(),
+                        count.to_string(),
+                    ])
                     .with_field(*field),
                 );
             }
@@ -742,7 +783,8 @@ fn wild(header: &MapHeader, limits: &Limits) -> (u16, u16) {
 }
 
 /// `header.wild-dangling` (error): a header's encounter file is not "none" (Platinum
-/// 0xFFFF, HGSS 0xFF, `encounter.none`) and does not exist. Subject: header; key and field
+/// 0xFFFF, HGSS 0xFF, `encounter.none`) and does not exist or is deleted. A deleted header is
+/// not checked. Subject: header; key and field
 /// `wild_pokemon`. Args: `[header, value, encounter file count]`. Fingerprint: the value.
 pub(crate) struct HeaderWildDangling;
 
@@ -764,18 +806,28 @@ impl SourceCheck for HeaderWildDangling {
         };
         for (h, header) in headers.iter().enumerate() {
             let (value, none) = wild(header, limits);
-            if value == none || usize::from(value) < count {
+            if value == none || src.header_deleted(idx(h)) {
                 continue;
             }
+            let exists = usize::from(value) < count;
+            let deleted = exists && src.deleted(AssetKind::Encounter, value);
+            if exists && !deleted {
+                continue;
+            }
+            let message = if deleted {
+                format!("Header {h} points at encounter file {value}{DELETED}")
+            } else {
+                format!(
+                    "Header {h} points at encounter file {value}, which does not exist (only {count})."
+                )
+            };
             out.push(
                 Finding::new(
                     Self::CODE,
                     Self::SEVERITY,
                     Subject::Header(idx(h)),
                     "wild_pokemon",
-                    format!(
-                        "Header {h} points at encounter file {value}, which does not exist (only {count})."
-                    ),
+                    message,
                     &le(&[value]),
                 )
                 .with_args([h, usize::from(value), count])
@@ -787,7 +839,8 @@ impl SourceCheck for HeaderWildDangling {
 }
 
 /// `header.text-split` (warning): headers with different text archives share a script file,
-/// so its message numbers match only one archive. Needs only the header table. Subject:
+/// so its message numbers match only one archive; deleted headers are left out. Needs only
+/// the header table. Subject:
 /// script file; key `text_archive`. Args: `[script file, archives, headers]` (lists joined
 /// with ", "). Also: the headers and the archives. Fingerprint: the (header, archive) pairs.
 pub(crate) struct HeaderTextSplit;
@@ -800,6 +853,9 @@ impl SourceCheck for HeaderTextSplit {
         let headers = headers(src)?;
         let mut by_script: BTreeMap<u16, Vec<(u16, u16)>> = BTreeMap::new();
         for (h, header) in headers.iter().enumerate() {
+            if src.header_deleted(idx(h)) {
+                continue;
+            }
             by_script
                 .entry(header.script_file_id())
                 .or_default()
@@ -885,7 +941,8 @@ impl SourceCheck for PlaceNameTooLong {
 }
 
 /// `place.index-out-of-bank` (error): a header's `location_name` is not 0 (no place) and
-/// past the last name of the bank. Subject: header; key and field `location_name`. Args:
+/// past the last name of the bank; a deleted header is not checked. Subject: header; key and
+/// field `location_name`. Args:
 /// `[header, index, names in the bank]`. Fingerprint: the index.
 pub(crate) struct PlaceIndexOutOfBank;
 
@@ -898,7 +955,7 @@ impl SourceCheck for PlaceIndexOutOfBank {
         let count = location_names(src)?.len();
         for (h, header) in headers.iter().enumerate() {
             let index = location_name_index(header);
-            if index == 0 || index < count {
+            if index == 0 || index < count || src.header_deleted(idx(h)) {
                 continue;
             }
             out.push(
@@ -922,9 +979,12 @@ impl SourceCheck for PlaceIndexOutOfBank {
 
 // --- matrices ---
 
-/// Every readable matrix with its index.
+/// Every readable matrix that is not deleted, with its index.
 fn matrices(src: &dyn Source) -> impl Iterator<Item = (u16, &Matrix)> {
-    (0..src.count(AssetKind::Matrix)).filter_map(move |m| Some((idx(m), src.matrix(idx(m))?)))
+    (0..src.count(AssetKind::Matrix))
+        .map(idx)
+        .filter(move |&m| !src.deleted(AssetKind::Matrix, m))
+        .filter_map(move |m| Some((m, src.matrix(m)?)))
 }
 
 /// The key of cell `c` of `m`: `cell:<x>,<y>`, and its coordinates.
@@ -934,8 +994,8 @@ fn cell(m: &Matrix, c: usize) -> (String, usize, usize) {
     (format!("cell:{x},{y}"), x, y)
 }
 
-/// `matrix.map-range` (error): a cell names a map that does not exist (0xFFFF is an empty
-/// cell). Subject: matrix; key `cell:<x>,<y>`; field `maps`. Args:
+/// `matrix.map-range` (error): a cell names a map that does not exist or is deleted (0xFFFF
+/// is an empty cell). A deleted matrix is not checked. Subject: matrix; key `cell:<x>,<y>`; field `maps`. Args:
 /// `[matrix, x, y, map, map count]`. Fingerprint: the map.
 pub(crate) struct MatrixMapRange;
 
@@ -951,19 +1011,29 @@ impl SourceCheck for MatrixMapRange {
         };
         for (mi, m) in matrices(src) {
             for (c, &map) in m.maps.iter().enumerate() {
-                if map == MATRIX_EMPTY || usize::from(map) < count {
+                if map == MATRIX_EMPTY {
+                    continue;
+                }
+                let exists = usize::from(map) < count;
+                let deleted = exists && src.deleted(AssetKind::Map, map);
+                if exists && !deleted {
                     continue;
                 }
                 let (key, x, y) = cell(m, c);
+                let message = if deleted {
+                    format!("Cell ({x}, {y}) of matrix {mi} shows map {map}{DELETED}")
+                } else {
+                    format!(
+                        "Cell ({x}, {y}) of matrix {mi} shows map {map}, which does not exist (only {count})."
+                    )
+                };
                 out.push(
                     Finding::new(
                         Self::CODE,
                         Self::SEVERITY,
                         Subject::Matrix(mi),
                         key,
-                        format!(
-                            "Cell ({x}, {y}) of matrix {mi} shows map {map}, which does not exist (only {count})."
-                        ),
+                        message,
                         &le(&[map]),
                     )
                     .with_args([usize::from(mi), x, y, usize::from(map), count])
@@ -975,7 +1045,8 @@ impl SourceCheck for MatrixMapRange {
     }
 }
 
-/// `matrix.header-range` (error): a header cell names a header that does not exist.
+/// `matrix.header-range` (error): a header cell names a header that does not exist or is
+/// deleted. A deleted matrix is not checked.
 /// Subject: matrix; key `cell:<x>,<y>`; field `headers`. Args:
 /// `[matrix, x, y, header, header count]`. Fingerprint: the header.
 pub(crate) struct MatrixHeaderRange;
@@ -988,19 +1059,26 @@ impl SourceCheck for MatrixHeaderRange {
         let count = headers(src)?.len();
         for (mi, m) in matrices(src) {
             for (c, &h) in m.headers.iter().flatten().enumerate() {
-                if usize::from(h) < count {
+                let exists = usize::from(h) < count;
+                let deleted = exists && src.header_deleted(h);
+                if exists && !deleted {
                     continue;
                 }
                 let (key, x, y) = cell(m, c);
+                let message = if deleted {
+                    format!("Cell ({x}, {y}) of matrix {mi} belongs to header {h}{DELETED}")
+                } else {
+                    format!(
+                        "Cell ({x}, {y}) of matrix {mi} belongs to header {h}, which does not exist (only {count})."
+                    )
+                };
                 out.push(
                     Finding::new(
                         Self::CODE,
                         Self::SEVERITY,
                         Subject::Matrix(mi),
                         key,
-                        format!(
-                            "Cell ({x}, {y}) of matrix {mi} belongs to header {h}, which does not exist (only {count})."
-                        ),
+                        message,
                         &le(&[h]),
                     )
                     .with_args([usize::from(mi), x, y, usize::from(h), count])
@@ -1069,9 +1147,12 @@ impl SourceCheck for MatrixHeaderElsewhere {
 
 // --- maps and area data ---
 
-/// Every readable map with its index.
+/// Every readable map that is not deleted, with its index.
 fn maps(src: &dyn Source) -> impl Iterator<Item = (u16, &g4_formats::map::MapFile)> {
-    (0..src.count(AssetKind::Map)).filter_map(move |m| Some((idx(m), src.map(idx(m))?)))
+    (0..src.count(AssetKind::Map))
+        .map(idx)
+        .filter(move |&m| !src.deleted(AssetKind::Map, m))
+        .filter_map(move |m| Some((m, src.map(m)?)))
 }
 
 /// `map.model-invalid` (error): the map's model breaks a rule of the map import
@@ -1183,7 +1264,8 @@ impl SourceCheck for MapBuildingRange {
 }
 
 /// `area.tileset-range` (error): an area data names a building or map texture set past the
-/// end of its archive. Subject: area data; key and field `buildings_tileset` or
+/// end of its archive; deleted area data is not checked. Subject: area data; key and field
+/// `buildings_tileset` or
 /// `map_tileset`. Args: `[area data, field, value, count]`. Fingerprint: the value.
 pub(crate) struct AreaTilesetRange;
 
@@ -1195,6 +1277,9 @@ impl SourceCheck for AreaTilesetRange {
         let buildings = known(src, AssetKind::BuildingTexture);
         let maps = known(src, AssetKind::MapTexture);
         for a in 0..src.count(AssetKind::AreaData) {
+            if src.deleted(AssetKind::AreaData, idx(a)) {
+                continue;
+            }
             let Some(area) = src.area_data(idx(a)) else {
                 continue;
             };
@@ -1735,6 +1820,85 @@ mod tests {
         let found = f.run(&MatrixHeaderRange);
         assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:0,1")]);
         assert_eq!(args(&found[0]), ["0", "0", "1", "2", "2"]);
+    }
+
+    #[test]
+    fn tombstones_count_as_missing_in_warps_and_matrices() {
+        use crate::delete::DeleteTarget;
+        let mut f = Fake::world();
+        f.matrices = vec![Some(matrix(2, 1, vec![0, 1], Some(vec![0, 1])))];
+        // Event file 0 (header 0): a warp to header 1; event file 1 (only header 1): a warp
+        // to header 9, which does not exist.
+        f.event_mut(0).warp_events = vec![warp(1, 1, 1, 0)];
+        f.event_mut(1).warp_events = vec![warp(1, 1, 9, 0)];
+        assert_eq!(f.run(&WarpDestHeader).len(), 1);
+        assert!(f.run(&MatrixMapRange).is_empty());
+        assert!(f.run(&MatrixHeaderRange).is_empty());
+
+        f.tombstones = vec![
+            DeleteTarget::Header { id: 1 },
+            DeleteTarget::Map { index: 1 },
+        ];
+        // Header 1 is deleted: a warp to it is dangling, its event file is no source.
+        let found = f.run(&WarpDestHeader);
+        assert_eq!(keys(&found), [(Subject::EventFile(0), "warp:0")]);
+        assert_eq!(
+            found[0].message,
+            "Warp 0 leads to header 1, which is deleted (Grabstein)."
+        );
+        assert_eq!(args(&found[0]), ["0", "1", "2", "0"]);
+        let found = f.run(&MatrixMapRange);
+        assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:1,0")]);
+        assert_eq!(
+            found[0].message,
+            "Cell (1, 0) of matrix 0 shows map 1, which is deleted (Grabstein)."
+        );
+        let found = f.run(&MatrixHeaderRange);
+        assert_eq!(keys(&found), [(Subject::Matrix(0), "cell:1,0")]);
+        assert_eq!(
+            found[0].message,
+            "Cell (1, 0) of matrix 0 belongs to header 1, which is deleted (Grabstein)."
+        );
+
+        // A deleted matrix is no source.
+        f.tombstones.push(DeleteTarget::Matrix { index: 0 });
+        assert!(f.run(&MatrixMapRange).is_empty());
+        assert!(f.run(&MatrixHeaderRange).is_empty());
+    }
+
+    #[test]
+    fn deleted_headers_maps_and_area_data_are_no_source() {
+        use crate::delete::DeleteTarget;
+        // Header 1 runs script file 0 with another text archive and names place 3 of 3.
+        let mut f = Fake::world();
+        f.places = Some(vec!["a".into(), "b".into(), "c".into()]);
+        name_place(&mut f, 1, 3);
+        if let MapHeader::Pt(h) = f.header_mut(1) {
+            h.text_archive_id = 7;
+        }
+        f.counts.insert(AssetKind::MapTexture, 10);
+        f.counts.insert(AssetKind::BuildingTexture, 8);
+        f.areas = vec![Some(AreaData::Dppt {
+            buildings_tileset: 8,
+            map_tileset: 0,
+            unknown: 0,
+            light_type: 0,
+        })];
+        f.map_mut(0).model = model(&["a", "b"]);
+        assert_eq!(f.run(&HeaderTextSplit).len(), 1);
+        assert_eq!(f.run(&PlaceIndexOutOfBank).len(), 1);
+        assert_eq!(f.run(&AreaTilesetRange).len(), 1);
+        assert_eq!(f.run(&MapModelInvalid).len(), 1);
+
+        f.tombstones = vec![
+            DeleteTarget::Map { index: 0 },
+            DeleteTarget::Header { id: 1 },
+            DeleteTarget::AreaData { index: 0 },
+        ];
+        assert!(f.run(&HeaderTextSplit).is_empty());
+        assert!(f.run(&PlaceIndexOutOfBank).is_empty());
+        assert!(f.run(&AreaTilesetRange).is_empty());
+        assert!(f.run(&MapModelInvalid).is_empty());
     }
 
     #[test]

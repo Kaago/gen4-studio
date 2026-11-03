@@ -1417,10 +1417,10 @@ fn cli_text_migrate_v0_fixture() {
     // `{"ids": {"NNNN": "ID"}}`. The migration must give back the exported bytes.
     let manifest = root.join("g4-project.json");
     let exported_manifest = std::fs::read_to_string(&manifest).unwrap();
-    assert!(exported_manifest.contains("\"schemaVersion\": 1"));
+    assert!(exported_manifest.contains("\"schemaVersion\": 2"));
     std::fs::write(
         &manifest,
-        exported_manifest.replacen("\"schemaVersion\": 1", "\"schema\": 0", 1),
+        exported_manifest.replacen("\"schemaVersion\": 2", "\"schema\": 0", 1),
     )
     .unwrap();
     let mut registers = Vec::new();
@@ -1454,7 +1454,7 @@ fn cli_text_migrate_v0_fixture() {
     let assert = text(&["migrate"], &root).assert().success();
     let out = stdout_of(&assert);
     println!("{out}");
-    let changed = format!("migrated 0 -> 1 changed={} snapshot=", registers.len() + 1);
+    let changed = format!("migrated 0 -> 2 changed={} snapshot=", registers.len() + 1);
     assert!(out.starts_with(&changed), "{changed} in {out}");
     let snapshot = out.trim_end().split("snapshot=").nth(1).unwrap();
     assert!(std::path::Path::new(snapshot).is_dir(), "{snapshot}");
@@ -1474,7 +1474,7 @@ fn cli_text_migrate_v0_fixture() {
     let report: serde_json::Value = serde_json::from_slice(&assert.get_output().stdout).unwrap();
     assert_eq!(
         (report["from"].as_u64(), report["to"].as_u64()),
-        (Some(1), Some(1))
+        (Some(2), Some(2))
     );
 
     // Current again, and the import would write nothing.
@@ -2299,4 +2299,116 @@ fn story_create_and_list_on_a_text_fixture() {
         .filter(|n| n["kind"] == "value")
         .count();
     assert_eq!(values, 3);
+}
+
+#[test]
+fn cli_delete_plan_apply_restore() {
+    use g4_kernel::delete::DeleteTarget;
+    use g4_kernel::flags::{FlagKind, NameRequest, name_flag_files};
+    use serde_json::{Value, json};
+
+    let fx = common::TextFixture::exported();
+    name_flag_files(
+        &fx.project(),
+        &NameRequest {
+            kind: FlagKind::Flag,
+            number: 148,
+            id: Some("FLAG_HAT_MEDAILLE".into()),
+            description: None,
+        },
+    )
+    .unwrap();
+    let flag_file = fx.root().join("data/flags/0148.json");
+    assert!(flag_file.is_file());
+    let json_of = |assert: &assert_cmd::assert::Assert| -> Value {
+        serde_json::from_str(&stdout_of(assert)).unwrap()
+    };
+
+    // An own flag name needs no base ROM; the plan writes nothing.
+    let assert = g4k()
+        .args(["delete", "plan"])
+        .arg(fx.root())
+        .args(["flag", "148"])
+        .assert()
+        .success();
+    let plan = json_of(&assert);
+    assert_eq!(plan["target"], json!({ "kind": "flag", "number": 148 }));
+    assert_eq!(plan["label"], "Flag 0x0094");
+    assert_eq!(plan["refusal"], Value::Null);
+    assert_eq!(plan["references"], json!([]));
+    assert!(flag_file.is_file());
+    // A trainer asks the base ROM: the header-only ROM of the fixture holds no archives.
+    g4k()
+        .args(["delete", "plan"])
+        .arg(fx.root())
+        .args(["trainer", "1", "--base-rom"])
+        .arg(fx.rom())
+        .assert()
+        .code(1);
+    // A kind that is never deleted.
+    g4k()
+        .args(["delete", "plan"])
+        .arg(fx.root())
+        .args(["species", "1"])
+        .assert()
+        .code(1)
+        .stderr(contains("unknown kind"));
+
+    let assert = g4k()
+        .args(["delete", "apply"])
+        .arg(fx.root())
+        .args(["flag", "148"])
+        .assert()
+        .success();
+    let result = json_of(&assert);
+    assert!(!result["change"].is_null(), "{result}");
+    assert_eq!(result["freed"], Value::Null);
+    assert!(!flag_file.exists());
+
+    // „Nummer freigeben“ needs the flag; nothing is written without it.
+    g4k()
+        .args(["delete", "apply"])
+        .arg(fx.root())
+        .args(["trainer", "2", "--free-number"])
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "error: delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
+             kopflos nur mit --allow-irreversible",
+        ));
+    assert!(fx.root().join("data/trainers/0002.json").is_file());
+
+    // A tombstone saved by the store comes back, saved.
+    let trainer = "data/trainers/0001.json";
+    let mut store = g4_kernel::store::Store::new(std::sync::Arc::new(fx.project()));
+    store
+        .transaction("Gelöscht", |tx| {
+            tx.set_deleted(DeleteTarget::Trainer { index: 1 }, true)
+        })
+        .unwrap();
+    store.save().unwrap();
+    assert!(fx.text(trainer).contains("\"deleted\": true"));
+    let assert = g4k()
+        .args(["delete", "restore"])
+        .arg(fx.root())
+        .args(["trainer", "1"])
+        .assert()
+        .success();
+    let result = json_of(&assert);
+    assert_eq!(
+        result["changed"],
+        json!([{ "kind": "Trainer", "index": 1 }])
+    );
+    assert!(
+        !fx.text(trainer).contains("\"deleted\""),
+        "{}",
+        fx.text(trainer)
+    );
+    g4k()
+        .args(["delete", "restore"])
+        .arg(fx.root())
+        .args(["trainer", "1"])
+        .assert()
+        .code(1)
+        .stderr(contains("Trainer 0001 ist nicht gelöscht."));
 }

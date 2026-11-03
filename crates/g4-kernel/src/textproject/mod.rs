@@ -56,7 +56,9 @@ pub mod source;
 pub(crate) mod step;
 pub mod symbols;
 pub mod sync;
+pub(crate) mod tombstone;
 
+pub use arts::Art;
 pub use check::{CheckReport, check, sources};
 pub use export::{
     ArtStats, ExportOptions, ExportProgress, ExportReport, ExportStep, NOT_ADOPTED,
@@ -73,7 +75,7 @@ pub const MANIFEST_FILE: &str = "g4-project.json";
 pub const DATA_DIR: &str = "data";
 /// The schema version this build reads and writes. Every rename of a key or a file raises
 /// it and adds a step to [`migrate::MIGRATIONS`].
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Whether `root` holds a manifest, whatever its version.
 pub fn is_text_project(root: &Path) -> bool {

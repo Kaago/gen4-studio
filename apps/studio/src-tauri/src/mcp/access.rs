@@ -246,6 +246,11 @@ pub const COMMAND_KINDS: &[(&str, Kind)] = &[
     ("live_breakpoint_set", APP_ONLY),
     ("live_breakpoint_clear", APP_ONLY),
     ("dialogs_of_header", Kind::Read),
+    ("plan_delete", Kind::Read),
+    // Irreversible with `freeNumber` („Nummer freigeben“), see [`classify`].
+    ("delete_entity", Kind::Depends),
+    // One undo step, like any edit.
+    ("restore_entity", Kind::Write),
 ];
 
 /// The kind of `command`; `None` for a name the table does not have.
@@ -290,8 +295,9 @@ impl From<Kind> for Class {
 /// that are no recipe call it can read are a write (the command refuses them). The project
 /// preview commands with a `path` (another project folder) are unavailable, also when it names
 /// the bound project. `publish_patch` with `overwrite` replaces files (irreversible), with a
-/// `dir` outside `build/` writes there (irreversible), else it is a write. A name the table
-/// does not have is unavailable.
+/// `dir` outside `build/` writes there (irreversible), else it is a write. `delete_entity` with
+/// `freeNumber` (or `free_number`, see [`frees_number`]) frees a number for good
+/// (irreversible), without it is one undo step. A name the table does not have is unavailable.
 pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
     let Some(kind) = kind_of(command) else {
         return Class::Unavailable(format!("Unbekannter Befehl: {command}"));
@@ -345,8 +351,18 @@ pub fn classify(command: &str, args: &Value, policy: &UserPolicy) -> Class {
             .ok()
             .and_then(|call| recipes::is_irreversible(&call).ok().flatten())
             .map_or(Class::Write, |why| Kind::Irreversible(why).into()),
+        "delete_entity" if frees_number(args) => Kind::Irreversible("Nummer freigeben").into(),
         _ => Class::Write,
     }
+}
+
+/// Whether the arguments of `delete_entity` free the number: `freeNumber` as `dispatch` takes
+/// it, or `free_number` (the curated tool's key, which `g4_call` passes as it is and the
+/// command honours too).
+pub fn frees_number(args: &Value) -> bool {
+    ["freeNumber", "free_number"]
+        .iter()
+        .any(|key| args.get(key) == Some(&Value::Bool(true)))
 }
 
 /// What an agent may do: change the project (`write`), do what undo does not bring back
@@ -364,6 +380,7 @@ fn refusal(code: &'static str, message: String) -> CmdError {
         message,
         asset: None,
         problems: Vec::new(),
+        references: Vec::new(),
     }
 }
 
@@ -512,6 +529,7 @@ mod tests {
                 "build_rom",
                 "create_area",
                 "create_room",
+                "delete_entity",
                 "export_map_part",
                 "publish_patch",
                 "recipe_apply"
@@ -1004,6 +1022,70 @@ mod tests {
         assert_eq!(
             classify(json!({ "dir": null, "overwrite": false })),
             Class::Write
+        );
+    }
+
+    #[test]
+    fn delete_entity_with_free_number_is_irreversible() {
+        let (fixture, _state) = open_synthetic();
+        let policy = policy_over(&fixture);
+        let target = json!({ "kind": "trainer", "index": 2 });
+        assert_eq!(
+            classify(
+                "delete_entity",
+                &json!({ "target": target, "freeNumber": true }),
+                &policy
+            ),
+            Class::Irreversible("Nummer freigeben".to_owned())
+        );
+        // g4_call passes the curated tool's key as it is; the command honours it too.
+        assert_eq!(
+            classify(
+                "delete_entity",
+                &json!({ "target": target, "free_number": true }),
+                &policy
+            ),
+            Class::Irreversible("Nummer freigeben".to_owned())
+        );
+        // A tombstone is one undo step.
+        for args in [
+            json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target, "free_number": false }),
+            json!({ "target": target }),
+        ] {
+            assert_eq!(
+                classify("delete_entity", &args, &policy),
+                Class::Write,
+                "{args}"
+            );
+        }
+        // Planning frees nothing, whatever the arguments; restoring is one undo step.
+        assert_eq!(
+            classify(
+                "plan_delete",
+                &json!({ "target": target, "freeNumber": true }),
+                &policy
+            ),
+            Class::Read
+        );
+        assert_eq!(kind_of("restore_entity"), Some(Kind::Write));
+        // Without the confirmation an agent hears needs_confirmation.
+        let writer = Access {
+            write: true,
+            irreversible: false,
+            expert: false,
+        };
+        let class = classify(
+            "delete_entity",
+            &json!({ "target": target, "freeNumber": true }),
+            &policy,
+        );
+        let e = admit("delete_entity", &class, &writer).unwrap_err();
+        assert_eq!(e.code, "needs_confirmation");
+        assert_eq!(
+            e.message,
+            "delete_entity lässt sich nicht rückgängig machen (Nummer freigeben); \
+             kopflos nur mit --allow-irreversible"
         );
     }
 

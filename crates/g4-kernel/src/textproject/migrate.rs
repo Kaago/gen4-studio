@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use super::canon::{json_problem, parse_json_value, to_canonical, write_if_changed};
 use super::manifest::{Manifest, SCHEMA_CODE, SchemaState, refusal, schema_state};
+use super::registry::IDS_DIR;
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
 use crate::error::{KernelError, io_at};
 
@@ -27,10 +28,16 @@ pub struct Migration {
 }
 
 /// The chain, one step per version, in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    from: 0,
-    run: v0_to_v1,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: 0,
+        run: v0_to_v1,
+    },
+    Migration {
+        from: 1,
+        run: v1_to_v2,
+    },
+];
 
 /// What [`migrate`] did: the versions, the files written or removed (relative, `/`) and the
 /// snapshot folder with their old bytes (`None` when nothing changed).
@@ -313,6 +320,65 @@ fn v0_to_v1(tree: &mut Tree) -> Result<(), String> {
                 .map(|(id, n)| (id, Value::from(n)))
                 .collect(),
         );
+    }
+    Ok(())
+}
+
+/// v1 → v2: in every event file `data/events/NNNN.json`, `object_events[].hidden_flag` and
+/// `coord_events[].var` go from the number to the own name of the register
+/// (`data/ids/flags.json`, `data/ids/vars.json`; a missing register is empty) where it has one;
+/// 0 and numbers without an own name stay numbers, and so does every other file. The manifest
+/// version is set by the chain.
+fn v1_to_v2(tree: &mut Tree) -> Result<(), String> {
+    let ids = Path::new(IDS_DIR);
+    let names_of = |file: &str| -> Result<BTreeMap<u64, String>, String> {
+        let rel = ids.join(file);
+        let Some(value) = tree.files.get(&rel) else {
+            return Ok(BTreeMap::new());
+        };
+        let object = value
+            .as_object()
+            .ok_or_else(|| format!("{}: kein Objekt aus ID und Nummer.", rel.display()))?;
+        let mut names = BTreeMap::new();
+        for (id, n) in object {
+            let n = n
+                .as_u64()
+                .ok_or_else(|| format!("{}: `{id}` nennt keine Nummer.", rel.display()))?;
+            // The register is sorted by id; no number has two ids (the first one wins).
+            names.entry(n).or_insert_with(|| id.clone());
+        }
+        Ok(names)
+    };
+    let flags = names_of("flags.json")?;
+    let vars = names_of("vars.json")?;
+    if flags.is_empty() && vars.is_empty() {
+        return Ok(());
+    }
+    let events = Path::new(DATA_DIR).join("events");
+    for (rel, value) in &mut tree.files {
+        if rel.parent() != Some(events.as_path()) || rel.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        for (list, key, names) in [
+            ("object_events", "hidden_flag", &flags),
+            ("coord_events", "var", &vars),
+        ] {
+            let Some(items) = value.get_mut(list).and_then(Value::as_array_mut) else {
+                continue;
+            };
+            for item in items {
+                let Some(field) = item.get_mut(key) else {
+                    continue;
+                };
+                if let Some(name) = field
+                    .as_u64()
+                    .filter(|&n| n > 0)
+                    .and_then(|n| names.get(&n))
+                {
+                    *field = Value::from(name.clone());
+                }
+            }
+        }
     }
     Ok(())
 }

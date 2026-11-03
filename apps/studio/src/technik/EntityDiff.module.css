@@ -60,6 +60,11 @@
   font: var(--g4-font-text-s);
 }
 
+/* A tombstone that differs between the sides: its badge, above the fields. */
+.tombstone {
+  margin: 0;
+}
+
 .message {
   display: inline-flex;
   align-items: center;

@@ -240,6 +240,28 @@ impl BasePart for BaseLayer {
             self.member(project, kind, index)
         })
     }
+
+    /// Whether the layer has member `index` of `kind` (its file below `unpacked/`); `None`
+    /// when the layer does not open as a project.
+    fn has_member(&self, kind: AssetKind, index: usize) -> Option<bool> {
+        let project = self.project().ok()?;
+        if !project.has_archive(kind) {
+            return Some(false);
+        }
+        Some(
+            self.root
+                .join("unpacked")
+                .join(project.archives.unpacked_name(kind))
+                .join(format!("{index:04}"))
+                .is_file(),
+        )
+    }
+
+    /// Whether the layer's header table has header `id` (one record of its `mapname.bin` per
+    /// header); `None` when the layer does not open as a project or the count does not read.
+    fn has_header(&self, id: usize) -> Option<bool> {
+        Some(id < self.project().ok()?.mapname_count().ok()?)
+    }
 }
 
 /// The bytes of part `which` among the members `member` gives (kind, index) of `project`:

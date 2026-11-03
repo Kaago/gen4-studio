@@ -20,8 +20,10 @@
 //! - evolutions: the target → species; the parameter → item, move or species by method
 //! - script sources (`expanded/scripts/NNNN.rotom`, only with adopted scripts): the
 //!   parameters `metadata/script_refs.yaml` names per command database family → trainer,
-//!   item, species or move ([`ScriptRefTable`]); `field` is the command (rotom's name, also for
-//!   a legacy name or an alias in the source), `slot` the line. An argument counts when it is
+//!   item, species, move, map header (`Warp`) or warp index (`SetWarpEventPos`, `MoveWarp`:
+//!   [`Target::WarpIndex`], of the script file's own header) ([`ScriptRefTable`]); `field` is
+//!   the command (rotom's name, also for a legacy name or an alias in the source), `slot` the
+//!   line; for a header and a warp index 0 is a target, not "none". An argument counts when it is
 //!   a number or an identifier the build resolves (an alias of the file, the text project's
 //!   ids, rotom's own names such as `TRAINER_<NAME>_<NNN>` or `ITEM_…`); a value from
 //!   `0x4000` on is a variable, never a reference.
@@ -38,6 +40,15 @@
 //! - script sources, messages: every numbered argument of a message command → that message of the
 //!   file's text archive (the first header naming the file; read, field the command, slot the
 //!   line; [`messages`])
+//!
+//! - the world, by the declarative table `metadata/entity_refs.yaml` ([`entity`]): the header
+//!   table (each header's matrix, event file, script file and level script, text archive, area
+//!   data, place and `wild_pokemon`; `slot` the header id), matrices (maps and the header layer
+//!   by cell), event files (each warp's destination header and its door there,
+//!   [`Target::Warp`]), area data (map and building texture sets) and maps (each building's
+//!   model; on HeartGold/SoulSilver a map shown inside names the interior archive: the area data
+//!   of a header that shows it has `area_type` 0, the header being the matrix cell's where the
+//!   matrix has a header layer, else every header that names the matrix)
 //!
 //! Every reference but those of flags and variables reads its target ([`Access::Read`]).
 //! [`Ref::value`] is a constant below `0x4000`; from there on the engine reads a variable, and
@@ -59,7 +70,7 @@
 //! it runs at most every [`REFRESH_SCRIPTS_EVERY`] ([`RefIndex::refresh_scripts_now`] forces it),
 //! the store's changes are asked every time.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -86,11 +97,14 @@ use crate::store::{Loaded, Store};
 use crate::textproject::ids::{Stamp, stamp, watched};
 use crate::textproject::include::ScriptLookup;
 
+mod entity;
 mod flagvars;
 mod messages;
 
-/// What a reference points at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What a reference points at. JSON: `{"kind": "header", "value": 3}`, a warp
+/// `{"kind": "warp", "value": {"header": 3, "index": 1}}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Target {
     /// A species or form: a personal data member index.
     Species(u16),
@@ -113,6 +127,29 @@ pub enum Target {
         archive: u16,
         index: u16,
     },
+    /// A map header by id.
+    Header(u16),
+    Matrix(u16),
+    Map(u16),
+    EventFile(u16),
+    /// A script file (also a level script).
+    Script(u16),
+    TextArchive(u16),
+    AreaData(u16),
+    /// A place: a message of the location name bank.
+    Place(u16),
+    /// A warp of a header's event file, as a warp's `dest_header_id`/`dest_warp_id` name it.
+    Warp {
+        header: u16,
+        index: u16,
+    },
+    /// A warp index a script moves (`SetWarpEventPos`, `MoveWarp`): the header is the script
+    /// file's, resolved by the caller.
+    WarpIndex(u16),
+    MapTexture(u16),
+    BuildingTexture(u16),
+    BuildingModel(u16),
+    InteriorBuildingModel(u16),
 }
 
 /// What a reference does with its target: flags and variables are read, written or both
@@ -128,7 +165,7 @@ pub enum Access {
 
 /// One reference: `field` of `source` (entry `slot` of it, where the field is a list)
 /// points at `target` and does `access` with it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Ref {
     pub source: AssetId,
     pub field: &'static str,
@@ -224,7 +261,7 @@ const HEADER_TABLE: AssetId = AssetId {
 };
 
 /// The archive kinds that are sources, in the order they are indexed.
-const MEMBER_SOURCES: [AssetKind; 7] = [
+const MEMBER_SOURCES: [AssetKind; 10] = [
     AssetKind::Event,
     AssetKind::Encounter,
     AssetKind::Personal,
@@ -232,10 +269,33 @@ const MEMBER_SOURCES: [AssetKind; 7] = [
     AssetKind::Evolution,
     AssetKind::TrainerProperties,
     AssetKind::TrainerParty,
+    AssetKind::Matrix,
+    AssetKind::AreaData,
+    AssetKind::Map,
 ];
 
 fn is_source(kind: AssetKind) -> bool {
     kind == AssetKind::HeaderTable || MEMBER_SOURCES.contains(&kind)
+}
+
+/// Whether a reference keeps its target from being deleted (`Hard`) or only warns (`Soft`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strength {
+    Hard,
+    Soft,
+}
+
+/// Source kinds whose references warn instead of block (3d.6 adds `Story`).
+pub const SOFT_SOURCES: &[AssetKind] = &[];
+
+/// How strongly the references of `source` hold their targets: [`Strength::Soft`] for the
+/// kinds of [`SOFT_SOURCES`], else [`Strength::Hard`].
+pub fn strength(source: AssetId) -> Strength {
+    if SOFT_SOURCES.contains(&source.kind) {
+        Strength::Soft
+    } else {
+        Strength::Hard
+    }
 }
 
 /// The sources among `changed` plus those whose references depend on them: a trainer
@@ -287,6 +347,8 @@ struct Built {
     scripts: ScriptSources,
     /// The counts of every script file that has any.
     counts: BTreeMap<u16, ScriptCounts>,
+    /// The maps HeartGold/SoulSilver shows inside ([`interior_maps`]).
+    interior: BTreeSet<u16>,
 }
 
 /// References to species, moves, items, trainers, trainer classes, encounter files, flags and
@@ -417,28 +479,72 @@ impl RefIndex {
             None
         };
         let (generation, changed) = store.changes_since(built.generation);
-        let changed = with_dependents(changed);
+        let mut changed = with_dependents(changed);
         if !changed.is_empty() {
+            // Which maps are inside follows the headers, matrices and area data.
+            let world = store.project().family == Family::Hgss
+                && changed.iter().any(|id| {
+                    matches!(
+                        id.kind,
+                        AssetKind::HeaderTable | AssetKind::Matrix | AssetKind::AreaData
+                    )
+                });
             // Only sources the store does not hold are read from the disk: a trainer's two
             // member sources come from its loaded `Trainer` asset (`loaded_trainer_refs`), every
             // other changed source is held as itself, so in practice nothing is opened.
-            let kinds: Vec<AssetKind> = changed
+            let mut kinds: Vec<AssetKind> = changed
                 .iter()
                 .filter(|&&id| store.peek(id).is_none() && loaded_trainer_refs(store, id).is_none())
                 .map(|id| id.kind)
                 .collect();
+            if world {
+                kinds.extend([AssetKind::AreaData, AssetKind::Map]);
+            }
             let disk = Disk::open(store.project(), &kinds)?;
-            // Everything is read before the index changes: a failure leaves it untouched.
-            for (id, refs) in collect_refs(store, &disk, &changed)? {
+            // Everything is read before the index changes: a failure leaves it untouched. The
+            // maps come last: they read which of them are inside from the others.
+            let (mut maps, others): (Vec<AssetId>, Vec<AssetId>) =
+                changed.iter().partition(|id| id.kind == AssetKind::Map);
+            let mut read = collect_refs(store, &disk, &others, &built.interior)?;
+            let interior = if world {
+                let now: BTreeSet<(usize, u16)> = read.iter().map(|&(id, _)| key(id)).collect();
+                let kept = built
+                    .sources
+                    .iter()
+                    .filter(|(k, _)| !now.contains(k))
+                    .flat_map(|(_, refs)| refs);
+                interior_maps(
+                    store,
+                    &disk,
+                    kept.chain(read.iter().flat_map(|(_, refs)| refs)),
+                )?
+            } else {
+                built.interior.clone()
+            };
+            // A map that went inside or outside names the other archive now.
+            maps.extend(
+                interior
+                    .symmetric_difference(&built.interior)
+                    .map(|&index| AssetId {
+                        kind: AssetKind::Map,
+                        index,
+                    }),
+            );
+            maps.sort_by_key(|&id| key(id));
+            maps.dedup();
+            read.extend(collect_refs(store, &disk, &maps, &interior)?);
+            for &(id, ref refs) in &read {
                 if refs.is_empty() {
                     built.sources.remove(&key(id));
                 } else {
-                    built.sources.insert(key(id), refs);
+                    built.sources.insert(key(id), refs.clone());
                 }
             }
+            built.interior = interior;
+            changed = read.into_iter().map(|(id, _)| id).collect();
+            changed.sort_by_key(|&id| key(id));
         }
         built.generation = generation;
-        let mut changed = changed;
         let Some((scripts, reread)) = statted else {
             return Ok(changed);
         };
@@ -476,11 +582,18 @@ impl RefIndex {
                 index: index as u16,
             }));
         }
-        let mut sources: BTreeMap<(usize, u16), Vec<Ref>> = collect_refs(store, &disk, &ids)?
-            .into_iter()
-            .filter(|(_, refs)| !refs.is_empty())
-            .map(|(id, refs)| (key(id), refs))
-            .collect();
+        // The maps come last: they read which of them are inside from the others.
+        let (maps, others): (Vec<AssetId>, Vec<AssetId>) =
+            ids.into_iter().partition(|id| id.kind == AssetKind::Map);
+        let keyed = |read: Vec<(AssetId, Vec<Ref>)>| {
+            read.into_iter()
+                .filter(|(_, refs)| !refs.is_empty())
+                .map(|(id, refs)| (key(id), refs))
+        };
+        let mut sources: BTreeMap<(usize, u16), Vec<Ref>> =
+            keyed(collect_refs(store, &disk, &others, &BTreeSet::new())?).collect();
+        let interior = interior_maps(store, &disk, sources.values().flatten())?;
+        sources.extend(keyed(collect_refs(store, &disk, &maps, &interior)?));
         let archives = messages::archives_now(store, None);
         let (scripts, read) = ScriptSources::default().refresh(store.project(), archives)?;
         let mut counts = BTreeMap::new();
@@ -500,6 +613,7 @@ impl RefIndex {
             sources,
             scripts,
             counts,
+            interior,
         });
         self.scripts_checked = Some(Instant::now());
         Ok(())
@@ -528,6 +642,7 @@ fn collect_refs(
     store: &Store,
     disk: &Disk<&Project>,
     ids: &[AssetId],
+    interior: &BTreeSet<u16>,
 ) -> Result<Vec<(AssetId, Vec<Ref>)>, KernelError> {
     let family = store.project().family;
     let mut out = Vec::with_capacity(ids.len());
@@ -538,7 +653,7 @@ fn collect_refs(
             continue;
         }
         match store.peek(id) {
-            Some(value) => out.push((id, value_refs(id, value, family))),
+            Some(value) => out.push((id, value_refs(id, value, family, interior))),
             None => unloaded.push(id),
         }
     }
@@ -558,7 +673,7 @@ fn collect_refs(
                         .iter()
                         .skip(first)
                         .step_by(readers)
-                        .map(|&id| Ok((id, disk_refs(disk, id, family)?)))
+                        .map(|&id| Ok((id, disk_refs(disk, id, family, interior)?)))
                         .collect::<Result<Vec<_>, KernelError>>()
                 })
             })
@@ -578,14 +693,19 @@ fn collect_refs(
 }
 
 /// The references of source `id` as it is on disk. A value that does not decode has none.
-fn disk_refs(disk: &Disk<&Project>, id: AssetId, family: Family) -> Result<Vec<Ref>, KernelError> {
+fn disk_refs(
+    disk: &Disk<&Project>,
+    id: AssetId,
+    family: Family,
+    interior: &BTreeSet<u16>,
+) -> Result<Vec<Ref>, KernelError> {
     match id.kind {
         AssetKind::TrainerProperties => Ok(trainer_props(disk, id.index)?
             .map(|props| props_refs(id, &props))
             .unwrap_or_default()),
         AssetKind::TrainerParty => party_refs(disk, id, family),
         _ => Ok(disk_value(disk, id, family)?
-            .map(|value| value_refs(id, &value, family))
+            .map(|value| value_refs(id, &value, family, interior))
             .unwrap_or_default()),
     }
 }
@@ -612,13 +732,26 @@ fn disk_value(
     Ok(Loaded::from_bytes(id.kind, &bytes, family, "").ok())
 }
 
-/// The references of a store value of source `id` in a game of `family`.
-fn value_refs(id: AssetId, value: &Loaded, family: Family) -> Vec<Ref> {
+/// The references of a store value of source `id` in a game of `family`; `interior` are the
+/// maps HeartGold/SoulSilver shows inside.
+fn value_refs(id: AssetId, value: &Loaded, family: Family, interior: &BTreeSet<u16>) -> Vec<Ref> {
     let mut out = Refs::new(id);
     match value {
         Loaded::HeaderTable(headers) => header_refs(&mut out, headers),
         Loaded::Encounter(e) => encounter_refs(&mut out, e),
-        Loaded::Event(e) => event_refs(&mut out, e, family),
+        Loaded::Event(e) => {
+            event_refs(&mut out, e, family);
+            out.push_world(entity::EVENTS, None, entity::event_fields(e));
+        }
+        Loaded::Matrix(m) => out.push_world(entity::MATRICES, None, entity::matrix_fields(m)),
+        Loaded::AreaData(a) => {
+            out.push_world(entity::AREA_DATA, None, entity::area_data_fields(a));
+        }
+        Loaded::Map(m) => out.push_world(
+            entity::MAPS,
+            None,
+            entity::map_fields(&m.buildings, interior.contains(&id.index)),
+        ),
         Loaded::Personal(p) => personal_refs(&mut out, p),
         Loaded::Learnset(l) => learnset_refs(&mut out, l),
         Loaded::Evolution(e) => evolution_refs(&mut out, e),
@@ -627,9 +760,6 @@ fn value_refs(id: AssetId, value: &Loaded, family: Family) -> Vec<Ref> {
         // Kinds that are no source. A loaded trainer is read through its two member
         // sources (`loaded_trainer_refs`).
         Loaded::Trainer(_)
-        | Loaded::Map(_)
-        | Loaded::Matrix(_)
-        | Loaded::AreaData(_)
         | Loaded::TextArchive(_)
         | Loaded::Move(_)
         | Loaded::Item(_)
@@ -686,6 +816,21 @@ impl Refs {
         });
     }
 
+    /// The references of a world source of kind `art` by `metadata/entity_refs.yaml`
+    /// ([`entity::targets`]); `slot` stands in for the slot of each field when given.
+    fn push_world(&mut self, art: &str, slot: Option<u16>, fields: Vec<entity::Field>) {
+        for (field, at, target) in entity::targets(art, fields) {
+            self.refs.push(Ref {
+                source: self.source,
+                field,
+                slot: slot.or(at),
+                target,
+                access: Access::Read,
+                value: None,
+            });
+        }
+    }
+
     /// A reference to species, move or item `value` unless it is 0 (none).
     fn push_nonzero(
         &mut self,
@@ -711,12 +856,106 @@ pub(crate) fn encounter_file(header: &MapHeader) -> Option<u16> {
     }
 }
 
+/// The fields of every header by the table, the header id as the slot.
 fn header_refs(out: &mut Refs, headers: &[MapHeader]) {
     for (id, header) in headers.iter().enumerate() {
-        if let Some(file) = encounter_file(header) {
-            out.push("wild_pokemon", Some(id), Target::Encounter(file));
+        // The table holds far fewer than 65536 headers.
+        let slot = Some(id as u16);
+        out.push_world(entity::HEADERS, slot, entity::header_fields(header));
+    }
+}
+
+/// A matrix's maps and header layer by cell, as its references name them.
+#[derive(Default)]
+struct MatrixCells {
+    maps: BTreeMap<u16, u16>,
+    headers: BTreeMap<u16, u16>,
+}
+
+/// The maps HeartGold/SoulSilver shows inside, from the references of the header table and the
+/// matrices among `refs`: the maps of the matrix cells whose header (the cell's in a matrix with
+/// a header layer, else every header naming the matrix) has area data of `area_type` 0 (the
+/// store's value or the disk; area data that does not decode is outside). Empty in the other
+/// games, which have one building archive.
+fn interior_maps<'a>(
+    store: &Store,
+    disk: &Disk<&Project>,
+    refs: impl Iterator<Item = &'a Ref>,
+) -> Result<BTreeSet<u16>, KernelError> {
+    let family = store.project().family;
+    if family != Family::Hgss {
+        return Ok(BTreeSet::new());
+    }
+    // Per header its matrix and area data; per matrix its maps and header layer by cell.
+    let mut header_matrix: BTreeMap<u16, u16> = BTreeMap::new();
+    let mut header_area: BTreeMap<u16, u16> = BTreeMap::new();
+    let mut cells: BTreeMap<u16, MatrixCells> = BTreeMap::new();
+    for r in refs {
+        let Some(slot) = r.slot else { continue };
+        match (r.source.kind, r.target) {
+            (AssetKind::HeaderTable, Target::Matrix(m)) => {
+                header_matrix.insert(slot, m);
+            }
+            (AssetKind::HeaderTable, Target::AreaData(a)) => {
+                header_area.insert(slot, a);
+            }
+            (AssetKind::Matrix, Target::Map(map)) => {
+                cells
+                    .entry(r.source.index)
+                    .or_default()
+                    .maps
+                    .insert(slot, map);
+            }
+            (AssetKind::Matrix, Target::Header(header)) => {
+                cells
+                    .entry(r.source.index)
+                    .or_default()
+                    .headers
+                    .insert(slot, header);
+            }
+            _ => {}
         }
     }
+    let mut inside_areas = BTreeSet::new();
+    for &area in header_area.values().collect::<BTreeSet<_>>() {
+        let id = AssetId {
+            kind: AssetKind::AreaData,
+            index: area,
+        };
+        let value = match store.peek(id) {
+            Some(Loaded::AreaData(a)) => Some(*a),
+            Some(_) => None,
+            None => disk
+                .member(AssetKind::AreaData, area)?
+                .and_then(|bytes| g4_formats::area_data::AreaData::read(&bytes, family).ok()),
+        };
+        if value.is_some_and(|a| a.area_type() == Some(0)) {
+            inside_areas.insert(area);
+        }
+    }
+    let inside: BTreeSet<u16> = header_area
+        .iter()
+        .filter(|(_, area)| inside_areas.contains(area))
+        .map(|(&header, _)| header)
+        .collect();
+    let inside_matrices: BTreeSet<u16> = inside
+        .iter()
+        .filter_map(|header| header_matrix.get(header).copied())
+        .collect();
+    let mut out = BTreeSet::new();
+    for (matrix, MatrixCells { maps, headers }) in cells {
+        for (cell, map) in maps {
+            let shown_inside = if headers.is_empty() {
+                inside_matrices.contains(&matrix)
+            } else {
+                headers.get(&cell).is_some_and(|h| inside.contains(h))
+            };
+            if shown_inside {
+                out.insert(map);
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn method_field(method: Method) -> &'static str {
@@ -951,6 +1190,10 @@ pub(crate) enum ScriptTarget {
     Item,
     Species,
     Move,
+    /// A map header by id (`Warp`).
+    Header,
+    /// A warp of the script file's own header by its index (`SetWarpEventPos`, `MoveWarp`).
+    WarpIndex,
 }
 
 impl ScriptTarget {
@@ -960,7 +1203,15 @@ impl ScriptTarget {
             ScriptTarget::Item => Target::Item(value),
             ScriptTarget::Species => Target::Species(value),
             ScriptTarget::Move => Target::Move(value),
+            ScriptTarget::Header => Target::Header(value),
+            ScriptTarget::WarpIndex => Target::WarpIndex(value),
         }
+    }
+
+    /// Whether the value 0 is "none" (a trainer, item, species or move) rather than the first
+    /// one (header 0, warp 0).
+    fn zero_is_none(self) -> bool {
+        !matches!(self, ScriptTarget::Header | ScriptTarget::WarpIndex)
     }
 }
 
@@ -973,10 +1224,11 @@ pub(crate) struct ScriptParam {
     pub(crate) target: ScriptTarget,
 }
 
-/// The commands of one family whose parameters name a trainer, an item, a species or a move,
-/// from `metadata/script_refs.yaml`: command (rotom's name) → parameters, positioned by the
-/// bundled command database of the family. An entry the database does not have is left out
-/// (the test `script_refs_name_existing_commands_and_params` keeps the file honest).
+/// The commands of one family whose parameters name a trainer, an item, a species, a move, a
+/// header or a warp index, from `metadata/script_refs.yaml`: command (rotom's name) →
+/// parameters, positioned by the bundled command database of the family. An entry the database
+/// does not have is left out (the test `script_refs_name_existing_commands_and_params` keeps
+/// the file honest).
 #[derive(Debug, Default)]
 pub(crate) struct ScriptRefTable {
     family: Option<Family>,
@@ -1083,7 +1335,7 @@ fn constant(n: i32) -> Option<u16> {
 const SCRIPT_LOCAL: i32 = 0x8000;
 
 /// The source of script file `file`.
-fn script_id(file: u16) -> AssetId {
+pub fn script_id(file: u16) -> AssetId {
     AssetId {
         kind: AssetKind::Script,
         index: file,
@@ -1365,7 +1617,7 @@ fn script_refs(
             let Ok(value) = u16::try_from(value) else {
                 continue;
             };
-            if value == 0 || i32::from(value) >= FIRST_VARIABLE {
+            if (value == 0 && param.target.zero_is_none()) || i32::from(value) >= FIRST_VARIABLE {
                 continue;
             }
             let (line, _) = scripts::position_of(text, arg.span.start);
@@ -1657,7 +1909,7 @@ mod tests {
     #[test]
     fn changed_trainer_properties_recompute_their_party() {
         let changed = vec![
-            id(AssetKind::Matrix, 0),
+            id(AssetKind::Move, 0),
             id(AssetKind::TrainerProperties, 4),
             id(AssetKind::TrainerParty, 4),
             id(AssetKind::Learnset, 2),
@@ -1677,5 +1929,31 @@ mod tests {
                 id(AssetKind::TrainerParty, 9),
             ]
         );
+    }
+
+    #[test]
+    fn warp_commands_name_a_header_and_a_warp_index_by_their_first_parameter() {
+        for (family, mover) in [(Family::Pt, "SetWarpEventPos"), (Family::Hgss, "MoveWarp")] {
+            let table = script_ref_table(family);
+            let param = |command: &str| {
+                let (_, params) = table.params(command).unwrap();
+                params
+                    .iter()
+                    .map(|p| (p.name.as_str(), p.arg, p.target))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                param("Warp"),
+                [("map", 0, ScriptTarget::Header)],
+                "{family:?}"
+            );
+            assert_eq!(
+                param(mover),
+                [("warp_id", 0, ScriptTarget::WarpIndex)],
+                "{family:?}"
+            );
+            // DSPRE's name of the mover is rotom's legacy name.
+            assert_eq!(table.params("SetWarpPosition").unwrap().0, mover);
+        }
     }
 }

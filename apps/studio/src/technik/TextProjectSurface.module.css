@@ -138,3 +138,8 @@
 .inset {
   padding: var(--g4-raum-8) var(--g4-raum-12) var(--g4-raum-12);
 }
+
+/* „Löschen“ in Tüfteln: the kind, the number and the button on one line, the button level with the fields. */
+.deleteRow {
+  align-items: flex-end;
+}

@@ -36,12 +36,15 @@ export interface HeaderPickerProps {
   describe?: (header: HeaderSummary) => string;
 }
 
-/** Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id. */
+/**
+ * Searchable list of the project's headers: location name, identifier and the picture of its map; picking one calls `onPick` with its id.
+ * A tombstone (3d.4) is left out: the kernel refuses a new reference to it.
+ */
 export function HeaderPicker({ open, onOpenChange, headers, onPick, title = "Zielheader wählen", cache = thumbnails, describe }: HeaderPickerProps) {
   const items = useMemo<PickerItem[]>(
     () =>
       open
-        ? headers.map((h) => ({
+        ? headers.filter((h) => h.deleted !== true).map((h) => ({
             id: h.id,
             label: h.location_name || h.internal_name,
             description: describe?.(h),

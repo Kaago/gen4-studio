@@ -1,0 +1,32 @@
+# The world's references as data: per source kind, each numbered field and the kind of entity
+# its number names. The readers in `src/data/refs/entity.rs` yield the fields of one source
+# (field, list position, number); this table turns them into targets of the reference index
+# (`src/data/refs.rs`). The test `entity_refs_name_fields_every_reader_yields` checks that
+# every field here is one a reader yields and the other way round.
+#
+# Special values stay in the readers: `wild_pokemon` 0xFFFF (Diamond, Pearl, Platinum) and 0xFF
+# (HeartGold/SoulSilver) is no encounter file, an empty matrix cell (0xFFFF) no map. A warp's
+# door is the pair: `dest_warp_id` names warp `dest_warp_id` of header `dest_header_id` of the
+# same warp. A map HeartGold/SoulSilver shows inside (the area data of a header that shows it
+# has `area_type` 0) names its building models in the interior archive.
+headers:
+  matrix_id: matrix
+  event_file_id: event_file
+  script_file_id: script
+  level_script_id: script
+  text_archive_id: text_archive
+  area_data_id: area_data
+  location_name: place
+  wild_pokemon: encounter
+matrices:
+  maps: map
+  headers: header
+events:
+  warp_events.dest_header_id: header
+  warp_events.dest_warp_id: warp
+area_data:
+  map_tileset: map_texture
+  building_tileset: building_texture
+maps:
+  buildings.model_id: building_model
+  interior_buildings.model_id: interior_building_model

@@ -1,13 +1,16 @@
 //! Editing of event records: warps, objects, coordinate triggers and background events.
 
 use g4_formats::error::FormatError;
-use g4_kernel::store::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
+use g4_kernel::data::refs::{PARTNER_SCRIPTS, TRAINER_SCRIPTS, Target};
+use g4_kernel::delete::guard_reference;
+use g4_kernel::delete::warps::delete_warp;
+use g4_kernel::store::{BgEvent, CoordEvent, EventFile, ObjectEvent, Store, WarpEvent};
 use serde::Deserialize;
 use tauri::State;
 
 use super::{lock, session};
 use crate::errors::CmdError;
-use crate::state::AppState;
+use crate::state::{AppState, Session};
 
 /// The four classes of events in an event file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -243,6 +246,53 @@ impl EventPatch {
     }
 }
 
+/// The trainer an object's `script` starts the battle of (`3000 + n - 1`, as a partner
+/// `5000 + n - 1`), as the reference index reads it.
+fn trainer_of_script(script: u16) -> Option<u16> {
+    [&TRAINER_SCRIPTS, &PARTNER_SCRIPTS]
+        .into_iter()
+        .find(|range| range.contains(&script))
+        .map(|range| script - range.start() + 1)
+}
+
+/// Refuses `patch` of event `index` of class `kind` in `event_file` (`None`: a new event) when
+/// a field it changes names a tombstone ([`guard_reference`], „{Ziel} ist gelöscht.“): a
+/// warp's destination header, an object's trainer. A field left as it was is not checked.
+fn guard_patch(
+    store: &mut Store,
+    event_file: u16,
+    kind: EventKind,
+    index: Option<u16>,
+    patch: &EventPatch,
+) -> Result<(), CmdError> {
+    let file = store.event(event_file)?;
+    let at = index.map(usize::from);
+    let target = match kind {
+        EventKind::Warp => {
+            let now = at
+                .and_then(|i| file.warp_events.get(i))
+                .map(|w| w.dest_header_id);
+            patch
+                .dest_header_id
+                .filter(|&header| now != Some(header))
+                .map(Target::Header)
+        }
+        EventKind::Object => {
+            let now = at.and_then(|i| file.object_events.get(i)).map(|o| o.script);
+            patch
+                .script
+                .filter(|&script| now != Some(script))
+                .and_then(trainer_of_script)
+                .map(Target::Trainer)
+        }
+        EventKind::Bg | EventKind::Coord => None,
+    };
+    match target {
+        Some(target) => Ok(guard_reference(store, target)?),
+        None => Ok(()),
+    }
+}
+
 fn missing_event(file: u16, kind: EventKind, index: u16) -> CmdError {
     format!(
         "{} event {index} does not exist in event file {file:04}",
@@ -257,7 +307,9 @@ fn next_free_local_id(objects: &[ObjectEvent]) -> Result<u16, FormatError> {
 }
 
 /// Changes the given fields of event `index` of class `kind` in event file `event_file`. One
-/// undoable change. A locked (read-only) file is refused with the `read_only` code.
+/// undoable change. A locked (read-only) file is refused with the `read_only` code; a warp to a
+/// deleted header or an object starting a deleted trainer's battle with „{Ziel} ist gelöscht.“
+/// (a field left as it was is not checked).
 pub fn update_event_impl(
     state: &AppState,
     event_file: u16,
@@ -270,6 +322,7 @@ pub fn update_event_impl(
     if usize::from(index) >= kind.count(session.store.event(event_file)?) {
         return Err(missing_event(event_file, kind, index));
     }
+    guard_patch(&mut session.store, event_file, kind, Some(index), &patch)?;
     let label = if patch.only_moves() {
         "move event"
     } else {
@@ -301,6 +354,9 @@ pub fn add_event_impl(
     let count = kind.count(session.store.event(event_file)?);
     let index = u16::try_from(count)
         .map_err(|_| CmdError::from(format!("event file {event_file:04} has too many events")))?;
+    if let Some(patch) = &patch {
+        guard_patch(&mut session.store, event_file, kind, None, patch)?;
+    }
     let label = label.unwrap_or("add event");
     session.store.edit_event(event_file, label, |file| {
         match kind {
@@ -363,7 +419,9 @@ pub fn add_event_impl(
 }
 
 /// Removes event `index` of class `kind`; the events of that class after it move up by one. One
-/// undoable change.
+/// undoable change. A warp goes through [`delete_warp`]: the warps that lead to the doors after
+/// it are shifted with them in the same change, and a door a warp leads to or a script moves by
+/// index is refused as `"referenced"` with the list.
 pub fn delete_event_impl(
     state: &AppState,
     event_file: u16,
@@ -375,6 +433,13 @@ pub fn delete_event_impl(
     if usize::from(index) >= kind.count(session.store.event(event_file)?) {
         return Err(missing_event(event_file, kind, index));
     }
+    if kind == EventKind::Warp {
+        let Session { store, refs, .. } = &mut *session;
+        return match delete_warp(store, refs, event_file, index) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(CmdError::in_session(session, e)),
+        };
+    }
     let at = usize::from(index);
     session
         .store
@@ -382,6 +447,7 @@ pub fn delete_event_impl(
             match kind {
                 EventKind::Bg => drop(file.bg_events.remove(at)),
                 EventKind::Object => drop(file.object_events.remove(at)),
+                // Warps went through `delete_warp` above.
                 EventKind::Warp => drop(file.warp_events.remove(at)),
                 EventKind::Coord => drop(file.coord_events.remove(at)),
             }
@@ -894,8 +960,10 @@ mod tests {
     #[test]
     fn event_edits_are_undoable_and_delete_shifts_indexes() {
         let (_s, state) = open_synthetic();
+        // They lead to door 9 of header 0, so door 0 is no warp's destination.
         for x in [1, 2, 3] {
-            add_event_impl(&state, 0, EventKind::Warp, x, 0, None, None).unwrap();
+            let away = patch(|p| p.dest_warp_id = Some(9));
+            add_event_impl(&state, 0, EventKind::Warp, x, 0, Some(away), None).unwrap();
         }
         delete_event_impl(&state, 0, EventKind::Warp, 0).unwrap();
         let xs = |state: &AppState| -> Vec<u16> {
@@ -995,5 +1063,54 @@ mod tests {
         assert_eq!(get_events_impl(&state, 3).unwrap().warps.len(), 1);
         assert_eq!(member_counts_impl(&state).unwrap()[&AssetKind::Event], 4);
         assert!(duplicate_event_file_impl(&state, 99).is_err());
+    }
+
+    #[test]
+    fn delete_event_of_a_targeted_warp_answers_referenced() {
+        let (_s, state) = open_synthetic();
+        let door = add_event_impl(&state, 0, EventKind::Warp, 8, 4, None, None).unwrap();
+        let incoming = add_event_impl(&state, 0, EventKind::Warp, 9, 4, None, None).unwrap();
+        let to = |header, warp| {
+            patch(|p| {
+                p.dest_header_id = Some(header);
+                p.dest_warp_id = Some(warp);
+            })
+        };
+        // Header 1 shows event file 0 too: the door leads to itself, which never locks it.
+        update_event_impl(&state, 0, EventKind::Warp, door, to(1, door)).unwrap();
+        update_event_impl(&state, 0, EventKind::Warp, incoming, to(0, door)).unwrap();
+
+        let e = delete_event_impl(&state, 0, EventKind::Warp, door).unwrap_err();
+        assert_eq!(e.code, "referenced");
+        assert_eq!(
+            e.message,
+            "Eventdatei 0000, Tür 0 wird noch verwendet (1 Verweis)."
+        );
+        assert_eq!(e.references.len(), 1, "{:?}", e.references);
+        let r = &e.references[0];
+        assert_eq!(
+            r.nav,
+            NavTargetDto::Event {
+                event_file: 0,
+                event_kind: "warp",
+                index: incoming,
+                header: Some(0),
+            }
+        );
+        assert!(
+            r.label.starts_with("Tür 1 von ") && r.label.ends_with(" springt hierher"),
+            "{}",
+            r.label
+        );
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["references"][0]["nav"]["kind"], "event");
+        assert_eq!(json["references"][0]["nav"]["eventKind"], "warp");
+        // Nothing was deleted.
+        assert_eq!(get_events_impl(&state, 0).unwrap().warps.len(), 2);
+
+        // The incoming warp itself is no door anyone uses: it goes, and the door stays.
+        delete_event_impl(&state, 0, EventKind::Warp, incoming).unwrap();
+        let warps = get_events_impl(&state, 0).unwrap().warps;
+        assert_eq!((warps.len(), warps[0].x), (1, 8));
     }
 }

@@ -723,3 +723,116 @@ fn publish_then_commit_all_leaves_status_empty_and_no_remote() {
         status_ms
     );
 }
+
+/// The gate of 3d.4: a trainer created in a text project in Git and committed; on the branch
+/// `ohne` it is deleted, its number freed and that committed. `git switch` back brings its JSON
+/// back, and the build appends its members again; `git switch ohne` leaves the members without
+/// JSON, and the build step removes them (`textproject.member-removed`, the import's rule: at
+/// the end, unchanged since the sync's record, not in the base). Both builds succeed and the
+/// status stays empty.
+#[test]
+fn a_branch_without_the_freed_file_builds_after_git_switch() {
+    use std::sync::Arc;
+
+    use g4_kernel::data::names::NameTables;
+    use g4_kernel::data::refs::RefIndex;
+    use g4_kernel::data::trainer_create::create_trainer;
+    use g4_kernel::delete::{DeleteTarget, delete, free_number};
+    use g4_kernel::project::AssetKind;
+
+    let home = tempfile::tempdir().unwrap();
+    let Some(cli) = git_cli(home.path()) else {
+        return;
+    };
+    let Some((_tmp, root)) = common::vanilla_copy() else {
+        return;
+    };
+    let Some(nds) = common::vanilla_base_rom() else {
+        return;
+    };
+    assign_base(&root, &nds).unwrap();
+    let base = BaseRom::open(&nds, None).unwrap();
+    adopt(&Project::open(&root).unwrap(), &base, &mut |_| {}).unwrap();
+    let project = Arc::new(Project::open(&root).unwrap());
+    let report = git_init(&project, Some(&cli), &InitOptions::default(), &mut |_| {}).unwrap();
+    assert!(report.committed, "{report:?}");
+    let main = git(&cli, &root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+
+    // A new trainer at the end, saved and committed on the main branch.
+    let mut store = Store::new(project.clone());
+    let mut names = NameTables::new();
+    let id = create_trainer(&project, &mut store, &mut names, 2, "Jens")
+        .unwrap()
+        .id;
+    store.save().unwrap();
+    let json = root.join(format!("data/trainers/{id:04}.json"));
+    assert!(json.is_file());
+    let members = [
+        project.member_path(AssetKind::TrainerProperties, id),
+        project.member_path(AssetKind::TrainerParty, id),
+    ];
+    git(&cli, &root, &["add", "-A"]);
+    git(&cli, &root, &["commit", "-q", "-m", "Trainer angelegt"]);
+
+    // Branch `ohne`: deleted and freed.
+    git(&cli, &root, &["switch", "-q", "-c", "ohne"]);
+    let target = DeleteTarget::Trainer { index: id };
+    let mut refs = RefIndex::new();
+    delete(&mut store, &mut refs, &base, target).unwrap();
+    let freed = free_number(&mut store, &mut refs, &base, target).unwrap();
+    assert_eq!(freed.freed.map(|f| f.count), Some(1));
+    store.save().unwrap();
+    drop(store);
+    assert!(!json.exists());
+    for member in &members {
+        assert!(!member.exists(), "{}", member.display());
+    }
+    git(&cli, &root, &["add", "-A"]);
+    git(&cli, &root, &["commit", "-q", "-m", "Trainer freigegeben"]);
+
+    // Back on the main branch the JSON is there: the build appends the members.
+    git(&cli, &root, &["switch", "-q", &main]);
+    assert!(json.is_file());
+    let started = Instant::now();
+    build(&Project::open(&root).unwrap(), &root.join("build/main.nds")).unwrap();
+    let main_ms = started.elapsed().as_millis();
+    for member in &members {
+        assert!(member.is_file(), "{}", member.display());
+    }
+    let (paths, _) = changes(&root);
+    assert!(paths.is_empty(), "after the build on {main}: {paths:?}");
+
+    // On `ohne` the JSON is gone: the build step removes the members.
+    git(&cli, &root, &["switch", "-q", "ohne"]);
+    assert!(!json.exists());
+    let started = Instant::now();
+    let built = build(&Project::open(&root).unwrap(), &root.join("build/ohne.nds")).unwrap();
+    let ohne_ms = started.elapsed().as_millis();
+    for member in &members {
+        assert!(!member.exists(), "{}", member.display());
+    }
+    assert!(
+        built
+            .problems
+            .iter()
+            .any(|p| p.message.starts_with("textproject.member-removed:")),
+        "{:?}",
+        built.problems
+    );
+    let (paths, _) = changes(&root);
+    assert!(paths.is_empty(), "after the build on ohne: {paths:?}");
+
+    // The freed number is free on `ohne`: the next trainer created takes it.
+    let project = Arc::new(Project::open(&root).unwrap());
+    let mut store = Store::new(project.clone());
+    let again = create_trainer(&project, &mut store, &mut NameTables::new(), 2, "Mia")
+        .unwrap()
+        .id;
+    assert_eq!(again, id);
+    println!(
+        "branch-free {} trainer={id} build_main_ms={main_ms} build_ohne_ms={ohne_ms} removed",
+        project.game_code
+    );
+}

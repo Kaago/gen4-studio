@@ -1,14 +1,15 @@
 //! The schema version of a text project and the migration chain: `schema_state` reads the
 //! version from the manifest (`schemaVersion`, or `schema` in the invented v0), `migrate`
 //! lifts an older project to the current version with a snapshot of the old files. The
-//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v1/` the
-//! expected result, byte for byte.
+//! fixtures under `tests/fixtures/textproject/` are synthetic: `v0/` is the input, `v2/` the
+//! expected result, byte for byte (`v1/` is the same project before 1 → 2, which changes
+//! only the manifest when no flag or variable has an own name).
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use g4_kernel::error::KernelError;
-use g4_kernel::textproject::manifest::{SchemaState, schema_state};
+use g4_kernel::textproject::manifest::{SchemaState, read_manifest, schema_state};
 use g4_kernel::textproject::migrate::migrate;
 use g4_kernel::textproject::{MANIFEST_FILE, SCHEMA_VERSION, is_text_project};
 
@@ -90,23 +91,24 @@ fn schema_state_tells_missing_current_older_and_newer() {
     assert!(!is_text_project(dir.path()));
     assert_eq!(schema_state(dir.path()).unwrap(), SchemaState::Missing);
 
-    assert!(is_text_project(&fixture("v1")));
-    assert_eq!(schema_state(&fixture("v1")).unwrap(), SchemaState::Current);
+    assert!(is_text_project(&fixture("v2")));
+    assert_eq!(schema_state(&fixture("v2")).unwrap(), SchemaState::Current);
+    assert_eq!(schema_state(&fixture("v1")).unwrap(), SchemaState::Older(1));
     assert_eq!(schema_state(&fixture("v0")).unwrap(), SchemaState::Older(0));
 
     let (_tmp, root) = v0_project();
     let manifest = root.join(MANIFEST_FILE);
-    let text = std::fs::read_to_string(fixture("v1").join(MANIFEST_FILE)).unwrap();
+    let text = std::fs::read_to_string(fixture("v2").join(MANIFEST_FILE)).unwrap();
     std::fs::write(
         &manifest,
-        text.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2"),
+        text.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3"),
     )
     .unwrap();
-    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(2));
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Newer(3));
 }
 
 #[test]
-fn migrate_v0_fixture_matches_expected_v1() {
+fn migrate_v0_fixture_matches_expected_v2() {
     let (_tmp, root) = v0_project();
     let matrix = root.join("data/matrices/0000.json");
     let matrix_mtime = mtime(&matrix);
@@ -124,7 +126,7 @@ fn migrate_v0_fixture_matches_expected_v1() {
         ]
     );
 
-    let expected = fixture("v1");
+    let expected = fixture("v2");
     assert_eq!(files_under(&root), files_under(&expected));
     for rel in files_under(&expected) {
         assert_eq!(
@@ -242,7 +244,7 @@ fn migrate_refuses_a_newer_schema() {
 fn migrate_on_a_current_project_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
-    copy_tree(&fixture("v1"), &root);
+    copy_tree(&fixture("v2"), &root);
     let before: Vec<(String, SystemTime)> = files_under(&root)
         .into_iter()
         .map(|rel| {
@@ -260,4 +262,185 @@ fn migrate_on_a_current_project_changes_nothing() {
         assert_eq!(&mtime(&root.join(rel)), time, "{rel}");
     }
     assert!(backups(&root).is_empty());
+}
+
+/// A copy of the v1 fixture in a fresh temp dir.
+fn v1_project() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    copy_tree(&fixture("v1"), &root);
+    (dir, root)
+}
+
+/// Canonical JSON (two spaces, final `\n`), as the text project writes it.
+fn canonical(value: &serde_json::Value) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec_pretty(value).unwrap();
+    bytes.push(b'\n');
+    bytes
+}
+
+/// The JSON of an event file in schema version 1: objects with `hidden_flag` numbers
+/// `flags`, triggers with `var` numbers `vars`.
+fn events_v1(flags: &[u64], vars: &[u64]) -> Vec<u8> {
+    let objects: Vec<serde_json::Value> = flags
+        .iter()
+        .enumerate()
+        .map(|(i, &flag)| {
+            serde_json::json!({
+                "local_id": i, "graphics_id": 3, "movement_type": 0, "trainer_type": 0,
+                "hidden_flag": flag, "script": 7, "dir": 0, "data": [0, 0, 0],
+                "movement_range_x": 0, "movement_range_z": 0, "x": 4, "z": 5, "y": 0
+            })
+        })
+        .collect();
+    let coords: Vec<serde_json::Value> = vars
+        .iter()
+        .map(|&var| {
+            serde_json::json!({
+                "script": 9, "x": 1, "z": 2, "width": 1, "length": 1, "y": 0,
+                "value": 148, "var": var
+            })
+        })
+        .collect();
+    canonical(&serde_json::json!({
+        "bg_events": [],
+        "object_events": objects,
+        "warp_events": [],
+        "coord_events": coords
+    }))
+}
+
+/// Every file under `root` with its bytes.
+fn contents(root: &Path) -> Vec<(String, Vec<u8>)> {
+    files_under(root)
+        .into_iter()
+        .map(|rel| {
+            let bytes = std::fs::read(root.join(&rel)).unwrap();
+            (rel, bytes)
+        })
+        .collect()
+}
+
+#[test]
+fn migration_1_to_2_changes_only_the_manifest_without_own_names() {
+    let (_tmp, root) = v1_project();
+    // Event files with flags and variables, a locked one, and registers without flags.
+    std::fs::create_dir_all(root.join("data/events")).unwrap();
+    std::fs::write(
+        root.join("data/events/0007.json"),
+        events_v1(&[0, 148, 149], &[0x406C, 0]),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/events/0008.json"),
+        "{\n  \"locked\": \"event 0008: does not decode\",\n  \"raw\": {\n    \"hex\": \"01\"\n  }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("data/ids/flags.json"), "{}\n").unwrap();
+    let before = contents(&root);
+
+    let report = migrate(&root).unwrap();
+    assert_eq!((report.from, report.to), (1, SCHEMA_VERSION));
+    assert_eq!(SCHEMA_VERSION, 2);
+    assert_eq!(report.changed, vec![PathBuf::from(MANIFEST_FILE)]);
+    for (rel, bytes) in before {
+        let now = std::fs::read(root.join(&rel)).unwrap();
+        if rel == MANIFEST_FILE {
+            assert_eq!(
+                String::from_utf8(now).unwrap(),
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")
+            );
+        } else {
+            assert_eq!(now, bytes, "{rel}");
+        }
+    }
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Current);
+}
+
+#[test]
+fn migration_writes_own_names_into_event_json_only() {
+    let (_tmp, root) = v1_project();
+    std::fs::write(
+        root.join("data/ids/flags.json"),
+        "{\n  \"FLAG_HAT_MEDAILLE\": 148\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/ids/vars.json"),
+        "{\n  \"VAR_ZAEHLER\": 16492\n}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("data/events")).unwrap();
+    // Object 3 of event file 7 has the named flag, trigger 1 the named variable; 0, numbers
+    // without an own name and `value` stay numbers.
+    let seven = events_v1(&[0, 149, 0, 148], &[0, 16492]);
+    std::fs::write(root.join("data/events/0007.json"), &seven).unwrap();
+    let one = events_v1(&[149], &[16493]);
+    std::fs::write(root.join("data/events/0001.json"), &one).unwrap();
+    // A trainer file with the flag's number is no event file: untouched.
+    std::fs::create_dir_all(root.join("data/trainers")).unwrap();
+    let trainer = b"{\n  \"hidden_flag\": 148\n}\n";
+    std::fs::write(root.join("data/trainers/0000.json"), trainer).unwrap();
+    let before = contents(&root);
+
+    let report = migrate(&root).unwrap();
+    assert_eq!(
+        report.changed,
+        vec![
+            PathBuf::from("data/events/0007.json"),
+            PathBuf::from(MANIFEST_FILE)
+        ],
+        "sorted"
+    );
+    let now = std::fs::read_to_string(root.join("data/events/0007.json")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&now).unwrap();
+    assert_eq!(
+        value["object_events"][3]["hidden_flag"],
+        "FLAG_HAT_MEDAILLE"
+    );
+    assert_eq!(value["coord_events"][1]["var"], "VAR_ZAEHLER");
+    // Every other byte as before: only the two numbers became names.
+    let old = String::from_utf8(seven).unwrap();
+    let mut objects = old.split("\"hidden_flag\": ");
+    let mut expected = objects.next().unwrap().to_owned();
+    for (i, rest) in objects.enumerate() {
+        expected.push_str("\"hidden_flag\": ");
+        expected.push_str(&if i == 3 {
+            rest.replacen("148", "\"FLAG_HAT_MEDAILLE\"", 1)
+        } else {
+            rest.to_owned()
+        });
+    }
+    let expected = expected.replace("\"var\": 16492", "\"var\": \"VAR_ZAEHLER\"");
+    assert_eq!(now, expected);
+    for (rel, bytes) in before {
+        if rel != MANIFEST_FILE && rel != "data/events/0007.json" {
+            assert_eq!(std::fs::read(root.join(&rel)).unwrap(), bytes, "{rel}");
+        }
+    }
+
+    // The snapshot holds the old event file.
+    let snapshot = report.snapshot.unwrap();
+    assert_eq!(
+        std::fs::read(snapshot.join("data/events/0007.json")).unwrap(),
+        old.as_bytes()
+    );
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Current);
+}
+
+#[test]
+fn a_v1_project_is_refused_until_migrated() {
+    let (_tmp, root) = v1_project();
+    assert_eq!(schema_state(&root).unwrap(), SchemaState::Older(1));
+    assert_eq!(
+        refused(read_manifest(&root).unwrap_err()),
+        format!(
+            "Das Textprojekt hat Schema-Version 1, diese Fassung kennt {SCHEMA_VERSION}: \
+             `g4k text migrate` ausführen."
+        )
+    );
+    migrate(&root).unwrap();
+    assert_eq!(read_manifest(&root).unwrap().schema_version, SCHEMA_VERSION);
 }

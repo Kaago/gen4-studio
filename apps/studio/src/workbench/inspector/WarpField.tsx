@@ -21,9 +21,10 @@ export function counterpartText(destHeader: HeaderSummary, target: WarpDto | und
 
 /**
  * A door's field „Tür“ (the destination warp) in Erzählen: the door of the destination header's event file it leads to, by its number
- * and tile; „Ändern…“ picks another of that file's doors („Tür wählen“). Without a known destination there is nothing to pick. With
- * `self` (this door: its header and warp) the row „Gegenstück“ says whether that door leads back; `onConnect` adds „Tür verbinden…“,
- * which opens the wizard with this door as door A.
+ * and tile; „Ändern…“ picks another of that file's doors („Tür wählen“). Without a known destination there is nothing to pick, nor with a
+ * deleted one (the header or its event file a tombstone, 3d.4): the kernel refuses a new reference to it. With `self` (this door: its
+ * header and warp) the row „Gegenstück“ says whether that door leads back; `onConnect` adds „Tür verbinden…“, which opens the wizard with
+ * this door as door A.
  */
 export function WarpField({
   destHeader,
@@ -45,14 +46,16 @@ export function WarpField({
   const [picking, setPicking] = useState(false);
   const events = useEvents(destHeader?.event_file_id ?? null, onError);
   const current = events?.warps.find((w) => w.index === value);
-  const items = useMemo<PickerItem[]>(() => (picking && events ? events.warps.map((w) => ({ id: w.index, label: doorText(w), area: "welt" as const })) : []), [picking, events]);
+  const gone = destHeader?.deleted === true || events?.deleted === true;
+  const items = useMemo<PickerItem[]>(() => (picking && events && !gone ? events.warps.map((w) => ({ id: w.index, label: doorText(w), area: "welt" as const })) : []), [picking, events, gone]);
   const missing = events !== null && current === undefined;
+  const hint = gone ? "Das Ziel ist gelöscht." : missing ? `Das Ziel hat keine Tür ${value}. Wähle eine seiner Türen.` : undefined;
   return (
     <>
-      <InspectorRow label="Tür" hint={missing ? `Das Ziel hat keine Tür ${value}. Wähle eine seiner Türen.` : undefined}>
+      <InspectorRow label="Tür" hint={hint}>
         <div className={styles.inline} data-warp-field="">
           <span>{current ? doorText(current) : `Tür ${value}`}</span>
-          <Button kind="quiet" size="s" aria-label="Tür ändern…" disabled={disabled || destHeader === undefined} onClick={() => setPicking(true)}>
+          <Button kind="quiet" size="s" aria-label="Tür ändern…" disabled={disabled || destHeader === undefined || gone} onClick={() => setPicking(true)}>
             Ändern…
           </Button>
         </div>

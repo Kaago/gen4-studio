@@ -31,7 +31,9 @@ use crate::commands::policy::UserPolicy;
 use crate::commands::{ProjectInfo, TextChoice, history_of, open_project_impl, project_info_of};
 use crate::errors::CmdError;
 use crate::mcp::TOOLSET;
-use crate::mcp::access::{Access, COMMAND_KINDS, Class, Kind, admit, classify, kind_of};
+use crate::mcp::access::{
+    Access, COMMAND_KINDS, Class, Kind, admit, classify, frees_number, kind_of,
+};
 use crate::mcp::catalog::{Route, ToolDef, catalog};
 use crate::mcp::docs;
 use crate::mcp::host::StateSource;
@@ -69,6 +71,7 @@ impl ToolError {
             message: message.into(),
             asset: None,
             problems: Vec::new(),
+            references: Vec::new(),
         }
         .into()
     }
@@ -97,10 +100,16 @@ impl ToolError {
 }
 
 impl From<CmdError> for ToolError {
+    /// The details carry `asset` and `problems`, and the `references` of a `referenced`
+    /// refusal (3d.4) when it names any.
     fn from(e: CmdError) -> Self {
+        let mut details = json!({ "asset": e.asset, "problems": e.problems });
+        if !e.references.is_empty() {
+            details["references"] = json!(e.references);
+        }
         ToolError::Failed {
             code: e.code.to_owned(),
-            details: json!({ "asset": e.asset, "problems": e.problems }),
+            details,
             message: e.message,
         }
     }
@@ -314,7 +323,9 @@ const NO_PROJECT_CHANGE: &[&str] = &["live_set"];
 /// `create_area`/`create_room` with `header.allow_patch`, which may apply the header patch,
 /// and `reset_to_original` of a script, texture or model, which writes its files at once
 /// (the batch's squash and rollback carry file steps, as for `name_flag`; a reset of a file
-/// target stays out of a batch like the saves and compiles).
+/// target stays out of a batch like the saves and compiles), and `delete_entity` with
+/// `freeNumber` (or `free_number`, see [`frees_number`]), which removes files past the store
+/// behind an undo barrier (a tombstone is an edit like any other).
 fn not_in_batch(command: &str, args: &Value) -> bool {
     NOT_IN_BATCH.contains(&command)
         || (command == "apply_fix"
@@ -335,6 +346,7 @@ fn not_in_batch(command: &str, args: &Value) -> bool {
                         | "interior_building_model"
                 )
             ))
+        || (command == "delete_entity" && frees_number(args))
 }
 
 /// Runs call `index` of a batch (the call's own `run`; tests wrap it).
@@ -982,7 +994,9 @@ impl<'a> Call<'a> {
     /// answers `unsaved` (and `busy`) unasked. `publish_patch` (asked only with `overwrite` or
     /// a `dir` outside `build/`) answers the refusals of `check_publish_patch` unasked and names
     /// the patch file; `git_commit_all` answers `unsaved`, `no_repo`, `enclosing_repo`,
-    /// `no_git` and `nothing_to_commit` unasked.
+    /// `no_git` and `nothing_to_commit` unasked. `delete_entity` (asked only with the number
+    /// freed) answers the refusals of `check_free_number` unasked (an entity that does not
+    /// exist, a read-only one, `cannot_free`, references) and names the entity.
     fn question(&self, command: &str, args: &Value, why: &str) -> Result<String, ToolError> {
         match (command, &self.shared) {
             ("assign_base", Some(_)) => {
@@ -1032,6 +1046,20 @@ impl<'a> Call<'a> {
             ("git_commit_all", Some(_)) => {
                 crate::commands::check_git_commit_all(self.state)?;
                 Ok(why.to_owned())
+            }
+            // „Nummer freigeben: Trainer 0002“, after the plan: a refusal comes back unasked.
+            // A target that is none is refused by the command.
+            ("delete_entity", shared) => {
+                let target = args.get("target").and_then(|target| {
+                    serde_json::from_value::<g4_kernel::delete::DeleteTarget>(target.clone()).ok()
+                });
+                let Some(target) = target else {
+                    return Ok(why.to_owned());
+                };
+                if shared.is_some() {
+                    crate::commands::check_free_number(self.state, target)?;
+                }
+                Ok(format!("{why}: {}", target.label()))
             }
             _ => Ok(why.to_owned()),
         }
@@ -4753,5 +4781,248 @@ mod tests {
         let mut guard = toolbox.state().lock_session();
         let session = guard.as_mut().unwrap();
         assert_eq!(session.id_files_changed(), Vec::<std::path::PathBuf>::new());
+    }
+
+    #[test]
+    fn referenced_reaches_the_agent_with_the_references() {
+        // Without references the details stay as they were.
+        let plain = ToolError::from(CmdError::from("kaputt"));
+        let ToolError::Failed { details, .. } = plain else {
+            unreachable!()
+        };
+        assert!(details.get("references").is_none(), "{details}");
+
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let warp = |x: u16| {
+            toolbox
+                .call(
+                    "add_event",
+                    json!({ "event_file": 0, "kind": "warp", "x": x, "z": 4 }),
+                    AGENT,
+                )
+                .unwrap()
+        };
+        let (door, incoming) = (warp(8), warp(9));
+        let lead = |index: &Value, header: u16| {
+            toolbox
+                .call(
+                    "update_event",
+                    json!({ "event_file": 0, "kind": "warp", "index": index,
+                            "patch": { "dest_header_id": header, "dest_warp_id": door } }),
+                    AGENT,
+                )
+                .unwrap();
+        };
+        // Header 1 shows event file 0 too: the door leads to itself, which never locks it.
+        lead(&door, 1);
+        lead(&incoming, 0);
+        let (code, message, details) = failed(toolbox.call(
+            "delete_event",
+            json!({ "event_file": 0, "kind": "warp", "index": door }),
+            AGENT,
+        ));
+        assert_eq!(code, "referenced", "{message}");
+        let references = details["references"].as_array().unwrap();
+        assert_eq!(references.len(), 1, "{details}");
+        assert_eq!(references[0]["nav"]["kind"], "event");
+        assert_eq!(references[0]["nav"]["index"], incoming);
+        assert!(
+            references[0]["label"]
+                .as_str()
+                .unwrap()
+                .ends_with(" springt hierher"),
+            "{details}"
+        );
+    }
+
+    #[test]
+    fn free_number_is_refused_in_a_batch() {
+        let target = json!({ "kind": "trainer", "index": 2 });
+        for key in ["freeNumber", "free_number"] {
+            let mut args = json!({ "target": target });
+            args[key] = json!(true);
+            assert!(not_in_batch("delete_entity", &args), "{key}");
+        }
+        for args in [
+            json!({ "target": target, "freeNumber": false }),
+            json!({ "target": target, "free_number": false }),
+            json!({ "target": target }),
+        ] {
+            assert!(!not_in_batch("delete_entity", &args), "{args}");
+        }
+        assert!(!not_in_batch(
+            "restore_entity",
+            &json!({ "target": target })
+        ));
+
+        let (_fixture, toolbox) = open_toolbox(ALL);
+        let species = data(&toolbox, "species", 1);
+        // The curated tool and g4_call with either key.
+        for call in [
+            json!({ "tool": "delete_entity",
+                    "arguments": { "target": target, "free_number": true } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "delete_entity",
+                    "args": { "target": target, "free_number": true } } }),
+            json!({ "tool": "g4_call", "arguments": { "command": "delete_entity",
+                    "args": { "target": target, "freeNumber": true } } }),
+        ] {
+            let mut calls = three_edits();
+            calls.push(call.clone());
+            let (code, message, details) =
+                failed(toolbox.call("g4_batch", json!({ "calls": calls }), AGENT));
+            assert_eq!(code, "error", "{call}: {message}");
+            assert_eq!(details["index"], 3);
+            assert!(
+                message.ends_with("delete_entity geht nicht in g4_batch"),
+                "{message}"
+            );
+        }
+        // Nothing ran.
+        assert_eq!(data(&toolbox, "species", 1), species);
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+    }
+
+    /// The synthetic text project (exported) open in a state of the "app" with agents allowed,
+    /// a write grant and expert mode, its packed archives with one trainer as the base on this
+    /// thread (the header-only ROM holds none; so trainers 1 and up are new); a toolbox over
+    /// it and the number of trainers.
+    fn shared_text_project() -> (
+        g4_kernel::test_support::TextFixture,
+        Arc<AppState>,
+        Toolbox,
+        u16,
+    ) {
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        state.agents.set_expert(true).unwrap();
+        let trainers =
+            crate::commands::data_list_impl(&state, crate::commands::DataKind::Trainer, None)
+                .unwrap()
+                .len();
+        crate::commands::delete::use_test_base(fx.root(), Some(1));
+        let source: Arc<dyn StateSource> = Arc::new(Arc::clone(&state));
+        let toolbox = Toolbox::shared_waiting(source, WAIT);
+        (fx, state, toolbox, u16::try_from(trainers).unwrap())
+    }
+
+    /// „Nummer freigeben“ asks the user with the entity's name, through the curated tool and
+    /// through g4_call with the curated tool's key; a no frees nothing.
+    #[test]
+    fn free_number_question_names_the_entity() {
+        use g4_kernel::delete::DeleteTarget;
+        let (_fx, state, toolbox, trainers) = shared_text_project();
+        let index = trainers - 1;
+        let target = json!({ "kind": "trainer", "index": index });
+        let label = DeleteTarget::Trainer { index }.label();
+        assert!(label.starts_with("Trainer "), "{label}");
+        for (tool, args) in [
+            (
+                "delete_entity",
+                json!({ "target": target, "free_number": true }),
+            ),
+            (
+                "g4_call",
+                json!({ "command": "delete_entity",
+                        "args": { "target": target, "free_number": true } }),
+            ),
+        ] {
+            let user = answer_next(&state, "deny");
+            let (code, message, _) = failed(toolbox.call(tool, args, AGENT));
+            let question = user.join().unwrap();
+            assert_eq!(question.kind, "confirm");
+            assert_eq!(
+                question.what.as_deref(),
+                Some(format!("Nummer freigeben: {label}").as_str()),
+                "{tool}"
+            );
+            assert_eq!(code, "needs_confirmation", "{tool}: {message}");
+        }
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+    }
+
+    /// Gate 3d.4 B10: „Nummer freigeben“ of a trainer that does not exist, or of one with
+    /// living trainers behind it, comes back to the agent unasked with the plan's refusal.
+    #[test]
+    fn free_number_refuses_before_asking() {
+        let (_fx, state, toolbox, trainers) = shared_text_project();
+        let unasked = |index: u16| {
+            let args =
+                json!({ "target": { "kind": "trainer", "index": index }, "free_number": true });
+            let (code, message, _) = failed(toolbox.call("delete_entity", args, AGENT));
+            assert_eq!(state.agents.status().question, None, "{message}");
+            (code, message)
+        };
+        assert_eq!(
+            unasked(trainers),
+            (
+                "error".to_owned(),
+                format!("Trainer {trainers:04} gibt es nicht.")
+            )
+        );
+        assert_eq!(
+            unasked(trainers - 2),
+            (
+                "error".to_owned(),
+                g4_kernel::delete::later_entries_live(trainers - 2, 1)
+            )
+        );
+        assert!(history_impl(&state).unwrap().undo.is_empty());
+    }
+
+    #[test]
+    fn a_tombstone_in_a_batch_rolls_back_with_it() {
+        use g4_kernel::delete::DeleteTarget;
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let toolbox = Toolbox::open_with_base(policy, ALL, Some(fx.rom().to_path_buf())).unwrap();
+        // The header-only ROM of the fixture holds no archives: the runner deletes against the
+        // fixture's packed archives (the command's own variant for tests); the batch around it
+        // is the real one.
+        let base = g4_kernel::test_support::ProjectOriginal::new(fx.root());
+        let target = DeleteTarget::Trainer { index: 1 };
+        let deleted = |toolbox: &Toolbox| {
+            toolbox
+                .call("data_list", json!({ "kind": "trainer" }), AGENT)
+                .unwrap()[1]["deleted"]
+                .clone()
+        };
+        let calls = json!({ "calls": [
+            { "tool": "delete_entity", "arguments": { "target": { "kind": "trainer", "index": 1 } } },
+            { "tool": "get_header", "arguments": { "id": 60000 } },
+        ] });
+        let (code, message, details) = failed(toolbox.own_call(AGENT).batch_with(
+            batch_tool(),
+            calls.clone(),
+            &mut |toolbox, index, prepared| {
+                if index == 0 {
+                    let result =
+                        crate::commands::delete_with_original(toolbox.state, &base, target, false)?;
+                    return Ok(serde_json::to_value(result).unwrap());
+                }
+                toolbox.run(prepared)
+            },
+        ));
+        assert_eq!(code, "batch_failed", "{message}");
+        assert_eq!(details["rolled_back"], 1, "{details}");
+        assert_eq!(deleted(&toolbox), false);
+        assert_eq!(history(&toolbox)["undo"], json!([]));
+
+        // Without the failing call the tombstone stays, as the batch's one step.
+        let calls = json!({ "calls": [calls["calls"][0].clone()], "label": "Agent: löschen" });
+        toolbox
+            .own_call(AGENT)
+            .batch_with(batch_tool(), calls, &mut |toolbox, _, _| {
+                let result =
+                    crate::commands::delete_with_original(toolbox.state, &base, target, false)?;
+                Ok(serde_json::to_value(result).unwrap())
+            })
+            .unwrap();
+        assert_eq!(deleted(&toolbox), true);
+        assert_eq!(history(&toolbox)["undo"], json!(["Agent: löschen"]));
     }
 }

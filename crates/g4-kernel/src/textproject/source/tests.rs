@@ -168,6 +168,7 @@ fn write_of_one_species_part_rewrites_only_its_json() {
             &p,
             &[(id(AssetKind::Personal, 1), personal.clone())],
             &|_| None,
+            &|_, _| false,
         )
         .unwrap();
     assert_eq!(out.sources, paths(&["data/species/0001.json"]));
@@ -203,9 +204,12 @@ fn the_other_parts_of_a_unit_come_from_the_store_before_the_json() {
     store_learnset[..2].copy_from_slice(&((entry & 0x01FF) | (7 << 9)).to_le_bytes());
     let mut source = EntitySource::open(&p).unwrap();
     source
-        .write(&p, &[(id(AssetKind::Personal, 1), personal)], &|asset| {
-            (asset == unsaved).then(|| store_learnset.clone())
-        })
+        .write(
+            &p,
+            &[(id(AssetKind::Personal, 1), personal)],
+            &|asset| (asset == unsaved).then(|| store_learnset.clone()),
+            &|_, _| false,
+        )
         .unwrap();
     let new = json(&fx, "data/species/0001.json");
     assert_eq!(new["personal"]["attack"], 99);
@@ -224,6 +228,7 @@ fn write_of_an_unchanged_asset_writes_nothing() {
             &p,
             &[(id(AssetKind::Move, 1), member(&fx, AssetKind::Move, 1))],
             &|_| None,
+            &|_, _| false,
         )
         .unwrap();
     assert_eq!(out, SourceWrite::default());
@@ -241,7 +246,9 @@ fn write_of_one_header_rewrites_only_that_header_file() {
     table[24] = 0; // header 1: area_data_id 1 → 0
     let mut source = EntitySource::open(&p).unwrap();
     let out = source
-        .write(&p, &[(HEADER_TABLE, table.clone())], &|_| None)
+        .write(&p, &[(HEADER_TABLE, table.clone())], &|_| None, &|_, _| {
+            false
+        })
         .unwrap();
     assert_eq!(out.sources, paths(&["data/headers/0001.json"]));
     let after = tree(&fx);
@@ -381,6 +388,7 @@ fn a_changed_map_model_without_base_layer_becomes_a_side_file_and_an_unchanged_o
                 (id(AssetKind::Map, 1), new_permission),
             ],
             &|_| None,
+            &|_, _| false,
         )
         .unwrap();
     assert_eq!(
@@ -422,7 +430,12 @@ fn write_forgets_the_kept_members_of_its_units() {
     bytes[1] = 99;
     let mut source = EntitySource::open(&p).unwrap();
     source
-        .write(&p, &[(id(AssetKind::Personal, 1), bytes)], &|_| None)
+        .write(
+            &p,
+            &[(id(AssetKind::Personal, 1), bytes)],
+            &|_| None,
+            &|_, _| false,
+        )
         .unwrap();
     let kept = json(&fx, ".g4/build/textproject.json");
     assert_eq!(
@@ -630,7 +643,7 @@ fn an_item_member_is_read_and_written_through_the_item_table() {
     price[0] = 77;
     let before = std::fs::read(dir.path().join("data/items/0013.json")).unwrap();
     let out = source
-        .write(&p, &[(item, price.clone())], &|_| None)
+        .write(&p, &[(item, price.clone())], &|_| None, &|_, _| false)
         .unwrap();
     // Only the id carrying the data changes; the others name it in `same_member_as`.
     assert_eq!(out.sources, paths(&["data/items/0003.json"]));
@@ -655,7 +668,12 @@ fn an_unchanged_part_of_a_packed_archive_stays_base_sha1_without_base_layer() {
     new_permission[16] ^= 0x01;
     let mut source = EntitySource::open(&p).unwrap();
     let out = source
-        .write(&p, &[(id(AssetKind::Map, 1), new_permission)], &|_| None)
+        .write(
+            &p,
+            &[(id(AssetKind::Map, 1), new_permission)],
+            &|_| None,
+            &|_, _| false,
+        )
         .unwrap();
     assert_eq!(out.sources, paths(&["data/maps/0001.json"]));
     assert_eq!(json(&fx, "data/maps/0001.json")["model"], model_1);
@@ -673,7 +691,7 @@ fn open_refuses_a_folder_that_is_no_text_project_of_the_current_schema() {
     let fx = TextFixture::exported();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
+        "\"schemaVersion\": 2",
         "\"schemaVersion\": 99",
     );
     assert!(refusal(&fx).contains("neueren Fassung"));
@@ -707,18 +725,25 @@ fn a_binary_member_read_without_file_keeps_no_file_without_base_layer_while_it_i
     let mut source = EntitySource::open(&p).unwrap();
     let base = source.read(&p, texture).unwrap().unwrap();
     let out = source
-        .write(&p, &[(texture, base.clone())], &|_| None)
+        .write(&p, &[(texture, base.clone())], &|_| None, &|_, _| false)
         .unwrap();
     assert_eq!(out, SourceWrite::default());
     assert!(!fx.root().join(file).exists());
     let changed_bytes = [base.as_slice(), b"changed"].concat();
     let out = source
-        .write(&p, &[(texture, changed_bytes.clone())], &|_| None)
+        .write(
+            &p,
+            &[(texture, changed_bytes.clone())],
+            &|_| None,
+            &|_, _| false,
+        )
         .unwrap();
     assert_eq!(out.sources, paths(&[file]));
     assert_eq!(fx.read(file), changed_bytes);
     // Back to the bytes it was read with: the file goes again.
-    let out = source.write(&p, &[(texture, base)], &|_| None).unwrap();
+    let out = source
+        .write(&p, &[(texture, base)], &|_| None, &|_, _| false)
+        .unwrap();
     assert_eq!(out.sources, paths(&[file]));
     assert!(!fx.root().join(file).exists());
 }
@@ -753,7 +778,7 @@ fn a_header_appended_to_the_table_gets_its_json_and_a_map_id() {
     let before = tree(&fx);
     let mut source = EntitySource::open(&p).unwrap();
     let out = source
-        .write(&p, &[(HEADER_TABLE, table)], &|_| None)
+        .write(&p, &[(HEADER_TABLE, table)], &|_| None, &|_, _| false)
         .unwrap();
     assert_eq!(out.sources, paths(&["data/headers/0002.json"]));
     assert_eq!(out.registers, paths(&["data/ids/maps.json"]));
@@ -805,7 +830,9 @@ fn the_diff_source_takes_fallback_ids_and_never_writes() {
     let header: Value = serde_json::from_slice(&header).unwrap();
     assert_eq!(header["id"], "MAP_0001");
     let pair = disk_bytes(&p, trainer).unwrap().unwrap();
-    let err = source.write(&p, &[(trainer, pair)], &|_| None).unwrap_err();
+    let err = source
+        .write(&p, &[(trainer, pair)], &|_| None, &|_, _| false)
+        .unwrap_err();
     assert!(matches!(err, KernelError::InvalidProject(_)), "{err:?}");
     assert!(!fx.root().join("data").exists(), "nothing written");
     // `open` refuses the DSPRE layout.
@@ -907,7 +934,7 @@ fn egg_moves_unit_reads_from_the_species_files_and_writes_only_the_field() {
             t.set_moves(4, vec![16]);
         });
         let out = source
-            .write(&p, &[(EGG, bytes.clone())], &|_| None)
+            .write(&p, &[(EGG, bytes.clone())], &|_| None, &|_, _| false)
             .unwrap();
         assert_eq!(
             out.sources,
@@ -945,7 +972,9 @@ fn egg_moves_unit_reads_from_the_species_files_and_writes_only_the_field() {
         let personal = id(AssetKind::Personal, 1);
         let mut bytes = disk_bytes(&p, personal).unwrap().unwrap();
         bytes[0] = bytes[0].wrapping_add(1);
-        source.write(&p, &[(personal, bytes)], &|_| None).unwrap();
+        source
+            .write(&p, &[(personal, bytes)], &|_| None, &|_, _| false)
+            .unwrap();
         assert_eq!(
             json(&fx, "data/species/0001.json")["egg_moves"],
             serde_json::json!([7, 5])
@@ -1095,4 +1124,71 @@ fn a_store_write_of_egg_moves_marks_a_text_project_exported_before_the_field() {
         "{:?}",
         found.units
     );
+}
+
+/// Writes the tombstone envelope into the JSON at `rel`.
+fn envelope(fx: &TextFixture, rel: &str) {
+    let bytes = crate::textproject::tombstone::with_envelope(fx.read(rel));
+    assert!(crate::textproject::tombstone::bytes_deleted(&bytes));
+    fx.write(rel, &bytes);
+}
+
+#[test]
+fn the_sync_takeover_keeps_the_envelope_on_disk() {
+    let fx = TextFixture::exported();
+    let p = fx.project();
+    const TRAINER: &str = "data/trainers/0001.json";
+    const HEADER: &str = "data/headers/0001.json";
+    envelope(&fx, TRAINER);
+    envelope(&fx, HEADER);
+    let on_disk = deleted_on_disk(&p.root);
+    assert!(on_disk(Art::Trainers, 1) && on_disk(Art::Headers, 1));
+    assert!(!on_disk(Art::Trainers, 2));
+    let mut source = EntitySource::open(&p).unwrap();
+
+    // DSPRE changed the trainer's properties (its AI) and header 1 (area data 1 → 0).
+    let mut props = member(&fx, AssetKind::TrainerProperties, 1);
+    props[12] = 5;
+    set_member(&fx, AssetKind::TrainerProperties, 1, &props);
+    let Location::Slice { path, offset, .. } =
+        p.member_location(AssetKind::HeaderTable, 0).unwrap()
+    else {
+        panic!("no slice");
+    };
+    let mut arm9 = std::fs::read(&path).unwrap();
+    let at = usize::try_from(offset).unwrap() + 24;
+    assert_eq!(arm9[at], 1);
+    arm9[at] = 0;
+    std::fs::write(&path, arm9).unwrap();
+
+    let out = source
+        .take_members(&p, &[id(AssetKind::Trainer, 1), HEADER_TABLE])
+        .unwrap();
+    assert_eq!(out.sources, paths(&[HEADER, TRAINER]));
+    for rel in [TRAINER, HEADER] {
+        assert!(
+            fx.read(rel).ends_with(b",\n  \"deleted\": true\n}\n"),
+            "{rel}: {}",
+            fx.text(rel)
+        );
+    }
+    assert_eq!(json(&fx, TRAINER)["data"]["ai"], 5);
+    assert_eq!(json(&fx, HEADER)["area_data_id"], 0);
+    // The export into memory carries it over as well.
+    let files = source
+        .export_members(&p, &[id(AssetKind::Trainer, 1)])
+        .unwrap();
+    assert_eq!(files[Path::new(TRAINER)], fx.read(TRAINER));
+    // Without the envelope on disk the takeover writes none.
+    let other = "data/trainers/0002.json";
+    let mut props = member(&fx, AssetKind::TrainerProperties, 2);
+    props[12] = 6;
+    set_member(&fx, AssetKind::TrainerProperties, 2, &props);
+    source
+        .take_members(&p, &[id(AssetKind::Trainer, 2)])
+        .unwrap();
+    assert!(!crate::textproject::tombstone::bytes_deleted(
+        &fx.read(other)
+    ));
+    assert_eq!(json(&fx, other)["data"]["ai"], 6);
 }

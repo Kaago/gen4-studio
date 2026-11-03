@@ -122,6 +122,7 @@ pub(crate) fn base_missing(message: String) -> CmdError {
         message,
         asset: None,
         problems: Vec::new(),
+        references: Vec::new(),
     }
 }
 

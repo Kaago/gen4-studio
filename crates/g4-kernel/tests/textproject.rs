@@ -157,7 +157,7 @@ fn export_writes_manifest_entities_registries_and_quirks() {
 
     let manifest = fx.json("g4-project.json");
     assert_eq!(manifest["format"], "g4-project");
-    assert_eq!(manifest["schemaVersion"], 1);
+    assert_eq!(manifest["schemaVersion"], 2);
     assert_eq!(manifest["game"]["code"], "CPUE");
     assert_eq!(manifest["game"]["family"], "pt");
 
@@ -458,7 +458,9 @@ fn import_refuses_members_without_json() {
     assert_eq!(codes(&problems), ["textproject.member-without-json"]);
     assert_eq!(problems[0].file, Path::new("data/moves/0003.json"));
     assert!(
-        problems[0].message.contains("Phase 3d"),
+        problems[0]
+            .message
+            .contains("seit der Aufzeichnung unverändert sind (textproject.member-removed)"),
         "{}",
         problems[0].message
     );
@@ -468,7 +470,8 @@ fn import_refuses_members_without_json() {
 /// The end of the sentence for a surplus member of a pair art: neither tool makes the missing
 /// counterpart, so it names DSPRE and not `g4k text export` or `import`.
 const SURPLUS_WAY_OUT: &str = "Weder Export noch Import legen ein Gegenstück an: das Member in \
-                               DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).";
+                               DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im \
+                               Studio löschen ließe).";
 
 /// A trainer has a properties member and a party member; one that only one archive has (DSPRE
 /// left one archive longer) is no entity, so no JSON names it: the import reports it as
@@ -1113,7 +1116,7 @@ fn an_old_schema_stops_the_build_with_the_migrate_sentence() {
     let fx = built();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
+        "\"schemaVersion\": 2",
         "\"schemaVersion\": 0",
     );
     let before = fx.mtimes();
@@ -1233,8 +1236,8 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
     assert_eq!(
         found[0].message,
         "textproject.member-newer: unpacked/moveData/0004 hat noch keine data/moves/0004.json; \
-         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht \
-         keine Member)."
+         g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht nur \
+         Member am Ende, die seit der Aufzeichnung unverändert sind)."
     );
     assert_eq!(fx.read("unpacked/moveData/0004"), appended);
 
@@ -1247,7 +1250,8 @@ fn a_member_appended_on_the_member_side_is_newer_than_its_missing_json() {
         problems[0].message,
         "textproject.unsynced: unpacked/moveData/0004 hat keine data/moves/0004.json und fehlt \
          in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das \
-         Member ab (der Import löscht keine Member)."
+         Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung \
+         unverändert sind)."
     );
     assert_eq!(fx.mtimes(), before, "nothing written");
 
@@ -1771,8 +1775,8 @@ fn a_changed_manifest_leaves_the_judgement_to_the_step() {
     tick();
     fx.edit(
         "g4-project.json",
-        "\"schemaVersion\": 1",
-        "\"schemaVersion\":  1",
+        "\"schemaVersion\": 2",
+        "\"schemaVersion\":  2",
     );
     fx.dspre_power(57);
     let problems = compile_problems(build::prepare(&fx.p()));
@@ -2465,11 +2469,48 @@ fn deletion_was_complete(project: &Project, deleted: &[PathBuf]) {
     );
 }
 
+/// Puts the tombstone envelope on the last trainer file of the exported `copy` (`"deleted":
+/// true` as the last key, as the store writes it) and returns its path and new bytes.
+fn tombstone_last_trainer(copy: &Path) -> (PathBuf, Vec<u8>) {
+    let dir = copy.join("data/trainers");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".json") && !n.starts_with('.'))
+        .collect();
+    names.sort();
+    let path = dir.join(names.last().expect("trainer files"));
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .insert("deleted".to_owned(), serde_json::Value::Bool(true));
+    let mut bytes = serde_json::to_vec_pretty(&value).unwrap();
+    bytes.push(b'\n');
+    assert!(bytes.ends_with(b",\n  \"deleted\": true\n}\n"));
+    std::fs::write(&path, &bytes).unwrap();
+    eprintln!("tombstone on {}", path.display());
+    (path, bytes)
+}
+
 #[test]
 fn textproject_round_trip() {
+    round_trip(false);
+}
+
+/// The round trip with a tombstone on the last trainer: the import ignores the envelope, the
+/// member comes back and the ROM builds byte-equal; the file keeps the envelope.
+#[test]
+fn textproject_round_trip_with_tombstone() {
+    round_trip(true);
+}
+
+fn round_trip(tombstone: bool) {
     let Some((tmp, copy, nds, report)) = exported_copy() else {
         return;
     };
+    let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
     let base = BaseRom::open(&nds, None).unwrap();
     let code = base.game_code().to_owned();
     print_arts(&code, &copy, &report);
@@ -2552,18 +2593,34 @@ fn textproject_round_trip() {
         base.sha1(),
         "the rebuilt ROM differs from the base ROM"
     );
+    if let Some((path, bytes)) = &tombstoned {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
+    }
     eprintln!(
-        "textproject-stats {code} files={} bytes={} json={json} side={side} raw={} \
-         base_layer_ms={} export_ms={} import_ms={import_ms} build_ms={build_ms}",
+        "textproject-stats {code} tombstone={tombstone} files={} bytes={} json={json} \
+         side={side} raw={} base_layer_ms={} export_ms={} import_ms={import_ms} \
+         build_ms={build_ms}",
         report.files, report.bytes, report.raw_blobs, report.base_layer_ms, report.ms
     );
 }
 
 #[test]
 fn textproject_export_idempotent() {
+    export_idempotent(false);
+}
+
+/// The second export with a tombstone on the last trainer writes nothing: the envelope of the
+/// file on disk is carried over.
+#[test]
+fn textproject_export_idempotent_with_tombstone() {
+    export_idempotent(true);
+}
+
+fn export_idempotent(tombstone: bool) {
     let Some((_tmp, copy, nds, _report)) = exported_copy() else {
         return;
     };
+    let tombstoned = tombstone.then(|| tombstone_last_trainer(&copy));
     let base = BaseRom::open(&nds, None).unwrap();
     let snapshot = || {
         sources(&Project::open(&copy).unwrap())
@@ -2600,8 +2657,11 @@ fn textproject_export_idempotent() {
             .collect();
         panic!("the second export changed sources: {changed:?}");
     }
+    if let Some((path, bytes)) = &tombstoned {
+        assert_eq!(&std::fs::read(path).unwrap(), bytes, "the envelope stays");
+    }
     eprintln!(
-        "textproject-second-export {} ms={second_ms}",
+        "textproject-second-export {} tombstone={tombstone} ms={second_ms}",
         base.game_code()
     );
 }
@@ -2632,5 +2692,215 @@ fn textproject_from_base() {
         "textproject-from-base {} extract_ms={extract_ms} import_ms={import_ms} \
          build_ms={build_ms} equal",
         base.game_code()
+    );
+}
+
+/// A text project with `count` trainers from 0003 on that the base does not have (written after
+/// the base layer was copied, before the export): the export writes their JSON and records
+/// them for the sync.
+fn exported_with_new_trainers(count: usize) -> Fx {
+    let fx = Fx::new();
+    let props = fx.read("unpacked/trainerProperties/0002");
+    let party = fx.read("unpacked/trainerParty/0002");
+    for n in 3..3 + count {
+        fx.write(&format!("unpacked/trainerProperties/{n:04}"), &props);
+        fx.write(&format!("unpacked/trainerParty/{n:04}"), &party);
+    }
+    fx.export();
+    assert!(fx.exists(&format!("data/trainers/{:04}.json", 2 + count)));
+    fx
+}
+
+fn errors(problems: &[Problem]) -> Vec<&Problem> {
+    problems
+        .iter()
+        .filter(|p| p.severity == Severity::Error)
+        .collect()
+}
+
+#[test]
+fn import_removes_a_trailing_member_without_json_that_the_record_knows() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let members = [
+        PathBuf::from("unpacked/trainerParty/0003"),
+        PathBuf::from("unpacked/trainerProperties/0003"),
+    ];
+
+    // The check plans the removal: both members, with the warning.
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(report.differs, members);
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    let removed: Vec<&Problem> = report
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-removed:"))
+        .collect();
+    assert_eq!(removed.len(), 1, "{:?}", report.problems);
+    assert_eq!(removed[0].severity, Severity::Warning);
+    assert_eq!(removed[0].file, Path::new("data/trainers/0003.json"));
+
+    let imported = import(&fx.p(), None).unwrap();
+    assert!(
+        codes(&imported.problems).contains(&"textproject.member-removed".to_owned()),
+        "{:?}",
+        imported.problems
+    );
+    for member in &members {
+        assert!(!fx.root().join(member).exists(), "{}", member.display());
+    }
+    // In step now: nothing left to remove or to warn about.
+    let report = check(&fx.p()).unwrap();
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+    assert!(
+        !codes(&report.problems).contains(&"textproject.member-removed".to_owned()),
+        "{:?}",
+        report.problems
+    );
+}
+
+#[test]
+fn import_keeps_the_error_for_a_gap_in_the_middle() {
+    let fx = exported_with_new_trainers(2);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let before = fx.mtimes();
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert_eq!(problems[0].file, Path::new("data/trainers/0003.json"));
+    assert_eq!(fx.mtimes(), before, "nothing written");
+    assert!(fx.exists("unpacked/trainerProperties/0003"));
+}
+
+#[test]
+fn import_keeps_a_trailing_member_that_changed_since_the_record() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let mut props = fx.read("unpacked/trainerProperties/0003");
+    props[1] ^= 0x01;
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let problems = compile_problems(import(&fx.p(), None));
+    assert_eq!(codes(&problems), ["textproject.member-without-json"]);
+    assert!(fx.exists("unpacked/trainerProperties/0003"));
+    assert!(fx.exists("unpacked/trainerParty/0003"));
+}
+
+/// The text project with the Dynamic Headers patch and header 0002 created through the store
+/// (its JSON, its file and its record of `mapname.bin` written and recorded for the sync); the
+/// base has two headers.
+fn exported_with_a_new_header() -> Fx {
+    let fx = Fx::new();
+    fx.export();
+    let mut st = Store::new(Arc::new(fx.p()));
+    st.apply_dynamic_headers().unwrap();
+    assert_eq!(st.create_header(0, "NEU").unwrap(), 2);
+    assert!(fx.exists("data/headers/0002.json"));
+    fx
+}
+
+#[test]
+fn import_removes_a_trailing_header_without_json_that_the_record_knows() {
+    let fx = exported_with_a_new_header();
+    let names = fx.p().mapname_path();
+    assert_eq!(std::fs::read(&names).unwrap().len(), 48);
+    std::fs::remove_file(fx.root().join("data/headers/0002.json")).unwrap();
+
+    let report = check(&fx.p()).unwrap();
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    assert!(
+        report
+            .differs
+            .contains(&PathBuf::from("unpacked/dynamicHeaders/0002")),
+        "{:?}",
+        report.differs
+    );
+    let removed: Vec<&Problem> = report
+        .problems
+        .iter()
+        .filter(|p| p.message.starts_with("textproject.member-removed:"))
+        .collect();
+    assert_eq!(removed.len(), 1, "{:?}", report.problems);
+    assert_eq!(removed[0].severity, Severity::Warning);
+    assert_eq!(removed[0].file, Path::new("data/headers/0002.json"));
+
+    import_with(&fx.p(), None, &ImportOptions { force: true }).unwrap();
+    assert!(!fx.exists("unpacked/dynamicHeaders/0002"));
+    assert_eq!(std::fs::read(&names).unwrap().len(), 32);
+    assert_eq!(fx.p().header_count().unwrap(), 2);
+    let report = check(&fx.p()).unwrap();
+    assert!(errors(&report.problems).is_empty(), "{:?}", report.problems);
+    assert!(report.differs.is_empty(), "{:?}", report.differs);
+}
+
+#[test]
+fn import_keeps_a_trailing_header_that_changed_since_the_record() {
+    let fx = exported_with_a_new_header();
+    std::fs::remove_file(fx.root().join("data/headers/0002.json")).unwrap();
+    let mut header = fx.read("unpacked/dynamicHeaders/0002");
+    header[0] ^= 0x01;
+    fx.write("unpacked/dynamicHeaders/0002", &header);
+    let report = check(&fx.p()).unwrap();
+    assert_eq!(
+        codes(
+            &errors(&report.problems)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        ),
+        ["textproject.member-without-json"],
+        "{:?}",
+        report.problems
+    );
+    assert!(fx.exists("unpacked/dynamicHeaders/0002"));
+}
+
+#[test]
+fn the_sync_takes_a_trailing_member_without_json_as_the_files_side() {
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let unit = found
+        .units
+        .iter()
+        .find(|u| {
+            u.sources
+                .contains(&PathBuf::from("data/trainers/0003.json"))
+        })
+        .expect("the trainer's unit");
+    assert_eq!(unit.side, UnitSide::Files, "{unit:?}");
+    assert_eq!(codes(&unit.problems), ["textproject.member-removed"]);
+    assert_eq!(unit.problems[0].severity, Severity::Warning);
+    apply_one_sided(&fx.p(), &found, &|_| false).unwrap();
+    assert!(!fx.exists("unpacked/trainerProperties/0003"));
+    assert!(!fx.exists("unpacked/trainerParty/0003"));
+    // In step now: the next scan finds nothing to take over.
+    let again = scan(&fx.p(), &mut |_| {}).unwrap();
+    assert!(
+        again.units.iter().all(|u| u.side == UnitSide::InSync),
+        "{:?}",
+        again.units
+    );
+
+    // A member changed since the record stays broken, with the truthful sentence.
+    let fx = exported_with_new_trainers(1);
+    std::fs::remove_file(fx.root().join("data/trainers/0003.json")).unwrap();
+    let mut props = fx.read("unpacked/trainerProperties/0003");
+    props[1] ^= 0x01;
+    fx.write("unpacked/trainerProperties/0003", &props);
+    let found = scan(&fx.p(), &mut |_| {}).unwrap();
+    let unit = found
+        .units
+        .iter()
+        .find(|u| {
+            u.sources
+                .contains(&PathBuf::from("data/trainers/0003.json"))
+        })
+        .expect("the trainer's unit");
+    assert_eq!(unit.side, UnitSide::Broken, "{unit:?}");
+    assert!(
+        unit.problems[0]
+            .message
+            .ends_with("Löschen geht im Studio („Löschen…“)."),
+        "{}",
+        unit.problems[0].message
     );
 }

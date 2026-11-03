@@ -17,4 +17,4 @@ export const entry = (over: Partial<ChangedEntry> = {}): ChangedEntry => ({
 export const report = (over: Partial<ChangedReport> = {}): ChangedReport => ({ entries: [], files: 0, hashed: 0, recorded: 0, unbuilt: [], ms: 12, ...over });
 
 /** A compare that is through (an empty report unless given); `compare` does nothing unless given. */
-export const changesWith = (over: Partial<ChangesApi> = {}): ChangesApi => ({ report: report(), progress: null, error: null, busy: false, compare: async () => {}, ...over });
+export const changesWith = (over: Partial<ChangesApi> = {}): ChangesApi => ({ report: report(), progress: null, error: null, busy: false, fresh: true, compare: async () => {}, ...over });

@@ -211,9 +211,9 @@ fn family_key(family: Family) -> &'static str {
 mod tests {
     use super::*;
 
-    const V1: &str = r#"{
+    const V2: &str = r#"{
   "format": "g4-project",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -227,20 +227,20 @@ mod tests {
 
     #[test]
     fn manifest_round_trips_and_refuses_unknown_keys() {
-        let manifest: Manifest = serde_json::from_str(V1).unwrap();
-        assert_eq!(manifest.schema_version, 1);
+        let manifest: Manifest = serde_json::from_str(V2).unwrap();
+        assert_eq!(manifest.schema_version, 2);
         assert_eq!(manifest.game.family, "pt");
         assert_eq!(
             crate::textproject::canon::to_canonical(&manifest),
-            V1.as_bytes()
+            V2.as_bytes()
         );
 
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(MANIFEST_FILE), V1).unwrap();
+        std::fs::write(dir.path().join(MANIFEST_FILE), V2).unwrap();
         assert_eq!(read_manifest(dir.path()).unwrap(), manifest);
 
         // A typo in a key: the schema state cannot be read, the error names the key.
-        let typo = V1.replace("\"schemaVersion\"", "\"schemaVersio\"");
+        let typo = V2.replace("\"schemaVersion\"", "\"schemaVersio\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &typo).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(problems[0].file, Path::new(MANIFEST_FILE));
 
         // An unknown key next to a valid version: serde names it with line and column.
-        let extra = V1.replace("\"plugins\"", "\"plugin\"");
+        let extra = V2.replace("\"plugins\"", "\"plugin\"");
         std::fs::write(dir.path().join(MANIFEST_FILE), &extra).unwrap();
         let problems = match read_manifest(dir.path()).unwrap_err() {
             KernelError::Compile(problems) => problems,
@@ -279,16 +279,16 @@ mod tests {
             refused(dir.path()),
             "Kein Textprojekt: g4-project.json fehlt."
         );
-        let older = V1.replace("\"schemaVersion\": 1", "\"schemaVersion\": 0");
+        let older = V2.replace("\"schemaVersion\": 2", "\"schemaVersion\": 1");
         std::fs::write(dir.path().join(MANIFEST_FILE), older).unwrap();
         assert_eq!(
             refused(dir.path()),
             format!(
-                "Das Textprojekt hat Schema-Version 0, diese Fassung kennt {SCHEMA_VERSION}: \
+                "Das Textprojekt hat Schema-Version 1, diese Fassung kennt {SCHEMA_VERSION}: \
                  `g4k text migrate` ausführen."
             )
         );
-        let newer = V1.replace("\"schemaVersion\": 1", "\"schemaVersion\": 3");
+        let newer = V2.replace("\"schemaVersion\": 2", "\"schemaVersion\": 3");
         std::fs::write(dir.path().join(MANIFEST_FILE), newer).unwrap();
         assert_eq!(
             refused(dir.path()),

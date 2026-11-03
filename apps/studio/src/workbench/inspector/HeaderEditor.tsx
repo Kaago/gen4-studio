@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getHeader, headerFamily, newScriptFile, setHeader } from "../../api";
 import type { HeaderSummary, LevelScriptDoc, MapHeader, MatrixSummary, MemberCounts, ProjectInfo, SaveScriptDto } from "../../api";
 import type { Created } from "../../app/useWizards";
+import { useDelete, useEntityState } from "../../delete/DeleteContext";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { renameEntry } from "../../textproject/renameEntry";
@@ -165,6 +166,7 @@ function NameRow({ name, room, onRename }: { name: string; room: Room | undefine
 export function HeaderEditor({ id, context, depth }: { id: number; context: HeaderEditorContext; depth: Depth }) {
   const { headers, identify, counts, revision, onChanged, onPlaceChanged, goTo, eventRevision, onOpenWizard, info, scriptsAdopted, scriptsRevision, onOpenScript, onLevelScriptSaved, isCurrentProject, onCountsChanged, world, matrices, onRoomSplit, onRename, onError } = context;
   const reset = useReset();
+  const remove = useDelete();
   // In a text project the head names the header's id (`MAP_…`) and offers to rename it.
   const text = useTextProject();
   const entityId = useEntityIds("Map", text.active)?.[id] ?? null;
@@ -220,6 +222,8 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
   };
 
   const summary = headers.find((h) => h.id === id);
+  // „geändert“, „neu“ against the base, „gelöscht“ as a tombstone (the list's summary says so before a save too).
+  const state = useEntityState({ kind: "header", index: id }, summary);
   // The head: an area by its name, a room by its name; Bauen gives the place and the code as the ident, Tüfteln the header's number.
   const identity = summary ? identify(summary) : null;
   const headerId = `${termFor("header", depth)} ${id4(id)}`;
@@ -325,12 +329,15 @@ export function HeaderEditor({ id, context, depth }: { id: number; context: Head
         title={identity?.name ?? headerId}
         ident={ident}
         entityId={entityId}
+        state={state}
         actions={[
           ...(summary
             ? [
                 { label: `${TERMS.room.label} hier anbinden…`, onSelect: () => onOpenWizard({ kind: "room", prefill: { outsideHeader: id } }) },
                 // No place (index 0) has no name to change; Diamond and Pearl have no place commands.
                 { label: "Ort umbenennen…", disabled: summary.location_index === 0 || header === null || headerFamily(header) === "DP", onSelect: () => setRenaming(true) },
+                // The header as a tombstone (an original one the dialog refuses with the reason).
+                { label: "Löschen…", onSelect: () => remove.open({ kind: "header", id }) },
                 ...(canSplit ? [{ label: "Für diesen Raum abspalten…", onSelect: () => setSplitting(true) }] : []),
                 "separator" as const,
               ]

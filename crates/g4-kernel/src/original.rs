@@ -7,8 +7,12 @@
 //! dirty until the next save, like any edit. A map header is reset field by field through the
 //! codec (serde on uxie's `MapHeader`) with [`crate::store::Tx::edit_header`]. Scripts,
 //! textures and models are no store values: their files are written at once and the step goes
-//! on the store's undo stack as a file step ([`crate::store::Store::record_file_step`]). Format:
-//! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“.
+//! on the store's undo stack as a file step ([`crate::store::Store::record_file_step`]). A
+//! tombstone (3d.4, [`crate::delete`]) of a map, event file, trainer, encounter or header is
+//! part of the reset: the plan names it first (label „Grabstein“, „gelöscht“ → „vorhanden“)
+//! and the reset takes it back in the same transaction. Format:
+//! `docs/formats/project_base.md`, section „Auf Original zurücksetzen“; the tombstone:
+//! `docs/formats/text_project.md`, „Bearbeiten im Studio“.
 
 mod base_hashes;
 pub(crate) mod changed;
@@ -28,6 +32,7 @@ use g4_formats::narc::Narc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::delete::DeleteTarget;
 use crate::error::KernelError;
 use crate::project::{AssetId, AssetKind, Project};
 use crate::store::{FileChange, FileStep, HEADER_TABLE, MapHeader, Store, trainer_pair_bytes};
@@ -270,6 +275,28 @@ pub trait Original {
     fn narc_at(&self, packed: &Path) -> Result<Option<Narc>, KernelError>;
 }
 
+/// No base ROM found: every question answers `.0`, why ([`KernelError::Refused`]). For a call
+/// that may not need the base (`plan_delete` and `delete` of an own flag or variable name).
+pub struct MissingBase(pub String);
+
+impl Original for MissingBase {
+    fn sha1(&self) -> &str {
+        ""
+    }
+    fn member(&self, _: AssetKind, _: u16) -> Result<Option<Vec<u8>>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn count(&self, _: AssetKind) -> Result<Option<usize>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn header_table(&self) -> Result<Vec<MapHeader>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+    fn narc_at(&self, _: &Path) -> Result<Option<Narc>, KernelError> {
+        Err(KernelError::Refused(self.0.clone()))
+    }
+}
+
 /// One asset of a plan whose bytes differ from the base: German lines of both sides.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ResetChange {
@@ -345,6 +372,29 @@ pub fn asset_label(id: AssetId) -> String {
         AssetKind::EggMoves => "Ei-Attacken",
     };
     format!("{word} {:04}", id.index)
+}
+
+/// The line of a tombstone in a plan: „Gelöscht → wie in der Basis-ROM“.
+fn tombstone_change() -> ResetChange {
+    ResetChange {
+        label: "Grabstein".to_owned(),
+        before: "gelöscht".to_owned(),
+        after: "vorhanden".to_owned(),
+    }
+}
+
+/// The tombstone of `target` in `store`: the entity of an art with envelope (map, event file,
+/// trainer, encounter, header) when it is deleted (unsaved steps included); `None` otherwise.
+fn tombstone(store: &Store, target: &ResetTarget) -> Option<DeleteTarget> {
+    let deleted = match *target {
+        ResetTarget::Map { index } => DeleteTarget::Map { index },
+        ResetTarget::EventFile { index } => DeleteTarget::EventFile { index },
+        ResetTarget::Trainer { index } => DeleteTarget::Trainer { index },
+        ResetTarget::Encounter { index } => DeleteTarget::Encounter { index },
+        ResetTarget::Header { id } => DeleteTarget::Header { id },
+        _ => return None,
+    };
+    store.is_deleted(deleted).then_some(deleted)
 }
 
 /// The label of the undo step of a reset: „Auf Original zurückgesetzt: Karte 0003“.
@@ -817,6 +867,10 @@ fn plan_header(
 ) -> Result<ResetPlan, KernelError> {
     let (current, base) = header_pair(store, original, id)?;
     let fields = header_diffs(&current, &base)?;
+    let mut changes: Vec<ResetChange> = tombstone(store, target)
+        .map(|_| tombstone_change())
+        .into_iter()
+        .collect();
     let lines = |side: fn(&HeaderFieldDiff) -> &str| {
         fields
             .iter()
@@ -824,15 +878,13 @@ fn plan_header(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let changes = if fields.is_empty() {
-        Vec::new()
-    } else {
-        vec![ResetChange {
+    if !fields.is_empty() {
+        changes.push(ResetChange {
             label: target.label(),
             before: lines(|d| &d.before),
             after: lines(|d| &d.after),
-        }]
-    };
+        });
+    }
     Ok(ResetPlan {
         target: *target,
         label: target.label(),
@@ -844,8 +896,8 @@ fn plan_header(
 }
 
 /// [`reset`] of header `id`: the current header with the chosen fields (`None`: every differing
-/// one) set to their base values, back through serde, as one step. A name that does not
-/// differ or does not exist is refused before anything changes.
+/// one) set to their base values, back through serde, and its tombstone taken back, as one
+/// step. A name that does not differ or does not exist is refused before anything changes.
 fn reset_header(
     store: &mut Store,
     original: &dyn Original,
@@ -881,11 +933,16 @@ fn reset_header(
     outer.insert(variant, Value::Object(object));
     let header: MapHeader = serde_json::from_value(Value::Object(outer))
         .map_err(|e| KernelError::Uxie(format!("header {id}: {e}")))?;
+    let deleted = tombstone(store, target);
     let ((), change) = store.transaction(&step_label(target), |tx| {
         tx.edit_header(id, |h| {
             *h = header;
             Ok(())
-        })
+        })?;
+        if let Some(deleted) = deleted {
+            tx.set_deleted(deleted, false)?;
+        }
+        Ok(())
     })?;
     Ok(ResetResult {
         changed: if change.is_some() {
@@ -899,7 +956,8 @@ fn reset_header(
 }
 
 /// What a reset of `target` would change: one [`ResetChange`] per asset that differs from the
-/// base, with German lines of both sides; for a header also the differing fields
+/// base, with German lines of both sides, after the line of a tombstone („Grabstein“: then
+/// `same` is false whatever the bytes); for a header also the differing fields
 /// ([`ResetPlan::fields`]); for a script, texture or model one change with its source or its
 /// size and xxh3. Refuses like [`reset`] (unavailable, locked) and changes nothing.
 pub fn plan_reset(
@@ -917,7 +975,10 @@ pub fn plan_reset(
     let originals = original_bytes(store, original, target)?;
     let family = store.project().family;
     let lang = store.project().language.locale_key();
-    let mut changes = Vec::new();
+    let mut changes: Vec<ResetChange> = tombstone(store, target)
+        .map(|_| tombstone_change())
+        .into_iter()
+        .collect();
     for (id, after) in &originals {
         let before = current_bytes(store, *id)?;
         if before != *after {
@@ -939,8 +1000,9 @@ pub fn plan_reset(
 }
 
 /// Sets every asset of `target` to its value in the base as one undo step labelled
-/// [`step_label`] (the assets are dirty until the next save). A script, texture or model is
-/// written at once and recorded as a file step, which undo writes back
+/// [`step_label`] (the assets are dirty until the next save); a tombstone of the entity is
+/// taken back in the same step ([`crate::store::Tx::set_deleted`]). A script, texture or
+/// model is written at once and recorded as a file step, which undo writes back
 /// ([`crate::scripts::reset_script`] for a script). Refused with the reason of
 /// [`availability`], with [`KernelError::ReadOnly`] for a locked asset, and nothing is
 /// recorded then; nothing is recorded either when everything already equals the base.
@@ -971,15 +1033,20 @@ pub fn reset(
     for (id, _) in &originals {
         before.push(current_bytes(store, *id)?);
     }
+    let deleted = tombstone(store, target);
     let ((), change) = store.transaction(&step_label(target), |tx| {
         for (id, bytes) in &originals {
             tx.replace(*id, bytes)?;
         }
+        if let Some(deleted) = deleted {
+            tx.set_deleted(deleted, false)?;
+        }
         Ok(())
     })?;
+    // A tombstone taken back changes every asset of the entity (its flag).
     let mut changed = Vec::new();
     for ((id, _), was) in originals.iter().zip(&before) {
-        if store.current_bytes(*id)?.as_ref() != Some(was) {
+        if deleted.is_some() || store.current_bytes(*id)?.as_ref() != Some(was) {
             changed.push(*id);
         }
     }

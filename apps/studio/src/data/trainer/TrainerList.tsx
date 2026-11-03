@@ -2,12 +2,14 @@ import { Fragment, memo, useMemo, useRef, useState } from "react";
 import { createTrainer, errorText, isCmdError } from "../../api";
 import type { CreateTrainerReport, DataRowDto, TrainerRowExtra } from "../../api";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
+import { restoreEntry, useDelete } from "../../delete/DeleteContext";
+import { ShowDeleted } from "../../delete/ShowDeleted";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import type { MarkSeverity } from "../../checks/FindingMark";
 import { useShell } from "../../ui/frame/ShellContext";
 import { depthAtLeast, viewDepth } from "../../ui/frame/shellState";
-import { Badge, Button, Dialog, EmptyState, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
+import { Badge, Button, Dialog, EmptyState, EntityStateBadge, IconButton, Notice, Segmented, SelectField, TextField, TreeRow, useRovingList } from "../../ui/primitives";
 import type { SelectOption } from "../../ui/primitives";
 import { recipeRequest } from "../../workbench/recipes";
 import { lockReason } from "../dataModel";
@@ -16,7 +18,10 @@ import { GROUP_OPTIONS, PLACEHOLDER_TEXT, TRAINER_SCRIPTS, classOptions, groupRo
 import type { GroupMode, RowGroup } from "./trainerModel";
 import styles from "./Trainer.module.css";
 
-/** One trainer under its place or class: "Wanderer Jens", its number, "Lv. 12" (the highest level), what the checks found, the unsaved dot, a lock. */
+/**
+ * One trainer under its place or class: "Wanderer Jens", its number, "Lv. 12" (the highest level), what the checks found, the unsaved dot,
+ * a lock; a tombstone with the badge „gelöscht“ (the name gives way to the number and the badge) and „Wiederherstellen“ before the reset in its context menu.
+ */
 const TrainerRow = memo(function TrainerRow({
   row,
   label,
@@ -35,19 +40,24 @@ const TrainerRow = memo(function TrainerRow({
   const reason = row.locked === null ? null : lockReason(row.locked);
   const level = rowLevel(row);
   const reset = useReset();
+  const { restore } = useDelete();
+  const deleted = row.deleted === true;
+  const resetItem = resetEntry({ kind: "trainer", index: row.index }, reset.status, reset.open);
   return (
     <TreeRow
-      contextMenu={[resetEntry({ kind: "trainer", index: row.index }, reset.status, reset.open)]}
+      contextMenu={deleted ? [restoreEntry({ kind: "trainer", index: row.index }, restore), resetItem] : [resetItem]}
       depth={1}
       label={label}
       tech={row.tech}
+      keepTech
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
-      ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, gesperrt: ${reason}`}
-      dataAttrs={{ "data-trainer": row.index }}
+      ariaLabel={`${label}, ${row.tech}${deleted ? ", gelöscht" : ""}${reason === null ? "" : `, gesperrt: ${reason}`}`}
+      dataAttrs={{ "data-trainer": row.index, "data-deleted": deleted ? "true" : undefined }}
       trailing={
         <span className={styles.rowEnd}>
+          {deleted && <EntityStateBadge state="deleted" />}
           {level !== null && <span className={styles.level}>{`Lv. ${level}`}</span>}
           {mark && <FindingMark severity={mark} />}
           {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
@@ -142,11 +152,13 @@ export function TrainerList() {
   const [toggled, setToggled] = useState<Readonly<Record<string, boolean>>>({});
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<{ kind: "success" | "warning"; text: string } | null>(null);
+  // „Gelöschte zeigen“: off, the tombstones are left out.
+  const [showDeleted, setShowDeleted] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   useRovingList(host);
 
   const searching = query.trim() !== "";
-  const groups = useMemo(() => groupRows(shown, mode), [shown, mode]);
+  const groups = useMemo(() => groupRows(shown, mode, showDeleted), [shown, mode, showDeleted]);
   const unsaved = useMemo(() => new Set(dirty.filter((a) => a.kind === "Trainer").map((a) => a.index)), [dirty]);
   const isOpen = (g: RowGroup) => searching || (toggled[g.key] ?? g.rows.some((r) => r.index === selected));
   const toggle = (g: RowGroup) => setToggled((all) => ({ ...all, [g.key]: !isOpen(g) }));
@@ -206,6 +218,7 @@ export function TrainerList() {
             </Button>
           </div>
         )}
+        <ShowDeleted checked={showDeleted} onChange={setShowDeleted} />
         {created !== null && <Notice kind={created.kind}>{created.text}</Notice>}
       </div>
       {groups.length === 0 && searching ? (

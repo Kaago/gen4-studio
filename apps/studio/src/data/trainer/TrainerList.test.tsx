@@ -9,7 +9,7 @@ import { finding } from "../../checks/checksTesting";
 import { ProblemsStore } from "../../workbench/problems/problems";
 import { flush } from "../dataTesting";
 import { resetIcons } from "../icons";
-import { trainerHarness, trainerRow, wireApi } from "./trainerTesting";
+import { TRAINER_ROWS, trainerHarness, trainerRow, wireApi } from "./trainerTesting";
 import { chooseContext, readyWith, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -291,5 +291,39 @@ describe("TrainerList", () => {
       expect(recipe()).toBeNull();
       expect(create()).not.toBeNull();
     });
+  });
+
+  it("hides_deleted_until_show_deleted_and_offers_restore", async () => {
+    const deleted = { ...trainerRow(930, "Neu", 6, "Wanderer", 5, [{ header: 5, name: "Route 201" }]), deleted: true };
+    vi.mocked(dataList).mockImplementation(async (kind) => (kind === "trainer" ? [...TRAINER_ROWS, deleted] : []));
+    await h.open(12);
+    const box = () => h.list().querySelector<HTMLElement>("[data-show-deleted]")!;
+    // Off by default: the tombstone is not in the tree, its place counts the living trainers.
+    expect(box().getAttribute("data-show-deleted")).toBe("false");
+    expect(box().textContent).toBe("Gelöschte zeigen");
+    expect(box().querySelector("[role=checkbox]")?.getAttribute("aria-checked")).toBe("false");
+    expect(trainers()).toEqual([12, 13]);
+    expect(groups()).toEqual(["Route 2012", "Ohne Ort3"]);
+    await h.click(box().querySelector<HTMLElement>("[role=checkbox]"));
+    expect(box().getAttribute("data-show-deleted")).toBe("true");
+    expect(trainers()).toEqual([12, 13, 930]);
+    expect(groups()).toEqual(["Route 2013", "Ohne Ort3"]);
+    const row = tree().querySelector<HTMLElement>('[data-trainer="930"]')!;
+    expect(row.getAttribute("data-deleted")).toBe("true");
+    expect(row.querySelector("[data-entity-state]")?.getAttribute("data-entity-state")).toBe("deleted");
+    // Gate 3d.4 B16/G3: the row shows the whole badge „gelöscht“ and keeps its number, which does not shrink; the name is what gives way.
+    const badge = row.querySelector<HTMLElement>("[data-entity-state]")!;
+    expect(badge.textContent).toBe("gelöscht");
+    expect(badge.querySelector("svg")).not.toBeNull();
+    expect(row.getAttribute("aria-label")).toContain("gelöscht");
+    const tech = [...row.querySelectorAll("span")].find((e) => e.textContent === deleted.tech)!;
+    expect(tech.className).toMatch(/techKept/);
+    expect(tree().querySelector('[data-trainer="12"]')!.hasAttribute("data-deleted")).toBe(false);
+    expect(tree().querySelector('[data-trainer="12"] [data-entity-state]')).toBeNull();
+    // „Wiederherstellen“ before the reset of a deleted row; a living one has only the reset.
+    expect(contextTexts(row)[0]).toBe("Wiederherstellen");
+    expect(contextTexts(tree().querySelector<HTMLElement>('[data-trainer="12"]')!)).toEqual(["Auf Original zurücksetzen…"]);
+    chooseContext(row, "Wiederherstellen");
+    expect(h.del.restore).toHaveBeenCalledWith({ kind: "trainer", index: 930 });
   });
 });

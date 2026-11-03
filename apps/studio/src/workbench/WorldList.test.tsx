@@ -7,6 +7,8 @@ import type { HeaderSummary, MatrixDto, MatrixSummary, ProjectInfo, WarpLink } f
 import { ShellProvider } from "../ui/frame/ShellContext";
 import { pressKey, typeInSearch } from "../ui/primitives/testUtils";
 import { visibleWords } from "../ui/visibleText";
+import { deleteSpy, withDelete } from "../delete/deleteTesting";
+import { chooseContext, contextTexts } from "../original/resetTesting";
 import { headerIdentity } from "./headerIdentity";
 import { buildPlaces } from "./places";
 import { buildWorld, worldNames } from "./worldModel";
@@ -247,5 +249,50 @@ describe("WorldList", () => {
     act(() => button("Orte ausklappen")!.click());
     expect(splitter()!.getAttribute("aria-valuenow")).toBe("184");
     expect(stored().placesFolded).toBe(false);
+  });
+
+  it("hides_deleted_until_show_deleted_and_offers_restore", () => {
+    // A third house of Zweiblattdorf (6) is a tombstone.
+    const withGone = [...headers, { ...header(6, "T01R0301", "Zweiblattdorf", 2, 22), deleted: true }];
+    const gone = buildWorld({
+      family: "Pt",
+      headers: withGone,
+      matrices: [...matrices, summary(22, 1, 1)],
+      links: [...links, { event_file: 1, index: 6, x: 0, z: 0, dest_header_id: 6, dest_warp_id: 0 }],
+      cells: new Map([[0, cells]]),
+      meta: { version: 1, worldMaps: [], notWorldMaps: [], roomNames: {}, roomOwner: {} },
+    });
+    const del = deleteSpy();
+    act(() =>
+      root.render(
+        <ShellProvider>
+          {withDelete(del, <WorldList {...props({ headers: withGone, world: gone })} />)}
+        </ShellProvider>,
+      ),
+    );
+    const places = () => section("Orte")!;
+    const box = () => places().querySelector<HTMLElement>("[data-show-deleted]")!;
+    const row = (id: number) => places().querySelector<HTMLElement>(`[data-header-id="${id}"]`);
+    // The tree: off by default, the tombstone is not there; with the box it is, with its badge and „Wiederherstellen“.
+    expect(box().getAttribute("data-show-deleted")).toBe("false");
+    expect(box().textContent).toBe("Gelöschte zeigen");
+    expect(row(3)).not.toBeNull();
+    expect(row(6)).toBeNull();
+    act(() => box().querySelector<HTMLElement>("[role=checkbox]")!.click());
+    expect(box().getAttribute("data-show-deleted")).toBe("true");
+    expect(row(6)?.getAttribute("data-deleted")).toBe("true");
+    expect(row(6)?.querySelector("[data-entity-state]")?.textContent).toBe("gelöscht");
+    expect(row(3)?.hasAttribute("data-deleted")).toBe(false);
+    expect(contextTexts(row(6)!)[0]).toBe("Wiederherstellen");
+    expect(contextTexts(row(3)!)).not.toContain("Wiederherstellen");
+    chooseContext(row(6)!, "Wiederherstellen");
+    expect(del.restore).toHaveBeenCalledWith({ kind: "header", id: 6 });
+    // The flat list keeps the choice; off again, the tombstone goes.
+    act(() => button("Liste")!.click());
+    expect(places().querySelector('[role=listbox] [data-header-id="6"]')?.getAttribute("data-deleted")).toBe("true");
+    expect(contextTexts(places().querySelector<HTMLElement>('[role=listbox] [data-header-id="6"]')!)[0]).toBe("Wiederherstellen");
+    act(() => box().querySelector<HTMLElement>("[role=checkbox]")!.click());
+    expect(places().querySelector('[role=listbox] [data-header-id="6"]')).toBeNull();
+    expect(places().querySelector('[role=listbox] [data-header-id="3"]')).not.toBeNull();
   });
 });

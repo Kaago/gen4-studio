@@ -1,11 +1,13 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { createEncounterFile, errorText } from "../../api";
 import type { DataRowDto } from "../../api";
+import { restoreEntry, useDelete } from "../../delete/DeleteContext";
+import { ShowDeleted } from "../../delete/ShowDeleted";
 import { useReset } from "../../original/OriginalContext";
 import { resetEntry } from "../../original/resetEntry";
 import { FindingMark, useFindingMarks } from "../../checks/FindingMark";
 import type { MarkSeverity } from "../../checks/FindingMark";
-import { Badge, Button, Dialog, EmptyState, IconButton, ListRow, Notice, Picker, Segmented, TextField, useRovingList } from "../../ui/primitives";
+import { Badge, Button, Dialog, EmptyState, EntityStateBadge, IconButton, ListRow, Notice, Picker, Segmented, TextField, useRovingList } from "../../ui/primitives";
 import type { PickerItem, SegmentedOption } from "../../ui/primitives";
 import { id4 } from "../../workbench/terms";
 import { lockReason } from "../dataModel";
@@ -13,7 +15,10 @@ import { useDataArea, useDataSearch } from "../useDataArea";
 import { groupFiles, rowUsers, usedByText } from "./encounterModel";
 import styles from "./Encounter.module.css";
 
-/** One file: the places that use it, its number and how many use it; what the checks found, the unsaved dot, a lock. */
+/**
+ * One file: the places that use it, its number and how many use it; what the checks found, the unsaved dot, a lock; a tombstone with the
+ * badge „gelöscht“ and „Wiederherstellen“ before the reset in its context menu.
+ */
 const FileRow = memo(function FileRow({
   row,
   label,
@@ -32,19 +37,23 @@ const FileRow = memo(function FileRow({
   const reason = row.locked === null ? null : lockReason(row.locked);
   const users = rowUsers(row).length;
   const reset = useReset();
+  const { restore } = useDelete();
+  const deleted = row.deleted === true;
+  const resetItem = resetEntry({ kind: "encounter", index: row.index }, reset.status, reset.open);
   return (
     <ListRow
-      contextMenu={[resetEntry({ kind: "encounter", index: row.index }, reset.status, reset.open)]}
+      contextMenu={deleted ? [restoreEntry({ kind: "encounter", index: row.index }, restore), resetItem] : [resetItem]}
       label={label}
       tech={row.tech}
       subtitle={reason ?? (users === 0 ? "von keinem Ort verwendet" : usedByText(users))}
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
-      dataAttrs={{ "data-encounter": row.index }}
+      dataAttrs={{ "data-encounter": row.index, "data-deleted": deleted ? "true" : undefined }}
       trailing={
-        unsaved || reason !== null || mark ? (
+        unsaved || reason !== null || mark || deleted ? (
           <span className={styles.rowEnd}>
+            {deleted && <EntityStateBadge state="deleted" />}
             {mark && <FindingMark severity={mark} />}
             {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
             {reason !== null && <Badge kind="locked" title={reason} />}
@@ -130,10 +139,12 @@ export function EncounterList() {
   const { shown, query, setQuery } = useDataSearch("pokemon");
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
+  // „Gelöschte zeigen“: off, the tombstones are left out.
+  const [showDeleted, setShowDeleted] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   useRovingList(host);
 
-  const { placed, unplaced } = useMemo(() => groupFiles(shown), [shown]);
+  const { placed, unplaced } = useMemo(() => groupFiles(shown, showDeleted), [shown, showDeleted]);
   const unsaved = useMemo(() => new Set(dirty.filter((a) => a.kind === "Encounter").map((a) => a.index)), [dirty]);
   const next = rows.reduce((max, r) => Math.max(max, r.index + 1), 0);
   const onCreated = (index: number) => {
@@ -154,6 +165,7 @@ export function EncounterList() {
           <span className={styles.note}>Dateien nach den Orten, die sie nutzen</span>
           <IconButton label="Begegnungsdatei anlegen…" icon="plus" onClick={() => setCreating(true)} />
         </div>
+        <ShowDeleted checked={showDeleted} onChange={setShowDeleted} />
         {created !== null && <Notice kind="success">{created}</Notice>}
       </div>
       {shown.length === 0 && query.trim() !== "" ? (

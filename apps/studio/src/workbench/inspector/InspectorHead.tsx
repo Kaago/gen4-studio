@@ -3,8 +3,8 @@ import type { EventKind } from "../../api";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { EntityIdLine } from "../../textproject/EntityIdLine";
-import { Badge, Icon, Menu } from "../../ui/primitives";
-import type { IconName, MenuEntry } from "../../ui/primitives";
+import { Badge, EntityStateBadge, Icon, Menu } from "../../ui/primitives";
+import type { EntityState, IconName, MenuEntry } from "../../ui/primitives";
 import styles from "./InspectorHead.module.css";
 
 /** What the inspector shows, as the head names it. */
@@ -38,6 +38,8 @@ export interface InspectorHeadProps {
   ident?: string;
   /** In a text project: the record's id, as a quiet line below the ident with a button that copies it. */
   entityId?: string | null;
+  /** How the record stands against the base ROM, or as a tombstone: „geändert“, „neu“, „gelöscht“ before the other badges. */
+  state?: EntityState | null;
   /** The record has changes that are not saved yet. */
   unsaved?: boolean;
   /** The record cannot be changed (a read-only event file). */
@@ -53,9 +55,9 @@ export interface InspectorHeadProps {
 }
 
 /** The head every inspector view shares: the kind as an eyebrow with its symbol, the title, the ident, the badges and the actions. */
-export function InspectorHead({ kind, title, ident, entityId, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
+export function InspectorHead({ kind, title, ident, entityId, state, unsaved, locked, irreversible, badges: more, actions, depth }: InspectorHeadProps) {
   const { word, tinker, icon } = KINDS[kind];
-  const badges = unsaved || locked || irreversible || more != null;
+  const badges = state != null || unsaved || locked || irreversible || more != null;
   return (
     <header className={styles.head} data-inspector-kind={kind}>
       <div className={styles.text}>
@@ -73,6 +75,7 @@ export function InspectorHead({ kind, title, ident, entityId, unsaved, locked, i
       </div>
       {badges && (
         <div className={styles.badges}>
+          {state != null && <EntityStateBadge state={state} />}
           {unsaved && <Badge kind="unsaved" />}
           {locked && <Badge kind="locked" />}
           {irreversible && <Badge kind="irreversible" />}

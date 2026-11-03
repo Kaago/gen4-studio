@@ -40,3 +40,5 @@ pub mod stories;
 pub mod dialog;
 
 pub mod live;
+
+pub mod delete;

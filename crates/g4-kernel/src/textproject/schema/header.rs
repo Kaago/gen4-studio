@@ -24,7 +24,7 @@ use crate::store::MAX_HEADERS;
 use crate::text::Problem;
 
 use super::super::DATA_DIR;
-use super::super::canon::{hex, parse_json, problem, to_canonical, unhex, write_if_changed};
+use super::super::canon::{hex, parse_entity, problem, to_canonical, unhex, write_if_changed};
 use super::super::manifest::SCHEMA_CODE;
 use super::super::part::{BasePart, PartKey};
 use super::super::registry::Symbols;
@@ -464,12 +464,18 @@ fn sample_hgss(full: bool) -> HeaderHgssEntity {
 }
 
 /// The header table as `import_headers` built it: the 24 bytes of every header in order and
-/// the matching `mapname.bin`.
+/// the matching `mapname.bin`; `remove`: the headers past it go (the import's rule for headers
+/// at the end without JSON, Dynamic Headers patch applied: their files and records).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeaderWrite {
     pub table: Vec<u8>,
     pub mapname: Vec<u8>,
+    pub remove: bool,
 }
+
+/// What the import says of the headers without JSON it does not remove.
+const REMOVES_ONLY_HEADERS: &str = "der Import entfernt nur Header am Ende, die seit der \
+                                    Aufzeichnung unverändert sind (textproject.member-removed).";
 
 /// The header table as a whole: one canonical JSON per header (index, bytes), from the slice
 /// of `arm9.bin` or the Dynamic Headers files, with the names of `mapname.bin`.
@@ -536,7 +542,7 @@ fn import_one<E: EntitySchema>(
     file: &Path,
     ctx: &ImportCtx<'_>,
 ) -> Result<Vec<Option<Vec<u8>>>, Problem> {
-    let e: E = parse_json(file, bytes, SCHEMA_CODE)?;
+    let (e, _deleted): (E, bool) = parse_entity(file, bytes, SCHEMA_CODE)?;
     e.import(index, ctx)
         .map_err(|message| coded_problem(file, &message))
 }
@@ -547,6 +553,18 @@ pub(crate) fn import_headers(
     project: &Project,
     files: &[(u32, Vec<u8>)],
     symbols: &Symbols,
+) -> Result<HeaderWrite, Vec<Problem>> {
+    import_headers_with(project, files, symbols, false)
+}
+
+/// [`import_headers`]; with `remove` (the import's rule found the headers past the files
+/// removable, see `import::header_removals`) fewer files than `mapname.bin` has records are no
+/// error: the write removes the headers past them ([`HeaderWrite::remove`]).
+pub(crate) fn import_headers_with(
+    project: &Project,
+    files: &[(u32, Vec<u8>)],
+    symbols: &Symbols,
+    remove: bool,
 ) -> Result<HeaderWrite, Vec<Problem>> {
     let folder = Path::new(DATA_DIR).join(HEADERS_ART);
     let file_of = |i: u32| folder.join(format!("{i:04}.json"));
@@ -581,6 +599,7 @@ pub(crate) fn import_headers(
     }
 
     let count = sorted.len();
+    let mut removes = false;
     let rel = |p: &Path| p.strip_prefix(&project.root).unwrap_or(p).to_path_buf();
     let state = dynamic_headers::is_applied(project)
         .and_then(|dynamic| Ok((dynamic, project.mapname_count()?)));
@@ -601,14 +620,15 @@ pub(crate) fn import_headers(
                          Dateien."
                     ),
                 ));
+            } else if count < current && remove {
+                removes = true;
             } else if count < current {
                 problems.push(problem(
                     &file_of(count as u32),
                     MEMBER_WITHOUT_JSON_CODE,
                     format!(
                         "{ROOT}: Header {count:04} hat keine Datei (mapname.bin hat {current} \
-                         Einträge, data/headers {count} Dateien); der Import entfernt keine \
-                         Header, Löschen kommt mit Phase 3d."
+                         Einträge, data/headers {count} Dateien); {REMOVES_ONLY_HEADERS}"
                     ),
                 ));
             } else if dynamic && count > MAX_HEADERS {
@@ -657,7 +677,11 @@ pub(crate) fn import_headers(
         }
     }
     if problems.is_empty() {
-        Ok(HeaderWrite { table, mapname })
+        Ok(HeaderWrite {
+            table,
+            mapname,
+            remove: removes,
+        })
     } else {
         Err(problems)
     }
@@ -666,8 +690,9 @@ pub(crate) fn import_headers(
 /// Writes `w` where the project keeps its header table and `mapname.bin`, each file only when
 /// it changes; the project-relative paths it wrote. With the Dynamic Headers patch a missing
 /// `unpacked/dynamicHeaders` is created with every header file, and a table shorter than
-/// `mapname.bin` is refused (deleting headers is 3d); without it the table must have the
-/// length of the slice in `arm9.bin`.
+/// `mapname.bin` is refused (a header leaves the table only through „Nummer freigeben“, which
+/// shortens `mapname.bin` with it, [`crate::delete::free_number`]); without it the table must
+/// have the length of the slice in `arm9.bin`.
 pub(crate) fn write_headers(
     project: &Project,
     w: &HeaderWrite,
@@ -687,10 +712,10 @@ pub(crate) fn write_headers(
     let mut wrote = Vec::new();
     if dynamic_headers::is_applied(project)? {
         let old = project.mapname_count()?;
-        if count < old {
+        if count < old && !w.remove {
             return Err(KernelError::InvalidProject(format!(
-                "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; der Import \
-                 entfernt keine Header, Löschen kommt mit Phase 3d."
+                "{MEMBER_WITHOUT_JSON_CODE}: {ROOT}: {count} Header statt {old}; \
+                 {REMOVES_ONLY_HEADERS}"
             )));
         }
         let dir_rel = rel(&dynamic_headers::unpacked_dir(project));
@@ -702,6 +727,15 @@ pub(crate) fn write_headers(
         }
         if write_if_changed(root, &names_rel, &w.mapname)? {
             wrote.push(names_rel);
+        }
+        // The headers past the table go after `mapname.bin` lost their records.
+        for i in count..old {
+            let file = dir_rel.join(format!("{i:04}"));
+            match std::fs::remove_file(root.join(&file)) {
+                Ok(()) => wrote.push(file),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(io_at(&root.join(&file))(e)),
+            }
         }
         return Ok(wrote);
     }
@@ -1090,7 +1124,8 @@ mod project_tests {
             arm9
         );
 
-        // Back to two is refused: deleting a header is 3d, and nothing is written.
+        // Back to two is refused (only „Nummer freigeben“ shortens the table), and nothing is
+        // written.
         let three = import_headers(&project, &files, &sym).unwrap();
         files.pop();
         let problems = import_headers(&project, &files, &sym).unwrap_err();
@@ -1104,13 +1139,14 @@ mod project_tests {
             problems[0].message
         );
         assert!(
-            problems[0].message.ends_with("Löschen kommt mit Phase 3d."),
+            problems[0].message.ends_with(REMOVES_ONLY_HEADERS),
             "{}",
             problems[0].message
         );
         let two = HeaderWrite {
             table: three.table[..2 * HEADER_LEN].to_vec(),
             mapname: three.mapname[..2 * NAME_LEN].to_vec(),
+            remove: false,
         };
         let err = write_headers(&project, &two).unwrap_err().to_string();
         assert!(err.contains("textproject.member-without-json"), "{err}");
@@ -1162,7 +1198,7 @@ mod project_tests {
             if patched {
                 assert!(
                     message.starts_with("textproject.member-without-json: $: ")
-                        && message.ends_with("Löschen kommt mit Phase 3d."),
+                        && message.ends_with(REMOVES_ONLY_HEADERS),
                     "{message}"
                 );
             } else {
@@ -1260,6 +1296,7 @@ mod project_tests {
         let w = HeaderWrite {
             table: vec![0; HEADER_LEN],
             mapname: vec![0; NAME_LEN],
+            remove: false,
         };
         let err = write_headers(&project, &w).unwrap_err().to_string();
         assert!(err.contains("textproject.header-count"), "{err}");

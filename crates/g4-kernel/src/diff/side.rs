@@ -21,6 +21,12 @@
 //!
 //! A member missing in `HEAD`'s `unpacked/` folder is read from `HEAD`'s packed NARC (a
 //! project whose archive was unpacked after the commit).
+//!
+//! The tombstone envelope (`"deleted": true`, 3d.4) of an entity of an art with one
+//! ([`tombstone_of`]) is read per side: the base has none, nor has a side exported from
+//! members (the base's, `HEAD`'s in the DSPRE layout); `HEAD`'s blob and the file on disk
+//! carry their own; the store's saved side is the file's, its unsaved side the store's flag
+//! ([`Store::is_deleted`]).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -28,6 +34,7 @@ use std::path::{Path, PathBuf};
 use g4_formats::narc::Narc;
 use serde_json::Value;
 
+use crate::delete::DeleteTarget;
 use crate::error::{KernelError, io_at};
 use crate::git::GitRepo;
 use crate::original::Original;
@@ -36,8 +43,10 @@ use crate::scripts;
 use crate::store::{HEADER_TABLE, Store, trainer_pair_bytes};
 use crate::text::TextArchiveDoc;
 use crate::textproject::source::{
-    EntitySource, disk_member, entity_file, item_member_of, raw_key, text_archive_key,
+    EntitySource, deleted_on_disk, disk_member, entity_file, item_member_of, raw_key,
+    text_archive_key,
 };
+use crate::textproject::tombstone::DELETED_KEY;
 
 use super::json::normalize_parts;
 use super::{DiffSubject, NO_BASE_FOR_FILES, SCRIPTS_HAVE_NO_UNSAVED};
@@ -57,6 +66,43 @@ pub(crate) enum Side {
     Bytes(Vec<u8>),
     /// A binary member equal to the base's (a text project keeps no file for it).
     Base,
+}
+
+impl Side {
+    /// Whether the side is an entity's JSON with the envelope `"deleted": true`.
+    pub(crate) fn is_tombstone(&self) -> bool {
+        matches!(self, Side::Json(value) if value.get(DELETED_KEY) == Some(&Value::Bool(true)))
+    }
+
+    /// The side with its envelope as `deleted` says: an entity's JSON gets `"deleted": true` as
+    /// its last key, or loses the key; any other side stays.
+    fn with_envelope(self, deleted: bool) -> Side {
+        match self {
+            Side::Json(Value::Object(mut map)) => {
+                map.shift_remove(DELETED_KEY);
+                if deleted {
+                    map.insert(DELETED_KEY.to_owned(), Value::Bool(true));
+                }
+                Side::Json(Value::Object(map))
+            }
+            other => other,
+        }
+    }
+}
+
+/// The entity of `subject` that can carry a tombstone (an art with envelope: map, matrix, area
+/// data, event file, encounter, trainer, header); `None` for every other subject.
+pub(crate) fn tombstone_of(subject: &DiffSubject) -> Option<DeleteTarget> {
+    Some(match *subject {
+        DiffSubject::Map { index } => DeleteTarget::Map { index },
+        DiffSubject::Matrix { index } => DeleteTarget::Matrix { index },
+        DiffSubject::AreaData { index } => DeleteTarget::AreaData { index },
+        DiffSubject::EventFile { index } => DeleteTarget::EventFile { index },
+        DiffSubject::Encounter { index } => DeleteTarget::Encounter { index },
+        DiffSubject::Trainer { index } => DeleteTarget::Trainer { index },
+        DiffSubject::Header { index } => DeleteTarget::Header { id: index },
+        _ => return None,
+    })
 }
 
 /// Bytes of a header and of its `mapname.bin` record.
@@ -288,8 +334,25 @@ impl<'a> Sides<'a> {
 
     /// The store's saved and current (unsaved) value of the subject; both the disk's when
     /// the store does not hold it (or has no values for its kind: textures, models, members
-    /// and files are written at once).
+    /// and files are written at once). The saved side carries the envelope of the file on
+    /// disk, the current side the store's flag ([`Store::is_deleted`]).
     pub(crate) fn store(&self, store: &mut Store) -> Result<(Side, Side), KernelError> {
+        let (saved, current) = self.store_values(store)?;
+        let Some(target) = tombstone_of(self.subject) else {
+            return Ok((saved, current));
+        };
+        let on_disk = self.text
+            && target
+                .art()
+                .is_some_and(|art| deleted_on_disk(&self.project.root)(art, target.number()));
+        Ok((
+            saved.with_envelope(on_disk),
+            current.with_envelope(store.is_deleted(target)),
+        ))
+    }
+
+    /// [`Sides::store`] without the envelopes: the exports carry the disk's, a header's none.
+    fn store_values(&self, store: &mut Store) -> Result<(Side, Side), KernelError> {
         let both_disk = || -> Result<(Side, Side), KernelError> {
             let disk = self.disk()?;
             Ok((disk.clone(), disk))
@@ -446,7 +509,8 @@ impl<'a> Sides<'a> {
         f(held.as_mut().expect("opened above"))
     }
 
-    /// The entity of `members` (in the order of its kinds) exported into memory; absent when
+    /// The entity of `members` (in the order of its kinds) exported into memory, without an
+    /// envelope (members carry none: the base's, `HEAD`'s in the DSPRE layout); absent when
     /// its first member is (a trainer: either).
     fn exported(&self, members: Vec<Option<Vec<u8>>>) -> Result<Side, KernelError> {
         let Kind::Entity { assets, json, .. } = self.kind()? else {
@@ -471,7 +535,7 @@ impl<'a> Sides<'a> {
         };
         let files =
             self.with_source(|source| source.export_bytes(self.project, &writes, &|_| None))?;
-        self.exported_json(&json, &files)
+        Ok(self.exported_json(&json, &files)?.with_envelope(false))
     }
 
     /// The JSON `json` among exported `files`, its parts normalized with the side files there.

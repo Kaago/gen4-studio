@@ -12,6 +12,7 @@ import type { MatrixCellContext } from "./MatrixCellEditor";
 import type { Area, World } from "../worldModel";
 import { chooseAction, headAction, headActions } from "./headTesting";
 import { MISSING, closeMenu, isDisabled, resetSpy, withReset } from "../../original/resetTesting";
+import { deleteSpy, withDelete } from "../../delete/deleteTesting";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getMatrix: vi.fn(), setMatrixCell: vi.fn(), duplicateMap: vi.fn(), inspectMapImport: vi.fn(async () => []) }));
 // The world model the editor names areas and world maps from (Bauen); null until a test sets one.
@@ -340,7 +341,7 @@ describe("MatrixCellEditor", () => {
 
   it("offers_import_export_and_duplicate_in_the_head_menu_not_in_the_field_row", async () => {
     await show();
-    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren", "Auf Original zurücksetzen…"]);
+    expect(headActions(container)).toEqual(["Teile importieren…", "Teile exportieren…", "Duplizieren", "Löschen…", "Auf Original zurücksetzen…"]);
     // The buttons below the field „Karte“ and at the end of the form are gone.
     for (const old of ["Teile importieren…", "Teile exportieren…", "Karte duplizieren und hier eintragen", "Duplizieren"]) expect(button(old), old).toBeUndefined();
     chooseAction(container, "Teile importieren…");
@@ -361,6 +362,23 @@ describe("MatrixCellEditor", () => {
     expect(headAction(container, "Teile exportieren…")).toBeUndefined();
     const duplicate = headAction(container, "Duplizieren");
     expect(duplicate?.getAttribute("aria-disabled") === "true" || duplicate?.hasAttribute("data-disabled")).toBe(true);
+  });
+
+  it("head_offers_loeschen_for_the_map_and_shows_its_state", async () => {
+    const del = deleteSpy({ "map:11": "new" });
+    await act(async () => root.render(withReset(reset, withDelete(del, <MatrixCellEditor matrix={3} x={1} y={0} context={context()} depth="bauen" />))));
+    await flush();
+    // The cell holds map 11: „Löschen…“ after „Duplizieren“ deletes that map; the head names how it stands against the base.
+    chooseAction(container, "Löschen…");
+    expect(del.open).toHaveBeenCalledWith({ kind: "map", index: 11 });
+    expect(container.querySelector("header[data-inspector-kind] [data-entity-state]")?.textContent).toBe("neu");
+    // An empty cell has no map to delete.
+    vi.mocked(getMatrix).mockImplementation(async () => matrix({ maps: [10, null] }));
+    await act(async () => root.render(null));
+    await act(async () => root.render(withReset(reset, withDelete(del, <MatrixCellEditor matrix={3} x={1} y={0} context={context()} depth="bauen" />))));
+    await flush();
+    expect(headAction(container, "Löschen…")).toBeUndefined();
+    expect(container.querySelector("[data-entity-state]")).toBeNull();
   });
 
   it("head_offers_reset_of_the_map", async () => {

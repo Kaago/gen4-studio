@@ -323,15 +323,17 @@ const NONE_KEY = "\u0000none";
 
 /**
  * The rows in groups: by the places whose events start the battle (a trainer standing at two places is in both), or by class; groups
- * by name, "Ohne Ort" or "Ohne Klasse" (locked rows, rows without a place) last. Rows keep their order.
+ * by name, "Ohne Ort" or "Ohne Klasse" (locked rows, rows without a place) last. Rows keep their order. The tombstones (3d.4) only with
+ * `showDeleted` („Gelöschte zeigen“).
  */
-export function groupRows(rows: readonly DataRowDto[], mode: GroupMode): RowGroup[] {
+export function groupRows(rows: readonly DataRowDto[], mode: GroupMode, showDeleted = false): RowGroup[] {
   const groups = new Map<string, RowGroup>();
   const add = (key: string, label: string, row: DataRowDto) => {
     const group = groups.get(key) ?? groups.set(key, { key, label, rows: [] }).get(key)!;
     if (group.rows[group.rows.length - 1] !== row) group.rows.push(row);
   };
   for (const row of rows) {
+    if (row.deleted === true && !showDeleted) continue;
     const extra = row.extra as TrainerRowExtra | null;
     if (mode === "class") {
       if (extra && typeof extra.class_name === "string") add(`c:${extra.class_name}`, extra.class_name, row);

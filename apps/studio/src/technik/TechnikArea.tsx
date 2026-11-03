@@ -219,7 +219,7 @@ function TechnikView({ patch, preview, ...props }: TechnikAreaProps & { patch: H
       {entry === "projekt" ? (
         <ProjectSurface project={props.project} preview={preview} startTown={props.startTown} onOpenProject={props.onOpenProject} />
       ) : entry === "textprojekt" ? (
-        <TextProjectSurface text={props.textProject} onOpenProject={props.onOpenProject} />
+        <TextProjectSurface text={props.textProject} onOpenProject={props.onOpenProject} depth={props.depth} />
       ) : entry === "bauen" ? (
         <BuildSurface {...props} now={now} />
       ) : entry === "veroeffentlichen" ? (

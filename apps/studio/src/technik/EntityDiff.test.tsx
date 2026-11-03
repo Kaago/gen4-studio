@@ -309,4 +309,37 @@ describe("EntityDiff", () => {
     await render(diffReport({ subject: { kind: "trainer", index: 3 } }), { row: { ...TRAINER, subject: { kind: "trainer", index: 3 } } });
     expect(reason(button("Auf Original zurücksetzen…"))).toBe("Kein Original");
   });
+
+  it("a_tombstone_shows_the_badge_not_a_field", async () => {
+    const mark = () => detail()?.querySelector<HTMLElement>("[data-tombstone]");
+    // Each case a new detail (the same subject is not read again).
+    const fresh = () => {
+      act(() => root.unmount());
+      root = createRoot(container);
+    };
+    // Only the envelope changed: the badge „Gelöscht“, no table (the kernel never names `deleted` as a field).
+    await render(diffReport({ diff: { shape: "fields", changes: [], more: 0 }, tombstone: { old: false, new: true } }));
+    expect(mark()?.getAttribute("data-tombstone")).toBe("deleted");
+    expect(mark()?.textContent).toBe("Gelöscht");
+    expect(mark()?.querySelector("[class*=error]")).not.toBeNull();
+    expect(tables()).toHaveLength(0);
+    fresh();
+    // With fields changed too: the badge and the fields, none of them `deleted`.
+    await render(diffReport({ tombstone: { old: false, new: true } }));
+    expect(mark()?.textContent).toBe("Gelöscht");
+    expect(body(tables()[0])).toEqual([["data.party[0].level", "5", "6"]]);
+    fresh();
+    // The old side deleted, the new one not (restored, unsaved).
+    await render(diffReport({ against: "saved", diff: { shape: "fields", changes: [], more: 0 }, tombstone: { old: true, new: false } }), { against: "saved" });
+    expect(mark()?.getAttribute("data-tombstone")).toBe("restored");
+    expect(mark()?.textContent).toBe("Wiederhergestellt");
+    expect(tables()).toHaveLength(0);
+    fresh();
+    // Both sides alike (or a kind without tombstones): nothing.
+    await render(diffReport({ tombstone: { old: true, new: true } }));
+    expect(mark() ?? null).toBeNull();
+    fresh();
+    await render(diffReport({ tombstone: null }));
+    expect(mark() ?? null).toBeNull();
+  });
 });

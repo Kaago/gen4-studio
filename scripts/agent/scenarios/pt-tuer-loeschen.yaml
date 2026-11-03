@@ -1,0 +1,70 @@
+# Platin DE, gate 3d.4: deleting a warp in the middle of an event file shifts the warps that lead
+# to the doors after it, so they still lead through the same door ("ohne stille Umlenkung"). Headless
+# over MCP (`studio mcp`, one session).
+#
+# In the player's room (header ZIMMER, event file ZIMMER_DATEI; warp 0 is the stairs) two new warps
+# are appended: A at (A_X, A_Y) and B at (B_X, B_Y), both leading to the rival's house door (header
+# RIVALE, warp RIVALE_TUER). The rival's house door (event file RIVALE_DATEI, warp RIVALE_TUER, the
+# exit mat at (TUER_X, TUER_Y)) is turned to B. Then `delete_event` deletes A, which lies before B:
+# B moves up to A's index and the kernel shifts the rival's door with it in the same undo step
+# (`delete::warps::delete_warp`); the two `get_events` expectations show both. Played: onto B, one
+# step B_DIR leads to the rival's house, from its mat one step down leads back to B.
+# Arriving through a warp the game puts the player on the warp's tile and then makes one
+# automatic step in the walking direction (here down, into the wall row: y B_Y + 1 after
+# `wait 150`, measured), so `expect-at` comes right after `expect-map`, while the player still
+# stands on B; the JSON line of that `walk` names the warp the game arrived at (B's index after the
+# delete).
+#
+# A warp fires only on a stairs or warp tile or on a door (docs/agent-gate.md, "Warps feuern nur
+# auf Treppen- und Warp-Kacheln"): B's tile gets the behaviour of the rival's exit mat (0x65 = 101,
+# collision 0, read from map 184 at (6, 10)) with `set_permission`, which has no curated tool and
+# goes through `g4_call`, hence `--expert`. A stays a plain floor tile; it is deleted anyway.
+#
+# Placeholders (all required, passed with --set NAME=VALUE; the values are Platin DE's, read from
+# the copy: `list_warps`, `get_header`, the matrix of each header and `g4k map dump` of its map):
+#   ZIMMER        the player's room upstairs (415)
+#   ZIMMER_DATEI  its event file (394; warp 0 is the stairs at (8, 4))
+#   ZIMMER_KARTE  its map (187, the one cell of matrix 129)
+#   A_X A_Y       a free floor tile of the room for warp A (3, 7)
+#   B_X B_Y       a free floor tile of the room for warp B, the bottom row (5, 10)
+#   B_DIR         the step that leaves B's exit mat (down)
+#   RIVALE        the rival's house, ground floor (412)
+#   RIVALE_DATEI  its event file (391, the event file of `get_header 412`)
+#   RIVALE_TUER   its door to Zweiblattdorf: warp 0 at (6, 10), normally to (411, 0)
+#   TUER_X TUER_Y the rival's exit mat (6, 10)
+# Names an edit binds (third element) come from the tools' answers: a and b (add_event: the index).
+# Example (from scripts/g4emu; in a worktree set G4_ROMS_DIR, G4_STUDIO_BIN and G4K_BIN, see
+# docs/agent-gate.md, "Szenarien über MCP"):
+#   uv run g4emu scenario ../agent/scenarios/pt-tuer-loeschen.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-4-tuer-pt_DSPRE_contents --out ../../target/agent/3d-4/tuer-pt \
+#     --set ZIMMER=415 --set ZIMMER_DATEI=394 --set ZIMMER_KARTE=187 --set A_X=3 --set A_Y=7 \
+#     --set B_X=5 --set B_Y=10 --set B_DIR=down --set RIVALE=412 --set RIVALE_DATEI=391 \
+#     --set RIVALE_TUER=0 --set TUER_X=6 --set TUER_Y=10
+# Expected header sequence: 415, 412, 415.
+game: CPUD
+mcp: [--allow-irreversible, --expert]
+edits:
+  - [add_event, {event_file: "${ZIMMER_DATEI}", kind: warp, x: "${A_X}", z: "${A_Y}", patch: {dest_header_id: "${RIVALE}", dest_warp_id: "${RIVALE_TUER}"}}, a]
+  - [add_event, {event_file: "${ZIMMER_DATEI}", kind: warp, x: "${B_X}", z: "${B_Y}", patch: {dest_header_id: "${RIVALE}", dest_warp_id: "${RIVALE_TUER}"}}, b]
+  - [g4_call, {command: set_permission, args: {index: "${ZIMMER_KARTE}", x: "${B_X}", y: "${B_Y}", kind: 101, collision: 0}}]
+  - [update_event, {event_file: "${RIVALE_DATEI}", kind: warp, index: "${RIVALE_TUER}", patch: {dest_header_id: "${ZIMMER}", dest_warp_id: "${b}"}}]
+  - [delete_event, {event_file: "${ZIMMER_DATEI}", kind: warp, index: "${a}"}]
+  # B is at A's index now, and the rival's door leads to it there
+  - [get_events, {event_file: "${ZIMMER_DATEI}"}, {expect: {path: "warps.${a}.x", equals: "${B_X}"}}]
+  - [get_events, {event_file: "${RIVALE_DATEI}"}, {expect: {path: "warps.${RIVALE_TUER}.dest_warp_id", equals: "${a}"}}]
+build: build/out.nds
+play:
+  - continue
+  - expect-map ${ZIMMER}
+  - walk-to ${B_X} ${B_Y}
+  - walk ${B_DIR} 1
+  - expect-map ${RIVALE}
+  - wait 150            # the arrival fade ends before the screenshot
+  - shot angekommen
+  - walk-to ${TUER_X} ${TUER_Y}
+  - walk down 1
+  - expect-map ${ZIMMER}
+  - expect-at ${B_X} ${B_Y}  # the arrival tile, before the automatic step (down, into the wall row)
+  - wait 150
+  - shot zurueck
+  - where

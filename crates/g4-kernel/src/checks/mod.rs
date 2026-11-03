@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use uxie::event_file::EventFile;
 use uxie::map_header::MapHeader;
 
+use crate::delete::DeleteTarget;
 use crate::project::{AssetId, AssetKind};
 
 mod build;
@@ -334,6 +335,11 @@ pub(crate) trait Source {
     /// What the build checks read: hidden entries below `files/`, member folders out of
     /// sequence, changed folders the build does not pack, the base mark.
     fn build_facts(&self) -> Arc<BuildFacts>;
+    /// Whether the entity holding member `index` of `kind` carries a tombstone: the store's
+    /// flag over the disk's envelope ([`Snapshot::deleted`]). A check treats it as missing.
+    fn deleted(&self, kind: AssetKind, index: u16) -> bool;
+    /// Whether header `id` carries a tombstone.
+    fn header_deleted(&self, id: u16) -> bool;
 }
 
 impl Source for Snapshot {
@@ -417,6 +423,12 @@ impl Source for Snapshot {
     }
     fn build_facts(&self) -> Arc<BuildFacts> {
         Snapshot::build_facts(self)
+    }
+    fn deleted(&self, kind: AssetKind, index: u16) -> bool {
+        DeleteTarget::of_asset(kind, index).is_some_and(|t| Snapshot::deleted(self, t))
+    }
+    fn header_deleted(&self, id: u16) -> bool {
+        Snapshot::header_deleted(self, id)
     }
 }
 

@@ -14,6 +14,8 @@ export type ListRowProps = {
   label: string;
   /** Technical name or number, shown in mono and grey after the label. */
   tech?: string;
+  /** In a narrow row the name gives way, not `tech` (a number that identifies the row, next to a long trailing badge). */
+  keepTech?: boolean;
   icon?: IconName;
   /** Content before the label, in place of or beside the icon (a `Sprite`, a `TypeBadge`). */
   leading?: ReactNode;
@@ -51,6 +53,11 @@ export function selectOnKey(event: KeyboardEvent<HTMLElement>, onSelect: () => v
 /** The classes of a row: selected and disabled are looks of their own. */
 export function rowClass(selected: boolean, disabled: boolean | undefined): string {
   return [styles.row, selected ? styles.selected : "", disabled ? styles.disabled : ""].filter(Boolean).join(" ");
+}
+
+/** The classes of a row's `tech`: it shrinks before the name, unless `keepTech`. */
+export function techClass(keep: boolean | undefined): string {
+  return keep ? `${styles.tech} ${styles.techKept}` : styles.tech;
 }
 
 /** The attributes of a row's element, with its pass-through `data-*` attributes. */
@@ -92,7 +99,7 @@ export function RowElement({
 }
 
 /** One row of a flat list. Put the rows inside a host that calls `useRovingList`. */
-export function ListRow({ label, tech, icon, leading, subtitle, strong, techSubtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet, contextMenu }: ListRowProps) {
+export function ListRow({ label, tech, keepTech, icon, leading, subtitle, strong, techSubtitle, selected, onSelect, trailing, dataAttrs, ariaLabel, title, disabled, ariaSetSize, ariaPosInSet, contextMenu }: ListRowProps) {
   const id = useId();
   const labelId = `${id}-label`;
   const subtitleId = `${id}-subtitle`;
@@ -131,7 +138,7 @@ export function ListRow({ label, tech, icon, leading, subtitle, strong, techSubt
       ) : (
         <span className={labelClass}>{label}</span>
       )}
-      {tech && <span className={styles.tech}>{tech}</span>}
+      {tech && <span className={techClass(keepTech)}>{tech}</span>}
       {trailing && <span className={styles.trailing}>{trailing}</span>}
     </RowElement>
   );

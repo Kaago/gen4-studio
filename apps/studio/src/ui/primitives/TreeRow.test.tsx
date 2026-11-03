@@ -169,3 +169,18 @@ describe("TreeRow context menu", () => {
     expect(container.firstElementChild?.getAttribute("role")).toBe("treeitem");
   });
 });
+
+describe("TreeRow tech", () => {
+  it("keep_tech_makes_the_number_the_part_that_does_not_shrink", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const tech = () => [...container.querySelectorAll("span")].find((e) => e.textContent === "Trainer 12")!;
+    act(() => root.render(<TreeRow label="Wanderer Jens" tech="Trainer 12" depth={1} selected={false} onSelect={() => {}} />));
+    expect(tech().className).not.toMatch(/techKept/);
+    act(() => root.render(<TreeRow label="Wanderer Jens" tech="Trainer 12" keepTech depth={1} selected={false} onSelect={() => {}} />));
+    expect(tech().className).toMatch(/techKept/);
+    act(() => root.unmount());
+    container.remove();
+  });
+});

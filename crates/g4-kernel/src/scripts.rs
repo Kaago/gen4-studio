@@ -1836,6 +1836,36 @@ pub fn snapshot_script(project: &Project, file: u16) -> Result<ScriptSnapshot, K
     })
 }
 
+/// „Nummer freigeben“ of script file `file` (3d.4 [`crate::delete::free_number`]): removes
+/// the parts [`snapshot_script`] shows, its sources (`NNNN.rotom`, `NNNN.json`), its member
+/// and the compile-state entry of its source; returns the files removed (absolute). Not
+/// undoable.
+pub(crate) fn remove_script_file(
+    project: &Project,
+    file: u16,
+) -> Result<Vec<PathBuf>, KernelError> {
+    let before = snapshot_script(project, file)?;
+    let source = entry_source(project, file, before.rotom.is_some(), before.json.is_some());
+    let mut removed = Vec::new();
+    for path in [
+        source_path(project, file, SourceKind::Script),
+        source_path(project, file, SourceKind::LevelScript),
+        member_file(project, file),
+    ] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_at(&path)(e)),
+        }
+    }
+    if let Some(source) = source
+        && before.entry.is_some()
+    {
+        set_state_entry(project, &source, None)?;
+    }
+    Ok(removed)
+}
+
 /// The step from `before` to what is on disk now, kind `Recipe`; a path absent on one side is
 /// `None` there. Only the files that differ are in it; the compile-state entry is the one of
 /// the source there is now (else the one there was), when it changed.

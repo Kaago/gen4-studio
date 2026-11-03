@@ -128,8 +128,10 @@ describe("FramePage", () => {
   it("shows_the_inspector_head_and_the_scene_hierarchy", () => {
     // The heads: the kind as an eyebrow, the title, the ident and the badges; Tüfteln says „Header“ where Bauen says „Gebiet“.
     const heads = [...container.querySelectorAll<HTMLElement>('[data-frame="inspector-kopf"] header')];
-    expect(heads.map((h) => h.getAttribute("data-inspector-kind"))).toEqual(["figure", "area", "area", "door", "map"]);
-    expect(heads.map((h) => h.querySelector("[data-eyebrow]")?.textContent)).toEqual(["Figur", "Gebiet", "Header", "Tür", "Karte"]);
+    expect(heads.map((h) => h.getAttribute("data-inspector-kind"))).toEqual(["figure", "area", "area", "door", "map", "room"]);
+    expect(heads.map((h) => h.querySelector("[data-eyebrow]")?.textContent)).toEqual(["Figur", "Gebiet", "Header", "Tür", "Karte", "Raum"]);
+    // The state against the base or as a tombstone, before the other badges.
+    expect(heads.map((h) => h.querySelector("[data-entity-state]")?.textContent ?? null)).toEqual([null, null, "geändert", null, "neu", "gelöscht"]);
     expect(heads[0]!.querySelector("[data-ident]")?.textContent).toBe("Objekt 2 · Eventdatei 0390");
     expect(heads[0]!.textContent).toContain("Ungespeichert");
     expect(heads[3]!.textContent).toContain("Gesperrt");

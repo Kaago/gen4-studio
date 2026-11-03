@@ -1,6 +1,8 @@
 //! Matrix editing: cells, sections, size, name; new matrices and map copies.
 
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix, resize_matrix as resized};
+use g4_kernel::data::refs::Target;
+use g4_kernel::delete::guard_reference;
 use g4_kernel::project::AssetKind;
 use tauri::State;
 
@@ -15,8 +17,9 @@ fn matrix_of(session: &mut Session, index: u16) -> Result<&Matrix, CmdError> {
 
 /// Sets the given fields of the cell at (`x`, `y`); `None` leaves a field as it is. `map` 0xFFFF
 /// empties the cell. `header` needs the matrix to have a header section; `altitude` adds the
-/// altitude section (filled with 0) when it is missing, in the same undo step. All checks run
-/// before anything changes, so a refused call edits nothing.
+/// altitude section (filled with 0) when it is missing, in the same undo step. A map or header
+/// that is a tombstone is refused („… ist gelöscht.“) unless the cell holds it already. All
+/// checks run before anything changes, so a refused call edits nothing.
 pub fn set_matrix_cell_impl(
     state: &AppState,
     index: u16,
@@ -28,7 +31,7 @@ pub fn set_matrix_cell_impl(
 ) -> Result<(), CmdError> {
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;
-    let (cell, has_headers) = {
+    let (cell, has_headers, map_now, header_now) = {
         let m = matrix_of(session, index)?;
         if x >= m.width || y >= m.height {
             return Err(format!(
@@ -37,9 +40,12 @@ pub fn set_matrix_cell_impl(
             )
             .into());
         }
+        let cell = usize::from(y) * usize::from(m.width) + usize::from(x);
         (
-            usize::from(y) * usize::from(m.width) + usize::from(x),
+            cell,
             m.headers.is_some(),
+            m.maps.get(cell).copied(),
+            m.headers.as_ref().and_then(|h| h.get(cell).copied()),
         )
     };
     if header.is_some() && !has_headers {
@@ -56,6 +62,13 @@ pub fn set_matrix_cell_impl(
         if usize::from(header) >= count {
             return Err(format!("header {header} does not exist (the game has {count})").into());
         }
+    }
+    // A new reference to a tombstone is refused; what the cell holds already stays.
+    if let Some(map) = map.filter(|&m| m != MATRIX_EMPTY && Some(m) != map_now) {
+        guard_reference(&session.store, Target::Map(map))?;
+    }
+    if let Some(header) = header.filter(|&h| Some(h) != header_now) {
+        guard_reference(&session.store, Target::Header(header))?;
     }
     session.store.edit_matrix(index, "edit matrix cell", |m| {
         if let Some(map) = map {

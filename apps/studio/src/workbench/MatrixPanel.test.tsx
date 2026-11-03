@@ -166,6 +166,18 @@ describe("MatrixPanel", () => {
     expect(setMatrixSections).toHaveBeenCalledWith(7, true, false);
   });
 
+  it("shows_the_matrix_of_a_cell_chosen_by_a_link_not_the_scenes", async () => {
+    // Gate 3d.4 B12 (b): „Matrix 0290, Zelle 0, 0“ followed while a room of matrix 0007 was selected: the grid showed 0007.
+    vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
+    await show({ selection: { matrix: 290, x: 0, y: 0 } });
+    expect(getMatrix).toHaveBeenLastCalledWith(290);
+    expect(container.querySelector("header")?.textContent).toContain("0290 · Matrix");
+    expect(container.querySelector('[data-cell="0,0"]')?.getAttribute("aria-pressed")).toBe("true");
+    // A cell of the scene's matrix, or none: the scene's.
+    await show({ selection: null });
+    expect(container.querySelector("header")?.textContent).toContain("0007 · Matrix");
+  });
+
   it("creates_a_matrix_and_shows_it_with_a_note_that_no_header_uses_it", async () => {
     vi.mocked(createMatrix).mockResolvedValue(9);
     vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
@@ -175,6 +187,25 @@ describe("MatrixPanel", () => {
     expect(createMatrix).toHaveBeenCalledWith("neu");
     expect(goTo).toHaveBeenCalledWith({ kind: "matrixCell", matrix: 9, x: 0, y: 0 });
     expect(container.textContent).toContain("gehört noch zu keinem Header");
+  });
+
+  it("shows_the_matrix_of_a_link_after_a_matrix_was_created", async () => {
+    // Gate 3d.4 G3 (B12b): the created matrix kept the grid although a link led to a cell of another matrix.
+    vi.mocked(createMatrix).mockResolvedValue(9);
+    vi.mocked(getMatrix).mockImplementation(async (i) => ({ ...matrix, index: i }));
+    await show();
+    await act(async () => button("Neue Matrix").click());
+    await flush();
+    expect(container.querySelector("header")?.textContent).toContain("0009 · Matrix");
+    // goTo selects the new matrix's cell: it stays.
+    await show({ selection: { matrix: 9, x: 0, y: 0 } });
+    expect(container.querySelector("header")?.textContent).toContain("0009 · Matrix");
+    expect(container.textContent).toContain("gehört noch zu keinem Header");
+    // A link to a cell of another matrix: that matrix, and no note about the created one.
+    await show({ selection: { matrix: 290, x: 0, y: 0 } });
+    expect(getMatrix).toHaveBeenLastCalledWith(290);
+    expect(container.querySelector("header")?.textContent).toContain("0290 · Matrix");
+    expect(container.textContent).not.toContain("gehört noch zu keinem Header");
   });
 
   it("opens_the_cell_in_the_inspector_on_a_click_and_the_extend_dialog_from_a_plus_cell", async () => {

@@ -4,7 +4,7 @@ import type { MigrateReport } from "../api";
 import { Dialog, Notice } from "../ui/primitives";
 
 /** The schema version of the text project this build of Gen4 Studio writes (`textproject::SCHEMA_VERSION`). */
-export const TEXT_PROJECT_SCHEMA = 1;
+export const TEXT_PROJECT_SCHEMA = 2;
 
 /** The message after lifting: from which version to which. */
 export function liftedText(report: MigrateReport): string {

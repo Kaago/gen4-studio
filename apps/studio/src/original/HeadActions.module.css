@@ -1,9 +1,10 @@
-/* The menu „Aktionen“ of a head that is no inspector head (a data view, the texts' hand, the script panel). */
+/* The menu „Aktionen“ of a head that is no inspector head (a data view, the texts' hand, the script panel), the state badge before it. */
 .actions {
   display: flex;
   flex: none;
   align-items: center;
   align-self: center;
+  gap: var(--g4-raum-8);
 }
 
 /* At the right end of the head's row; left out where the head puts something else there (the texts' primary action before it). */

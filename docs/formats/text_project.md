@@ -17,7 +17,7 @@ Diamant/Perl in Phase 4.“).
 | Pfad | Inhalt |
 |---|---|
 | `g4-project.json` | Manifest; seine Anwesenheit macht den Ordner zum Textprojekt |
-| `data/<art>/NNNN.json` | eine Entität je Datei, `NNNN` vierstellig ab `0000`, lückenlos |
+| `data/<art>/NNNN.json` | eine Entität je Datei, `NNNN` vierstellig ab `0000`, lückenlos; eine gelöschte trägt den Umschlag `"deleted": true` (siehe Arten) |
 | `data/<art>/NNNN.<ext>` | Beifiles einer Entität (gleicher Stamm) und die Member der Binärarten |
 | `data/ids/{maps,trainers,trainer_classes,places}.json` | Register der getauften IDs |
 | `data/ids/{flags,vars,stories}.json` | Register der eigenen Flag- und Variablennamen und der Geschichten |
@@ -35,7 +35,7 @@ der Inhalt ändert (atomar über `.g4/tmp/`); eine gleiche Datei behält ihre mt
 ```json
 {
   "format": "g4-project",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "game": {
     "code": "CPUE",
     "family": "pt",
@@ -97,6 +97,24 @@ Abweichung). Teilen sich IDs einen Member, trägt die erste die Daten, jede weit
 `{"id": …, "same_member_as": "<ID>"}`; ein Member, auf den keine ID zeigt, ist ein Blob, wo er
 abweicht.
 
+**Grabstein.** Jede Entitätsdatei unter `data/` (jede Art mit JSON, auch `headers` und gesperrte
+Member `{locked, raw}`) kann den Umschlag `"deleted": true` tragen: ein oberster Schlüssel, der zu
+keinem Typ gehört, immer als **letzter** Schlüssel des Objekts und nur bei `true` geschrieben
+(`textproject/tombstone.rs`). Inhalt und Member bleiben, wie sie sind: der Import liest die Datei
+ohne den Umschlag und schreibt ihre Member wie sonst, der Export übernimmt den Umschlag der
+vorhandenen Datei (ein Grabstein überlebt den vollen Export, der zweite Export schreibt nichts).
+Listen blenden gelöschte Entitäten aus, Prüfungen werten sie als fehlend. Ein `deleted`, das kein
+Wahrheitswert ist, ist `textproject.schema` („`deleted` ist kein Wahrheitswert.“); jeder andere
+unbekannte oberste Schlüssel bleibt ein Schemafehler.
+
+```json
+{
+  "id": "TRAINER_0012",
+  "data": { "…": "…" },
+  "deleted": true
+}
+```
+
 Beispiele aus dem synthetischen Testprojekt (gekürzt, `…` steht für weggelassene Felder):
 
 `headers` (`data/headers/0000.json`):
@@ -144,6 +162,13 @@ Beispiele aus dem synthetischen Testprojekt (gekürzt, `…` steht für weggelas
 ```json
 { "bg_events": [], "object_events": [], "warp_events": [], "coord_events": [] }
 ```
+
+In einer Ereignisdatei nennt `object_events[].hidden_flag` das Flag und `coord_events[].var` die
+Variable mit dem **eigenen** Namen aus dem Register (`data/ids/flags.json`, `vars.json`), sonst als
+Zahl; 0 bleibt 0, pret-Namen schreibt der Export nie (ein Projekt ohne eigene Namen behält seine
+Zahlen). Der Import nimmt den eigenen Namen, den pret-Namen der Familie (`FLAG_UNUSED_0x0094`) und
+die Zahl bis `0xFFFF`. `coord_events[].value` ist immer eine Zahl, ebenso die Werte der Level-Scripts.
+`warp_events[].dest_header_id` nennt den Header (`MAP_*`).
 
 `encounters` (`data/encounters/0000.json`, Platin):
 
@@ -284,6 +309,25 @@ unbekannte ID ist `textproject.unknown-id`, eine Zahl außerhalb des Feldes `tex
 Feld `id` einer Spezies, Attacke, eines Items, Trainers oder Headers wird gegen Tabelle bzw.
 Register geprüft (`textproject.id-mismatch`) und nie umbenannt. Die Gitter der Matrizen bleiben
 Zahlen.
+
+Welche Nummern der Welt auf welche Entität zeigen, steht deklarativ in
+`crates/g4-kernel/metadata/entity_refs.yaml` (Quellart → Feld → Zielart); der Referenzindex
+(`data/refs.rs`, Leser in `data/refs/entity.rs`) liest danach, alle Verweise lesend:
+
+- `headers` (Slot = Header-ID): `matrix_id` → Matrix, `event_file_id` → Eventdatei,
+  `script_file_id` und `level_script_id` → Scriptdatei, `text_archive_id` → Textarchiv,
+  `area_data_id` → Gebietsdaten, `location_name` → Ort, `wild_pokemon` → Begegnungsdatei (nicht
+  bei `0xFFFF` bzw. HeartGold/SoulSilver `0xFF`)
+- `matrices` (Slot = Zelle): `maps` → Karte (nicht bei `0xFFFF`), `headers` → Header
+- `events` (Slot = Warp): `warp_events.dest_header_id` → Header, `warp_events.dest_warp_id` →
+  Warp `dest_warp_id` des Headers `dest_header_id` (die Tür als Paar)
+- `area_data`: `map_tileset` → Kartentextur, `building_tileset` → Gebäudetextur
+- `maps` (Slot = Gebäude): `buildings.model_id` → Gebäudemodell; auf HeartGold/SoulSilver zeigt
+  eine Karte, die innen liegt (die Gebietsdaten eines Headers, der sie zeigt, haben `area_type`
+  0; der Header ist der der Matrixzelle, ohne Header-Schicht jeder Header der Matrix), mit
+  `interior_buildings.model_id` auf das Innenraum-Gebäudemodell
+
+Ein Test prüft die Tabelle gegen die Leser (`entity_refs_name_fields_every_reader_yields`).
 
 ## Symboltabellen und Register
 
@@ -465,8 +509,27 @@ erste Datei schreibt; ein Fehler und nichts wird geschrieben, alle Probleme komm
 Spalte (UTF-16) und dem JSON-Pfad des Feldes (`textproject.schema: data.powr: …`). Dann: Blobs,
 Member je Art (Archiv vorher entpackt), Header zuletzt, Quirks in den Compile-Zustand, danach
 `build::prepare` (Scripts kompilieren, Texte kodieren). Ein Member jenseits der letzten JSON seiner
-Art ist `textproject.member-without-json` (Löschen kommt mit Phase 3d); neue Entitäten werden angehängt,
-nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
+Art ist `textproject.member-without-json`: der Import löscht nur Member am Ende ohne JSON, die seit
+der Aufzeichnung unverändert sind (`textproject.member-removed`). Die **Kürz-Regel** (3d.4): Fehlen
+alle Member ab der letzten JSON einer Art in `data/` (am Ende, keine Lücke), gleicht der
+Fingerabdruck jeder ihrer Dateien dem Abgleich (`sync.files` in `.g4/build/state.json`, seit der
+Aufzeichnung unverändert; ein Member ohne Eintrag gilt als geändert) und hat die Basis(schicht)
+keines von ihnen, plant der Import sie als Entfernung (`removals`, im Check unter `differs`) und
+entfernt sie (Warnung `textproject.member-removed`); so baut ein zweiter Git-Branch, auf dem
+„Nummer freigeben“ die JSON löschte, nach `git switch` (auch der Build-Schritt `textproject`
+entfernt sie). „Nummer freigeben“ selbst lässt den Build-Schritt vergessen, was er bei seinem
+letzten Lauf von den entfernten Dateien sah (bei Trainern auch von `trtblofs`, bei Headern von
+`mapname.bin`): kommt die JSON nach `git switch` zurück oder bekommt ein neuer Eintrag dieselbe
+Nummer, gilt sie als neu und nicht als auf beiden Seiten geändert. `trtblofs` geht dabei auf die
+Basis zurück, ohne die Nullen, die das Anlegen vor dem ersten neuen Trainer auffüllte (HeartGold
+hat 735 Offsets für 738 Trainer), so dass ein voller Lauf den Member als Basis erkennt. In der
+Mitte, seit der Aufzeichnung geändert oder in der Basis bleibt es `member-without-json`.
+Dieselbe Regel gilt für Header am Ende (Patch „Dynamische Header“): fehlen
+die JSON ab einer Nummer, sind ihre Dateien `unpacked/dynamicHeaders/NNNN` und `mapname.bin` seit
+der Aufzeichnung unverändert und hat die Basis die Header nicht, schreibt der Import die Tabelle
+kürzer (`mapname.bin` verliert ihre Einträge, ihre Dateien gehen). Texturen und Modelle (Binärarten
+ohne JSON) deckt die Regel in 3d.4 nicht ab: ein Member ohne Datei und ohne Basis bleibt
+`member-without-json`. Neue Entitäten werden angehängt, nur lückenlos. Bei einer Art aus zwei Archiven (Trainer: Properties und Party) gehört auch ein
 Member, das nur eins der beiden hat (DSPRE ließ ein Archiv länger), dazu: Ab der ersten Nummer, die
 weder eine JSON deckt noch beide Archive haben, meldet der Import `member-without-json`; der Export
 schreibt keine JSON dafür und warnt mit demselben Code. Binärarten ohne Datei kommen aus der Basisschicht; ohne Schicht und ohne Basis-ROM
@@ -578,9 +641,9 @@ Je Einheit, deren erzeugte Bytes vom Member abweichen:
 | Lauf | JSON-Seite geändert | Member-Seite geändert | Wirkung |
 |---|---|---|---|
 | inkrementell | ja | nein | Member schreiben |
-| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.`; ein Member ganz ohne JSON: `textproject.member-newer: <member> hat noch keine <json>; g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht keine Member).` |
+| inkrementell | nein | ja | Member bleibt; Hinweis `textproject.member-newer: <member> ist neuer als <json>; g4k text export übernimmt ihn, g4k text import verwirft ihn.`; ein Member ganz ohne JSON: `textproject.member-newer: <member> hat noch keine <json>; g4k text export legt sie an, g4k text import lehnt das Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung unverändert sind).` |
 | inkrementell | ja | ja | Fehler `textproject.conflict: <json> und <member> sind beide geändert; nichts geschrieben.` (zeigt der Stand des Abgleichs eine Seite unverändert seit JSON und Member gleich waren, gilt nur die andere: siehe oben) |
-| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).`; ein Member ganz ohne JSON: `textproject.unsynced: <member> hat keine <json> und fehlt in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der Import löscht keine Member).` |
+| voll (kein Eintrag, anderes Salz) | – | – | Member fehlt oder gleicht dem Member der Basisschicht (`arm9.bin` für die Header-Tabelle nach der Tabelle, für seinen Blob nach allem außerhalb der Tabelle) → schreiben; sonst Fehler `textproject.unsynced: <member> weicht von <json> und von der Basis ab; g4k text import (JSON gilt) oder g4k text export (Member gilt).`; ein Member ganz ohne JSON: `textproject.unsynced: <member> hat keine <json> und fehlt in der Basis; g4k text export legt sie an (Member gilt), g4k text import lehnt das Member ab (der Import löscht nur Member am Ende, die seit der Aufzeichnung unverändert sind).` |
 
 Voll läuft der Schritt auch, wenn `.g4/build/textproject.json` fehlt, nicht lesbar ist oder eine
 andere Version hat (Grund `textproject.sync-lost`): dann ist unbekannt, welche Member er als neuer
@@ -588,12 +651,13 @@ behalten hat, also urteilt er über die Basisschicht. Ein Member ohne JSON (von 
 angehängt, oder ein Teil, der in der JSON fehlt) ist inkrementell `member-newer`, wenn sich sein
 Member geändert hat oder schon behalten war, voll `unsynced`, sonst das
 `textproject.member-without-json` des Imports. Die Sätze der Tabelle nennen für ein solches Member den
-richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht keine
-Member). Das überzählige Member einer Art aus zwei Archiven (Trainer) ist davon ausgenommen: Der
+richtigen Ausweg, denn `g4k text import` lehnt ein angehängtes Member ohne JSON ab (er löscht nur
+Member am Ende, die seit der Aufzeichnung unverändert sind; ein Member am Ende, das die Kürz-Regel
+entfernt, ist kein solches, siehe „Export, Import, Check“). Das überzählige Member einer Art aus zwei Archiven (Trainer) ist davon ausgenommen: Der
 Export legt dafür nichts an, der Schritt (inkrementell und voll) und der Abgleich melden den Satz des
 Imports als Fehler, der DSPRE als Ausweg nennt: `die Archive haben verschieden viele Member (…); ab
 NNNN hat ein Member kein Gegenstück. Weder Export noch Import legen ein Gegenstück an: das Member in
-DSPRE ergänzen oder entfernen (Löschen kommt mit Phase 3d).` Der Abgleich übernimmt es nicht als
+DSPRE ergänzen oder entfernen (es ist keine Entität, die sich im Studio löschen ließe).` Der Abgleich übernimmt es nicht als
 Trainer aus DSPRE, die Einheit ist fehlerhaft.
 
 Gleichen die erzeugten Bytes dem Member, geschieht nichts. Eine Änderung am Manifest oder an einem
@@ -653,6 +717,22 @@ die JSON nannte; ein geänderter Teil wird Beifile oder `{"hex"}`. Ein Binärmem
 wird er als Datei geschrieben. Der nächste volle Export mit Basisschicht normalisiert beides
 (ein auf die Basis zurückgesetzter Teil wird wieder `base_sha1`, eine der Basis gleiche Datei
 geht).
+
+**Grabstein: Zurücksetzen und Diff.** „Auf Original zurücksetzen“ nimmt den Grabstein (siehe
+„Arten“) zurück: Der Plan (`original::plan_reset`) nennt bei einer gelöschten Karte, Eventdatei,
+Begegnungsdatei, einem Trainer oder Header zuerst die Zeile `Grabstein`: `gelöscht` → `vorhanden`
+und ist dann nie „schon wie in der Basis“, auch wenn die Member der Basis gleichen; `reset` setzt
+die Member und nimmt den Grabstein in **derselben** Transaktion zurück
+(`Auf Original zurückgesetzt: …`, ein Schritt). Eine neue Entität hat kein Original und bleibt
+abgelehnt („Kein Original: …“); sie kommt mit ⌘Z oder „Wiederherstellen“ zurück. Die Liste
+„geändert gegenüber Original“ (`changed_from_original`) liest die Umschläge der gespeicherten
+Dateien: eine gelöschte Entität ist `deleted` („Gelöscht“), ob ihre Member der Basis gleichen
+oder nicht, mit Rücksetzziel, wenn sie ein Original ist, ohne, wenn sie neu ist. Der Diff einer
+Entität (`diff_entity`) liest den Umschlag je Seite (die Basis-ROM hat keinen, `HEAD` den seiner
+Datei, die Platte den ihren, der ungespeicherte Stand das Flag des Stores) und meldet ihn als
+`tombstone: {old, new}` (nur bei Arten mit Umschlag), nie als Feld `deleted`; eine Seite, die
+nur ihren Umschlag änderte, ist `changed`. Die Liste gegen `HEAD` nennt eine Datei, deren
+Umschlag sich änderte, wie jede geänderte Datei als `changed`.
 
 ## DSPRE parallel
 
@@ -714,7 +794,11 @@ Ohne `sync` (erster Abgleich) gelten beide Seiten als geändert: Gleiche Einheit
 aufgezeichnet, abweichende sind Konflikte. Eine Einheit mit Membern und ganz ohne JSON (ein von
 DSPRE angehängter Member) ist aus DSPRE, eine mit JSON und ohne Member aus Datei. Ein seit der
 Aufzeichnung gelöschter Member oder eine gelöschte JSON, deren Member bleibt, ist fehlerhaft: Der
-Abgleich löscht keine Entität, Löschen kommt mit Phase 3d (Referenzsperre). Ein gelöschter Blob unter
+Abgleich löscht keine Entität, Löschen geht im Studio („Löschen…“, mit Referenzsperre). Ausgenommen
+sind die Member am Ende, die die Kürz-Regel des Imports entfernt (dieselbe Regel, siehe „Export,
+Import, Check“): Ihre Einheit ist aus Datei mit der Warnung `textproject.member-removed`, die
+Übernahme entfernt sie wie der Import; ein Header am Ende ebenso (seine Datei unter
+`unpacked/dynamicHeaders` und sein Eintrag in `mapname.bin`). Ein gelöschter Blob unter
 `data/raw/` setzt die Datei auf die Fassung der Basisschicht zurück (ohne Schicht fehlerhaft).
 
 **Übernahme.** Aus DSPRE: Entitäten, Items, Header (mit den internen Namen aus `mapname.bin`) und
@@ -1106,7 +1190,15 @@ Schlüssels oder einer Datei erhöht sie und fügt einen Schritt zu `migrate::MI
 wenn sich das Schema ohne neue Version ändert. `g4k text migrate` hebt ein älteres Projekt an: alles
 im Speicher, dann ein Schnappschuss der berührten Dateien nach
 `.g4/backup/textproject-v<von>-<Zeit>/`, dann schreiben. Export, Import, Check und der Build lehnen
-eine ältere Version ab („…: `g4k text migrate` ausführen.“), eine neuere immer.
+eine ältere Version ab („…: `g4k text migrate` ausführen.“), eine neuere immer. `schema.snap` hält
+den Umschlag als erste Zeile nach dem Kopf fest (`*.deleted?`).
+
+| Schritt | Was er ändert |
+|---|---|
+| 0 → 1 | Manifest-Schlüssel `schema` wird `schemaVersion`; jedes Register `{"ids": {"0003": "MAP_T01"}}` wird `{"MAP_T01": 3}` |
+| 1 → 2 | in jeder `data/events/NNNN.json` werden `object_events[].hidden_flag` und `coord_events[].var` von der Zahl zum eigenen Namen aus `data/ids/flags.json` bzw. `vars.json`, nur wo einer eingetragen ist (0 und Nummern ohne eigenen Namen bleiben Zahl); sonst ändert sich keine Datei, ein Projekt ohne eigene Namen bleibt bis auf das Manifest byte-gleich. Der Umschlag `deleted` kommt mit dieser Version dazu und braucht keine Änderung |
+
+Das Gate von 3d.4 (Grabstein je Art, Round-Trip und Idempotenz mit Grabstein, Kürz-Regel des Imports über Git hinweg, Migration 1 → 2 ändert nur Manifest und die Namen in der Event-JSON) und die Zahlen dazu stehen in [phase-3d-4-gate.md](../phase-3d-4-gate.md); die Befehle in [agent-gate.md](../agent-gate.md), Abschnitt „Phase 3d.4“.
 
 ## Codes
 
@@ -1123,7 +1215,8 @@ und Build auf; Warnungen und Infos werden gemeldet, halten aber nichts auf.
 | `textproject.base-mismatch` | Fehler | die Basisschicht hat für den Teil andere Bytes |
 | `textproject.map-source` | Fehler | eine Karte mit anderer `source` als `binary` |
 | `textproject.header-count` | Fehler | eine Header-Zahl, die das Projekt nicht aufnehmen kann, oder Nummern doppelt bzw. mit Lücke |
-| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nicht, Löschen kommt mit Phase 3d. Der Export warnt bei dem überzähligen Member mit demselben Code |
+| `textproject.member-without-json` | Fehler | ein Member (oder Header) ohne JSON, auch das überzählige Member einer Art aus zwei Archiven (Trainer); der Import löscht nur Member am Ende ohne JSON, die seit der Aufzeichnung unverändert sind (`textproject.member-removed`). Der Export warnt bei dem überzähligen Member mit demselben Code |
+| `textproject.member-removed` | Warnung | Import, Build-Schritt und Abgleich: Member (oder Header) am Ende einer Art ohne JSON, seit der Aufzeichnung des Abgleichs unverändert und nicht in der Basis (die JSON ging mit „Nummer freigeben“, auch auf einem anderen Git-Branch); sie werden entfernt (Kürz-Regel, siehe „Export, Import, Check“) |
 | `textproject.header-table` | Fehler | die Header-Tabelle ist nicht lesbar oder nicht zu finden |
 | `textproject.quirk-key` | Fehler | ein Schlüssel der Quirks-Datei ist keine vorhandene Quelle unter `expanded/scripts` |
 | `textproject.raw-path` | Fehler | ein Blob außerhalb des Bereichs der Blobs oder an einem Pfad einer Entität |

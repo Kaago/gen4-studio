@@ -70,8 +70,8 @@ use super::base_layer::{
 };
 use super::canon::{problem, write_if_changed};
 use super::codes::{
-    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, SCHEMA_CODE,
-    UNSYNCED_CODE,
+    BASE_MISSING_CODE, BASE_UNCHECKED_CODE, CONFLICT_CODE, MEMBER_NEWER_CODE, MEMBER_REMOVED_CODE,
+    SCHEMA_CODE, UNSYNCED_CODE,
 };
 use super::egg_moves::{
     member_rel as egg_member_rel, overlay_slice, place as egg_place, species_numbers, species_rel,
@@ -84,6 +84,9 @@ use super::quirks::{QUIRKS_FILE, seed_quirks};
 use super::registry::IDS_DIR;
 use super::sync::{self, Known};
 use super::{DATA_DIR, MANIFEST_FILE, SCHEMA_VERSION};
+
+/// The step's id, its key in `.g4/build/state.json`.
+pub(crate) const STEP_ID: &str = "textproject";
 
 /// The step's revision; raise it when what the step writes changes.
 pub(crate) const TEXTPROJECT_REV: u32 = 2;
@@ -111,7 +114,7 @@ pub(crate) struct TextProjectStep {
 
 impl Step for TextProjectStep {
     fn id(&self) -> String {
-        "textproject".to_owned()
+        STEP_ID.to_owned()
     }
 
     fn salt(&self) -> String {
@@ -342,6 +345,31 @@ pub(crate) fn forget_kept(root: &Path, members: &[PathBuf]) -> Result<(), Kernel
         save_kept(root, &kept)?;
     }
     Ok(())
+}
+
+/// Forgets `files` (relative to the root) among the inputs the step saw at its last run:
+/// „Nummer freigeben“ removes them, or shortens them, outside the step, for good. The next run
+/// then counts such a file as added when it is there (a later entity with the same number, or
+/// the file back after `git switch`; the sync's record decides which side, see [`Records`])
+/// and passes over it when it is not, instead of finding it changed since a version that no
+/// longer counts, which with a JSON that came back made a conflict. Leaves the state alone
+/// without an entry of the step or when the entry names none of them.
+pub(crate) fn forget_seen(root: &Path, files: &[PathBuf]) -> Result<(), KernelError> {
+    let keys: Vec<String> = files.iter().map(|f| shown(f)).collect();
+    let named = BuildState::load_shared(root)
+        .steps
+        .get(STEP_ID)
+        .is_some_and(|entry| keys.iter().any(|k| entry.inputs.contains_key(k)));
+    if !named {
+        return Ok(());
+    }
+    BuildState::update(root, |state| {
+        if let Some(entry) = state.steps.get_mut(STEP_ID) {
+            for key in &keys {
+                entry.inputs.remove(key);
+            }
+        }
+    })
 }
 
 /// Puts the quirks file into rotom's compile state when that would change it (a compile state
@@ -794,6 +822,9 @@ fn run(p: &Project, dirty: &Dirty) -> Result<(StepRun, Vec<Problem>), KernelErro
         },
         quirks: plan.quirks,
         quirks_path: plan.quirks_path,
+        // The members at the end the JSON lost („Nummer freigeben“, maybe on another Git
+        // branch): JSON-side work, always done.
+        removals: plan.removals,
         ..ImportPlan::default()
     };
     let folded: Vec<PathBuf> = AssetKind::ALL
@@ -1137,6 +1168,14 @@ pub(crate) fn sides(p: &Project) -> Result<Option<Sides>, KernelError> {
     if judged.plan.quirks_path.is_some() {
         sides.json.insert(QUIRKS_FILE.to_owned());
     }
+    // A JSON deleted with „Nummer freigeben“: the export would write it again.
+    sides.json.extend(
+        judged
+            .plan_problems
+            .iter()
+            .filter(|p| has_code(p, MEMBER_REMOVED_CODE))
+            .map(|p| shown(&p.file)),
+    );
     let mut kept = judged.kept.clone();
     for &i in &judged.newer {
         let unit = &judged.units[i];
@@ -1248,9 +1287,11 @@ pub(crate) fn import_refusal(p: &Project) -> Result<Option<String>, KernelError>
 /// `textproject.member-without-json`: a full run cannot tell where they came from
 /// (`textproject.unsynced`); an incremental run keeps one whose member changed or was kept
 /// before (appended by Studio or DSPRE: `textproject.member-newer`, a warning, its members go
-/// to `kept`). Any other stays the import's error (a deleted JSON: deleting is 3d), and so do
-/// the surplus members of a pair art, whose sentence names the way out already (neither export
-/// nor import makes the missing counterpart).
+/// to `kept`). Any other stays the import's error (a JSON deleted while its member changed or
+/// in the middle), and so do the surplus members of a pair art, whose sentence names the way
+/// out already (neither export nor import makes the missing counterpart). The plan's
+/// [`ImportPlan::removals`] are no orphans and stay as they are (no `unsynced`: the import's
+/// rule proved them unchanged since the record and absent in the base).
 fn judge_orphans(
     plan: &mut ImportPlan,
     full: bool,
@@ -1274,8 +1315,8 @@ fn judge_orphans(
                 UNSYNCED_CODE,
                 format!(
                     "{} hat keine {json} und fehlt in der Basis; g4k text export legt sie an \
-                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht \
-                     keine Member).",
+                     (Member gilt), g4k text import lehnt das Member ab (der Import löscht nur \
+                     Member am Ende, die seit der Aufzeichnung unverändert sind).",
                     shown(&member)
                 ),
             );
@@ -1287,7 +1328,8 @@ fn judge_orphans(
                     MEMBER_NEWER_CODE,
                     format!(
                         "{} hat noch keine {json}; g4k text export legt sie an, g4k text \
-                         import lehnt das Member ab (der Import löscht keine Member).",
+                         import lehnt das Member ab (der Import löscht nur Member am Ende, die \
+                         seit der Aufzeichnung unverändert sind).",
                         shown(member)
                     ),
                 )

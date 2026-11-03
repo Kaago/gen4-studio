@@ -1,11 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { conflictDiff, errorText, resolveExternalConflict } from "../api";
-import type { AssetId, BrokenEntry, ConflictDiff, ConflictEntry, Keep, SyncOutcome, TextProjectStatus } from "../api";
+import type { AssetId, BrokenEntry, ConflictDiff, ConflictEntry, DeleteTarget, Keep, SyncOutcome, TextProjectStatus } from "../api";
 import type { ExternalSyncApi } from "../app/useExternalSync";
+import { useDelete } from "../delete/DeleteContext";
+import { depthAtLeast } from "../ui/frame/shellState";
+import type { Depth } from "../ui/frame/shellState";
 import { ago, useNow } from "../ui/frame/timeAgo";
-import { Badge, Button, EmptyState, Notice, Section, Table } from "../ui/primitives";
-import type { TableColumn } from "../ui/primitives";
+import { Badge, Button, EmptyState, Notice, NumberField, Section, SelectField, Table } from "../ui/primitives";
+import type { SelectOption, TableColumn } from "../ui/primitives";
 import { FIRST_SYNC_NOTE, brokenCountText, conflictCountText, moreText, problemLine, syncProgressText } from "./syncWords";
 import styles from "./TextProjectSurface.module.css";
 
@@ -78,15 +81,19 @@ export type TextProjectSurfaceProps = {
   /** The text project of the open project; null without a project. */
   text: TextProjectView | null;
   onOpenProject: () => void;
+  /** Tüfteln adds „Löschen“ for the entities without a head of their own (default Bauen). */
+  depth?: Depth;
 };
 
 /**
  * Technik › Textprojekt (4.3b): the folder's state as a text project. A DSPRE folder offers „Als Textprojekt einrichten…“ (locked with the
  * reason when it cannot be set up); a text project names its schema and its last sync, offers „Jetzt abgleichen“ and „Zurücknehmen…“, and
  * lists what the sync found: the conflicts with their diff and a choice each („Auf zwei Seiten geändert“), the files that do not read
- * („Fehlerhafte Dateien“) and what the last takeover brought („Zuletzt übernommen“).
+ * („Fehlerhafte Dateien“) and what the last takeover brought („Zuletzt übernommen“). Tüfteln adds „Löschen“ (a kind and a number) for the
+ * entities no head deletes (matrices, event files, area data, script files, text archives) and for maps.
  */
-export function TextProjectSurface({ text, onOpenProject }: TextProjectSurfaceProps) {
+export function TextProjectSurface({ text, onOpenProject, depth = "bauen" }: TextProjectSurfaceProps) {
+  const tinker = depthAtLeast(depth, "tuefteln");
   if (text === null) {
     return (
       <Surface>
@@ -104,9 +111,9 @@ export function TextProjectSurface({ text, onOpenProject }: TextProjectSurfacePr
   }
   switch (status.state) {
     case "dspre":
-      return <SetUp adoptable={status.adoptable} reason={status.reason} busy={text.busy} agentSetUp={text.agentSetUp === true} onSetUp={text.onSetUp} />;
+      return <SetUp adoptable={status.adoptable} reason={status.reason} busy={text.busy} agentSetUp={text.agentSetUp === true} onSetUp={text.onSetUp} tinker={tinker} />;
     case "current":
-      return <Current text={text} schema={status.schema} lastSyncAt={status.last_sync_at} />;
+      return <Current text={text} schema={status.schema} lastSyncAt={status.last_sync_at} tinker={tinker} />;
     case "older":
       return (
         <Surface lead={`Textprojekt, Schema-Version ${status.schema}: älter als diese Fassung von Gen4 Studio. Bis es angehoben ist, lässt es sich nur lesen.`}>
@@ -167,7 +174,21 @@ function Surface({ lead, actions, children }: { lead?: string; actions?: ReactNo
  * A DSPRE folder: what a text project is, and „Als Textprojekt einrichten…“, locked with the reason when it cannot be set up, and while a
  * build or a set-up runs; an agent's set-up is said.
  */
-function SetUp({ adoptable, reason, busy, agentSetUp, onSetUp }: { adoptable: boolean; reason: string | null; busy: boolean; agentSetUp: boolean; onSetUp?: () => void }) {
+function SetUp({
+  adoptable,
+  reason,
+  busy,
+  agentSetUp,
+  onSetUp,
+  tinker,
+}: {
+  adoptable: boolean;
+  reason: string | null;
+  busy: boolean;
+  agentSetUp: boolean;
+  onSetUp?: () => void;
+  tinker: boolean;
+}) {
   const reasonId = useId();
   const locked = !adoptable || busy || agentSetUp || onSetUp === undefined;
   const why = agentSetUp || adoptable ? null : reason;
@@ -188,12 +209,18 @@ function SetUp({ adoptable, reason, busy, agentSetUp, onSetUp }: { adoptable: bo
           </p>
         )}
       </div>
+      {/* The DSPRE layout has no tombstones, but a new entry at the end can have its number freed. */}
+      {tinker && (
+        <div className={styles.groups}>
+          <DeleteSection />
+        </div>
+      )}
     </Surface>
   );
 }
 
 /** A text project of the current schema: its state, the sync under way, and what the last sync found. */
-function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: number; lastSyncAt: number | null }) {
+function Current({ text, schema, lastSyncAt, tinker }: { text: TextProjectView; schema: number; lastSyncAt: number | null; tinker: boolean }) {
   const now = useNow();
   const { sync } = text;
   const locked = sync.running || text.busy;
@@ -253,6 +280,7 @@ function Current({ text, schema, lastSyncAt }: { text: TextProjectView; schema: 
         {conflicts.length > 0 && <Conflicts conflicts={conflicts} busy={text.busy} onChosen={onChosen} onResolved={text.onResolved} />}
         {broken.length > 0 && <Broken entries={broken} />}
         <Taken taken={sync.taken} />
+        {tinker && <DeleteSection />}
       </div>
     </Surface>
   );
@@ -432,6 +460,42 @@ function Taken({ taken }: { taken: SyncOutcome | null }) {
           ))}
         </ul>
       )}
+    </Group>
+  );
+}
+
+/**
+ * The kinds „Löschen“ of Tüfteln offers: the entities no head deletes, and the map (its head's entry is locked by the cell it shows in;
+ * here it can be deleted once no cell holds it).
+ */
+type TinkerDeleteKind = "matrix" | "map" | "event_file" | "area_data" | "script" | "text_archive";
+
+const DELETE_KINDS: readonly SelectOption<TinkerDeleteKind>[] = [
+  { value: "matrix", label: "Matrix" },
+  { value: "map", label: "Karte" },
+  { value: "event_file", label: "Eventdatei" },
+  { value: "area_data", label: "Gebietsdaten" },
+  { value: "script", label: "Scriptdatei" },
+  { value: "text_archive", label: "Textarchiv" },
+];
+
+/** The entity of `kind` with the number `n` (a script file names its file). */
+const deleteTarget = (kind: TinkerDeleteKind, n: number): DeleteTarget => (kind === "script" ? { kind, file: n } : { kind, index: n });
+
+/** „Löschen“ (Tüfteln): a kind and a number, and „Löschen…“ opens the dialog for that entity (the dialog says what is possible). */
+function DeleteSection() {
+  const remove = useDelete();
+  const [kind, setKind] = useState<TinkerDeleteKind>("matrix");
+  const [number, setNumber] = useState<number | null>(null);
+  return (
+    <Group title="Löschen" data="data-delete-section">
+      <div className={`${styles.actions} ${styles.deleteRow} ${styles.inset}`}>
+        <SelectField label="Art" showLabel value={kind} options={DELETE_KINDS} onChange={setKind} />
+        <NumberField label="Nummer" showLabel value={number} onCommit={setNumber} min={0} bits={16} />
+        <Button kind="secondary" aria-disabled={number === null || undefined} onClick={() => number !== null && remove.open(deleteTarget(kind, number))}>
+          Löschen…
+        </Button>
+      </div>
     </Group>
   );
 }

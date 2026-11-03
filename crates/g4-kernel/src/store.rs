@@ -2,7 +2,7 @@
 //! byte comparison, and a save that refuses to overwrite files changed on disk.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -23,14 +23,19 @@ use g4_formats::game::Family;
 use g4_formats::map::MapFile;
 use g4_formats::matrix::{MATRIX_EMPTY, Matrix};
 
+use crate::delete::{
+    DeleteTarget, NO_TOMBSTONE_FOR_BINARIES, NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT,
+};
 use crate::dynamic_headers;
 use crate::error::{KernelError, io_at};
 use crate::fsutil::write_atomic;
 use crate::fsutil::{Journal, Notes};
 use crate::project::{AssetKind, Location, Project, SourceMode};
 use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync};
-use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite};
+use crate::textproject::Art;
+use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_on_disk};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
+use crate::textproject::tombstone::{EnvelopeCache, read_deleted_cached};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -473,6 +478,15 @@ pub struct Part {
     after: Vec<u8>,
 }
 
+/// One tombstone's share of a changeset: whether its entity was deleted before and after the
+/// step. It changes no member bytes, so it is a part of its own beside the [`Part`]s.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TombPart {
+    pub target: DeleteTarget,
+    pub before: bool,
+    pub after: bool,
+}
+
 /// Who made an edit: the user in the app, or an agent (the display name of its MCP client).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -569,10 +583,12 @@ pub enum FileStepKind {
 }
 
 /// One undoable step: every asset it changed, each at most once, in the order they were
-/// edited, and the file steps it wrote. Never empty, except a barrier whose parts were
-/// forgotten.
+/// edited, the tombstones it set or took back, each at most once, and the file steps it wrote.
+/// Never empty, except a barrier whose parts were forgotten.
 struct Changeset {
     parts: Vec<Part>,
+    /// Tombstones, in the order they were staged.
+    tombs: Vec<TombPart>,
     /// File steps, in the order they were recorded.
     files: Vec<FileStep>,
     label: String,
@@ -596,6 +612,8 @@ struct Staged {
 pub struct Tx<'s> {
     store: &'s mut Store,
     staged: Vec<Staged>,
+    /// Tombstones staged by [`Tx::set_deleted`], each target once.
+    tombs: Vec<TombPart>,
 }
 
 impl Tx<'_> {
@@ -908,6 +926,72 @@ impl Tx<'_> {
         self.edit_record(EGG_MOVES.index, edit)
     }
 
+    /// Stages the tombstone of `target` (an art with envelope only); equal to the current flag
+    /// records nothing. The flag changes no member bytes: [`Store::save`] writes the envelope
+    /// into the entity's JSON. Refused ([`KernelError::Refused`]) outside a text project of
+    /// the current schema ([`NOT_A_TEXT_PROJECT`]), for script files and text archives
+    /// ([`NO_TOMBSTONE_FOR_FILES`]), for textures and models ([`NO_TOMBSTONE_FOR_BINARIES`])
+    /// and for the other kinds without an envelope (places, flags, variables); an entity
+    /// that does not exist fails as loading it does.
+    pub fn set_deleted(&mut self, target: DeleteTarget, deleted: bool) -> Result<(), KernelError> {
+        if *self.store.project.source_mode() != SourceMode::TextProject {
+            return Err(KernelError::Refused(NOT_A_TEXT_PROJECT.to_owned()));
+        }
+        if matches!(
+            target,
+            DeleteTarget::Script { .. } | DeleteTarget::TextArchive { .. }
+        ) {
+            return Err(KernelError::Refused(NO_TOMBSTONE_FOR_FILES.to_owned()));
+        }
+        if matches!(
+            target,
+            DeleteTarget::MapTexture { .. }
+                | DeleteTarget::BuildingTexture { .. }
+                | DeleteTarget::BuildingModel { .. }
+                | DeleteTarget::InteriorBuildingModel { .. }
+        ) {
+            return Err(KernelError::Refused(NO_TOMBSTONE_FOR_BINARIES.to_owned()));
+        }
+        if !target.has_envelope() {
+            return Err(KernelError::Refused(format!(
+                "{} hat keinen Grabstein.",
+                target.label()
+            )));
+        }
+        // The entity must exist; loaded, its bytes are at hand for the save. A read-only one
+        // is never written, so it gets no envelope either.
+        for id in target.assets() {
+            if let Some(reason) = &self.store.load(id)?.locked {
+                return Err(KernelError::ReadOnly {
+                    asset: id,
+                    reason: reason.clone(),
+                });
+            }
+        }
+        if let DeleteTarget::Header { id } = target {
+            let count = self.store.header_table()?.len();
+            if usize::from(id) >= count {
+                return Err(KernelError::InvalidProject(format!(
+                    "Header {id} gibt es nicht (nur {count})."
+                )));
+            }
+        }
+        let now = self.store.is_deleted(target);
+        match self.tombs.iter().position(|t| t.target == target) {
+            Some(at) if self.tombs[at].before == deleted => {
+                self.tombs.remove(at);
+            }
+            Some(at) => self.tombs[at].after = deleted,
+            None if now != deleted => self.tombs.push(TombPart {
+                target,
+                before: now,
+                after: deleted,
+            }),
+            None => {}
+        }
+        Ok(())
+    }
+
     /// Edits trainer `index`: its properties and its party are one part. A party of more
     /// than six Pokémon fails the transaction as [`KernelError::Format`].
     pub fn edit_trainer(
@@ -973,6 +1057,15 @@ pub struct Store {
     /// as base. A save of the texts the member held puts these bytes back and removes the
     /// JSON a save wrote ([`Store::unexpanded_member`]).
     unexpanded_texts: HashMap<u16, Vec<u8>>,
+    /// The store's own tombstone flags: set by transactions ([`Tx::set_deleted`]), undo and
+    /// redo, dropped once a save wrote them or a reload dropped the store's changes. Every
+    /// other target is answered from the envelope of its JSON on disk, so an envelope changed
+    /// outside the app is never held stale ([`Store::is_deleted`]).
+    tombstones: BTreeMap<DeleteTarget, bool>,
+    /// What [`Store::deleted_in`] read of the envelopes on disk, per art: a file is read again
+    /// only when its `stat` changed ([`read_deleted_cached`]), so a list does not read every
+    /// entity file each time and still sees a change made outside the app.
+    envelopes: Mutex<HashMap<Art, EnvelopeCache>>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1053,6 +1146,8 @@ impl Store {
             source: None,
             busy: None,
             unexpanded_texts: HashMap::new(),
+            tombstones: BTreeMap::new(),
+            envelopes: Mutex::new(HashMap::new()),
             project,
         }
     }
@@ -1440,10 +1535,11 @@ impl Store {
     }
 
     /// Runs `f` as one undoable step labelled `label`: every asset it edits through the
-    /// [`Tx`] becomes one part of a single changeset. When `f` fails, every asset stays as
-    /// it was and nothing is recorded. Edits that leave the serialized bytes unchanged are
-    /// no part; without any part no changeset is recorded and the id is `None`. A recorded
-    /// step clears the redo stack.
+    /// [`Tx`] becomes one part of a single changeset, every tombstone it sets
+    /// ([`Tx::set_deleted`]) a [`TombPart`] of it. When `f` fails, every asset and tombstone
+    /// stays as it was and nothing is recorded. Edits that leave the serialized bytes
+    /// unchanged are no part; without any part no changeset is recorded and the id is `None`.
+    /// A recorded step clears the redo stack.
     pub fn transaction<T>(
         &mut self,
         label: &str,
@@ -1481,9 +1577,11 @@ impl Store {
         let mut tx = Tx {
             store: self,
             staged: Vec::new(),
+            tombs: Vec::new(),
         };
         let value = f(&mut tx)?;
         let staged = tx.staged;
+        let tombs = tx.tombs;
         let change = ChangeId(self.next_change);
         self.next_change += 1;
         let mut parts = Vec::new();
@@ -1499,11 +1597,15 @@ impl Store {
                 after: edit.after,
             });
         }
-        if parts.is_empty() && barrier.is_none() {
+        for tomb in &tombs {
+            self.set_tombstone(tomb.target, tomb.after);
+        }
+        if parts.is_empty() && tombs.is_empty() && barrier.is_none() {
             return Ok((value, change, false));
         }
         self.undo.push(Changeset {
             parts,
+            tombs,
             files: Vec::new(),
             label: label.to_owned(),
             origin: current_origin(),
@@ -2033,8 +2135,10 @@ impl Store {
                 .and_then(|a| a.saved_bytes.clone())
                 .ok_or(KernelError::Stale(HEADER_TABLE))?;
             let members = vec![path, names_path];
+            // The other headers keep their tombstones as saved.
+            let deleted = deleted_on_disk(&self.project.root);
             self.append_json(HEADER_TABLE, members, journal, |source, project| {
-                source.write(project, &[(HEADER_TABLE, table)], &|_| None)
+                source.write(project, &[(HEADER_TABLE, table)], &|_| None, &deleted)
             })?;
         }
         Ok(id)
@@ -2507,13 +2611,17 @@ impl Store {
     /// the bytes of every loaded asset whose value changed and differs from what was last
     /// read from or written to disk, the documents of the changed text archives (cloned, not
     /// serialized), the text generations, and the lock reason of every loaded asset its bytes
-    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding. Nothing is read
-    /// from disk; everything else the snapshot reads there. An asset whose value cannot be
+    /// lock (see [`Store::locked_by_bytes`]); a deliberate lock is no finding; the store's own
+    /// tombstone flags, set ones as `tombstones`, taken back ones as `restored` (see
+    /// [`crate::checks::Overlay::restored`]). Nothing is read from disk; everything else the
+    /// snapshot reads there. An asset whose value cannot be
     /// serialized is named in `unwritable` instead.
     pub fn snapshot_overlay(&self) -> crate::checks::Overlay {
         let family = self.project.family;
         let mut overlay = crate::checks::Overlay {
             generation: self.change_generation,
+            tombstones: self.own_tombstones(true),
+            restored: self.own_tombstones(false),
             ..Default::default()
         };
         for (&id, asset) in &self.assets {
@@ -2587,9 +2695,10 @@ impl Store {
         }
     }
 
-    /// Drops the store's own changes to `id` and loads the member from disk again. The
-    /// asset's parts leave the changesets of both the undo and the redo stack (a changeset
-    /// left without parts goes with them); the parts of other assets stay.
+    /// Drops the store's own changes to `id` and loads the member from disk again, the
+    /// tombstone flags of its entities included. The asset's parts (and those tombstones') leave
+    /// the changesets of both the undo and the redo stack (a changeset left without parts goes
+    /// with them); the parts of other assets stay.
     /// On an error (missing or unreadable file) nothing changes.
     pub fn reload_from_disk(&mut self, id: AssetId) -> Result<(), KernelError> {
         // Dropped first: an undecodable text archive is an error below, and the index must
@@ -2607,6 +2716,7 @@ impl Store {
         );
         self.note_unexpanded(id)?;
         self.forget_history(id);
+        self.tombstones.retain(|t, _| !t.assets().contains(&id));
         self.drop_text_index(id);
         self.note_change(id);
         Ok(())
@@ -2616,7 +2726,7 @@ impl Store {
     /// keeping its own changes. The next `save` then overwrites the file with them. The
     /// asset's undo and redo entries are dropped (their snapshots were taken against the old
     /// base; undoing would write it over the external edit); those of other assets stay, see
-    /// [`Store::reload_from_disk`]. Does
+    /// [`Store::reload_from_disk`]. The store's own tombstone flags of its entities stay. Does
     /// nothing for an asset that was never loaded; on an unreadable file nothing changes.
     /// A member file that was deleted is not an error: "absent" becomes the base, so the
     /// next `save` recreates the file with the store's version. The header table cannot be
@@ -2655,26 +2765,33 @@ impl Store {
         Ok(())
     }
 
-    /// Removes the parts and file steps of `id` from every changeset of the undo and redo
-    /// stacks and drops the changesets left empty, except a barrier: what it stands for stays
-    /// on disk.
+    /// Removes the parts, tombstones and file steps of `id` from every changeset of the undo
+    /// and redo stacks and drops the changesets left empty, except a barrier: what it stands
+    /// for stays on disk.
     fn forget_history(&mut self, id: AssetId) {
         self.forget_history_of(|asset| asset == id);
     }
 
-    /// Drops every part and file step whose asset `forget` picks, see [`Store::forget_history`].
+    /// Drops every part, tombstone and file step whose asset `forget` picks, see
+    /// [`Store::forget_history`].
     fn forget_history_of(&mut self, forget: impl Fn(AssetId) -> bool) {
         for stack in [&mut self.undo, &mut self.redo] {
             stack.retain_mut(|change| {
                 change.parts.retain(|p| !forget(p.asset));
+                change
+                    .tombs
+                    .retain(|t| !t.target.assets().into_iter().any(&forget));
                 change.files.retain(|f| !forget(f.asset));
-                !change.parts.is_empty() || !change.files.is_empty() || change.barrier.is_some()
+                !change.parts.is_empty()
+                    || !change.tombs.is_empty()
+                    || !change.files.is_empty()
+                    || change.barrier.is_some()
             });
         }
     }
 
-    /// Drops every part and file step of `id` from the undo and redo stacks; a changeset left
-    /// without both goes with them, a barrier stays. For files of `id` written outside the
+    /// Drops every part, tombstone and file step of `id` from the undo and redo stacks; a
+    /// changeset left without any goes with them, a barrier stays. For files of `id` written outside the
     /// history (a saved script file), whose file steps undo would refuse from then on.
     pub fn forget_asset_history(&mut self, id: AssetId) {
         self.forget_history(id);
@@ -2684,6 +2801,169 @@ impl Store {
     /// written outside the history (the adoption of the scripts).
     pub fn forget_kind_history(&mut self, kind: AssetKind) {
         self.forget_history_of(|asset| asset.kind == kind);
+    }
+
+    /// „Nummer freigeben“ (3d.4 [`crate::delete::free_number`]): removes `files` (relative to
+    /// the root; a file already gone is fine), the files of the entities `targets` at the end
+    /// of their archives, and forgets those entities: their loaded assets go (the header table
+    /// stays, [`Store::remove_trailing_headers`] shortened it), their parts and file steps leave
+    /// the undo and redo stacks (their tombstone steps stay: the barrier the caller records
+    /// next keeps undo from reaching them), the store's own tombstone flags of them go, and
+    /// their assets are reported changed. The sync forgets the files ([`Known::Drop`]) and the
+    /// build step's members kept as newer. Returns the files removed. Not undoable.
+    pub(crate) fn remove_member_files(
+        &mut self,
+        targets: &[DeleteTarget],
+        files: &[PathBuf],
+    ) -> Result<Vec<PathBuf>, KernelError> {
+        self.writable()?;
+        let root = self.project.root.clone();
+        let mut removed = Vec::new();
+        for rel in files {
+            let path = root.join(rel);
+            match std::fs::remove_file(&path) {
+                Ok(()) => removed.push(rel.clone()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(KernelError::Partial(format!(
+                        "„Nummer freigeben“ removed {} of {} files, then {}: {e}",
+                        removed.len(),
+                        files.len(),
+                        path.display()
+                    )));
+                }
+            }
+        }
+        let mut ids: Vec<AssetId> = Vec::new();
+        for target in targets {
+            self.tombstones.remove(target);
+            for id in target.assets() {
+                if id == HEADER_TABLE {
+                    continue;
+                }
+                ids.push(id);
+                if id.kind == AssetKind::Trainer {
+                    for kind in [AssetKind::TrainerProperties, AssetKind::TrainerParty] {
+                        ids.push(AssetId {
+                            kind,
+                            index: id.index,
+                        });
+                    }
+                }
+            }
+        }
+        for &id in &ids {
+            self.assets.remove(&id);
+            self.locks.remove(&id);
+            self.drop_text_index(id);
+        }
+        for stack in [&mut self.undo, &mut self.redo] {
+            stack.retain_mut(|change| {
+                change.parts.retain(|p| !ids.contains(&p.asset));
+                change.files.retain(|f| !ids.contains(&f.asset));
+                !change.parts.is_empty()
+                    || !change.tombs.is_empty()
+                    || !change.files.is_empty()
+                    || change.barrier.is_some()
+            });
+        }
+        for target in targets {
+            for id in target.assets() {
+                self.note_change(id);
+            }
+        }
+        // Caches the next scan or build puts right: neither fails the files removed already.
+        let dropped: Vec<(PathBuf, Known)> =
+            files.iter().map(|rel| (rel.clone(), Known::Drop)).collect();
+        let _ = record_known(&self.project, &dropped);
+        let _ = crate::textproject::step::forget_kept(&root, files);
+        Ok(removed)
+    }
+
+    /// „Nummer freigeben“ of the headers from `first` on (new ones, at the end of the table,
+    /// Dynamic Headers patch applied): `mapname.bin` loses their records first, then their
+    /// files `unpacked/dynamicHeaders/NNNN` and, in a text project, `data/headers/NNNN.json`
+    /// go. The loaded table, its base and the table's parts on the undo and redo stacks lose
+    /// them too (the mirror of [`Store::create_header`]), so the table stays neither dirty nor
+    /// stale; the store's own tombstone flags of them go. Returns the files removed (relative
+    /// to the root). Not undoable.
+    pub(crate) fn remove_trailing_headers(
+        &mut self,
+        first: u16,
+    ) -> Result<Vec<PathBuf>, KernelError> {
+        self.writable()?;
+        if !self.dynamic_headers_applied()? {
+            return Err(KernelError::InvalidProject(
+                "new headers need the Dynamic Headers patch; without it there is none to free"
+                    .to_owned(),
+            ));
+        }
+        let count = self.project.header_count()?;
+        let keep = usize::from(first);
+        if keep >= count {
+            return Ok(Vec::new());
+        }
+        let names_path = self.project.mapname_path();
+        let mut names = std::fs::read(&names_path).map_err(io_at(&names_path))?;
+        names.truncate(keep * MAPNAME_RECORD);
+        let root = self.project.root.clone();
+        let dir = dynamic_headers::unpacked_dir(&self.project);
+        let text_project = *self.project.source_mode() == SourceMode::TextProject;
+        let journal = Journal::start();
+        let wrote = write_atomic(&root, &names_path, &names);
+        let mut removed = Vec::new();
+        let mut failed = None;
+        if wrote.is_ok() {
+            for id in keep..count {
+                let mut paths = vec![dir.join(format!("{id:04}"))];
+                if text_project {
+                    paths.push(root.join(Art::Headers.dir()).join(format!("{id:04}.json")));
+                }
+                for path in paths {
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {
+                            removed.push(path.strip_prefix(&root).unwrap_or(&path).to_path_buf())
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => {
+                            failed.get_or_insert_with(|| io_at(&path)(e));
+                        }
+                    }
+                }
+            }
+        }
+        let notes = journal.finish();
+        wrote?;
+        if let Some(Asset {
+            saved_bytes,
+            current: Loaded::HeaderTable(headers),
+            ..
+        }) = self.assets.get_mut(&HEADER_TABLE)
+        {
+            headers.truncate(keep);
+            if let Some(saved) = saved_bytes {
+                saved.truncate(keep * MAP_HEADER_SIZE);
+            }
+        }
+        let parts = self.undo.iter_mut().chain(self.redo.iter_mut());
+        for part in parts.flat_map(|c| c.parts.iter_mut()) {
+            if part.asset == HEADER_TABLE {
+                part.before.truncate(keep * MAP_HEADER_SIZE);
+                part.after.truncate(keep * MAP_HEADER_SIZE);
+            }
+        }
+        self.tombstones
+            .retain(|t, _| !matches!(t, DeleteTarget::Header { id } if *id >= first));
+        self.note_change(HEADER_TABLE);
+        let mut known = sync::noted(&self.project, &notes);
+        known.extend(removed.iter().map(|rel| (rel.clone(), Known::Drop)));
+        let _ = record_known(&self.project, &known);
+        match failed {
+            Some(e) => Err(KernelError::Partial(format!(
+                "mapname.bin is shortened to {keep} headers, but a header file stayed: {e}"
+            ))),
+            None => Ok(removed),
+        }
     }
 
     /// Records a step labelled `label` whose files the caller has already written (every
@@ -2697,6 +2977,7 @@ impl Store {
         self.note_change(step.asset);
         self.undo.push(Changeset {
             parts: Vec::new(),
+            tombs: Vec::new(),
             files: vec![step],
             label: label.to_owned(),
             origin: current_origin(),
@@ -2771,6 +3052,9 @@ impl Store {
             }
             self.note_change(id);
         }
+        for tomb in change.tombs.iter().rev() {
+            self.set_tombstone(tomb.target, side.tomb(tomb));
+        }
         for step in change
             .files
             .iter()
@@ -2783,6 +3067,11 @@ impl Store {
             }
         }
         let mut assets: Vec<AssetId> = change.parts.iter().map(|p| p.asset).collect();
+        for id in change.tombs.iter().flat_map(|t| t.target.assets()) {
+            if !assets.contains(&id) {
+                assets.push(id);
+            }
+        }
         for step in &change.files {
             if !assets.contains(&step.asset) {
                 self.note_change(step.asset);
@@ -2866,6 +3155,7 @@ impl Store {
         }
         let mut barrier = None;
         let mut parts: Vec<Part> = Vec::new();
+        let mut tombs: Vec<TombPart> = Vec::new();
         let mut files: Vec<FileStep> = Vec::new();
         let mut origin = None;
         for step in self.undo.split_off(mark) {
@@ -2879,14 +3169,22 @@ impl Store {
                     None => parts.push(part),
                 }
             }
+            for tomb in step.tombs {
+                match tombs.iter_mut().find(|t| t.target == tomb.target) {
+                    Some(merged) => merged.after = tomb.after,
+                    None => tombs.push(tomb),
+                }
+            }
             files.extend(step.files);
         }
         parts.retain(|p| p.before != p.after);
-        if parts.is_empty() && files.is_empty() && barrier.is_none() {
+        tombs.retain(|t| t.before != t.after);
+        if parts.is_empty() && tombs.is_empty() && files.is_empty() && barrier.is_none() {
             return;
         }
         self.undo.push(Changeset {
             parts,
+            tombs,
             files,
             label: label.to_owned(),
             // `mark < len`, so at least one step was merged.
@@ -2965,25 +3263,110 @@ impl Store {
         self.assets.get(&id).and_then(|a| a.locked.as_deref())
     }
 
+    /// Why asset `id` is read-only, loading it first ([`Store::locked`] for an asset not
+    /// loaded yet); `None` when it is editable.
+    pub fn load_locked(&mut self, id: AssetId) -> Result<Option<String>, KernelError> {
+        Ok(self.load(id)?.locked.clone())
+    }
+
     /// Whether the store holds `id` (it was read, edited or created since it was opened).
     pub fn is_loaded(&self, id: AssetId) -> bool {
         self.assets.contains_key(&id)
     }
 
     /// True if the serialized current value differs from the bytes last saved or loaded,
-    /// or cannot be serialized. Assets that were never loaded, and locked (read-only) ones,
-    /// are clean.
+    /// or cannot be serialized, or the tombstone of an entity the asset belongs to differs
+    /// from the saved one (see [`Store::is_deleted`]). Assets that were never loaded, and
+    /// locked (read-only) ones, are clean.
     pub fn is_dirty(&self, id: AssetId) -> bool {
         self.assets.get(&id).is_some_and(|a| {
             if a.locked.is_some() {
                 return false;
             }
             match a.current.to_bytes(self.project.family) {
-                Ok(bytes) => a.saved_bytes.as_deref() != Some(bytes.as_slice()),
+                Ok(bytes) => {
+                    a.saved_bytes.as_deref() != Some(bytes.as_slice()) || self.tomb_dirty(id)
+                }
                 // Not serializable: report dirty so `save` surfaces the error.
                 Err(_) => true,
             }
         })
+    }
+
+    /// Whether a tombstone flag of the store's own for an entity `id` belongs to differs from
+    /// the envelope on disk.
+    fn tomb_dirty(&self, id: AssetId) -> bool {
+        self.tombstones
+            .iter()
+            .any(|(t, &deleted)| t.assets().contains(&id) && deleted != self.deleted_on_disk(*t))
+    }
+
+    /// Whether the JSON of `target` carries the envelope on disk now (a text project only).
+    fn deleted_on_disk(&self, target: DeleteTarget) -> bool {
+        *self.project.source_mode() == SourceMode::TextProject
+            && target
+                .art()
+                .is_some_and(|art| deleted_on_disk(&self.project.root)(art, target.number()))
+    }
+
+    /// Whether `target` is deleted: the store's own flag (unsaved steps included), else the
+    /// envelope of its JSON on disk. Never outside a text project.
+    pub fn is_deleted(&self, target: DeleteTarget) -> bool {
+        match self.tombstones.get(&target) {
+            Some(&deleted) => deleted,
+            None => self.deleted_on_disk(target),
+        }
+    }
+
+    /// The deleted entities of `art` by number, unsaved steps included: the envelopes under
+    /// `data/<art>/` (a text project, an art with them; a file read again only when its `stat`
+    /// changed since, see `envelopes`) with the store's own flags over them. For a list of
+    /// every entity of an art, where [`Store::is_deleted`] would read one file per entity.
+    pub fn deleted_in(&self, art: Art) -> BTreeSet<u16> {
+        let mut out = if *self.project.source_mode() == SourceMode::TextProject
+            && crate::delete::TOMBSTONE_ARTS.contains(&art)
+        {
+            let mut envelopes = self.envelopes.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = envelopes.entry(art).or_default();
+            read_deleted_cached(&self.project.root, art.name(), cache).unwrap_or_else(|_| {
+                // Unreadable: nothing kept, as without the cache.
+                cache.clear();
+                BTreeSet::new()
+            })
+        } else {
+            BTreeSet::new()
+        };
+        for (target, &deleted) in &self.tombstones {
+            if target.art() != Some(art) {
+                continue;
+            }
+            if deleted {
+                out.insert(target.number());
+            } else {
+                out.remove(&target.number());
+            }
+        }
+        out
+    }
+
+    /// The targets the store's own flag holds `deleted`, sorted.
+    fn own_tombstones(&self, deleted: bool) -> Vec<DeleteTarget> {
+        self.tombstones
+            .iter()
+            .filter(|&(_, &d)| d == deleted)
+            .map(|(&t, _)| t)
+            .collect()
+    }
+
+    /// Sets the store's own flag of `target` and reports a change of its assets.
+    fn set_tombstone(&mut self, target: DeleteTarget, deleted: bool) {
+        let changed = self.is_deleted(target) != deleted;
+        self.tombstones.insert(target, deleted);
+        if changed {
+            for id in target.assets() {
+                self.note_change(id);
+            }
+        }
     }
 
     /// All dirty assets, in `AssetKind::ALL` order, ascending by index.
@@ -3168,16 +3551,29 @@ impl Store {
                     .get(&id)
                     .and_then(|a| a.current.to_bytes(family).ok())
             };
-            let written =
-                Store::source(&mut self.source, &project)?.write(&project, &writes, &current)?;
+            // The store's own flag, else the envelope on disk stays as it is.
+            let tombstones = &self.tombstones;
+            let on_disk = deleted_on_disk(&project.root);
+            let deleted = |art: Art, index: u16| match DeleteTarget::of_art(art, index)
+                .and_then(|t| tombstones.get(&t))
+            {
+                Some(&deleted) => deleted,
+                None => on_disk(art, index),
+            };
+            let written = Store::source(&mut self.source, &project)?
+                .write(&project, &writes, &current, &deleted)?;
             out.sources.extend(written.sources);
             out.registers.extend(written.registers);
             out.include |= written.include;
+            let ids: Vec<AssetId> = writes.iter().map(|(id, _)| *id).collect();
             for (id, bytes) in writes {
                 if let Some(asset) = self.assets.get_mut(&id) {
                     asset.saved_bytes = Some(bytes);
                 }
             }
+            // Written: the disk holds the store's flags now.
+            self.tombstones
+                .retain(|t, _| !t.assets().iter().any(|id| ids.contains(id)));
         }
         Ok(out)
     }
@@ -3395,6 +3791,14 @@ enum Side {
 }
 
 impl Side {
+    /// The flag of `tomb` on this side.
+    fn tomb(self, tomb: &TombPart) -> bool {
+        match self {
+            Side::Before => tomb.before,
+            Side::After => tomb.after,
+        }
+    }
+
     fn part(self, part: &Part) -> &[u8] {
         match self {
             Side::Before => &part.before,

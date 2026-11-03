@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dataGet, entityIds, getBattleSprite, getEvents, getTrainerSprite } from "../../api";
+import { dataGet, dataList, entityIds, getBattleSprite, getEvents, getTrainerSprite } from "../../api";
 import { resetIcons } from "../icons";
-import { JENS, PLACEHOLDER_DOC, SPECIES_DOC, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
+import { JENS, PLACEHOLDER_DOC, SPECIES_DOC, TRAINER_ROWS, trainerDoc, trainerHarness, wireApi } from "./trainerTesting";
 import { MISSING, actionTexts, chooseItem, chooseContext, contextTexts } from "../../original/resetTesting";
 
 vi.mock("../../api", async (importOriginal) => ({
@@ -105,7 +105,7 @@ describe("TrainerView", () => {
   it("offers_reset_in_head_and_list", async () => {
     await h.open();
     // The head of the view: the trainer's properties and team (its name and texts stay, they are text archives).
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…"]);
     chooseItem(h.view(), "Auf Original zurücksetzen…");
     expect(h.reset.open).toHaveBeenLastCalledWith({ kind: "trainer", index: 12 });
     // The row in the list: the same.
@@ -118,7 +118,7 @@ describe("TrainerView", () => {
   it("without_a_base_the_entry_says_basis_rom_fehlt", async () => {
     h.reset.status = MISSING;
     await h.open();
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…Basis-ROM fehlt"]);
     expect(contextTexts(h.list().querySelector<HTMLElement>('[data-trainer="12"]')!)).toEqual(["Auf Original zurücksetzen…Basis-ROM fehlt"]);
   });
 
@@ -130,7 +130,7 @@ describe("TrainerView", () => {
     const id = h.view().querySelector<HTMLElement>("header [data-entity-id]");
     expect(id?.textContent).toBe("TRAINER_WANDERER_JENS");
     expect(h.view().querySelector('button[aria-label="ID kopieren"]')).not.toBeNull();
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…", "ID umbenennen…"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…", "ID umbenennen…"]);
     chooseItem(h.view(), "ID umbenennen…");
     const dialog = document.querySelector<HTMLElement>("[role=dialog]");
     expect(dialog?.querySelector("h2")?.textContent).toBe("ID umbenennen");
@@ -142,7 +142,32 @@ describe("TrainerView", () => {
     await h.open();
     expect(entityIds).not.toHaveBeenCalled();
     expect(h.view().querySelector("[data-entity-id]")).toBeNull();
-    expect(actionTexts(h.view())).toEqual(["Auf Original zurücksetzen…"]);
+    expect(actionTexts(h.view())).toEqual(["Löschen…", "Auf Original zurücksetzen…"]);
+  });
+
+  it("the_head_has_loeschen_and_the_state_badge", async () => {
+    h.del.states["trainer:12"] = "changed";
+    h.del.states["trainer:13"] = "changed";
+    // Trainer 13 is a tombstone in the store: the live row wins over the saved state.
+    const rows = TRAINER_ROWS.map((r) => (r.index === 13 ? Object.assign({}, r, { deleted: true }) : r));
+    const before = vi.mocked(dataList).getMockImplementation()!;
+    vi.mocked(dataList).mockImplementation(async (kind, ...rest) => (kind === "trainer" ? rows : before(kind, ...rest)));
+    await h.open(12);
+    chooseItem(h.view(), "Löschen…");
+    expect(h.del.open).toHaveBeenLastCalledWith({ kind: "trainer", index: 12 });
+    // Beside the menu „Aktionen“.
+    const state = h.view().querySelector<HTMLElement>("header [data-entity-state]");
+    expect(state?.textContent).toBe("geändert");
+    expect(state?.parentElement?.querySelector("button[aria-label='Aktionen']")).not.toBeNull();
+    h.unmount();
+    h = trainerHarness();
+    h.del.states["trainer:13"] = "changed";
+    await h.open(13);
+    expect(h.view().querySelector("header [data-entity-state]")?.textContent).toBe("gelöscht");
+    h.unmount();
+    h = trainerHarness();
+    await h.open(40);
+    expect(h.view().querySelector("[data-entity-state]")).toBeNull();
   });
 
   describe("class sprite and battle preview", () => {

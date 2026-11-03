@@ -83,6 +83,8 @@ export interface DataRowDto {
   tech: string;
   locked: string | null;
   extra: SpeciesRowExtra | MoveRowExtra | ItemRowExtra | EncounterRowExtra | TrainerRowExtra | { count: number } | { targets: number[] } | null;
+  /** The entry is a tombstone (3d.4: trainers and encounter files of a text project); the backend always sends it, older test data leaves it out. */
+  deleted?: boolean;
 }
 
 /** The personal data of one species or form; `DataPatch` `Personal` takes these names (`flip` as 0 or 1). */

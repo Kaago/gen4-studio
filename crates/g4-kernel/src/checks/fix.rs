@@ -698,6 +698,12 @@ impl Source for Only<'_> {
     fn build_facts(&self) -> Arc<super::BuildFacts> {
         self.src.build_facts()
     }
+    fn deleted(&self, kind: AssetKind, index: u16) -> bool {
+        self.src.deleted(kind, index)
+    }
+    fn header_deleted(&self, id: u16) -> bool {
+        self.src.header_deleted(id)
+    }
 }
 
 #[cfg(all(test, feature = "test-support"))]

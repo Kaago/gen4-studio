@@ -17,8 +17,11 @@
 //!
 //! A value that cannot be read never stops a run: the accessor returns `None` and the snapshot
 //! names it in [`Snapshot::unreadable`] for the `asset.unreadable` check.
+//!
+//! Tombstones ([`Snapshot::deleted`]): the store's flags win, else the envelopes of the entity
+//! JSON on disk, read per art on first access.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,9 +40,10 @@ use uxie::map_header::MapHeader;
 
 use super::build::{BuildFacts, CachedUnpacked};
 use super::scripts::{ScriptFacts, ScriptInput, facts_of};
+use crate::delete::{DeleteTarget, TOMBSTONE_ARTS};
 use crate::disk::Disk;
 use crate::error::KernelError;
-use crate::project::{AssetId, AssetKind, Project};
+use crate::project::{AssetId, AssetKind, Project, SourceMode};
 use crate::scripts::{self, SourceKind};
 use crate::store::Loaded;
 use crate::text::{self, TextArchiveDoc, TextSide, TextSync};
@@ -67,6 +71,13 @@ pub struct Overlay {
     /// Changed assets whose value cannot be serialized, with the error; the snapshot reads
     /// them from the disk and names them unreadable.
     pub unwritable: Vec<(AssetId, String)>,
+    /// Every target the store's own flag holds deleted (`Store::own_tombstones(true)`: unsaved
+    /// steps, and saved ones the store still flags); a tombstone only on disk is not listed,
+    /// the snapshot reads its envelope from the JSON.
+    pub tombstones: Vec<DeleteTarget>,
+    /// The targets the store holds not deleted while their saved JSON carries the envelope
+    /// (an unsaved restore): the store's flag wins over the disk's.
+    pub restored: Vec<DeleteTarget>,
 }
 
 /// An asset the snapshot could not read (the header table is index 0), or a kind whose
@@ -173,6 +184,11 @@ pub struct Snapshot {
     /// The overlay's text documents until their archive is first read.
     text_docs: Mutex<HashMap<u16, TextArchiveDoc>>,
     text_generations: HashMap<u16, u64>,
+    /// The overlay's tombstones and restored targets.
+    tombstones: HashSet<DeleteTarget>,
+    restored: HashSet<DeleteTarget>,
+    /// Per art of [`TOMBSTONE_ARTS`]: the numbers whose JSON on disk carries the envelope.
+    disk_tombstones: [OnceLock<BTreeSet<u16>>; TOMBSTONE_ARTS.len()],
     scripts_adopted: bool,
     headers: OnceLock<Option<Vec<MapHeader>>>,
     /// Per kind (`AssetKind::slot`): every member, `None` for one that could not be read.
@@ -203,6 +219,9 @@ impl Snapshot {
             locked: overlay.locked.into_iter().collect(),
             text_docs: Mutex::new(overlay.text_docs.into_iter().collect()),
             text_generations: overlay.text_generations.into_iter().collect(),
+            tombstones: overlay.tombstones.into_iter().collect(),
+            restored: overlay.restored.into_iter().collect(),
+            disk_tombstones: std::array::from_fn(|_| OnceLock::new()),
             scripts_adopted: scripts::is_adopted(&project),
             headers: OnceLock::new(),
             members: std::array::from_fn(|_| OnceLock::new()),
@@ -240,6 +259,41 @@ impl Snapshot {
     /// The store's change generation the overlay was taken at.
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// Whether `target` is deleted: the store's flag ([`Overlay::tombstones`],
+    /// [`Overlay::restored`]), else the envelope of its JSON on disk (a text project of the
+    /// current schema only; an art's folder that cannot be read counts as none).
+    pub fn deleted(&self, target: DeleteTarget) -> bool {
+        if self.tombstones.contains(&target) {
+            return true;
+        }
+        if self.restored.contains(&target) || !target.has_envelope() {
+            return false;
+        }
+        let Some(slot) = target
+            .art()
+            .and_then(|art| TOMBSTONE_ARTS.iter().position(|&a| a == art))
+        else {
+            return false;
+        };
+        self.disk_tombstones[slot]
+            .get_or_init(|| {
+                if *self.project.source_mode() != SourceMode::TextProject {
+                    return BTreeSet::new();
+                }
+                crate::textproject::tombstone::read_deleted(
+                    &self.project.root,
+                    TOMBSTONE_ARTS[slot].name(),
+                )
+                .unwrap_or_default()
+            })
+            .contains(&target.number())
+    }
+
+    /// Whether header `id` is deleted ([`Snapshot::deleted`]).
+    pub fn header_deleted(&self, id: u16) -> bool {
+        self.deleted(DeleteTarget::Header { id })
     }
 
     /// Why loaded asset `id` is read-only in the store, if it is.

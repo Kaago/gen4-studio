@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
@@ -7,7 +8,7 @@ import type { DataArea } from "./data/dataModel";
 import { withHeaderHint } from "./workbench/navigation";
 import { namedByWizard } from "./workbench/RoomActions";
 import type { WorkbenchWorld } from "./workbench/WorkbenchContext";
-import type { DataNav } from "./workbench/navigation";
+import type { DataNav, NavTarget } from "./workbench/navigation";
 import { useBusEvent } from "./bus/useBusEvent";
 import type { TextShown } from "./workbench/text/TextArea";
 import { UNNAMED_KEY, buildPlaces, placeOf } from "./workbench/places";
@@ -31,7 +32,7 @@ import { TechnikArea } from "./technik/TechnikArea";
 import type { TechnikEntry } from "./technik/TechnikArea";
 import { useBase } from "./technik/useBase";
 import { publishLocked as publishLockOf } from "./publish/publishWords";
-import { useChanges } from "./technik/useChanges";
+import { stateOf, useChanges } from "./technik/useChanges";
 import { useUnsaved } from "./technik/useUnsaved";
 import { CONFLICTS_TOAST, adoptedText, appliedText, brokenText, conflictsText, syncProgressText } from "./technik/syncWords";
 import { focusChangesSurface, focusCommitAll } from "./technik/ChangesSurface";
@@ -39,6 +40,7 @@ import { requestTextProjectFocus } from "./technik/TextProjectSurface";
 import type { SyncGroup } from "./technik/TextProjectSurface";
 import { useExternalSync } from "./app/useExternalSync";
 import { OriginalProvider } from "./original/OriginalContext";
+import { DeleteProvider } from "./delete/DeleteContext";
 import { AdoptDialog } from "./textproject/AdoptDialog";
 import { MigrateDialog } from "./textproject/MigrateDialog";
 import { RevertDialog } from "./textproject/RevertDialog";
@@ -56,7 +58,7 @@ import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
 import { AREAS, depthAtLeast } from "./ui/frame/shellState";
-import type { AreaId, Tool } from "./ui/frame/shellState";
+import type { AreaId, DataSelectKey, DataSelection, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
 import { placedLabel, trainerLabel, trainerPatch } from "./workbench/trainerScript";
@@ -66,11 +68,11 @@ import type { TextTarget } from "./workbench/text/textModel";
 import { ProblemsStore } from "./workbench/problems/problems";
 import { NO_SCRIPTS, useScripts } from "./workbench/script/useScripts";
 import type { ScriptBridge } from "./workbench/script/useScripts";
-import { errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
+import { deleteWritesFiles, errorText, getMatrix, listScriptFiles, redo, revealPath, textProjectStatus, undo } from "./api";
 import { thumbnails } from "./world/thumbnailStore";
 import { ImportPartsDialog } from "./workbench/inspector/ImportPartsDialog";
 import type { Against, AgentBusyEvent, AgentChangedEvent, AgentReopenedEvent, AssetId, Created as ProjectCreated, DiffSubject, DraftDto, HeaderSummary, ProjectInfo, RegionReport, ResetResult, ScriptFileDto, SyncOutcome, TextProjectStatus } from "./api";
-import type { FlagKind } from "./api";
+import type { DeleteResult, DeleteTarget, FlagKind } from "./api";
 import type { StoryReport } from "./api";
 import { createEditBus } from "./bus/editBus";
 import { gameLabel, projectName } from "./app/gameLabel";
@@ -194,6 +196,17 @@ const BROKEN_TOAST = "sync-broken";
 
 /** A folder path without a trailing separator, to compare the roots the backend names. */
 const bareRoot = (path: string) => path.replace(/[\\/]+$/, "");
+
+/**
+ * The data selection „Nummer freigeben“ of `target` takes away: the trainer or encounter file selected when it is one of the `count`
+ * entries freed from `target` on; null otherwise.
+ */
+function freedSelection(target: DeleteTarget, count: number, selected: DataSelection): DataSelectKey | null {
+  const key: DataSelectKey | null = target.kind === "trainer" ? "trainer" : target.kind === "encounter" ? "encounters" : null;
+  if (key === null || !("index" in target)) return null;
+  const chosen = selected[key];
+  return chosen !== undefined && chosen >= target.index && chosen < target.index + count ? key : null;
+}
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
@@ -450,6 +463,8 @@ function AppBody() {
   });
   // Back and forward through the scenes shown: a jump shows the header the way a click in the list does, and leaves the focus where it is.
   const sceneHistory = useSceneHistory(scene.selected, (id) => void scene.goTo({ kind: "header", id }, { focus: false }), session.info?.root ?? null);
+  // Where a reference of a refused door delete leads (the toast's „Zur Quelle“); stable for the world's callbacks.
+  const goToReference = useStableCallback((nav: NavTarget) => void scene.goTo(nav));
   const world = useWorldActions({
     bus,
     pins: { ...pins, setPinned: pin },
@@ -460,6 +475,7 @@ function AppBody() {
     setMessage: session.setMessage,
     fail: session.fail,
     refreshDirty: session.refreshDirty,
+    goTo: goToReference,
   });
   // The matrix and warp overviews behind the world explorer; read again when the member counts change.
   const overview = useOverview({ bus, projectRoot: session.info?.root ?? null, counts: session.counts, onError: session.fail });
@@ -1017,6 +1033,45 @@ function AppBody() {
     revision: session.savedRevision + changedRevision,
     // A window focus compares (quietly) only while „Gegen Basis“ is on screen.
     listed: area === "technik" && technikEntry === "aenderungen" && against === "base",
+    // The heads' badges need the report wherever they show: compared quietly after opening and after every save, reset and delete.
+    background: true,
+  });
+  // The state badges of the heads („geändert“, „neu“, „gelöscht“): the saved project against the base, from the report of Änderungen; a
+  // report older than the last save gives none until the next one comes (never a stale badge).
+  const freshReport = changes.fresh ? changes.report : null;
+  const entityStateOf = useCallback((subject: DiffSubject) => stateOf(freshReport, subject), [freshReport]);
+  // „Löschen…“ went in (one undo step; „Nummer freigeben“ removed files behind an undo barrier): the message names the entity, the changed
+  // assets are read again as after a reset (the checks run on the edit), and a delete that wrote files compares the saved project again.
+  const onDeleted = useStableCallback(async (result: DeleteResult, freed: boolean, label: string, target: DeleteTarget) => {
+    // „Nummer freigeben“ removed the entity and the tombstones behind it: a data view showing one of them lets go of it first (committed at
+    // once), so no read below asks for a number that is gone.
+    const gone = freed && result.freed !== null ? freedSelection(target, result.freed.count, shell.state.selected) : null;
+    if (gone !== null) flushSync(() => shell.setSelected(gone, null));
+    const done = freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}`;
+    // A side effect that failed without undoing the step (the build step's state) is said with it.
+    const notes = result.notes ?? [];
+    session.setMessage({ kind: "info", text: notes.length === 0 ? done : `${done}. ${notes.join(" ")}` });
+    // A tombstone waits for the save (which compares again).
+    if (deleteWritesFiles(target, freed)) bumpChanged();
+    try {
+      // Freeing shrinks an archive: the counts (pickers, the next number) follow.
+      if (freed) await session.onCountsChanged();
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true, { discardScripts: freed });
+    } catch (e) {
+      session.fail(e);
+    }
+  });
+  // „Wiederherstellen“ went in (one undo step, a store change like a tombstone: nothing is compared until the save): read again as after
+  // a delete.
+  const onRestored = useStableCallback(async (result: DeleteResult, label: string) => {
+    session.setMessage({ kind: "info", text: `Wiederhergestellt: ${label}` });
+    try {
+      if (result.changed.length > 0) scene.noteHistoryMoved();
+      await reloadChanged(result.changed, true);
+    } catch (e) {
+      session.fail(e);
+    }
   });
   // „Gegen gespeichert“ of Technik › Änderungen: the unsaved edits as entities, read while it shows and after every write of the app. The
   // detail of Änderungen reads its diff again on the same moves.
@@ -1518,7 +1573,7 @@ function AppBody() {
     />
   );
 
-  return (
+  const app = (
     <OriginalProvider onReset={onOriginalReset} status={original.status} family={info?.family ?? null} dirty={session.dirtyAssets}>
       <TextProjectProvider active={isTextProject} ids={text.idCache} onRenamed={text.onRenamed}>
         <Workbench data={data} live={live} liveMode={liveMode}>
@@ -1732,5 +1787,11 @@ function AppBody() {
         {!inTauri() && <WebDialogHost />}
       </TextProjectProvider>
     </OriginalProvider>
+  );
+  // „Löschen…“ around everything (the dialog and the state badges of the heads).
+  return (
+    <DeleteProvider stateOf={entityStateOf} goTo={data.goTo} onDeleted={onDeleted} onRestored={onRestored} onRestoreFailed={session.fail}>
+      {app}
+    </DeleteProvider>
   );
 }

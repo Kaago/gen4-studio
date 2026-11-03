@@ -19,6 +19,10 @@
 //! unit's JSON named (when it was read, or on disk now); a changed part becomes a side file or
 //! hex. A write never makes the base layer.
 //!
+//! The tombstone envelope (`"deleted": true`, [`super::tombstone`]) is no member byte: a write
+//! is told which entities carry it (the store's flags, else the envelope of the file on disk,
+//! [`deleted_on_disk`]), so no write path drops or invents one.
+//!
 //! `units.rs` holds where an asset lives in the text project (its place, unit, key and
 //! files) and how its JSON imports; `writers.rs` writes the files of each kind of unit.
 
@@ -28,6 +32,7 @@ use std::path::{Path, PathBuf};
 use g4_formats::game::Family;
 use serde::Serialize;
 
+use crate::delete::{DeleteTarget, TOMBSTONE_ARTS};
 use crate::error::{KernelError, io_at};
 use crate::project::{AssetId, AssetKind, Project};
 use crate::scripts;
@@ -36,7 +41,7 @@ use crate::store::HEADER_TABLE;
 
 use super::arts::{Art, numbered};
 use super::base_layer::{BaseLayer, RAW_DIR};
-use super::canon::json_problem;
+use super::canon::parse_entity;
 use super::codes::SCHEMA_CODE;
 use super::ids::{Stamp, stamp, watched};
 use super::import::LazyBase;
@@ -49,6 +54,7 @@ use super::schema::data::ItemEntity;
 use super::schema::header::{HeaderWrite, import_headers};
 use super::schema::{EntitySchema, ImportCtx};
 use super::step::forget_kept;
+use super::tombstone::{file_deleted, read_deleted};
 
 use super::include::write_include;
 use units::{
@@ -119,6 +125,28 @@ pub fn text_archive_key(n: u16) -> String {
 /// (`.rotom`, and `.json` for a level script).
 pub fn script_key(n: u16) -> String {
     format!("{}/{n:04}", scripts::SOURCE_ROOT)
+}
+
+/// The tombstones under `root`: every entity whose JSON carries the envelope, in the arts
+/// with one ([`TOMBSTONE_ARTS`]; one `Value` parse per file that names the key).
+pub(crate) fn read_tombstones(root: &Path) -> Result<BTreeSet<DeleteTarget>, KernelError> {
+    let mut out = BTreeSet::new();
+    for art in TOMBSTONE_ARTS {
+        for index in read_deleted(root, art.name())? {
+            out.extend(DeleteTarget::of_art(art, index));
+        }
+    }
+    Ok(out)
+}
+
+/// Whether the JSON of entity `index` of `art` under `root` carries the envelope now: the
+/// `deleted` of a write without the store (a sync's takeover, an append), which keeps what is
+/// on disk. A file that cannot be read counts as none.
+pub(crate) fn deleted_on_disk(root: &Path) -> impl Fn(Art, u16) -> bool + use<> {
+    let root = root.to_path_buf();
+    move |art, index| {
+        TOMBSTONE_ARTS.contains(&art) && file_deleted(&root, &json_rel(art, index)).unwrap_or(false)
+    }
 }
 
 /// The stamps of the files the symbols are read from (manifest, registers, `mapname.bin`).
@@ -375,7 +403,8 @@ impl EntitySource {
             base: &lazy,
             current: &current,
         };
-        let parts = import_art(art, u32::from(index), &rel, &bytes, &ctx)?;
+        // The tombstone is the store's to keep (Task 2), not the members'.
+        let (parts, _deleted) = import_art(art, u32::from(index), &rel, &bytes, &ctx)?;
         let named = self.base_sha1.entry(key_of(&rel)).or_default();
         collect_base_sha1(&bytes, named);
         Ok(Some(parts))
@@ -407,9 +436,8 @@ impl EntitySource {
             let Some(bytes) = read_optional(&self.root.join(&rel))? else {
                 continue;
             };
-            let item: ItemEntity = serde_json::from_slice(&bytes).map_err(|e| {
-                KernelError::Compile(vec![json_problem(&rel, &bytes, &e, SCHEMA_CODE)])
-            })?;
+            let (item, _deleted): (ItemEntity, bool) = parse_entity(&rel, &bytes, SCHEMA_CODE)
+                .map_err(|problem| KernelError::Compile(vec![problem]))?;
             if item.data.is_none() {
                 continue;
             }
@@ -456,12 +484,15 @@ impl EntitySource {
 
     /// Writes the JSON of every unit among `writes` (asset, bytes in the store's byte form);
     /// parts of a unit not in `writes` come from `current` (the store's saved or unsaved bytes)
-    /// or the JSON. Writes only files that change; baptizes new entities; never writes members.
+    /// or the JSON. An entity `deleted` names (art, index; a header by its id) is written with
+    /// the tombstone envelope, every other one without. Writes only files that change;
+    /// baptizes new entities; never writes members.
     pub fn write(
         &mut self,
         project: &Project,
         writes: &[(AssetId, Vec<u8>)],
         current: &dyn Fn(AssetId) -> Option<Vec<u8>>,
+        deleted: &dyn Fn(Art, u16) -> bool,
     ) -> Result<SourceWrite, KernelError> {
         if self.for_diff && self.dry.is_none() {
             return Err(KernelError::InvalidProject(
@@ -485,10 +516,11 @@ impl EntitySource {
         for (place, given) in units.into_values() {
             match place {
                 Place::Entity { art, index } => {
-                    self.write_entity(project, art, index, &given, current, &mut out)?;
+                    let tomb = deleted(art, index);
+                    self.write_entity(project, art, index, &given, current, tomb, &mut out)?;
                 }
                 Place::Item { member } => self.write_item(project, member, &given, &mut out)?,
-                Place::Headers => self.write_headers(project, &given, &mut out)?,
+                Place::Headers => self.write_headers(project, &given, deleted, &mut out)?,
                 Place::EggMoves => self.write_egg_moves(project, &given, &mut out)?,
                 Place::Binary { kind, index } => {
                     self.write_binary(project, kind, index, &given, &mut out)?;
@@ -511,12 +543,14 @@ impl EntitySource {
         Ok(out)
     }
 
-    /// The JSON of a member appended just now (`append_member`, `append_trainer`, `create_header`).
+    /// The JSON of a member appended just now (`append_member`, `append_trainer`,
+    /// `create_header`); envelopes stay as they are on disk.
     pub fn append(&mut self, project: &Project, id: AssetId) -> Result<SourceWrite, KernelError> {
         let bytes = disk_bytes(project, id)?.ok_or_else(|| {
             KernelError::InvalidProject(format!("{id} ist nicht auf der Platte."))
         })?;
-        self.write(project, &[(id, bytes)], &|_| None)
+        let deleted = deleted_on_disk(&self.root);
+        self.write(project, &[(id, bytes)], &|_| None, &deleted)
     }
 
     /// The JSON of trainer `index` appended just now, christened from `name` (as the user
@@ -578,7 +612,7 @@ impl EntitySource {
     /// Writes the JSON of the units of `assets` from their members on disk, as
     /// [`after_member_write`] does, but the header table with every internal name from
     /// `mapname.bin` (a sync takes over what DSPRE wrote, names included). An asset without a
-    /// member on disk is left out.
+    /// member on disk is left out. Each JSON keeps the envelope its file on disk carries.
     pub(crate) fn take_members(
         &mut self,
         project: &Project,
@@ -594,7 +628,8 @@ impl EntitySource {
             return Ok(SourceWrite::default());
         }
         self.names_from_disk = true;
-        let written = self.write(project, &writes, &|_| None);
+        let deleted = deleted_on_disk(&self.root);
+        let written = self.write(project, &writes, &|_| None, &deleted);
         self.names_from_disk = false;
         written
     }
@@ -621,16 +656,19 @@ impl EntitySource {
     }
 
     /// The files [`EntitySource::write`] would write for `writes` (with `current` for the
-    /// other parts of their units; every file of a unit, changed or not), exported into
-    /// memory: nothing is written, christened on disk or recorded. The Studio's side of a
-    /// unit the store holds unsaved.
+    /// other parts of their units; every file of a unit, changed or not; the envelopes as on
+    /// disk), exported into memory: nothing is written, christened on disk or recorded. The
+    /// Studio's side of a unit the store holds unsaved.
     pub(crate) fn export_bytes(
         &mut self,
         project: &Project,
         writes: &[(AssetId, Vec<u8>)],
         current: &dyn Fn(AssetId) -> Option<Vec<u8>>,
     ) -> Result<BTreeMap<PathBuf, Vec<u8>>, KernelError> {
-        self.dry_run(project, |source| source.write(project, writes, current))
+        let deleted = deleted_on_disk(&self.root);
+        self.dry_run(project, |source| {
+            source.write(project, writes, current, &deleted)
+        })
     }
 
     /// Runs `export` with the writers in memory and answers the files it wrote there.
@@ -656,7 +694,8 @@ impl EntitySource {
     }
 }
 
-/// Exports the units of members written past the store (binary kinds). It records nothing:
+/// Exports the units of members written past the store (binary kinds), keeping the envelopes
+/// on disk. It records nothing:
 /// the member was written past it, so it cannot vouch for the bytes; the next scan finds JSON
 /// and member in step and records them. Nothing outside a text project of the current schema
 /// (a DSPRE folder keeps its members as its only source).
@@ -684,5 +723,6 @@ pub fn after_member_write(
     if writes.is_empty() {
         return Ok(SourceWrite::default());
     }
-    EntitySource::open(project)?.write(project, &writes, &|_| None)
+    let deleted = deleted_on_disk(&project.root);
+    EntitySource::open(project)?.write(project, &writes, &|_| None, &deleted)
 }

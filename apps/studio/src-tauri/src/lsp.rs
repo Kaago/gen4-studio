@@ -360,6 +360,7 @@ pub fn lsp_start_impl(
         message: MISSING.to_owned(),
         asset: None,
         problems: Vec::new(),
+        references: Vec::new(),
     })?;
     let mut guard = lock(state)?;
     let session = session(&mut guard)?;

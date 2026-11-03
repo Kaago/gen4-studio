@@ -391,8 +391,9 @@ fn highest(slots: &[u32]) -> u32 {
 /// script `n` (1 ≤ n < 2000; 0 is decoration, `script.decoration`) is missing as `#n` in the
 /// script file of **every** header that uses the event file. Event files no header uses and
 /// the shared event file (`event_file.shared`, the dummy headers with different script
-/// files) are not checked; a script file whose slots are not known proves nothing (one
-/// rotom cannot decode is noted as skipped). Subject: event file; key `object:<i>`,
+/// files) are not checked, nor are deleted event files (a deleted header uses none); a script
+/// file whose slots are not known proves nothing (one rotom cannot decode is noted as
+/// skipped). Subject: event file; key `object:<i>`,
 /// `sign:<i>` or `trigger:<i>`; field `script`. Args: `[kind (object, sign, trigger),
 /// index, script, first user's script file, its highest slot]`. Also: the headers using
 /// the file, then their script files. Fixes: `CreateScript` when the scripts are adopted and
@@ -415,6 +416,9 @@ impl SourceCheck for EventScriptMissing {
         let decoration = u32::from(limits.script.decoration.value);
         let mut users: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         for (h, header) in headers.iter().enumerate() {
+            if src.header_deleted(idx(h)) {
+                continue;
+            }
             users
                 .entry(header.event_file_id())
                 .or_default()
@@ -422,7 +426,7 @@ impl SourceCheck for EventScriptMissing {
         }
         let mut undecodable = BTreeSet::new();
         for (file, users) in users {
-            if file == shared {
+            if file == shared || src.deleted(AssetKind::Event, file) {
                 continue;
             }
             let Some(events) = src.event(file) else {

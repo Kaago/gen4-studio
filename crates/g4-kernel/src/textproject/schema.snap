@@ -1,5 +1,6 @@
-schemaVersion 1
+schemaVersion 2
 symbolTables 6f38b9f6c8379b86
+*.deleted?
 species.id →SPECIES
 species.personal?.hp
 species.personal?.attack
@@ -465,7 +466,7 @@ events.object_events[].local_id
 events.object_events[].graphics_id
 events.object_events[].movement_type
 events.object_events[].trainer_type
-events.object_events[].hidden_flag
+events.object_events[].hidden_flag →FLAG
 events.object_events[].script
 events.object_events[].dir
 events.object_events[].data[]
@@ -486,7 +487,7 @@ events.coord_events[].width
 events.coord_events[].length
 events.coord_events[].y
 events.coord_events[].value
-events.coord_events[].var
+events.coord_events[].var →VAR
 events <member>
 maps.source
 maps.permissions[]

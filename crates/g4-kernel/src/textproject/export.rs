@@ -46,6 +46,7 @@ use super::schema::{EntitySchema, ExportCtx};
 use super::step;
 pub use super::step::UNSYNCED_EXPORT;
 use super::symbols::SymbolKind;
+use super::tombstone::{file_deleted, to_canonical_entity, with_envelope};
 
 /// The refusal of a project without base mark.
 const NO_MARK: &str =
@@ -608,7 +609,8 @@ fn entities(
             .map(|m| m.get(i).cloned().flatten())
             .collect();
         let index = u32::try_from(i).unwrap_or(u32::MAX);
-        out.files.extend(entity_files(art, index, &parts, ctx)?);
+        out.files
+            .extend(entity_files(art, index, &parts, ctx, false)?);
         out.entities += 1;
     }
     Ok(())
@@ -617,37 +619,39 @@ fn entities(
 /// The files of entity `index` of `art` from its members `parts` (in the order of
 /// `art.kinds()`; a header: its 24 bytes and its `mapname.bin` record): `NNNN.json` and the
 /// side files its parts need, name in the art's folder → bytes, as the full export writes
-/// them. Items (one entity per item id, [`export_items`]) and the binary kinds (no JSON) are
-/// no arts of whole members and refused.
+/// them; the JSON with the tombstone envelope when `deleted`. Items (one entity per item id,
+/// [`export_items`]) and the binary kinds (no JSON) are no arts of whole members and refused.
 pub(crate) fn entity_files(
     art: Art,
     index: u32,
     parts: &[Option<Vec<u8>>],
     ctx: &mut ExportCtx<'_>,
+    deleted: bool,
 ) -> Result<Vec<(String, Vec<u8>)>, KernelError> {
     fn json<E: EntitySchema>(
         index: u32,
         parts: &[Option<Vec<u8>>],
         ctx: &mut ExportCtx<'_>,
+        deleted: bool,
     ) -> Result<Vec<u8>, KernelError> {
-        Ok(to_canonical(&E::export(index, parts, ctx)?))
+        Ok(to_canonical_entity(&E::export(index, parts, ctx)?, deleted))
     }
     let side_before = ctx.side.len();
     let json = match art {
         Art::Headers => match ctx.family {
-            Family::Hgss => json::<HeaderHgssEntity>(index, parts, ctx)?,
-            Family::Pt | Family::Dp => json::<HeaderPtEntity>(index, parts, ctx)?,
+            Family::Hgss => json::<HeaderHgssEntity>(index, parts, ctx, deleted)?,
+            Family::Pt | Family::Dp => json::<HeaderPtEntity>(index, parts, ctx, deleted)?,
         },
-        Art::Matrices => json::<MatrixEntity>(index, parts, ctx)?,
-        Art::Maps => json::<MapEntity>(index, parts, ctx)?,
-        Art::AreaData => json::<AreaDataEntity>(index, parts, ctx)?,
-        Art::Events => json::<EventEntity>(index, parts, ctx)?,
-        Art::Encounters => json::<EncounterEntity>(index, parts, ctx)?,
-        Art::Species => json::<SpeciesEntity>(index, parts, ctx)?,
-        Art::Moves => json::<MoveEntity>(index, parts, ctx)?,
-        Art::Trainers => json::<TrainerEntity>(index, parts, ctx)?,
-        Art::TrainerTextTable => json::<TrainerTextTableEntity>(index, parts, ctx)?,
-        Art::TrainerTextOffsets => json::<TrainerTextOffsetsEntity>(index, parts, ctx)?,
+        Art::Matrices => json::<MatrixEntity>(index, parts, ctx, deleted)?,
+        Art::Maps => json::<MapEntity>(index, parts, ctx, deleted)?,
+        Art::AreaData => json::<AreaDataEntity>(index, parts, ctx, deleted)?,
+        Art::Events => json::<EventEntity>(index, parts, ctx, deleted)?,
+        Art::Encounters => json::<EncounterEntity>(index, parts, ctx, deleted)?,
+        Art::Species => json::<SpeciesEntity>(index, parts, ctx, deleted)?,
+        Art::Moves => json::<MoveEntity>(index, parts, ctx, deleted)?,
+        Art::Trainers => json::<TrainerEntity>(index, parts, ctx, deleted)?,
+        Art::TrainerTextTable => json::<TrainerTextTableEntity>(index, parts, ctx, deleted)?,
+        Art::TrainerTextOffsets => json::<TrainerTextOffsetsEntity>(index, parts, ctx, deleted)?,
         Art::Items | Art::Binary(_) => {
             return Err(KernelError::InvalidProject(format!(
                 "{}: keine Art aus ganzen Membern",
@@ -662,17 +666,27 @@ pub(crate) fn entity_files(
 
 /// Writes `files` into folder `rel` (each only when it changes) and deletes every other
 /// visible file there; the folder goes when it ends up empty. JSON and side files are told
-/// apart by their extension.
+/// apart by their extension. A JSON whose file on disk carries the tombstone envelope keeps
+/// it ([`file_deleted`]): the export never brings a deleted entity back.
 fn write_folder(root: &Path, rel: &Path, files: &ArtFiles) -> Result<ArtStats, KernelError> {
     let mut stats = ArtStats::default();
     for (name, bytes) in &files.files {
-        if name.ends_with(".json") {
+        let file = rel.join(name);
+        let json = name.ends_with(".json");
+        let enveloped;
+        let bytes = if json && file_deleted(root, &file)? {
+            enveloped = with_envelope(bytes.clone());
+            &enveloped
+        } else {
+            bytes
+        };
+        if json {
             stats.json_files += 1;
         } else {
             stats.side_files += 1;
         }
         stats.bytes += bytes.len() as u64;
-        if write_if_changed(root, &rel.join(name), bytes)? {
+        if write_if_changed(root, &file, bytes)? {
             stats.written += 1;
         }
     }

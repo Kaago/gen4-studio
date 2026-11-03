@@ -115,6 +115,43 @@ pub(crate) const SYMBOLIC_ARGS: &[ArgRef] = &[
         RefKindOf::Fixed(SymbolKind::Flag),
     ),
     arg("live_set", "/number", FromKindField("/kind")),
+    arg(
+        "plan_delete",
+        "/target/index",
+        FromKindField("/target/kind"),
+    ),
+    arg("plan_delete", "/target/id", FromKindField("/target/kind")),
+    arg(
+        "plan_delete",
+        "/target/number",
+        FromKindField("/target/kind"),
+    ),
+    arg(
+        "delete_entity",
+        "/target/index",
+        FromKindField("/target/kind"),
+    ),
+    arg("delete_entity", "/target/id", FromKindField("/target/kind")),
+    arg(
+        "delete_entity",
+        "/target/number",
+        FromKindField("/target/kind"),
+    ),
+    arg(
+        "restore_entity",
+        "/target/index",
+        FromKindField("/target/kind"),
+    ),
+    arg(
+        "restore_entity",
+        "/target/id",
+        FromKindField("/target/kind"),
+    ),
+    arg(
+        "restore_entity",
+        "/target/number",
+        FromKindField("/target/kind"),
+    ),
 ];
 
 /// The kind a `kind` field names (see [`RefKindOf::FromKindField`]).
@@ -446,6 +483,68 @@ mod tests {
     }
 
     #[test]
+    fn delete_target_takes_ids() {
+        let synthetic = g4_kernel::test_support::synthetic_project();
+        let project = g4_kernel::project::Project::open(synthetic.dir.path()).unwrap();
+        let platinum = Resolver::for_project(&project).unwrap();
+        let target = |target: Value| json!({ "target": target, "freeNumber": false });
+        // The header id MAP_T01 stands for, as plan_reset resolves it.
+        let header = resolve_args(
+            "plan_reset",
+            json!({ "target": { "kind": "header", "id": "MAP_T01" } }),
+            &platinum,
+        )
+        .unwrap()["target"]["id"]
+            .clone();
+        assert!(header.is_u64(), "{header}");
+        for command in ["plan_delete", "delete_entity", "restore_entity"] {
+            for (by_id, by_number) in [
+                (
+                    json!({ "kind": "header", "id": "MAP_T01" }),
+                    json!({ "kind": "header", "id": header }),
+                ),
+                (
+                    json!({ "kind": "flag", "number": "FLAG_UNUSED_0x0094" }),
+                    json!({ "kind": "flag", "number": 148 }),
+                ),
+                (
+                    json!({ "kind": "var", "number": "VAR_UNUSED_0x406C" }),
+                    json!({ "kind": "var", "number": 0x406C }),
+                ),
+                (
+                    json!({ "kind": "trainer", "index": "1" }),
+                    json!({ "kind": "trainer", "index": 1 }),
+                ),
+            ] {
+                assert!(
+                    has_ids(command, &target(by_id.clone())),
+                    "{command} {by_id}"
+                );
+                assert_eq!(
+                    resolve_args(command, target(by_id), &platinum).unwrap(),
+                    target(by_number.clone()),
+                    "{command}"
+                );
+                assert_eq!(
+                    resolve_args(command, target(by_number.clone()), &platinum).unwrap(),
+                    target(by_number)
+                );
+            }
+            // A kind without ids takes numbers only.
+            let err = resolve_args(
+                command,
+                target(json!({ "kind": "matrix", "index": "MATRIX_X" })),
+                &platinum,
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, ToolError::Failed { ref code, .. } if code == "unknown_id"),
+                "{command}: {err:?}"
+            );
+        }
+    }
+
+    #[test]
     fn patch_values_of_reference_fields_are_resolved() {
         let patch = |variant: &str, field: &str, value: Value| {
             json!({ "kind": "species", "index": 1,
@@ -555,6 +654,9 @@ mod tests {
             "story_create",
             "story_update",
             "live_set",
+            "plan_delete",
+            "delete_entity",
+            "restore_entity",
         ] {
             assert!(
                 SYMBOLIC_ARGS.iter().any(|a| a.command == command),

@@ -10,6 +10,7 @@ export const diffReport = (over: Partial<EntityDiffReport> = {}): EntityDiffRepo
   state: "changed",
   diff: { shape: "fields", changes: [{ path: "data.party[0].level", old: "5", new: "6" }], more: 0 },
   reset: { kind: "trainer", index: 1 },
+  tombstone: { old: false, new: false },
   ms: 4,
   ...over,
 });
