@@ -19,7 +19,7 @@ export type DeleteDialogProps = {
 
 /** What the dialog says about an original of the base ROM. */
 export const ORIGINAL_WARNING = "Original aus der Basis-ROM: der Eintrag bleibt im ROM; „Auf Original zurücksetzen“ holt ihn zurück.";
-/** What a tombstone keeps. */
+/** What a tombstone keeps; not said while „Nummer freigeben“ is ticked (gate 3d.4 B11). */
 export const TOMBSTONE_KEEPS = "Inhalt und Member bleiben; ⌘Z holt den Eintrag zurück.";
 const FREE_LABEL = "Nummer freigeben (nicht rückgängig)";
 /** The kernel's refusal in the DSPRE layout (`delete::NOT_A_TEXT_PROJECT`). */
@@ -133,7 +133,8 @@ export function DeleteDialog({ target, onClose, onDeleted, goTo }: DeleteDialogP
             {plan.refusal !== null && <Notice kind="warning">{plan.refusal}</Notice>}
             {plan.refusal === NOT_A_TEXT_PROJECT && <Notice kind="info">{CLEAR_HINT}</Notice>}
             {plan.refusal === null && plan.deleted && <Notice kind="info">{`${label} ist schon gelöscht.`}</Notice>}
-            {tombstone && <Notice kind="info">{TOMBSTONE_KEEPS}</Notice>}
+            {/* Freed, nothing stays and ⌘Z brings nothing back: then only what goes is said. */}
+            {tombstone && !free && <Notice kind="info">{TOMBSTONE_KEEPS}</Notice>}
             {canFree !== null ? (
               <div className={styles.free} data-free-number="">
                 <div className={styles.freeHead}>

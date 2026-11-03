@@ -131,6 +131,12 @@ describe("DeleteDialog", () => {
     await act(async () => free!.click());
     expect(box(FREE)?.getAttribute("aria-checked")).toBe("true");
     expect(buttons().map((b) => b.textContent)).toEqual(["Abbrechen", "Löschen und Nummer freigeben"]);
+    // Gate 3d.4 B11: ticked, nothing is kept and ⌘Z brings nothing back: only what goes is said.
+    expect(notices("status")).toEqual([]);
+    expect(dialog()?.textContent).not.toContain("⌘Z");
+    expect(option?.textContent).toContain("Entfernt 2 Dateien");
+    await act(async () => box(FREE)!.click());
+    expect(notices("status")).toEqual([KEEPS]);
 
     // A later entry lives: the kernel's sentence, quietly, and no checkbox.
     act(() => root.unmount());
