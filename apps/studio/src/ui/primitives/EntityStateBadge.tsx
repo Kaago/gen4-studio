@@ -10,19 +10,9 @@ const LOOKS: Record<EntityState, { kind: BadgeKind; text: string }> = {
   deleted: { kind: "error", text: "gelöscht" },
 };
 
-/**
- * The state of an entity in a head: „geändert“ (warning), „neu“ (info), „gelöscht“ (error); `data-entity-state` names it. `compact`: the
- * badge with its symbol only, the word as its name and tooltip, for a one-line list row whose name and number need the room.
- */
-export function EntityStateBadge({ state, compact = false }: { state: EntityState; compact?: boolean }) {
+/** The state of an entity in a head: „geändert“ (warning), „neu“ (info), „gelöscht“ (error); `data-entity-state` names it. */
+export function EntityStateBadge({ state }: { state: EntityState }) {
   const { kind, text } = LOOKS[state];
-  if (compact) {
-    return (
-      <span data-entity-state={state} role="img" aria-label={text} title={text}>
-        <Badge kind={kind}>{""}</Badge>
-      </span>
-    );
-  }
   return (
     <span data-entity-state={state}>
       <Badge kind={kind}>{text}</Badge>

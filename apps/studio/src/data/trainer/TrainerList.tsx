@@ -17,7 +17,7 @@ import styles from "./Trainer.module.css";
 
 /**
  * One trainer under its place or class: "Wanderer Jens", its number, "Lv. 12" (the highest level), what the checks found, the unsaved dot,
- * a lock; a tombstone with the badge „gelöscht“ and „Wiederherstellen“ before the reset in its context menu.
+ * a lock; a tombstone with the badge „gelöscht“ (the name gives way to the number and the badge) and „Wiederherstellen“ before the reset in its context menu.
  */
 const TrainerRow = memo(function TrainerRow({
   row,
@@ -46,6 +46,7 @@ const TrainerRow = memo(function TrainerRow({
       depth={1}
       label={label}
       tech={row.tech}
+      keepTech
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
@@ -53,8 +54,7 @@ const TrainerRow = memo(function TrainerRow({
       dataAttrs={{ "data-trainer": row.index, "data-deleted": deleted ? "true" : undefined }}
       trailing={
         <span className={styles.rowEnd}>
-          {/* The one-line row: the symbol only, so the badge does not push the number out. */}
-          {deleted && <EntityStateBadge state="deleted" compact />}
+          {deleted && <EntityStateBadge state="deleted" />}
           {level !== null && <span className={styles.level}>{`Lv. ${level}`}</span>}
           {mark && <FindingMark severity={mark} />}
           {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}

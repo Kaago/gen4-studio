@@ -91,6 +91,11 @@
   font-size: var(--g4-schrift-groesse-xs);
 }
 
+/* A number that names the row: the name gives way to it. */
+.techKept {
+  flex: none;
+}
+
 .selected .tech {
   color: inherit;
 }

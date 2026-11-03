@@ -37,15 +37,4 @@ describe("EntityStateBadge", () => {
       expect(badge?.querySelector("svg")).not.toBeNull();
     }
   });
-
-  it("compact_is_the_symbol_named_by_the_word", () => {
-    act(() => root.render(<EntityStateBadge state="deleted" compact />));
-    const badge = container.querySelector<HTMLElement>("[data-entity-state]");
-    expect(badge?.getAttribute("data-entity-state")).toBe("deleted");
-    expect(badge?.textContent).toBe("");
-    expect(badge?.getAttribute("role")).toBe("img");
-    expect(badge?.getAttribute("aria-label")).toBe("gelöscht");
-    expect(badge?.getAttribute("title")).toBe("gelöscht");
-    expect(badge?.querySelector("[class*=error] svg")).not.toBeNull();
-  });
 });
