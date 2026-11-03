@@ -267,7 +267,7 @@ Form ist `fields` mit JSON-Pfaden wie `name`, `notes`, `steps[1].name`,
 Basis-ROM wird abgelehnt wie bei einer Datei (`Für einzelne Dateien gibt es keinen Vergleich mit
 der Basis-ROM.`); „Gegen gespeichert“ vergleicht die Datei mit sich selbst (Geschichten haben keinen
 ungespeicherten Stand). Kein „Auf Original zurücksetzen…“, keine Store-Assets; „Öffnen“ aus der
-Liste kommt mit der Fläche der Geschichten.
+Liste öffnet die Geschichte in Geschichten › Geschichten.
 
 ## Befehle
 
@@ -288,8 +288,8 @@ Ablehnungen haben Codes: `not_text_project` (`Kein Textprojekt: …`), `unknown_
 oder ein Fortschritt, die nichts nennen), `refused` (leerer Name, Schlüssel doppelt, `Nichts zu
 ändern.`). Über MCP nimmt der Fortschritt auch eine Nummer oder einen anderen Namen derselben
 Nummer; die Datei hält dann den eigenen Namen bzw. den pret-Namen der Nummer. Eine Geschichte, deren
-Fortschritt ein Flag ist, hat in 3d.6 keinen Graph aus dem Index (`thread_graph` nimmt eine
-Variable); die Oberfläche entscheidet mit `progress_number`, was sie zeigt.
+Fortschritt ein Flag ist, hat keinen Graph aus dem Index (`thread_graph` nimmt eine Variable, auch
+nach 3d.7); die Oberfläche entscheidet mit `progress_number`, was sie zeigt.
 
 `g4k story` arbeitet ohne Store und ohne Undo (wie `g4k text rename-id`):
 
