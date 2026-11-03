@@ -1,7 +1,7 @@
 import "@xyflow/react/dist/base.css";
 import { applyNodeChanges, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import type { AriaLabelConfig, Edge, Node, NodeChange, NodeProps } from "@xyflow/react";
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { NavTargetDto } from "../../api.data";
 import type { Layout, ThreadGraphDto } from "../../api.stories";
 import { Button, StoryNode, storyKindWord } from "../../ui/primitives";
@@ -17,19 +17,33 @@ export type ThreadGraphProps = {
   onSelect: (id: string | null) => void;
   /** „Öffnen“ in a selected place: where its reference is (the script line, the event, the header of a level script). */
   onOpenPlace: (nav: NavTargetDto) => void;
-  /** Given (a story's graph, 3d.7): the nodes move, and the end of each drag hands over the side file with every node where it lies now.
+  /** Given (a story's graph, 3d.7): the nodes move, and the end of each drag (and each arrow key's move) hands over the side file with every
+   * node where it lies now.
    * Without it nothing moves (a thread without a story). */
   onLayout?: (layout: Layout) => void;
 };
 
 type StoryFlowNode = Node<StoryNodeData>;
 
-/** React Flow's own words for screen readers, in German; nothing removes a node, only a story's graph moves them (by drag). */
+/** React Flow's own words for screen readers, in German; nothing removes a node, only a story's graph moves them (drag or arrow keys). */
 const ariaLabels: Partial<AriaLabelConfig> = {
   "node.a11yDescription.default": "Enter oder Leertaste wählt einen Knoten.",
   "node.a11yDescription.keyboardDisabled": "Enter oder Leertaste wählt einen Knoten.",
   "edge.a11yDescription.default": "Enter oder Leertaste wählt eine Kante.",
   "handle.ariaLabel": "Anschluss",
+};
+
+const DIRECTIONS: Readonly<Record<string, string>> = { up: "oben", down: "unten", left: "links", right: "rechts" };
+
+/** What a node says to a screen reader in a story's graph: its nodes move, by drag or by the arrow keys on the selected one. */
+const MOVABLE = "Enter oder Leertaste wählt einen Knoten; die Pfeiltasten verschieben den gewählten, mit Umschalt weiter.";
+
+/** A story's graph (React Flow shows `keyboardDisabled` while the keys work, so both say it); each key's move is announced. */
+const movableLabels: Partial<AriaLabelConfig> = {
+  ...ariaLabels,
+  "node.a11yDescription.default": MOVABLE,
+  "node.a11yDescription.keyboardDisabled": MOVABLE,
+  "node.a11yDescription.ariaLiveMessage": ({ direction, x, y }) => `Knoten nach ${DIRECTIONS[direction] ?? direction} verschoben, jetzt bei x ${x}, y ${y}`,
 };
 
 /** `nodes` with `selected` as the only selected one; a node whose selection stays is the same object (it keeps its measured size). */
@@ -73,8 +87,8 @@ const nodeTypes = { [STORY_NODE_TYPE]: StoryFlowNodeView };
 /**
  * The graph of a thread or a story (3d.6): the places that set a value left of it, the places that check it right (dagre, or the story's
  * side file), one `StoryNode` per node, the edges labelled where the reference is. A click selects a node; a selected place opens with
- * „Öffnen“. With `onLayout` (a story, 3d.7) the nodes are dragged and each drag's end hands the side file over; without it nothing
- * moves. Fits itself into view; no minimap; React Flow's attribution stays (bottom right). The default export is for `React.lazy`: React
+ * „Öffnen“. With `onLayout` (a story, 3d.7) the nodes are dragged or moved with the arrow keys and each drag's end and each key's move hands the
+ * side file over; without it nothing moves. Fits itself into view; no minimap; React Flow's attribution stays (bottom right). The default export is for `React.lazy`: React
  * Flow and dagre stay in this chunk.
  */
 export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, onLayout }: ThreadGraphProps) {
@@ -105,21 +119,41 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
       })),
     [flow],
   );
+  // A drag runs from its start to its end: the moves React Flow reports meanwhile are the drag's, and so is the last one (its end, or the
+  // way back of a drag Escape broke off), which also ends it; `onNodeDragStop` saves a drag.
+  const dragging = useRef(false);
   // Selection goes through the owner: a click or Enter on a node selects it, a click on the pane or Escape clears it. Every other
-  // change (the sizes React Flow measures) is kept on the nodes.
+  // change (the sizes React Flow measures, the positions) is kept on the nodes. A finished move outside a drag is an arrow key's on the
+  // selected node: it is saved at once, like a drag's end.
   const onNodesChange = useCallback(
     (changes: NodeChange<StoryFlowNode>[]) => {
       const kept = changes.filter((c) => c.type !== "select");
       if (kept.length > 0) setNodes((current) => applyNodeChanges(kept, current));
+      const moved: StoryFlowNode[] = [];
+      for (const c of kept) {
+        if (c.type !== "position" || c.dragging !== false || c.position === undefined) continue;
+        const node = nodes.find((n) => n.id === c.id);
+        if (node) moved.push({ ...node, position: c.position });
+      }
+      if (moved.length > 0) {
+        if (dragging.current) dragging.current = false;
+        else onLayout?.(layoutOf(nodes, moved, graph.layout));
+      }
       const picked = changes.find((c) => c.type === "select" && c.selected);
       if (picked && picked.type === "select") onSelect(picked.id);
       else if (changes.some((c) => c.type === "select" && !c.selected && c.id === selected)) onSelect(null);
     },
-    [onSelect, selected],
+    [onSelect, selected, onLayout, nodes, graph.layout],
   );
+  const onNodeDragStart = useCallback(() => {
+    dragging.current = true;
+  }, []);
   // The end of a drag: the nodes as they lie (the dragged ones from React Flow, the moves of this drag already in `nodes`).
   const onNodeDragStop = useCallback(
-    (_event: unknown, _node: StoryFlowNode, moved: StoryFlowNode[]) => onLayout?.(layoutOf(nodes, moved, graph.layout)),
+    (_event: unknown, _node: StoryFlowNode, moved: StoryFlowNode[]) => {
+      dragging.current = false;
+      onLayout?.(layoutOf(nodes, moved, graph.layout));
+    },
     [onLayout, nodes, graph.layout],
   );
   return (
@@ -132,6 +166,7 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
           edges={edges}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
+          onNodeDragStart={onLayout ? onNodeDragStart : undefined}
           onNodeDragStop={onLayout ? onNodeDragStop : undefined}
           nodesDraggable={onLayout !== undefined}
           nodesConnectable={false}
@@ -146,7 +181,7 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, on
           maxZoom={2}
           fitView
           fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
-          ariaLabelConfig={ariaLabels}
+          ariaLabelConfig={onLayout ? movableLabels : ariaLabels}
         />
       </OpenPlace.Provider>
     </div>

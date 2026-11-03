@@ -105,6 +105,21 @@ describe("NewStoryDialog", () => {
     expect(pool()?.textContent).toBe("Noch 1 Variable frei");
   });
 
+  it("a_slow_free_variable_does_not_fill_the_flag_field", async () => {
+    const slow = deferred<Awaited<ReturnType<typeof freeFlag>>>();
+    vi.mocked(freeFlag).mockReset().mockReturnValue(slow.promise);
+    await show();
+    // The user switches to a flag before the pool answered: the variable must not land in the flag field.
+    await click(kindButton("Flag"));
+    await act(async () => slow.resolve({ kind: "var", number: 0x406c, name: "VAR_UNUSED_0x406C", pool_free: 20, scripts_indexed: true }));
+    await flush();
+    expect(dialog()!.querySelector("[data-flag-field]")?.textContent).toBe("Keins");
+    expect(pool()).toBeNull();
+    // Back to a variable: the pool's free one.
+    await click(kindButton("Variable"));
+    expect(dialog()!.querySelector("[data-flag-field]")?.textContent).toContain("VAR_UNUSED_0x406C");
+  });
+
   it("without_a_free_variable_the_dialog_says_so_and_locks_the_button", async () => {
     vi.mocked(freeFlag).mockRejectedValue({ code: "pool_empty", message: "Keine freie Variable im allgemeinen Bereich.", asset: null });
     await show();

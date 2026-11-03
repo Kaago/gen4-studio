@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
-import { errorText, freeFlag, isCmdError } from "../api";
-import type { FlagKind, NewStoryInput, Progress, ProjectInfo } from "../api";
+import { errorText, freeFlag, isCmdError, recipeApply, storyCreate } from "../api";
+import type { FlagKind, NewStoryInput, NewStoryReport, Progress, ProjectInfo, StoryReport } from "../api";
 import { FlagField } from "../flags/FlagField";
 import { useFlagList } from "../flags/useFlagList";
 import { Dialog, Notice, Segmented, TextField } from "../ui/primitives";
@@ -13,6 +13,19 @@ import styles from "./StoriesSurface.module.css";
  * and writes the step „Anfang“), a flag story `story_create` as in 3d.6.
  */
 export type NewStoryRequest = { via: "recipe"; input: NewStoryInput } | { via: "story"; req: { name: string; progress: Progress; notes?: string } };
+
+/**
+ * Creates the story a request asks for: a variable story by the recipe (its outcome as the report of a create: id, number, files and
+ * undo step; a recipe has no timing and no warnings), a flag story by `story_create`. Resolves to the report and the story's name.
+ */
+export async function createStory(request: NewStoryRequest): Promise<{ report: StoryReport; name: string }> {
+  if (request.via === "recipe") {
+    const outcome = await recipeApply<NewStoryReport>("new_story", request.input);
+    const { story: id, number, files } = outcome.report;
+    return { report: { id, number, files, change: outcome.change, ms: 0, warnings: [] }, name: request.input.name };
+  }
+  return { report: await storyCreate(request.req), name: request.req.name };
+}
 
 /** The pool's answer when the dialog opened: the smallest free variable and how many are free, or why there is none (`empty`: the pool has
  * nothing to give, the recipe cannot run). */
@@ -49,6 +62,9 @@ export function NewStoryDialog({ open, onClose, onCreate, project, revision }: N
   const [running, setRunning] = useState(false);
   const [free, setFree] = useState<Free | null>(null);
   const busy = useRef(false);
+  // The variant shown now: a pool's answer that comes after a switch to a flag does not fill the flag field.
+  const kindNow = useRef(kind);
+  kindNow.current = kind;
   // The names of the flags (the field reads the same list): the id a flag story keeps. A variable goes by its number.
   const { list } = useFlagList("flag", { project: open && kind === "flag" && number !== 0 ? project : null, revision });
 
@@ -74,7 +90,7 @@ export function NewStoryDialog({ open, onClose, onCreate, project, revision }: N
       (dto) => {
         if (!live) return;
         setFree({ number: dto.number, poolFree: dto.pool_free });
-        setNumber((n) => (n === 0 ? dto.number : n));
+        if (kindNow.current === "var") setNumber((n) => (n === 0 ? dto.number : n));
       },
       (e: unknown) => live && setFree({ refusal: errorText(e), empty: isCmdError(e) && e.code === "pool_empty" }),
     );

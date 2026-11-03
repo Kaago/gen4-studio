@@ -121,8 +121,8 @@ describe("ThreadGraph", () => {
     }
   });
 
-  it("with_onLayout_a_drag_end_hands_over_the_layout", async () => {
-    // As above: nodes 192 × 64, an unscaled viewport, sizes reported once.
+  /** React Flow measured in jsdom: nodes 192 × 64, an unscaled viewport, sizes reported once; `run` sees the measured graph. */
+  async function measured(run: () => Promise<void>) {
     const sizes = (["offsetWidth", "offsetHeight"] as const).map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 192 });
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 64 });
@@ -142,16 +142,32 @@ describe("ThreadGraph", () => {
     const svg = SVGElement.prototype as unknown as { getBBox?: () => DOMRect };
     const hadBBox = svg.getBBox;
     svg.getBBox = () => ({ x: 0, y: 0, width: 80, height: 12 }) as DOMRect;
-    const onLayout = vi.fn();
     try {
+      await run();
+    } finally {
+      vi.unstubAllGlobals();
+      if (hadBBox) svg.getBBox = hadBBox;
+      else delete svg.getBBox;
+      for (const [key, descriptor] of sizes) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+      }
+    }
+  }
+  const settle = () =>
+    act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  const placed = { ...sampleThreadGraph, layout: { nodes: { s1: { x: 10, y: 20 }, gone: { x: 1, y: 2 } } } };
+
+  it("with_onLayout_a_drag_end_hands_over_the_layout", async () => {
+    const onLayout = vi.fn();
+    await measured(async () => {
       // Without onLayout (a thread without a story) nothing moves; with it every node does.
       show(null);
       expect(container.querySelector(".react-flow__node.draggable")).toBeNull();
-      const placed = { ...sampleThreadGraph, layout: { nodes: { s1: { x: 10, y: 20 }, gone: { x: 1, y: 2 } } } };
       act(() => root.render(<ThreadGraph graph={placed} selected={null} onSelect={onSelect} onOpenPlace={onOpenPlace} onLayout={onLayout} />));
-      await act(async () => {
-        for (let i = 0; i < 5; i++) await Promise.resolve();
-      });
+      await settle();
       const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]')!;
       expect(wrapper.classList.contains("draggable")).toBe(true);
       // A drag of the value node with step s1 by (30, 15): mouse down on it, moves on the window, up.
@@ -178,14 +194,30 @@ describe("ThreadGraph", () => {
       expect(layout.nodes.s1!.y).toBeGreaterThan(20);
       expect(Object.keys(layout.nodes)).toEqual(expect.arrayContaining(["s1", "s2", "s3", "v:4", "p:script:0101", "p:event:0394", "gone"]));
       expect(layout.nodes.gone).toEqual({ x: 1, y: 2 });
-    } finally {
-      vi.unstubAllGlobals();
-      if (hadBBox) svg.getBBox = hadBBox;
-      else delete svg.getBBox;
-      for (const [key, descriptor] of sizes) {
-        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
-        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
-      }
-    }
+    });
+  });
+
+  it("an_arrow_key_on_the_selected_node_hands_over_the_layout_too", async () => {
+    const onLayout = vi.fn();
+    await measured(async () => {
+      act(() => root.render(<ThreadGraph graph={placed} selected="v:1" onSelect={onSelect} onOpenPlace={onOpenPlace} onLayout={onLayout} />));
+      await settle();
+      const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]')!;
+      // The description says that the keys move a node of a story's graph.
+      expect(document.getElementById(wrapper.getAttribute("aria-describedby") ?? "")?.textContent).toContain("Pfeiltasten verschieben");
+      // React Flow moves a selected node 5 px per arrow key: the move is saved like a drag's end.
+      await act(async () => {
+        wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(onLayout).toHaveBeenCalledOnce();
+      const layout = onLayout.mock.calls[0]![0] as { nodes: Record<string, { x: number; y: number }> };
+      expect(layout.nodes.s1).toEqual({ x: 15, y: 20 });
+      expect(layout.nodes.gone).toEqual({ x: 1, y: 2 });
+    });
+    // Without a story nothing moves and the description says nothing of the keys.
+    act(() => root.render(<ThreadGraph graph={sampleThreadGraph} selected="v:1" onSelect={onSelect} onOpenPlace={onOpenPlace} />));
+    const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]');
+    expect(document.getElementById(wrapper?.getAttribute("aria-describedby") ?? "")?.textContent ?? "").not.toContain("Pfeiltasten");
   });
 });
