@@ -11,7 +11,7 @@ const LABEL_PADDING = 12;
 const LABEL_HEIGHT = 18;
 
 /** The key of a node in the side file: the step's key on a value with a step (`data.layoutKey`), the node's id otherwise. */
-function layoutKey(node: Node): string {
+export function layoutKey(node: Node): string {
   const key = (node.data as { layoutKey?: unknown }).layoutKey;
   return typeof key === "string" ? key : node.id;
 }
@@ -39,4 +39,13 @@ export function layoutGraph(nodes: Node[], edges: Edge[], fixed: Layout | null):
     const at = g.node(node.id);
     return { ...node, position: { x: at.x - NODE_WIDTH / 2, y: at.y - NODE_HEIGHT / 2 } };
   });
+}
+
+/**
+ * The side file after a drag: every node of the graph where it lies now (by its key, whole pixels), the `moved` ones where the drag left
+ * them, and what `previous` holds of nodes the graph does not show (a step whose value the game has no more) kept.
+ */
+export function layoutOf(nodes: readonly Node[], moved: readonly Node[], previous: Layout | null): Layout {
+  const at = (node: Node) => [layoutKey(node), { x: Math.round(node.position.x), y: Math.round(node.position.y) }] as const;
+  return { nodes: { ...previous?.nodes, ...Object.fromEntries(nodes.map(at)), ...Object.fromEntries(moved.map(at)) } };
 }

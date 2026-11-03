@@ -38,14 +38,14 @@ export function graphOf(variable: number, over: Partial<ThreadGraphDto> = {}): T
   return { ...sampleThreadGraph, var: variable, ...over };
 }
 
-/** One story row as `story_list` sends it: readable, with a variable as progress and no steps, unless `over` says otherwise. */
+/** One story row as `story_list` sends it: readable, with a variable as progress, no steps and no flags, unless `over` says otherwise. */
 export function storyRow(number: number, over: Partial<StoryRowDto> = {}): StoryRowDto {
-  return { number, id: `STORY_${String(number).padStart(4, "0")}`, name: `Geschichte ${number}`, progress: { var: "VAR_RIVALIN" }, steps: 0, problem: null, ...over };
+  return { number, id: `STORY_${String(number).padStart(4, "0")}`, name: `Geschichte ${number}`, progress: { var: "VAR_RIVALIN" }, steps: 0, problem: null, flags: [], ...over };
 }
 
-/** A list of `stories` of a text project. */
+/** A list of `stories` of a text project, without the pool (no index), unless `over` says otherwise. */
 export function storiesOf(stories: StoryRowDto[], over: Partial<StoryListDto> = {}): StoryListDto {
-  return { stories, text_project: true, ms: 3, ...over };
+  return { stories, text_project: true, free_vars: null, ms: 3, ...over };
 }
 
 /** A story as `story_get` sends it: „Rivalin“ on VAR_RIVALIN (0x4040) with three steps and notes, unless `over` says otherwise. */

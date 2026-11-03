@@ -7,7 +7,35 @@ import type { AssetId, AssetKind } from "../api";
  * the wizards show dashed; an application is one undo step.
  */
 
-export type RecipeId = "create_area" | "create_room" | "extend_area" | "empty_region" | "new_figure" | "connect_doors" | "new_trainer_here";
+export type RecipeId =
+  | "create_area"
+  | "create_room"
+  | "extend_area"
+  | "empty_region"
+  | "new_figure"
+  | "connect_doors"
+  | "new_trainer_here"
+  | "new_story"
+  | "talk_advances"
+  | "figure_appears"
+  | "scene_on_enter"
+  | "reward_once";
+
+/** The title of each recipe (the kernel's `RecipeId::title`), in the order of `RecipeId::all()`; what `recipeList` names without asking. */
+export const RECIPE_TITLES: Readonly<Record<RecipeId, string>> = {
+  create_area: "Gebiet anlegen",
+  create_room: "Raum anlegen",
+  extend_area: "Gebiet erweitern",
+  empty_region: "Welt leeren",
+  new_figure: "Neue Figur",
+  connect_doors: "Tür verbinden",
+  new_trainer_here: "Neuer Trainer hier",
+  new_story: "Neue Geschichte",
+  talk_advances: "Gespräch schaltet weiter",
+  figure_appears: "Figur erscheint/verschwindet ab Schritt",
+  scene_on_enter: "Szene beim Betreten",
+  reward_once: "Belohnung einmalig",
+};
 
 /** A recipe as `recipeList` names it: `irreversible` when applying it always does something undo does not take back. */
 export interface RecipeInfo {
@@ -52,7 +80,7 @@ export interface DraftDto {
   irreversible: string[];
 }
 
-/** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.7“). */
+/** A recipe that makes sense next, as a button: `reason` says when a locked one comes („Kommt mit 3d.9“, „Kommt später“). */
 export interface NextStep {
   id: string;
   label: string;
@@ -193,4 +221,130 @@ export interface NewTrainerHereReport {
   script: number;
   trainer_flag: number;
   text_problems: TextProblem[];
+}
+
+/** The input of „Neue Geschichte“ (`g4_kernel::recipes::new_story`): the name, the progress variable (a free one of the pool, from
+ * `freeFlag("var")`; the recipe names it `VAR_STORY_…`) and the notes (absent: none). */
+export interface NewStoryInput {
+  name: string;
+  var: number;
+  notes?: string;
+}
+
+/** What „Neue Geschichte“ did: story `story` (its id) with number `number`, its variable `var` named `var_id`, the files written
+ * (relative to the root). */
+export interface NewStoryReport {
+  story: string;
+  number: number;
+  var: number;
+  var_id: string;
+  files: string[];
+}
+
+/** A figure of the story recipes: the object with `local_id` in the event file of header `header`. */
+export interface FigureRef {
+  header: number;
+  local_id: number;
+}
+
+/** The input of „Gespräch schaltet weiter“ (`talk_advances`): talking to `figure` at step `from_step` of story `story` (its id) shows
+ * `text` and switches to `from_step + 1`; `step_name` absent or null: „Gespräch mit Figur {local_id}“. */
+export interface TalkAdvancesInput {
+  story: string;
+  figure: FigureRef;
+  from_step: number;
+  text: string;
+  step_name?: string | null;
+}
+
+/** What „Gespräch schaltet weiter“ did: step `step` (its key) with `value`; object `object` of `event_file` points at hull `#slot` of
+ * `script_file`, which jumps to `#previous_slot` (0: none); message `message` in text archive `archive`. */
+export interface TalkAdvancesReport {
+  step: string;
+  value: number;
+  event_file: number;
+  object: number;
+  script_file: number;
+  slot: number;
+  previous_slot: number;
+  archive: number;
+  message: number;
+}
+
+/** The input of „Figur erscheint/verschwindet ab Schritt“ (`figure_appears`): `figure` appears (`appears`) or disappears from step `step`
+ * of `story`, by visibility flag `flag` (a free one of the pool, from `freeFlag("flag")`); `step_name` absent or null: the kernel's. */
+export interface FigureAppearsInput {
+  story: string;
+  figure: FigureRef;
+  step: number;
+  appears: boolean;
+  flag: number;
+  step_name?: string | null;
+}
+
+/** What „Figur erscheint/verschwindet ab Schritt“ did: step `step`; flag `flag` named `flag_id` is the `hidden_flag` of object `object`
+ * of `event_file`; the block is slot `#slot` of `script_file` with `rules` rules, started by level script file `level_script` (created by
+ * the recipe: `level_script_created`). */
+export interface FigureAppearsReport {
+  step: string;
+  flag: number;
+  flag_id: string;
+  event_file: number;
+  object: number;
+  level_script: number;
+  level_script_created: boolean;
+  script_file: number;
+  slot: number;
+  rules: number;
+}
+
+/** The input of „Szene beim Betreten“ (`scene_on_enter`): entering header `header` at step `step` of `story` shows `text` and switches to
+ * `step + 1`; `step_name` absent or null: „Szene beim Betreten“. */
+export interface SceneOnEnterInput {
+  story: string;
+  header: number;
+  step: number;
+  text: string;
+  step_name?: string | null;
+}
+
+/** What „Szene beim Betreten“ did: step `step` with `value`; condition `condition` of level script file `level_script` (created by the
+ * recipe: `level_script_created`) runs scene `#slot` of `script_file`, which shows message `message` of text archive `archive`. */
+export interface SceneOnEnterReport {
+  step: string;
+  value: number;
+  level_script: number;
+  level_script_created: boolean;
+  condition: number;
+  script_file: number;
+  slot: number;
+  archive: number;
+  message: number;
+}
+
+/** The input of „Belohnung einmalig“ (`reward_once`): talking to `figure` from step `from_step` of `story` on shows `text` and gives item
+ * `item` once, kept by flag `flag` (a free one of the pool); `step_name` absent or null: „Belohnung von Figur {local_id}“. */
+export interface RewardOnceInput {
+  story: string;
+  figure: FigureRef;
+  from_step: number;
+  item: number;
+  text: string;
+  flag: number;
+  step_name?: string | null;
+}
+
+/** What „Belohnung einmalig“ did: step `step`; flag `flag` named `flag_id`; object `object` of `event_file` points at hull `#slot` of
+ * `script_file`, which jumps to `#previous_slot` (0: none); message `message` in text archive `archive`. */
+export interface RewardOnceReport {
+  step: string;
+  flag: number;
+  flag_id: string;
+  event_file: number;
+  object: number;
+  script_file: number;
+  slot: number;
+  previous_slot: number;
+  archive: number;
+  message: number;
 }

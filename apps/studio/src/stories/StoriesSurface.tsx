@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import { storyCreate, storyUpdate } from "../api";
-import type { FlagKind, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
+import { recipeApply, storyCreate, storyUpdate } from "../api";
+import type { FlagKind, NewStoryReport, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
 import { NOT_A_TEXT_PROJECT, hex4 } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
@@ -36,7 +36,8 @@ export type StoriesSurfaceProps = {
   project: ProjectInfo | null;
   /** Moves whenever the project may differ: the chosen story and its graph are read again. */
   revision: number;
-  /** A story was created (one undo step): the report and its name, for the app's toast and history. */
+  /** A story was created (one undo step; by the recipe „Neue Geschichte“ for a variable): the report and its name, for the app's toast
+   * and history. */
   onCreated: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step). */
   onUpdated?: (r: StoryReport) => void;
@@ -70,9 +71,17 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const chosen = rowsOf.find((s) => s.number === selected && s.problem === null) ?? null;
   const { story, error: storyError } = useStory(chosen?.id ?? null, { project, revision });
 
-  const create = async (req: NewStoryRequest) => {
-    const report = await storyCreate(req);
-    onCreated(report, req.name);
+  const create = async (request: NewStoryRequest) => {
+    if (request.via === "recipe") {
+      // The recipe's story as the report of a create: its id, number, files and undo step (a recipe has no timing and no warnings).
+      const outcome = await recipeApply<NewStoryReport>("new_story", request.input);
+      const { story: id, number, files } = outcome.report;
+      onCreated({ id, number, files, change: outcome.change, ms: 0, warnings: [] }, request.input.name);
+      onSelect(number);
+      return;
+    }
+    const report = await storyCreate(request.req);
+    onCreated(report, request.req.name);
     for (const warning of report.warnings) onError(warning);
     onSelect(report.number);
   };

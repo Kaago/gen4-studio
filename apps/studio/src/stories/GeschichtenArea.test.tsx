@@ -150,6 +150,27 @@ describe("GeschichtenArea", () => {
     expect(subtitle("Fäden")).toBe("Nicht lesbar");
   });
 
+  it("the_stories_row_counts_the_pool", async () => {
+    // With the index the row names the free variables of the pool too.
+    vi.mocked(storyList).mockResolvedValue(storiesOf([storyRow(0), storyRow(1)], { free_vars: 20 }));
+    await render();
+    await settle();
+    expect(subtitle("Geschichten")).toBe("2 Geschichten · 20 Variablen frei");
+    vi.mocked(storyList).mockResolvedValue(storiesOf([storyRow(0)], { free_vars: 1 }));
+    await render({ revision: 1 });
+    await settle();
+    expect(subtitle("Geschichten")).toBe("1 Geschichte · 1 Variable frei");
+    vi.mocked(storyList).mockResolvedValue(storiesOf([], { free_vars: 0 }));
+    await render({ revision: 2 });
+    await settle();
+    expect(subtitle("Geschichten")).toBe("Keine Geschichten · Keine Variable frei");
+    // Without the index (or outside a text project) the count alone.
+    vi.mocked(storyList).mockResolvedValue(storiesOf([storyRow(0), storyRow(1)], { free_vars: null }));
+    await render({ revision: 3 });
+    await settle();
+    expect(subtitle("Geschichten")).toBe("2 Geschichten");
+  });
+
   it("the_flags_entry_mounts_the_flags_surface", async () => {
     await render({ start: "flags" });
     await settle();

@@ -3,11 +3,11 @@ import { applyNodeChanges, Handle, MarkerType, Position, ReactFlow } from "@xyfl
 import type { AriaLabelConfig, Edge, Node, NodeChange, NodeProps } from "@xyflow/react";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { NavTargetDto } from "../../api.data";
-import type { ThreadGraphDto } from "../../api.stories";
+import type { Layout, ThreadGraphDto } from "../../api.stories";
 import { Button, StoryNode, storyKindWord } from "../../ui/primitives";
 import { STORY_NODE_TYPE, toFlow } from "./graphModel";
 import type { StoryNodeData } from "./graphModel";
-import { layoutGraph } from "./layout";
+import { layoutGraph, layoutOf } from "./layout";
 import styles from "./ThreadGraph.module.css";
 
 export type ThreadGraphProps = {
@@ -17,11 +17,14 @@ export type ThreadGraphProps = {
   onSelect: (id: string | null) => void;
   /** „Öffnen“ in a selected place: where its reference is (the script line, the event, the header of a level script). */
   onOpenPlace: (nav: NavTargetDto) => void;
+  /** Given (a story's graph, 3d.7): the nodes move, and the end of each drag hands over the side file with every node where it lies now.
+   * Without it nothing moves (a thread without a story). */
+  onLayout?: (layout: Layout) => void;
 };
 
 type StoryFlowNode = Node<StoryNodeData>;
 
-/** React Flow's own words for screen readers, in German; nothing in 3d.6 moves or removes a node. */
+/** React Flow's own words for screen readers, in German; nothing removes a node, only a story's graph moves them (by drag). */
 const ariaLabels: Partial<AriaLabelConfig> = {
   "node.a11yDescription.default": "Enter oder Leertaste wählt einen Knoten.",
   "node.a11yDescription.keyboardDisabled": "Enter oder Leertaste wählt einen Knoten.",
@@ -68,12 +71,13 @@ function StoryFlowNodeView({ id, data, selected }: NodeProps<StoryFlowNode>) {
 const nodeTypes = { [STORY_NODE_TYPE]: StoryFlowNodeView };
 
 /**
- * The graph of a thread or a story (3d.6, read only): the places that set a value left of it, the places that check it right (dagre,
- * or the story's side file), one `StoryNode` per node, the edges labelled where the reference is. A click selects a node; a selected
- * place opens with „Öffnen“. Fits itself into view; no minimap, nothing to drag (3d.7 writes the layout); React Flow's attribution
- * stays (bottom right). The default export is for `React.lazy`: React Flow and dagre stay in this chunk.
+ * The graph of a thread or a story (3d.6): the places that set a value left of it, the places that check it right (dagre, or the story's
+ * side file), one `StoryNode` per node, the edges labelled where the reference is. A click selects a node; a selected place opens with
+ * „Öffnen“. With `onLayout` (a story, 3d.7) the nodes are dragged and each drag's end hands the side file over; without it nothing
+ * moves. Fits itself into view; no minimap; React Flow's attribution stays (bottom right). The default export is for `React.lazy`: React
+ * Flow and dagre stay in this chunk.
  */
-export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: ThreadGraphProps) {
+export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace, onLayout }: ThreadGraphProps) {
   const flow = useMemo(() => toFlow(graph), [graph]);
   const placed = useMemo(
     () =>
@@ -113,6 +117,11 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: 
     },
     [onSelect, selected],
   );
+  // The end of a drag: the nodes as they lie (the dragged ones from React Flow, the moves of this drag already in `nodes`).
+  const onNodeDragStop = useCallback(
+    (_event: unknown, _node: StoryFlowNode, moved: StoryFlowNode[]) => onLayout?.(layoutOf(nodes, moved, graph.layout)),
+    [onLayout, nodes, graph.layout],
+  );
   return (
     <div className={styles.graph} data-thread-graph="" data-node-count={graph.nodes.length} data-edge-count={graph.edges.length}>
       <OpenPlace.Provider value={onOpenPlace}>
@@ -123,7 +132,8 @@ export default function ThreadGraph({ graph, selected, onSelect, onOpenPlace }: 
           edges={edges}
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
-          nodesDraggable={false}
+          onNodeDragStop={onLayout ? onNodeDragStop : undefined}
+          nodesDraggable={onLayout !== undefined}
           nodesConnectable={false}
           edgesFocusable={false}
           deleteKeyCode={null}

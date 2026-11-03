@@ -8,14 +8,25 @@ import type {
   ConnectDoorsInput,
   ConnectDoorsReport,
   DraftDto,
+  FigureAppearsInput,
+  FigureAppearsReport,
   NewFigureInput,
   NewFigureReport,
+  NewStoryInput,
+  NewStoryReport,
   NewTrainerHereInput,
   NewTrainerHereReport,
   RecipeId,
   RecipeInfo,
   RecipeOutcome,
+  RewardOnceInput,
+  RewardOnceReport,
+  SceneOnEnterInput,
+  SceneOnEnterReport,
+  TalkAdvancesInput,
+  TalkAdvancesReport,
 } from "../api";
+import { RECIPE_TITLES } from "../api";
 
 const empty: DraftDto = { cells: [], tiles: [], events: [], messages: [], notes: [], irreversible: [] };
 
@@ -45,7 +56,7 @@ describe("recipes/api", () => {
     ]);
   });
 
-  it("recipe_ids_name_seven", () => {
+  it("recipe_ids_name_twelve", () => {
     // `satisfies` makes tsc (pnpm build) refuse a missing or an unknown id: the object names every `RecipeId` once.
     const every = {
       create_area: true,
@@ -55,8 +66,56 @@ describe("recipes/api", () => {
       new_figure: true,
       connect_doors: true,
       new_trainer_here: true,
+      new_story: true,
+      talk_advances: true,
+      figure_appears: true,
+      scene_on_enter: true,
+      reward_once: true,
     } satisfies Record<RecipeId, true>;
-    expect(Object.keys(every)).toEqual(["create_area", "create_room", "extend_area", "empty_region", "new_figure", "connect_doors", "new_trainer_here"]);
+    expect(Object.keys(every)).toEqual(Object.keys(RECIPE_TITLES));
+    // The kernel's `RecipeId::title`, in the order of `all()`.
+    expect(Object.values(RECIPE_TITLES)).toEqual([
+      "Gebiet anlegen",
+      "Raum anlegen",
+      "Gebiet erweitern",
+      "Welt leeren",
+      "Neue Figur",
+      "Tür verbinden",
+      "Neuer Trainer hier",
+      "Neue Geschichte",
+      "Gespräch schaltet weiter",
+      "Figur erscheint/verschwindet ab Schritt",
+      "Szene beim Betreten",
+      "Belohnung einmalig",
+    ]);
+  });
+
+  it("the_inputs_and_reports_of_the_five_story_recipes_carry_the_rust_names", async () => {
+    invoke.mockResolvedValue(empty);
+    const figure = { header: 411, local_id: 3 };
+    const inputs: [RecipeId, unknown][] = [
+      ["new_story", { name: "Rivalin", var: 0x406c, notes: "" } satisfies NewStoryInput],
+      ["talk_advances", { story: "STORY_RIVALIN", figure, from_step: 0, text: "Hallo!", step_name: null } satisfies TalkAdvancesInput],
+      ["figure_appears", { story: "STORY_RIVALIN", figure, step: 1, appears: true, flag: 0x173, step_name: null } satisfies FigureAppearsInput],
+      ["scene_on_enter", { story: "STORY_RIVALIN", header: 412, step: 1, text: "Hier!", step_name: "Szene beim Betreten von Zweiblattdorf" } satisfies SceneOnEnterInput],
+      ["reward_once", { story: "STORY_RIVALIN", figure, from_step: 2, item: 17, text: "Für dich.", flag: 0x174, step_name: "Belohnung: Trank" } satisfies RewardOnceInput],
+    ];
+    for (const [recipe, input] of inputs) await recipePlan(recipe, input);
+    expect(invoke.mock.calls.map(([name, args]) => [name, args.recipe, Object.keys(args.input)])).toEqual([
+      ["recipe_plan", "new_story", ["name", "var", "notes"]],
+      ["recipe_plan", "talk_advances", ["story", "figure", "from_step", "text", "step_name"]],
+      ["recipe_plan", "figure_appears", ["story", "figure", "step", "appears", "flag", "step_name"]],
+      ["recipe_plan", "scene_on_enter", ["story", "header", "step", "text", "step_name"]],
+      ["recipe_plan", "reward_once", ["story", "figure", "from_step", "item", "text", "flag", "step_name"]],
+    ]);
+    const reports: [NewStoryReport, TalkAdvancesReport, FigureAppearsReport, SceneOnEnterReport, RewardOnceReport] = [
+      { story: "STORY_RIVALIN", number: 0, var: 0x406c, var_id: "VAR_STORY_RIVALIN", files: ["data/ids/vars.json"] },
+      { step: "s1", value: 1, event_file: 5, object: 2, script_file: 7, slot: 4, previous_slot: 1, archive: 554, message: 12 },
+      { step: "a371", flag: 0x173, flag_id: "FLAG_STORY_RIVALIN_SICHTBAR_3", event_file: 5, object: 2, level_script: 9, level_script_created: false, script_file: 7, slot: 5, rules: 1 },
+      { step: "s2", value: 2, level_script: 9, level_script_created: true, condition: 0, script_file: 7, slot: 6, archive: 554, message: 13 },
+      { step: "r372", flag: 0x174, flag_id: "FLAG_STORY_RIVALIN_BELOHNUNG_3", event_file: 5, object: 2, script_file: 7, slot: 7, previous_slot: 4, archive: 554, message: 14 },
+    ];
+    expect(reports.map((r) => Object.keys(r).length)).toEqual([5, 9, 10, 9, 10]);
   });
 
   it("the_inputs_of_the_three_recipes_go_as_written", async () => {
