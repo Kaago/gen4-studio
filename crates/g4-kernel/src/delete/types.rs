@@ -198,8 +198,8 @@ impl DeleteTarget {
         })
     }
 
-    /// The word of the target's kind for the sentences („Trainer“, „Begegnungsdatei“, …),
-    /// The word of the target's kind, singular („Scriptdatei“).
+    /// The word of the target's kind for the sentences, singular („Trainer“,
+    /// „Begegnungsdatei“, „Scriptdatei“, …).
     pub fn kind_word(self) -> &'static str {
         match self {
             DeleteTarget::Trainer { .. } => "Trainer",
