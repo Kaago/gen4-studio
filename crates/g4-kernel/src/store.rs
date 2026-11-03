@@ -34,6 +34,7 @@ use crate::text::{self, Problem, TextArchiveDoc, TextMessage, TextSide, TextSync
 use crate::textproject::Art;
 use crate::textproject::source::{EntitySource, EntityUnit, SourceWrite, deleted_on_disk};
 use crate::textproject::sync::{self, Known, changed_since_record, record_known};
+use crate::textproject::tombstone::{EnvelopeCache, read_deleted_cached};
 
 pub use crate::project::AssetId;
 pub use uxie::event_file::{BgEvent, CoordEvent, EventFile, ObjectEvent, WarpEvent};
@@ -1006,6 +1007,10 @@ pub struct Store {
     /// other target is answered from the envelope of its JSON on disk, so an envelope changed
     /// outside the app is never held stale ([`Store::is_deleted`]).
     tombstones: BTreeMap<DeleteTarget, bool>,
+    /// What [`Store::deleted_in`] read of the envelopes on disk, per art: a file is read again
+    /// only when its `stat` changed ([`read_deleted_cached`]), so a list does not read every
+    /// entity file each time and still sees a change made outside the app.
+    envelopes: Mutex<HashMap<Art, EnvelopeCache>>,
 }
 
 /// Why the placeholder trainer of the sight script slot is read-only.
@@ -1080,6 +1085,7 @@ impl Store {
             source: None,
             busy: None,
             tombstones: BTreeMap::new(),
+            envelopes: Mutex::new(HashMap::new()),
             project,
         }
     }
@@ -3139,16 +3145,21 @@ impl Store {
         }
     }
 
-    /// The deleted entities of `art` by number, unsaved steps included: one read of the
-    /// envelopes under `data/<art>/` (a text project, an art with them) with the store's own
-    /// flags over them. For a list of every entity of an art, where [`Store::is_deleted`]
-    /// would read one file per entity.
+    /// The deleted entities of `art` by number, unsaved steps included: the envelopes under
+    /// `data/<art>/` (a text project, an art with them; a file read again only when its `stat`
+    /// changed since, see `envelopes`) with the store's own flags over them. For a list of
+    /// every entity of an art, where [`Store::is_deleted`] would read one file per entity.
     pub fn deleted_in(&self, art: Art) -> BTreeSet<u16> {
         let mut out = if *self.project.source_mode() == SourceMode::TextProject
             && crate::delete::TOMBSTONE_ARTS.contains(&art)
         {
-            crate::textproject::tombstone::read_deleted(&self.project.root, art.name())
-                .unwrap_or_default()
+            let mut envelopes = self.envelopes.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = envelopes.entry(art).or_default();
+            read_deleted_cached(&self.project.root, art.name(), cache).unwrap_or_else(|_| {
+                // Unreadable: nothing kept, as without the cache.
+                cache.clear();
+                BTreeSet::new()
+            })
         } else {
             BTreeSet::new()
         };

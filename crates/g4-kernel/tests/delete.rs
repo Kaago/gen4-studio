@@ -1683,6 +1683,34 @@ fn guard_header_refuses_only_a_new_reference_to_a_tombstone() {
 }
 
 #[test]
+fn deleted_in_follows_an_envelope_changed_outside() {
+    let (fx, mut st) = fixture();
+    tombstone(&mut st, DeleteTarget::Trainer { index: 1 });
+    st.save().unwrap();
+    const JSON: &str = "data/trainers/0001.json";
+    let with = fx.read(JSON);
+    // Read once: the store keeps what it read until a file's `stat` changes.
+    assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1]));
+    assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1]));
+
+    // Outside the app (`git switch`): the envelope goes, comes back, and another file gets one.
+    let end = b",\n  \"deleted\": true\n}\n";
+    assert!(with.ends_with(end));
+    let without = [&with[..with.len() - end.len()], b"\n}\n"].concat();
+    fx.write(JSON, &without);
+    assert!(st.deleted_in(Art::Trainers).is_empty());
+    fx.write(JSON, &with);
+    assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1]));
+    let other = fx.read("data/trainers/0002.json");
+    let other_with = [&other[..other.len() - 3], end.as_slice()].concat();
+    fx.write("data/trainers/0002.json", &other_with);
+    assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([1, 2]));
+    // A file gone is no longer deleted.
+    std::fs::remove_file(fx.root().join(JSON)).unwrap();
+    assert_eq!(st.deleted_in(Art::Trainers), BTreeSet::from([2]));
+}
+
+#[test]
 fn deleted_in_reads_the_envelopes_with_the_own_flags_over_them() {
     let (fx, mut st) = fixture();
     assert!(st.deleted_in(Art::Trainers).is_empty());

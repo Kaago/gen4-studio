@@ -4,13 +4,14 @@
 //! parse, [`to_canonical_entity`] appends it after serializing. It holds for every art under
 //! `data/` with JSON; content and members of a deleted entity stay as they are.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::build::fingerprint::{Fp, is_racy, now_ns, stat};
 use crate::error::{KernelError, io_at};
 use crate::text::Problem;
 
@@ -124,6 +125,47 @@ pub fn read_deleted(root: &Path, folder: &str) -> Result<BTreeSet<u16>, KernelEr
             out.insert(number);
         }
     }
+    Ok(out)
+}
+
+/// What [`read_deleted_cached`] read of the files of one folder: per number the file's `stat`
+/// (size, mtime, ctime, inode) and whether it carries the envelope.
+pub(crate) type EnvelopeCache = BTreeMap<u16, (Fp, bool)>;
+
+/// [`read_deleted`] with `cache`: a file whose `stat` equals the one kept is not read again,
+/// any other is (an edit or a `git switch` outside the app changes the `stat`), and the cache
+/// then holds the folder's files as they are. A file written less than the racy window ago
+/// ([`is_racy`]: a second write in the same tick could keep its `stat`) is read on every
+/// call and not kept. One `stat` per file instead of a read and a parse.
+pub(crate) fn read_deleted_cached(
+    root: &Path,
+    folder: &str,
+    cache: &mut EnvelopeCache,
+) -> Result<BTreeSet<u16>, KernelError> {
+    let dir = Path::new(DATA_DIR).join(folder);
+    let now = now_ns();
+    let mut kept = EnvelopeCache::new();
+    let mut out = BTreeSet::new();
+    for n in numbered(&root.join(&dir), "json")? {
+        let Ok(number) = u16::try_from(n) else {
+            continue;
+        };
+        let rel = dir.join(format!("{n:04}.json"));
+        let Some(fp) = stat(&root.join(&rel))? else {
+            continue;
+        };
+        let deleted = match cache.get(&number) {
+            Some(&(seen, deleted)) if seen == fp => deleted,
+            _ => file_deleted(root, &rel)?,
+        };
+        if !is_racy(&fp, now) {
+            kept.insert(number, (fp, deleted));
+        }
+        if deleted {
+            out.insert(number);
+        }
+    }
+    *cache = kept;
     Ok(out)
 }
 
@@ -291,5 +333,52 @@ mod tests {
         assert!(file_deleted(root, Path::new("data/trainers/0012.json")).unwrap());
         assert!(!file_deleted(root, Path::new("data/trainers/0002.json")).unwrap());
         assert!(!file_deleted(root, Path::new("data/trainers/0099.json")).unwrap());
+    }
+
+    #[test]
+    fn read_deleted_cached_reads_a_file_again_only_when_its_stat_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let t = trainer();
+        let folder = root.join("data/trainers");
+        std::fs::create_dir_all(&folder).unwrap();
+        for (n, deleted) in [(0, false), (1, true), (2, false)] {
+            std::fs::write(
+                folder.join(format!("{n:04}.json")),
+                to_canonical_entity(&t, deleted),
+            )
+            .unwrap();
+        }
+        let mut cache = EnvelopeCache::default();
+        // Written just now (racy): read on every call, never kept.
+        assert_eq!(
+            read_deleted_cached(root, "trainers", &mut cache).unwrap(),
+            BTreeSet::from([1])
+        );
+        assert!(cache.is_empty(), "{cache:?}");
+
+        // Older than the racy window: kept, and not read again while the stat stays.
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        assert_eq!(
+            read_deleted_cached(root, "trainers", &mut cache).unwrap(),
+            BTreeSet::from([1])
+        );
+        assert_eq!(cache.keys().copied().collect::<Vec<_>>(), [0, 1, 2]);
+        cache.get_mut(&2).unwrap().1 = true;
+        assert_eq!(
+            read_deleted_cached(root, "trainers", &mut cache).unwrap(),
+            BTreeSet::from([1, 2]),
+            "the kept answer, no read"
+        );
+
+        // Changed outside (a `git switch`): read anew; a file gone leaves the cache.
+        std::fs::write(folder.join("0002.json"), to_canonical_entity(&t, false)).unwrap();
+        std::fs::remove_file(folder.join("0001.json")).unwrap();
+        assert!(
+            read_deleted_cached(root, "trainers", &mut cache)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!cache.contains_key(&1));
     }
 }
