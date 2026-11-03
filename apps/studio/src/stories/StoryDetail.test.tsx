@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, createElement } from "react";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { entityIds, listFlags, threadGraph } from "../api";
-import type { FlagListDto, ProjectInfo } from "../api";
+import type { FlagListDto, Layout, ProjectInfo } from "../api";
 import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
 import { invalidateFlagLists } from "../flags/useFlagList";
 import { typeInto } from "../ui/primitives/testUtils";
@@ -18,6 +18,18 @@ vi.mock("../api", async (importOriginal) => ({
   listFlags: vi.fn(),
   entityIds: vi.fn(),
 }));
+
+// The real graph, with the props the detail gives it kept for the test (React Flow's drag is the graph's own test).
+const graphProps = vi.hoisted(() => ({ last: null as { onLayout?: (layout: Layout) => void } | null }));
+vi.mock("./graph/ThreadGraph", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./graph/ThreadGraph")>();
+  return {
+    default: (props: ComponentProps<typeof real.default>) => {
+      graphProps.last = props;
+      return createElement(real.default, props);
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -152,7 +164,7 @@ describe("StoryDetail", () => {
     // Without steps: where they come from.
     await show({ story: storyDto(0, {}, { steps: undefined }) });
     expect(steps()).toBeNull();
-    expect(detail().textContent).toContain("Noch keine Schritte. Rezepte legen sie an (kommt mit 3d.7).");
+    expect(detail().textContent).toContain("Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.");
   });
 
   it("a_story_without_values_says_so", async () => {
@@ -190,5 +202,74 @@ describe("StoryDetail", () => {
     expect(chip.textContent).toContain("0x4040");
     await click(chip.matches("button") ? chip : chip.querySelector("button"));
     expect(goTo).toHaveBeenLastCalledWith({ kind: "flag", flagKind: "var", number: 0x4040 });
+  });
+
+  it("dragging_a_node_writes_the_layout_once_after_500_ms", async () => {
+    await show();
+    for (let i = 0; i < 50 && detail().querySelector("[data-thread-graph]") === null; i++) await flush();
+    // With a story the graph's nodes move.
+    expect(detail().querySelector(".react-flow__node.draggable")).not.toBeNull();
+    const onLayout = graphProps.last!.onLayout!;
+    expect(onLayout).toBeTypeOf("function");
+    vi.useFakeTimers();
+    try {
+      // One drag: written once, 500 ms after its end, as one `story_update` of the layout alone.
+      const first: Layout = { nodes: { s1: { x: 120, y: -40.5 }, "p:script:0101": { x: 0, y: 0 } } };
+      act(() => onLayout(first));
+      await act(async () => void (await vi.advanceTimersByTimeAsync(499)));
+      expect(onUpdate).not.toHaveBeenCalled();
+      await act(async () => void (await vi.advanceTimersByTimeAsync(1)));
+      expect(onUpdate).toHaveBeenCalledOnce();
+      expect(onUpdate).toHaveBeenCalledWith({ layout: first });
+      // Two drag ends within the 500 ms are one write, with where the nodes lie last.
+      const second: Layout = { nodes: { s1: { x: 200, y: 10 } } };
+      const third: Layout = { nodes: { s1: { x: 240, y: 10 }, s2: { x: 300, y: 80 } } };
+      act(() => onLayout(second));
+      await act(async () => void (await vi.advanceTimersByTimeAsync(200)));
+      act(() => onLayout(third));
+      await act(async () => void (await vi.advanceTimersByTimeAsync(500)));
+      expect(onUpdate).toHaveBeenCalledTimes(2);
+      expect(onUpdate).toHaveBeenLastCalledWith({ layout: third });
+      await act(async () => void (await vi.advanceTimersByTimeAsync(2000)));
+      expect(onUpdate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a_step_made_by_a_recipe_shows_the_recipe_in_the_badge_tooltip", async () => {
+    await show({
+      story: storyDto(0, {}, {
+        steps: [
+          { key: "s0", value: 0, kind: "start", name: "Anfang", made: { recipe: "new_story", studio: "0.3.0" } },
+          { key: "s1", value: 1, kind: "dialog", name: "Gespräch mit Figur 3", notes: "Am Brunnen.", made: { recipe: "talk_advances", studio: "0.3.0" } },
+          { key: "s2", value: 2, kind: "battle", name: "Kampf am See" },
+        ],
+      }),
+    });
+    const kind = (key: string) => step(key).querySelector<HTMLElement>("[data-story-kind]")!;
+    const hover = async (el: HTMLElement) => {
+      vi.useFakeTimers();
+      try {
+        await act(async () => {
+          el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+          el.dispatchEvent(new MouseEvent("mouseenter"));
+          el.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(500);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      return document.querySelector("[role=tooltip]")?.textContent ?? null;
+    };
+    expect(kind("s1").getAttribute("data-story-made")).toBe("talk_advances");
+    expect(await hover(kind("s1"))).toBe("Angelegt von „Gespräch schaltet weiter“ (Studio 0.3.0)");
+    expect(kind("s0").getAttribute("data-story-made")).toBe("new_story");
+    // The step's notes stand under its name; a step without notes has none.
+    expect(step("s1").querySelector("[data-story-step-notes]")?.textContent).toBe("Am Brunnen.");
+    expect(step("s0").querySelector("[data-story-step-notes]")).toBeNull();
+    // A step written by hand has no recipe and no tooltip.
+    expect(kind("s2").hasAttribute("data-story-made")).toBe(false);
+    expect(cells("s2").slice(0, 3)).toEqual(["2", "Kampf", "Kampf am See"]);
   });
 });

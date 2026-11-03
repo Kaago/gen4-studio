@@ -16,6 +16,8 @@ import { DialogSection } from "./DialogSection";
 import { dialogTitle } from "../dialog/dialogModel";
 import type { DialogTarget } from "../dialog/dialogModel";
 import type { WizardRequest } from "../WorkbenchContext";
+import type { StoryRecipeRequest } from "../../stories/recipes/storyRecipeModel";
+import { useStoryHint } from "../../stories/useStoryHint";
 import styles from "./Editor.module.css";
 import { EVENT_FIELDS, eventBackend, eventFieldsAt, movementOptions } from "./eventFields";
 import type { EventFieldKey } from "./eventFields";
@@ -74,6 +76,8 @@ export interface EventEditorContext {
   dialogRevision?: number;
   /** Opens a wizard (a door's „Tür verbinden…“ in Erzählen opens „Tür verbinden“ with the door as door A); absent: no button. */
   openWizard?: (request: WizardRequest) => void;
+  /** Opens a step recipe (a figure without a script: „Dialog anlegen…“ is „Gespräch schaltet weiter“ with it); absent: no button. */
+  openStoryRecipe?: (request: StoryRecipeRequest) => void;
 }
 
 /** Sentences under fields in Bauen: what the flag of a figure and the value of a trigger do. */
@@ -81,9 +85,6 @@ const BAUEN_HINTS: Partial<Record<EventFieldKey, string>> = {
   hidden_flag: "Die Figur ist da, solange das Flag 0 ist.",
   value: "Der Auslöser feuert, wenn die Variable diesen Wert hat.",
 };
-
-/** What Erzählen says instead of the fields of a trigger: its story comes with a later phase. */
-const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schritt kommen mit 3d.7." };
 
 /**
  * Editable form of one event: its fields by class, a warp's destination header as a reference with a picker,
@@ -93,7 +94,7 @@ const LATER: Partial<Record<EventKind, string>> = { coord: "Geschichte und Schri
  * that one event (see `EditSession`). A locked event file is shown with its reason and cannot be changed.
  */
 export function EventEditor({ file, kind, index, context, depth, live }: { file: number; kind: EventKind; index: number; context: EventEditorContext; depth: Depth; live?: EventLive }) {
-  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0, openWizard } = context;
+  const { headers, identify, dirty, family, revision, onChanged, onAdd, onDelete, goTo, selected, scriptsAdopted, onOpenScript, onAddScript, trainers = null, needTrainers, onError, project = null, openDialogEditor, dialogRevision = 0, openWizard, openStoryRecipe } = context;
   const reset = useReset();
   const [event, setEvent] = useState<EventData | null>(null);
   const [locked, setLocked] = useState<string | null>(null);
@@ -167,7 +168,6 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
   const trainer = kind === "object" ? scriptTrainerLabel(trainers, (event as ObjectDto).script) : null;
   const narrating = !depthAtLeast(depth, "bauen");
   const specs = eventFieldsAt(kind, family, depth);
-  const later = narrating ? LATER[kind] : undefined;
   const headTitle = trainer !== null ? `Objekt ${index} · ${trainer}` : eventTitle(kind, event, depth, destName);
 
   return (
@@ -194,11 +194,6 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
             </Notice>
           </div>
         )}
-        {later !== undefined && (
-          <div className={styles.pad}>
-            <Notice kind="info">{later}</Notice>
-          </div>
-        )}
         <div key={refused}>
           {specs.map((spec) => {
             const value = EVENT_FIELDS.value(event, spec.key);
@@ -220,21 +215,23 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
             if (pick !== undefined) {
               // A flag or a variable: its name with the picker (and the number in Tüfteln); 0 is none and is written like any number.
               return (
-                <FlagField
-                  key={spec.key}
-                  kind={pick}
-                  label={spec.label}
-                  value={value}
-                  onCommit={(n) => commit(spec.key, spec.label, n)}
-                  disabled={readOnly}
-                  depth={depth}
-                  project={project}
-                  revision={revision}
-                  source="events"
-                  onShowInDirectory={(number) => goTo({ kind: "flag", flagKind: pick, number })}
-                  field={spec.key}
-                  hint={hint}
-                />
+                <Fragment key={spec.key}>
+                  <FlagField
+                    kind={pick}
+                    label={spec.label}
+                    value={value}
+                    onCommit={(n) => commit(spec.key, spec.label, n)}
+                    disabled={readOnly}
+                    depth={depth}
+                    project={project}
+                    revision={revision}
+                    source="events"
+                    onShowInDirectory={(number) => goTo({ kind: "flag", flagKind: pick, number })}
+                    field={spec.key}
+                    hint={hint}
+                  />
+                  <StoryHintLine kind={pick} number={value} project={project} revision={revision} value={kind === "coord" ? EVENT_FIELDS.value(event, "value") : undefined} />
+                </Fragment>
               );
             }
             const options = narrating && spec.key === "movement_type" ? movementOptions(value) : spec.options;
@@ -283,12 +280,17 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
             </InspectorRow>
           )}
         </div>
+        {/* Erzählen shows no flag field: the story of the figure's flag or the trigger's variable stands in its place. */}
+        {narrating && kind === "object" && <StoryHintLine kind="flag" number={EVENT_FIELDS.value(event, "hidden_flag")} project={project} revision={revision} />}
+        {narrating && kind === "coord" && <StoryHintLine kind="var" number={EVENT_FIELDS.value(event, "var")} project={project} revision={revision} value={EVENT_FIELDS.value(event, "value")} none="Keine Geschichte führt die Variable dieses Auslösers." />}
         {narrating && (kind === "object" || kind === "bg") && owner && (
           <DialogSection
             target={{ header: owner.id, eventFile: file, kind, index, title: dialogTitle(kind, index) }}
             revision={revision + dialogRevision}
             onEdit={openDialogEditor}
             onError={onError}
+            figure={kind === "object" ? { header: owner.id, local_id: (event as ObjectDto).local_id } : undefined}
+            onStoryRecipe={openStoryRecipe}
           />
         )}
         {/* Play mode: a breakpoint halts the game when the figure's flag or the trigger's variable changes; not an edit, no undo step. */}
@@ -347,5 +349,21 @@ export function EventEditor({ file, kind, index, context, depth, live }: { file:
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * „Geschichte „X“: {Schrittname}“ under a figure's visibility flag or a trigger's variable when a story holds it (`useStoryHint`); `none`
+ * is said when it is known that none does.
+ */
+function StoryHintLine({ kind, number, project, revision, value, none }: { kind: "flag" | "var"; number: number; project: ProjectInfo | null; revision: number; value?: number; none?: string }) {
+  const hint = useStoryHint(kind, number, { project, revision, value });
+  if (hint === undefined || (hint === null && none === undefined)) return null;
+  return hint === null ? (
+    <p className={styles.note}>{none}</p>
+  ) : (
+    <p className={styles.note} data-story-hint="">
+      {hint}
+    </p>
   );
 }

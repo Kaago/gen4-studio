@@ -2,6 +2,7 @@ import { useState } from "react";
 import { errorText, recipeApply } from "../../api";
 import type { DraftDto, HeaderSummary, MatrixSummary, NewFigureInput, NewFigureReport, ProjectInfo, RecipeOutcome } from "../../api";
 import { FlagField } from "../../flags/FlagField";
+import { useTextProject } from "../../textproject/TextProjectContext";
 import type { Depth } from "../../ui/frame/shellState";
 import { Notice, Segmented, SelectField } from "../../ui/primitives";
 import { headerLabel } from "../headers";
@@ -92,6 +93,8 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // The refusal of the last „Aufstellen“ (nothing was written), shown inside the wizard.
   const [refusal, setRefusal] = useState<string | null>(null);
+  // „Zu einer Geschichte“ on the result needs a text project.
+  const textProject = useTextProject().active;
   const set = (change: Partial<FigureForm>) => setForm((f) => ({ ...f, ...change }));
 
   const place = form.header === null ? null : (headers.find((h) => h.id === form.header) ?? null);
@@ -219,7 +222,7 @@ export function NewFigureWizard({ depth, headers, matrices, project, prefill, on
   let show: (() => void) | undefined;
   if (outcome?.kind === "done") {
     const done = outcome;
-    result = <DoneResult title="Figur aufgestellt" {...figureResult(done.outcome)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
+    result = <DoneResult title="Figur aufgestellt" {...figureResult(done.outcome, textProject)} onStep={onStep && ((id) => onStep(id, done.outcome, done.input))} />;
     if (onShow) show = () => onShow(done.outcome, done.input);
   } else if (outcome?.kind === "partial") {
     result = <PartialResult message={outcome.message} depth={depth} />;

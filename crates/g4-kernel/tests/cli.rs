@@ -2075,6 +2075,11 @@ fn cli_recipe_list() {
             "new_figure  Neue Figur",
             "connect_doors  Tür verbinden",
             "new_trainer_here  Neuer Trainer hier  irreversible",
+            "new_story  Neue Geschichte",
+            "talk_advances  Gespräch schaltet weiter",
+            "figure_appears  Figur erscheint/verschwindet ab Schritt",
+            "scene_on_enter  Szene beim Betreten",
+            "reward_once  Belohnung einmalig",
         ],
         "{out}"
     );
@@ -2196,6 +2201,164 @@ fn cli_recipe_apply_empty_region_needs_the_flag() {
         .code(1);
     let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
     assert!(!stderr.contains("rückgängig"), "{stderr}");
+}
+
+/// `g4k recipe apply new_story` on the text fixture: the input names the story and the pool
+/// variable (`--input`), the outcome is printed as JSON and saved (the variable's own name, the
+/// story file); a second story on the same variable is refused, its name is taken now.
+#[test]
+fn cli_recipe_apply_new_story_prints_the_outcome_and_saves() {
+    let fx = common::TextFixture::exported();
+    let root = fx.root();
+    let input = r#"{"name":"Testfaden","var":16432,"notes":"Aus g4k."}"#;
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["new_story", "--input", input])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(outcome["report"]["story"], "STORY_TESTFADEN", "{outcome}");
+    assert_eq!(outcome["report"]["number"], 0, "{outcome}");
+    assert_eq!(outcome["report"]["var"], 16432, "{outcome}");
+    assert_eq!(
+        outcome["report"]["var_id"], "VAR_STORY_TESTFADEN",
+        "{outcome}"
+    );
+    assert_eq!(outcome["created"], serde_json::json!([]), "{outcome}");
+    let next: Vec<&str> = outcome["next"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(next, ["talk_advances", "figure_appears"], "{outcome}");
+
+    // Saved: the variable's own name and the story with its first step are on disk.
+    let read = |rel: &str| -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(root.join(rel)).unwrap()).unwrap()
+    };
+    assert_eq!(read("data/ids/vars.json")["VAR_STORY_TESTFADEN"], 16432);
+    assert_eq!(read("data/ids/stories.json")["STORY_TESTFADEN"], 0);
+    let story = read("data/stories/0000.json");
+    assert_eq!(story["name"], "Testfaden", "{story}");
+    assert_eq!(story["notes"], "Aus g4k.", "{story}");
+    assert_eq!(story["steps"][0]["key"], "s0", "{story}");
+    assert_eq!(story["steps"][0]["kind"], "start", "{story}");
+    assert_eq!(story["steps"][0]["made"]["recipe"], "new_story", "{story}");
+
+    // The variable has its own name now: a second story on it is refused, nothing is written.
+    let before = files_of(root);
+    g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args([
+            "new_story",
+            "--input",
+            r#"{"name":"Zweiter Faden","var":16432}"#,
+        ])
+        .assert()
+        .code(1)
+        .stderr(contains("VAR_STORY_TESTFADEN"));
+    assert!(!root.join("data/stories/0001.json").exists());
+    assert_eq!(
+        before.get(&root.join("data/ids/vars.json")),
+        files_of(root).get(&root.join("data/ids/vars.json"))
+    );
+}
+
+/// `g4k recipe apply` asks the project whether a visibility creates a level script file: a
+/// figure on header 0, which owns its level script file, goes through without
+/// `--allow-irreversible`; one on header 1, which has none (a new file would stay after undo),
+/// needs the flag.
+#[test]
+fn cli_recipe_apply_figure_appears_asks_only_when_a_level_script_file_is_created() {
+    use std::sync::Arc;
+
+    use g4_kernel::recipes::new_story::{self, NewStoryInput};
+    use g4_kernel::store::{ObjectEvent, Store};
+
+    let fx = common::TextFixture::exported();
+    let root = fx.root();
+    {
+        let mut store = Store::new(Arc::new(fx.project()));
+        new_story::apply(
+            &mut store,
+            &NewStoryInput {
+                name: "Testfaden".to_owned(),
+                var: 0x4030,
+                notes: String::new(),
+            },
+        )
+        .unwrap();
+        let object = |local_id: u16| ObjectEvent {
+            local_id,
+            graphics_id: 3,
+            movement_type: 15,
+            trainer_type: 0,
+            hidden_flag: 0,
+            script: 0,
+            dir: 0,
+            data: [0; 3],
+            movement_range_x: 0,
+            movement_range_z: 0,
+            x: 30 + local_id,
+            z: 7,
+            y: 0,
+        };
+        store
+            .transaction("Figuren", |tx| {
+                tx.edit_event(0, |f| {
+                    f.object_events.extend([object(4), object(5)]);
+                    Ok(())
+                })
+            })
+            .unwrap();
+        store.save().unwrap();
+    }
+    let input = |header: u16, local_id: u16, flag: u16| {
+        serde_json::json!({
+            "story": "STORY_TESTFADEN",
+            "figure": { "header": header, "local_id": local_id },
+            "step": 0, "appears": true, "flag": flag,
+        })
+        .to_string()
+    };
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["figure_appears", "--input", &input(0, 4, 0x0100)])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(
+        outcome["report"]["level_script_created"], false,
+        "{outcome}"
+    );
+    // Header 1 (same event and script file) has level script 0: a new file is created.
+    g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args(["figure_appears", "--input", &input(1, 5, 0x0101)])
+        .assert()
+        .code(1)
+        .stderr(contains(
+            "error: Level-Script-Datei anlegen lässt sich nicht rückgängig machen; mit \
+             --allow-irreversible",
+        ));
+    let assert = g4k()
+        .args(["recipe", "apply"])
+        .arg(root)
+        .args([
+            "figure_appears",
+            "--input",
+            &input(1, 5, 0x0101),
+            "--allow-irreversible",
+        ])
+        .assert()
+        .success();
+    let outcome: serde_json::Value = serde_json::from_str(&stdout_of(&assert)).unwrap();
+    assert_eq!(outcome["report"]["level_script_created"], true, "{outcome}");
 }
 
 /// `script Main #1:` with `lines`, then `End`.

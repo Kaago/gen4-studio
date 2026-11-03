@@ -3,9 +3,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dialogOf, getEvents, getObjectSprite, listFlags, resolveScript, updateEvent } from "../../api";
+import { dialogOf, getEvents, getObjectSprite, listFlags, resolveScript, storyGet, storyList, updateEvent } from "../../api";
 import type { BreakpointDto, DataRowDto, EventKind, EventsDto, HeaderSummary, ObjectDto, ProjectInfo, WarpDto } from "../../api";
 import { FLAGS, flagEntry, flagList } from "../../flags/flagTesting";
+import { storiesOf, storyDto, storyRow } from "../../stories/storiesTesting";
 import { invalidateFlagLists } from "../../flags/useFlagList";
 import { openSelect, typeInSearch, typeInto } from "../../ui/primitives/testUtils";
 import { visibleWords } from "../../ui/visibleText";
@@ -17,7 +18,7 @@ import { MISSING, resetSpy, withReset } from "../../original/resetTesting";
 import type { Depth } from "../../ui/frame/shellState";
 import { resetSprites } from "../../world/sprites";
 
-vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), getObjectSprite: vi.fn(), listFlags: vi.fn(), dialogOf: vi.fn() }));
+vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), getEvents: vi.fn(), updateEvent: vi.fn(), resolveScript: vi.fn(), getObjectSprite: vi.fn(), listFlags: vi.fn(), dialogOf: vi.fn(), storyList: vi.fn(), storyGet: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -62,6 +63,7 @@ describe("EventEditor scripts", () => {
     vi.mocked(resolveScript).mockReset();
     vi.mocked(getObjectSprite).mockReset().mockResolvedValue(null);
     vi.mocked(dialogOf).mockReset().mockResolvedValue({ source: { kind: "none" }, messages: [], followed: [] });
+    vi.mocked(storyList).mockReset().mockResolvedValue(storiesOf([]));
     // The sprite cache outlives a test: each one asks the backend anew.
     resetSprites();
     invalidateFlagLists();
@@ -618,7 +620,9 @@ describe("EventEditor scripts", () => {
         bg: [{ index: 0, script: 7, event_type: 0, x: 1, z: 1, y: 0 }],
       }));
       await show(context(), "coord", 0, "erzaehlen");
-      expect(container.textContent).toContain("Geschichte und Schritt kommen mit 3d.7.");
+      // A trigger without a variable belongs to no story (3d.7 says which story a variable holds).
+      expect(container.textContent).not.toContain("3d.7");
+      expect(container.textContent).toContain("Keine Geschichte führt die Variable dieses Auslösers.");
       expect(rowLabels()).toEqual([]);
       // Adding events and the hint how to move them stay.
       expect(container.textContent).toContain("Ziehen in der 3D-Ansicht verschiebt das Event");
@@ -628,6 +632,39 @@ describe("EventEditor scripts", () => {
       expect(container.querySelector("section[data-dialog-section]")).not.toBeNull();
       expect(rowLabels()).toEqual([]);
       expect(container.textContent).not.toContain("Nur lesbar");
+    });
+
+    it("the_inspector_names_the_story_of_a_visibility_flag_in_erzaehlen", async () => {
+      const project: ProjectInfo = { root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 1 };
+      const VARS = flagList("var", [flagEntry(0x4040, { own_id: "VAR_RIVALIN" })]);
+      vi.mocked(listFlags).mockReset().mockImplementation(async (kind) => (kind === "flag" ? FLAGS : VARS));
+      vi.mocked(storyList).mockReset().mockResolvedValue(storiesOf([storyRow(0, { name: "Anderes", progress: { var: "VAR_ANDERES" } }), storyRow(1, { name: "Rivalin", flags: ["FLAG_HAT_MEDAILLE"] })]));
+      vi.mocked(storyGet).mockReset().mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id }));
+      vi.mocked(getEvents).mockImplementation(async () => ({
+        ...events(),
+        objects: [{ ...npc, index: 0, hidden_flag: 0x94 }, { ...npc, index: 1, hidden_flag: 0x96 }],
+        coords: [{ index: 0, script: 7, x: 1, z: 1, width: 1, length: 1, var: 0x4040, value: 2 }],
+      }));
+      const hint = () => container.querySelector<HTMLElement>("[data-story-hint]");
+      await show(context({ project }), "object", 0, "erzaehlen");
+      await flush();
+      // The flag is one of the story's: its name and the step that uses it.
+      expect(hint()?.textContent).toBe("Geschichte „Rivalin“: Pokédex bekommen");
+      expect(storyGet).toHaveBeenCalledWith("STORY_0001");
+      // In Bauen the line stands under the field of the flag.
+      await show(context({ project }), "object", 0, "bauen");
+      await flush();
+      expect(hint()?.textContent).toBe("Geschichte „Rivalin“: Pokédex bekommen");
+      expect(hint()?.previousElementSibling?.querySelector("[data-flag-field='hidden_flag']") ?? hint()?.parentElement?.querySelector("[data-flag-field='hidden_flag']")).not.toBeNull();
+      // A flag no story holds says nothing.
+      await act(async () => root.render(null));
+      await show(context({ project }), "object", 1, "erzaehlen");
+      await flush();
+      expect(hint()).toBeNull();
+      // A trigger on a story's variable: the story and the step of the value it fires at.
+      await show(context({ project }), "coord", 0, "erzaehlen");
+      await flush();
+      expect(hint()?.textContent).toBe("Geschichte „Rivalin“: Kampf am See");
     });
 
     it("erzaehlen_renders_the_dialog_section_for_object_and_bg", async () => {

@@ -1,0 +1,8 @@
+script {name} #{n}:
+    LockAll
+    NPCMsg {message}
+    WaitButton
+    CloseMsg
+    SetVar {var}, {value}
+    ReleaseAll
+    End

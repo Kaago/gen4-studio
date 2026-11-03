@@ -1,0 +1,8 @@
+script {name} #{n}:
+    LockAll
+    Message {message}
+    WaitButton
+    CloseMessage
+    SetVarFromValue {var}, {value}
+    ReleaseAll
+    End

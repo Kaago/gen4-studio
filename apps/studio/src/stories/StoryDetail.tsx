@@ -1,17 +1,20 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { JSX, ReactNode } from "react";
 import { errorText } from "../api";
-import type { EntityKind, FlagKind, FlagListDto, ProjectInfo, Step, StoryDto, StoryUse, storyUpdate } from "../api";
+import type { EntityKind, FlagKind, FlagListDto, Layout, ProjectInfo, Step, StoryDto, StoryUse, storyUpdate } from "../api";
+import { useStableCallback } from "../app/useStable";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
 import { hex4 } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
 import { useTextProject } from "../textproject/TextProjectContext";
 import { depthAtLeast } from "../ui/frame/shellState";
 import type { Depth } from "../ui/frame/shellState";
-import { Badge, Notice, Reference, Section, Table, TextField } from "../ui/primitives";
+import { Badge, Notice, Reference, Section, Table, TextField, Tooltip } from "../ui/primitives";
 import type { Area, TableColumn, TableRow } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { fallbackNumber, flagNumberOf, progressLabel, stepKindWord, useText } from "./storyWords";
+import { fallbackNumber, flagNumberOf, progressLabel, recipeTitle, stepKindWord, useText } from "./storyWords";
+import { StepRecipes } from "./recipes/StepRecipes";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
 import { useThreadGraph } from "./useThreadGraph";
 import styles from "./StoriesSurface.module.css";
 
@@ -31,6 +34,10 @@ export type StoryDetailProps = {
   project: ProjectInfo | null;
   /** Moves whenever the project may differ: the graph is read again. */
   revision: number;
+  /** „Schritt anlegen“: a step recipe asked for with this story (the app's dialog); absent: no step bar. */
+  onRecipe?: (request: StoryRecipeRequest) => void;
+  /** The project is a text project: the step recipes run only there. */
+  textProject?: boolean;
 };
 
 const COLUMNS: readonly TableColumn[] = [
@@ -43,8 +50,11 @@ const COLUMNS: readonly TableColumn[] = [
 /** Said in place of the graph when the game has no value of the progress (a free variable, a flag, an id that names nothing). */
 export const NO_VALUES = "Noch keine Werte im Spiel";
 
-/** Said in place of the steps: 3d.6 only reads them, the recipes of 3d.7 create them. */
-export const NO_STEPS = "Noch keine Schritte. Rezepte legen sie an (kommt mit 3d.7).";
+/** How long after a drag's end the graph's layout is written (one undo step per drag; a drag within it starts the wait anew). */
+const LAYOUT_DELAY_MS = 500;
+
+/** Said in place of the steps: the step recipes above them create them. */
+export const NO_STEPS = "Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.";
 
 /**
  * The numbers of the ids of `kind` (trainers, maps by header) from the text project's id cache, read only when `wanted`; null meanwhile
@@ -128,11 +138,11 @@ function Uses({ uses, at, goTo }: { uses: readonly StoryUse[]; at: Lookups; goTo
 /**
  * The detail of a story (3d.6, reading): its name and its notes as fields that write when left (`story_update`, the fields locked while
  * it runs, a refusal shown below them), its progress as a chip that opens Geschichten › Flags und Variablen on the number, the steps as a
- * table (value, kind, name, uses as chips; only read: the recipes of 3d.7 create them), and the graph of the progress variable with the
+ * table (value, kind, name, uses as chips; the step recipes of „Schritt anlegen“ above it create them, 3d.7), and the graph of the progress variable with the
  * steps on its value nodes. A flag (the graph takes a variable only), an id that names nothing and a variable no script uses have no
  * graph: „Noch keine Werte im Spiel“.
  */
-export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }: StoryDetailProps): JSX.Element {
+export function StoryDetail({ story, depth, goTo, onUpdate, project, revision, onRecipe, textProject = true }: StoryDetailProps): JSX.Element {
   const { id, name, notes = "", progress, steps = [] } = story.story;
   const tech = depthAtLeast(depth, "bauen");
   const progressOf = progressLabel(progress);
@@ -151,12 +161,12 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
   const busy = useRef(false);
   const shownName = written.name ?? name;
   const shownNotes = written.notes ?? notes;
-  const commit = async (patch: { name?: string; notes?: string }) => {
-    if (busy.current) return;
+  const commit = async (patch: { name?: string; notes?: string } | { layout: Layout }) => {
+    if (busy.current) return false;
     busy.current = true;
     setSaving(true);
     setRefusal(null);
-    setWritten((w) => ({ ...w, ...patch }));
+    if (!("layout" in patch)) setWritten((w) => ({ ...w, ...patch }));
     try {
       await onUpdate(patch);
     } catch (e) {
@@ -167,7 +177,32 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
       busy.current = false;
       setSaving(false);
     }
+    return true;
   };
+
+  // A drag's layout is written 500 ms after its end; a drag meanwhile starts the wait anew (one write, one undo step). While another write
+  // runs it waits once more; a layout still waiting when the detail goes is written then.
+  const layoutWait = useRef<{ timer: ReturnType<typeof setTimeout>; layout: Layout } | null>(null);
+  const writeLayout = useStableCallback(() => {
+    const waiting = layoutWait.current;
+    if (waiting === null) return;
+    layoutWait.current = null;
+    void commit({ layout: waiting.layout }).then((went) => {
+      if (!went) onLayout(waiting.layout);
+    });
+  });
+  const onLayout = useStableCallback((layout: Layout) => {
+    if (layoutWait.current !== null) clearTimeout(layoutWait.current.timer);
+    layoutWait.current = { layout, timer: setTimeout(writeLayout, LAYOUT_DELAY_MS) };
+  });
+  useEffect(
+    () => () => {
+      if (layoutWait.current === null) return;
+      clearTimeout(layoutWait.current.timer);
+      writeLayout();
+    },
+    [writeLayout],
+  );
 
   const uses = steps.flatMap((s) => s.uses ?? []);
   const lookups: Lookups = {
@@ -181,12 +216,8 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
     attrs: { "data-story-step": s.key },
     cells: {
       value: String(s.value),
-      kind: (
-        <span data-story-kind={s.kind}>
-          <Badge kind="neutral">{stepKindWord(s.kind)}</Badge>
-        </span>
-      ),
-      name: s.name,
+      kind: <StepKindBadge step={s} />,
+      name: <StepName step={s} />,
       uses: <Uses uses={s.uses ?? []} at={lookups} goTo={goTo} />,
     },
   }));
@@ -203,7 +234,7 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
     graphBody = (
       <div className={styles.graphBox}>
         <Suspense fallback={<p className={styles.note}>Graph wird geladen…</p>}>
-          <ThreadGraph graph={graph} selected={node} onSelect={setNode} onOpenPlace={goTo} />
+          <ThreadGraph graph={graph} selected={node} onSelect={setNode} onOpenPlace={goTo} onLayout={onLayout} />
         </Suspense>
       </div>
     );
@@ -252,12 +283,37 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
       )}
       {refusal !== null && <Notice kind="error">{refusal}</Notice>}
       <Section title="Schritte" count={steps.length} open={open.steps} onToggle={() => setOpen((o) => ({ ...o, steps: !o.steps }))}>
+        {onRecipe && <StepRecipes story={story} textProject={textProject} onRecipe={onRecipe} />}
         {steps.length === 0 ? <p className={styles.note}>{NO_STEPS}</p> : <Table columns={COLUMNS} rows={rows} ariaLabel="Schritte" />}
       </Section>
       <Section title="Graph" open={open.graph} onToggle={() => setOpen((o) => ({ ...o, graph: !o.graph }))}>
         {graphBody}
       </Section>
     </section>
+  );
+}
+
+/** The kind of a step as a badge; a step a recipe made says which in its tooltip („Angelegt von „Neue Geschichte“ (Studio 0.3.0)“). */
+function StepKindBadge({ step }: { step: Step }) {
+  const badge = (
+    <span data-story-kind={step.kind} {...(step.made && { "data-story-made": step.made.recipe })}>
+      <Badge kind="neutral">{stepKindWord(step.kind)}</Badge>
+    </span>
+  );
+  if (!step.made) return badge;
+  return <Tooltip content={`Angelegt von „${recipeTitle(step.made.recipe)}“ (Studio ${step.made.studio})`}>{badge}</Tooltip>;
+}
+
+/** The name of a step, its notes under it. */
+function StepName({ step }: { step: Step }) {
+  if (!step.notes) return <>{step.name}</>;
+  return (
+    <span className={styles.stepName}>
+      {step.name}
+      <span className={styles.stepNotes} data-story-step-notes="">
+        {step.notes}
+      </span>
+    </span>
   );
 }
 

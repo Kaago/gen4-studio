@@ -1,0 +1,16 @@
+script {name} #{n}:
+    LockAll
+    FacePlayer
+    if {var} >= {from} then
+        if !{flag} then
+            NPCMsg {message}
+            WaitButton
+            CloseMsg
+            GiveItem {item}, 1, VAR_SPECIAL_RESULT
+            SetFlag {flag}
+            ReleaseAll
+            End
+        endif
+    endif
+    ReleaseAll
+{tail}

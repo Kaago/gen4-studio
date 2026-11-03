@@ -1717,7 +1717,12 @@ mod tests {
                 "empty_region",
                 "new_figure",
                 "connect_doors",
-                "new_trainer_here"
+                "new_trainer_here",
+                "new_story",
+                "talk_advances",
+                "figure_appears",
+                "scene_on_enter",
+                "reward_once"
             ]
         );
         let args = json!({ "recipe": "extend_area", "input": {
@@ -1764,6 +1769,50 @@ mod tests {
             }
             Ok(_) => {}
             Err(other) => panic!("{other:?}"),
+        }
+    }
+
+    /// `recipe_apply` stays generic: `recipe: new_story` with its input reaches the kernel
+    /// recipe through the dispatch table (the story and its variable's name in the report, one
+    /// undo step); in the DSPRE layout the kernel refuses it, not the arguments.
+    #[test]
+    fn recipe_apply_new_story_reaches_the_kernel() {
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let state = AppState::default();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let free = json_of(call(&state, &policy, "free_flag", json!({ "kind": "var" })));
+        let var = free["number"].as_u64().unwrap();
+        let undo = history_impl(&state).unwrap().undo.len();
+        let outcome = json_of(call(
+            &state,
+            &policy,
+            "recipe_apply",
+            json!({ "recipe": "new_story", "input": { "name": "Testfaden", "var": var } }),
+        ));
+        assert_eq!(outcome["report"]["story"], "STORY_TESTFADEN", "{outcome}");
+        assert_eq!(outcome["report"]["var"], var, "{outcome}");
+        assert_eq!(
+            outcome["report"]["var_id"], "VAR_STORY_TESTFADEN",
+            "{outcome}"
+        );
+        assert_eq!(history_impl(&state).unwrap().undo.len(), undo + 1);
+        let list = json_of(call(&state, &policy, "story_list", json!({})));
+        assert_eq!(list["stories"][0]["id"], "STORY_TESTFADEN", "{list}");
+
+        let (synthetic, dspre) = open_synthetic();
+        match dispatch(
+            &dspre,
+            &policy_over(&synthetic),
+            "recipe_apply",
+            json!({ "recipe": "new_story", "input": { "name": "Testfaden", "var": var } }),
+        ) {
+            Err(DispatchError::Cmd(e)) => assert_eq!(
+                e.message,
+                g4_kernel::textproject::rename::NOT_A_TEXT_PROJECT
+            ),
+            other => panic!("{other:?}"),
         }
     }
 

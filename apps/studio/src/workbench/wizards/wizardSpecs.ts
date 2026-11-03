@@ -1,6 +1,7 @@
 import type { AreaCell, AreaReport, AreaSpec, AreaTarget, AssetKind, AssignHeader, ConnectDoorsInput, ConnectDoorsReport, DoorReport, EventFileChoice, EventsDto, HeaderSummary, MatrixDto, NameTablesDto, NewFigureReport, NewTrainerHereInput, NewTrainerHereReport, NextStep, PlaceChoice, RecipeOutcome, RoomReport, RoomSpec, WarpDto, WarpLink } from "../../api";
 import { isCmdError } from "../../api";
 import { className, speciesName, trainerTitle } from "../../data/trainer/trainerModel";
+import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
 import { depthAtLeast } from "../../ui/frame/shellState";
 import type { Depth } from "../../ui/frame/shellState";
 import { headerLabel } from "../headers";
@@ -866,11 +867,12 @@ const CREATED_WORDS: Partial<Record<AssetKind, string>> = {
 export const createdLine = (created: { kind: AssetKind; index: number }): string => `${CREATED_WORDS[created.kind] ?? created.kind} ${id4(created.index)} angelegt (bleibt nach Rückgängig)`;
 
 /** What „Neue Figur“ did, in the kernel's numbers; the next steps are the kernel's (`outcome.next`). */
-export function figureResult(outcome: RecipeOutcome<NewFigureReport>): WizardOutcome {
+export function figureResult(outcome: RecipeOutcome<NewFigureReport>, textProject = true): WizardOutcome {
   const r = outcome.report;
   return {
     lines: [`Objekt ${r.object} in ${TERMS.eventFile.label} ${id4(r.event_file)}`, `Script #${r.slot}, Nachricht ${r.message} in Archiv ${id4(r.archive)}`, ...outcome.created.map(createdLine)],
-    steps: outcome.next,
+    // „Zu einer Geschichte“ opens a story recipe, which needs a text project: outside one it is locked with the kernel's sentence.
+    steps: textProject ? outcome.next : outcome.next.map((s) => (s.id === "story_join" ? { ...s, available: false, reason: NOT_A_TEXT_PROJECT } : s)),
     next: ["Ausprobieren: speichern, bauen und die Figur ansprechen"],
   };
 }

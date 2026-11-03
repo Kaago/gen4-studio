@@ -13,8 +13,8 @@ export interface RecipeEntry {
   reason?: string;
 }
 
-/** Why a next step is locked, as the kernel's `next_steps` says it: a step without a recipe yet comes with 3d.7 (stories), playing with 3d.9. */
-const COMES_WITH_3D7 = "Kommt mit 3d.7";
+/** Why a next step is locked, as the kernel's `next_steps` says it: playing comes with 3d.9, any other step without a recipe later. */
+const COMES_LATER = "Kommt später";
 const COMES_WITH_3D9 = "Kommt mit 3d.9";
 
 /** The recipes of Erzählen: each opens its wizard (since 3d.5 none is locked). */
@@ -28,7 +28,7 @@ export const RECIPE_BAR: readonly RecipeEntry[] = [
 
 /**
  * The steps after each recipe, as the kernel's `next_steps` names them (`crates/g4-kernel/src/recipes/{area,room,extend,empty_region,
- * new_figure,connect_doors,new_trainer_here}.rs`). The wizards of 3d.5 show the kernel's own `outcome.next`; this table is for the wizards
+ * new_figure,connect_doors,new_trainer_here,new_story,talk_advances,figure_appears,scene_on_enter,reward_once}.rs`). The wizards of 3d.5 show the kernel's own `outcome.next`; this table is for the wizards
  * that still call the old commands and for the tests that hold both together.
  */
 const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
@@ -45,18 +45,43 @@ const NEXT: Partial<Record<RecipeId, [id: string, label: string][]>> = {
   ],
   connect_doors: [["play_here", "Hier spielen"]],
   new_trainer_here: [["play_here", "Hier spielen"]],
+  new_story: [
+    ["talk_advances", "Gespräch schaltet weiter"],
+    ["figure_appears", "Figur erscheint ab Schritt"],
+  ],
+  talk_advances: [
+    ["figure_appears", "Figur erscheint ab Schritt"],
+    ["scene_on_enter", "Szene beim Betreten"],
+  ],
+  figure_appears: [["play_here", "Hier spielen"]],
+  scene_on_enter: [["play_here", "Hier spielen"]],
+  reward_once: [["play_here", "Hier spielen"]],
 };
 
 /** The recipes the kernel has (`recipes::list()`): a step to one of them runs. */
-const KNOWN: readonly string[] = ["create_area", "create_room", "extend_area", "empty_region", "new_figure", "connect_doors", "new_trainer_here"] satisfies RecipeId[];
+const KNOWN: readonly string[] = [
+  "create_area",
+  "create_room",
+  "extend_area",
+  "empty_region",
+  "new_figure",
+  "connect_doors",
+  "new_trainer_here",
+  "new_story",
+  "talk_advances",
+  "figure_appears",
+  "scene_on_enter",
+  "reward_once",
+] satisfies RecipeId[];
 
-/** A step that is no recipe but always there: the dialog editor of the figure just made (the app opens it). */
-const ALWAYS: readonly string[] = ["edit_dialog"];
+/** Steps that are no recipe but always there (the app runs them): the dialog editor of the figure just made, and „Zu einer Geschichte“
+ * („Gespräch schaltet weiter“ with that figure). */
+const ALWAYS: readonly string[] = ["edit_dialog", "story_join"];
 
 /** Why a step the kernel does not run yet is locked (`types.rs` `next_steps`). */
 function lockReason(id: string): string {
   if (id === "adjust_terrain") return "Kommt mit Phase 6";
-  return id === "play_here" ? COMES_WITH_3D9 : COMES_WITH_3D7;
+  return id === "play_here" ? COMES_WITH_3D9 : COMES_LATER;
 }
 
 /** The next steps a wizard shows while it still calls the old command (the kernel's table). */

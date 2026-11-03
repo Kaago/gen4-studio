@@ -121,6 +121,19 @@
   font: var(--g4-font-text-xs);
 }
 
+/* A step's name with its notes under it (3d.7). */
+.stepName {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-2);
+}
+
+.stepNotes {
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+  white-space: pre-line;
+}
+
 /* React Flow needs a box with a height; the graph fits itself into it. */
 .graphBox {
   box-sizing: border-box;

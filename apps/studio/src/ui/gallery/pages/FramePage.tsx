@@ -554,7 +554,7 @@ export function FramePage() {
           <RecipeButton id="create_area" label="Gebiet anlegen" icon="matrix" area="welt" hint="Kopiert Karten zu einem neuen Gebiet mit eigenem Ort." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" hint="Zeiger darauf zeigt den Hover." onClick={noop} />
           <RecipeButton id="create_room" label="Raum anlegen" icon="room" area="welt" pressed onClick={noop} />
-          <RecipeButton id="story_join" label="Zu einer Geschichte" icon="stories" area="geschichten" reason="Kommt mit 3d.7" onClick={noop} />
+          <RecipeButton id="story_join" label="Zu einer Geschichte" icon="stories" area="geschichten" reason="Kommt später" onClick={noop} />
           <RecipeButton id="play_here" label="Hier spielen" icon="play" area="welt" reason="Kommt mit 3d.9" iconOnly onClick={noop} />
         </div>
         <div className={styles.row}>

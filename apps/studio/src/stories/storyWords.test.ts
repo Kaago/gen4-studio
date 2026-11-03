@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
-import { fallbackNumber, flagIdOf, flagNumberOf, placesText, progressLabel, stepKindWord, storiesCount, threadName, useText, valuesText } from "./storyWords";
+import {
+  fallbackNumber,
+  flagIdOf,
+  flagNumberOf,
+  freeVarsText,
+  placesText,
+  progressLabel,
+  recipeTitle,
+  stepKindWord,
+  storiesCount,
+  threadName,
+  useText,
+  valuesText,
+} from "./storyWords";
 import { threadOf } from "./storiesTesting";
 
 describe("storyWords", () => {
@@ -68,5 +81,17 @@ describe("storyWords", () => {
     expect(storiesCount(0)).toBe("Keine Geschichten");
     expect(storiesCount(1)).toBe("1 Geschichte");
     expect(storiesCount(1200)).toBe("1.200 Geschichten");
+  });
+
+  it("recipe_titles_and_the_pool", () => {
+    expect(recipeTitle("new_story")).toBe("Neue Geschichte");
+    expect(recipeTitle("talk_advances")).toBe("Gespräch schaltet weiter");
+    expect(recipeTitle("new_figure")).toBe("Neue Figur");
+    // A recipe of a newer studio as it is; nothing of Object's own.
+    expect(recipeTitle("cutscene")).toBe("cutscene");
+    expect(recipeTitle("toString")).toBe("toString");
+    expect(freeVarsText(20)).toBe("20 Variablen frei");
+    expect(freeVarsText(1)).toBe("1 Variable frei");
+    expect(freeVarsText(0)).toBe("Keine Variable frei");
   });
 });

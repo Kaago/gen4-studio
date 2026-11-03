@@ -120,4 +120,104 @@ describe("ThreadGraph", () => {
       }
     }
   });
+
+  /** React Flow measured in jsdom: nodes 192 × 64, an unscaled viewport, sizes reported once; `run` sees the measured graph. */
+  async function measured(run: () => Promise<void>) {
+    const sizes = (["offsetWidth", "offsetHeight"] as const).map((key) => [key, Object.getOwnPropertyDescriptor(HTMLElement.prototype, key)] as const);
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 192 });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 64 });
+    const observed = new WeakSet<Element>();
+    class OnceObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element): void {
+        if (observed.has(target)) return;
+        observed.add(target);
+        queueMicrotask(() => act(() => this.callback([{ target } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver)));
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", OnceObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", class { m22 = 1; });
+    const svg = SVGElement.prototype as unknown as { getBBox?: () => DOMRect };
+    const hadBBox = svg.getBBox;
+    svg.getBBox = () => ({ x: 0, y: 0, width: 80, height: 12 }) as DOMRect;
+    try {
+      await run();
+    } finally {
+      vi.unstubAllGlobals();
+      if (hadBBox) svg.getBBox = hadBBox;
+      else delete svg.getBBox;
+      for (const [key, descriptor] of sizes) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+      }
+    }
+  }
+  const settle = () =>
+    act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+  const placed = { ...sampleThreadGraph, layout: { nodes: { s1: { x: 10, y: 20 }, gone: { x: 1, y: 2 } } } };
+
+  it("with_onLayout_a_drag_end_hands_over_the_layout", async () => {
+    const onLayout = vi.fn();
+    await measured(async () => {
+      // Without onLayout (a thread without a story) nothing moves; with it every node does.
+      show(null);
+      expect(container.querySelector(".react-flow__node.draggable")).toBeNull();
+      act(() => root.render(<ThreadGraph graph={placed} selected={null} onSelect={onSelect} onOpenPlace={onOpenPlace} onLayout={onLayout} />));
+      await settle();
+      const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]')!;
+      expect(wrapper.classList.contains("draggable")).toBe(true);
+      // A drag of the value node with step s1 by (30, 15): mouse down on it, moves on the window, up.
+      // d3-drag follows the mouse on the event's view (the window).
+      const at = (type: string, x: number, y: number, target: EventTarget) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+        Object.defineProperty(event, "view", { value: window });
+        target.dispatchEvent(event);
+      };
+      await act(async () => {
+        at("mousedown", 100, 100, storyNode("v:1"));
+        at("mousemove", 110, 105, window);
+        at("mousemove", 130, 115, window);
+        at("mouseup", 130, 115, window);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(onLayout).toHaveBeenCalledOnce();
+      const layout = onLayout.mock.calls[0]![0] as { nodes: Record<string, { x: number; y: number }> };
+      // By the step's key on a value with a step, by the node's id otherwise; a key the graph no longer shows stays.
+      // The node lies where the drag left it (right of and below its place in the side file), and the layout says so.
+      const shown = /translate\(([-\d.]+)px, ?([-\d.]+)px\)/.exec(wrapper.style.transform)!;
+      expect(layout.nodes.s1).toEqual({ x: Math.round(Number(shown[1])), y: Math.round(Number(shown[2])) });
+      expect(layout.nodes.s1!.x).toBeGreaterThan(10);
+      expect(layout.nodes.s1!.y).toBeGreaterThan(20);
+      expect(Object.keys(layout.nodes)).toEqual(expect.arrayContaining(["s1", "s2", "s3", "v:4", "p:script:0101", "p:event:0394", "gone"]));
+      expect(layout.nodes.gone).toEqual({ x: 1, y: 2 });
+    });
+  });
+
+  it("an_arrow_key_on_the_selected_node_hands_over_the_layout_too", async () => {
+    const onLayout = vi.fn();
+    await measured(async () => {
+      act(() => root.render(<ThreadGraph graph={placed} selected="v:1" onSelect={onSelect} onOpenPlace={onOpenPlace} onLayout={onLayout} />));
+      await settle();
+      const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]')!;
+      // The description says that the keys move a node of a story's graph.
+      expect(document.getElementById(wrapper.getAttribute("aria-describedby") ?? "")?.textContent).toContain("Pfeiltasten verschieben");
+      // React Flow moves a selected node 5 px per arrow key: the move is saved like a drag's end.
+      await act(async () => {
+        wrapper.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }));
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      expect(onLayout).toHaveBeenCalledOnce();
+      const layout = onLayout.mock.calls[0]![0] as { nodes: Record<string, { x: number; y: number }> };
+      expect(layout.nodes.s1).toEqual({ x: 15, y: 20 });
+      expect(layout.nodes.gone).toEqual({ x: 1, y: 2 });
+    });
+    // Without a story nothing moves and the description says nothing of the keys.
+    act(() => root.render(<ThreadGraph graph={sampleThreadGraph} selected="v:1" onSelect={onSelect} onOpenPlace={onOpenPlace} />));
+    const wrapper = container.querySelector<HTMLElement>('.react-flow__node[data-id="v:1"]');
+    expect(document.getElementById(wrapper?.getAttribute("aria-describedby") ?? "")?.textContent ?? "").not.toContain("Pfeiltasten");
+  });
 });

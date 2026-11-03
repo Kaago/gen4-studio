@@ -1,0 +1,16 @@
+script {name} #{n}:
+    LockAll
+    FacePlayer
+    if {var} >= {from} then
+        if !{flag} then
+            Message {message}
+            WaitButton
+            CloseMessage
+            GiveItem {item}, 1, VAR_RESULT
+            SetFlag {flag}
+            ReleaseAll
+            End
+        endif
+    endif
+    ReleaseAll
+{tail}
