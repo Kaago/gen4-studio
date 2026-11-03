@@ -254,7 +254,14 @@ describe("TrainerList", () => {
     const row = tree().querySelector<HTMLElement>('[data-trainer="930"]')!;
     expect(row.getAttribute("data-deleted")).toBe("true");
     expect(row.querySelector("[data-entity-state]")?.getAttribute("data-entity-state")).toBe("deleted");
-    expect(row.querySelector("[data-entity-state]")?.textContent).toBe("gelöscht");
+    // Gate 3d.4 B16: in the one-line row the badge is its symbol only (named „gelöscht“), so it does not push the number out.
+    const badge = row.querySelector<HTMLElement>("[data-entity-state]")!;
+    expect(badge.textContent).toBe("");
+    expect(badge.getAttribute("aria-label")).toBe("gelöscht");
+    expect(badge.getAttribute("title")).toBe("gelöscht");
+    expect(badge.querySelector("svg")).not.toBeNull();
+    expect(row.getAttribute("aria-label")).toContain("gelöscht");
+    expect(row.textContent).toContain(deleted.tech);
     expect(tree().querySelector('[data-trainer="12"]')!.hasAttribute("data-deleted")).toBe(false);
     expect(tree().querySelector('[data-trainer="12"] [data-entity-state]')).toBeNull();
     // „Wiederherstellen“ before the reset of a deleted row; a living one has only the reset.

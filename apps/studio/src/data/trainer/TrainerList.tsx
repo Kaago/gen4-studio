@@ -49,11 +49,12 @@ const TrainerRow = memo(function TrainerRow({
       selected={selected}
       onSelect={() => onSelect(row.index)}
       title={reason ?? undefined}
-      ariaLabel={reason === null ? `${label}, ${row.tech}` : `${label}, ${row.tech}, gesperrt: ${reason}`}
+      ariaLabel={`${label}, ${row.tech}${deleted ? ", gelöscht" : ""}${reason === null ? "" : `, gesperrt: ${reason}`}`}
       dataAttrs={{ "data-trainer": row.index, "data-deleted": deleted ? "true" : undefined }}
       trailing={
         <span className={styles.rowEnd}>
-          {deleted && <EntityStateBadge state="deleted" />}
+          {/* The one-line row: the symbol only, so the badge does not push the number out. */}
+          {deleted && <EntityStateBadge state="deleted" compact />}
           {level !== null && <span className={styles.level}>{`Lv. ${level}`}</span>}
           {mark && <FindingMark severity={mark} />}
           {unsaved && <span className={styles.dot} role="img" aria-label="ungespeichert" />}
