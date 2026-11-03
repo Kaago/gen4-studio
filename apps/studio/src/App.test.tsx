@@ -3578,6 +3578,35 @@ describe("App wiring", () => {
       expect(live().message).toEqual({ kind: "error", text: "Trainer 0901 ist nicht gelöscht." });
     });
 
+    it("a_freed_number_deselects_its_trainer_before_anything_is_read_again", async () => {
+      // Gate 3d.4 B14: the trainer view read the removed trainer again (two 400 „entity not found“) after „Nummer freigeben“.
+      localStorage.setItem("g4.shell.v1", JSON.stringify({ selected: { trainer: 901, encounters: 7 } }));
+      await inTheApp();
+      await act(async () => {});
+      const selected = () => (JSON.parse(localStorage.getItem("g4.shell.v1") ?? "{}") as { selected?: Record<string, number> }).selected ?? {};
+      expect(selected().trainer).toBe(901);
+      const target = { kind: "trainer" as const, index: 901 };
+      const changed = [{ kind: "Trainer" as const, index: 901 }];
+      // A tombstone keeps the trainer selected (it still shows, with its badge).
+      await act(async () => deleteProps.props!.onDeleted({ change: "c1", changed, freed: null, ms: 1 }, false, "Trainer 0901", target));
+      expect(selected().trainer).toBe(901);
+      // Freeing an earlier number takes the selected one with it (it is behind it), before the counts or anything else is read again; the
+      // encounter file stays chosen.
+      const whenCounted: (number | undefined)[] = [];
+      const counts = vi.mocked(memberCounts).getMockImplementation();
+      vi.mocked(memberCounts).mockImplementation(async () => {
+        whenCounted.push(selected().trainer);
+        return counts ? counts() : ({} as Awaited<ReturnType<typeof memberCounts>>);
+      });
+      const freed = { count: 2, files: ["data/trainers/0900.json", "data/trainers/0901.json"] };
+      await act(async () => deleteProps.props!.onDeleted({ change: null, changed: [{ kind: "Trainer", index: 900 }, ...changed], freed, ms: 1 }, true, "Trainer 0900", { kind: "trainer", index: 900 }));
+      await act(async () => {});
+      expect(whenCounted).toEqual([undefined]);
+      expect(selected().trainer).toBeUndefined();
+      expect(selected().encounters).toBe(7);
+      if (counts) vi.mocked(memberCounts).mockImplementation(counts);
+    });
+
     it("reads_the_base_status_again_when_an_agent_assigns_a_base_or_creates_a_patch_while_veroeffentlichen_shows", async () => {
       await inTheApp();
       await act(async () => atlasEntry("Technik")!.click());

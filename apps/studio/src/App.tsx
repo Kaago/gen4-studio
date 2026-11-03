@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { flushSync } from "react-dom";
 import Workbench from "./workbench/Workbench";
 import { DECK_COMPONENTS, DataAreaHost, ExplorerPane, ItemsListPane, ItemsStatus, PokemonListPane, PokemonStatus, TextAreaHost, TextArchivesPane, TextHints, TextStatus } from "./workbench/panels";
 import { DataStore, useDataLists } from "./data/dataStore";
@@ -57,7 +58,7 @@ import { StatusLine } from "./ui/frame/StatusLine";
 import { TitleBar } from "./ui/frame/TitleBar";
 import { toast } from "./ui/frame/toasts";
 import { AREAS, depthAtLeast } from "./ui/frame/shellState";
-import type { AreaId, Tool } from "./ui/frame/shellState";
+import type { AreaId, DataSelectKey, DataSelection, Tool } from "./ui/frame/shellState";
 import type { TileClick } from "./world/scene/types";
 import { EVENT_TOOL_KIND, isEventTool } from "./workbench/tools";
 import { placedLabel, trainerLabel, trainerPatch } from "./workbench/trainerScript";
@@ -191,6 +192,17 @@ const BROKEN_TOAST = "sync-broken";
 
 /** A folder path without a trailing separator, to compare the roots the backend names. */
 const bareRoot = (path: string) => path.replace(/[\\/]+$/, "");
+
+/**
+ * The data selection „Nummer freigeben“ of `target` takes away: the trainer or encounter file selected when it is one of the `count`
+ * entries freed from `target` on; null otherwise.
+ */
+function freedSelection(target: DeleteTarget, count: number, selected: DataSelection): DataSelectKey | null {
+  const key: DataSelectKey | null = target.kind === "trainer" ? "trainer" : target.kind === "encounter" ? "encounters" : null;
+  if (key === null || !("index" in target)) return null;
+  const chosen = selected[key];
+  return chosen !== undefined && chosen >= target.index && chosen < target.index + count ? key : null;
+}
 
 /** The app: the frame (`ShellProvider`) around the project, the scene and the panels. Without a project it starts on Start, in the browser mode with `?project=` in the world. */
 export default function App() {
@@ -969,6 +981,10 @@ function AppBody() {
   // „Löschen…“ went in (one undo step; „Nummer freigeben“ removed files behind an undo barrier): the message names the entity, the changed
   // assets are read again as after a reset (the checks run on the edit), and a delete that wrote files compares the saved project again.
   const onDeleted = useStableCallback(async (result: DeleteResult, freed: boolean, label: string, target: DeleteTarget) => {
+    // „Nummer freigeben“ removed the entity and the tombstones behind it: a data view showing one of them lets go of it first (committed at
+    // once), so no read below asks for a number that is gone.
+    const gone = freed && result.freed !== null ? freedSelection(target, result.freed.count, shell.state.selected) : null;
+    if (gone !== null) flushSync(() => shell.setSelected(gone, null));
     session.setMessage({ kind: "info", text: freed ? `Nummer freigegeben: ${label}` : `Gelöscht: ${label}` });
     // A tombstone waits for the save (which compares again).
     if (deleteWritesFiles(target, freed)) bumpChanged();
