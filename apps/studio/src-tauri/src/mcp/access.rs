@@ -1,6 +1,7 @@
 //! What each command does to the project, and whether an agent's access admits it.
 
 use g4_kernel::recipes::{self, RecipeCall};
+use g4_kernel::store::Store;
 use serde_json::Value;
 
 use crate::commands::policy::UserPolicy;
@@ -293,8 +294,11 @@ impl From<Kind> for Class {
 /// a script, with `remove_hidden` moves a file to `.g4/backup/` (both irreversible);
 /// `create_area` and `create_room` with `header.allow_patch` may apply the Dynamic Headers
 /// patch; `recipe_apply` is irreversible when its recipe says so (`recipes::is_irreversible`:
-/// the empty region, a new trainer, an area or room with `header.allow_patch`), arguments
-/// that are no recipe call it can read are a write (the command refuses them). The project
+/// the empty region, a new trainer, an area or room with `header.allow_patch`, and always
+/// „Figur erscheint/verschwindet ab Schritt“ and „Szene beim Betreten“: they may create a level
+/// script file, which only the project tells, and this check has no store, so it answers
+/// conservatively; [`classify_in`] answers exactly with the store), arguments that are no
+/// recipe call it can read are a write (the command refuses them). The project
 /// preview commands with a `path` (another project folder) are unavailable, also when it names
 /// the bound project. `publish_patch` with `overwrite` replaces files (irreversible), with a
 /// `dir` outside `build/` writes there (irreversible), else it is a write. `delete_entity` with
@@ -365,6 +369,38 @@ pub fn frees_number(args: &Value) -> bool {
     ["freeNumber", "free_number"]
         .iter()
         .any(|key| args.get(key) == Some(&Value::Bool(true)))
+}
+
+/// Whether [`classify`]'s answer `class` for `command` depends on the project, so that
+/// [`classify_in`] answers it exactly: `recipe_apply` of a visibility or a scene, which
+/// [`classify`] holds irreversible ([`recipes::LEVEL_SCRIPT_FILE`]) without knowing whether
+/// the place needs a level script file of its own.
+pub fn needs_store(command: &str, class: &Class) -> bool {
+    command == "recipe_apply"
+        && matches!(class, Class::Irreversible(why) if why == recipes::LEVEL_SCRIPT_FILE)
+}
+
+/// [`classify`] with the project's store at hand: where the answer depends on the project
+/// ([`needs_store`]), `recipe_apply` asks as `recipes::is_irreversible_in` says: a visibility
+/// or a scene is irreversible only when its plan creates a level script file (the place shares
+/// its file with another header or has none), else a write. A plan the recipe refuses keeps
+/// [`classify`]'s answer (fail closed): what it refuses now (a story not made yet, a step not
+/// there yet) may be there when the call runs, and the recipe would then create the file
+/// without the question. The plan reads the store, it writes nothing. Every other call as
+/// [`classify`].
+pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut Store) -> Class {
+    let class = classify(command, args, policy);
+    if !needs_store(command, &class) {
+        return class;
+    }
+    let Ok(call) = serde_json::from_value::<RecipeCall>(args.clone()) else {
+        return class;
+    };
+    match recipes::is_irreversible_in(store, &call) {
+        Ok(None) => Class::Write,
+        Ok(Some(why)) => Kind::Irreversible(why).into(),
+        Err(_) => class,
+    }
 }
 
 /// What an agent may do: change the project (`write`), do what undo does not bring back
@@ -786,6 +822,128 @@ mod tests {
         assert_eq!(kind_of("recipe_list"), Some(Kind::Read));
         assert_eq!(kind_of("recipe_plan"), Some(Kind::Read));
         assert_eq!(kind_of("recipe_apply"), Some(Kind::Depends));
+    }
+
+    /// The story recipes of 3d.7 decide per call like every recipe: a story, a talk and a
+    /// reward never ask; a visibility and a scene ask without the store (they may create a
+    /// level script file) and, with the store at hand ([`classify_in`]), only when their plan
+    /// creates one: a place whose level script file is its own needs no confirmation, a place
+    /// without one does, and a plan the recipe refuses keeps the answer without the store (fail
+    /// closed). Input the recipe cannot read stays a write.
+    #[test]
+    fn story_recipes_are_depends() {
+        use g4_kernel::store::MapHeader;
+        assert_eq!(kind_of("recipe_apply"), Some(Kind::Depends));
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let state = crate::state::AppState::default();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        crate::commands::open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let policy = UserPolicy::new(fx.root(), &[], None).unwrap();
+        let var = crate::commands::free_flag_impl(&state, g4_kernel::flags::FlagKind::Var)
+            .unwrap()
+            .number;
+        let flag = crate::commands::free_flag_impl(&state, g4_kernel::flags::FlagKind::Flag)
+            .unwrap()
+            .number;
+        let story = "STORY_TESTFADEN";
+        let figure = json!({ "header": 0, "local_id": 0 });
+        let call = |recipe: &str, input: Value| json!({ "recipe": recipe, "input": input });
+        let new_story = call("new_story", json!({ "name": "Testfaden", "var": var }));
+        let talk = call(
+            "talk_advances",
+            json!({ "story": story, "figure": figure, "from_step": 0, "text": "Hallo" }),
+        );
+        let reward = call(
+            "reward_once",
+            json!({ "story": story, "figure": figure, "from_step": 0, "item": 17,
+                    "text": "Hier!", "flag": flag }),
+        );
+        let appears = call(
+            "figure_appears",
+            json!({ "story": story, "figure": figure, "step": 0, "appears": true,
+                    "flag": flag }),
+        );
+        let scene = |header: u16| {
+            call(
+                "scene_on_enter",
+                json!({ "story": story, "header": header, "step": 0, "text": "Willkommen" }),
+            )
+        };
+        let level = Class::Irreversible(recipes::LEVEL_SCRIPT_FILE.to_owned());
+
+        // Without the store.
+        let bare = |args: &Value| classify("recipe_apply", args, &policy);
+        for args in [&new_story, &talk, &reward] {
+            assert_eq!(bare(args), Class::Write, "{args}");
+            assert!(!needs_store("recipe_apply", &bare(args)), "{args}");
+        }
+        for args in [&appears, &scene(0)] {
+            assert_eq!(bare(args), level, "{args}");
+            assert!(needs_store("recipe_apply", &bare(args)), "{args}");
+        }
+        assert!(!needs_store("recipe_plan", &level));
+        for args in [
+            call("figure_appears", json!({ "story": story })),
+            call("scene_on_enter", json!({ "header": 0 })),
+            call("new_story", json!({ "name": "Ohne Variable" })),
+        ] {
+            assert_eq!(bare(&args), Class::Write, "{args}");
+        }
+
+        // With the store, before the story exists: the plan refuses, and a refused plan keeps
+        // the answer without the store (fail closed: the story may exist by the time the call
+        // runs, and the scene then creates the file).
+        {
+            let mut guard = crate::commands::lock(&state).unwrap();
+            let store = &mut crate::commands::session(&mut guard).unwrap().store;
+            for header in [0, 1] {
+                assert_eq!(
+                    classify_in("recipe_apply", &scene(header), &policy, store),
+                    level,
+                    "{header}"
+                );
+            }
+        }
+
+        // With the store: the story first, then a scene at header 0 (level script file 1 is
+        // its own) and at header 1 (no level script file: the recipe creates one; it gets the
+        // text archive of header 0 for the scene's message).
+        crate::commands::recipe_apply_impl(&state, serde_json::from_value(new_story).unwrap())
+            .unwrap();
+        let mut guard = crate::commands::lock(&state).unwrap();
+        let store = &mut crate::commands::session(&mut guard).unwrap().store;
+        let archive = store.header_table().unwrap()[0].text_archive_id();
+        store
+            .transaction("Textarchiv", |tx| {
+                tx.edit_header(1, |h| {
+                    match h {
+                        MapHeader::DP(h) => h.text_archive_id = archive,
+                        MapHeader::Pt(h) => h.text_archive_id = archive,
+                        MapHeader::HGSS(h) => h.text_archive_id = archive,
+                    }
+                    Ok(())
+                })
+            })
+            .unwrap();
+        for (header, irreversible) in [(0, false), (1, true)] {
+            let draft = recipes::plan(store, &serde_json::from_value(scene(header)).unwrap());
+            assert_eq!(draft.unwrap().irreversible.is_empty(), !irreversible);
+        }
+        let mut exactly = |args: &Value| classify_in("recipe_apply", args, &policy, store);
+        assert_eq!(exactly(&scene(0)), Class::Write);
+        assert_eq!(exactly(&scene(1)), level);
+        // A plan the recipe refuses (an unknown story) keeps the answer without the store.
+        let unknown = call(
+            "scene_on_enter",
+            json!({ "story": "STORY_NOPE", "header": 0, "step": 0, "text": "x" }),
+        );
+        assert_eq!(exactly(&unknown), level);
+        // Every other command and recipe as without the store.
+        assert_eq!(exactly(&talk), Class::Write);
+        assert_eq!(
+            classify_in("save", &json!({}), &policy, store),
+            Class::Write
+        );
     }
 
     #[test]

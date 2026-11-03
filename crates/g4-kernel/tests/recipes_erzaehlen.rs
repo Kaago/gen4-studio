@@ -156,9 +156,10 @@ fn state(store: &Store) -> State {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn list_names_seven_recipes_with_new_trainer_here_last() {
+fn list_names_the_seven_recipes_up_to_new_trainer_here_first() {
+    // The story recipes of 3d.7 follow (`recipes_story.rs`).
     let list = recipes::list();
-    let shown: Vec<(RecipeId, &str, bool)> = list
+    let shown: Vec<(RecipeId, &str, bool)> = list[..7]
         .iter()
         .map(|r| (r.id, r.title, r.irreversible))
         .collect();
@@ -189,7 +190,7 @@ fn list_names_seven_recipes_with_new_trainer_here_last() {
 }
 
 #[test]
-fn next_steps_after_3d5_lock_with_3d7_and_3d9() {
+fn next_steps_after_3d5_lock_with_3d9_and_later() {
     let listed = |id: &str| {
         recipes::list()
             .iter()
@@ -209,7 +210,7 @@ fn next_steps_after_3d5_lock_with_3d7_and_3d9() {
         .map(|s| (s.id.as_str(), (s.available, s.reason.as_deref())))
         .collect();
     assert_eq!(short["edit_dialog"], (true, None));
-    assert_eq!(short["story_join"], (false, Some("Kommt mit 3d.7")));
+    assert_eq!(short["story_join"], (true, None));
     assert_eq!(short["play_here"], (false, Some("Kommt mit 3d.9")));
     assert_eq!(short["new_figure"], (true, None));
     assert_eq!(short["adjust_terrain"], (false, Some("Kommt mit Phase 6")));
@@ -218,9 +219,9 @@ fn next_steps_after_3d5_lock_with_3d7_and_3d9() {
         assert!(listed(id), "{id}");
         assert_eq!(short[id], (true, None), "{id}");
     }
-    // An unknown step waits for 3d.7 (the transitional „Kommt mit 3d.5“ is gone).
+    // An unknown step comes later (the transitional „Kommt mit 3d.7“ is gone).
     let unknown = next_steps(&[("something_new", "Etwas Neues")]);
-    assert_eq!(unknown[0].reason.as_deref(), Some("Kommt mit 3d.7"));
+    assert_eq!(unknown[0].reason.as_deref(), Some("Kommt später"));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -371,7 +372,7 @@ fn apply_of_a_figure_is_one_undo_step_with_a_numbered_message() {
         .iter()
         .map(|s| (s.id.as_str(), s.available))
         .collect();
-    assert_eq!(next, [("edit_dialog", true), ("story_join", false)]);
+    assert_eq!(next, [("edit_dialog", true), ("story_join", true)]);
 
     // A second figure gets the next local id, slot and message.
     let second = new_figure::apply(&mut store, &input(41, 7, "Zwei")).unwrap();

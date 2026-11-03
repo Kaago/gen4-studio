@@ -1,0 +1,279 @@
+# HeartGold DE, gate 3d.7: a story made headless over MCP (`studio mcp`, one session) from the five
+# story recipes, then played end to end. The HeartGold twin of pt-geschichte.yaml (same chain, same
+# checks; the recipes write NPCMsg, CloseMsg, SetVar and GiveItem … VAR_SPECIAL_RESULT here).
+#
+# The project is set up as a text project first (`assign_base`, `adopt_text_project`). The place is
+# the one of hg-erzaehlen.yaml: a NEW header on a copy of the Route 29 map 1 (template 33) with a
+# new, empty event file, a new script file (script 1 empty, the template's level script 470 runs it
+# on entering; the gift is script 2) and a new text archive. The room is a NEW header from the room
+# recipe (create_room: a copy of the player's room, header 64, matrix 72, map 217, event file a copy
+# of 61, its stairs warp 0 at (3, 4) repointed to the new door outside); it keeps 64's script file
+# 846 and text archive 546, and its level script file 619, which 64 shares, is copied by
+# scene_on_enter (irreversible: `--allow-irreversible`).
+#
+# Tiles (the area is one map, its coordinates are the map's; read from the copy's map 0001,
+# `unpacked/maps/0001`, permissions, collision 0x00 and 0x04 walkable: row 16 open from x 13 to 29,
+# tall grass x 16-29 rows 13-15, column 15 open from row 16 up to row 13 and blocked at row 12, row
+# 17 a ledge except the gap x 18-20, rows 18-20 plain from x 8 to 25):
+#   door (24, 16)     arrival from the bedroom stairs (connect_doors, 64 warp 0, door tiles on); the
+#                     player arrives on it and steps west to (23, 16)
+#   gift (23, 15)     north of the arrival (S_GIFT at level 100), as in hg-trainer-begegnung.yaml
+#   A (X_A, Z_A)      (19, 15): tall grass, open from the south: the player stands on (19, 16) of
+#                     the way, faces north and talks; nobody steps into the grass
+#   B (X_B, Z_B)      (15, 13), looking south, sight 3: the tile of hg-flag.yaml's figure; with B
+#                     hidden the walk up column 15 from (15, 16) ends on B's tile (row 12 blocked);
+#                     with B there, B sees the player arriving on (15, 16) from the east
+#   room door         (TUER_X, TUER_Z) = (22, 19), plain, south of the gap, plain on all four sides.
+#                     The player pushes east into it from (21, 19) (as into the arrival door in
+#                     hg-erzaehlen.yaml) and steps west to (21, 19) when leaving the room (as off
+#                     the arrival door). No tile of the way is grass, so no wild battle can start.
+#
+# Play: arrive, gift, variable 0 and B's flag set (B hidden). Up column 15 to B's tile (15, 13). A:
+# text, variable 1, `shot gespraech`. Through the gap into the room: the scene, `shot szene`,
+# variable 2. Out again (B's flag clear): along the way west, B sees the player at (15, 16),
+# `expect-battle`, `win-battle`. A again: the reward, `shot belohnung`, flag 1. A once more: no second
+# reward (A says the text of new_figure; `shot belohnung-2`), flag still 1.
+#
+# Placeholders (all required, passed with --set NAME=VALUE):
+#   BASIS         the .nds beside the copy, relative to the project folder (../<copy>.nds)
+#   NEUER_HEADER  id the new header gets = the header count before (540 on an unmodified HeartGold DE)
+#   RAUM_HEADER   id the room gets = NEUER_HEADER + 1 (541)
+#   X_A Z_A       figure A (19, 15)            X_B Z_B  trainer B (15, 13)
+#   TUER_X TUER_Z the room's door outside (22, 19)
+#   S_GIFT        the gift, level 100 (445 Knakrack)        S_T L_T  B's Pokémon (25 Pikachu, 12)
+# Names an edit binds (third element) come from the tools' answers (structuredContent.result).
+# Example (from scripts/g4emu; in a worktree set G4_ROMS_DIR, G4_STUDIO_BIN and G4K_BIN, see
+# docs/agent-gate.md, "Szenarien über MCP" and "Phase 3d.7"):
+#   uv run g4emu scenario ../agent/scenarios/hg-geschichte.yaml \
+#     --project $G4_ROMS_DIR/_testkopien/3d-7-szen-hg_DSPRE_contents --set BASIS=../3d-7-szen-hg.nds \
+#     --out ../../target/agent/gate-$(date +%F)/3d-7/hg-geschichte \
+#     --set NEUER_HEADER=540 --set RAUM_HEADER=541 --set X_A=19 --set Z_A=15 --set X_B=15 --set Z_B=13 \
+#     --set TUER_X=22 --set TUER_Z=19 --set S_GIFT=445 --set S_T=25 --set L_T=12
+game: IPKD
+# --expert: new_script_file and create_text_archive are no curated tools (g4_call)
+mcp: [--allow-irreversible, --expert]
+edits:
+  # (1) base ROM (a text project needs it), patch, text project (adopts the scripts), the new place
+  - [assign_base, {nds: "${BASIS}"}]
+  - [apply_header_patch, {}]
+  - [adopt_text_project, {}]
+  - - create_area
+    - spec:
+        name: Geschichte
+        width: 1
+        height: 1
+        cells:                       # Route 29 (header 33): matrix 0 cell (18, 12) = map 1
+          - {x: 0, y: 0, source_map: 1, clear_buildings: false}
+        with_headers: true
+        header:
+          id: "${NEUER_HEADER}"
+          area_data_id: null
+          event_file: New
+          new_header: {template: 33, internal_name: T_GESCHICHTE}
+    - area
+  # (2) a new script file and a new text archive on the new header, saved
+  - [get_header, {id: "${area.header}"}, hdr]
+  - [g4_call, {command: new_script_file, args: {kind: script}}, datei]
+  - [g4_call, {command: create_text_archive}, archiv]
+  - - set_header
+    - id: "${area.header}"
+      header: {HGSS: {$base: "${hdr.HGSS}", script_file_id: "${datei}", text_archive_id: "${archiv}"}}
+  - [save, {}]
+  # (3) the gift (script 2; no flag: it is talked to once, with B, so A never asks again)
+  - - save_script
+    - file: "${datei}"
+      text: |
+        script Main #1:
+            End
+
+        script Geber #2:
+            LockAll
+            FacePlayer
+            NPCMsg "Hier, nimm das."
+            WaitButton
+            CloseMsg
+            GiveMon ${S_GIFT}, 100, 0, 0, 0, VAR_SPECIAL_RESULT
+            ReleaseAll
+            End
+  - - add_event
+    - event_file: "${area.event_file}"
+      kind: object
+      x: 23
+      z: 15
+      patch: {graphics_id: 317, movement_type: 15, dir: 1, script: 2, trainer_type: 0, sight: 0}
+  # (4) the bedroom stairs to a new door on the place and back, figure A, trainer B, the room
+  - - recipe_apply
+    - recipe: connect_doors
+      input: {a: {header: 64, warp: 0}, b: {header: "${area.header}", tile: {x: 24, z: 16}}, back: true, door_tiles: true}
+  - - recipe_apply
+    - recipe: new_figure
+      input: {header: "${area.header}", x: "${X_A}", z: "${Z_A}", graphics_id: 317, movement_type: 15, dir: 1, text: "Hallo, Reisender!"}
+    - figur
+  - - recipe_apply
+    - recipe: new_trainer_here
+      input:
+        header: "${area.header}"
+        x: "${X_B}"
+        z: "${Z_B}"
+        dir: 1
+        sight: 3
+        class: 9
+        name: Jens
+        party: [{species: "${S_T}", level: "${L_T}"}]
+        texts: {before: 'Halt! Ich bin Jens!\r', lose: 'Du bist stark!', after: 'Gut gekämpft.'}
+        graphics_id: 333
+    - trainer
+  # B's local id: the third object of the new event file (gift, A, B)
+  - - get_events
+    - {event_file: "${area.event_file}"}
+    - expect:
+        - {path: objects.length, equals: 3}
+        - {path: objects.2.script, equals: "${trainer.report.script}"}
+      as: ev
+  - - recipe_apply
+    - recipe: create_room
+      input:
+        name: Haus der Geschichte
+        source_map: 217
+        clear_buildings: false
+        header:
+          id: "${RAUM_HEADER}"
+          area_data_id: null
+          event_file: {Copy: 61}
+          new_header: {template: 64, internal_name: R_GESCHICHTE}
+        entrance: {outside_header: "${area.header}", x: "${TUER_X}", z: "${TUER_Z}", inside_x: 3, inside_z: 4, door_tiles: true}
+    - expect:
+        - {path: report.inside_warp_reused, equals: true}
+        - {path: report.door_tiles.length, equals: 1}
+      as: raum
+  - [save, {}]
+  # (5) the story, five recipes; free numbers from the pool first
+  - [free_flag, {kind: var}, v0]
+  - [free_flag, {kind: flag}, f0]
+  - [history, {}, h0]
+  - - recipe_apply
+    - recipe: new_story
+      input: {name: Der Brief, var: "${v0.number}"}
+    - story
+  - [history, {}, {expect: [{path: undo.length, equals: "${h0.undo.length+1}"}], as: h1}]
+  - - recipe_apply
+    - recipe: talk_advances
+      input: {story: "${story.report.story}", figure: {header: "${area.header}", local_id: "${figur.report.local_id}"}, from_step: 0, text: "Bring den Brief ins Haus!"}
+    - gespraech
+  - [history, {}, {expect: [{path: undo.length, equals: "${h1.undo.length+1}"}], as: h2}]
+  - - recipe_apply
+    - recipe: figure_appears
+      input: {story: "${story.report.story}", figure: {header: "${area.header}", local_id: "${ev.objects.2.local_id}"}, step: 1, appears: true, flag: "${f0.number}"}
+    - erscheint
+  - [history, {}, {expect: [{path: undo.length, equals: "${h2.undo.length+1}"}], as: h3}]
+  - - recipe_apply
+    - recipe: scene_on_enter
+      input: {story: "${story.report.story}", header: "${RAUM_HEADER}", step: 1, text: "Der Brief ist angekommen."}
+    - szene
+  - [history, {}, {expect: [{path: undo.length, equals: "${h3.undo.length+1}"}], as: h4}]
+  - [free_flag, {kind: flag}, f1]
+  - - recipe_apply
+    - recipe: reward_once
+      input: {story: "${story.report.story}", figure: {header: "${area.header}", local_id: "${figur.report.local_id}"}, from_step: 2, item: 17, text: "Danke! Nimm das.", flag: "${f1.number}"}
+    - belohnung
+  - [history, {}, {expect: [{path: undo.length, equals: "${h4.undo.length+1}"}]}]
+  # (6) the pool: one variable and two flags fewer; the story: five steps, its variable
+  - [free_flag, {kind: var}, {expect: [{path: pool_free, equals: "${v0.pool_free-1}"}]}]
+  - [free_flag, {kind: flag}, {expect: [{path: pool_free, equals: "${f0.pool_free-2}"}]}]
+  - - story_list
+    - {}
+    - expect:
+        - {path: stories.length, equals: 1}
+        - {path: stories.0.steps, equals: 5}
+        - {path: free_vars, equals: "${v0.pool_free-1}"}
+  - - story_get
+    - {id: "${story.report.story}"}
+    - expect:
+        - {path: progress_number, equals: "${v0.number}"}
+        - {path: story.steps.length, equals: 5}
+        - {path: "story.steps[key=s0].0.kind", equals: start}
+        - {path: "story.steps[key=s1].0.kind", equals: dialog}
+        - {path: "story.steps[key=s2].0.kind", equals: dialog}
+        - {path: "story.steps[kind=appearance].0.value", equals: 1}
+        - {path: "story.steps[kind=reward].0.value", equals: 2}
+  - - run_checks
+    - {scope: all}
+    - expect:
+        - {path: "findings[severity=error].length", equals: 0}
+build: build/out.nds
+check:
+  - [g4k, text, check, .]
+  - [g4k, check, ., --expect, warp.dest-warp=0, --expect, event.script-missing=0,
+     --expect, event.trainer-missing=0]
+play:
+  - continue
+  - expect-map 64
+  - walk left 1
+  - walk down 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  # the gift: face north, talk, B through the text (A would talk again)
+  - press up:8
+  - press a
+  - mash b 300
+  - shot geschenk
+  # step 0: B is hidden (the transition block set its flag), the way up column X_B goes onto its tile
+  - expect-var ${v0.number} 0
+  - expect-flag ${f0.number} 1
+  - walk-to ${X_B} 16
+  - walk-until-blocked up 6
+  - expect-at ${X_B} ${Z_B}
+  # A at step 0: the talk text, then step 1 (down first: x first would cross the grass)
+  - walk-to ${X_B} 16
+  - walk-to ${X_A} ${Z_A+1}
+  - press up:8
+  - press a
+  - wait 90
+  - shot gespraech
+  - mash b 120
+  - expect-var ${v0.number} 1
+  # the room at step 1, through the gap: the scene, then step 2
+  - walk-to 20 18
+  - walk-to ${TUER_X-1} ${TUER_Z}
+  - press right:30
+  - expect-map ${RAUM_HEADER}
+  - wait 150
+  - shot szene
+  - mash b 120
+  - expect-var ${v0.number} 2
+  # out again: B is there now; it sees the player arriving on (X_B, 16) from the east and battles
+  - walk-to 2 4
+  - walk down 1
+  - expect-map ${area.header}
+  - wait 150
+  - where
+  - expect-flag ${f0.number} 0
+  - walk-to 20 18
+  - walk-to 20 16
+  - walk-to ${X_B+1} 16
+  - walk-until-blocked left 4
+  - expect-at ${X_B} ${Z_B+3}
+  - mash a 240
+  - expect-battle ${S_T} ${L_T} 900
+  - wait 300                                # the shot shows the challenge text
+  - shot kampf
+  - win-battle
+  - wait 120
+  - press b
+  - expect-map ${area.header}
+  # A at step 2: the reward once
+  - walk-to ${X_A} ${Z_A+1}
+  - press up:8
+  - press a
+  - wait 90
+  - shot belohnung
+  - mash b 300
+  - expect-flag ${f1.number} 1
+  - expect-var ${v0.number} 2
+  # A again: no second reward, A says its own text (new_figure)
+  - press a
+  - wait 90
+  - shot belohnung-2
+  - mash b 120
+  - expect-flag ${f1.number} 1

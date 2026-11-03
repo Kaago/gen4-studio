@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { entityIds, freeFlag, listFlags, storyCreate, storyDelete, storyGet, storyUpdate, threadGraph } from "../api";
+import { entityIds, freeFlag, listFlags, recipeApply, storyCreate, storyDelete, storyGet, storyUpdate, threadGraph } from "../api";
 import type { FlagListDto, ProjectInfo } from "../api";
 import { FLAGS, flagEntry, flagList } from "../flags/flagTesting";
 import { invalidateFlagLists } from "../flags/useFlagList";
@@ -22,6 +22,7 @@ vi.mock("../api", async (importOriginal) => ({
   listFlags: vi.fn(),
   freeFlag: vi.fn(),
   entityIds: vi.fn(),
+  recipeApply: vi.fn(),
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,6 +63,15 @@ describe("StoriesSurface", () => {
     vi.mocked(listFlags).mockReset().mockImplementation(async (kind) => (kind === "flag" ? FLAGS : VARS));
     vi.mocked(freeFlag).mockReset().mockResolvedValue({ kind: "var", number: 0x406c, name: "VAR_UNUSED_0x406C", pool_free: 1, scripts_indexed: true });
     vi.mocked(entityIds).mockReset().mockResolvedValue({});
+    vi.mocked(recipeApply)
+      .mockReset()
+      .mockResolvedValue({
+        report: { story: "STORY_RIVALIN_AM_SEE", number: 2, var: 0x406c, var_id: "VAR_STORY_RIVALIN_AM_SEE", files: ["data/ids/stories.json", "data/stories/0002.json"] },
+        created: [],
+        change: 4,
+        changed: [],
+        next: [],
+      });
     for (const fn of [onSelect, goTo, onOpenTextProject, onCreated, onUpdated, onDeleted, onError]) fn.mockReset();
   });
   afterEach(() => {
@@ -149,27 +159,32 @@ describe("StoriesSurface", () => {
     await click(newButton());
     expect(dialog()).not.toBeNull();
     typeInto(dialog()!.querySelector<HTMLInputElement>('[aria-label="Name"]')!, "Rivalin am See");
-    await click(dialog()!.querySelector('[aria-label="Fortschritt wählen…"]'));
-    await flush();
-    await click([...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Freie Variable nehmen"));
     await flush();
     await click([...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Geschichte anlegen"));
     await flush();
-    expect(storyCreate).toHaveBeenCalledWith({ name: "Rivalin am See", progress: { var: "VAR_UNUSED_0x406C" } });
-    // The app hears the report with the name (its toast) and the new story is chosen; the dialog has closed.
-    expect(onCreated).toHaveBeenCalledWith(storyReport(2), "Rivalin am See");
+    // A variable story is the recipe „Neue Geschichte“ with the pool's free variable; story_create is not called.
+    expect(recipeApply).toHaveBeenCalledWith("new_story", { name: "Rivalin am See", var: 0x406c });
+    expect(storyCreate).not.toHaveBeenCalled();
+    // The app hears the recipe's story as a report with the name (its toast) and the new story is chosen; the dialog has closed.
+    expect(onCreated).toHaveBeenCalledWith(
+      { id: "STORY_RIVALIN_AM_SEE", number: 2, files: ["data/ids/stories.json", "data/stories/0002.json"], change: 4, ms: 0, warnings: [] },
+      "Rivalin am See",
+    );
     expect(onSelect).toHaveBeenCalledWith(2);
     expect(dialog()).toBeNull();
-    // What failed after writing goes to the app's errors.
+    // A flag story stays story_create; what failed after writing goes to the app's errors.
     vi.mocked(storyCreate).mockResolvedValueOnce(storyReport(3, { warnings: ["Der Verlauf ist nicht lesbar."] }));
     await click(newButton());
     typeInto(dialog()!.querySelector<HTMLInputElement>('[aria-label="Name"]')!, "Zweite");
+    await click([...dialog()!.querySelectorAll<HTMLElement>("[data-progress-kind] button")].find((b) => b.textContent === "Flag"));
     await click(dialog()!.querySelector('[aria-label="Fortschritt wählen…"]'));
     await flush();
-    await click([...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent?.includes("0x4040")));
+    await click([...document.querySelectorAll<HTMLElement>("[role=option]")].find((o) => o.textContent?.includes("0x0173")));
     await flush();
     await click([...dialog()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Geschichte anlegen"));
     await flush();
+    expect(storyCreate).toHaveBeenCalledWith({ name: "Zweite", progress: { flag: "FLAG_0371" } });
+    expect(onCreated).toHaveBeenLastCalledWith(storyReport(3, { warnings: ["Der Verlauf ist nicht lesbar."] }), "Zweite");
     expect(onError).toHaveBeenCalledWith("Der Verlauf ist nicht lesbar.");
   });
 

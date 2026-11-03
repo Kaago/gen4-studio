@@ -22,6 +22,11 @@ pub enum RecipeId {
     NewFigure,
     ConnectDoors,
     NewTrainerHere,
+    NewStory,
+    TalkAdvances,
+    FigureAppears,
+    SceneOnEnter,
+    RewardOnce,
 }
 
 impl RecipeId {
@@ -35,6 +40,11 @@ impl RecipeId {
             RecipeId::NewFigure => "Neue Figur",
             RecipeId::ConnectDoors => "Tür verbinden",
             RecipeId::NewTrainerHere => "Neuer Trainer hier",
+            RecipeId::NewStory => "Neue Geschichte",
+            RecipeId::TalkAdvances => "Gespräch schaltet weiter",
+            RecipeId::FigureAppears => "Figur erscheint/verschwindet ab Schritt",
+            RecipeId::SceneOnEnter => "Szene beim Betreten",
+            RecipeId::RewardOnce => "Belohnung einmalig",
         }
     }
 
@@ -48,6 +58,11 @@ impl RecipeId {
             RecipeId::NewFigure,
             RecipeId::ConnectDoors,
             RecipeId::NewTrainerHere,
+            RecipeId::NewStory,
+            RecipeId::TalkAdvances,
+            RecipeId::FigureAppears,
+            RecipeId::SceneOnEnter,
+            RecipeId::RewardOnce,
         ]
     }
 }
@@ -194,20 +209,20 @@ impl<R: Serialize> Outcome<R> {
 }
 
 /// [`NextStep`]s for `ids` (id and label): available when [`super::list`] has the recipe or the
-/// step is no recipe the app runs (`edit_dialog` opens the dialog editor), else locked with
-/// `reason` „Kommt mit 3d.7“ (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit
-/// Phase 6“).
+/// step is no recipe the app runs (`edit_dialog` opens the dialog editor, `story_join` „Gespräch
+/// schaltet weiter“ with the figure set), else locked with `reason` „Kommt später“
+/// (`play_here`: „Kommt mit 3d.9“, `adjust_terrain`: „Kommt mit Phase 6“).
 pub fn next_steps(ids: &[(&str, &str)]) -> Vec<NextStep> {
     ids.iter()
         .map(|&(id, label)| {
-            let known = id == "edit_dialog"
+            let known = matches!(id, "edit_dialog" | "story_join")
                 || serde_json::from_value::<RecipeId>(serde_json::Value::from(id))
                     .is_ok_and(|recipe| super::list().iter().any(|r| r.id == recipe));
             let reason = match id {
                 _ if known => None,
                 "play_here" => Some("Kommt mit 3d.9"),
                 "adjust_terrain" => Some("Kommt mit Phase 6"),
-                _ => Some("Kommt mit 3d.7"),
+                _ => Some("Kommt später"),
             };
             NextStep {
                 id: id.to_owned(),
@@ -445,7 +460,7 @@ mod tests {
                 ("create_area", true, None),
                 ("new_figure", true, None),
                 ("edit_dialog", true, None),
-                ("story_join", false, Some("Kommt mit 3d.7")),
+                ("story_join", true, None),
                 ("play_here", false, Some("Kommt mit 3d.9")),
                 ("adjust_terrain", false, Some("Kommt mit Phase 6")),
             ]

@@ -101,7 +101,9 @@ pub struct ThreadGraphDto {
 
 /// One story of the list: its number and id, name, progress and number of steps; a file that
 /// does not read has its `problem` (file, line, message) instead, with an empty name, no
-/// progress and no steps.
+/// progress and no steps. `flags` are the ids of the further flags the story holds
+/// (`story.flags`: the visibility and reward flags of its recipes; empty for a file that does
+/// not read).
 #[derive(Debug, Clone, Serialize)]
 pub struct StoryRowDto {
     pub number: u16,
@@ -110,13 +112,17 @@ pub struct StoryRowDto {
     pub progress: Option<Progress>,
     pub steps: u32,
     pub problem: Option<String>,
+    pub flags: Vec<String>,
 }
 
-/// `story_list`: the stories of the register by number.
+/// `story_list`: the stories of the register by number, and how many variables of the pool are
+/// free (`free_vars`: `None` outside a text project, before the scripts are adopted, for a game
+/// without a general range and when the index or the pool does not read).
 #[derive(Debug, Clone, Serialize)]
 pub struct StoryListDto {
     pub stories: Vec<StoryRowDto>,
     pub text_project: bool,
+    pub free_vars: Option<u32>,
     pub ms: u64,
 }
 
@@ -356,6 +362,7 @@ pub fn story_list_impl(state: &AppState) -> Result<StoryListDto, CmdError> {
                 name: story.name,
                 progress: Some(story.progress),
                 problem: None,
+                flags: story.flags,
             },
             Err(problem) => StoryRowDto {
                 number,
@@ -364,14 +371,34 @@ pub fn story_list_impl(state: &AppState) -> Result<StoryListDto, CmdError> {
                 progress: None,
                 steps: 0,
                 problem: Some(problem_text(&problem)),
+                flags: Vec::new(),
             },
         })
         .collect();
     Ok(StoryListDto {
         stories,
         text_project: text_project(&project),
+        free_vars: free_vars(session(&mut guard)?),
         ms: ms(started),
     })
+}
+
+/// How many variables of the pool are free (`flags::pool` over the session's reference index,
+/// as `free_flag` takes them): `None` outside a text project (no story there takes one), before
+/// the scripts are adopted (the index sees no script and cannot know what is used), for a game
+/// without a general range and when the index or a register does not read (the list still
+/// shows the stories; `free_flag` names that error).
+fn free_vars(session: &mut Session) -> Option<u32> {
+    let project = Arc::clone(&session.project);
+    if !text_project(&project)
+        || !scripts::is_adopted(&project)
+        || flags::pool_range(project.family, FlagKind::Var).is_none()
+    {
+        return None;
+    }
+    let usage = session.refs.usage(&session.store, FlagKind::Var).ok()?;
+    let pool = flags::pool(&project, &usage, FlagKind::Var).ok()?;
+    Some(u32::try_from(pool.free.len()).unwrap_or(u32::MAX))
 }
 
 /// Story `id` with its side file and the number of its progress; `unknown_id` for an id the

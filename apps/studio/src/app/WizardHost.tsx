@@ -17,6 +17,7 @@ import { NewTrainerHereWizard } from "../workbench/wizards/NewTrainerHereWizard"
 import { dialogTitle } from "../workbench/dialog/dialogModel";
 import type { DialogTarget } from "../workbench/dialog/dialogModel";
 import type { ScriptFiles } from "../data/useDataArea";
+import type { StoryRecipeRequest } from "../stories/recipes/storyRecipeModel";
 import { headerLabel } from "../workbench/headers";
 import { areaResult, roomResult } from "../workbench/wizards/wizardSpecs";
 import type { Created, Wizards } from "./useWizards";
@@ -67,6 +68,8 @@ interface Props {
   onOpenDialog?: (target: DialogTarget) => void;
   /** The script panel's documents: „Neue Figur“ appends to the place's script file, so typing there is saved first (as before a split). */
   scriptFiles?: ScriptFiles;
+  /** „Zu einer Geschichte“ after „Neue Figur“: the app opens „Gespräch schaltet weiter“ with the new figure. */
+  onOpenStoryRecipe?: (request: StoryRecipeRequest) => void;
 }
 
 type PublishHostProps = Omit<PublishWizardProps, "defaults" | "defaultsError">;
@@ -202,6 +205,10 @@ export function WizardHost(props: Props) {
               const { event_file, object } = outcome.report;
               const target: DialogTarget = { header: input.header, eventFile: event_file, kind: "object", index: object, title: dialogTitle("object", object) };
               void created(figureMade(input)).then(() => props.onOpenDialog?.(target));
+            } else if (id === "story_join") {
+              // „Zu einer Geschichte“: the figure's place, then „Gespräch schaltet weiter“ with the new figure (its story chosen there).
+              const figure = { header: input.header, local_id: outcome.report.local_id };
+              void created(figureMade(input)).then(() => props.onOpenStoryRecipe?.({ recipe: "talk_advances", prefill: { figure } }));
             } else step(id, figureMade(input));
           }}
           onCancel={close}

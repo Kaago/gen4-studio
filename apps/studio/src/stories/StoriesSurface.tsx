@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import { storyCreate, storyUpdate } from "../api";
+import { storyUpdate } from "../api";
 import type { FlagKind, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
 import { NOT_A_TEXT_PROJECT, hex4 } from "../flags/flagWords";
@@ -10,10 +10,11 @@ import type { Depth } from "../ui/frame/shellState";
 import { Button, EmptyState, Notice, Reference, Table, Tooltip } from "../ui/primitives";
 import type { TableColumn, TableRow } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { NewStoryDialog } from "./NewStoryDialog";
+import { NewStoryDialog, createStory } from "./NewStoryDialog";
 import type { NewStoryRequest } from "./NewStoryDialog";
 import { StoryDetail } from "./StoryDetail";
 import type { StoryPatch } from "./StoryDetail";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
 import { flagNumberOf, progressLabel, storiesCount } from "./storyWords";
 import { useStory } from "./useStory";
 import styles from "./StoriesSurface.module.css";
@@ -36,7 +37,8 @@ export type StoriesSurfaceProps = {
   project: ProjectInfo | null;
   /** Moves whenever the project may differ: the chosen story and its graph are read again. */
   revision: number;
-  /** A story was created (one undo step): the report and its name, for the app's toast and history. */
+  /** A story was created (one undo step; by the recipe „Neue Geschichte“ for a variable): the report and its name, for the app's toast
+   * and history. */
   onCreated: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step). */
   onUpdated?: (r: StoryReport) => void;
@@ -46,6 +48,8 @@ export type StoriesSurfaceProps = {
   onError: (t: string) => void;
   /** „Projekt öffnen“ of the empty state without a project; without it the empty state offers nothing. */
   onOpenProject?: () => void;
+  /** „Schritt anlegen“ in the chosen story's detail: a step recipe with that story (the app's dialog); absent: no step bar. */
+  onRecipe?: (request: StoryRecipeRequest) => void;
 };
 
 const COLUMNS: readonly TableColumn[] = [
@@ -60,7 +64,7 @@ const COLUMNS: readonly TableColumn[] = [
  * (locked in the DSPRE layout, with „Als Textprojekt einrichten…“ below), and the detail of the chosen story under the table.
  */
 export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
-  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onDeleted, onError, onOpenProject } = props;
+  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onDeleted, onError, onOpenProject, onRecipe } = props;
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
   const [creating, setCreating] = useState(false);
@@ -72,9 +76,9 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const chosen = rowsOf.find((s) => s.number === selected && s.problem === null) ?? null;
   const { story, error: storyError } = useStory(chosen?.id ?? null, { project, revision });
 
-  const create = async (req: NewStoryRequest) => {
-    const report = await storyCreate(req);
-    onCreated(report, req.name);
+  const create = async (request: NewStoryRequest) => {
+    const { report, name } = await createStory(request);
+    onCreated(report, name);
     for (const warning of report.warnings) onError(warning);
     onSelect(report.number);
   };
@@ -183,6 +187,8 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
               onDeleted={deleted}
               project={project}
               revision={revision}
+              onRecipe={onRecipe}
+              textProject={textProject}
             />
           )}
         </>

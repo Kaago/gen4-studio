@@ -10,7 +10,8 @@ import { ListRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { StoriesSurface } from "./StoriesSurface";
-import { storiesCount } from "./storyWords";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
+import { freeVarsText, storiesCount } from "./storyWords";
 import { ThreadsSurface, threadsCount } from "./ThreadsSurface";
 import { useStories } from "./useStories";
 import { useThreads } from "./useThreads";
@@ -55,6 +56,8 @@ export interface GeschichtenAreaProps {
   onStoryCreated?: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step): the history and the lists read again. */
   onStoryUpdated?: (r: StoryReport) => void;
+  /** „Schritt anlegen“ in a story's detail: the app opens the step recipe's dialog. */
+  onStoryRecipe?: (request: StoryRecipeRequest) => void;
   /** A story was deleted (one undo step): the report and its name (the app's toast; the history and the lists read again). */
   onStoryDeleted?: (r: StoryReport, name: string) => void;
 }
@@ -74,7 +77,7 @@ function subtitleOf<T>(info: ProjectInfo | null, read: { list: T | null; error: 
 
 /**
  * The area Geschichten (3d.6, a surface without a deck like Technik): the list „Geschichten“ with Fäden, Geschichten and Flags und Variablen
- * (moved here from Technik), each with its count, and the surface of the chosen entry beside it. The threads and the stories are read once
+ * (moved here from Technik), each with its count (Geschichten with the free variables of the pool, 3d.7, when the index has them), and the surface of the chosen entry beside it. The threads and the stories are read once
  * here, for the list and the surfaces together; the flags as the flags surface reads them.
  */
 export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
@@ -87,7 +90,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
   const flagList = useFlagList("flag", { project: info, revision: props.flags?.revision ?? 0, source: FLAGS_SOURCE });
   const subtitles: Record<GeschichtenEntry, string> = {
     threads: subtitleOf(info, threads, (l) => threadsCount(l.threads.length)),
-    stories: subtitleOf(info, stories, (l) => storiesCount(l.stories.length)),
+    stories: subtitleOf(info, stories, (l) => storiesCount(l.stories.length) + (l.free_vars === null ? "" : ` · ${freeVarsText(l.free_vars)}`)),
     flags: subtitleOf(info, flagList, flagsSubtitle),
   };
   return (
@@ -130,6 +133,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           onDeleted={props.onStoryDeleted}
           onError={props.onError}
           onOpenProject={props.onOpenProject}
+          onRecipe={props.onStoryRecipe}
         />
       ) : (
         <FlagsSurface

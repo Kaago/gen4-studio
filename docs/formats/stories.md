@@ -35,7 +35,7 @@ unbekannte Schlüssel ab (`textproject.schema` mit Datei, Zeile und Spalte).
       "kind": "dialog",
       "name": "Gespräch mit dem Wächter",
       "made": {
-        "recipe": "story.talk_advances",
+        "recipe": "talk_advances",
         "studio": "0.3.0"
       },
       "uses": [
@@ -74,7 +74,8 @@ unbekannte Schlüssel ab (`textproject.schema` mit Datei, Zeile und Spalte).
 Ein Schritt ist `{ key, value, kind, name, notes?, made?, uses? }`: `key` ist innerhalb der
 Geschichte eindeutig (ein doppelter Schlüssel ist `textproject.schema` am zweiten), `value` der
 Wert der Fortschrittsvariable (16 Bit, `0` bis `65535`), `made` nennt das Rezept, das den Schritt
-angelegt hat (ab 3d.7), mit der Studio-Version. Die Arten sind englische Bezeichner wie alle
+angelegt hat (ab 3d.7; `recipe` ist die `id` des Rezepts wie `recipe_list` sie nennt, etwa
+`talk_advances`), mit der Studio-Version (siehe „Rezepte“). Die Arten sind englische Bezeichner wie alle
 JSON-Schlüssel; die Oberfläche sagt sie deutsch:
 
 | `kind` | Wort |
@@ -139,6 +140,12 @@ offen gemeldet.“
 von Knoten den Diff der Bedeutung nicht verrauscht. Beim Anlegen ist es leer (`{ "nodes": {} }`);
 ein fehlendes Beifile ist kein Fehler (der Graph legt sich selbst aus), ein unlesbares ist
 `textproject.schema`.
+
+Seit 3d.7 schreibt die App das Beifile: im Detail einer Geschichte lassen sich die Knoten ziehen
+(auch mit den Pfeiltasten), 500 ms nach dem Loslassen geht `story_update` mit `{ layout }` als ein
+Undo-Schritt („Geschichte „X“ geändert“). Beim ersten Ziehen kommen **alle** gezeigten Knoten ins
+Beifile, nicht nur der gezogene, damit das Bild danach nicht springt; Schlüssel, die der Graph nicht
+mehr zeigt, bleiben stehen. Ein Knoten ohne Schritt heißt nach seiner Kennung im Graph.
 
 ## Register und ID
 
@@ -271,7 +278,7 @@ unter dem Sitzungsschloss:
 |---|---|---|
 | `list_threads` | lesend | die Fäden (`threads()`) mit den Namen ihrer Header (`header_names`, in der Reihenfolge von `headers`), `text_project`, `scripts_adopted` |
 | `thread_graph {var, story?}` | lesend | der Graph (`thread_graph()`); ein Ort-Knoten trägt `header_name` und `nav` (die Script-Zeile, den Header eines Level-Scripts, das Event), ein Wert-Knoten den ganzen Schritt der Geschichte (`step`) |
-| `story_list` | lesend | die Geschichten nach Nummer (`number`, `id`, `name`, `progress`, `steps`); eine Datei, die sich nicht lesen lässt, ist eine Zeile mit `problem` (Datei, Zeile, Spalte, Satz), `progress` `null` |
+| `story_list` | lesend | die Geschichten nach Nummer (`number`, `id`, `name`, `progress`, `steps`, seit 3d.7 `flags`); eine Datei, die sich nicht lesen lässt, ist eine Zeile mit `problem` (Datei, Zeile, Spalte, Satz), `progress` `null`, `flags` leer; seit 3d.7 dazu `free_vars`, die freien Variablen des Pools (`null` im DSPRE-Ordner, vor dem Übernehmen der Scripts, ohne allgemeinen Variablenbereich und wenn sich Index oder Pool nicht lesen lassen) |
 | `story_get {id}` | lesend | Geschichte, Beifile (leer ohne Datei), Nummer und `progress_number` (die Nummer des Fortschritts) |
 | `story_create {req}` | schreibend | `create_story` als ein Undo-Schritt |
 | `story_update {id, patch}` | schreibend | `update_story` als ein Undo-Schritt |
@@ -322,3 +329,130 @@ In der Oberfläche steht „Geschichte löschen…“ im Menü „Aktionen“ am
 Geschichte, ihr Layout und ihr Registereintrag gehen. Rückgängig mit ⌘Z.“ und hat „Abbrechen“ und
 „Löschen“ (primär); während es läuft „Lösche …“, eine Ablehnung bleibt im Dialog. Danach ist
 nichts mehr gewählt, die Liste wird neu gelesen, die App meldet „Geschichte „Name“ gelöscht“.
+
+## Rezepte
+
+Seit 3d.7 legen fünf Rezepte (`recipe_plan`/`recipe_apply`, `g4k recipe`, in der App die Dialoge
+„Schritt anlegen“ und „Neue Geschichte“) eine Geschichte und ihre Schritte an; ihre Liste steht in
+[recipes.md](recipes.md) „Rezepte der Geschichten“. Sie arbeiten nur im Textprojekt mit
+übernommenen Scripts und nur auf Geschichten, deren Fortschritt eine Variable ist (eine
+Flag-Geschichte: „Geschichte „X“ hält ihren Fortschritt in einem Flag; die Rezepte brauchen eine
+Variable.“). Jedes ist **ein** Undo-Schritt (Transaktion, Dateischritte der Scripts und Archive,
+Name der Variable bzw. des Flags und die Geschichte, zusammengefasst mit `squash_since`); ⌘Z nimmt
+Script, Archiv, Eventdatei, Namen und Schritt zurück. Scripts werden **nie umgeschrieben**, nur
+angehängt; nur der Sichtbarkeits-Block wächst zwischen seinen Markerzeilen.
+
+**Schlüssel.** `story` ist die ID `STORY_…`; eine Figur ist `figure: {header, local_id}` (Objekt
+`local_id` der Eventdatei des Headers); `step`/`from_step` ist ein Wert, den die Geschichte schon
+als Schritt hat („Schritt k gibt es in „X“ nicht.“); `step_name` ersetzt den Namen des Schritts
+(die App setzt Ort und Gegenstand ein). Variable und Flags kommen aus dem Pool über den Aufrufer
+(`free_flag`): das Rezept prüft, dass die Nummer im Spielstand und im allgemeinen Bereich liegt und
+noch keinen eigenen Namen hat, ob ein Script sie benutzt, weiß nur der Referenzindex des Aufrufers.
+Die Namen: `VAR_STORY_<NAME>` („Fortschritt der Geschichte „X““),
+`FLAG_STORY_<NAME>_SICHTBAR_<local_id>` („Sichtbarkeit von Figur k in „X““) und
+`FLAG_STORY_<NAME>_BELOHNUNG_<local_id>` („Belohnung von Figur k in „X““), `<NAME>` aus dem Namen
+der Geschichte wie die ID, gekürzt auf 64 Zeichen, bei Kollision `_2`, `_3` …; die beiden Flags
+kommen in `flags` der Geschichte.
+
+**`made`.** Jeder Schritt eines Rezepts trägt `made: { recipe: <id>, studio: <Version> }` mit der
+`id` aus `recipe_list` (`new_story`, `talk_advances`, `figure_appears`, `scene_on_enter`,
+`reward_once`).
+
+| Rezept | Eingabe | Schritt (`key`, `value`, `kind`, Name) | `uses` |
+|---|---|---|---|
+| `new_story` | `{name, var, notes?}` | `s0`, 0, `start`, „Anfang“ | keine |
+| `talk_advances` | `{story, figure, from_step, text, step_name?}` | `s{k+1}`, k+1, `dialog`, „Gespräch mit Figur {local_id}“ | `object`, `script` (die Hülle), `message`, `var` |
+| `figure_appears` | `{story, figure, step, appears, flag, step_name?}` | `a{flag}`, k, `appearance`, „Figur {local_id} erscheint ab Schritt {k}“ / „… verschwindet ab Schritt {k}“ | `object`, `flag`, `script` (der Block) |
+| `scene_on_enter` | `{story, header, step, text, step_name?}` | `s{k+1}`, k+1, `dialog`, „Szene beim Betreten“ | `levelScript { file, condition }`, `script`, `message`, `map` (nur wenn das Register den Header nennt), `var` |
+| `reward_once` | `{story, figure, from_step, item, text, flag, step_name?}` | `r{flag}`, k, `reward`, „Belohnung von Figur {local_id}“ | `object`, `script` (die Hülle), `message`, `flag` |
+
+Ein Wert, den schon ein Schritt der Art `dialog` trägt, ist für `talk_advances` und
+`scene_on_enter` vergeben („Schritt {k+1} gibt es schon: „{Name}“.“); `appearance` und `reward`
+dürfen neben andere Schritte mit demselben Wert. Ein Schlüssel, den die Geschichte schon hat, ist
+`duplicate_key_text`. Der Graph zeigt den ersten Schritt je Wert, die Tabelle alle.
+
+**Nachrichten** sind nummeriert wie bei „Neue Figur“: das Rezept hängt den Text an das Textarchiv
+des Headers und schreibt die Nummer ins Script (Platin `Message n`/`CloseMessage`, HeartGold
+`NPCMsg n`/`CloseMsg`; Diamant/Perl wie Platin).
+
+**Hülle (Gespräch, Belohnung).** Ein Gespräch oder eine Belohnung ist ein neuer Slot `#n` der
+Scriptdatei des Headers (höchster deklarierter Slot + 1, unter 2000), das **Hüll-Script**:
+`LockAll`, `FacePlayer`, der Zweig, `ReleaseAll`, dann `Jump <bisheriges Script der Figur>` oder
+`End` (die Figur hatte kein Script). Das Objekt zeigt danach auf `#n`; der zuletzt angelegte Zweig
+prüft zuerst. Die Hülle heißt `gespraech_{local_id}_{n}` bzw. `belohnung_{local_id}_{n}`: der Name
+hängt am Slot, so dass mehrere Geschichten dieselbe Figur umhüllen können (jede Hülle springt zur
+vorigen). Teilen andere Figuren das bisherige Script, bleibt es für sie unverändert; nur dieses
+Objekt zeigt auf die Hülle. Abgelehnt: ein Trainer („Trainer sprechen über ihre Kampftexte
+(Bereich Pokémon).“) und eine Figur mit gemeinsamem Script ab 2000 („Figur k spricht über das
+gemeinsame Script s; das Rezept braucht ein eigenes Script.“). Der Zweig des Gesprächs ist
+`if VAR == k then` Nachricht, `SetVarFromValue VAR, k+1` (HeartGold `SetVar`), `ReleaseAll`, `End`
+`endif`.
+
+**Belohnung.** Der Zweig ist `if VAR >= k then` / `if !FLAG then` / Nachricht /
+`GiveItem item, 1, VAR_RESULT` (HeartGold `VAR_SPECIAL_RESULT`) / `SetFlag FLAG` / `ReleaseAll` /
+`End` / `endif` / `endif`; danach geht es zum bisherigen Script. Das Flag prüft `if !FLAG`
+(rotoms `CheckFlag`), nicht `if FLAG == 0`: rotom übersetzt den Vergleich in
+`CompareVarValue <Nummer des Flags>, 0`, das Spiel liest eine Nummer unter 0x4000 als den Wert
+selbst, die Bedingung ist dann nie wahr (gefunden mit `pt-geschichte`/`hg-geschichte`, siehe
+[phase-3d-7-gate.md](../phase-3d-7-gate.md), R2). Nur Gegenstände (1 bis Zahl der
+Gegenstände − 1), kein Pokémon. Ein **voller Beutel wird nicht geprüft**: `GiveItem` scheitert dann
+still, das Flag ist trotzdem gesetzt, die Belohnung ist vertan.
+
+**Sichtbarkeit (Block).** `figure_appears` setzt `hidden_flag = flag` am Objekt (abgelehnt, wenn
+schon eins gesetzt ist: „Figur k hat schon das Sichtbarkeits-Flag F.“) und hält je Ort und
+Geschichte **einen** Block in der Scriptdatei des Headers, `script sichtbarkeit_{S}_{H} #n:`
+(S die Nummer der Geschichte, H der Header): je Regel `if VAR >= k then` / `ClearFlag F` / `else` /
+`SetFlag F` / `endif` (erscheint; verschwindet: `SetFlag` und `ClearFlag` getauscht), zum Schluss
+`Jump <bisheriges Übergangs-Script>` oder `End` und die Markerzeile `// ende sichtbarkeit_{S}_{H}`.
+Gibt es den Block schon, fügt das Rezept die neue Regel vor der `Jump`/`End`-Zeile ein (kein
+Parsen, die Marker genügen); sonst hängt es ihn an und setzt den `on_transition`-Eintrag des
+Level-Scripts auf `#n` (das bisherige Ziel wird das `Jump`-Ziel; ohne Eintrag ein neuer). Der Block
+läuft aus **`on_transition`**: gemessen im Spiel (Platin DE, 02.11.2026) läuft es beim Betreten vor
+dem Aufstellen der Objekte, eine Figur mit gesetztem Flag steht schon beim ersten Betreten nicht da.
+Ein bisheriges Übergangs-Script ab 2000 oder ohne Slot: „Das Übergangs-Script des Orts ist kein
+eigener Slot.“
+
+**Szene.** `scene_on_enter` hängt `script szene_{n} #n:` an (`LockAll`, Nachricht,
+`SetVarFromValue VAR, k+1` bzw. `SetVar`, `ReleaseAll`, `End`) und trägt in das Level-Script des
+Orts `var_conditions` `{ var, value: k, script_id: n }` ein (und, falls keiner da ist, einen
+Eintrag `on_var_condition`). Die Szene läuft genau einmal, weil sie weiterschaltet. Hat der Ort
+schon eine Bedingung für diese Variable und k: „Der Ort hat schon eine Szene für Schritt k.“. Die
+`uses` nennen `map` mit der ID des Headers, wenn das Register `data/ids/maps.json` den Header
+nennt, sonst keinen `map`-Eintrag.
+
+**Level-Script-Datei.** Sichtbarkeit und Szene ändern die Level-Script-Datei des Headers an Ort
+und Stelle. Teilt ein anderer Header sie, bekommt dieser Header eine Kopie als neue Datei; hat er
+keine (0) oder nur eine binäre, eine neue leere. Eine neue Datei ist ein Member, der nach ⌘Z bleibt
+(`Outcome.created`, im Entwurf „Level-Script-Datei n wird angelegt und bleibt“, ersetzt sie eine
+binäre m, dazu „; die Einträge der binären Level-Script-Datei m werden nicht übernommen“); nur dann
+ist das Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem
+Plan, ein abgelehnter Plan fragt sicherheitshalber, siehe [docs/mcp.md](../mcp.md)). Scheitert das
+Rezept nach dem Anlegen, nimmt es alles andere zurück und nennt die Datei am Ende des Fehlers
+(`partial`): „Level-Script-Datei n wurde angelegt und bleibt.“
+
+**In der App.** „Neue Geschichte“ ruft in der Variante Variable `new_story` mit der freien
+Variable aus `free_flag var` (das Feld bleibt änderbar) und nennt den Pool („Noch 20 Variablen
+frei“; ohne freie Variable „Keine freie Variable im allgemeinen Bereich.“, die Taste gesperrt);
+die Variante Flag bleibt `story_create`. Die vier Schritt-Rezepte sind Dialoge aus „Schritt
+anlegen“ im Detail einer Geschichte, aus „Zu einer Geschichte“ nach „Neue Figur“ und aus „Dialog
+anlegen…“ einer Figur ohne Script; den Dialog füllen Geschichte und Figur vor, die Flags für
+Erscheinen und Belohnung schlägt er aus `free_flag flag` vor, rechts stehen die Sätze des Plans.
+Eine Flag-Geschichte sperrt die Rezepte („Rezepte brauchen eine Variable als Fortschritt“). Der
+Inspector nennt unter einem Sichtbarkeits-Flag oder einer Auslöser-Variable „Geschichte „X“:
+{Schritt}“, wenn eine Geschichte das Flag in `flags` bzw. die Variable als Fortschritt führt.
+
+**Beispiel.** Nach `new_story` „Testfaden“ (Variable 0x4030 → `VAR_STORY_TESTFADEN`) und
+`talk_advances` mit Figur 4 ab Schritt 0 hat die Geschichte zwei Schritte:
+
+```json
+"steps": [
+  { "key": "s0", "value": 0, "kind": "start", "name": "Anfang",
+    "made": { "recipe": "new_story", "studio": "0.3.0" } },
+  { "key": "s1", "value": 1, "kind": "dialog", "name": "Gespräch mit Figur 4",
+    "made": { "recipe": "talk_advances", "studio": "0.3.0" },
+    "uses": [ { "object": { "file": 0, "local_id": 4 } }, { "script": { "file": 0, "slot": 3 } },
+              { "message": { "archive": 433, "index": 1 } }, { "var": "VAR_STORY_TESTFADEN" } ] }
+]
+```
+
+(verkürzt; die Datei ist kanonisch eingerückt wie oben unter „Datei“).

@@ -458,6 +458,79 @@ fn story_list_skips_an_unreadable_file_with_its_problem() {
     assert_eq!(flag.progress_number, Some(0x94));
 }
 
+/// `story_list` names the free variables of the pool (the session's reference index) and each
+/// story's flags; outside a text project the pool is `None`.
+#[test]
+fn story_list_names_free_vars_and_flags() {
+    let (fx, state) = text_project();
+    let pool = || {
+        let mut guard = crate::commands::lock(&state).unwrap();
+        let session = crate::commands::session(&mut guard).unwrap();
+        let usage = session.refs.usage(&session.store, FlagKind::Var).unwrap();
+        u32::try_from(
+            flags::pool(&session.project, &usage, FlagKind::Var)
+                .unwrap()
+                .free
+                .len(),
+        )
+        .unwrap()
+    };
+    let before = pool();
+    assert!(before > 0);
+    let list = story_list_impl(&state).unwrap();
+    assert_eq!(list.free_vars, Some(before));
+    assert_eq!(json_of(&list)["free_vars"], before);
+
+    // „Neue Geschichte“ takes a variable of the pool: one fewer is free.
+    let var = crate::commands::free_flag_impl(&state, FlagKind::Var)
+        .unwrap()
+        .number;
+    let call = g4_kernel::recipes::RecipeCall {
+        recipe: g4_kernel::recipes::RecipeId::NewStory,
+        input: json!({ "name": "Eins", "var": var }),
+    };
+    crate::commands::recipe_apply_impl(&state, call).unwrap();
+    // A story with a flag of its own.
+    story_create_impl(
+        &state,
+        StoryRequest {
+            flags: vec!["FLAG_UNUSED_0x0094".into()],
+            ..request("Zwei", Progress::Var(STARTER.into()))
+        },
+    )
+    .unwrap();
+    let list = story_list_impl(&state).unwrap();
+    assert_eq!(list.free_vars, Some(before - 1));
+    let flags: Vec<(&str, &[String])> = list
+        .stories
+        .iter()
+        .map(|row| (row.id.as_str(), row.flags.as_slice()))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            ("STORY_EINS", &[][..]),
+            ("STORY_ZWEI", &["FLAG_UNUSED_0x0094".to_owned()][..]),
+        ]
+    );
+    assert_eq!(
+        json_of(&list.stories[1])["flags"],
+        json!(["FLAG_UNUSED_0x0094"])
+    );
+
+    // A file that does not read has no flags.
+    fx.write("data/stories/0001.json", b"{}\n");
+    let list = story_list_impl(&state).unwrap();
+    assert!(list.stories[1].problem.is_some());
+    assert!(list.stories[1].flags.is_empty());
+
+    // The DSPRE layout has no pool to show.
+    let (_s, dspre) = open_synthetic();
+    let list = story_list_impl(&dspre).unwrap();
+    assert_eq!(list.free_vars, None);
+    assert_eq!(json_of(&list)["free_vars"], Value::Null);
+}
+
 #[test]
 fn story_get_of_an_unknown_id_is_unknown_id() {
     let (_fx, state) = text_project();

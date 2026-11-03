@@ -1,4 +1,5 @@
-import type { FlagKind, FlagListDto, Progress, StepKind, StoryUse, ThreadDto } from "../api";
+import { RECIPE_TITLES } from "../api";
+import type { FlagKind, FlagListDto, Progress, RecipeId, StepKind, StoryUse, ThreadDto } from "../api";
 import { displayName } from "../flags/flagWords";
 import { storyKindWord } from "../ui/primitives";
 
@@ -48,6 +49,17 @@ export function progressLabel(p: Progress): { kind: FlagKind; id: string } {
 /** „2 Geschichten“, „1 Geschichte“, „Keine Geschichten“: the count of the list (and of the entry in the list of Geschichten). */
 export function storiesCount(n: number): string {
   return n === 0 ? "Keine Geschichten" : n === 1 ? "1 Geschichte" : `${n.toLocaleString("de-DE")} Geschichten`;
+}
+
+/** „20 Variablen frei“, „1 Variable frei“, „Keine Variable frei“: the free variables of the pool. */
+export function freeVarsText(n: number): string {
+  return n === 0 ? "Keine Variable frei" : n === 1 ? "1 Variable frei" : `${n.toLocaleString("de-DE")} Variablen frei`;
+}
+
+/** The title of the recipe a step was made by (`made.recipe`, its serde name): „Gespräch schaltet weiter“; an id the app does not know
+ * (a newer studio's recipe) as it is. */
+export function recipeTitle(id: string): string {
+  return Object.prototype.hasOwnProperty.call(RECIPE_TITLES, id) ? RECIPE_TITLES[id as RecipeId] : id;
 }
 
 const PREFIX: Record<FlagKind, string> = { flag: "FLAG", var: "VAR" };

@@ -22,6 +22,7 @@ import type { ProblemsStore } from "./problems/problems";
 import type { ScriptsApi } from "./script/useScripts";
 import type { TextTarget } from "./text/textModel";
 import type { DialogTarget } from "./dialog/dialogModel";
+import type { StoryRecipeRequest } from "../stories/recipes/storyRecipeModel";
 import { EMPTY_WORLD_META } from "./useWorldModel";
 import type { WorldModel } from "./useWorldModel";
 
@@ -165,6 +166,8 @@ export interface WorkbenchData {
   onDraft: (draft: DraftDto | null) => void;
   /** Opens the dialog editor of a figure or a sign (the field „Dialog“ of the inspector in Erzählen); a stable function. */
   onOpenDialog: (target: DialogTarget) => void;
+  /** Opens a step recipe of 3d.7 as the app's dialog („Dialog anlegen…“ of a figure without a script); a stable function. Absent: none. */
+  openStoryRecipe?: (request: StoryRecipeRequest) => void;
 }
 
 /** The cell of a matrix that the inspector shows as selected (a matrix tab highlight). */

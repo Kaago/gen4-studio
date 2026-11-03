@@ -30,7 +30,7 @@
   gap: var(--g4-raum-8);
 }
 
-/* A disabled button takes no pointer events; its wrapper takes them for the tooltip. */
+/* „Dialog anlegen…“ locked outside a text project: the wrapper takes the tooltip, the button cannot. */
 .lockedWrap {
   display: inline-flex;
   cursor: not-allowed;

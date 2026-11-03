@@ -17,9 +17,10 @@ leeren“ beschreibt `templates.md`.
   rotoms Compile-Zustand, Textarchive, die ein Compile schreibt) gehen als Dateischritte
   (`FileStep`, Art `Recipe`) in denselben Schritt (`Store::squash_since`).
 - `Outcome.next` nennt die Rezepte, die danach Sinn ergeben (`NextStep`): frei, wenn `list()` das
-  Rezept hat oder der Schritt kein Rezept ist (`edit_dialog` öffnet den Dialog-Editor); sonst
-  gesperrt mit Grund „Kommt mit 3d.7“ (`play_here` „Kommt mit 3d.9“, `adjust_terrain` „Kommt mit
-  Phase 6“).
+  Rezept hat oder der Schritt kein Rezept ist (`edit_dialog` öffnet den Dialog-Editor, seit 3d.7
+  `story_join` „Gespräch schaltet weiter“ mit der Figur vorbelegt); sonst gesperrt mit Grund
+  „Kommt später“ (bis 3d.7 „Kommt mit 3d.7“; `play_here` „Kommt mit 3d.9“, `adjust_terrain` „Kommt
+  mit Phase 6“).
 
 ## Vorgaben (`recipes.yaml`)
 
@@ -87,7 +88,7 @@ anzufassen.
 
 **Bericht** (`NewFigureReport`): `event_file`, `object` (Index in der Datei), `local_id`,
 `script_file`, `slot`, `archive`, `message`. **Danach:** `edit_dialog` „Dialog bearbeiten“ (frei),
-`story_join` „Zu einer Geschichte“ („Kommt mit 3d.7“).
+`story_join` „Zu einer Geschichte“ (seit 3d.7 frei).
 
 ## Tür verbinden (`connect_doors`)
 
@@ -197,3 +198,20 @@ immer unumkehrbar (`list()`: `irreversible`, `is_irreversible`: „Trainer anleg
 `play_here` „Hier spielen“ („Kommt mit 3d.9“).
 
 Gate und Zahlen der drei Rezepte von 3d.5: [docs/phase-3d-5-gate.md](../phase-3d-5-gate.md).
+
+## Rezepte der Geschichten (3d.7)
+
+Fünf Rezepte legen die Schritte einer Geschichte an, nur im Textprojekt, die Scripts übernommen;
+Module `recipes/{new_story,talk_advances,figure_appears,scene_on_enter,reward_once}.rs`, gemeinsam
+`recipes/{story_common,story_wrap,story_scripts,level_script}.rs`, Scripts aus
+`metadata/recipes/story_*.rotom`. Jedes ist **ein** Undo-Schritt und trägt seinen Schritt mit
+`made` in die Geschichte. Eingaben, Prüfungen, Scripts und Berichte:
+[stories.md](stories.md) „Rezepte“.
+
+| `id` | Titel | Eingabe | Schritt | unumkehrbar |
+|---|---|---|---|---|
+| `new_story` | Neue Geschichte | `{name, var, notes?}` | `s0`, Wert 0, `start` „Anfang“ | nie |
+| `talk_advances` | Gespräch schaltet weiter | `{story, figure: {header, local_id}, from_step, text, step_name?}` | `s{k+1}`, Wert k+1, `dialog` | nie |
+| `figure_appears` | Figur erscheint/verschwindet ab Schritt | `{story, figure, step, appears, flag, step_name?}` | `a{flag}`, Wert k, `appearance` | „Level-Script-Datei anlegen“, wenn der Ort eine eigene braucht |
+| `scene_on_enter` | Szene beim Betreten | `{story, header, step, text, step_name?}` | `s{k+1}`, Wert k+1, `dialog` | „Level-Script-Datei anlegen“, wenn der Ort eine eigene braucht |
+| `reward_once` | Belohnung einmalig | `{story, figure, from_step, item, text, flag, step_name?}` | `r{flag}`, Wert k, `reward` | nie |

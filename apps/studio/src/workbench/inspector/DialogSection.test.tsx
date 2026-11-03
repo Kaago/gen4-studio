@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dialogOf } from "../../api";
 import type { Dialog, DialogSource } from "../../api";
 import type { DialogTarget } from "../dialog/dialogModel";
+import { NOT_A_TEXT_PROJECT } from "../../flags/flagWords";
+import { textProjectSpy, withTextProject } from "../../textproject/textProjectTesting";
 import { DialogSection } from "./DialogSection";
 
 vi.mock("../../api", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api")>()), dialogOf: vi.fn() }));
@@ -86,12 +88,49 @@ describe("DialogSection", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("none_locks_anlegen_with_3d7", async () => {
-    await show(figure, dialog({ kind: "none" }));
+  it("a_figure_without_a_script_opens_the_talk_recipe_from_the_dialog_section", async () => {
+    const onStoryRecipe = vi.fn();
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () =>
+      root.render(
+        withTextProject(
+          textProjectSpy(true),
+          <DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />,
+        ),
+      ),
+    );
+    await flush();
     expect(section()?.textContent).toContain("Sagt nichts");
+    expect(button("Dialog bearbeiten…")).toBeUndefined();
+    // „Dialog anlegen…“ is „Gespräch schaltet weiter“ with this figure: its story is chosen in the dialog.
+    const anlegen = button("Dialog anlegen…")!;
+    expect(anlegen.disabled).toBe(false);
+    await act(async () => anlegen.click());
+    expect(onStoryRecipe).toHaveBeenCalledExactlyOnceWith({ recipe: "talk_advances", prefill: { figure: { header: 3, local_id: 1 } } });
+    // A sign has no recipe: no button.
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () => root.render(<DialogSection target={sign} revision={++revision} onEdit={onEdit} onError={onError} />));
+    await flush();
+    expect(button("Dialog anlegen…")).toBeUndefined();
+  });
+
+  it("outside_a_text_project_dialog_anlegen_is_locked_with_the_reason", async () => {
+    const onStoryRecipe = vi.fn();
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () =>
+      root.render(
+        withTextProject(
+          textProjectSpy(false),
+          <DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />,
+        ),
+      ),
+    );
+    await flush();
+    // A DSPRE folder: the recipe could never go in, so the button is there but locked, and says why.
     const anlegen = button("Dialog anlegen…")!;
     expect(anlegen.disabled).toBe(true);
-    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Kommt mit 3d.7");
-    expect(button("Dialog bearbeiten…")).toBeUndefined();
+    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe(NOT_A_TEXT_PROJECT);
+    await act(async () => anlegen.click());
+    expect(onStoryRecipe).not.toHaveBeenCalled();
   });
 });

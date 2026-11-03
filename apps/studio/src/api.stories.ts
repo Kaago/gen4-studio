@@ -116,7 +116,8 @@ export interface ThreadGraphDto {
   ms: number;
 }
 
-/** One story of the list; a file that does not read has its `problem` instead (empty name, no progress, no steps). */
+/** One story of the list; a file that does not read has its `problem` instead (empty name, no progress, no steps). `flags` are the ids
+ * of the further flags the story holds (the visibility and reward flags of its recipes; empty for a file that does not read). */
 export interface StoryRowDto {
   number: number;
   id: string;
@@ -124,12 +125,15 @@ export interface StoryRowDto {
   progress: Progress | null;
   steps: number;
   problem: string | null;
+  flags: string[];
 }
 
-/** `story_list`. */
+/** `story_list`; `free_vars` is how many variables of the pool are free (null outside a text project, before the scripts are adopted, for
+ * a game without a general range and when the index or the pool does not read). */
 export interface StoryListDto {
   stories: StoryRowDto[];
   text_project: boolean;
+  free_vars: number | null;
   ms: number;
 }
 

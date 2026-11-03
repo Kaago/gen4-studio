@@ -261,6 +261,8 @@ uv run g4emu scenario ../agent/scenarios/hg-erzaehlen.yaml --project $R/_testkop
   --set NEUER_HEADER=540 --set S_T1=25 --set L_T1=12 --set TEXT="Hallo, Reisender!"
 ```
 
+`pt-geschichte.yaml` und `hg-geschichte.yaml` (Gate 3d.7, `mcp: [--allow-irreversible, --expert]`): Textprojekt, neues Gebiet wie bei `*-erzaehlen` mit Geschenk, Tür, Figur A, Trainer B und einem Raum (`create_room`), dann die fünf Rezepte der Geschichten; spielen bis zur Belohnung. Befehle, Platzhalter und Kacheln unter „Phase 3d.7“.
+
 ### MCP über die Brücke (`/mcp`, seit 3h.3)
 
 Die Brücke der Test-Umgebung bedient MCP auf ihrem eigenen Port unter `/mcp`, auf **derselben Sitzung** wie `/invoke` und die Seite: Was ein Agent dort tut, sieht die Oberfläche im Browser-Fenster sofort (Welt-Explorer, Szene, Verlauf, Statusleiste), und die Nachfrage erscheint dort als Dialog. Das ist der Browser-Modus von Einstellungen › Agenten; die Zeile des Servers heißt dann „Über die Brücke (/mcp)“. Eine Entdeckungsdatei schreibt die Brücke nicht: Die Einrichtungszeile der Seite (`claude mcp add gen4-studio -- "…/target/debug/studio" mcp`) zeigt nur, was die gepackte App zeigen würde; `studio mcp` erreicht die Brücke nicht. Kunde der Test-Umgebung ist `scripts/agent/mcp.sh`.
@@ -1487,7 +1489,7 @@ uv run g4emu scenario ../agent/scenarios/pt-flag.yaml --project $K/3d-5-flag_DSP
   --set NEUER_HEADER=593 --set X_FIGUR=54 --set Z_FIGUR=17
 ```
 
-`"ok": true` in `results.json`; `pt-erzaehlen` und `hg-erzaehlen` haben zweimal `expect-map` (Tür hin und zurück) und `expect-battle`, `figur.png` zeigt „Hallo, Reisender!“ in der Box (Agent + Blick). Die Szenarien haben keinen `check:`-Block (`g4k check-data` kennt keinen Trainer; der gated Test prüft das Team).
+`"ok": true` in der Schlusszeile des Runners auf stdout (in `play.jsonl` trägt jeder gespielte Schritt sein `"ok"`; `results.json` hält die Ergebnisse der MCP-Aufrufe); `pt-erzaehlen` und `hg-erzaehlen` haben zweimal `expect-map` (Tür hin und zurück) und `expect-battle`, `figur.png` zeigt „Hallo, Reisender!“ in der Box (Agent + Blick). Die Szenarien haben keinen `check:`-Block (`g4k check-data` kennt keinen Trainer; der gated Test prüft das Team).
 
 **Browser (3)**, Test-Umgebung auf 1750/1751 (`G4_ROMS_DIR=<absolut> G4_VITE_PORT=1750 G4_BRIDGE_PORT=1751 bash scripts/agent/studio-web.sh`), Seite `http://127.0.0.1:1750/?project=<…>/_testkopien/3d-5-web_DSPRE_contents`, 1440 × 900, Chrome headless mit `--use-angle=swiftshader --enable-unsafe-swiftshader`; Hell und Dunkel gelten nur in der CDP-Verbindung, die sie setzt. Ablauf: Erzählen, Rezept-Leiste mit fünf freien Tasten; „Neue Figur“ bis zur Zusammenfassung (Zählung wie oben), Esc, `git status` leer; Aufstellen, „Dialog bearbeiten“; ein Dialog einer Vanilla-Figur geändert (Blur) → `dirty` nennt das Archiv, `git status` ist noch leer; Editor schließen, ⌘S → nur das eine Textarchiv im `git status` (` M unpacked/textArchives/NNNN` und `?? expanded/textArchives/NNNN.json`, nichts unter `scripts`); ⌘Z (Meta+Z, Fokus in der Seite) → `dirty` zeigt das Archiv bis zum nächsten ⌘S, danach `call.sh dirty` und `git status` leer (ohne Speichern dazwischen sofort); eine geteilte, **abspaltbare** Nachricht (Platin Header 75, HeartGold Header 22) → Plakette, „Für diese Figur abspalten“, `git status` nennt Quelle, Member und `compile-state.json`, nach ⌘S das Archiv, ⌘Z und ⌘S → leer; eine nicht abspaltbare (Platin Jubelstadt, HeartGold Neuborkia Objekt 3) → Taste gesperrt mit dem Grund; Tür → „Gegenstück“, „Tür verbinden…“; „Neuer Trainer hier“ (`git status` nennt keine Scriptdatei: der Trainer nutzt das gemeinsame Kampf-Script, dafür Eventdatei, zwei Textarchive, `trainerTextTable`, `trainerTextOffset` und die Trainerdateien); HeartGold DE (`3d-5-webhg`) ebenso.
 
@@ -1728,3 +1730,48 @@ scripts/agent/mcp.sh call delete_entity '{"target":{"kind":"trainer","index":<ne
 scripts/agent/call.sh agent_status            # question: {kind: confirm, what: „Nummer freigeben“}
 # im Browser-Fenster „Ablehnen“ → needs_confirmation „… in Gen4 Studio abgelehnt“, oder „Zulassen“ → freed
 ```
+
+## Phase 3d.7 ([phase-3d-7-gate.md](phase-3d-7-gate.md))
+
+3d.7 bringt die fünf Rezepte der Geschichten (`new_story`, `talk_advances`, `figure_appears`, `scene_on_enter`, `reward_once`) in Kernel, MCP, `g4k recipe` und als Dialoge in der Tiefe Erzählen. Das Spiel beweisen die Szenarien `pt-geschichte` und `hg-geschichte`: eine Geschichte entsteht kopflos über MCP (`studio mcp`, eine Sitzung) aus den fünf Rezepten und wird im Emulator bis zum Ende gespielt.
+
+**Gated Kernel.** Die Kette der Geschichte und die Gespräche je Familie stehen in `crates/g4-kernel/tests/recipes_story.rs`; je Spiel nacheinander auf den Kopien `3d-7-pt`, `3d-7-hgde`, `3d-7-hgus` (nur gelesen, die Tests schreiben auf `vanilla_copy()`):
+
+```sh
+G4_ROMS_DIR=<Roms> G4_TEST_PROJECT=<Roms>/_testkopien/3d-7-pt \
+  cargo test --release -p g4-kernel --all-features --test recipes_story -- vanilla hgss_talk --nocapture --test-threads 1
+```
+
+Zwei Filter: `vanilla` nimmt die Kette (`vanilla_story_chain_*`, `vanilla_pool_shrinks_by_one_var_and_two_flags`) und `vanilla_pt_talk_…`, `hgss_talk` den HeartGold-Test des Gesprächs (`hgss_talk_uses_npcmsg_and_setvar`), den `vanilla` allein nicht trifft. Die Zeilen `adopt …`, `chain …` (ms je Rezept, `git status`), `chain-undo …`, `pool …`, `chain-build …` (Compile, Build, Prüfungen) und `talk …` stehen auf stderr; ein Test der anderen Familie meldet „skipped: …“. Das Textprojekt entsteht einmal je Testprozess unter `target/tmp/story-<ordner>` (unter Last 1,5 bis 4 Minuten); danach den Ordner löschen.
+
+**Browser.** Test-Umgebung auf 1770/1771 (`G4_VITE_PORT=1770 G4_BRIDGE_PORT=1771 bash scripts/agent/studio-web.sh`), Kopien `3d-7-web` (Platin DE) und `3d-7-webhg` (HeartGold DE) mit `g4k git init`, dann `call.sh open_project`, `assign_base` (die `.nds` daneben) und `adopt_text_project` (die Rezepte brauchen ein Textprojekt; HeartGold unter Last knapp 4 Minuten) und außen `git add -A && git commit`. Orte mit Figuren: Platin Zweiblattdorf 0411 (eigene Level-Script-Datei), Herzhofen 0092 (teilt Level-Script-Datei 897, ein Trainer: Warnung und Trainer-Sperre), Zimmer 0415 (Objekt 0 ohne Script: „Dialog anlegen…“); HeartGold Neuborkia 0060. Im Gegenstands-Picker nach dem Namen suchen („Trank“); auf HeartGold lädt die Liste unter Last einige Sekunden, Enter davor wählt nichts. Wo was ist: im Detail einer Geschichte `[data-step-recipes]` „Schritt anlegen“ mit `[data-story-recipe=<id>]`; der Dialog `[data-story-recipe-dialog=<id>]` mit den Sätzen des Plans in `[data-story-recipe-notes]` (Unumkehrbares in `[data-story-recipe-irreversible]`) und „Anlegen“ `[data-story-recipe-apply]`; „Neue Geschichte“ mit `[data-pool-free]`; im Inspector `[data-story-hint]`. Ein Rezept-Dialog ist ein Modal: ⌘S und ⌘Z erst nach dem Schließen. Punkte und Bildnamen: [phase-3d-7-gate.md](phase-3d-7-gate.md), Abschnitt „(3) Browser“.
+
+**Szenarien.** Kopien frisch je Lauf (der Build ändert die Kopie): `cp -cR "<Original>_DSPRE_contents" $K/3d-7-szen-pt_DSPRE_contents` und `cp -c "<Original>.nds" $K/3d-7-szen-pt.nds` (HeartGold DE ebenso als `3d-7-szen-hg`); Spielstände `_saves/CPUD-zimmer.sav` bzw. `IPKD-zimmer.sav` (aus `games.yaml`, Zimmer, ohne Pokémon). Vorher die Release-Programme bauen (`cargo build --release -p g4-kernel --bin g4k`, `cargo build --release -p studio --bin studio`), dann aus `scripts/g4emu`:
+
+```sh
+R=<absoluter Pfad zu Roms>; K=$R/_testkopien; O=../../target/agent/gate-$(date +%F)/3d-7
+export G4_ROMS_DIR=$R G4_STUDIO_BIN=$PWD/../../target/release/studio G4K_BIN=$PWD/../../target/release/g4k
+uv run g4emu scenario ../agent/scenarios/pt-geschichte.yaml --project $K/3d-7-szen-pt_DSPRE_contents \
+  --set BASIS=../3d-7-szen-pt.nds --out $O/pt-geschichte \
+  --set NEUER_HEADER=593 --set RAUM_HEADER=594 --set X_A=48 --set Z_A=19 --set X_B=54 --set Z_B=17 \
+  --set TUER_X=50 --set TUER_Z=22 --set S_GIFT=445 --set S_T=25 --set L_T=12
+uv run g4emu scenario ../agent/scenarios/hg-geschichte.yaml --project $K/3d-7-szen-hg_DSPRE_contents \
+  --set BASIS=../3d-7-szen-hg.nds --out $O/hg-geschichte \
+  --set NEUER_HEADER=540 --set RAUM_HEADER=541 --set X_A=19 --set Z_A=15 --set X_B=15 --set Z_B=13 \
+  --set TUER_X=22 --set TUER_Z=19 --set S_GIFT=445 --set S_T=25 --set L_T=12
+```
+
+Platzhalter: `BASIS` die `.nds` neben der Kopie (für `assign_base`, das Textprojekt braucht sie), `NEUER_HEADER` die Zahl der Header vorher, `RAUM_HEADER` = `NEUER_HEADER` + 1, `X_A Z_A` Figur A, `X_B Z_B` Trainer B (Blick nach Süden, Sicht 3), `TUER_X TUER_Z` die Tür des Raums draußen, `S_GIFT` das Geschenk (Level 100; der Kampf braucht ein Pokémon), `S_T L_T` Bs Pokémon.
+
+Kacheln, gemessen aus den Kollisionen der Kopien (`unpacked/maps/0006` Platin, `unpacked/maps/0001` HeartGold; Begründung in den Kopfkommentaren der Szenarien):
+
+| | Platin (Route-201-Karten 5 und 6, Vorlage 342) | HeartGold (Route-29-Karte 1, Vorlage 33) |
+|---|---|---|
+| Ankunft (`connect_doors` von 415 bzw. 64 Warp 0) | Tür (44, 21), der Spieler tritt nach (45, 21) | Tür (24, 16), der Spieler tritt nach (23, 16) |
+| Geschenk (Script 2) | (45, 20) | (23, 15) |
+| Figur A (`new_figure`) | (48, 19) im hohen Gras, angesprochen von (48, 20) | (19, 15) im hohen Gras, angesprochen von (19, 16) |
+| Trainer B (`new_trainer_here`) | (54, 17), Spalte 54 frei von Zeile 21 bis 17, Zeile 16 blockiert | (15, 13), Spalte 15 frei von Zeile 16 bis 13, Zeile 12 blockiert |
+| Tür des Raums (`create_room`, Türkacheln) | (50, 22) auf freiem Boden statt (46, 18) des Plans: dort und auf jedem Weg dahin hohes Gras (wilder Kampf möglich); hinein von (51, 22) nach Westen drücken, hinaus landet der Spieler auf (51, 22) | (22, 19) südlich der Lücke (18–20, 17); hinein von (21, 19) nach Osten drücken, hinaus landet der Spieler auf (21, 19) |
+| Raum | Kopie von Karte 187 (Vorlage 415, Eventdatei Kopie von 394, Treppe (8, 4)) | Kopie von Karte 217 (Vorlage 64, Eventdatei Kopie von 61, Treppe (3, 4)) |
+
+Erwartet: Rückgabe 0 und auf stdout die Schlusszeile des Runners `{"scenario": "pt-geschichte", "ok": true, "headers": [415, 593, 594, 593], …}` bzw. `hg-geschichte` mit 64, 540, 541, 540 (in `play.jsonl` trägt jeder gespielte Schritt sein `"ok"`; `results.json` hält die Ergebnisse der MCP-Aufrufe); auf stderr 22 Zeilen „Erwartung erfüllt“ (je Rezept der Geschichte `history` + 1, `free_flag` danach `pool_free` Variablen − 1 und Flags − 2, Platin 20 → 19 und 101 → 99, HeartGold 81 → 80 und 154 → 152; `story_list` ein Eintrag mit 5 Schritten und `free_vars` − 1; `story_get` die Schritte `s0` start, `s1` dialog, Erscheinen bei 1, `s2` dialog, Belohnung bei 2; `run_checks` 0 Fehler); `check.log` mit `schema=current`, `differs=0` (`g4k text check`) und `3 expectation(s) met` (`g4k check`: `warp.dest-warp=0`, `event.trainer-missing=0`, `event.script-missing` 1 auf Platin, das Schild 1 der Vanilla-Eventdatei 0044, 0 auf HeartGold). Gespielt: `expect-var V 0` und Bs Flag 1 nach der Ankunft, `walk-until-blocked` bis auf Bs Kachel, A ansprechen → V 1, Raum → Szene → V 2, hinaus → Bs Flag 0, B sieht den Spieler (Platin bei (54, 20), HeartGold bei (15, 16), `expect-at`), `expect-battle 25 12`, `win-battle`, A → Belohnung, Flag R 1, noch einmal → Flag R 1 und A sagt ihren eigenen Text. Bilder in `$O/<szenario>/`: `geschenk`, `gespraech` („Bring den Brief ins Haus!“), `szene` („Der Brief ist angekommen.“), `kampf`, `belohnung` („Danke! Nimm das.“), `belohnung-2` („Hallo, Reisender!“, keine zweite Belohnung). Unter Last (Last 7 bis 17) dauert ein Lauf 5 bis 6 Minuten, beide parallel. Kopien nach dem Gate löschen.

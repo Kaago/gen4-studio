@@ -1,0 +1,13 @@
+script {name} #{n}:
+    LockAll
+    FacePlayer
+    if {var} == {from} then
+        Message {message}
+        WaitButton
+        CloseMessage
+        SetVarFromValue {var}, {value}
+        ReleaseAll
+        End
+    endif
+    ReleaseAll
+{tail}

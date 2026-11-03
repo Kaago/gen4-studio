@@ -242,7 +242,7 @@ function ThreadsExample() {
       project={galleryProject}
       revision={0}
       onOpenTextProject={() => {}}
-      stories={[{ number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_RIVALIN" }, steps: 4, problem: null }]}
+      stories={[{ number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_RIVALIN" }, steps: 4, problem: null, flags: [] }]}
     />
   );
 }
@@ -256,10 +256,11 @@ function StoriesExample() {
     <StoriesSurface
       stories={{
         stories: [
-          { number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_16448" }, steps: 4, problem: null },
-          { number: 1, id: "STORY_0001", name: "", progress: null, steps: 0, problem: "data/stories/0001.json:3: unbekanntes Feld „note“." },
+          { number: 0, id: "STORY_RIVALIN", name: "Rivalin", progress: { var: "VAR_16448" }, steps: 4, problem: null, flags: [] },
+          { number: 1, id: "STORY_0001", name: "", progress: null, steps: 0, problem: "data/stories/0001.json:3: unbekanntes Feld „note“.", flags: [] },
         ],
         text_project: true,
+        free_vars: 20,
         ms: 3,
       }}
       error={null}
