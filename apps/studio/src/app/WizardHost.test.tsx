@@ -129,6 +129,45 @@ describe("WizardHost", () => {
     expect(onError).toHaveBeenCalledWith(failure);
   });
 
+  it("story_join_after_a_new_figure_opens_the_talk_recipe_with_the_figure", async () => {
+    const town: HeaderSummary = { id: 0, internal_name: "T01", location_index: 0, kanto: false, location_name: "Zweiblattdorf", matrix_id: 0, area_data_id: 0, event_file_id: 5, text_archive_id: 554, script_file_id: 7, level_script_id: 0 };
+    const outcome: RecipeOutcome<NewFigureReport> = {
+      report: { event_file: 5, object: 3, local_id: 4, script_file: 7, slot: 12, archive: 554, message: 40 },
+      created: [],
+      change: 17,
+      changed: [{ kind: "Event", index: 5 }],
+      next: [
+        { id: "edit_dialog", label: "Dialog bearbeiten", available: true, reason: null },
+        { id: "story_join", label: "Zu einer Geschichte", available: true, reason: null },
+      ],
+    };
+    vi.mocked(recipeApply).mockReset().mockResolvedValue(outcome as never);
+    const order: string[] = [];
+    const created = vi.fn(async () => void order.push("created"));
+    const onOpenStoryRecipe = vi.fn(() => void order.push("recipe"));
+    const base = props({ kind: "new_figure", prefill: { header: 0, tile: { x: 12, z: 7 } } });
+    const button = (name: string) => [...container.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent) === name);
+    const click = (name: string) => act(async () => void button(name)?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await show(base.wizards.request, { headers: [town], wizards: { ...base.wizards, created }, onOpenStoryRecipe, onRecipeApplied: async () => {} });
+    await click("Weiter");
+    const area = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Was sie sagt"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(area, "Hallo!");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("Weiter");
+    await click("Aufstellen");
+    await flush();
+    const step = container.querySelector<HTMLButtonElement>('[data-next-steps] button[data-recipe="story_join"]')!;
+    expect(step.disabled).toBe(false);
+    await act(async () => step.click());
+    await flush();
+    // The figure's place is shown first (the wizard goes), then „Gespräch schaltet weiter“ opens with the new figure.
+    expect(order).toEqual(["created", "recipe"]);
+    expect(onOpenStoryRecipe).toHaveBeenCalledExactlyOnceWith({ recipe: "talk_advances", prefill: { figure: { header: 0, local_id: 4 } } });
+    expect(base.wizards.open).not.toHaveBeenCalled();
+  });
+
   it("publish_request_renders_the_publish_wizard", async () => {
     vi.mocked(releases).mockResolvedValue(releasesOf({ next_version: "0.2.0" }));
     await show({ kind: "publish" });

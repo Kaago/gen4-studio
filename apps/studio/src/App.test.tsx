@@ -15,7 +15,7 @@ import { commitReportOf, gitStatusOf, initReportOf, noRepo } from "./git/gitTest
 import { publishPatch, releases } from "./api";
 import type { PublishOptionsDto } from "./api";
 import { publishReportOf, releasesOf } from "./publish/publishTesting";
-import { flagUsage, listFlags, listThreads, storyGet, storyList, threadGraph } from "./api";
+import { flagUsage, freeFlag, listFlags, listThreads, storyGet, storyList, threadGraph } from "./api";
 import { dialogOf, editTextArchive, getObjectSprite, recipeApply, recipePlan, validateText } from "./api";
 import { FLAGS, flagUsageOf } from "./flags/flagTesting";
 import { THREADS, graphOf, storiesOf, storyDto, storyRow } from "./stories/storiesTesting";
@@ -26,7 +26,7 @@ import { recipeRequest } from "./workbench/recipes";
 import { invoke } from "./platform/transport";
 import type { EditEvent } from "./bus/editBus";
 import { INFO_MS, listToasts, resetToasts, toast } from "./ui/frame/toasts";
-import { pressKey, typeInSearch } from "./ui/primitives/testUtils";
+import { pressKey, typeInSearch, typeInto } from "./ui/primitives/testUtils";
 import { readShellState, writeShellState } from "./ui/frame/shellState";
 import type { RecentProject } from "./ui/frame/shellState";
 import type { WorkbenchData, WorkbenchLive } from "./workbench/WorkbenchContext";
@@ -260,6 +260,7 @@ vi.mock("./api", async (importOriginal) => ({
   threadGraph: vi.fn(),
   storyList: vi.fn(),
   storyGet: vi.fn(),
+  freeFlag: vi.fn(),
 }));
 // The wizard's grids ask the app-wide cache for map pictures; there is no renderer here.
 vi.mock("./world/thumbnailStore", () => ({
@@ -702,6 +703,90 @@ describe("App wiring", () => {
     const editor = document.querySelector<HTMLElement>("[data-dialog-editor]");
     expect(editor?.querySelector("h2")?.textContent).toBe("Dialog von Objekt 3");
     expect(dialogOf).toHaveBeenLastCalledWith(1, 1, "object", 3);
+  });
+
+  it("a_step_recipe_opens_over_the_app_and_its_names_reach_the_flag_lists", async () => {
+    const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+    // A probe of the flag lists, as the inspector's chips read them: the own name of a recipe's flag must reach it.
+    function Chip() {
+      const { list } = useFlagList("flag", { project: CHIP_PROJECT, revision: 0, source: "events" });
+      const entry = list?.entries.find((e) => e.number === 0x173);
+      return <span data-chip="">{entry === undefined ? "" : (entry.own_id ?? "frei")}</span>;
+    }
+    const CHIP_PROJECT = { root: "/p", game_code: "CPUD", family: "Pt", language: "de", header_count: 2 };
+    const named = { ...FLAGS, entries: FLAGS.entries.map((e) => (e.number === 0x173 ? { ...e, own_id: "FLAG_STORY_RIVALIN_BELOHNUNG_4", free: false } : e)) };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const chipRoot = createRoot(host);
+    const chip = () => host.querySelector("[data-chip]")?.textContent;
+    vi.mocked(storyGet).mockImplementation(async (id) => storyDto(Number(id.slice(-4)), {}, { id }));
+    vi.mocked(getEvents).mockResolvedValue({ event_file_id: 1, locked: null, bg: [], warps: [], coords: [], objects: [{ index: 3, local_id: 4, graphics_id: 97, movement_type: 0, script: 0, dir: 0, trainer_type: 0, sight: 0, hidden_flag: 0, x: 4, z: 0, y: 0 }] });
+    vi.mocked(recipePlan).mockResolvedValue({ cells: [], tiles: [], events: [], messages: [], notes: [], irreversible: [] });
+    vi.mocked(recipeApply).mockResolvedValue({
+      report: { step: "s4", value: 4, event_file: 1, object: 3, script_file: 0, slot: 12, previous_slot: 0, archive: 0, message: 40 },
+      created: [],
+      change: 21,
+      changed: [{ kind: "Event", index: 1 }],
+      next: [],
+    });
+    try {
+      // The place of the figure shows (its event file is read again after the recipe).
+      await select(listed[1]);
+      await act(async () => chipRoot.render(<Chip />));
+      await flush();
+      expect(chip()).toBe("frei");
+      // A panel asks for „Gespräch schaltet weiter“ with a figure and a story: the app opens its dialog over everything.
+      await act(async () => data().openStoryRecipe!({ recipe: "talk_advances", prefill: { story: "STORY_0001", figure: { header: 1, local_id: 4 } } }));
+      await flush();
+      const dialog = () => document.querySelector<HTMLElement>('[data-story-recipe-dialog="talk_advances"]');
+      expect(dialog()).not.toBeNull();
+      const text = dialog()!.querySelector<HTMLTextAreaElement>('textarea[aria-label="Text"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(text, "Hallo!");
+        text.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      vi.mocked(listFlags).mockResolvedValue(named);
+      const refetched = vi.fn();
+      data().bus.subscribe("eventsRefetch", refetched);
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>("button[data-story-recipe-apply]")!.click());
+      for (let i = 0; i < 4; i++) await flush();
+      expect(recipeApply).toHaveBeenCalledWith("talk_advances", expect.objectContaining({ story: "STORY_0001", figure: { header: 1, local_id: 4 }, text: "Hallo!" }));
+      // The toast names the step; what the recipe changed is read again; the recipe named flags, so the lists read again.
+      expect(listToasts().map((t) => t.text)).toContain("Schritt „Gespräch mit Figur 4“ angelegt");
+      expect(refetched).toHaveBeenCalledWith(expect.objectContaining({ file: 1 }));
+      expect(chip()).toBe("FLAG_STORY_RIVALIN_BELOHNUNG_4");
+      expect(dialog()).toBeNull();
+
+      // „Neue Geschichte…“ from a step recipe: the story is the recipe „Neue Geschichte“ and names its variable, so the lists read again.
+      vi.mocked(listFlags).mockResolvedValue(FLAGS);
+      invalidateFlagLists();
+      await flush();
+      expect(chip()).toBe("frei");
+      vi.mocked(storyList).mockResolvedValue(storiesOf([]));
+      vi.mocked(freeFlag).mockResolvedValue({ kind: "var", number: 0x406c, name: null, pool_free: 20, scripts_indexed: true });
+      await act(async () => data().openStoryRecipe!({ recipe: "talk_advances", prefill: { figure: { header: 1, local_id: 4 } } }));
+      await flush();
+      await act(async () => [...dialog()!.querySelectorAll("button")].find((b) => b.textContent === "Neue Geschichte…")!.click());
+      await flush();
+      const newStory = () => document.querySelector<HTMLElement>("[data-new-story-dialog]");
+      expect(newStory()).not.toBeNull();
+      const name = newStory()!.querySelector<HTMLInputElement>('[aria-label="Name"]')!;
+      typeInto(name, "Rivalin");
+      vi.mocked(recipeApply).mockResolvedValue({ report: { story: "STORY_RIVALIN", number: 2, var: 0x406c, var_id: "VAR_STORY_RIVALIN", files: [] }, created: [], change: 22, changed: [], next: [] });
+      vi.mocked(storyList).mockResolvedValue(storiesOf([storyRow(2, { id: "STORY_RIVALIN", name: "Rivalin" })]));
+      vi.mocked(listFlags).mockResolvedValue(named);
+      await act(async () => [...newStory()!.querySelectorAll("button")].find((b) => b.textContent === "Geschichte anlegen")!.click());
+      await flush();
+      expect(recipeApply).toHaveBeenLastCalledWith("new_story", { name: "Rivalin", var: 0x406c });
+      expect(listToasts().map((t) => t.text)).toContain("Geschichte „Rivalin“ angelegt");
+      expect(chip()).toBe("FLAG_STORY_RIVALIN_BELOHNUNG_4");
+      // Back in the step recipe with the new story chosen.
+      expect(newStory()).toBeNull();
+      expect(dialog()?.querySelector('[role=combobox][aria-label="Geschichte"]')?.textContent).toContain("Rivalin");
+    } finally {
+      act(() => chipRoot.unmount());
+      host.remove();
+    }
   });
 
   describe("browser mode", () => {

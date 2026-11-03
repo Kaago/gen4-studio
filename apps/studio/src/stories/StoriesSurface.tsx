@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { JSX, ReactNode } from "react";
-import { recipeApply, storyCreate, storyUpdate } from "../api";
-import type { FlagKind, NewStoryReport, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
+import { storyUpdate } from "../api";
+import type { FlagKind, ProjectInfo, StoryListDto, StoryReport, StoryRowDto } from "../api";
 import { FLAGS_SOURCE } from "../flags/FlagsSurface";
 import { NOT_A_TEXT_PROJECT, hex4 } from "../flags/flagWords";
 import { useFlagList } from "../flags/useFlagList";
@@ -10,10 +10,11 @@ import type { Depth } from "../ui/frame/shellState";
 import { Button, EmptyState, Notice, Reference, Table, Tooltip } from "../ui/primitives";
 import type { TableColumn, TableRow } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
-import { NewStoryDialog } from "./NewStoryDialog";
+import { NewStoryDialog, createStory } from "./NewStoryDialog";
 import type { NewStoryRequest } from "./NewStoryDialog";
 import { StoryDetail } from "./StoryDetail";
 import type { StoryPatch } from "./StoryDetail";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
 import { flagNumberOf, progressLabel, storiesCount } from "./storyWords";
 import { useStory } from "./useStory";
 import styles from "./StoriesSurface.module.css";
@@ -45,6 +46,8 @@ export type StoriesSurfaceProps = {
   onError: (t: string) => void;
   /** „Projekt öffnen“ of the empty state without a project; without it the empty state offers nothing. */
   onOpenProject?: () => void;
+  /** „Schritt anlegen“ in the chosen story's detail: a step recipe with that story (the app's dialog); absent: no step bar. */
+  onRecipe?: (request: StoryRecipeRequest) => void;
 };
 
 const COLUMNS: readonly TableColumn[] = [
@@ -59,7 +62,7 @@ const COLUMNS: readonly TableColumn[] = [
  * (locked in the DSPRE layout, with „Als Textprojekt einrichten…“ below), and the detail of the chosen story under the table.
  */
 export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
-  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onError, onOpenProject } = props;
+  const { stories, error, selected, onSelect, textProject, onOpenTextProject, depth, goTo, project, revision, onCreated, onUpdated, onError, onOpenProject, onRecipe } = props;
   const titleId = useId();
   const tech = depthAtLeast(depth, "bauen");
   const [creating, setCreating] = useState(false);
@@ -72,16 +75,8 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
   const { story, error: storyError } = useStory(chosen?.id ?? null, { project, revision });
 
   const create = async (request: NewStoryRequest) => {
-    if (request.via === "recipe") {
-      // The recipe's story as the report of a create: its id, number, files and undo step (a recipe has no timing and no warnings).
-      const outcome = await recipeApply<NewStoryReport>("new_story", request.input);
-      const { story: id, number, files } = outcome.report;
-      onCreated({ id, number, files, change: outcome.change, ms: 0, warnings: [] }, request.input.name);
-      onSelect(number);
-      return;
-    }
-    const report = await storyCreate(request.req);
-    onCreated(report, request.req.name);
+    const { report, name } = await createStory(request);
+    onCreated(report, name);
     for (const warning of report.warnings) onError(warning);
     onSelect(report.number);
   };
@@ -175,7 +170,17 @@ export function StoriesSurface(props: StoriesSurfaceProps): JSX.Element {
           ) : story === null ? (
             <p className={styles.note}>Geschichte wird gelesen …</p>
           ) : (
-            <StoryDetail key={chosen.id} story={story} depth={depth} goTo={goTo} onUpdate={(patch) => update(chosen.id, patch)} project={project} revision={revision} />
+            <StoryDetail
+              key={chosen.id}
+              story={story}
+              depth={depth}
+              goTo={goTo}
+              onUpdate={(patch) => update(chosen.id, patch)}
+              project={project}
+              revision={revision}
+              onRecipe={onRecipe}
+              textProject={textProject}
+            />
           )}
         </>
       )}

@@ -508,6 +508,7 @@ export function InspectorPanel() {
         project: d.info,
         openDialogEditor: d.onOpenDialog,
         openWizard: d.onOpenWizard,
+        openStoryRecipe: d.openStoryRecipe,
         dialogRevision,
       }}
       matrixEditor={{

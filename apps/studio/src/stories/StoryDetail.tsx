@@ -13,6 +13,8 @@ import { Badge, Notice, Reference, Section, Table, TextField, Tooltip } from "..
 import type { Area, TableColumn, TableRow } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { fallbackNumber, flagNumberOf, progressLabel, recipeTitle, stepKindWord, useText } from "./storyWords";
+import { StepRecipes } from "./recipes/StepRecipes";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
 import { useThreadGraph } from "./useThreadGraph";
 import styles from "./StoriesSurface.module.css";
 
@@ -32,6 +34,10 @@ export type StoryDetailProps = {
   project: ProjectInfo | null;
   /** Moves whenever the project may differ: the graph is read again. */
   revision: number;
+  /** „Schritt anlegen“: a step recipe asked for with this story (the app's dialog); absent: no step bar. */
+  onRecipe?: (request: StoryRecipeRequest) => void;
+  /** The project is a text project: the step recipes run only there. */
+  textProject?: boolean;
 };
 
 const COLUMNS: readonly TableColumn[] = [
@@ -47,8 +53,8 @@ export const NO_VALUES = "Noch keine Werte im Spiel";
 /** How long after a drag's end the graph's layout is written (one undo step per drag; a drag within it starts the wait anew). */
 const LAYOUT_DELAY_MS = 500;
 
-/** Said in place of the steps: 3d.6 only reads them, the recipes of 3d.7 create them. */
-export const NO_STEPS = "Noch keine Schritte. Rezepte legen sie an (kommt mit 3d.7).";
+/** Said in place of the steps: the step recipes above them create them. */
+export const NO_STEPS = "Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.";
 
 /**
  * The numbers of the ids of `kind` (trainers, maps by header) from the text project's id cache, read only when `wanted`; null meanwhile
@@ -132,11 +138,11 @@ function Uses({ uses, at, goTo }: { uses: readonly StoryUse[]; at: Lookups; goTo
 /**
  * The detail of a story (3d.6, reading): its name and its notes as fields that write when left (`story_update`, the fields locked while
  * it runs, a refusal shown below them), its progress as a chip that opens Geschichten › Flags und Variablen on the number, the steps as a
- * table (value, kind, name, uses as chips; only read: the recipes of 3d.7 create them), and the graph of the progress variable with the
+ * table (value, kind, name, uses as chips; the step recipes of „Schritt anlegen“ above it create them, 3d.7), and the graph of the progress variable with the
  * steps on its value nodes. A flag (the graph takes a variable only), an id that names nothing and a variable no script uses have no
  * graph: „Noch keine Werte im Spiel“.
  */
-export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }: StoryDetailProps): JSX.Element {
+export function StoryDetail({ story, depth, goTo, onUpdate, project, revision, onRecipe, textProject = true }: StoryDetailProps): JSX.Element {
   const { id, name, notes = "", progress, steps = [] } = story.story;
   const tech = depthAtLeast(depth, "bauen");
   const progressOf = progressLabel(progress);
@@ -277,6 +283,7 @@ export function StoryDetail({ story, depth, goTo, onUpdate, project, revision }:
       )}
       {refusal !== null && <Notice kind="error">{refusal}</Notice>}
       <Section title="Schritte" count={steps.length} open={open.steps} onToggle={() => setOpen((o) => ({ ...o, steps: !o.steps }))}>
+        {onRecipe && <StepRecipes story={story} textProject={textProject} onRecipe={onRecipe} />}
         {steps.length === 0 ? <p className={styles.note}>{NO_STEPS}</p> : <Table columns={COLUMNS} rows={rows} ariaLabel="Schritte" />}
       </Section>
       <Section title="Graph" open={open.graph} onToggle={() => setOpen((o) => ({ ...o, graph: !o.graph }))}>

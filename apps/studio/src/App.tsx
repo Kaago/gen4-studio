@@ -108,6 +108,8 @@ import { useWizards } from "./app/useWizards";
 import type { Created } from "./app/useWizards";
 import { WizardHints, WizardStep } from "./app/WizardHints";
 import { WizardHost } from "./app/WizardHost";
+import { StoryRecipeHost } from "./app/StoryRecipeHost";
+import { useStoryRecipe } from "./app/useStoryRecipe";
 import { useWorkbenchModel } from "./app/useWorkbenchModel";
 import { useWorldActions } from "./app/useWorldActions";
 import { ProjectStart } from "./project/ProjectStart";
@@ -392,6 +394,8 @@ function AppBody() {
   const onStoryCreated = useStableCallback((report: StoryReport, name: string) => {
     toast.info(`Geschichte „${name}“ angelegt`);
     onStoryWritten(report);
+    // The recipe „Neue Geschichte“ names its variable (`name_flag`): the ids and the flag lists read again, as after any naming.
+    bumpIds();
   });
   const scripts = useScripts({ info: session.info, bus, problems, onError: session.fail, onSaved: bumpChanged, reopened: session.isReopened });
   // Technik › Veröffentlichen, above the areas: the base ROM and the releases stay when Technik is left. A release („Veröffentlichen“)
@@ -555,6 +559,13 @@ function AppBody() {
     await session.onCountsChanged();
     scene.noteHistoryMoved();
     await reloadChanged(changed, true);
+  });
+  // A step recipe of a story went in (3d.7): it wrote the story file and named its flags (`name_flag`), so the ids, the flag lists and
+  // Änderungen read again, then what it changed as after any recipe.
+  const onStoryStepApplied = useStableCallback(async (changed: AssetId[]) => {
+    bumpIds();
+    bumpChanged();
+    await onRecipeApplied(changed);
   });
   // An agent changed assets: read again on the same path as „Welt leeren“ (new areas appear in the world explorer). One change after
   // the other, so two quick ones do not interleave their reloads; without a project there is nothing to read.
@@ -1051,6 +1062,13 @@ function AppBody() {
   // The dialog editor of a figure (the field „Dialog“ in Erzählen); it reads again when a text archive moved (undo, redo, its own commits)
   // or a script was saved.
   const [dialogEditor, setDialogEditor] = useState<DialogTarget | null>(null);
+  // The step recipe shown as a dialog (a story's step bar, „Zu einer Geschichte“, „Dialog anlegen…“); another project closes it.
+  const storyRecipe = useStoryRecipe(session.info);
+  // A step recipe appends to the place's script file: typing there is saved first (as before „Neue Figur“).
+  const beforeStoryStep = useStableCallback(async (header: number) => {
+    const file = scene.headers.find((h) => h.id === header)?.script_file_id;
+    if (file !== undefined) await scripts.api.saveIfDirty(file);
+  });
   const dialogRevision = useBusRevision(bus, "textData") + scripts.api.revision;
   // Another project (or none): the figure is not there any more.
   useEffect(() => setDialogEditor(null), [session.info]);
@@ -1078,6 +1096,7 @@ function AppBody() {
     draft,
     onDraft: setDraft,
     onOpenDialog: setDialogEditor,
+    openStoryRecipe: storyRecipe.open,
     view: { showPermissions, setShowPermissions, showEvents, setShowEvents, depth, tool: shell.tool, onTool, onTileClick },
   });
   worldRef.current = live.world;
@@ -1468,6 +1487,7 @@ function AppBody() {
         onError={session.fail}
         onStoryCreated={onStoryCreated}
         onStoryUpdated={onStoryWritten}
+        onStoryRecipe={storyRecipe.open}
       />
     ) : area === "einstellungen" ? (
       <SettingsArea
@@ -1590,6 +1610,18 @@ function AppBody() {
                   />
                 }
               />
+              {/* The step recipes as dialogs, inside the data areas' host: a reward picks its item from the project's names. */}
+              <StoryRecipeHost
+                request={storyRecipe.request}
+                onClose={storyRecipe.close}
+                project={info}
+                revision={shownRevision + idsRevision}
+                headers={scene.headers}
+                onApplied={onStoryStepApplied}
+                onError={session.fail}
+                onStoryCreated={onStoryCreated}
+                beforeApply={beforeStoryStep}
+              />
             </DataAreaHost>
           </TextAreaHost>
         </Workbench>
@@ -1629,6 +1661,7 @@ function AppBody() {
           onRecipeApplied={onRecipeApplied}
           onOpenDialog={setDialogEditor}
           scriptFiles={scripts.api}
+          onOpenStoryRecipe={storyRecipe.open}
         />
         <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
         <AgentQuestion question={agents.status?.question ?? null} onAnswer={(id, answer) => void agents.answer(id, answer).catch(session.fail)} />

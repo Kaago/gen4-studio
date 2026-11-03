@@ -10,6 +10,7 @@ import type { ProblemsStore } from "../workbench/problems/problems";
 import type { ScriptsApi } from "../workbench/script/useScripts";
 import type { TextTarget } from "../workbench/text/textModel";
 import type { DialogTarget } from "../workbench/dialog/dialogModel";
+import type { StoryRecipeRequest } from "../stories/recipes/storyRecipeModel";
 import { headerIdentity } from "../workbench/headerIdentity";
 import { buildPlaces } from "../workbench/places";
 import { useWorldModel } from "../workbench/useWorldModel";
@@ -77,6 +78,8 @@ interface WorkbenchModelParams {
   onDraft: (draft: DraftDto | null) => void;
   /** Opens the dialog editor of a figure (App's state); must keep its identity. None: the field „Dialog“ opens nothing (tests). */
   onOpenDialog?: (target: DialogTarget) => void;
+  /** Opens a step recipe as the app's dialog (App's state); must keep its identity. None: no „Dialog anlegen…“ (tests). */
+  openStoryRecipe?: (request: StoryRecipeRequest) => void;
   /** The scene's switches and the tool, owned by App. */
   view: {
     showPermissions: boolean;
@@ -98,7 +101,7 @@ interface WorkbenchModelParams {
  * rendered again by a message. `live` is the volatile part (what the inspector shows, the cell
  * it selects, the message, the world model), where a panel subscribes to the piece it renders.
  */
-export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onCreated, onMapImported, text, scripts, problems, checks, dataStore, draft, onDraft, view, onOpenDialog = NO_DIALOG }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
+export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHistory, overview, onOpenWizard, onCreated, onMapImported, text, scripts, problems, checks, dataStore, draft, onDraft, view, onOpenDialog = NO_DIALOG, openStoryRecipe }: WorkbenchModelParams): { data: WorkbenchData; live: WorkbenchLive } {
   // `scene.onSelect` and `scene.goTo` are plain closures over the current render (not stable), so they are wrapped here for the memoised panels.
   const onSelect = useStableCallback((h: HeaderSummary) => void scene.onSelect(h));
   const goTo = useStableCallback(scene.goTo);
@@ -176,6 +179,7 @@ export function useWorkbenchModel({ bus, session, scene, world, pins, sceneHisto
     draft,
     onDraft,
     onOpenDialog,
+    openStoryRecipe,
   });
 
   // The inspector shows the selection; the hover goes to the status line and is not part of the model.

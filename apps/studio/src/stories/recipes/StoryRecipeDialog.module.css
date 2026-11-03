@@ -1,0 +1,87 @@
+/* The step recipes as dialogs (3d.7): the fields on the left, what the recipe will do (its plan) on the right. */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--g4-raum-24);
+}
+
+.fields {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-12);
+}
+
+/* One field: its label above, the control (or a line of them) below. */
+.field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--g4-raum-4);
+}
+
+.label {
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s-betont);
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+}
+
+.note,
+.notes p {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.preview {
+  align-self: stretch;
+  min-width: 0;
+}
+
+/* The plan of the recipe: its sentences, then what undo will not take back. */
+.notes {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--g4-raum-8);
+  padding-left: var(--g4-raum-16);
+  border-left: var(--g4-strich-standard) solid var(--g4-linie-leise);
+}
+
+.notesTitle {
+  margin: 0;
+  color: var(--g4-text-sekundaer);
+  font: var(--g4-font-text-xs);
+}
+
+.notesList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--g4-raum-4);
+  margin: 0;
+  padding-left: var(--g4-raum-16);
+  color: var(--g4-text-primaer);
+  font: var(--g4-font-text-s);
+}
+
+/* The step bar of a story's detail: „Schritt anlegen“ and the four recipes. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--g4-raum-8);
+  margin-bottom: var(--g4-raum-8);
+}
+
+/* A disabled button takes no pointer events; its wrapper takes them for the tooltip. */
+.lockedWrap {
+  display: inline-flex;
+  cursor: not-allowed;
+}

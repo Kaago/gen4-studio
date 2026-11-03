@@ -86,12 +86,24 @@ describe("DialogSection", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("none_locks_anlegen_with_3d7", async () => {
-    await show(figure, dialog({ kind: "none" }));
+  it("a_figure_without_a_script_opens_the_talk_recipe_from_the_dialog_section", async () => {
+    const onStoryRecipe = vi.fn();
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () =>
+      root.render(<DialogSection target={figure} revision={++revision} onEdit={onEdit} onError={onError} figure={{ header: 3, local_id: 1 }} onStoryRecipe={onStoryRecipe} />),
+    );
+    await flush();
     expect(section()?.textContent).toContain("Sagt nichts");
-    const anlegen = button("Dialog anlegen…")!;
-    expect(anlegen.disabled).toBe(true);
-    expect(document.getElementById(anlegen.getAttribute("aria-describedby") ?? "")?.textContent).toBe("Kommt mit 3d.7");
     expect(button("Dialog bearbeiten…")).toBeUndefined();
+    // „Dialog anlegen…“ is „Gespräch schaltet weiter“ with this figure: its story is chosen in the dialog.
+    const anlegen = button("Dialog anlegen…")!;
+    expect(anlegen.disabled).toBe(false);
+    await act(async () => anlegen.click());
+    expect(onStoryRecipe).toHaveBeenCalledExactlyOnceWith({ recipe: "talk_advances", prefill: { figure: { header: 3, local_id: 1 } } });
+    // A sign has no recipe: no button.
+    vi.mocked(dialogOf).mockResolvedValue(dialog({ kind: "none" }));
+    await act(async () => root.render(<DialogSection target={sign} revision={++revision} onEdit={onEdit} onError={onError} />));
+    await flush();
+    expect(button("Dialog anlegen…")).toBeUndefined();
   });
 });

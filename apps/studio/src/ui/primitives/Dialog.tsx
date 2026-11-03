@@ -11,7 +11,14 @@ import styles from "./Dialog.module.css";
  */
 export const OPEN_MODAL = '[role="dialog"][aria-modal="true"]:not([data-closed])';
 
-export type DialogAction = { label: string; kind?: ButtonProps["kind"]; onClick: () => void; disabled?: boolean };
+export type DialogAction = {
+  label: string;
+  kind?: ButtonProps["kind"];
+  onClick: () => void;
+  disabled?: boolean;
+  /** Data attributes of the button (a marker a test or the gate finds it by). */
+  data?: Readonly<Record<`data-${string}`, string>>;
+};
 
 export type DialogProps = {
   open: boolean;
@@ -73,7 +80,7 @@ export function Dialog({ open, onOpenChange, title, description, actions, childr
           {actions && actions.length > 0 && (
             <div className={styles.actions}>
               {actions.map((a) => (
-                <Button key={a.label} kind={a.kind ?? "secondary"} onClick={a.onClick} disabled={a.disabled}>
+                <Button key={a.label} {...a.data} kind={a.kind ?? "secondary"} onClick={a.onClick} disabled={a.disabled}>
                   {a.label}
                 </Button>
               ))}

@@ -164,7 +164,7 @@ describe("StoryDetail", () => {
     // Without steps: where they come from.
     await show({ story: storyDto(0, {}, { steps: undefined }) });
     expect(steps()).toBeNull();
-    expect(detail().textContent).toContain("Noch keine Schritte. Rezepte legen sie an (kommt mit 3d.7).");
+    expect(detail().textContent).toContain("Noch keine Schritte. „Schritt anlegen“ legt sie über Rezepte an.");
   });
 
   it("a_story_without_values_says_so", async () => {

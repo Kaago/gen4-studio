@@ -29,9 +29,3 @@
   align-items: center;
   gap: var(--g4-raum-8);
 }
-
-/* A disabled button takes no pointer events; its wrapper takes them for the tooltip. */
-.lockedWrap {
-  display: inline-flex;
-  cursor: not-allowed;
-}

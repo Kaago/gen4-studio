@@ -10,6 +10,7 @@ import { ListRow, useRovingList } from "../ui/primitives";
 import type { IconName } from "../ui/primitives";
 import type { NavTarget } from "../workbench/navigation";
 import { StoriesSurface } from "./StoriesSurface";
+import type { StoryRecipeRequest } from "./recipes/storyRecipeModel";
 import { freeVarsText, storiesCount } from "./storyWords";
 import { ThreadsSurface, threadsCount } from "./ThreadsSurface";
 import { useStories } from "./useStories";
@@ -55,6 +56,8 @@ export interface GeschichtenAreaProps {
   onStoryCreated?: (r: StoryReport, name: string) => void;
   /** A story's name or notes were written (one undo step): the history and the lists read again. */
   onStoryUpdated?: (r: StoryReport) => void;
+  /** „Schritt anlegen“ in a story's detail: the app opens the step recipe's dialog. */
+  onStoryRecipe?: (request: StoryRecipeRequest) => void;
 }
 
 const ENTRIES: readonly { id: GeschichtenEntry; label: string; icon: IconName }[] = [
@@ -127,6 +130,7 @@ export function GeschichtenArea(props: GeschichtenAreaProps): JSX.Element {
           onUpdated={props.onStoryUpdated}
           onError={props.onError}
           onOpenProject={props.onOpenProject}
+          onRecipe={props.onStoryRecipe}
         />
       ) : (
         <FlagsSurface
