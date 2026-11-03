@@ -7,13 +7,22 @@ import { MessageEditor } from "../../workbench/text/MessageEditor";
 import { TextPreview } from "../../workbench/wizards/TextPreview";
 import styles from "./StoryRecipeDialog.module.css";
 
-/** What a figure or a scene says: the text (Enter a new line, Shift+Enter a new page) and the DS box with its pages beside it. */
+/**
+ * What a figure or a scene says: the text (Enter a new line, Shift+Enter a new page) and the DS box with its pages beside it.
+ * `onChange` hears edits only: the editor also reports the draft it starts with and the one it takes over from a new `value`, and an
+ * echo of what the field shows is no edit (a reward's default text must not turn into a typed one).
+ */
 export function SaysField({ value, onChange, disabled }: { value: string; onChange: (text: string) => void; disabled?: boolean }) {
+  const shown = useRef(value);
+  shown.current = value;
+  const edited = useStableCallback((text: string) => {
+    if (text !== shown.current) onChange(text);
+  });
   return (
     <div className={styles.field}>
       <span className={styles.label}>Text</span>
       <div className={styles.preview}>
-        <MessageEditor label="Text" value={value} onCommit={async () => true} onDraft={onChange} disabled={disabled} />
+        <MessageEditor label="Text" value={value} onCommit={async () => true} onDraft={edited} disabled={disabled} />
       </div>
       <p className={styles.note}>Enter: neue Zeile; Umschalt+Enter: neue Seite (▼).</p>
       <div className={styles.preview}>
