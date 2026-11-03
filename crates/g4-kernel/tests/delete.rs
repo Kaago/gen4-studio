@@ -12,7 +12,7 @@ use g4_kernel::data::refs::{Access, Ref, RefIndex, Target};
 use g4_kernel::delete::{
     CANNOT_FREE_ORIGINAL, DeletePlan, DeleteTarget, FreeInfo, NO_TOMBSTONE_FOR_BINARIES,
     NO_TOMBSTONE_FOR_FILES, NOT_A_TEXT_PROJECT, ORIGINAL_KIND, Rule, guard_header, guard_reference,
-    plan_delete,
+    later_entries_live, plan_delete,
 };
 use g4_kernel::error::KernelError;
 use g4_kernel::flags::{FlagKind, NameRequest, name_flag_files};
@@ -130,9 +130,49 @@ fn labels_use_the_words_of_the_app() {
         "Begegnungsdatei"
     );
     assert_eq!(DeleteTarget::Header { id: 0 }.kind_word(), "Header");
+    // `{Art}` of the refusal of an original is the plural.
     assert_eq!(
-        ORIGINAL_KIND.replace("{Art}", DeleteTarget::Header { id: 0 }.kind_word()),
+        ORIGINAL_KIND.replace("{Art}", DeleteTarget::Header { id: 0 }.kind_plural()),
         "Original-Header lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays)."
+    );
+    assert_eq!(
+        ORIGINAL_KIND.replace("{Art}", DeleteTarget::Script { file: 0 }.kind_plural()),
+        "Original-Scriptdateien lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays)."
+    );
+    let plurals: Vec<&str> = [
+        DeleteTarget::Header { id: 0 },
+        DeleteTarget::Script { file: 0 },
+        DeleteTarget::TextArchive { index: 0 },
+        DeleteTarget::AreaData { index: 0 },
+        DeleteTarget::MapTexture { index: 0 },
+        DeleteTarget::BuildingTexture { index: 0 },
+        DeleteTarget::BuildingModel { index: 0 },
+        DeleteTarget::InteriorBuildingModel { index: 0 },
+    ]
+    .iter()
+    .map(|t| t.kind_plural())
+    .collect();
+    assert_eq!(
+        plurals,
+        [
+            "Header",
+            "Scriptdateien",
+            "Textarchive",
+            "Gebietsdaten",
+            "Kartentexturen",
+            "Gebäudetexturen",
+            "Gebäudemodelle",
+            "Innenraum-Gebäudemodelle",
+        ]
+    );
+    // One later entry, several.
+    assert_eq!(
+        later_entries_live(593, 1),
+        "Nummer 593 bleibt belegt, weil 1 späterer Eintrag lebt."
+    );
+    assert_eq!(
+        later_entries_live(901, 2),
+        "Nummer 901 bleibt belegt, weil 2 spätere Einträge leben."
     );
     assert_eq!(
         NO_TOMBSTONE_FOR_FILES,
@@ -308,7 +348,11 @@ fn plan_refuses_an_original_header_script_and_archive_with_the_reason() {
         assert!(p.original, "{target:?}");
         assert_eq!(
             p.refusal.as_deref(),
-            Some(ORIGINAL_KIND.replace("{Art}", target.kind_word()).as_str()),
+            Some(
+                ORIGINAL_KIND
+                    .replace("{Art}", target.kind_plural())
+                    .as_str()
+            ),
             "{target:?}"
         );
         assert_eq!(p.label, target.label());
@@ -342,7 +386,7 @@ fn plan_refuses_an_original_header_script_and_archive_with_the_reason() {
     assert!(p.can_free.is_none());
     assert_eq!(
         p.cannot_free.as_deref(),
-        Some("Nummer 1 bleibt belegt, weil 1 spätere Einträge leben.")
+        Some("Nummer 1 bleibt belegt, weil 1 späterer Eintrag lebt.")
     );
 
     // Textures and models have no envelope either.
@@ -606,6 +650,14 @@ fn referenced_names_the_entity_and_the_count() {
     assert_eq!(
         e.to_string(),
         "Trainer 0001 wird noch verwendet (2 Verweise)."
+    );
+    let one = KernelError::Referenced {
+        label: "Trainer 0001".into(),
+        references: vec![r],
+    };
+    assert_eq!(
+        one.to_string(),
+        "Trainer 0001 wird noch verwendet (1 Verweis)."
     );
 }
 
@@ -1026,7 +1078,7 @@ fn free_number_refuses_a_tombstone_before_a_living_entry() {
     let depth = st.undo_depth();
     assert_eq!(
         refused(free_number(&mut st, &mut refs, &base, target)),
-        "Nummer 1 bleibt belegt, weil 1 spätere Einträge leben."
+        "Nummer 1 bleibt belegt, weil 1 späterer Eintrag lebt."
     );
     assert_eq!(st.undo_depth(), depth);
     assert!(exists(&fx, "data/trainers/0001.json"));

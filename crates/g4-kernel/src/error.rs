@@ -88,8 +88,17 @@ pub enum KernelError {
     Git(String),
     /// An entity cannot be deleted while other entities point at it (the reference lock of
     /// 3d.4, [`crate::delete::plan_delete`]); `references` lists them. Nothing was changed.
-    #[error("{label} wird noch verwendet ({} Verweise).", .references.len())]
+    #[error("{label} wird noch verwendet ({}).", references_count(.references.len()))]
     Referenced { label: String, references: Vec<Ref> },
+}
+
+/// „1 Verweis“, „{n} Verweise“.
+fn references_count(n: usize) -> String {
+    if n == 1 {
+        "1 Verweis".to_owned()
+    } else {
+        format!("{n} Verweise")
+    }
 }
 
 /// `0012, 0013`

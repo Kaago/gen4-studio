@@ -34,9 +34,13 @@ pub const PLACE_ONLY_LAST: &str =
 pub const IDENTIFIER_FIELD: &str = "identifier";
 
 /// Why number `n` is not freed: `m` later entries live (no moving up, a tombstone before a
-/// living entry stays).
+/// living entry stays); one in the singular.
 pub fn later_entries_live(n: u16, m: usize) -> String {
-    format!("Nummer {n} bleibt belegt, weil {m} spätere Einträge leben.")
+    if m == 1 {
+        format!("Nummer {n} bleibt belegt, weil 1 späterer Eintrag lebt.")
+    } else {
+        format!("Nummer {n} bleibt belegt, weil {m} spätere Einträge leben.")
+    }
 }
 
 /// What „Nummer freigeben“ removes: `count` entities (the target and the tombstones of new
@@ -251,7 +255,7 @@ fn refusal(
     text_project: bool,
     place_ok: bool,
 ) -> Option<String> {
-    let original_kind = || ORIGINAL_KIND.replace("{Art}", target.kind_word());
+    let original_kind = || ORIGINAL_KIND.replace("{Art}", target.kind_plural());
     match target {
         DeleteTarget::Place { .. } => (!place_ok).then(|| PLACE_ONLY_LAST.to_owned()),
         DeleteTarget::Script { .. } | DeleteTarget::TextArchive { .. } => Some(if original {

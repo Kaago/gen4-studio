@@ -53,7 +53,7 @@ pub enum Rule {
 }
 
 /// Why an original of an [`Rule::OnlyNew`] kind is not deleted; `{Art}` is
-/// [`DeleteTarget::kind_word`].
+/// [`DeleteTarget::kind_plural`] („Original-Scriptdateien …“).
 pub const ORIGINAL_KIND: &str = "Original-{Art} lassen sich nicht löschen: der Spielcode verweist unsichtbar darauf (ARM9, Overlays).";
 /// Why a script file or text archive gets no tombstone.
 pub const NO_TOMBSTONE_FOR_FILES: &str = "Scriptdateien und Textarchive haben keinen Grabstein; neue am Ende lassen sich mit „Nummer freigeben“ entfernen.";
@@ -199,7 +199,7 @@ impl DeleteTarget {
     }
 
     /// The word of the target's kind for the sentences („Trainer“, „Begegnungsdatei“, …),
-    /// `{Art}` of [`ORIGINAL_KIND`].
+    /// The word of the target's kind, singular („Scriptdatei“).
     pub fn kind_word(self) -> &'static str {
         match self {
             DeleteTarget::Trainer { .. } => "Trainer",
@@ -218,6 +218,29 @@ impl DeleteTarget {
             DeleteTarget::Place { .. } => "Ort",
             DeleteTarget::Flag { .. } => "Flag",
             DeleteTarget::Var { .. } => "Variable",
+        }
+    }
+
+    /// [`DeleteTarget::kind_word`] in the plural, `{Art}` of [`ORIGINAL_KIND`]
+    /// („Scriptdateien“).
+    pub fn kind_plural(self) -> &'static str {
+        match self {
+            DeleteTarget::Trainer { .. } => "Trainer",
+            DeleteTarget::Encounter { .. } => "Begegnungsdateien",
+            DeleteTarget::EventFile { .. } => "Eventdateien",
+            DeleteTarget::Matrix { .. } => "Matrizen",
+            DeleteTarget::Map { .. } => "Karten",
+            DeleteTarget::Header { .. } => "Header",
+            DeleteTarget::Script { .. } => "Scriptdateien",
+            DeleteTarget::TextArchive { .. } => "Textarchive",
+            DeleteTarget::AreaData { .. } => "Gebietsdaten",
+            DeleteTarget::MapTexture { .. } => "Kartentexturen",
+            DeleteTarget::BuildingTexture { .. } => "Gebäudetexturen",
+            DeleteTarget::BuildingModel { .. } => "Gebäudemodelle",
+            DeleteTarget::InteriorBuildingModel { .. } => "Innenraum-Gebäudemodelle",
+            DeleteTarget::Place { .. } => "Orte",
+            DeleteTarget::Flag { .. } => "Flags",
+            DeleteTarget::Var { .. } => "Variablen",
         }
     }
 
