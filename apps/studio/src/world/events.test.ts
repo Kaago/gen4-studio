@@ -114,9 +114,10 @@ describe("event identity helpers", () => {
     expect(eventDeletePrompt("object", 0, { x: 1, z: 2 })).toBe("Objekt 0 (x 1, z 2) löschen?");
   });
 
-  it("warns that deleting a warp does not renumber warp targets of other events", () => {
+  it("says that later doors move up and the warps to them follow, and what locks a door", () => {
+    // Gate 3d.4 B8: since 3d.4 `delete_event` renumbers incoming warps and refuses a door a warp or script targets.
     expect(eventDeletePrompt("warp", 1, events.warps[1])).toBe(
-      "Warp 1 (x 9, z 4) löschen?\n\nWarp-Ziele anderer Events, die auf spätere Warps dieser Datei zeigen, werden nicht angepasst.",
+      "Warp 1 (x 9, z 4) löschen?\n\nSpätere Türen rücken nach; Warps, die auf sie zeigen, werden nachgezogen. Eine Tür, auf die ein Warp zeigt oder die ein Script per Index umsetzt, lässt sich nicht löschen.",
     );
   });
 
