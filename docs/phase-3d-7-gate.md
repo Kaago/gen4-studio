@@ -97,7 +97,7 @@ Die Bearbeitung: `assign_base`, `apply_header_patch`, `adopt_text_project`, `cre
 | Gate-Punkt | Platin DE | HeartGold DE |
 |---|---|---|
 | Geschichte über MCP, eine Variable aus dem Pool, eigener Name | `VAR_STORY_DER_BRIEF` = 0x4031; `story_get` 5 Schritte: `s0` start (0), `s1` dialog (1), `a66` appearance (1), `s2` dialog (2), `r67` reward (2) | 0x4034; dieselben Schritte (`a64`, `r65`) |
-| Jedes Rezept ein Undo-Schritt | `history` Undo-Länge 9 → 10 → 11 → 12 → 13 | ebenso |
+| Jedes Rezept ein Undo-Schritt | `history` Undo-Länge 8 → 9 → 10 → 11 → 12 → 13 | ebenso |
 | Pool: eine Variable weniger, Flags weniger | Variablen 20 → 19, Flags 101 → 99 (`free_flag` und `story_list.free_vars`) | 81 → 80, 154 → 152 |
 | `vanilla_checks` 0 Fehler | `run_checks` 0 Fehler (111 Befunde: 101 Warnungen, 10 Hinweise, alle Vanilla-Texte); `g4k text check` `schema=current`, `differs=0`; `g4k check` `warp.dest-warp` 0, `event.trainer-missing` 0, `event.script-missing` 1 (Vanilla: Schild 1 der Eventdatei 0044) | 0 Fehler (145: 133 Warnungen, 12 Hinweise); `differs=0`; `g4k check` 0 / 0 / 0 |
 | B erscheint ab Schritt 1: vorher durch ihre Kachel frei | nach der Ankunft V 0, Bs Flag 66 = 1; `walk-until-blocked up 6` von (54, 21) → (54, 17), Bs Kachel, 4 Schritte, `expect-at` | V 0, Flag 64 = 1; von (15, 16) → (15, 13), 3 Schritte |
