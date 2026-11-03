@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use g4_kernel::patch;
 use g4_kernel::project::{AssetId, AssetKind, Project};
+use g4_kernel::recipes::{self, RecipeCall};
 use g4_kernel::start::{BaseCheck, BaseWarningKind};
 use g4_kernel::store::{Origin, with_origin};
 use g4_kernel::text::TextKeep;
@@ -730,6 +731,9 @@ impl<'a> Call<'a> {
             self.confirm(command, &what)?;
         }
         let _turn = self.begin(admitted.changes)?;
+        if let Prepared::Command { command, args } = &prepared {
+            self.recheck(command, args, &admitted)?;
+        }
         let project_change = admitted.changes
             && !matches!(&prepared, Prepared::Command { command, .. }
                 if NO_PROJECT_CHANGE.contains(&command.as_str()));
@@ -765,6 +769,36 @@ impl<'a> Call<'a> {
             self.still_writable(shared)?;
         }
         Ok(Some(turn))
+    }
+
+    /// In the app, under the agents' turn: a call whose class depends on the project
+    /// (`needs_store`: a visibility or a scene) and that was admitted without a question is
+    /// planned again, since the project may have changed between [`Call::admit`] and the turn
+    /// (another agent's call, the user). When its plan now creates a level script file, the call
+    /// answers `needs_confirmation` (called again, it is asked); a plan the recipe now refuses
+    /// goes on, and the command refuses it with its reason. A confirmed call, any other command
+    /// and headless calls (the toolbox's turn holds over the whole call) are not checked again.
+    fn recheck(&self, command: &str, args: &Value, admitted: &Admitted) -> Result<(), ToolError> {
+        if self.shared.is_none()
+            || admitted.confirm.is_some()
+            || !needs_store(command, &classify(command, args, self.policy))
+        {
+            return Ok(());
+        }
+        let Ok(call) = serde_json::from_value::<RecipeCall>(args.clone()) else {
+            return Ok(());
+        };
+        match self.with_session(|s| recipes::is_irreversible_in(&mut s.store, &call))? {
+            Ok(Some(why)) => Err(ToolError::refused(
+                "needs_confirmation",
+                format!(
+                    "{command} lässt sich nicht rückgängig machen ({why}): der Ort braucht \
+                     inzwischen eine eigene Level-Script-Datei; noch einmal aufrufen, dann \
+                     fragt Gen4 Studio"
+                ),
+            )),
+            Ok(None) | Err(_) => Ok(()),
+        }
     }
 
     /// Whether the user still lets the client write, without asking: "Lokale Agenten
@@ -4437,6 +4471,12 @@ mod tests {
             } })
         };
         let undo = history(&toolbox)["undo"].as_array().unwrap().len();
+        // A plan the recipe refuses (a story not made yet) asks as without the store.
+        let unknown = json!({ "recipe": "scene_on_enter", "input": {
+            "story": "STORY_NOPE", "header": 0, "step": 0, "text": "Willkommen",
+        } });
+        let (code, _, _) = failed(toolbox.call("recipe_apply", unknown, AGENT));
+        assert_eq!(code, "needs_confirmation");
         let (code, message, _) = failed(toolbox.call("recipe_apply", scene(1), AGENT));
         assert_eq!(code, "needs_confirmation");
         assert!(
@@ -4453,6 +4493,85 @@ mod tests {
             history(&toolbox)["undo"].as_array().unwrap().len(),
             undo + 1
         );
+    }
+
+    /// In the app a scene admitted without a question (its place owns its level script file)
+    /// is checked again under the agents' turn: when the place has meanwhile come to share its
+    /// file (another agent's call, the user), the call answers `needs_confirmation` instead of
+    /// creating the file unasked; a confirmed call and an unchanged place go on.
+    #[test]
+    fn story_scene_is_checked_again_under_the_turn() {
+        use g4_kernel::store::MapHeader;
+        let fx = g4_kernel::test_support::TextFixture::exported();
+        let state = Arc::new(AppState::default());
+        state.agents.set_enabled(true).unwrap();
+        state.base_roms.set_explicit(Some(fx.rom().to_path_buf()));
+        open_project_impl(&state, fx.root().to_str().unwrap()).unwrap();
+        let key = ProjectKey::of(fx.root()).unwrap();
+        state.agents.set_grant(key, GrantLevel::Write).unwrap();
+        let var = crate::commands::free_flag_impl(&state, g4_kernel::flags::FlagKind::Var)
+            .unwrap()
+            .number;
+        crate::commands::recipe_apply_impl(
+            &state,
+            serde_json::from_value(json!({ "recipe": "new_story",
+                                          "input": { "name": "Testfaden", "var": var } }))
+            .unwrap(),
+        )
+        .unwrap();
+        let level_of_header_1 = |file: Option<u16>| {
+            let mut guard = crate::commands::lock(&state).unwrap();
+            let store = &mut crate::commands::session(&mut guard).unwrap().store;
+            let file = file.unwrap_or_else(|| store.header_table().unwrap()[0].level_script_id());
+            store
+                .transaction("Level-Script", |tx| {
+                    tx.edit_header(1, |h| {
+                        match h {
+                            MapHeader::DP(h) => h.level_script_id = file,
+                            MapHeader::Pt(h) => h.level_script_id = file,
+                            MapHeader::HGSS(h) => h.level_script_id = file,
+                        }
+                        Ok(())
+                    })
+                })
+                .unwrap();
+        };
+        let args = json!({ "recipe": "scene_on_enter", "input": {
+            "story": "STORY_TESTFADEN", "header": 0, "step": 0, "text": "Willkommen",
+        } });
+        let open = OpenProject::of(&state).unwrap();
+        let call = open.call(&state, AGENT, WAIT).unwrap();
+        let admitted = call
+            .admit(&Prepared::Command {
+                command: "recipe_apply".to_owned(),
+                args: args.clone(),
+            })
+            .unwrap();
+        assert!(admitted.changes && admitted.confirm.is_none());
+        assert!(call.recheck("recipe_apply", &args, &admitted).is_ok());
+
+        // Meanwhile header 1 comes to use the level script file of header 0.
+        level_of_header_1(None);
+        let (code, message, _) = failed(
+            call.recheck("recipe_apply", &args, &admitted)
+                .map(|()| Value::Null),
+        );
+        assert_eq!(code, "needs_confirmation");
+        assert!(
+            message.contains(g4_kernel::recipes::LEVEL_SCRIPT_FILE),
+            "{message}"
+        );
+        // A call the user confirmed goes on; so does a command that does not depend on the
+        // project.
+        let confirmed = Admitted {
+            changes: true,
+            confirm: Some(g4_kernel::recipes::LEVEL_SCRIPT_FILE.to_owned()),
+        };
+        assert!(call.recheck("recipe_apply", &args, &confirmed).is_ok());
+        assert!(call.recheck("save", &json!({}), &admitted).is_ok());
+        // Header 1 without a level script file again: the scene goes on unasked.
+        level_of_header_1(Some(0));
+        assert!(call.recheck("recipe_apply", &args, &admitted).is_ok());
     }
 
     /// Splitting a message writes and compiles the figure's script file as a file step of its

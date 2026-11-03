@@ -365,18 +365,24 @@ pub fn needs_store(command: &str, class: &Class) -> bool {
 /// [`classify`] with the project's store at hand: where the answer depends on the project
 /// ([`needs_store`]), `recipe_apply` asks as `recipes::is_irreversible_in` says: a visibility
 /// or a scene is irreversible only when its plan creates a level script file (the place shares
-/// its file with another header or has none), else a write; a plan the recipe refuses is a
-/// write (the command refuses it, writing nothing). The plan reads the store, it writes
-/// nothing. Every other call as [`classify`].
+/// its file with another header or has none), else a write. A plan the recipe refuses keeps
+/// [`classify`]'s answer (fail closed): what it refuses now (a story not made yet, a step not
+/// there yet) may be there when the call runs, and the recipe would then create the file
+/// without the question. The plan reads the store, it writes nothing. Every other call as
+/// [`classify`].
 pub fn classify_in(command: &str, args: &Value, policy: &UserPolicy, store: &mut Store) -> Class {
     let class = classify(command, args, policy);
     if !needs_store(command, &class) {
         return class;
     }
-    serde_json::from_value::<RecipeCall>(args.clone())
-        .ok()
-        .and_then(|call| recipes::is_irreversible_in(store, &call).ok().flatten())
-        .map_or(Class::Write, |why| Kind::Irreversible(why).into())
+    let Ok(call) = serde_json::from_value::<RecipeCall>(args.clone()) else {
+        return class;
+    };
+    match recipes::is_irreversible_in(store, &call) {
+        Ok(None) => Class::Write,
+        Ok(Some(why)) => Kind::Irreversible(why).into(),
+        Err(_) => class,
+    }
 }
 
 /// What an agent may do: change the project (`write`), do what undo does not bring back
@@ -802,7 +808,8 @@ mod tests {
     /// reward never ask; a visibility and a scene ask without the store (they may create a
     /// level script file) and, with the store at hand ([`classify_in`]), only when their plan
     /// creates one: a place whose level script file is its own needs no confirmation, a place
-    /// without one does. Input the recipe cannot read stays a write.
+    /// without one does, and a plan the recipe refuses keeps the answer without the store (fail
+    /// closed). Input the recipe cannot read stays a write.
     #[test]
     fn story_recipes_are_depends() {
         use g4_kernel::store::MapHeader;
@@ -845,14 +852,14 @@ mod tests {
         let level = Class::Irreversible(recipes::LEVEL_SCRIPT_FILE.to_owned());
 
         // Without the store.
-        let classify = |args: &Value| classify("recipe_apply", args, &policy);
+        let bare = |args: &Value| classify("recipe_apply", args, &policy);
         for args in [&new_story, &talk, &reward] {
-            assert_eq!(classify(args), Class::Write, "{args}");
-            assert!(!needs_store("recipe_apply", &classify(args)), "{args}");
+            assert_eq!(bare(args), Class::Write, "{args}");
+            assert!(!needs_store("recipe_apply", &bare(args)), "{args}");
         }
         for args in [&appears, &scene(0)] {
-            assert_eq!(classify(args), level, "{args}");
-            assert!(needs_store("recipe_apply", &classify(args)), "{args}");
+            assert_eq!(bare(args), level, "{args}");
+            assert!(needs_store("recipe_apply", &bare(args)), "{args}");
         }
         assert!(!needs_store("recipe_plan", &level));
         for args in [
@@ -860,7 +867,22 @@ mod tests {
             call("scene_on_enter", json!({ "header": 0 })),
             call("new_story", json!({ "name": "Ohne Variable" })),
         ] {
-            assert_eq!(classify(&args), Class::Write, "{args}");
+            assert_eq!(bare(&args), Class::Write, "{args}");
+        }
+
+        // With the store, before the story exists: the plan refuses, and a refused plan keeps
+        // the answer without the store (fail closed: the story may exist by the time the call
+        // runs, and the scene then creates the file).
+        {
+            let mut guard = crate::commands::lock(&state).unwrap();
+            let store = &mut crate::commands::session(&mut guard).unwrap().store;
+            for header in [0, 1] {
+                assert_eq!(
+                    classify_in("recipe_apply", &scene(header), &policy, store),
+                    level,
+                    "{header}"
+                );
+            }
         }
 
         // With the store: the story first, then a scene at header 0 (level script file 1 is
@@ -890,12 +912,12 @@ mod tests {
         let mut exactly = |args: &Value| classify_in("recipe_apply", args, &policy, store);
         assert_eq!(exactly(&scene(0)), Class::Write);
         assert_eq!(exactly(&scene(1)), level);
-        // A plan the recipe refuses (an unknown story) is a write: the command refuses it.
+        // A plan the recipe refuses (an unknown story) keeps the answer without the store.
         let unknown = call(
             "scene_on_enter",
-            json!({ "story": "STORY_NOPE", "header": 1, "step": 0, "text": "x" }),
+            json!({ "story": "STORY_NOPE", "header": 0, "step": 0, "text": "x" }),
         );
-        assert_eq!(exactly(&unknown), Class::Write);
+        assert_eq!(exactly(&unknown), level);
         // Every other command and recipe as without the store.
         assert_eq!(exactly(&talk), Class::Write);
         assert_eq!(

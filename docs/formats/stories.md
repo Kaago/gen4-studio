@@ -239,7 +239,7 @@ unter dem Sitzungsschloss:
 |---|---|---|
 | `list_threads` | lesend | die Fäden (`threads()`) mit den Namen ihrer Header (`header_names`, in der Reihenfolge von `headers`), `text_project`, `scripts_adopted` |
 | `thread_graph {var, story?}` | lesend | der Graph (`thread_graph()`); ein Ort-Knoten trägt `header_name` und `nav` (die Script-Zeile, den Header eines Level-Scripts, das Event), ein Wert-Knoten den ganzen Schritt der Geschichte (`step`) |
-| `story_list` | lesend | die Geschichten nach Nummer (`number`, `id`, `name`, `progress`, `steps`, seit 3d.7 `flags`); eine Datei, die sich nicht lesen lässt, ist eine Zeile mit `problem` (Datei, Zeile, Spalte, Satz), `progress` `null`, `flags` leer; seit 3d.7 dazu `free_vars`, die freien Variablen des Pools (`null` im DSPRE-Ordner und vor dem Übernehmen der Scripts) |
+| `story_list` | lesend | die Geschichten nach Nummer (`number`, `id`, `name`, `progress`, `steps`, seit 3d.7 `flags`); eine Datei, die sich nicht lesen lässt, ist eine Zeile mit `problem` (Datei, Zeile, Spalte, Satz), `progress` `null`, `flags` leer; seit 3d.7 dazu `free_vars`, die freien Variablen des Pools (`null` im DSPRE-Ordner, vor dem Übernehmen der Scripts, ohne allgemeinen Variablenbereich und wenn sich Index oder Pool nicht lesen lassen) |
 | `story_get {id}` | lesend | Geschichte, Beifile (leer ohne Datei), Nummer und `progress_number` (die Nummer des Fortschritts) |
 | `story_create {req}` | schreibend | `create_story` als ein Undo-Schritt |
 | `story_update {id, patch}` | schreibend | `update_story` als ein Undo-Schritt |
@@ -358,8 +358,8 @@ nennt, sonst keinen `map`-Eintrag.
 und Stelle. Teilt ein anderer Header sie, bekommt dieser Header eine Kopie als neue Datei; hat er
 keine (0) oder nur eine binäre, eine neue leere. Eine neue Datei ist ein Member, der nach ⌘Z bleibt
 (`Outcome.created`, im Entwurf „Level-Script-Datei n wird angelegt und bleibt“); nur dann ist das
-Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem Plan, siehe
-[docs/mcp.md](../mcp.md)).
+Rezept unumkehrbar („Level-Script-Datei anlegen“; MCP und `g4k` entscheiden es mit dem Plan, ein
+abgelehnter Plan fragt sicherheitshalber, siehe [docs/mcp.md](../mcp.md)).
 
 **Beispiel.** Nach `new_story` „Testfaden“ (Variable 0x4030 → `VAR_STORY_TESTFADEN`) und
 `talk_advances` mit Figur 4 ab Schritt 0 hat die Geschichte zwei Schritte:

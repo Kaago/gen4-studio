@@ -116,7 +116,8 @@ pub struct StoryRowDto {
 }
 
 /// `story_list`: the stories of the register by number, and how many variables of the pool are
-/// free (`free_vars`: `None` outside a text project and before the scripts are adopted).
+/// free (`free_vars`: `None` outside a text project, before the scripts are adopted, for a game
+/// without a general range and when the index or the pool does not read).
 #[derive(Debug, Clone, Serialize)]
 pub struct StoryListDto {
     pub stories: Vec<StoryRowDto>,
